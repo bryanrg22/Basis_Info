@@ -1,0 +1,90 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+*.egg-info/
+
+# Environment files
+.env
+.env.*
+*.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Service Account & Firebase credentials (never commit these!)
+*-firebase-adminsdk-*.json
+devtest/*-firebase-adminsdk-*.json
+*-sa-key.json
+*-service-account.json
+credentials/*.json
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.venv/
+venv/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS files
+.DS_Store
+.DS_Store?
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cache directories
+.cache/
+**/.cache/
+.turbo/
+
+# Test files
+test_docs/
+coverage/
+
+# Frontend local data (generated/uploaded during development)
+frontend/data/
+
+# Mock data (not used in production pipeline)
+frontend/public/mock/
+frontend/src/mock/
+frontend/scripts/*mock*
+frontend/demo.config.json
+**/mockdata*/
+**/mock-data/
+
+# Backend large data files (RSMeans reference data - download separately)
+backEnd/evidence_layer/data/
+
+# Misc
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,29 @@
+# Evidence Layer Dependencies
+# Install with: pip install -r requirements.txt
+
+# PDF Parsing
+pdfplumber>=0.10.0
+pymupdf>=1.24.0
+
+# Tokenization & Chunking
+tiktoken>=0.5.0
+
+# Indexing
+rank-bm25>=0.2.2
+faiss-cpu>=1.7.4
+sentence-transformers>=2.2.0
+
+# Schema & Serialization
+pydantic>=2.0.0
+jsonlines>=4.0.0
+
+# CLI
+typer>=0.9.0
+rich>=13.0.0
+
+# Dev dependencies (optional)
+# pytest>=7.0.0
+# pytest-cov>=4.0.0
+# ruff>=0.1.0
+# mypy>=1.0.0
+
