@@ -791,21 +791,21 @@ Every agent execution is traced in LangSmith:
 The vision layer processes property images using a **detection-first** approach that reduces VLM hallucinations.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    VISION PIPELINE — DETECTION FIRST                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌────────┐ │
-│  │  STAGE 1 │───►│  STAGE 2 │───►│  STAGE 3 │───►│  STAGE 4 │───►│STAGE 5 │ │
-│  │  Detect  │    │  Segment │    │   Crop   │    │ Classify │    │ Verify │ │
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                      VISION PIPELINE — DETECTION FIRST                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌─────────┐ │
+│  │  STAGE 1 │───►│  STAGE 2 │───►│  STAGE 3 │───►│  STAGE 4 │───►│STAGE 5  │ │
+│  │  Detect  │    │  Segment │    │   Crop   │    │ Classify │    │ Verify  │ │
 │  │  Objects │    │  Regions │    │  Regions │    │   VLM    │    │Grounding│ │
-│  └──────────┘    └──────────┘    └──────────┘    └──────────┘    └────────┘ │
-│       │               │               │               │              │      │
-│       ▼               ▼               ▼               ▼              ▼      │
-│  Grounding       SAM 2           Cropped         Material      Validated    │
-│  DINO 1.5        Masks           Images          Attrs         Artifacts    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+│  └──────────┘    └──────────┘    └──────────┘    └──────────┘    └─────────┘ │
+│       │               │               │               │              │       │
+│       ▼               ▼               ▼               ▼              ▼       │
+│  Grounding       SAM 2           Cropped         Material      Validated     │
+│  DINO 1.5        Masks           Images          Attrs         Artifacts     │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -821,7 +821,7 @@ The vision layer processes property images using a **detection-first** approach 
 │                VLM-ONLY vs DETECTION-FIRST                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  VLM-ONLY (hallucination-prone):     DETECTION-FIRST (grounded):           │
+│  VLM-ONLY (hallucination-prone):     DETECTION-FIRST (grounded):            │
 │                                                                             │
 │  ┌─────────────────┐                 ┌─────────────────┐                    │
 │  │  Full Image     │                 │  Full Image     │                    │
@@ -834,8 +834,8 @@ The vision layer processes property images using a **detection-first** approach 
 │  ┌─────────────────┐                 ┌─────────────────┐                    │
 │  │ "I see a marble │                 │  Crop region A  │                    │
 │  │  countertop,    │                 │  ┌───────────┐  │                    │
-│  │  granite floor, │◄── May be      │  │  [A only] │  │◄── Send crop       │
-│  │  stainless steel│    wrong!      │  └───────────┘  │    to VLM          │
+│  │  granite floor, │◄── May be       │  │  [A only] │  │◄── Send crop       │
+│  │  stainless steel│    wrong!       │  └───────────┘  │    to VLM          │
 │  │  appliances..." │                 └────────┬────────┘                    │
 │  └─────────────────┘                          │                             │
 │                                               ▼                             │
@@ -1367,42 +1367,6 @@ Basis is a **three-layer agentic system** that:
 * **Uses actual IRS documents** — Hybrid BM25 + vector retrieval over ingested IRS publications, not model knowledge cutoff
 * **Solves context saturation** — Agentic retrieval selects only relevant evidence instead of dumping everything into context
 
----
-
-## Getting Started (Dev)
-
-### Backend Services
-
-```bash
-cd backEnd
-
-# Evidence Layer
-cd evidence_layer
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Agentic Layer
-cd ../agentic
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn api.main:app --reload
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### Environment Variables
-
-```bash
-OPENAI_API_KEY=...
-GOOGLE_APPLICATION_CREDENTIALS=...
-LANGSMITH_API_KEY=...  # Optional: for tracing
-```
 
 ---
 
@@ -1481,5 +1445,3 @@ The same pipeline that queries IRS depreciation tables can query HARA baselines,
 **Standardized headers, messy context, need for traceability.**
 
 ---
-
-*Built by Bryan Ramirez-Gonzalez*
