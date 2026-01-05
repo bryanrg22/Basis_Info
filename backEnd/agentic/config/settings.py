@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # OpenAI settings (default provider)
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4o", alias="OPENAI_MODEL")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 
     # Azure OpenAI settings (overrides OpenAI if all are set)
     azure_openai_endpoint: Optional[str] = Field(
@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     )
     azure_openai_deployment_name: Optional[str] = Field(
         default=None, alias="AZURE_OPENAI_DEPLOYMENT_NAME"
+    )
+    # Separate deployments for vision and text
+    # Vision: GPT-4o-mini for testing, swap to GPT-5.2 when Azure registration approved
+    azure_openai_vision_deployment: Optional[str] = Field(
+        default=None, alias="AZURE_OPENAI_VISION_DEPLOYMENT"
+    )
+    # Text: GPT-5-nano (cheapest, no registration required)
+    azure_openai_nano_deployment: Optional[str] = Field(
+        default=None, alias="AZURE_OPENAI_NANO_DEPLOYMENT"
+    )
+    # Legacy fallback
+    azure_openai_mini_deployment: Optional[str] = Field(
+        default=None, alias="AZURE_OPENAI_MINI_DEPLOYMENT"
     )
     azure_openai_api_version: str = Field(
         default="2024-02-15-preview", alias="AZURE_OPENAI_API_VERSION"

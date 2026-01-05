@@ -5,19 +5,27 @@ Uses GPT-4 Vision to analyze uploaded property photos and identify:
 1. Room type (kitchen, bathroom, office, etc.)
 2. Objects/components visible in the image
 3. Property characteristics relevant to cost segregation
+
+Timing logs:
+- [TIMING] Image X/N: Xs (download: Xs, vision: Xs)
+- [TIMING] Vision analysis complete: N images in Xs (avg Xs/image, W workers)
 """
 
 import asyncio
 import base64
 import json
+import logging
 import re
+import time
 import urllib.request
 import ssl
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from ..config.settings import get_settings
+from ..config.llm_providers import get_vision_llm
 from ..observability.tracing import get_tracer
+
+logger = logging.getLogger(__name__)
 
 
 class DetectedObject(BaseModel):
@@ -72,6 +80,8 @@ async def analyze_image(
     image_url: str,
     image_id: str,
     property_name: str = "",
+    image_index: int = 0,
+    total_images: int = 1,
 ) -> ImageAnalysisResult:
     """
     Analyze a single image using GPT-4 Vision.
@@ -80,16 +90,20 @@ async def analyze_image(
         image_url: URL to the image (Firebase Storage download URL)
         image_id: Identifier for this image
         property_name: Name of the property for context
+        image_index: Index of this image (for logging)
+        total_images: Total number of images (for logging)
 
     Returns:
         ImageAnalysisResult with room type and detected objects
     """
+    image_start = time.time()
     tracer = get_tracer()
-    settings = get_settings()
 
     with tracer.span("analyze_image_vision"):
         # Download and encode image
+        download_start = time.time()
         image_base64 = await download_image_as_base64(image_url)
+        download_elapsed = time.time() - download_start
 
         if not image_base64:
             # Return a default result if image can't be downloaded
@@ -153,16 +167,10 @@ Return your analysis as JSON:
             user_content += f" from '{property_name}'"
         user_content += ". Identify the room type and all visible building components."
 
-        # Call GPT-4 Vision
+        # Call GPT-4 Vision (uses Azure if configured, otherwise OpenAI)
         try:
-            from langchain_openai import ChatOpenAI
-
-            # Use GPT-4 Vision model
-            model = ChatOpenAI(
-                model="gpt-4o",  # GPT-4o has vision capabilities
-                temperature=0.1,
-                api_key=settings.openai_api_key,
-            )
+            # Get vision LLM (GPT-4o) - supports both Azure and OpenAI
+            model = get_vision_llm()
 
             # Create message with image
             messages = [
@@ -182,8 +190,17 @@ Return your analysis as JSON:
                 },
             ]
 
+            vision_start = time.time()
             response = await model.ainvoke(messages)
+            vision_elapsed = time.time() - vision_start
             response_text = response.content
+
+            # Log timing for this image
+            image_elapsed = time.time() - image_start
+            logger.info(
+                f"[TIMING] Image {image_index + 1}/{total_images}: {image_elapsed:.1f}s "
+                f"(download: {download_elapsed:.1f}s, vision: {vision_elapsed:.1f}s)"
+            )
 
             # Parse JSON from response
             json_match = re.search(r'\{[^{}]*"room_type".*?\}', response_text, re.DOTALL)
@@ -241,25 +258,32 @@ Return your analysis as JSON:
 async def analyze_study_images(
     uploaded_files: list[dict],
     property_name: str = "",
+    max_concurrent: int = 2,  # Default to 2 concurrent workers
 ) -> tuple[list[dict], list[dict]]:
     """
-    Analyze all images in a study.
+    Analyze all images in a study IN PARALLEL.
+
+    Uses max_concurrent workers to analyze images simultaneously.
+    With 2 workers, ~50% faster than sequential.
+
+    Timing logs:
+    - [TIMING] Image X/N: Xs (download: Xs, vision: Xs) - per image
+    - [TIMING] Vision analysis complete: N images in Xs (avg Xs/image, W workers)
 
     Args:
         uploaded_files: List of uploaded file metadata with downloadURL
         property_name: Property name for context
+        max_concurrent: Maximum concurrent image analyses (default: 2)
 
     Returns:
         Tuple of (rooms, objects) lists for Firestore
     """
+    from ..utils.parallel import parallel_map
+
+    batch_start = time.time()
     tracer = get_tracer()
 
     with tracer.span("analyze_study_images"):
-        rooms = []
-        all_objects = []
-        room_id_counter = 1
-        object_id_counter = 1
-
         # Filter to only image files
         image_files = [
             f for f in uploaded_files
@@ -269,22 +293,61 @@ async def analyze_study_images(
         if not image_files:
             return [], []
 
-        # Analyze each image
-        for file_info in image_files:
+        total_images = len(image_files)
+
+        # Define the async function to analyze a single image with index tracking
+        async def analyze_single(file_info_with_index: tuple[int, dict]) -> ImageAnalysisResult:
+            idx, file_info = file_info_with_index
             download_url = file_info.get("downloadURL")
-            file_id = file_info.get("id", f"file-{room_id_counter}")
+            file_id = file_info.get("id", "unknown")
 
             if not download_url:
-                continue
+                return ImageAnalysisResult(
+                    image_id=file_id,
+                    room_type="unknown",
+                    room_confidence=0.0,
+                    description="No download URL provided",
+                    detected_objects=[],
+                )
 
-            result = await analyze_image(
+            return await analyze_image(
                 image_url=download_url,
                 image_id=file_id,
                 property_name=property_name,
+                image_index=idx,
+                total_images=total_images,
             )
 
+        # Add index to each file for tracking
+        indexed_files = list(enumerate(image_files))
+
+        # PARALLEL: Analyze all images concurrently with rate limiting
+        results = await parallel_map(
+            items=indexed_files,
+            async_fn=analyze_single,
+            max_concurrent=max_concurrent,
+            desc=f"Analyzing {len(image_files)} images",
+        )
+
+        # Log summary timing
+        batch_elapsed = time.time() - batch_start
+        avg_per_image = batch_elapsed / total_images if total_images else 0
+        logger.info(
+            f"[TIMING] Vision analysis complete: {total_images} images in {batch_elapsed:.1f}s "
+            f"(avg {avg_per_image:.1f}s/image, {max_concurrent} workers)"
+        )
+
+        # Process results into rooms and objects
+        rooms = []
+        all_objects = []
+        object_id_counter = 1
+
+        for idx, result in enumerate(results):
+            file_info = image_files[idx]
+            file_id = file_info.get("id", f"file-{idx + 1}")
+
             # Create room record
-            room_id = f"room-{room_id_counter}"
+            room_id = f"room-{idx + 1}"
             room = {
                 "id": room_id,
                 "type": result.room_type,
@@ -297,7 +360,6 @@ async def analyze_study_images(
                 "sourceImageId": file_id,
             }
             rooms.append(room)
-            room_id_counter += 1
 
             # Create object records
             for detected in result.detected_objects:
@@ -309,10 +371,23 @@ async def analyze_study_images(
                         "confidence": detected.confidence,
                         "description": detected.description,
                         "room_id": room_id,
+                        "room_type": result.room_type,
                         "source_image_id": file_id,
                         "potential_asset": detected.potential_asset,
                     }
                     all_objects.append(obj)
                     object_id_counter += 1
+
+        tracer.log_workflow_transition(
+            study_id="",
+            from_status="vision_analysis",
+            to_status="vision_complete",
+            stage_summary={
+                "images_analyzed": len(image_files),
+                "rooms_detected": len(rooms),
+                "objects_detected": len(all_objects),
+                "parallel_batch_size": max_concurrent,
+            },
+        )
 
         return rooms, all_objects

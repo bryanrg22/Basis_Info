@@ -1,82 +1,16 @@
 """
 Conditional edge functions for workflow routing.
 
-Determines next node based on workflow state.
+PARALLEL workflow with staggered pauses:
+1. resource_extraction - PAUSE #1: Engineer reviews appraisal (fast, ~30s)
+2. analyze_rooms - runs in BACKGROUND while engineer reviews appraisal
+3. reviewing_rooms - PAUSE #2: Engineer reviews rooms (when appraisal approved AND rooms ready)
+4. engineering_takeoff - PAUSE #3: Engineer reviews all asset data
 """
 
 from typing import Literal
 
 from .state import WorkflowState
-
-
-def route_after_rooms(
-    state: WorkflowState,
-) -> Literal["wait_for_review", "analyze_objects"]:
-    """
-    Route after room analysis.
-
-    If rooms need review, pause for engineer.
-    Otherwise, continue to object analysis.
-    """
-    if state.get("needs_review") and not state.get("engineer_approved"):
-        return "wait_for_review"
-    return "analyze_objects"
-
-
-def route_after_takeoffs(
-    state: WorkflowState,
-) -> Literal["wait_for_review", "classify_assets"]:
-    """
-    Route after takeoff analysis.
-
-    If takeoffs need review, pause for engineer.
-    Otherwise, continue to asset classification.
-    """
-    if state.get("needs_review") and not state.get("engineer_approved"):
-        return "wait_for_review"
-    return "classify_assets"
-
-
-def route_after_classification(
-    state: WorkflowState,
-) -> Literal["wait_for_review", "estimate_costs"]:
-    """
-    Route after asset classification.
-
-    If any items need review, pause for engineer.
-    Otherwise, continue to cost estimation.
-    """
-    if state.get("needs_review") and not state.get("engineer_approved"):
-        return "wait_for_review"
-    return "estimate_costs"
-
-
-def route_after_costs(
-    state: WorkflowState,
-) -> Literal["wait_for_review", "verify_assets"]:
-    """
-    Route after cost estimation.
-
-    If any items need review, pause for engineer.
-    Otherwise, continue to verification.
-    """
-    if state.get("needs_review") and not state.get("engineer_approved"):
-        return "wait_for_review"
-    return "verify_assets"
-
-
-def route_after_verification(
-    state: WorkflowState,
-) -> Literal["complete", "wait_for_review"]:
-    """
-    Route after verification.
-
-    If engineer has approved, complete workflow.
-    Otherwise, wait for approval.
-    """
-    if state.get("engineer_approved"):
-        return "complete"
-    return "wait_for_review"
 
 
 def check_for_errors(
@@ -90,23 +24,112 @@ def check_for_errors(
     return "continue"
 
 
+def route_after_resource_extraction(
+    _state: WorkflowState,
+) -> Literal["wait_for_review"]:
+    """
+    Route after resource extraction (appraisal ingestion).
+
+    ALWAYS pauses for engineer to review appraisal data (PAUSE #1).
+    Note: analyze_rooms runs as background task during this pause.
+    """
+    return "wait_for_review"
+
+
+def route_after_rooms(
+    _state: WorkflowState,
+) -> Literal["wait_for_review"]:
+    """
+    Route after room analysis (background task completion).
+
+    Sets rooms_ready=True and ENDs. The workflow will advance to
+    PAUSE #2 (reviewing_rooms) when engineer approves appraisal.
+    """
+    return "wait_for_review"
+
+
+def route_after_room_review(
+    _state: WorkflowState,
+) -> Literal["continue"]:
+    """
+    Route after room review approval.
+
+    Continues to process_assets (no pause).
+    """
+    return "continue"
+
+
+def route_after_assets(
+    _state: WorkflowState,
+) -> Literal["wait_for_review"]:
+    """
+    Route after asset processing.
+
+    ALWAYS pauses at engineering_takeoff for engineer to review all asset data.
+    """
+    return "wait_for_review"
+
+
+def route_after_engineering_takeoff(
+    state: WorkflowState,
+) -> Literal["complete", "wait_for_review"]:
+    """
+    Route after engineering takeoff review.
+
+    Only completes if engineer has explicitly approved.
+    """
+    if state.get("engineer_approved"):
+        return "complete"
+    return "wait_for_review"
+
+
 def determine_next_stage(state: WorkflowState) -> str:
     """
     Determine next stage based on current stage.
 
     Used when resuming workflow after engineer approval.
+    Maps reviewing stages to their next analysis stage.
+
+    PARALLEL FLOW:
+    - uploading_documents → resource_extraction (fast, starts analyze_rooms in background)
+    - resource_extraction (PAUSE #1) → reviewing_rooms (if rooms_ready) or analyzing_rooms (wait)
+    - analyzing_rooms → reviewing_rooms (when done, if appraisal_approved)
+    - reviewing_rooms (PAUSE #2) → processing_assets
+    - processing_assets → engineering_takeoff
+    - engineering_takeoff (PAUSE #3) → completed
     """
     stage_flow = {
-        "uploading_documents": "analyze_rooms",
+        # Initial → resource extraction (fast)
+        "uploading_documents": "resource_extraction",
+        # Resource extraction (PAUSE #1) → depends on rooms_ready
+        "resource_extraction": "reviewing_rooms",  # Default, but resume_workflow checks rooms_ready
+        # Analyzing rooms (background) → room review when done
         "analyzing_rooms": "reviewing_rooms",
-        "reviewing_rooms": "analyze_objects",
-        "analyzing_takeoffs": "reviewing_takeoffs",
-        "reviewing_takeoffs": "viewing_report",
-        "viewing_report": "classify_assets",
-        "reviewing_assets": "estimate_costs",
-        "estimating_costs": "verify_assets",
-        "verifying_assets": "complete",
+        # Room review approval → asset processing
+        "reviewing_rooms": "processing_assets",
+        # Asset processing → engineering takeoff (pause)
+        "processing_assets": "engineering_takeoff",
+        # Engineering takeoff approval → completed
+        "engineering_takeoff": "completed",
     }
 
     current = state.get("current_stage", "uploading_documents")
-    return stage_flow.get(current, "complete")
+    return stage_flow.get(current, "completed")
+
+
+def get_resume_node(current_stage: str) -> str:
+    """
+    Get the node to resume from based on current stage.
+
+    When engineer approves a review stage, this determines
+    which node the workflow should resume into.
+    """
+    resume_mapping = {
+        # After resource extraction review → still need room review
+        "resource_extraction": "resource_extraction_review",
+        # After room review → process assets
+        "reviewing_rooms": "process_assets",
+        # After engineering takeoff → complete
+        "engineering_takeoff": "complete",
+    }
+    return resume_mapping.get(current_stage, "complete")

@@ -313,9 +313,10 @@ async def estimate_costs_batch(
     quality_tier: str = "standard",
     location_factor: float = 1.0,
     year_factor: float = 1.0,
+    max_concurrent: int = 1,  # Sequential for rate limit
 ) -> list[dict]:
     """
-    Estimate costs for multiple takeoffs.
+    Estimate costs for multiple takeoffs IN PARALLEL.
 
     Args:
         takeoffs: List of takeoff dicts with 'component_name', 'quantity', 'unit'
@@ -323,17 +324,32 @@ async def estimate_costs_batch(
         quality_tier: Quality tier for all
         location_factor: Location factor for all
         year_factor: Year factor for all
+        max_concurrent: Maximum concurrent estimations (default: 10)
 
     Returns:
         List of cost estimates
     """
-    results = []
+    from ..utils.parallel import parallel_map
 
-    for takeoff in takeoffs:
+    if not takeoffs:
+        return []
+
+    async def estimate_single_cost(takeoff: dict) -> dict:
+        """Estimate cost for a single takeoff."""
+        # Get component name from takeoff or nested takeoff result
+        takeoff_data = takeoff.get("takeoff", {}) or {}
+        component_name = (
+            takeoff.get("component_name") or
+            takeoff_data.get("component_name") or
+            ""
+        )
+        quantity = takeoff.get("quantity") or takeoff_data.get("quantity", 1)
+        unit = takeoff.get("unit") or takeoff_data.get("unit", "EA")
+
         result = await estimate_cost(
-            component_name=takeoff.get("component_name", ""),
-            quantity=takeoff.get("quantity", 1),
-            unit=takeoff.get("unit", "EA"),
+            component_name=component_name,
+            quantity=quantity,
+            unit=unit,
             context=context,
             quality_tier=takeoff.get("quality_tier", quality_tier),
             location_factor=takeoff.get("location_factor", location_factor),
@@ -341,7 +357,15 @@ async def estimate_costs_batch(
             property_type=takeoff.get("property_type", "commercial"),
         )
         result["takeoff"] = takeoff
-        results.append(result)
+        return result
+
+    # PARALLEL: Estimate all costs concurrently
+    results = await parallel_map(
+        items=takeoffs,
+        async_fn=estimate_single_cost,
+        max_concurrent=max_concurrent,
+        desc=f"Estimating {len(takeoffs)} costs",
+    )
 
     return results
 

@@ -251,30 +251,44 @@ async def enrich_objects_batch(
     detections: list[dict],
     context: StageContext,
     room_type: Optional[str] = None,
+    max_concurrent: int = 1,  # Sequential for rate limit
 ) -> list[dict]:
     """
-    Enrich multiple detections.
+    Enrich multiple detections IN PARALLEL.
 
     Args:
         detections: List of detection dicts with 'detection_id' and 'label'
         context: Study context
         room_type: Room type (if known)
+        max_concurrent: Maximum concurrent enrichments (default: 3)
 
     Returns:
         List of enriched object contexts
     """
-    results = []
+    from ..utils.parallel import parallel_map
 
-    for det in detections:
+    if not detections:
+        return []
+
+    async def enrich_single_detection(det: dict) -> dict:
+        """Enrich a single detection."""
         result = await enrich_object_context(
-            detection_id=det.get("detection_id", ""),
+            detection_id=det.get("detection_id", det.get("id", "")),
             label=det.get("label", ""),
             context=context,
             confidence=det.get("confidence", 0.5),
-            room_type=room_type,
+            room_type=det.get("room_type", room_type),
             indoor_outdoor=det.get("indoor_outdoor"),
         )
         result["original_detection"] = det
-        results.append(result)
+        return result
+
+    # PARALLEL: Enrich all objects concurrently
+    results = await parallel_map(
+        items=detections,
+        async_fn=enrich_single_detection,
+        max_concurrent=max_concurrent,
+        desc=f"Enriching {len(detections)} objects",
+    )
 
     return results

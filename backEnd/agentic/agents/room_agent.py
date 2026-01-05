@@ -228,3 +228,55 @@ async def enrich_room_context(
         "confidence": result.confidence,
         "needs_review": result.needs_review,
     }
+
+
+async def enrich_rooms_batch(
+    rooms: list[dict],
+    context: StageContext,
+    max_concurrent: int = 1,  # Sequential for rate limit
+) -> list[dict]:
+    """
+    Enrich multiple rooms IN PARALLEL with IRS context.
+
+    Args:
+        rooms: List of room dicts from vision layer
+        context: Study context with available documents
+        max_concurrent: Maximum concurrent enrichments (default: 3)
+
+    Returns:
+        List of enriched room dicts with IRS context
+    """
+    from ..utils.parallel import parallel_map
+
+    if not rooms:
+        return []
+
+    async def enrich_single_room(room: dict) -> dict:
+        """Enrich a single room and merge results."""
+        result = await enrich_room_context(
+            image_id=room.get("sourceImageId", room.get("id", "")),
+            room_type=room.get("type", room.get("room_type", "unknown")),
+            context=context,
+            room_confidence=room.get("confidence", 0.5),
+            indoor_outdoor=room.get("indoor_outdoor", "indoor"),
+            property_type=room.get("property_type"),
+        )
+
+        # Merge enrichment into room data
+        return {
+            **room,
+            "context": result.get("context"),
+            "enrichment_confidence": result.get("confidence", 0),
+            "citations": result.get("citations", []),
+            "needs_review": result.get("needs_review", False),
+        }
+
+    # PARALLEL: Enrich all rooms concurrently
+    enriched_rooms = await parallel_map(
+        items=rooms,
+        async_fn=enrich_single_room,
+        max_concurrent=max_concurrent,
+        desc=f"Enriching {len(rooms)} rooms",
+    )
+
+    return enriched_rooms

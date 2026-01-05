@@ -12,9 +12,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Generic, Optional, TypeVar
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
 from langchain_core.tools import BaseTool
-from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
 from ..config.llm_providers import get_llm_for_stage
@@ -239,7 +238,10 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
         input_data: TInput,
     ) -> AgentOutput[TOutput]:
         """
-        Execute the agent for this stage.
+        Execute the agent for this stage using a simple ReAct loop.
+
+        This avoids LangGraph's create_react_agent to prevent msgpack
+        serialization issues with ToolMessage objects.
 
         Args:
             context: Study context with available documents
@@ -251,37 +253,73 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
         tools = self.get_tools()
         system_prompt = self.get_system_prompt()
 
-        # Create agent using LangGraph's create_react_agent
-        agent = create_react_agent(
-            model=self.llm,
-            tools=tools,
-            state_modifier=system_prompt,
-        )
+        # Bind tools to the LLM
+        llm_with_tools = self.llm.bind_tools(tools)
 
         # Build the full input with context
         full_input = self._format_input(context, input_data)
 
-        # Execute agent with messages
-        messages = [HumanMessage(content=full_input)]
-        result = await agent.ainvoke({"messages": messages})
+        # Initialize messages
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=full_input),
+        ]
 
-        # Extract components from result
-        output_messages = result.get("messages", [])
+        # Simple ReAct loop (max 5 iterations to prevent infinite loops)
+        all_messages = list(messages)
+        max_iterations = 5
+
+        for _ in range(max_iterations):
+            # Call the LLM
+            response = await llm_with_tools.ainvoke(all_messages)
+            all_messages.append(response)
+
+            # Check if there are tool calls
+            if not response.tool_calls:
+                # No more tool calls, we're done
+                break
+
+            # Execute each tool call
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call["args"]
+
+                # Find and execute the tool
+                tool_result = None
+                for tool in tools:
+                    if tool.name == tool_name:
+                        try:
+                            tool_result = await tool.ainvoke(tool_args)
+                        except Exception as e:
+                            tool_result = f"Error executing tool: {str(e)}"
+                        break
+
+                if tool_result is None:
+                    tool_result = f"Tool '{tool_name}' not found"
+
+                # Add tool result as a message
+                tool_message = ToolMessage(
+                    content=str(tool_result) if not isinstance(tool_result, str) else tool_result,
+                    tool_call_id=tool_call["id"],
+                )
+                all_messages.append(tool_message)
+
+        # Extract the final response
         raw_response = ""
-        tool_calls = []
+        tool_calls_made = []
 
-        for msg in output_messages:
+        for msg in all_messages:
             if isinstance(msg, AIMessage):
                 raw_response = msg.content if isinstance(msg.content, str) else str(msg.content)
-                if hasattr(msg, 'tool_calls'):
-                    tool_calls.extend(msg.tool_calls or [])
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    tool_calls_made.extend(msg.tool_calls)
 
-        # Build citations from tool calls
-        citations = self._extract_citations_from_messages(output_messages)
+        # Build citations from tool messages
+        citations = self._extract_citations_from_messages(all_messages)
 
         # Parse structured output
         try:
-            parsed_output = self.parse_output(raw_response, tool_calls)
+            parsed_output = self.parse_output(raw_response, tool_calls_made)
         except Exception as e:
             # If parsing fails, flag for review
             return AgentOutput(

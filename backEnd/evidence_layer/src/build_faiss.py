@@ -6,6 +6,7 @@ efficient similarity search.
 """
 
 import json
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -19,15 +20,28 @@ from .schemas.chunk import Chunk
 # Default embedding model
 DEFAULT_MODEL = "all-MiniLM-L6-v2"
 
+# Thread-safe shared model cache
+_model_lock = threading.Lock()
+_shared_models: dict[str, SentenceTransformer] = {}
+
+
+def get_shared_model(model_name: str) -> SentenceTransformer:
+    """Get or create a shared SentenceTransformer model (thread-safe)."""
+    global _shared_models
+    with _model_lock:
+        if model_name not in _shared_models:
+            _shared_models[model_name] = SentenceTransformer(model_name)
+        return _shared_models[model_name]
+
 
 class FAISSIndex:
     """
     FAISS vector index with metadata.
-    
+
     Stores embeddings in FAISS and maintains a separate
     metadata mapping for chunk IDs and provenance.
     """
-    
+
     def __init__(
         self,
         index: faiss.Index,
@@ -41,13 +55,10 @@ class FAISSIndex:
         self.doc_id = doc_id
         self.model_name = model_name
         self.dimension = dimension
-        self._model: Optional[SentenceTransformer] = None
-    
+
     def _get_model(self) -> SentenceTransformer:
-        """Lazy load the embedding model."""
-        if self._model is None:
-            self._model = SentenceTransformer(self.model_name)
-        return self._model
+        """Get the shared embedding model (thread-safe)."""
+        return get_shared_model(self.model_name)
     
     def search(
         self,

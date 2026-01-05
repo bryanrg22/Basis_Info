@@ -295,29 +295,56 @@ async def classify_component(
 async def classify_components_batch(
     components: list[dict],
     context: StageContext,
+    max_concurrent: int = 1,  # Sequential for rate limit
 ) -> list[dict]:
     """
-    Classify multiple components.
+    Classify multiple components IN PARALLEL.
 
     Args:
         components: List of component dicts with 'component' key
         context: Study context
+        max_concurrent: Maximum concurrent classifications (default: 20)
 
     Returns:
         List of classification results
     """
-    results = []
+    from ..utils.parallel import parallel_map
 
-    for comp in components:
+    if not components:
+        return []
+
+    async def classify_single_component(comp: dict) -> dict:
+        """Classify a single component."""
+        # Get component name from various possible keys
+        component_name = (
+            comp.get("component") or
+            comp.get("label") or
+            comp.get("name") or
+            comp.get("original_label") or
+            ""
+        )
+
+        # Get context from enriched object if available
+        obj_context = comp.get("context", {}) or {}
+
         result = await classify_component(
-            component=comp.get("component", comp.get("name", "")),
+            component=component_name,
             context=context,
-            space_type=comp.get("space_type"),
-            indoor_outdoor=comp.get("indoor_outdoor"),
-            attachment_type=comp.get("attachment_type"),
-            function_type=comp.get("function_type"),
+            space_type=comp.get("space_type") or comp.get("room_type"),
+            indoor_outdoor=comp.get("indoor_outdoor") or obj_context.get("indoor_outdoor"),
+            attachment_type=comp.get("attachment_type") or obj_context.get("attachment_type"),
+            function_type=comp.get("function_type") or obj_context.get("function_type"),
         )
         result["original"] = comp
-        results.append(result)
+        result["component_name"] = component_name
+        return result
+
+    # PARALLEL: Classify all components concurrently
+    results = await parallel_map(
+        items=components,
+        async_fn=classify_single_component,
+        max_concurrent=max_concurrent,
+        desc=f"Classifying {len(components)} components",
+    )
 
     return results

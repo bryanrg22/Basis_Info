@@ -1,8 +1,43 @@
 """
 LangGraph workflow for Basis cost segregation study.
 
-Orchestrates stage-gated agents with engineer review checkpoints.
-Supports both in-memory (development) and Firestore (production) checkpointing.
+PARALLEL STAGE-GATED WORKFLOW with staggered pauses:
+
+                         load_study
+                               │
+                  ┌────────────┴────────────┐
+                  ▼                         ▼
+            resource_extraction       analyze_rooms
+            (ingest appraisal PDF)    (52 images, 2 workers)
+            ~30 seconds               ~2-3 minutes (BACKGROUND)
+                  │                         │
+                  ▼                         │
+            PAUSE #1 ◄──────────────────────┤ (vision continues in background)
+            (engineer reviews               │
+             appraisal data)                │
+                  │                         │
+                  └────────────┬────────────┘
+                               ▼
+                          PAUSE #2
+                          (engineer reviews rooms)
+                               │
+                               ▼
+                        process_assets
+                               │
+                               ▼
+                    engineering_takeoff ←── PAUSE #3
+                               │
+                               ▼
+                          completed
+
+Key behavior:
+1. resource_extraction finishes fast (~30s) → PAUSE #1 immediately
+2. analyze_rooms runs as BACKGROUND TASK while engineer reviews appraisal
+3. When engineer approves PAUSE #1 AND analyze_rooms completes → PAUSE #2
+4. Engineer reviews room classifications
+
+Matches frontend WorkflowStatus exactly:
+uploading_documents → analyzing_rooms → resource_extraction → reviewing_rooms → engineering_takeoff → completed
 """
 
 import os
@@ -16,21 +51,18 @@ from .state import WorkflowState, create_initial_state
 from .nodes import (
     load_study_node,
     analyze_rooms_node,
-    analyze_objects_node,
-    analyze_takeoffs_node,
-    classify_assets_node,
-    estimate_costs_node,
-    verify_assets_node,
+    resource_extraction_node,
+    reviewing_rooms_node,
+    process_assets_node,
     complete_workflow_node,
     error_handler_node,
 )
 from .edges import (
-    route_after_rooms,
-    route_after_takeoffs,
-    route_after_classification,
-    route_after_costs,
-    route_after_verification,
     check_for_errors,
+    route_after_rooms,
+    route_after_resource_extraction,
+    route_after_assets,
+    route_after_engineering_takeoff,
 )
 
 
@@ -38,7 +70,7 @@ def create_workflow(
     checkpointer: Optional[Union[MemorySaver, FirestoreCheckpointer]] = None,
 ):
     """
-    Build the LangGraph workflow.
+    Build the LangGraph workflow with 3 pause points.
 
     Args:
         checkpointer: Optional checkpointer for state persistence.
@@ -52,82 +84,82 @@ def create_workflow(
     # Create the graph with our state type
     workflow = StateGraph(WorkflowState)
 
+    # ==========================================================================
     # Add nodes
+    # ==========================================================================
     workflow.add_node("load_study", load_study_node)
     workflow.add_node("analyze_rooms", analyze_rooms_node)
-    workflow.add_node("analyze_objects", analyze_objects_node)
-    workflow.add_node("analyze_takeoffs", analyze_takeoffs_node)
-    workflow.add_node("classify_assets", classify_assets_node)
-    workflow.add_node("estimate_costs", estimate_costs_node)
-    workflow.add_node("verify_assets", verify_assets_node)
+    workflow.add_node("resource_extraction", resource_extraction_node)
+    workflow.add_node("reviewing_rooms", reviewing_rooms_node)
+    workflow.add_node("process_assets", process_assets_node)
     workflow.add_node("complete", complete_workflow_node)
     workflow.add_node("error_handler", error_handler_node)
 
+    # ==========================================================================
     # Set entry point
+    # ==========================================================================
     workflow.set_entry_point("load_study")
 
-    # Add edges from load_study
+    # ==========================================================================
+    # Stage 0: Load Study → Resource Extraction (or error)
+    # Resource extraction runs first (fast), starts analyze_rooms in background
+    # ==========================================================================
     workflow.add_conditional_edges(
         "load_study",
         check_for_errors,
         {
             "error": "error_handler",
-            "continue": "analyze_rooms",
+            "continue": "resource_extraction",  # Start with resource extraction
         },
     )
 
-    # Add edges from analyze_rooms
+    # ==========================================================================
+    # Stage 1: Resource Extraction → PAUSE #1 (Engineer reviews appraisal)
+    # analyze_rooms runs as background task while engineer reviews
+    # ==========================================================================
+    workflow.add_conditional_edges(
+        "resource_extraction",
+        route_after_resource_extraction,
+        {
+            "wait_for_review": END,  # PAUSE #1: Engineer reviews appraisal data
+        },
+    )
+
+    # ==========================================================================
+    # Stage 2: Analyze Rooms (runs as background, updates rooms_ready)
+    # This node is invoked asynchronously by resource_extraction_node
+    # When it completes, it sets rooms_ready=True in Firestore
+    # ==========================================================================
     workflow.add_conditional_edges(
         "analyze_rooms",
         route_after_rooms,
         {
-            "wait_for_review": END,  # Pause for engineer review
-            "analyze_objects": "analyze_objects",
+            "wait_for_review": END,  # Sets rooms_ready, then ENDs
         },
     )
 
-    # Add edges from analyze_objects
-    workflow.add_edge("analyze_objects", "analyze_takeoffs")
+    # ==========================================================================
+    # Stage 3: Reviewing Rooms → Process Assets (no pause)
+    # (Entered when workflow resumes after engineer approves rooms)
+    # ==========================================================================
+    workflow.add_edge("reviewing_rooms", "process_assets")
 
-    # Add edges from analyze_takeoffs
+    # ==========================================================================
+    # Stage 4: Process Assets → PAUSE at engineering_takeoff
+    # ==========================================================================
     workflow.add_conditional_edges(
-        "analyze_takeoffs",
-        route_after_takeoffs,
+        "process_assets",
+        route_after_assets,
         {
-            "wait_for_review": END,  # Pause for engineer review
-            "classify_assets": "classify_assets",
+            "wait_for_review": END,  # PAUSE #3: Engineer reviews all asset data
         },
     )
 
-    # Add edges from classify_assets
-    workflow.add_conditional_edges(
-        "classify_assets",
-        route_after_classification,
-        {
-            "wait_for_review": END,  # Pause for engineer review
-            "estimate_costs": "estimate_costs",
-        },
-    )
-
-    # Add edges from estimate_costs
-    workflow.add_conditional_edges(
-        "estimate_costs",
-        route_after_costs,
-        {
-            "wait_for_review": END,  # Pause for engineer review
-            "verify_assets": "verify_assets",
-        },
-    )
-
-    # Add edges from verify_assets
-    workflow.add_conditional_edges(
-        "verify_assets",
-        route_after_verification,
-        {
-            "wait_for_review": END,  # Pause for engineer approval
-            "complete": "complete",
-        },
-    )
+    # ==========================================================================
+    # Stage 5: Engineering Takeoff → Complete (when approved)
+    # (Entered when workflow resumes after engineer approves)
+    # Note: This edge is not directly in the graph - completion happens via resume_workflow
+    # ==========================================================================
 
     # Complete goes to END
     workflow.add_edge("complete", END)
@@ -135,7 +167,9 @@ def create_workflow(
     # Error handler goes to END
     workflow.add_edge("error_handler", END)
 
-    # Select checkpointer based on environment if not provided
+    # ==========================================================================
+    # Select checkpointer
+    # ==========================================================================
     if checkpointer is None:
         if os.getenv("GCS_BUCKET_NAME"):
             # Production: use Firestore for persistence across restarts
@@ -156,6 +190,9 @@ async def run_workflow(
     """
     Run the workflow for a study.
 
+    The workflow will pause at the first review checkpoint (resource_extraction).
+    Use resume_workflow() to continue after engineer approval.
+
     Args:
         study_id: Study document ID
         reference_doc_ids: Available IRS/RSMeans document IDs
@@ -163,7 +200,7 @@ async def run_workflow(
         resume_from: Optional thread ID to resume from
 
     Returns:
-        Final workflow state
+        Workflow state (paused at first review checkpoint)
     """
     # Create workflow
     app = create_workflow()
@@ -178,7 +215,7 @@ async def run_workflow(
     # Run configuration
     config = {"configurable": {"thread_id": resume_from or study_id}}
 
-    # Execute workflow
+    # Execute workflow (will pause at first review checkpoint)
     final_state = await app.ainvoke(initial_state, config)
 
     return final_state
@@ -192,31 +229,83 @@ async def resume_workflow(
     """
     Resume workflow after engineer review.
 
+    Based on current stage, resumes to the appropriate next node:
+    - resource_extraction approved:
+        - If rooms_ready (background analyze_rooms done): → PAUSE #2 (reviewing_rooms)
+        - If not rooms_ready: wait for analyze_rooms to complete
+    - reviewing_rooms approved → runs process_assets → pauses at engineering_takeoff
+    - engineering_takeoff approved → runs complete → done
+
     Args:
         study_id: Study document ID
         engineer_approved: Whether engineer approved the current stage
         corrections: Optional list of corrections made by engineer
 
     Returns:
-        Updated workflow state
+        Updated workflow state (will pause at next review checkpoint)
     """
+    from ..firestore.client import FirestoreClient
+
+    # Get current study state to determine where to resume
+    client = FirestoreClient()
+    study = client.get_study(study_id)
+    current_stage = study.get("workflowStatus", "uploading_documents") if study else "uploading_documents"
+    rooms_ready = study.get("roomsReady", False) if study else False
+
     # Create workflow with same thread ID
     app = create_workflow()
 
-    # Get current state and update with approval
-    config = {"configurable": {"thread_id": study_id}}
-
-    # Update state with engineer input
+    # Prepare update with engineer input
     update = {
+        "study_id": study_id,
         "engineer_approved": engineer_approved,
         "engineer_corrections": corrections or [],
         "needs_review": False,  # Clear review flag
     }
 
+    # Determine which node to resume from
+    if current_stage == "resource_extraction":
+        # After appraisal approval, set appraisal_approved flag
+        update["appraisal_approved"] = True
+        client.update_study(study_id, {"appraisalApproved": True})
+
+        # Check if analyze_rooms has completed (background task)
+        if rooms_ready:
+            # Rooms are ready, advance to reviewing_rooms (PAUSE #2)
+            update["current_stage"] = "reviewing_rooms"
+        else:
+            # Rooms not ready yet, stay at resource_extraction but mark approved
+            # Frontend will poll and see rooms_ready when analyze_rooms completes
+            update["current_stage"] = "analyzing_rooms"  # Show "Analyzing rooms..." status
+
+    elif current_stage == "reviewing_rooms":
+        # After room review approval → run process_assets → pause at engineering_takeoff
+        update["current_stage"] = "processing_assets"
+
+    elif current_stage == "engineering_takeoff":
+        # After engineering takeoff approval → complete
+        update["current_stage"] = "completed"
+
     # Resume execution
+    config = {"configurable": {"thread_id": study_id}}
     final_state = await app.ainvoke(update, config)
 
     return final_state
+
+
+async def trigger_next_stage(study_id: str) -> WorkflowState:
+    """
+    Trigger the next stage of the workflow after engineer approval.
+
+    Simpler version of resume_workflow that just advances to the next stage.
+
+    Args:
+        study_id: Study document ID
+
+    Returns:
+        Workflow state after running the next stage
+    """
+    return await resume_workflow(study_id, engineer_approved=True)
 
 
 def run_workflow_sync(

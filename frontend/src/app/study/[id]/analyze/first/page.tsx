@@ -125,24 +125,36 @@ export default function FirstAnalyzerPage() {
     }
   }, [study, studyId, router, updateWorkflowStatus, navigateToWorkflowStep, startRoomClassification]);
 
+  // Check if appraisal resources have been ingested (PAUSE #1 trigger)
+  // This happens BEFORE rooms are ready in the parallel workflow
+  const appraisalReady = !!(study?.appraisalResources?.ingested === true);
   const roomsReady = !!(study?.rooms && study.rooms.length > 0);
 
   useEffect(() => {
-    if (roomsReady) {
+    // Navigate to PAUSE #1 (appraisal review) when appraisal is ready
+    // Rooms may still be processing in background
+    if (appraisalReady) {
       handleRoomsReady();
     }
-  }, [roomsReady, handleRoomsReady]);
+  }, [appraisalReady, handleRoomsReady]);
 
   const { start: startPolling, stop: stopPolling } = usePolling(
     async () => {
       return studyService.getById(studyId);
     },
     fetchedStudy => {
+      // Check for appraisal ready (PAUSE #1 trigger) - this comes first in parallel workflow
+      const hasAppraisal = !!(fetchedStudy?.appraisalResources?.ingested === true);
+      if (hasAppraisal) {
+        handleRoomsReady();
+        return true;
+      }
+      // Fallback: also check for rooms (backwards compatibility)
       const hasRooms = !!(fetchedStudy?.rooms && fetchedStudy.rooms.length > 0);
       if (hasRooms) {
         handleRoomsReady();
       }
-      return hasRooms;
+      return hasRooms || hasAppraisal;
     },
     {
       onError: () => {
@@ -157,7 +169,8 @@ export default function FirstAnalyzerPage() {
   );
 
   useEffect(() => {
-    if (!study || roomsReady) {
+    // Stop polling if appraisal is ready (navigating to PAUSE #1)
+    if (!study || appraisalReady) {
       stopPolling();
       return;
     }
@@ -167,7 +180,7 @@ export default function FirstAnalyzerPage() {
     return () => {
       stopPolling();
     };
-  }, [study, roomsReady, startPolling, stopPolling]);
+  }, [study, appraisalReady, startPolling, stopPolling]);
 
   if (!study) {
     return <div>Loading...</div>;

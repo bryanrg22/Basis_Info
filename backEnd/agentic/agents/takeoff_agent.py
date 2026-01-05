@@ -254,22 +254,28 @@ async def calculate_takeoffs_batch(
     context: StageContext,
     room_type: Optional[str] = None,
     room_area_sf: Optional[float] = None,
+    max_concurrent: int = 1,  # Sequential for rate limit
 ) -> list[dict]:
     """
-    Calculate takeoffs for multiple components.
+    Calculate takeoffs for multiple components IN PARALLEL.
 
     Args:
         components: List of dicts with 'component_name' and optional 'detection_count'
         context: Study context
         room_type: Room type (applied to all)
         room_area_sf: Room area (applied to all)
+        max_concurrent: Maximum concurrent calculations (default: 3)
 
     Returns:
         List of takeoff results
     """
-    results = []
+    from ..utils.parallel import parallel_map
 
-    for comp in components:
+    if not components:
+        return []
+
+    async def calculate_single_takeoff(comp: dict) -> dict:
+        """Calculate takeoff for a single component."""
         result = await calculate_takeoff(
             component_name=comp.get("component_name", comp.get("name", "")),
             context=context,
@@ -279,6 +285,14 @@ async def calculate_takeoffs_batch(
             property_type=comp.get("property_type", "commercial"),
         )
         result["original"] = comp
-        results.append(result)
+        return result
+
+    # PARALLEL: Calculate all takeoffs concurrently
+    results = await parallel_map(
+        items=components,
+        async_fn=calculate_single_takeoff,
+        max_concurrent=max_concurrent,
+        desc=f"Calculating {len(components)} takeoffs",
+    )
 
     return results

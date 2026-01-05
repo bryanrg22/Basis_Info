@@ -394,23 +394,35 @@ export default function ResourceExtractionReviewPage() {
     (item) => item.sectionId === selectedSection,
   );
 
-  const subject = resources.subject;
-  const listingInfo = resources.listing_and_contract;
+  // Handle both demo format (resources.subject) and backend format (resources.fields)
+  const subject = resources.subject || {};
+  const listingInfo = resources.listing_and_contract || {};
+  const fields = (resources as any).fields || {}; // Backend extraction format
+
+  // Use backend fields as fallback if demo format not available
+  const contractPrice = listingInfo.contract_price ?? fields.total_value ?? 0;
+  const listPrice = listingInfo.original_list_price ?? fields.total_value ?? 0;
+  const saleType = listingInfo.sale_type ?? 'N/A';
+  const daysOnMarket = listingInfo.days_on_market;
+  const contractDate = listingInfo.contract_date ?? fields.appraisal_date ?? 'N/A';
+  const propertyRights = subject.property_rights_appraised ?? 'Fee Simple';
+  const assignmentType = subject.assignment_type ?? fields.property_use ?? 'N/A';
+
   const heroStats = [
     {
       label: 'Contract Price',
-      value: `$${listingInfo.contract_price.toLocaleString()}`,
-      helper: `List ${listingInfo.original_list_price.toLocaleString()} • ${listingInfo.sale_type}`,
+      value: contractPrice ? `$${contractPrice.toLocaleString()}` : 'Not extracted',
+      helper: listPrice ? `List $${listPrice.toLocaleString()} • ${saleType}` : saleType,
     },
     {
       label: 'Days on Market',
-      value: `${listingInfo.days_on_market} days`,
-      helper: listingInfo.contract_date,
+      value: daysOnMarket != null ? `${daysOnMarket} days` : 'N/A',
+      helper: contractDate,
     },
     {
       label: 'Property Rights',
-      value: subject.property_rights_appraised,
-      helper: subject.assignment_type,
+      value: propertyRights,
+      helper: assignmentType,
     },
   ];
 
@@ -502,19 +514,19 @@ export default function ResourceExtractionReviewPage() {
                       <svg className="h-4 w-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      Contract docs reviewed ({listingInfo.contract_documents_reviewed.length})
+                      Contract docs reviewed ({listingInfo.contract_documents_reviewed?.length ?? 0})
                     </li>
                     <li className="flex items-center gap-2">
                       <svg className="h-4 w-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      MLS #{listingInfo.mls_number} · {listingInfo.days_on_market} DOM
+                      MLS #{listingInfo.mls_number ?? 'N/A'} · {listingInfo.days_on_market ?? 'N/A'} DOM
                     </li>
                     <li className="flex items-center gap-2">
                       <svg className="h-4 w-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      Taxes: ${subject.real_estate_taxes.toLocaleString()} ({subject.tax_year})
+                      Taxes: ${(subject.real_estate_taxes ?? 0).toLocaleString()} ({subject.tax_year ?? 'N/A'})
                     </li>
                   </ul>
                   <p className="mt-4 text-xs text-primary-800">
@@ -722,8 +734,11 @@ function renderSectionContent(
 ) {
   switch (sectionId) {
     case 'subject': {
-      const s = resources.subject;
-      const l = resources.listing_and_contract;
+      const s = resources.subject || {};
+      const l = resources.listing_and_contract || {};
+      if (!resources.subject && !resources.listing_and_contract) {
+        return <div className="text-sm text-gray-500 p-4">Subject data not yet extracted from appraisal.</div>;
+      }
       return (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -735,24 +750,24 @@ function renderSectionContent(
                 <div>
                   <dt className="font-medium text-gray-600">Address</dt>
                   <dd>
-                    {s.property_address}, {s.city}, {s.state} {s.zip}
+                    {s.property_address ?? 'N/A'}, {s.city ?? ''}, {s.state ?? ''} {s.zip ?? ''}
                   </dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Borrower</dt>
-                  <dd>{s.borrower}</dd>
+                  <dd>{s.borrower ?? 'N/A'}</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Client / Lender</dt>
-                  <dd>{s.lender_client}</dd>
+                  <dd>{s.lender_client ?? 'N/A'}</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Assignment Type</dt>
-                  <dd>{s.assignment_type}</dd>
+                  <dd>{s.assignment_type ?? 'N/A'}</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Property Rights</dt>
-                  <dd>{s.property_rights_appraised}</dd>
+                  <dd>{s.property_rights_appraised ?? 'N/A'}</dd>
                 </div>
               </dl>
             </div>
@@ -763,22 +778,22 @@ function renderSectionContent(
               <dl className="text-xs text-gray-700 space-y-1">
                 <div>
                   <dt className="font-medium text-gray-600">Contract Price</dt>
-                  <dd>${l.contract_price.toLocaleString()}</dd>
+                  <dd>${(l.contract_price ?? 0).toLocaleString()}</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Listing vs. Contract</dt>
                   <dd>
-                    List ${l.original_list_price.toLocaleString()} → Contract $
-                    {l.contract_price.toLocaleString()}
+                    List ${(l.original_list_price ?? 0).toLocaleString()} → Contract $
+                    {(l.contract_price ?? 0).toLocaleString()}
                   </dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Days on Market</dt>
-                  <dd>{l.days_on_market} days</dd>
+                  <dd>{l.days_on_market ?? 'N/A'} days</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Sale Type</dt>
-                  <dd>{l.sale_type}</dd>
+                  <dd>{l.sale_type ?? 'N/A'}</dd>
                 </div>
               </dl>
             </div>
@@ -790,15 +805,15 @@ function renderSectionContent(
             <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-700">
               <div>
                 <dt className="font-medium text-gray-600">Tax Year</dt>
-                <dd>{s.tax_year}</dd>
+                <dd>{s.tax_year ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Annual Taxes</dt>
-                <dd>${s.real_estate_taxes.toLocaleString()}</dd>
+                <dd>${(s.real_estate_taxes ?? 0).toLocaleString()}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Parcel Numbers</dt>
-                <dd>{s.assessors_parcel_numbers.join(', ')}</dd>
+                <dd>{(s.assessors_parcel_numbers ?? []).join(', ') || 'N/A'}</dd>
               </div>
             </dl>
           </div>
@@ -806,7 +821,12 @@ function renderSectionContent(
       );
     }
     case 'neighborhood': {
-      const n = resources.neighborhood;
+      const n = resources.neighborhood || {};
+      const listings = n.one_unit_listings || {};
+      const sales = n.one_unit_sales_12_months || {};
+      if (!resources.neighborhood) {
+        return <div className="text-sm text-gray-500 p-4">Neighborhood data not yet extracted from appraisal.</div>;
+      }
       return (
         <div className="space-y-4">
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
@@ -816,27 +836,27 @@ function renderSectionContent(
             <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-700">
               <div>
                 <dt className="font-medium text-gray-600">Location</dt>
-                <dd>{n.location}</dd>
+                <dd>{n.location ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Built-Up</dt>
-                <dd>{n.built_up}</dd>
+                <dd>{n.built_up ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Growth</dt>
-                <dd>{n.growth}</dd>
+                <dd>{n.growth ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Value Trend</dt>
-                <dd>{n.one_unit_value_trend}</dd>
+                <dd>{n.one_unit_value_trend ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Demand / Supply</dt>
-                <dd>{n.demand_supply}</dd>
+                <dd>{n.demand_supply ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Marketing Time</dt>
-                <dd>{n.typical_marketing_time}</dd>
+                <dd>{n.typical_marketing_time ?? 'N/A'}</dd>
               </div>
             </dl>
           </div>
@@ -847,34 +867,38 @@ function renderSectionContent(
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-gray-700">
               <div>
                 <p className="font-medium text-gray-600 mb-1">
-                  Active Listings ({n.one_unit_listings.count})
+                  Active Listings ({listings.count ?? 0})
                 </p>
                 <p>
-                  ${n.one_unit_listings.price_range_low.toLocaleString()} – $
-                  {n.one_unit_listings.price_range_high.toLocaleString()}
+                  ${(listings.price_range_low ?? 0).toLocaleString()} – $
+                  {(listings.price_range_high ?? 0).toLocaleString()}
                 </p>
               </div>
               <div>
                 <p className="font-medium text-gray-600 mb-1">
-                  Sales (12 months) ({n.one_unit_sales_12_months.count})
+                  Sales (12 months) ({sales.count ?? 0})
                 </p>
                 <p>
-                  ${n.one_unit_sales_12_months.price_range_low.toLocaleString()} – $
-                  {n.one_unit_sales_12_months.price_range_high.toLocaleString()}
+                  ${(sales.price_range_low ?? 0).toLocaleString()} – $
+                  {(sales.price_range_high ?? 0).toLocaleString()}
                 </p>
               </div>
             </div>
           </div>
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100 space-y-2">
             <h3 className="text-sm font-semibold text-gray-900">Narrative</h3>
-            <p className="text-xs text-gray-700">{n.description}</p>
-            <p className="text-xs text-gray-700">{n.market_notes}</p>
+            <p className="text-xs text-gray-700">{n.description ?? 'No description available.'}</p>
+            <p className="text-xs text-gray-700">{n.market_notes ?? ''}</p>
           </div>
         </div>
       );
     }
     case 'site': {
-      const s = resources.site;
+      const s = resources.site || {};
+      const utils = s.utilities || {};
+      if (!resources.site) {
+        return <div className="text-sm text-gray-500 p-4">Site data not yet extracted from appraisal.</div>;
+      }
       return (
         <div className="space-y-4">
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
@@ -882,27 +906,27 @@ function renderSectionContent(
             <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-700">
               <div>
                 <dt className="font-medium text-gray-600">Size</dt>
-                <dd>{s.area_acres} acres</dd>
+                <dd>{s.area_acres ?? 'N/A'} acres</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Shape</dt>
-                <dd>{s.shape}</dd>
+                <dd>{s.shape ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">View</dt>
-                <dd>{s.view}</dd>
+                <dd>{s.view ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Zoning</dt>
-                <dd>{s.zoning_classification}</dd>
+                <dd>{s.zoning_classification ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Compliance</dt>
-                <dd>{s.zoning_compliance}</dd>
+                <dd>{s.zoning_compliance ?? 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Highest &amp; Best Use</dt>
-                <dd>{s.highest_and_best_use_as_improved}</dd>
+                <dd>{s.highest_and_best_use_as_improved ?? 'N/A'}</dd>
               </div>
             </dl>
           </div>
@@ -914,19 +938,19 @@ function renderSectionContent(
               <dl className="text-xs text-gray-700 space-y-1">
                 <div>
                   <dt className="font-medium text-gray-600">Electric</dt>
-                  <dd>{s.utilities.electric}</dd>
+                  <dd>{utils.electric ?? 'N/A'}</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Gas</dt>
-                  <dd>{s.utilities.gas}</dd>
+                  <dd>{utils.gas ?? 'N/A'}</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Water</dt>
-                  <dd>{s.utilities.water}</dd>
+                  <dd>{utils.water ?? 'N/A'}</dd>
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Sanitary Sewer</dt>
-                  <dd>{s.utilities.sanitary_sewer}</dd>
+                  <dd>{utils.sanitary_sewer ?? 'N/A'}</dd>
                 </div>
               </dl>
             </div>
@@ -938,7 +962,7 @@ function renderSectionContent(
                 <div>
                   <dt className="font-medium text-gray-600">Flood Zone</dt>
                   <dd>
-                    {s.flood_zone} (FEMA {s.fema_map_number}, {s.fema_map_date})
+                    {s.flood_zone ?? 'N/A'} (FEMA {s.fema_map_number ?? 'N/A'}, {s.fema_map_date ?? 'N/A'})
                   </dd>
                 </div>
                 <div>
@@ -947,7 +971,7 @@ function renderSectionContent(
                 </div>
                 <div>
                   <dt className="font-medium text-gray-600">Easements / Encroachments</dt>
-                  <dd>{s.easements_encroachments}</dd>
+                  <dd>{s.easements_encroachments ?? 'N/A'}</dd>
                 </div>
               </dl>
             </div>
@@ -956,9 +980,10 @@ function renderSectionContent(
       );
     }
     case 'improvements': {
-      const g = resources.improvements.general;
+      const improvements = resources.improvements || {};
+      const g = improvements.general || {};
       const im =
-        resources.improvements.interior_mechanical as InteriorMechanicalSnapshot;
+        (improvements.interior_mechanical || {}) as InteriorMechanicalSnapshot;
       const heatingSummary = Array.isArray(im.heating?.type)
         ? im.heating?.type?.join(', ')
         : im.heating?.type || '—';
@@ -1028,8 +1053,9 @@ function renderSectionContent(
       );
     }
     case 'sales_comparison': {
-      const s = resources.sales_comparison.subject;
-      const comps = resources.sales_comparison.comparables;
+      const salesComparison = resources.sales_comparison || {};
+      const s = salesComparison.subject || {};
+      const comps = salesComparison.comparables || [];
       return (
         <div className="space-y-4">
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
@@ -1039,15 +1065,15 @@ function renderSectionContent(
             <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-700">
               <div>
                 <dt className="font-medium text-gray-600">Contract Price</dt>
-                <dd>${s.contract_price.toLocaleString()}</dd>
+                <dd>{s.contract_price ? `$${s.contract_price.toLocaleString()}` : 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Price / SF</dt>
-                <dd>${s.price_per_sqft.toFixed(2)} / sf</dd>
+                <dd>{s.price_per_sqft ? `$${s.price_per_sqft.toFixed(2)} / sf` : 'N/A'}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">GLA</dt>
-                <dd>{s.gross_living_area_sqft} sf</dd>
+                <dd>{s.gross_living_area_sqft ? `${s.gross_living_area_sqft} sf` : 'N/A'}</dd>
               </div>
             </dl>
           </div>
@@ -1056,25 +1082,27 @@ function renderSectionContent(
               Key Comparables
             </h3>
             <div className="space-y-3 text-xs text-gray-700">
-              {comps.map((c) => (
+              {comps.length === 0 ? (
+                <p className="text-gray-500">No comparables available.</p>
+              ) : comps.map((c, idx) => (
                 <div
-                  key={c.id}
+                  key={c.id ?? idx}
                   className="flex items-start justify-between gap-3 border-b border-gray-100 pb-2 last:border-0 last:pb-0"
                 >
                   <div>
                     <p className="font-medium text-gray-900">
-                      {c.address}, {c.city}
+                      {c.address ?? 'N/A'}, {c.city ?? ''}
                     </p>
                     <p className="text-[11px] text-gray-500">
-                      {c.proximity} • {c.design} • {c.condition}
+                      {c.proximity ?? 'N/A'} • {c.design ?? 'N/A'} • {c.condition ?? 'N/A'}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-gray-900">
-                      ${c.sale_price.toLocaleString()}
+                      ${(c.sale_price ?? 0).toLocaleString()}
                     </p>
                     <p className="text-[11px] text-gray-500">
-                      Adjusted ${c.adjusted_sale_price.toLocaleString()}
+                      Adjusted ${(c.adjusted_sale_price ?? 0).toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -1085,7 +1113,10 @@ function renderSectionContent(
       );
     }
     case 'cost_approach': {
-      const c = resources.cost_approach;
+      const c = resources.cost_approach || {};
+      if (!resources.cost_approach) {
+        return <div className="text-sm text-gray-500 p-4">Cost approach data not yet extracted from appraisal.</div>;
+      }
       return (
         <div className="space-y-4">
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
@@ -1095,20 +1126,20 @@ function renderSectionContent(
             <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-700">
               <div>
                 <dt className="font-medium text-gray-600">Site Value</dt>
-                <dd>${c.site_value.toLocaleString()}</dd>
+                <dd>${(c.site_value ?? 0).toLocaleString()}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Total Cost New</dt>
-                <dd>${c.total_cost_new.toLocaleString()}</dd>
+                <dd>${(c.total_cost_new ?? 0).toLocaleString()}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Depreciation</dt>
-                <dd>${c.depreciation.toLocaleString()}</dd>
+                <dd>${(c.depreciation ?? 0).toLocaleString()}</dd>
               </div>
               <div>
                 <dt className="font-medium text-gray-600">Indicated Value</dt>
                 <dd>
-                  ${c.indicated_value_by_cost_approach.toLocaleString()}
+                  ${(c.indicated_value_by_cost_approach ?? 0).toLocaleString()}
                 </dd>
               </div>
             </dl>
@@ -1122,8 +1153,12 @@ function renderSectionContent(
       );
     }
     case 'photos_sketch': {
-      const photos = resources.photos;
-      const sketch = resources.sketch;
+      const photos = resources.photos || [];
+      const sketch = resources.sketch || { areas: [] };
+      const sketchAreas = sketch.areas || [];
+      if (!resources.photos && !resources.sketch) {
+        return <div className="text-sm text-gray-500 p-4">Photos and sketch data not yet extracted from appraisal.</div>;
+      }
       return (
         <div className="space-y-4">
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
@@ -1131,16 +1166,18 @@ function renderSectionContent(
               Photo Pages
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-700">
-              {photos.map((page) => (
+              {photos.length === 0 ? (
+                <p className="text-gray-500">No photos available.</p>
+              ) : photos.map((page, idx) => (
                 <div
-                  key={page.page}
+                  key={page?.page ?? idx}
                   className="rounded-lg border border-gray-100 bg-white px-3 py-2"
                 >
                   <p className="font-medium text-gray-900 mb-1">
-                    Page {page.page}
+                    Page {page?.page ?? idx + 1}
                   </p>
                   <p className="text-[11px] text-gray-600">
-                    {page.labels.join(' • ')}
+                    {(page?.labels ?? []).join(' • ') || 'No labels'}
                   </p>
                 </div>
               ))}
@@ -1151,16 +1188,18 @@ function renderSectionContent(
               Sketch Areas
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-700">
-              {sketch.areas.map((area, idx) => (
+              {sketchAreas.length === 0 ? (
+                <p className="text-gray-500">No sketch areas available.</p>
+              ) : sketchAreas.map((area, idx) => (
                 <div
-                  key={`${area.type}-${area.level}-${idx}`}
+                  key={`${area?.type ?? 'area'}-${area?.level ?? ''}-${idx}`}
                   className="rounded-lg border border-gray-100 bg-white px-3 py-2"
                 >
                   <p className="font-medium text-gray-900">
-                    {area.type.replace(/_/g, ' ')} ({area.level})
+                    {(area?.type ?? 'Unknown').replace(/_/g, ' ')} ({area?.level ?? 'N/A'})
                   </p>
                   <p className="text-[11px] text-gray-600">
-                    {area.square_feet} sf • {area.notes}
+                    {area?.square_feet ?? 0} sf • {area?.notes ?? ''}
                   </p>
                 </div>
               ))}
@@ -1170,7 +1209,10 @@ function renderSectionContent(
       );
     }
     case 'overall': {
-      const r = resources.reconciliation;
+      const r = resources.reconciliation || {};
+      if (!resources.reconciliation) {
+        return <div className="text-sm text-gray-500 p-4">Reconciliation data not yet extracted from appraisal.</div>;
+      }
       return (
         <div className="space-y-4">
           <div className="bg-green-50 rounded-lg p-4 border border-green-100">
@@ -1180,25 +1222,25 @@ function renderSectionContent(
             <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-700">
               <div>
                 <dt className="font-medium text-gray-600">Sales Comparison</dt>
-                <dd>${r.indicated_value_sales_comparison.toLocaleString()}</dd>
+                <dd>${(r.indicated_value_sales_comparison ?? 0).toLocaleString()}</dd>
               </div>
               {r.indicated_value_cost_approach && (
                 <div>
                   <dt className="font-medium text-gray-600">Cost Approach</dt>
-                  <dd>${r.indicated_value_cost_approach.toLocaleString()}</dd>
+                  <dd>${(r.indicated_value_cost_approach ?? 0).toLocaleString()}</dd>
                 </div>
               )}
               <div>
                 <dt className="font-medium text-gray-600">Final Value</dt>
                 <dd className="font-semibold text-gray-900">
-                  ${r.final_market_value.toLocaleString()} ({r.value_condition})
+                  ${(r.final_market_value ?? 0).toLocaleString()} ({r.value_condition ?? 'N/A'})
                 </dd>
               </div>
             </dl>
           </div>
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100 space-y-2">
             <h3 className="text-sm font-semibold text-gray-900">Appraiser Notes</h3>
-            <p className="text-xs text-gray-700">{r.comments}</p>
+            <p className="text-xs text-gray-700">{r.comments ?? 'No comments available.'}</p>
           </div>
         </div>
       );
