@@ -1,10 +1,15 @@
 # Basis Agentic Workflow Layer
 
-Stage-gated agentic workflow for cost segregation studies, powered by LangChain, LangGraph, and MCP.
+Stage-gated agentic workflow for cost segregation studies, powered by **LangChain**, **LangGraph**, and **MCP**.
 
 ## Overview
 
-This package provides the agentic orchestration layer that sits on top of the evidence layer. Agents use evidence retrieval tools via MCP to make evidence-backed decisions with full provenance tracking.
+This package provides the agentic orchestration layer that sits on top of the evidence layer. It features two key AI patterns:
+
+1. **Agentic RAG** - LLM-driven retrieval where agents decide when, what, and how to search IRS/RSMeans documents
+2. **Agentic Tool Use** - Multi-agent appraisal extraction with self-correction loops
+
+Agents use evidence retrieval tools via MCP to make evidence-backed decisions with full provenance tracking.
 
 ## Architecture
 
@@ -15,11 +20,22 @@ Frontend (Next.js) ←→ Firestore (real-time)
                            ↑
               LangGraph Workflow Engine
                            ↑
-         ┌─────────────────┼─────────────────┐
-         ↓                 ↓                 ↓
-    Room Agent      Asset Agent       Cost Agent
-         │                 │                 │
-         └────────── MCP Tool Registry ──────┘
+    ┌──────────────────────┼──────────────────────┐
+    │                      │                      │
+    ▼                      ▼                      ▼
+┌────────────┐     ┌─────────────┐      ┌─────────────┐
+│ Appraisal  │     │ Room/Asset/ │      │ Cost Agent  │
+│ Extraction │     │ Object/Take │      │             │
+│ (Agentic   │     │ off Agents  │      │ (Agentic    │
+│ Tool Use)  │     │ (Agentic    │      │ RAG)        │
+│            │     │ RAG)        │      │             │
+└─────┬──────┘     └──────┬──────┘      └──────┬──────┘
+      │                   │                    │
+      │    Azure DI       │    MCP Tool        │
+      │    Vision         │    Registry        │
+      │    MISMO          │    (search)        │
+      │                   │                    │
+      └───────────────────┴────────────────────┘
                            ↑
               Evidence Layer (retrieval.py)
 ```
@@ -52,6 +68,10 @@ AZURE_OPENAI_API_KEY=...
 # Model deployments (GPT-4.1 combo for best cost/performance)
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4.1           # Best results - complex reasoning
 AZURE_OPENAI_DEPLOYMENT_NAME_FAST=gpt-4.1-nano # Most efficient - high-volume tasks
+
+# Azure Document Intelligence (for tiered appraisal extraction)
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTELLIGENCE_KEY=...
 
 # LangSmith (optional but recommended)
 LANGCHAIN_API_KEY=ls-...
@@ -89,24 +109,85 @@ curl -X POST http://localhost:8000/workflow/start \
 ```
 agentic/
 ├── config/               # Settings and LLM provider abstraction
+│   ├── settings.py       # Environment configuration
+│   └── llm_providers.py  # Azure OpenAI / OpenAI abstraction
 ├── mcp_server/           # MCP server exposing evidence tools
 │   ├── server.py         # MCP server definition
-│   └── tools/            # LangChain tool wrappers
+│   └── tools/            # LangChain tool wrappers (Agentic RAG)
+│       ├── search_tools.py   # bm25_search, vector_search, hybrid_search
+│       └── fetch_tools.py    # get_table, get_chunk
 ├── agents/               # Stage-specific agents
-│   ├── base_agent.py     # Abstract base with evidence backing
-│   └── asset_agent.py    # IRS asset classification
+│   ├── base_agent.py     # Abstract base with Agentic RAG
+│   ├── asset_agent.py    # IRS asset classification (Agentic RAG)
+│   ├── room_agent.py     # Room enrichment (Agentic RAG)
+│   ├── object_agent.py   # Object enrichment (Agentic RAG)
+│   ├── takeoff_agent.py  # Quantity takeoff (Agentic RAG)
+│   ├── cost_agent.py     # Cost estimation (Agentic RAG)
+│   ├── vision_agent.py   # Image analysis (GPT-4o Vision)
+│   └── appraisal/        # Multi-agent appraisal extraction
+│       ├── __init__.py       # Module exports
+│       ├── schemas.py        # Pydantic I/O models
+│       ├── tools.py          # Extraction tools (Azure DI, Vision, MISMO)
+│       ├── extractor_agent.py    # Intelligent extraction
+│       ├── verifier_agent.py     # Skeptical verification
+│       ├── corrector_agent.py    # Error correction
+│       └── orchestrator.py       # LangGraph StateGraph coordination
 ├── graph/                # LangGraph workflow
 │   ├── state.py          # Workflow state definition
 │   ├── nodes.py          # Stage node functions
+│   ├── edges.py          # Conditional routing
 │   └── workflow.py       # Compiled workflow
 ├── firestore/            # Firestore integration
 │   ├── client.py         # Firestore client
+│   ├── checkpointer.py   # LangGraph state persistence
 │   └── writeback.py      # Evidence-backed writes
 ├── observability/        # LangSmith tracing
 └── api/                  # FastAPI endpoints
 ```
 
 ## Key Concepts
+
+### Agentic RAG (Retrieval-Augmented Generation)
+
+Unlike traditional RAG where retrieval happens before generation, **Agentic RAG** lets the LLM control the retrieval process:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TRADITIONAL RAG                                                 │
+│                                                                 │
+│  Query ──► Retrieve ──► Generate                                │
+│  (fixed)   (always)     (once)                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│  AGENTIC RAG (What Basis Uses)                                   │
+│                                                                 │
+│  Task ──► Think ──► Search? ──► Think ──► Search? ──► Generate  │
+│           │         (LLM       │         (LLM        │          │
+│           │          decides)  │          decides)   │          │
+│           └──── ReAct Loop ────┴──── Multi-hop ──────┘          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits of Agentic RAG:**
+
+| Capability | Traditional RAG | Agentic RAG |
+|------------|-----------------|-------------|
+| Query formulation | Fixed template | LLM crafts optimal query |
+| Multi-hop reasoning | Single pass | Search → analyze → search again |
+| Tool selection | Same retriever | LLM picks BM25 vs vector vs hybrid |
+| Self-correction | No | Re-search if results unhelpful |
+
+**Which agents use Agentic RAG?**
+
+| Agent | Uses Agentic RAG | Search Tools |
+|-------|------------------|--------------|
+| AssetAgent | ✅ Yes | `bm25_search`, `hybrid_search`, `get_table` |
+| RoomAgent | ✅ Yes | `hybrid_search` |
+| ObjectAgent | ✅ Yes | `hybrid_search` |
+| TakeoffAgent | ✅ Yes | `hybrid_search` |
+| CostAgent | ✅ Yes | `hybrid_search` |
+| Appraisal Agents | ❌ No | Uses extraction tools instead |
 
 ### Evidence-Backed Outputs
 
@@ -161,40 +242,118 @@ The workflow uses **parallel execution with staggered pauses** for optimal engin
 uploading_documents → analyzing_rooms → resource_extraction → reviewing_rooms → engineering_takeoff → completed
 ```
 
-### Appraisal Processing (resource_extraction_node)
+### Appraisal Processing (Multi-Agent Agentic Extraction)
 
-The `resource_extraction_node` handles appraisal PDF ingestion with URAR section mapping:
+The `resource_extraction_node` handles appraisal PDF ingestion with a **multi-agent LangGraph system** that reasons, verifies, and self-corrects:
 
-1. **Ingest PDF** - Full pipeline (parse → chunk → index) via evidence_layer
-2. **Extract fields** - Regex-based extraction for flat fields (GLA, bedrooms, etc.)
-3. **Map tables to sections** - URAR tables → frontend-ready sections
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  APPRAISAL EXTRACTION LANGGRAPH                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│                    ┌──────────────────────────┐                 │
+│                    │    EXTRACTOR AGENT       │                 │
+│                    │                          │                 │
+│                    │  "Extract intelligently" │                 │
+│                    │  Tools: MISMO, Azure DI, │                 │
+│                    │         Vision           │                 │
+│                    └───────────┬──────────────┘                 │
+│                                │                                │
+│                                ▼                                │
+│                    ┌──────────────────────────┐                 │
+│                    │    VERIFIER AGENT        │                 │
+│                    │                          │                 │
+│                    │  "Be skeptical. Find     │                 │
+│                    │   errors. Question       │                 │
+│                    │   everything."           │                 │
+│                    └───────────┬──────────────┘                 │
+│                                │                                │
+│              ┌─────────────────┼─────────────────┐              │
+│              │                 │                 │              │
+│         all_good        needs_correction    max_iterations      │
+│              │                 │                 │              │
+│              ▼                 ▼                 ▼              │
+│           ┌─────┐    ┌────────────────────┐   ┌─────┐          │
+│           │ END │    │  CORRECTOR AGENT   │   │ END │          │
+│           └─────┘    │                    │   └─────┘          │
+│                      │  "Fix using        │                    │
+│                      │   DIFFERENT method"│                    │
+│                      └─────────┬──────────┘                    │
+│                                │                               │
+│                                └───► loops back to verifier    │
+│                                      (max 2 iterations)        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Module:** `agentic/agents/appraisal/`
+
+**The Three Agents:**
+
+| Agent | Role | Tools | LLM |
+|-------|------|-------|-----|
+| **ExtractorAgent** | Intelligent extraction | `parse_mismo_xml`, `extract_with_azure_di`, `extract_with_vision` | gpt-5-nano |
+| **VerifierAgent** | Skeptical plausibility checking | `validate_extraction`, `vision_recheck_field` | gpt-5-nano |
+| **CorrectorAgent** | Fix errors using different method | `extract_with_azure_di`, `extract_with_vision`, `vision_recheck_field` | gpt-5-nano |
+
+**Tool Cost Strategy:**
+- `parse_mismo_xml` - FREE, 100% confidence
+- `extract_with_azure_di` - $0.10-0.50/doc, 70-95% confidence
+- `extract_with_vision` - $0.10-0.20/call, 60-90% confidence
+- `validate_extraction` - FREE (rule-based)
 
 ```python
 # In nodes.py - resource_extraction_node
-from evidence_layer.src.map_appraisal_sections import map_appraisal_tables_to_sections
+from agentic.agents.appraisal import run_appraisal_extraction
 
-# After ingestion extracts tables to {doc_id}.tables.jsonl
-sections = map_appraisal_tables_to_sections(
-    tables_path=tables_path,
-    fallback_fields=fields_dict,  # Regex extraction as fallback
+extraction_output = await run_appraisal_extraction(
+    study_id=state["study_id"],
+    pdf_path=str(pdf_path),
+    context=extraction_context,
+    max_iterations=2,  # Max correction loops
 )
+
+sections = extraction_output["extraction_result"]
+audit_trail = extraction_output["audit_trail"]
 
 # Stored in Firestore:
 appraisal_resources = {
     "doc_id": doc_id,
     "ingested": True,
-    "fields": fields_dict,        # Flat extraction (backward compat)
-    **sections,                   # Rich sections for UI
+    "fields": fields_dict,              # Flat extraction (backward compat)
+    "_extraction_audit": audit_trail,   # Full audit trail for IRS
+    **sections,                         # Rich sections for UI
 }
-# sections includes: subject, listing_and_contract, neighborhood,
-# site, improvements, sales_comparison, cost_approach, reconciliation
 ```
 
-**Why table mapping instead of GPT?**
-- Uses same table extraction from ingestion (no extra parsing)
-- Deterministic, no API costs
-- Faster than LLM calls
-- Falls back to regex for missing values
+**Audit Trail (IRS Defensibility):**
+```python
+audit_trail = {
+    "study_id": "STUDY_001",
+    "started_at": "2024-01-15T10:30:00Z",
+    "completed_at": "2024-01-15T10:30:45Z",
+    "iterations": 1,
+    "final_confidence": 0.92,
+    "needs_review": False,
+    "agent_calls": [
+        {"agent_name": "ExtractorAgent", "tools_used": ["extract_with_azure_di"], ...},
+        {"agent_name": "VerifierAgent", "tools_used": ["validate_extraction"], ...},
+    ],
+    "field_history": [
+        {"field_key": "improvements.year_built", "action": "extracted", "value": 1995, ...},
+        {"field_key": "improvements.year_built", "action": "flagged", "issue_type": "ocr_error", ...},
+        {"field_key": "improvements.year_built", "action": "corrected", "value": 1995, ...},
+    ]
+}
+```
+
+**Critical Fields (require >= 0.90 confidence):**
+- `property_address`, `year_built`, `gross_living_area`
+- `appraised_value`, `contract_price`, `effective_date`
+
+**Graceful Degradation:**
+- Agentic extraction fails? → Falls back to regex via `map_appraisal_tables_to_sections()`
+- No Azure DI? → ExtractorAgent uses Vision fallback
+- All fail? → Returns regex results with `needs_review: true`
 
 ### Vision Pipeline (analyze_rooms_node)
 

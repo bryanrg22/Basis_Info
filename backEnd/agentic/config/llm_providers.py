@@ -122,6 +122,10 @@ STAGE_MODELS: dict[str, str] = {
     "asset_classification": "gpt-5-nano",
     "takeoff": "gpt-5-nano",
     "cost_estimation": "gpt-5-nano",
+    # Appraisal extraction agents - use GPT-5-nano for all text-based stages
+    "appraisal_extraction": "gpt-5-nano",
+    "appraisal_verification": "gpt-5-nano",
+    "appraisal_correction": "gpt-5-nano",
 }
 
 # Stages that require vision capability (GPT-5.2)

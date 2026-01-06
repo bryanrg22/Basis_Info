@@ -303,16 +303,47 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                         appraisal_fields = extract_appraisal_fields(pdf_path, doc_id)
                         fields_dict = appraisal_fields.to_dict()
 
-                        # Map extracted tables to URAR sections (primary method)
-                        # Tables were extracted during ingestion - use ingest_result.doc_id for correct filename
-                        # (ingest creates its own doc_id from PDF filename, different from our doc_id)
+                        # Get tables path for tiered extraction
                         tables_path = ingest_result.data_dir / "structured" / f"{ingest_result.doc_id}.tables.jsonl"
                         print(f"[DEBUG] Looking for tables at: {tables_path}")
                         print(f"[DEBUG] Tables file exists: {tables_path.exists()}")
-                        sections = map_appraisal_tables_to_sections(
-                            tables_path=tables_path,
-                            fallback_fields=fields_dict,
-                        )
+
+                        # Try AGENTIC extraction (multi-agent with self-correction)
+                        try:
+                            from ..agents.appraisal import run_appraisal_extraction
+                            from ..agents.base_agent import StageContext
+
+                            extraction_context = StageContext(
+                                study_id=state["study_id"],
+                                property_name=state.get("property_name"),
+                                reference_doc_ids=state.get("reference_doc_ids", []),
+                                study_doc_ids=state.get("study_doc_ids", []),
+                            )
+
+                            extraction_output = await run_appraisal_extraction(
+                                study_id=state["study_id"],
+                                pdf_path=str(pdf_path),
+                                context=extraction_context,
+                                mismo_xml=None,  # TODO: Support MISMO XML upload
+                                tables_path=str(tables_path) if tables_path.exists() else None,
+                                max_iterations=2,
+                            )
+
+                            sections = extraction_output["extraction_result"]
+                            extraction_audit = extraction_output["audit_trail"]
+                            print(f"[DEBUG] Agentic extraction: confidence={extraction_output['overall_confidence']:.2f}, "
+                                  f"needs_review={extraction_output['needs_review']}, "
+                                  f"iterations={extraction_audit.get('iterations', 0)}")
+
+                        except Exception as tier_err:
+                            print(f"[WARNING] Agentic extraction failed, falling back to regex: {tier_err}")
+                            # Fall back to regex-only extraction
+                            sections = map_appraisal_tables_to_sections(
+                                tables_path=tables_path,
+                                fallback_fields=fields_dict,
+                            )
+                            extraction_audit = {"error": str(tier_err), "fallback": "regex"}
+
                         print(f"[DEBUG] Mapped sections: {list(sections.keys())}")
 
                         # Convert to dict for Firestore
@@ -323,6 +354,7 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                             "num_chunks": ingest_result.num_chunks,
                             "num_tables": ingest_result.num_tables,
                             "fields": fields_dict,  # Flat extraction for backward compat
+                            "_extraction_audit": extraction_audit,  # Audit trail for IRS defensibility
                             **sections,  # Rich sections: subject, listing_and_contract, etc.
                         }
 

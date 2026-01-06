@@ -1,10 +1,15 @@
-# Basis – Document Intelligence with Agentic RAG
+# Basis – Agentic RAG for Document Intelligence
 
 <img width="997" height="336" alt="Basis Logo" src="https://github.com/user-attachments/assets/aaab8d9c-7238-46d0-a8ea-29ea04a666e5" />
 
 ---
 
 > **Cost segregation shouldn't take weeks. Basis gets engineers 80% of the way there—fast, guided, and defensible.**
+
+**Powered by:**
+- **Agentic RAG** – LLM-driven retrieval where agents decide when, what, and how to search
+- **Multi-Agent Self-Correction** – Extraction → Verification → Correction loops with audit trails
+- **Detection-First Vision** – Grounding DINO + SAM2 + GPT-4o for hallucination-free image analysis
 
 ---
 
@@ -17,13 +22,14 @@
 * [Demo Video](#demo-video)
 * [Current Project Overview](#current-project-overview)
 * [The Problem: Document Intelligence at Scale](#the-problem-document-intelligence-at-scale)
-* [The Solution: Hybrid RAG + Agentic Workflow](#the-solution-hybrid-rag--agentic-workflow)
+* [The Solution: Agentic RAG + Multi-Agent Workflow](#the-solution-agentic-rag--multi-agent-workflow)
 * [Architecture Deep Dive](#architecture-deep-dive)
   * [Offline Pipeline — PDF Ingestion](#1-offline-pipeline--pdf-ingestion)
   * [Evidence Layer — Hybrid RAG](#2-evidence-layer-hybrid-rag)
-  * [Agentic Workflow — LangGraph Orchestration](#3-agentic-workflow--langgraph-orchestration)
-  * [Vision Layer — Detection-First Image Processing](#4-vision-layer--detection-first-image-processing)
-  * [Tool Registry](#5-tool-registry)
+  * [Agentic RAG — LLM-Driven Retrieval](#3-agentic-rag--llm-driven-retrieval)
+  * [Multi-Agent Appraisal Extraction](#4-multi-agent-appraisal-extraction)
+  * [Vision Layer — Detection-First Image Processing](#5-vision-layer--detection-first-image-processing)
+  * [Tool Registry](#6-tool-registry)
 * [Tech Stack](#tech-stack)
 * [Engineer-in-the-Loop Workflow](#engineer-in-the-loop-workflow)
 * [User Workflow (High Level)](#user-workflow-high-level)
@@ -141,7 +147,7 @@ These documents contain critical structured data (IDs, codes, classifications, t
 
 ---
 
-## The Solution: Hybrid RAG + Agentic Workflow
+## The Solution: Agentic RAG + Multi-Agent Workflow
 
 Basis implements a **three-layer architecture** designed for document intelligence problems:
 
@@ -328,6 +334,32 @@ For appraisal documents, extracted tables are additionally mapped to URAR (Unifo
 ```
 
 This mapping uses the same high-quality table extraction from ingestion—no additional parsing or GPT calls required.
+
+**Production Enhancement: Tiered Extraction**
+
+For production deployments, appraisal extraction uses a multi-tier approach with confidence scoring:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    TIERED EXTRACTION                             │
+├─────────────────────────────────────────────────────────────────┤
+│  Tier 1: MISMO XML Parser (confidence: 1.0)                    │
+│     ↓ (if unavailable)                                          │
+│  Tier 2: Azure Document Intelligence (confidence: 0.7-0.95)     │
+│     ↓ (for fields with confidence < 0.85)                       │
+│  Tier 3: GPT-4o Vision Fallback (confidence: 0.6-0.9)          │
+│     ↓ (for any remaining empty fields)                          │
+│  Tier 4: Regex Fallback (confidence: 0.5-0.8)                  │
+│     ↓                                                           │
+│  Tier 5: Validation & Confidence Aggregation                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- **Field-level confidence scoring** — Each field tracks confidence + source
+- **Critical field validation** — `property_address`, `year_built`, `gross_living_area`, `appraised_value`, `contract_price`, `effective_date` require >= 0.90 confidence
+- **Automatic review flagging** — `needs_review: true` when confidence thresholds not met
+- **Graceful degradation** — Falls back through tiers if services unavailable
 
 ---
 
@@ -549,11 +581,11 @@ results = hybrid_search("IRS_PUB946_2024", "tangible personal property", top_k=5
 
 ---
 
-### 3) Agentic Workflow — LangGraph Orchestration
+### 3) Agentic RAG — LLM-Driven Retrieval
 
 **Location:** `backEnd/agentic/`
 
-The agentic layer solves a critical problem: **context window saturation**.
+**Agentic RAG** solves a critical problem: **context window saturation**.
 
 When documents are large or interrelated, naive RAG retrieves too much context, saturating the LLM's context window and degrading response quality. The solution is **agent-based selective retrieval**—the agent plans what evidence is needed, retrieves selectively, and verifies sufficiency before generating.
 
@@ -860,7 +892,103 @@ Every agent execution is traced in LangSmith:
 
 ---
 
-### 4) Vision Layer — Detection-First Image Processing
+### 4) Multi-Agent Appraisal Extraction
+
+**Location:** `backEnd/agentic/agents/appraisal/`
+
+The appraisal extraction system uses a **3-agent LangGraph StateGraph** for intelligent extraction with self-correction:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  APPRAISAL EXTRACTION LANGGRAPH                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────────────────┐                                   │
+│  │    EXTRACTOR AGENT       │                                   │
+│  │    "Extract intelligently │                                   │
+│  │     using available tools"│                                   │
+│  └───────────┬──────────────┘                                   │
+│              │                                                  │
+│              ▼                                                  │
+│  ┌──────────────────────────┐                                   │
+│  │    VERIFIER AGENT        │                                   │
+│  │    "Be skeptical. Find   │                                   │
+│  │     errors. Question     │                                   │
+│  │     everything."         │                                   │
+│  └───────────┬──────────────┘                                   │
+│              │                                                  │
+│   ┌──────────┼──────────┐                                       │
+│   │          │          │                                       │
+│   ▼          ▼          ▼                                       │
+│ all_good  needs_corr  max_iter                                  │
+│   │          │          │                                       │
+│   ▼          ▼          ▼                                       │
+│ [END]  ┌──────────┐  [END]                                      │
+│        │CORRECTOR │                                             │
+│        │  AGENT   │                                             │
+│        │"Fix using│                                             │
+│        │ DIFFERENT│                                             │
+│        │ method"  │                                             │
+│        └────┬─────┘                                             │
+│             │                                                   │
+│             └──────► back to verifier (max 2 iterations)        │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why Multi-Agent? (Agentic Tool Use)**
+
+Unlike the Agentic RAG pattern used by AssetAgent and RoomAgent (which focus on retrieval), appraisal extraction uses **Agentic Tool Use**—a multi-agent system where agents reason about which extraction tools to invoke:
+
+| Agent | Role | Tools |
+|-------|------|-------|
+| **ExtractorAgent** | "Extract appraisal data intelligently" | `parse_mismo_xml` (FREE), `extract_with_azure_di` (PAID), `extract_with_vision` (EXPENSIVE) |
+| **VerifierAgent** | "Be skeptical. Find errors. Question everything." | `validate_extraction` (FREE), `vision_recheck_field` (PAID) |
+| **CorrectorAgent** | "Fix flagged errors using DIFFERENT method" | Same as Extractor, but MUST use different tool than original |
+
+**Cost-Aware Tool Selection:**
+
+```
+Extraction Strategy (minimize cost):
+┌─────────────────────────────────────────────────────────────┐
+│  1. MISMO XML Parser (FREE) — if XML uploaded               │
+│     ↓ (if unavailable)                                      │
+│  2. Azure Document Intelligence ($0.10-0.50)                │
+│     ↓ (for stubborn fields with confidence < 0.85)          │
+│  3. GPT-4o Vision Fallback ($0.10-0.20)                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Verification Checks:**
+- **Plausibility**: year_built 1800-2026, GLA 500-15000 sq ft
+- **OCR errors**: 0↔O, 1↔I, digit transposition detection
+- **Consistency**: GLA vs bedrooms, contract vs appraised value
+- **Confidence**: Critical fields < 0.90 flagged for review
+
+**Audit Trail (IRS Defensibility):**
+
+Every extraction produces a complete audit trail for compliance:
+
+```json
+{
+  "study_id": "STUDY_001",
+  "iterations": 1,
+  "final_confidence": 0.92,
+  "agent_calls": [
+    {"agent_name": "ExtractorAgent", "tools_used": ["extract_with_azure_di"]},
+    {"agent_name": "VerifierAgent", "tools_used": ["validate_extraction"]}
+  ],
+  "field_history": [
+    {"field_key": "improvements.year_built", "action": "extracted", "value": "I995", "source": "azure_di"},
+    {"field_key": "improvements.year_built", "action": "flagged", "notes": "OCR error: 'I' vs '1'"},
+    {"field_key": "improvements.year_built", "action": "corrected", "value": 1995, "source": "vision_recheck"}
+  ]
+}
+```
+
+---
+
+### 5) Vision Layer — Detection-First Image Processing
 
 **Location:** `backEnd/vision_layer/`
 
@@ -1169,7 +1297,7 @@ class VisionPipeline:
 
 ---
 
-### 5) Tool Registry
+### 6) Tool Registry
 
 Agents access evidence through standardized MCP tools:
 
@@ -1218,6 +1346,7 @@ def hybrid_search(
 | **Framework** | FastAPI |
 | **Workflow Orchestration** | LangGraph 0.2+ |
 | **LLM** | OpenAI GPT-4o (Azure OpenAI supported) |
+| **Document Intelligence** | Azure Document Intelligence (appraisal extraction) |
 | **PDF Parsing** | pdfplumber, PyMuPDF |
 | **Vector Store** | FAISS |
 | **Lexical Search** | rank-bm25 |
@@ -1276,8 +1405,14 @@ This is the core design principle that keeps deliverables defensible.
 
    * Ingest PDF using same pipeline as IRS docs (parse → chunk → index)
    * Extract tables with structure preserved (headers, rows, page)
+   * **Tiered extraction** with confidence scoring:
+     - Tier 1: MISMO XML (if uploaded) - 100% accurate
+     - Tier 2: Azure Document Intelligence - 70-95% confidence
+     - Tier 3: GPT-4o Vision fallback - 60-90% confidence
+     - Tier 4: Regex fallback - 50-80% confidence
    * Map URAR tables to frontend sections (subject, neighborhood, site, improvements, etc.)
    * Create property constraints (GLA, bedrooms, room counts, etc.)
+   * Auto-flag fields with `needs_review: true` when confidence < 0.90
    * ⏸️ **Engineer reviews + corrects**
 
 4. 🏠 **Room Classification**
