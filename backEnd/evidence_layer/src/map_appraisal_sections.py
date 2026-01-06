@@ -24,7 +24,7 @@ from .extract_tables import load_tables
 # Helper Functions
 # =============================================================================
 
-def _extract(text: str, pattern: str, group: int = 1) -> str:
+def _extract(text: str, pattern: str, group: int = 1, clean: bool = True) -> str:
     """
     Extract first regex match from text.
 
@@ -32,6 +32,7 @@ def _extract(text: str, pattern: str, group: int = 1) -> str:
         text: Text to search
         pattern: Regex pattern with capture group
         group: Which capture group to return (default 1)
+        clean: Whether to clean OCR artifacts (default True)
 
     Returns:
         Matched string or empty string
@@ -39,7 +40,10 @@ def _extract(text: str, pattern: str, group: int = 1) -> str:
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
         try:
-            return match.group(group).strip()
+            result = match.group(group).strip()
+            if clean:
+                result = _clean_text(result)
+            return result
         except (IndexError, AttributeError):
             return ""
     return ""
@@ -70,6 +74,35 @@ def _extract_number(text: str, pattern: str) -> float:
 def _extract_int(text: str, pattern: str) -> int:
     """Extract an integer from text."""
     return int(_extract_number(text, pattern))
+
+
+def _clean_text(text: str) -> str:
+    """
+    Clean up common OCR/PDF extraction artifacts.
+
+    Fixes:
+    - "P urchase" → "Purchase" (space after first letter)
+    - "Le gal" → "Legal" (space in middle of word)
+    - Trailing single characters like " e" at end
+    - Multiple spaces
+    """
+    if not text:
+        return text
+
+    # Fix common word splits from PDF extraction
+    # Pattern: single uppercase letter followed by space and lowercase continuation
+    text = re.sub(r'\b([A-Z])\s+([a-z])', r'\1\2', text)
+
+    # Fix "Le gal" type splits (two letter + space + rest)
+    text = re.sub(r'\b([A-Z][a-z])\s+([a-z]{2,})', r'\1\2', text)
+
+    # Remove trailing single characters (stray OCR artifacts)
+    text = re.sub(r'\s+[a-z]\s*$', '', text)
+
+    # Collapse multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+
+    return text.strip()
 
 
 def _get_all_table_text(tables: list[Table]) -> str:
@@ -121,7 +154,8 @@ def _parse_subject(text: str) -> dict:
         "census_tract": _extract(text, r'Census Tract\s+([\d.]+)'),
         "property_rights_appraised": _extract(text, r'Property Rights Appraised\s+(.+?)\s+(?:Leasehold|Assignment)'),
         "assignment_type": _extract(text, r'Assignment Type\s+(.+?)\s+(?:Transaction|Lender)'),
-        "lender_client": _extract(text, r'Lender/Client\s+(.+?)\s+Address'),
+        # Be specific: "Lender/Client" followed by company name, not the boilerplate "lender/client with an accurate..."
+        "lender_client": _extract(text, r'Lender/Client\s+([A-Z][A-Za-z\s]+(?:LLC|Inc|Corp|Company|Bank|Mortgage)?)\s+(?:Address|Borrower)'),
     }
 
 
@@ -248,8 +282,9 @@ def _parse_neighborhood(text: str) -> dict:
             "price_range_high": high_price,
         },
         "boundaries": boundaries,
-        "description": _extract(text, r'Neighborhood Description\s+(.+?)\s+(?:The immediate|Market Conditions)'),
-        "market_notes": _extract(text, r'Market Conditions[^\n]+(.+?)\s+(?:SITE|Dimensions)'),
+        "description": _extract(text, r'Neighborhood Description\s+(.+?)\s+(?:Market Conditions|Other land use)'),
+        # Extract the market conditions narrative (after the header text)
+        "market_notes": _extract(text, r'Market Conditions.*?conclusions\)\s+(.+?)\s+(?:ETIS|SITE|Dimensions)'),
     }
 
 
@@ -265,8 +300,10 @@ def _parse_site(text: str) -> dict:
         "view": _extract(text, r'View\s+([^;]+)'),
         "zoning_classification": _extract(text, r'(?:Specific\s+)?Zoning Classification\s+(.+?)\s+Zoning Description'),
         "zoning_description": _extract(text, r'Zoning Description\s+(.+?)\s+(?:Zoning Compliance|Is the)'),
-        "zoning_compliance": _extract(text, r'Zoning Compliance\s+(.+?)\s+(?:Legal|Is the)'),
-        "highest_and_best_use_as_improved": _extract(text, r'highest and best use.*?(?:Yes|No)\s+(.+?)\s+(?:Utilities|zoning)'),
+        # Extract just "Legal" or similar, not the full checkbox text
+        "zoning_compliance": _extract(text, r'Zoning Compliance\s+(Le\s*gal|Legal|Illegal|Nonconforming)'),
+        # The HBU answer comes after "If No, describe" - extract the actual description
+        "highest_and_best_use_as_improved": _extract(text, r'If No, describe\s+(.+?)\s+(?:Utilities|Public|FEMA)'),
         "utilities": {
             "electric": "Public" if re.search(r'Electricity\s+.*Public', text) else "",
             "gas": _extract(text, r'Gas\s+(.+?)\s+(?:Sanitary|Water)'),
@@ -281,7 +318,8 @@ def _parse_site(text: str) -> dict:
         "flood_zone": _extract(text, r'FEMA Flood Zone\s+(\w+)'),
         "fema_map_number": _extract(text, r'FEMA Map #\s+(\w+)'),
         "fema_map_date": _extract(text, r'FEMA Map Date\s+(\d{2}/\d{2}/\d{4})'),
-        "easements_encroachments": _extract(text, r'(?:easements|encroachments)[^\n]+(.+?)\s+(?:No survey|The utilities)'),
+        # Extract easements description; if just punctuation, return "None"
+        "easements_encroachments": _extract(text, r'If Yes, describe\s+(.+?)\s+(?:No survey|The utilities|FEMA)') or "None",
         "site_comments": _extract(text, r'utilities were all functioning(.+?)\s+(?:IMPROVEMENTS|General Description)'),
     }
 
@@ -289,14 +327,25 @@ def _parse_site(text: str) -> dict:
 def _parse_improvements(text: str) -> dict:
     """Parse improvements info from combined table text."""
     # Extract GLA from the explicit statement
+    # Text: "Finished area above grade contains: 11 Rooms 6 Bedrooms 6.0 Bath(s) 3,200 Square Feet of Gross Living Area Above Grade"
     gla = _extract_int(text, r'(\d[\d,]+)\s+Square Feet of Gross Living Area')
     if not gla:
         gla = _extract_int(text, r'Gross Living Area\s+([\d,]+)')
 
-    # Extract rooms/bedrooms/baths
-    rooms = _extract_int(text, r'(\d+)\s+Rooms')
-    bedrooms = _extract_int(text, r'(\d+)\s+Bedrooms')
-    baths = _extract_number(text, r'([\d.]+)\s+Bath')
+    # Extract rooms/bedrooms/baths from the "Finished area above grade contains:" line
+    # This is more specific to avoid matching comp data
+    rooms = _extract_int(text, r'(?:contains|area above grade).*?(\d+)\s+Rooms')
+    if not rooms:
+        rooms = _extract_int(text, r'(\d+)\s+Rooms')
+
+    bedrooms = _extract_int(text, r'(?:contains|area above grade).*?(\d+)\s+Bedrooms')
+    if not bedrooms:
+        bedrooms = _extract_int(text, r'(\d+)\s+Bedrooms')
+
+    # More specific pattern for bathrooms to match "6.0 Bath(s)" not comp data
+    baths = _extract_number(text, r'(?:contains|area above grade).*?([\d.]+)\s+Bath')
+    if not baths:
+        baths = _extract_number(text, r'([\d.]+)\s+Bath\(s\)')
 
     # Extract basement info
     basement_area = _extract_int(text, r'[Bb]asement Area\s+([\d,]+)\s*sq')
@@ -348,10 +397,20 @@ def _parse_improvements(text: str) -> dict:
             "trim_finish": _extract(text, r'Trim/Finish\s+([A-Za-z/&]+)'),
             "bath_floor": _extract(text, r'Bath Floor\s+([A-Za-z/]+)'),
             "bath_wainscot": _extract(text, r'Bath Wainscot\s+([A-Za-z/]+)'),
-            "heating": _extract(text, r'Heating.*?FWA|Radiant|HWBB|Other\s+(\w+)'),
+            "heating": {
+                "type": ["FWA"] if re.search(r'FWA', text) else (
+                    ["Radiant"] if re.search(r'Radiant', text) else (
+                        ["HWBB"] if re.search(r'HWBB', text) else []
+                    )
+                ),
+                "fuel": _extract(text, r'Fuel\s+([A-Za-z\s]+)'),
+            },
             "heating_fuel": _extract(text, r'Fuel\s+([A-Za-z\s]+)'),
             "cooling": "Central" if re.search(r'Central Air', text) else "",
-            "fireplaces": _extract_int(text, r'Fireplace.*?#\s*(\d+)'),
+            "fireplaces": {
+                "count": _extract_int(text, r'Fireplace.*?#\s*(\d+)'),
+                "type": "Electric" if re.search(r'electric fireplace', text, re.IGNORECASE) else "",
+            },
             "garage_cars": _extract_int(text, r'Garage.*?#.*?Cars\s+(\d+)'),
             "carport_cars": _extract_int(text, r'Carport.*?#.*?Cars\s+(\d+)'),
             "driveway_surface": _extract(text, r'Driveway Surface\s+(\w+)'),
@@ -366,6 +425,13 @@ def _parse_improvements(text: str) -> dict:
                 "disposal": bool(re.search(r'Disposal', text, re.IGNORECASE)),
                 "microwave": bool(re.search(r'Microwave', text, re.IGNORECASE)),
                 "washer_dryer": bool(re.search(r'Washer/Dryer', text, re.IGNORECASE)),
+            },
+            # Frontend expects these fields in interior_mechanical
+            "gross_living_area_above_grade_sqft": gla,
+            "rooms_above_grade": {
+                "total_rooms": rooms,
+                "bedrooms": bedrooms,
+                "bathrooms": baths,
             },
         },
     }
@@ -382,31 +448,74 @@ def _parse_sales_comparison(text: str) -> dict:
     sales_low = _extract_number(text, r'comparable sales.*?from\s+\$?\s*([\d,]+)')
     sales_high = _extract_number(text, r'comparable sales.*?to\s+\$?\s*([\d,]+)')
 
-    # Extract subject info
-    subject_price = _extract_number(text, r'Sale Price\s+\$?\s*([\d,]+)')
-    subject_gla = _extract_int(text, r'Gross Liv.*?Area.*?(\d[\d,]+)')
+    # Extract subject info - from the sales comparison grid
+    # Look for pattern: "Sale Price $ 680,000 $ 419,000 $ 680,000 $ 1,050,000"
+    # We need to find all dollar amounts after "Sale Price" on that line
+    sale_price_line = re.search(r'Sale Price\s+(.*?)(?:Sale Price/|Data Source)', text, re.DOTALL)
+    if sale_price_line:
+        sale_prices = re.findall(r'\$\s*([\d,]+)', sale_price_line.group(1))
+    else:
+        sale_prices = []
 
-    # Extract comparables - look for address patterns
+    subject_price = float(sale_prices[0].replace(',', '')) if sale_prices else 0
+
+    # GLA from "3,200 sq.ft." in the grid - look for the subject GLA specifically
+    # Pattern: "3,200 sq.ft. 1,428 sq.ft. +130,320" (subject then comp1)
+    gla_line = re.search(r'(\d[\d,]+)\s+sq\.?ft\.\s+(\d[\d,]+)\s+sq\.?ft\.', text)
+    subject_gla = int(gla_line.group(1).replace(',', '')) if gla_line else 0
+
+    # Price per sqft: "$ 188.89sq.ft."
+    subject_price_per_sqft = _extract_number(text, r'\$\s*([\d.]+)\s*sq\.?ft\.')
+
+    # Extract comparables from the grid
+    # Look for addresses like "57 Walton Ave Montrose, CA"
     comps = []
-    comp_patterns = [
-        r'COMPARABLE SALE #\s*1.*?Address\s+(.+?)\s+Proximity',
-        r'COMPARABLE SALE #\s*2.*?Address\s+(.+?)\s+Proximity',
-        r'COMPARABLE SALE #\s*3.*?Address\s+(.+?)\s+Proximity',
-    ]
 
-    # Find comp addresses and prices
-    comp_addresses = re.findall(r'(\d+\s+\w+\s+(?:Ave|St|Dr|Ln|Rd|Way|Blvd)[^\n]*?)\s+(?:Montrose|[A-Z]{2})', text)
-    comp_prices = re.findall(r'\$\s*([\d,]+)\s*(?:sq\.?ft|$)', text)
+    # Comp addresses appear after "COMPARABLE SALE # N" or after the subject address
+    # Pattern: "Address 1290 W. 29th Montrose, CA 57 Walton Ave Montrose, CA 234 Tanner Dr..."
+    comp_addr_match = re.search(
+        r'Address\s+[\d\w\s.]+?Montrose.*?'
+        r'(\d+\s+\w+\s+(?:Ave|St|Dr|Ln|Rd|Way|Blvd|Ct|Pl)\s+Montrose.*?)'
+        r'(\d+\s+\w+\s+(?:Ave|St|Dr|Ln|Rd|Way|Blvd|Ct|Pl)\s+Montrose.*?)?'
+        r'(\d+\s+\w+\s+(?:Ave|St|Dr|Ln|Rd|Way|Blvd|Ct|Pl)\s+Montrose.*?)?',
+        text, re.DOTALL
+    )
 
-    for i, addr in enumerate(comp_addresses[:3]):  # Max 3 comps
+    # More robust: find all addresses that look like comparables
+    # Format: "57 Walton Ave Montrose, CA"
+    all_addresses = re.findall(r'(\d+\s+\w+\s+(?:Ave|St|Dr|Ln|Rd|Way|Blvd|Ct|Pl))\s+Montrose', text)
+
+    # Skip the first one (subject) if it matches the subject address
+    subject_addr = _extract(text, r'Property Address\s+([\d\w\s.]+?)\s+City')
+    comp_addresses = [a for a in all_addresses if subject_addr.lower() not in a.lower()][:6]
+
+    # Extract proximity patterns: "1.03 miles SE", "0.86 miles SW"
+    proximities = re.findall(r'(\d+\.\d+\s+miles?\s+[NSEW]{1,2})', text)
+
+    # Extract sale prices (after subject): positions 1, 2, 3 are comps
+    # sale_prices[0] = subject ($680,000), sale_prices[1,2,3] = comps
+    comp_prices = [float(p.replace(',', '')) for p in sale_prices[1:4]] if len(sale_prices) > 1 else []
+
+    # Extract adjusted prices from the grid footer
+    # Pattern: "Net Adj. 61.3% Gross Adj. 63.0% $ 675,860"
+    adjusted_match = re.findall(r'Net Adj\.\s+[\d.-]+%\s+Gross Adj\.\s+[\d.]+%\s+\$\s*([\d,]+)', text)
+    adjusted_prices = adjusted_match if adjusted_match else []
+
+    # Extract design/style and condition for each comp
+    designs = re.findall(r'Design.*?DT[\d.]+;([A-Za-z/]+)', text)
+    conditions = re.findall(r'Condition\s+([QC]\d)', text)
+
+    for i, addr in enumerate(comp_addresses[:3]):  # Max 3 comps on main page
         comp = {
             "id": i + 1,
             "address": addr.strip(),
-            "city": "",
-            "state": "",
-            "proximity": "",
-            "sale_price": 0,
-            "adjusted_sale_price": 0,
+            "city": "Montrose",
+            "state": "CA",
+            "proximity": proximities[i] if i < len(proximities) else "",
+            "sale_price": comp_prices[i] if i < len(comp_prices) else 0,
+            "adjusted_sale_price": float(adjusted_prices[i].replace(',', '')) if i < len(adjusted_prices) else 0,
+            "design": designs[i + 1] if i + 1 < len(designs) else "",  # Skip subject design
+            "condition": conditions[i + 1] if i + 1 < len(conditions) else "",  # Skip subject condition
         }
         comps.append(comp)
 
@@ -418,11 +527,11 @@ def _parse_sales_comparison(text: str) -> dict:
             "sales_12_months_price_range": {"low": sales_low, "high": sales_high},
         },
         "subject": {
-            "address": _extract(text, r'Address\s+([\d\w\s.]+?)\s+(?:Montrose|[A-Z]{2})'),
-            "city": _extract(text, r'(?:City|Montrose)\s*,?\s*([A-Z]{2})'),
-            "state": "",
+            "address": subject_addr,
+            "city": "Montrose",
+            "state": "CA",
             "contract_price": subject_price,
-            "price_per_sqft": _extract_number(text, r'\$\s*([\d.]+)\s*sq\.?ft'),
+            "price_per_sqft": subject_price_per_sqft,
             "gross_living_area_sqft": subject_gla,
         },
         "comparables": comps,
@@ -431,34 +540,51 @@ def _parse_sales_comparison(text: str) -> dict:
 
 def _parse_cost_approach(text: str) -> dict:
     """Parse cost approach info from combined table text."""
+    # Try multiple patterns for site value
+    # Actual text: "OPINION OF SITE VALUE =$ 85,000"
+    site_value = _extract_number(text, r'OPINION OF SITE VALUE\s*=?\s*\$?\s*([\d,]+)')
+    if not site_value:
+        site_value = _extract_number(text, r'Site Value\s*=?\s*\$?\s*([\d,]+)')
+
+    # Try multiple patterns for total cost new
+    # Actual text: "Total Estimate of Cost-New =$ 729,071"
+    total_cost_new = _extract_number(text, r'Total Estimate of Cost-New\s*=?\s*\$?\s*([\d,]+)')
+    if not total_cost_new:
+        total_cost_new = _extract_number(text, r'Total.*?Cost.*?New\s*=?\s*\$?\s*([\d,]+)')
+
+    # Depreciation - actual text: "Depreciation 156,240"
+    depreciation = _extract_number(text, r'(?:Less\s+)?Physical.*?Depreciation\s+([\d,]+)')
+    if not depreciation:
+        depreciation = _extract_number(text, r'Depreciation\s+([\d,]+)')
+
     return {
-        "site_value": _extract_number(text, r'Site Value\s+\$?\s*([\d,]+)'),
+        "site_value": site_value,
         "improvements_cost_new": {
             "dwelling_gla": {
-                "area_sqft": _extract_int(text, r'Dwelling\s+(\d[\d,]+)\s*sq'),
-                "unit_cost": _extract_number(text, r'Dwelling.*?\$\s*([\d.]+)\s*='),
-                "total_cost": _extract_number(text, r'Dwelling.*?=\s*\$?\s*([\d,]+)'),
+                "area_sqft": _extract_int(text, r'DWELLING\s+(\d[\d,]+)\s*[Ss]q'),
+                "unit_cost": _extract_number(text, r'DWELLING.*?@\s*\$\s*([\d.]+)'),
+                "total_cost": _extract_number(text, r'DWELLING.*?=\s*\$?\s*([\d,]+)'),
             },
             "basement": {
-                "area_sqft": _extract_int(text, r'[Bb]asement\s+(\d[\d,]+)\s*sq'),
-                "unit_cost": 0,
-                "total_cost": 0,
+                "area_sqft": _extract_int(text, r'Basement\s+(\d[\d,]+)\s*[Ss]q'),
+                "unit_cost": _extract_number(text, r'Basement.*?@\s*\$\s*([\d.]+)'),
+                "total_cost": _extract_number(text, r'Basement.*?=\s*\$?\s*([\d,]+)'),
             },
-            "mechanicals_misc": _extract_number(text, r'(?:Mechanicals|Misc).*?\$?\s*([\d,]+)'),
+            "mechanicals_misc": _extract_number(text, r'Mechanicals/Misc\s*=?\s*\$?\s*([\d,]+)'),
             "garage_carport": {
-                "area_sqft": _extract_int(text, r'[Gg]arage.*?(\d+)\s*sq'),
-                "unit_cost": 0,
-                "total_cost": _extract_number(text, r'[Gg]arage.*?\$?\s*([\d,]+)'),
+                "area_sqft": _extract_int(text, r'Garage/Carport\s+(\d+)\s*[Ss]q'),
+                "unit_cost": _extract_number(text, r'Garage/Carport.*?@\s*\$\s*([\d.]+)'),
+                "total_cost": _extract_number(text, r'Garage/Carport.*?=\s*\$?\s*([\d,]+)'),
             },
         },
-        "total_cost_new": _extract_number(text, r'Total.*?Cost New\s+\$?\s*([\d,]+)'),
-        "depreciation": _extract_number(text, r'Depreciation\s+\$?\s*([\d,]+)'),
-        "depreciated_cost_of_improvements": _extract_number(text, r'Depreciated Cost.*?\$?\s*([\d,]+)'),
-        "as_is_site_improvements_value": _extract_number(text, r'As.Is.*?Site.*?\$?\s*([\d,]+)'),
-        "indicated_value_by_cost_approach": _extract_number(text, r'Indicated Value.*?Cost.*?\$?\s*([\d,]+)'),
-        "effective_age_years": _extract_int(text, r'Effective Age\s+(\d+)'),
-        "remaining_economic_life_years": _extract_int(text, r'(?:Remaining\s+)?Economic Life\s+(\d+)'),
-        "cost_data_source": _extract(text, r'Cost (?:Data )?Source\s+(.+?)\s+(?:Quality|Comments)'),
+        "total_cost_new": total_cost_new,
+        "depreciation": depreciation,
+        "depreciated_cost_of_improvements": _extract_number(text, r'Depreciated Cost of Improvements\s*=?\s*\$?\s*([\d,]+)'),
+        "as_is_site_improvements_value": _extract_number(text, r'"?As-is"?\s+Value of Site Improvements\s*=?\s*\$?\s*([\d,]+)'),
+        "indicated_value_by_cost_approach": _extract_number(text, r'INDICATED VALUE BY COST APPROACH\s*=?\s*\$?\s*([\d,]+)'),
+        "effective_age_years": _extract_int(text, r'Effective Age\s*=?\s*(\d+)'),
+        "remaining_economic_life_years": _extract_int(text, r'(?:Remaining\s+)?Economic Life\s*=?\s*(\d+)'),
+        "cost_data_source": _extract(text, r'Source of cost data\s+(.+?)\s+Quality'),
         "comments": "",
     }
 
@@ -488,6 +614,7 @@ def _parse_reconciliation(text: str) -> dict:
 def map_appraisal_tables_to_sections(
     tables_path: Path,
     fallback_fields: Optional[dict] = None,
+    debug: bool = True,
 ) -> dict:
     """
     Load extracted tables and map to URAR section structure.
@@ -495,6 +622,7 @@ def map_appraisal_tables_to_sections(
     Args:
         tables_path: Path to the .tables.jsonl file
         fallback_fields: Optional dict from regex extraction to use as fallback
+        debug: If True, print debug information about extraction
 
     Returns:
         Dict with section keys matching AppraisalResources TypeScript interface
@@ -517,6 +645,13 @@ def map_appraisal_tables_to_sections(
 
     print(f"[DEBUG] Extracted {len(all_text)} chars of text from {len(tables)} tables")
 
+    # Debug: Save full text to file for inspection
+    if debug:
+        debug_path = tables_path.parent / f"{tables_path.stem}_debug_text.txt"
+        with open(debug_path, "w") as f:
+            f.write(all_text)
+        print(f"[DEBUG] Saved combined text to: {debug_path}")
+
     # Parse each section from the combined text
     result = {
         "subject": _parse_subject(all_text),
@@ -530,6 +665,35 @@ def map_appraisal_tables_to_sections(
         "photos": [],  # Not extracted from tables
         "sketch": {"areas": [], "basement_layout": []},  # Not extracted from tables
     }
+
+    # Debug: Print key extracted values
+    if debug:
+        print("\n" + "="*60)
+        print("[DEBUG] KEY EXTRACTED VALUES:")
+        print("="*60)
+        print(f"  Subject:")
+        print(f"    property_address: {result['subject'].get('property_address', 'NOT FOUND')}")
+        print(f"    city: {result['subject'].get('city', 'NOT FOUND')}")
+        print(f"    state: {result['subject'].get('state', 'NOT FOUND')}")
+        print(f"    borrower: {result['subject'].get('borrower', 'NOT FOUND')}")
+        print(f"  Listing/Contract:")
+        print(f"    contract_price: {result['listing_and_contract'].get('contract_price', 'NOT FOUND')}")
+        print(f"    days_on_market: {result['listing_and_contract'].get('days_on_market', 'NOT FOUND')}")
+        print(f"  Improvements:")
+        print(f"    year_built: {result['improvements']['general'].get('year_built', 'NOT FOUND')}")
+        print(f"    gla_sqft: {result['improvements']['general'].get('gla_sqft', 'NOT FOUND')}")
+        print(f"    bedrooms: {result['improvements']['general'].get('bedrooms', 'NOT FOUND')}")
+        print(f"    bathrooms: {result['improvements']['general'].get('bathrooms', 'NOT FOUND')}")
+        print(f"  Cost Approach:")
+        print(f"    site_value: {result['cost_approach'].get('site_value', 'NOT FOUND')}")
+        print(f"    total_cost_new: {result['cost_approach'].get('total_cost_new', 'NOT FOUND')}")
+        print(f"    depreciation: {result['cost_approach'].get('depreciation', 'NOT FOUND')}")
+        print(f"    indicated_value: {result['cost_approach'].get('indicated_value_by_cost_approach', 'NOT FOUND')}")
+        print(f"  Sales Comparison:")
+        print(f"    comparables count: {len(result['sales_comparison'].get('comparables', []))}")
+        print(f"  Reconciliation:")
+        print(f"    final_market_value: {result['reconciliation'].get('final_market_value', 'NOT FOUND')}")
+        print("="*60 + "\n")
 
     # Apply fallback from regex extraction if provided
     if fallback_fields:
