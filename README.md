@@ -1345,7 +1345,7 @@ def hybrid_search(
 |-----------|------------|
 | **Framework** | FastAPI |
 | **Workflow Orchestration** | LangGraph 0.2+ |
-| **LLM** | OpenAI GPT-4o (Azure OpenAI supported) |
+| **LLM** | Azure OpenAI |
 | **Document Intelligence** | Azure Document Intelligence (appraisal extraction) |
 | **PDF Parsing** | pdfplumber, PyMuPDF |
 | **Vector Store** | FAISS |
