@@ -24,8 +24,7 @@ from ..config.llm_providers import get_llm_for_stage
 from ..config.settings import get_settings
 from ..mcp_server.server import get_all_evidence_tools
 from ..utils.parallel import retry_with_backoff
-from ..observability.cost_tracker import get_cost_tracker
-from ..observability.decision_log import get_decision_logger
+# Note: cost_tracker and decision_log are imported lazily to avoid circular imports
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +279,8 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
         settings = get_settings()
         max_iterations = settings.agent_max_iterations
 
-        # Phase 6: Cost tracking setup
+        # Phase 6: Cost tracking setup (lazy import to avoid circular imports)
+        from ..observability.cost_tracker import get_cost_tracker
         cost_tracker = get_cost_tracker()
         total_input_tokens = 0
         total_output_tokens = 0
@@ -398,8 +398,9 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
         needs_review = len(citations) == 0
         review_reason = "No evidence found to support classification" if needs_review else None
 
-        # Phase 6: Log the decision for audit trail
+        # Phase 6: Log the decision for audit trail (lazy import to avoid circular imports)
         try:
+            from ..observability.decision_log import get_decision_logger
             decision_logger = get_decision_logger()
             # Extract evidence chunk IDs
             evidence_ids = [
