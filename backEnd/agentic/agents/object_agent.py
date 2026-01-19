@@ -3,15 +3,310 @@ Object Context Agent - IRS-relevant context for detected objects.
 
 Takes vision layer detections and provides context about attachment type,
 function, and other IRS-relevant properties for asset classification.
+
+Phase 4 Enhancement: Domain-specific tools for component analysis.
 """
 
 import json
 import re
 from typing import Optional
 
+from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from .base_agent import BaseStageAgent, StageContext
+
+
+# =============================================================================
+# Domain-Specific Object Tools (Phase 4)
+# =============================================================================
+
+# Component standards and specifications
+COMPONENT_STANDARDS = {
+    "hvac_unit": {
+        "industry_standards": ["ASHRAE 90.1", "ENERGY STAR", "AHRI"],
+        "typical_lifespan_years": 15,
+        "typical_section": "1245",
+        "typical_recovery": "15-year",
+        "notes": "Standalone HVAC units typically Section 1245. Central systems may be 1250.",
+    },
+    "light_fixture": {
+        "industry_standards": ["NEC", "ENERGY STAR", "DLC"],
+        "typical_lifespan_years": 15,
+        "typical_section": "1245",
+        "typical_recovery": "5-year",
+        "notes": "Decorative fixtures typically Section 1245. Recessed/structural may vary.",
+    },
+    "electrical_panel": {
+        "industry_standards": ["NEC", "UL", "NEMA"],
+        "typical_lifespan_years": 25,
+        "typical_section": "1245",
+        "typical_recovery": "7-year",
+        "notes": "Distribution equipment typically Section 1245.",
+    },
+    "plumbing_fixture": {
+        "industry_standards": ["IPC", "UPC", "ASME"],
+        "typical_lifespan_years": 20,
+        "typical_section": "1245",
+        "typical_recovery": "5-year",
+        "notes": "Fixtures (sinks, toilets) typically Section 1245. Piping may be 1250.",
+    },
+    "carpet": {
+        "industry_standards": ["CRI", "NSF/ANSI"],
+        "typical_lifespan_years": 10,
+        "typical_section": "1245",
+        "typical_recovery": "5-year",
+        "notes": "Carpet is typically Section 1245, 5-year recovery.",
+    },
+    "flooring": {
+        "industry_standards": ["TCNA", "NWFA", "RFCI"],
+        "typical_lifespan_years": 15,
+        "typical_section": "1245",
+        "typical_recovery": "5-year",
+        "notes": "Most flooring is Section 1245. Structural subfloor is 1250.",
+    },
+    "cabinet": {
+        "industry_standards": ["KCMA", "ANSI A161.1"],
+        "typical_lifespan_years": 20,
+        "typical_section": "1245",
+        "typical_recovery": "5-year",
+        "notes": "Kitchen/bath cabinets typically Section 1245 if not structural.",
+    },
+    "appliance": {
+        "industry_standards": ["ENERGY STAR", "UL", "AHAM"],
+        "typical_lifespan_years": 10,
+        "typical_section": "1245",
+        "typical_recovery": "5-year",
+        "notes": "Appliances are Section 1245 personal property.",
+    },
+    "fire_sprinkler": {
+        "industry_standards": ["NFPA 13", "UL", "FM"],
+        "typical_lifespan_years": 50,
+        "typical_section": "1245",
+        "typical_recovery": "15-year",
+        "notes": "Fire suppression systems typically Section 1245, 15-year.",
+    },
+    "security_system": {
+        "industry_standards": ["UL", "NFPA", "ASIS"],
+        "typical_lifespan_years": 10,
+        "typical_section": "1245",
+        "typical_recovery": "5-year",
+        "notes": "Security and access systems typically Section 1245.",
+    },
+    "elevator": {
+        "industry_standards": ["ASME A17.1", "ADA", "IBC"],
+        "typical_lifespan_years": 25,
+        "typical_section": "1250",
+        "typical_recovery": "39-year",
+        "notes": "Elevators are typically Section 1250 as part of building.",
+    },
+    "window": {
+        "industry_standards": ["NFRC", "AAMA", "ENERGY STAR"],
+        "typical_lifespan_years": 25,
+        "typical_section": "1250",
+        "typical_recovery": "39-year",
+        "notes": "Windows are typically Section 1250 as structural components.",
+    },
+    "door": {
+        "industry_standards": ["BHMA", "SDI", "NFPA"],
+        "typical_lifespan_years": 25,
+        "typical_section": "mixed",
+        "typical_recovery": "varies",
+        "notes": "Exterior doors typically 1250. Interior decorative may be 1245.",
+    },
+}
+
+# Similar components mapping for suggestions
+SIMILAR_COMPONENTS = {
+    "hvac": ["hvac_unit", "air_handler", "furnace", "boiler", "heat_pump", "thermostat", "duct"],
+    "lighting": ["light_fixture", "recessed_light", "pendant", "chandelier", "sconce", "emergency_light"],
+    "plumbing": ["sink", "faucet", "toilet", "shower", "tub", "water_heater", "pipe"],
+    "electrical": ["electrical_panel", "outlet", "switch", "wiring", "conduit", "generator"],
+    "flooring": ["carpet", "tile", "hardwood", "vinyl", "laminate", "concrete"],
+    "kitchen": ["cabinet", "countertop", "appliance", "range", "refrigerator", "dishwasher"],
+    "fire_safety": ["fire_sprinkler", "fire_alarm", "fire_extinguisher", "smoke_detector"],
+    "security": ["security_system", "camera", "access_control", "alarm"],
+    "exterior": ["window", "door", "siding", "roofing", "gutter", "fence"],
+}
+
+# Component specifications
+COMPONENT_SPECIFICATIONS = {
+    "hvac_unit": {
+        "typical_sizes": ["1.5-ton", "2-ton", "3-ton", "4-ton", "5-ton"],
+        "efficiency_ratings": ["SEER 14-21", "EER 10-14"],
+        "installation_requirements": ["Dedicated circuit", "Refrigerant lines", "Condensate drain"],
+        "cost_factors": ["Size", "Efficiency", "Installation complexity"],
+    },
+    "light_fixture": {
+        "typical_types": ["Recessed", "Surface mount", "Pendant", "Track", "Emergency"],
+        "efficiency_ratings": ["LED", "Fluorescent", "Incandescent"],
+        "installation_requirements": ["Junction box", "Proper circuit", "Height clearance"],
+        "cost_factors": ["Type", "Finish", "Smart features"],
+    },
+    "carpet": {
+        "typical_grades": ["Commercial", "Residential", "Heavy traffic", "Standard"],
+        "specifications": ["Face weight", "Pile height", "Density"],
+        "installation_requirements": ["Subfloor prep", "Pad", "Seaming"],
+        "cost_factors": ["Quality", "Pad type", "Room complexity"],
+    },
+    "cabinet": {
+        "typical_grades": ["Stock", "Semi-custom", "Custom"],
+        "specifications": ["Wood type", "Construction", "Finish"],
+        "installation_requirements": ["Level walls", "Scribing", "Hardware"],
+        "cost_factors": ["Material", "Configuration", "Hardware"],
+    },
+}
+
+
+@tool
+def search_component_standards(component_name: str) -> dict:
+    """
+    Search for industry standards applicable to a component.
+
+    Provides information about relevant codes, standards, and typical
+    classifications for a building component.
+
+    Args:
+        component_name: Name of the component to search for
+
+    Returns:
+        Industry standards, typical lifespan, and IRS classification hints
+    """
+    component_lower = component_name.lower().replace(" ", "_")
+
+    # Try exact match
+    if component_lower in COMPONENT_STANDARDS:
+        standards = COMPONENT_STANDARDS[component_lower]
+        return {
+            "component": component_name,
+            "found": True,
+            **standards,
+        }
+
+    # Try partial match
+    for key, standards in COMPONENT_STANDARDS.items():
+        if key in component_lower or component_lower in key:
+            return {
+                "component": component_name,
+                "matched_to": key,
+                "found": True,
+                **standards,
+            }
+
+    # Try category match
+    for category, components in SIMILAR_COMPONENTS.items():
+        if any(comp in component_lower for comp in components):
+            # Return generic info for category
+            return {
+                "component": component_name,
+                "category": category,
+                "found": False,
+                "industry_standards": ["Search IRS guidance for specific standards"],
+                "typical_lifespan_years": None,
+                "typical_section": "varies",
+                "notes": f"Component appears related to {category}. Search IRS guidance for specifics.",
+            }
+
+    return {
+        "component": component_name,
+        "found": False,
+        "industry_standards": [],
+        "typical_section": "unknown",
+        "notes": "No specific standards found. Search IRS Cost Segregation ATG for guidance.",
+    }
+
+
+@tool
+def find_similar_components(component_name: str) -> dict:
+    """
+    Find components similar to the given one.
+
+    Useful for understanding related components that may have similar
+    IRS treatment or for ensuring complete coverage in a room.
+
+    Args:
+        component_name: Name of the component
+
+    Returns:
+        List of similar components and their category
+    """
+    component_lower = component_name.lower().replace(" ", "_")
+
+    # Check which category this component belongs to
+    for category, components in SIMILAR_COMPONENTS.items():
+        for comp in components:
+            if comp in component_lower or component_lower in comp:
+                return {
+                    "component": component_name,
+                    "category": category,
+                    "found": True,
+                    "similar_components": components,
+                    "hint": f"Consider also checking for these related components: {', '.join(components[:5])}",
+                }
+
+    # Try keyword match
+    for category, components in SIMILAR_COMPONENTS.items():
+        if category in component_lower:
+            return {
+                "component": component_name,
+                "category": category,
+                "found": True,
+                "similar_components": components,
+                "hint": f"Category: {category}. Related components: {', '.join(components[:5])}",
+            }
+
+    return {
+        "component": component_name,
+        "found": False,
+        "similar_components": [],
+        "hint": "No similar components found. This may be a unique or specialized component.",
+    }
+
+
+@tool
+def get_component_specifications(component_name: str) -> dict:
+    """
+    Get technical specifications for a component type.
+
+    Provides typical sizes, grades, installation requirements,
+    and cost factors for the component.
+
+    Args:
+        component_name: Name of the component
+
+    Returns:
+        Technical specifications and cost factors
+    """
+    component_lower = component_name.lower().replace(" ", "_")
+
+    # Try exact match
+    if component_lower in COMPONENT_SPECIFICATIONS:
+        specs = COMPONENT_SPECIFICATIONS[component_lower]
+        return {
+            "component": component_name,
+            "found": True,
+            **specs,
+        }
+
+    # Try partial match
+    for key, specs in COMPONENT_SPECIFICATIONS.items():
+        if key in component_lower or component_lower in key:
+            return {
+                "component": component_name,
+                "matched_to": key,
+                "found": True,
+                **specs,
+            }
+
+    return {
+        "component": component_name,
+        "found": False,
+        "typical_types": [],
+        "specifications": [],
+        "installation_requirements": [],
+        "cost_factors": [],
+        "hint": "No detailed specifications found. Refer to RSMeans for cost data.",
+    }
 
 
 # =============================================================================
@@ -91,44 +386,79 @@ class ObjectContextAgent(BaseStageAgent[ObjectInput, ObjectContext]):
 
     Takes vision layer detections and provides attachment type,
     function, and likely classification hints for asset classification.
+
+    Phase 4 Enhancement: Domain-specific tools for component analysis.
     """
 
     def __init__(self):
         super().__init__(stage_name="object_context")
+
+    def get_tools(self) -> list[BaseTool]:
+        """
+        Return tools including domain-specific component tools.
+
+        Phase 4: Adds specialized component analysis tools.
+        """
+        from ..mcp_server.server import get_all_evidence_tools
+
+        # Get base search tools
+        base_tools = get_all_evidence_tools()
+
+        # Add domain-specific object tools
+        object_tools = [
+            search_component_standards,
+            find_similar_components,
+            get_component_specifications,
+        ]
+
+        return base_tools + object_tools
 
     def get_system_prompt(self) -> str:
         return """You are a cost segregation expert determining IRS context for detected objects.
 
 Your task: Analyze detected objects and provide IRS-relevant context for asset classification.
 
-## CRITICAL RULES
+## WORKFLOW
 
-1. **Evidence Required**: Search IRS guidance to determine:
-   - Whether this component is Section 1245 (personal property) or 1250 (real property)
-   - The likely attachment method and whether it affects classification
-   - The component's function and its impact on depreciation
+1. **Get Component Standards**: Use search_component_standards for industry info
+2. **Find Similar Components**: Use find_similar_components to understand category
+3. **Get Specifications**: Use get_component_specifications for technical details
+4. **Search IRS Guidance**: Search for specific IRS guidance
+5. **Return Enriched Context**: Combine all information
 
-2. **Search Strategy**:
+## DOMAIN-SPECIFIC TOOLS (USE THESE FIRST)
+
+- search_component_standards(component_name): Get industry standards and typical IRS treatment
+- find_similar_components(component_name): Find related components in same category
+- get_component_specifications(component_name): Get technical specs and cost factors
+
+## SEARCH STRATEGY (AFTER DOMAIN TOOLS)
+
+1. Use domain tools first to get baseline information
+2. Then search IRS guidance for specifics:
    - hybrid_search(doc_id="IRS_IRS_COST_SEG_ATG__2024", query="<component_name> depreciation")
    - bm25_search(doc_id="IRS_REV_PROC_87_56", query="<component_name>") for asset class
 
-3. **Component Categories**:
-   - fixture: Permanently attached items (light fixtures, plumbing fixtures)
-   - equipment: Functional equipment (appliances, HVAC units)
-   - improvement: Building improvements (flooring, wall coverings)
-   - structural: Part of building structure (walls, foundation, roof)
-   - decorative: Aesthetic elements (artwork, decorative molding)
+## COMPONENT CATEGORIES
 
-4. **Attachment Types**:
-   - permanent: Cannot be removed without damage to building
-   - removable: Can be removed without significant damage
-   - built_in: Integrated into building structure
-   - freestanding: Not attached to building
+- fixture: Permanently attached items (light fixtures, plumbing fixtures)
+- equipment: Functional equipment (appliances, HVAC units)
+- improvement: Building improvements (flooring, wall coverings)
+- structural: Part of building structure (walls, foundation, roof)
+- decorative: Aesthetic elements (artwork, decorative molding)
 
-5. **Section Determination**:
-   - Section 1245: Tangible personal property, shorter recovery
-   - Section 1250: Real property, longer recovery (27.5 or 39 years)
-   - Key factors: Attachment method, ease of removal, function
+## ATTACHMENT TYPES
+
+- permanent: Cannot be removed without damage to building
+- removable: Can be removed without significant damage
+- built_in: Integrated into building structure
+- freestanding: Not attached to building
+
+## SECTION DETERMINATION
+
+- Section 1245: Tangible personal property, shorter recovery
+- Section 1250: Real property, longer recovery (27.5 or 39 years)
+- Key factors: Attachment method, ease of removal, function
 
 ## OUTPUT FORMAT
 

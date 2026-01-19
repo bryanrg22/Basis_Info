@@ -11,6 +11,11 @@ This module provides:
 2. parse_vision_response() - multi-strategy JSON parsing with fallbacks
 3. analyze_image() - backward-compatible function using VisionAgent internally
 
+Phase 4 Enhancement: Tool-as-Agent pattern
+- crop_and_analyze_region: PIL-based cropping for focused analysis
+- request_human_verification: Flag low-confidence results for review
+- Full agentic loop with self-verification
+
 Timing logs:
 - [TIMING] Image X/N: Xs (download: Xs, vision: Xs)
 - [TIMING] Vision analysis complete: N images in Xs (avg Xs/image, W workers)
@@ -18,6 +23,7 @@ Timing logs:
 
 import asyncio
 import base64
+import io
 import json
 import logging
 import re
@@ -34,6 +40,13 @@ from ..config.llm_providers import get_vision_llm
 from ..config.settings import get_settings
 from ..observability.tracing import get_tracer
 from ..utils.parallel import retry_with_backoff
+
+# Try to import PIL for image cropping
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -292,19 +305,277 @@ def estimate_detection_confidence(
 
 
 # =============================================================================
+# Phase 4: Enhanced Vision Tools (Tool-as-Agent Pattern)
+# =============================================================================
+
+# Store for human verification requests (would be persisted in real implementation)
+_human_verification_queue: list[dict] = []
+
+
+def _crop_image_region(
+    image_base64: str,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> Optional[str]:
+    """
+    Crop a region from an image using PIL.
+
+    Args:
+        image_base64: Base64-encoded image data
+        x: Left edge as fraction of image width (0.0 to 1.0)
+        y: Top edge as fraction of image height (0.0 to 1.0)
+        width: Width as fraction of image width (0.0 to 1.0)
+        height: Height as fraction of image height (0.0 to 1.0)
+
+    Returns:
+        Base64-encoded cropped image, or None if cropping fails
+    """
+    if not PIL_AVAILABLE:
+        logger.warning("PIL not available for image cropping")
+        return None
+
+    try:
+        # Decode base64 to bytes
+        image_bytes = base64.b64decode(image_base64)
+
+        # Open image with PIL
+        img = Image.open(io.BytesIO(image_bytes))
+        img_width, img_height = img.size
+
+        # Calculate pixel coordinates from fractions
+        left = int(x * img_width)
+        upper = int(y * img_height)
+        right = int((x + width) * img_width)
+        lower = int((y + height) * img_height)
+
+        # Clamp to valid bounds
+        left = max(0, min(left, img_width))
+        upper = max(0, min(upper, img_height))
+        right = max(left + 1, min(right, img_width))
+        lower = max(upper + 1, min(lower, img_height))
+
+        # Crop the region
+        cropped = img.crop((left, upper, right, lower))
+
+        # Encode back to base64
+        buffer = io.BytesIO()
+        cropped.save(buffer, format="JPEG", quality=85)
+        cropped_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+        return cropped_base64
+
+    except Exception as e:
+        logger.error(f"Error cropping image: {e}")
+        return None
+
+
+@tool
+async def crop_and_analyze_region(
+    image_base64: str,
+    region_x: float,
+    region_y: float,
+    region_width: float,
+    region_height: float,
+    focus_prompt: str,
+) -> dict:
+    """
+    Crop a specific region of the image and analyze it with a focused prompt.
+
+    Use this tool when you want to get more detail about a specific area of
+    the image, such as focusing on a particular object or fixture.
+
+    Args:
+        image_base64: The original image encoded as base64
+        region_x: Left edge of region as fraction (0.0 = left, 1.0 = right)
+        region_y: Top edge of region as fraction (0.0 = top, 1.0 = bottom)
+        region_width: Width of region as fraction of image width
+        region_height: Height of region as fraction of image height
+        focus_prompt: Specific question to answer about this region
+
+    Returns:
+        Analysis result for the cropped region
+    """
+    # Validate region parameters
+    if not (0 <= region_x <= 1 and 0 <= region_y <= 1):
+        return {
+            "success": False,
+            "error": "region_x and region_y must be between 0.0 and 1.0",
+        }
+    if not (0 < region_width <= 1 and 0 < region_height <= 1):
+        return {
+            "success": False,
+            "error": "region_width and region_height must be between 0.0 and 1.0",
+        }
+
+    # Crop the image
+    cropped_base64 = _crop_image_region(
+        image_base64,
+        region_x,
+        region_y,
+        region_width,
+        region_height,
+    )
+
+    if not cropped_base64:
+        return {
+            "success": False,
+            "error": "Failed to crop image region. PIL may not be available.",
+        }
+
+    try:
+        # Get vision LLM for focused analysis
+        model = get_vision_llm()
+
+        # Create focused analysis prompt
+        messages = [
+            {
+                "role": "system",
+                "content": "You are analyzing a cropped region of a property photo for cost segregation purposes. Provide detailed observations about what you see."
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": focus_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{cropped_base64}",
+                            "detail": "high",
+                        },
+                    },
+                ],
+            },
+        ]
+
+        settings = get_settings()
+        response = await retry_with_backoff(
+            lambda: model.ainvoke(messages),
+            max_retries=settings.llm_max_retries,
+            base_delay=settings.llm_retry_base_delay,
+            max_delay=settings.llm_retry_max_delay,
+        )
+
+        return {
+            "success": True,
+            "region": {
+                "x": region_x,
+                "y": region_y,
+                "width": region_width,
+                "height": region_height,
+            },
+            "focus_prompt": focus_prompt,
+            "analysis": response.content,
+        }
+
+    except Exception as e:
+        logger.error(f"Error analyzing cropped region: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+
+@tool
+def request_human_verification(
+    image_id: str,
+    reason: str,
+    suggested_room_type: str,
+    detected_objects: list[str],
+    confidence: float,
+) -> dict:
+    """
+    Flag an image analysis for human verification when confidence is too low.
+
+    Use this tool when you are uncertain about the room classification or
+    when detected objects don't match the expected room type.
+
+    Args:
+        image_id: Identifier for the image being analyzed
+        reason: Explanation of why human review is needed
+        suggested_room_type: Your best guess for room type
+        detected_objects: List of objects you detected
+        confidence: Your confidence level (0.0 to 1.0)
+
+    Returns:
+        Confirmation that the request has been queued
+    """
+    verification_request = {
+        "image_id": image_id,
+        "reason": reason,
+        "suggested_room_type": suggested_room_type,
+        "detected_objects": detected_objects,
+        "confidence": confidence,
+        "status": "pending",
+        "timestamp": time.time(),
+    }
+
+    # Add to queue (in production, this would persist to Firestore)
+    _human_verification_queue.append(verification_request)
+
+    logger.info(
+        f"Human verification requested for image {image_id}: {reason} "
+        f"(confidence: {confidence:.2f})"
+    )
+
+    return {
+        "queued": True,
+        "image_id": image_id,
+        "reason": reason,
+        "message": "Image flagged for human review. You can still return your best-effort analysis.",
+        "suggested_action": (
+            f"Return room_type='{suggested_room_type}' with room_confidence={confidence:.2f} "
+            "and note that human verification was requested."
+        ),
+    }
+
+
+@tool
+def compare_room_objects(
+    room_type: str,
+    detected_objects: list[str],
+) -> dict:
+    """
+    Check if detected objects are consistent with the proposed room type.
+
+    This is an alias for verify_room_classification for convenience.
+
+    Args:
+        room_type: The classified room type
+        detected_objects: List of object labels detected in the image
+
+    Returns:
+        Verification result with consistency score and suggestions
+    """
+    # Reuse the existing verify_room_classification logic
+    return verify_room_classification.invoke({
+        "room_type": room_type,
+        "detected_objects": detected_objects,
+    })
+
+
+# =============================================================================
 # VisionAgent Class
 # =============================================================================
 
 
 class VisionAgent(BaseStageAgent[VisionInput, ImageAnalysisResult]):
     """
-    Agentic vision analysis with verification tools.
+    Agentic vision analysis with verification and cropping tools.
 
     Extends BaseStageAgent to provide:
     - Room type classification from property photos
     - Object detection for cost segregation
     - Verification tools to ensure quality
+    - Region cropping for detailed analysis
+    - Human verification flagging for low confidence
     - Retry logic for ambiguous results
+
+    Phase 4 Enhancement: Full tool-as-agent pattern with:
+    - crop_and_analyze_region: Focus on specific image areas
+    - request_human_verification: Flag uncertain results
+    - Self-verification workflow
     """
 
     def __init__(self):
@@ -319,7 +590,36 @@ Your task: Analyze this image to identify:
 3. Whether this is indoor or outdoor
 4. The likely property type (residential, commercial, or industrial)
 
-For each detected object, identify items that are relevant to cost segregation:
+## ANALYSIS WORKFLOW
+
+1. **Initial Analysis**: Identify room type and visible objects
+2. **Self-Verification**: Use verify_room_classification to check consistency
+3. **Focused Analysis** (if needed): Use crop_and_analyze_region for unclear areas
+4. **Confidence Check**: Use estimate_detection_confidence to assess quality
+5. **Human Review** (if needed): Use request_human_verification for low confidence
+
+## WHEN TO USE FOCUSED ANALYSIS (crop_and_analyze_region)
+
+Use this tool when:
+- An object in a specific region is unclear or ambiguous
+- You want to get more detail about a particular fixture or component
+- The initial analysis missed something visible in part of the image
+
+Region coordinates are fractions (0.0 to 1.0):
+- region_x=0.0 is left edge, region_x=1.0 is right edge
+- region_y=0.0 is top edge, region_y=1.0 is bottom edge
+
+## WHEN TO REQUEST HUMAN VERIFICATION
+
+Use request_human_verification when:
+- Room type confidence is below 0.5
+- Detected objects don't match the room type (consistency_score < 0.3)
+- The image is unclear, dark, or partially obstructed
+- You're genuinely uncertain about the classification
+
+## OBJECTS TO DETECT
+
+For each detected object, identify items relevant to cost segregation:
 - HVAC equipment (units, vents, thermostats)
 - Lighting (fixtures, switches, emergency lights)
 - Plumbing (fixtures, water heaters, pipes)
@@ -331,12 +631,15 @@ For each detected object, identify items that are relevant to cost segregation:
 - Fire safety (sprinklers, alarms, extinguishers)
 - Specialty items (security systems, elevators, etc.)
 
-Available tools:
-- verify_room_classification: Check if room type makes sense given detected objects
-- estimate_detection_confidence: Assess detection quality
+## AVAILABLE TOOLS
 
-After analysis, use verify_room_classification to validate your room type.
-If confidence is low, consider if you should flag for human review.
+1. verify_room_classification(room_type, detected_objects) - Check if room type is consistent
+2. estimate_detection_confidence(num_objects, room_confidence, has_description) - Assess quality
+3. crop_and_analyze_region(image_base64, region_x, region_y, region_width, region_height, focus_prompt) - Analyze specific region
+4. request_human_verification(image_id, reason, suggested_room_type, detected_objects, confidence) - Flag for review
+5. compare_room_objects(room_type, detected_objects) - Alias for verify_room_classification
+
+## OUTPUT FORMAT
 
 Return your final analysis as JSON:
 {
@@ -356,9 +659,15 @@ Return your final analysis as JSON:
 }"""
 
     def get_tools(self) -> list[BaseTool]:
+        """Return all vision analysis tools including Phase 4 enhancements."""
         return [
+            # Original verification tools
             verify_room_classification,
             estimate_detection_confidence,
+            # Phase 4: Enhanced tools
+            crop_and_analyze_region,
+            request_human_verification,
+            compare_room_objects,
         ]
 
     def get_output_schema(self) -> type[ImageAnalysisResult]:

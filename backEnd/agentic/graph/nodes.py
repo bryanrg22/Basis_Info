@@ -32,6 +32,7 @@ from ..agents.takeoff_agent import calculate_takeoffs_batch
 from ..agents.cost_agent import estimate_costs_batch, aggregate_costs
 from ..agents.vision_agent import analyze_study_images
 from ..agents.classification_verifier import verify_classifications_batch
+from ..agents.document_extraction_agent import extract_document_fields
 from ..firestore.client import FirestoreClient
 from ..firestore.writeback import FirestoreWriteback
 from ..observability.tracing import get_tracer
@@ -360,6 +361,48 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                                 f"needs_review={extraction_output['needs_review']}, "
                                 f"iterations={extraction_audit.get('iterations', 0)}"
                             )
+
+                            # Phase 4: Supplement with DocumentExtractionAgent for additional fields
+                            try:
+                                doc_extraction_result = await extract_document_fields(
+                                    pdf_path=str(pdf_path),
+                                    context=extraction_context,
+                                    field_hints=[
+                                        "property_address",
+                                        "appraised_value",
+                                        "land_value",
+                                        "building_value",
+                                        "year_built",
+                                        "gross_building_area",
+                                        "effective_age",
+                                    ],
+                                )
+
+                                # Merge high-confidence extractions into existing fields
+                                if doc_extraction_result.get("overall_confidence", 0) > 0.7:
+                                    for field in doc_extraction_result.get("fields", []):
+                                        if field.get("confidence", 0) > 0.8 and field.get("value"):
+                                            field_name = field.get("field_name")
+                                            # Add to fields_dict if not already present or higher confidence
+                                            if field_name not in fields_dict or fields_dict.get(field_name) is None:
+                                                fields_dict[field_name] = field.get("value")
+
+                                    extraction_audit["document_extraction_agent"] = {
+                                        "used": True,
+                                        "confidence": doc_extraction_result.get("overall_confidence", 0),
+                                        "fields_added": len(doc_extraction_result.get("fields", [])),
+                                    }
+                                    logger.debug(
+                                        f"DocumentExtractionAgent supplemented extraction: "
+                                        f"confidence={doc_extraction_result.get('overall_confidence', 0):.2f}"
+                                    )
+
+                            except Exception as doc_err:
+                                logger.debug(f"DocumentExtractionAgent skipped: {doc_err}")
+                                extraction_audit["document_extraction_agent"] = {
+                                    "used": False,
+                                    "error": str(doc_err),
+                                }
 
                         except Exception as tier_err:
                             logger.warning(f"Agentic extraction failed, falling back to regex: {tier_err}")

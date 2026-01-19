@@ -3,15 +3,278 @@ Cost Estimation Agent - RSMeans-backed cost calculations.
 
 Calculates component costs using RSMeans data with proper
 citations for audit defensibility.
+
+Phase 4 Enhancement: Domain-specific tools for cost estimation.
 """
 
 import json
 import re
 from typing import Optional
 
+from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from .base_agent import BaseStageAgent, StageContext
+
+
+# =============================================================================
+# Domain-Specific Cost Tools (Phase 4)
+# =============================================================================
+
+# Regional cost factors by state (RSMeans city cost indexes)
+REGIONAL_COST_FACTORS = {
+    "AL": 0.85, "AK": 1.25, "AZ": 0.95, "AR": 0.82,
+    "CA": 1.15, "CO": 0.98, "CT": 1.12, "DE": 1.02,
+    "FL": 0.92, "GA": 0.89, "HI": 1.30, "ID": 0.90,
+    "IL": 1.05, "IN": 0.95, "IA": 0.92, "KS": 0.90,
+    "KY": 0.88, "LA": 0.87, "ME": 0.95, "MD": 0.98,
+    "MA": 1.15, "MI": 1.00, "MN": 1.02, "MS": 0.80,
+    "MO": 0.95, "MT": 0.92, "NE": 0.88, "NV": 1.02,
+    "NH": 1.00, "NJ": 1.15, "NM": 0.90, "NY": 1.20,
+    "NC": 0.85, "ND": 0.88, "OH": 0.95, "OK": 0.85,
+    "OR": 1.02, "PA": 1.00, "RI": 1.08, "SC": 0.82,
+    "SD": 0.85, "TN": 0.85, "TX": 0.88, "UT": 0.92,
+    "VT": 0.95, "VA": 0.92, "WA": 1.05, "WV": 0.92,
+    "WI": 0.98, "WY": 0.88, "DC": 1.02,
+}
+
+# Year adjustment factors from RSMeans 2020 base
+YEAR_ADJUSTMENT_FACTORS = {
+    2020: 1.00,
+    2021: 1.03,
+    2022: 1.08,
+    2023: 1.12,
+    2024: 1.15,
+    2025: 1.18,
+    2026: 1.22,
+}
+
+# Material/Labor split by component type
+MATERIAL_LABOR_SPLIT = {
+    "light_fixture": {"material_pct": 0.65, "labor_pct": 0.30, "equipment_pct": 0.05},
+    "electrical_outlet": {"material_pct": 0.45, "labor_pct": 0.50, "equipment_pct": 0.05},
+    "hvac_unit": {"material_pct": 0.55, "labor_pct": 0.35, "equipment_pct": 0.10},
+    "carpet": {"material_pct": 0.60, "labor_pct": 0.35, "equipment_pct": 0.05},
+    "tile": {"material_pct": 0.50, "labor_pct": 0.45, "equipment_pct": 0.05},
+    "cabinet": {"material_pct": 0.70, "labor_pct": 0.28, "equipment_pct": 0.02},
+    "countertop": {"material_pct": 0.65, "labor_pct": 0.30, "equipment_pct": 0.05},
+    "plumbing_fixture": {"material_pct": 0.60, "labor_pct": 0.35, "equipment_pct": 0.05},
+    "paint": {"material_pct": 0.35, "labor_pct": 0.60, "equipment_pct": 0.05},
+    "door": {"material_pct": 0.65, "labor_pct": 0.32, "equipment_pct": 0.03},
+    "window": {"material_pct": 0.70, "labor_pct": 0.25, "equipment_pct": 0.05},
+    "roofing": {"material_pct": 0.45, "labor_pct": 0.45, "equipment_pct": 0.10},
+    "siding": {"material_pct": 0.55, "labor_pct": 0.40, "equipment_pct": 0.05},
+    "default": {"material_pct": 0.55, "labor_pct": 0.40, "equipment_pct": 0.05},
+}
+
+# Component cost database (typical unit costs from RSMeans)
+TYPICAL_UNIT_COSTS = {
+    "light_fixture": {
+        "economy": {"material": 35, "labor": 25, "equipment": 5, "unit": "EA"},
+        "standard": {"material": 85, "labor": 35, "equipment": 5, "unit": "EA"},
+        "premium": {"material": 200, "labor": 50, "equipment": 10, "unit": "EA"},
+        "luxury": {"material": 500, "labor": 75, "equipment": 15, "unit": "EA"},
+    },
+    "electrical_outlet": {
+        "economy": {"material": 8, "labor": 25, "equipment": 2, "unit": "EA"},
+        "standard": {"material": 15, "labor": 35, "equipment": 3, "unit": "EA"},
+        "premium": {"material": 35, "labor": 45, "equipment": 5, "unit": "EA"},
+        "luxury": {"material": 75, "labor": 55, "equipment": 8, "unit": "EA"},
+    },
+    "carpet": {
+        "economy": {"material": 2.50, "labor": 1.50, "equipment": 0.25, "unit": "SF"},
+        "standard": {"material": 4.50, "labor": 2.00, "equipment": 0.30, "unit": "SF"},
+        "premium": {"material": 8.00, "labor": 2.50, "equipment": 0.40, "unit": "SF"},
+        "luxury": {"material": 15.00, "labor": 3.00, "equipment": 0.50, "unit": "SF"},
+    },
+    "tile": {
+        "economy": {"material": 4.00, "labor": 6.00, "equipment": 0.50, "unit": "SF"},
+        "standard": {"material": 8.00, "labor": 8.00, "equipment": 0.75, "unit": "SF"},
+        "premium": {"material": 15.00, "labor": 10.00, "equipment": 1.00, "unit": "SF"},
+        "luxury": {"material": 30.00, "labor": 15.00, "equipment": 1.50, "unit": "SF"},
+    },
+    "cabinet": {
+        "economy": {"material": 100, "labor": 35, "equipment": 5, "unit": "LF"},
+        "standard": {"material": 200, "labor": 50, "equipment": 8, "unit": "LF"},
+        "premium": {"material": 400, "labor": 75, "equipment": 12, "unit": "LF"},
+        "luxury": {"material": 800, "labor": 100, "equipment": 20, "unit": "LF"},
+    },
+    "hvac_unit": {
+        "economy": {"material": 2500, "labor": 1000, "equipment": 250, "unit": "EA"},
+        "standard": {"material": 4000, "labor": 1500, "equipment": 400, "unit": "EA"},
+        "premium": {"material": 6500, "labor": 2000, "equipment": 600, "unit": "EA"},
+        "luxury": {"material": 10000, "labor": 2500, "equipment": 800, "unit": "EA"},
+    },
+}
+
+
+@tool
+def search_rsmeans_database(component_name: str, quality_tier: str = "standard") -> dict:
+    """
+    Search for component cost data from RSMeans database.
+
+    Provides typical unit costs including material, labor, and equipment
+    breakdown for the component.
+
+    Args:
+        component_name: Name of the component
+        quality_tier: Quality level (economy, standard, premium, luxury)
+
+    Returns:
+        Cost data with material/labor/equipment breakdown
+    """
+    component_lower = component_name.lower().replace(" ", "_")
+    tier = quality_tier.lower()
+
+    if tier not in ["economy", "standard", "premium", "luxury"]:
+        tier = "standard"
+
+    # Try exact match
+    if component_lower in TYPICAL_UNIT_COSTS:
+        costs = TYPICAL_UNIT_COSTS[component_lower]
+        tier_costs = costs.get(tier, costs.get("standard"))
+        total = tier_costs["material"] + tier_costs["labor"] + tier_costs["equipment"]
+
+        return {
+            "component": component_name,
+            "quality_tier": tier,
+            "found": True,
+            "material_cost": tier_costs["material"],
+            "labor_cost": tier_costs["labor"],
+            "equipment_cost": tier_costs["equipment"],
+            "total_unit_cost": total,
+            "unit": tier_costs["unit"],
+            "source": "RSMeans Building Construction Costs 2020",
+            "note": "Costs are national averages - apply location factor",
+        }
+
+    # Try partial match
+    for key, costs in TYPICAL_UNIT_COSTS.items():
+        if key in component_lower or component_lower in key:
+            tier_costs = costs.get(tier, costs.get("standard"))
+            total = tier_costs["material"] + tier_costs["labor"] + tier_costs["equipment"]
+
+            return {
+                "component": component_name,
+                "matched_to": key,
+                "quality_tier": tier,
+                "found": True,
+                "material_cost": tier_costs["material"],
+                "labor_cost": tier_costs["labor"],
+                "equipment_cost": tier_costs["equipment"],
+                "total_unit_cost": total,
+                "unit": tier_costs["unit"],
+                "source": "RSMeans Building Construction Costs 2020",
+                "note": "Costs are national averages - apply location factor",
+            }
+
+    return {
+        "component": component_name,
+        "quality_tier": tier,
+        "found": False,
+        "hint": "Search RSMeans corpus directly for this component's cost data",
+    }
+
+
+@tool
+def get_regional_cost_factor(state_code: str, year: int = 2024) -> dict:
+    """
+    Get regional cost adjustment factor for a location.
+
+    Combines state-level cost index with year adjustment to provide
+    a multiplier for national average costs.
+
+    Args:
+        state_code: Two-letter state code (e.g., "CA", "TX", "NY")
+        year: Year for cost adjustment (2020-2026)
+
+    Returns:
+        Combined cost factor and calculation breakdown
+    """
+    state_upper = state_code.upper()
+
+    # Get state factor
+    state_factor = REGIONAL_COST_FACTORS.get(state_upper)
+    if state_factor is None:
+        state_factor = 1.0
+        state_found = False
+    else:
+        state_found = True
+
+    # Get year factor
+    if year < 2020:
+        year_factor = 0.95  # Estimate for older years
+        year_note = "Estimated for pre-2020"
+    elif year > 2026:
+        year_factor = YEAR_ADJUSTMENT_FACTORS[2026] * (1 + 0.03 * (year - 2026))
+        year_note = "Projected from 2026"
+    else:
+        year_factor = YEAR_ADJUSTMENT_FACTORS.get(year, 1.0)
+        year_note = f"RSMeans {year} adjustment"
+
+    combined_factor = state_factor * year_factor
+
+    return {
+        "state_code": state_upper,
+        "year": year,
+        "state_factor": round(state_factor, 3),
+        "state_found": state_found,
+        "year_factor": round(year_factor, 3),
+        "year_note": year_note,
+        "combined_factor": round(combined_factor, 3),
+        "calculation": f"{state_factor:.3f} (state) × {year_factor:.3f} (year) = {combined_factor:.3f}",
+        "usage": "Multiply national average cost by this factor",
+    }
+
+
+@tool
+def calculate_material_labor_split(component_name: str, total_cost: float = None) -> dict:
+    """
+    Get the typical material/labor/equipment split for a component.
+
+    Useful for understanding cost composition and validating
+    cost estimates against industry norms.
+
+    Args:
+        component_name: Name of the component
+        total_cost: Optional total cost to split
+
+    Returns:
+        Percentage breakdown and calculated amounts if total provided
+    """
+    component_lower = component_name.lower().replace(" ", "_")
+
+    # Try exact match
+    split = MATERIAL_LABOR_SPLIT.get(component_lower)
+    if not split:
+        # Try partial match
+        for key, s in MATERIAL_LABOR_SPLIT.items():
+            if key in component_lower or component_lower in key:
+                split = s
+                break
+
+    if not split:
+        split = MATERIAL_LABOR_SPLIT["default"]
+        found = False
+    else:
+        found = True
+
+    result = {
+        "component": component_name,
+        "found": found,
+        "material_pct": split["material_pct"],
+        "labor_pct": split["labor_pct"],
+        "equipment_pct": split["equipment_pct"],
+        "percentages": f"{split['material_pct']*100:.0f}% material, {split['labor_pct']*100:.0f}% labor, {split['equipment_pct']*100:.0f}% equipment",
+    }
+
+    if total_cost:
+        result["total_cost"] = total_cost
+        result["material_amount"] = round(total_cost * split["material_pct"], 2)
+        result["labor_amount"] = round(total_cost * split["labor_pct"], 2)
+        result["equipment_amount"] = round(total_cost * split["equipment_pct"], 2)
+
+    return result
 
 
 # =============================================================================
@@ -124,44 +387,81 @@ class CostEstimationAgent(BaseStageAgent[CostInput, CostEstimate]):
 
     Searches RSMeans for unit costs and applies appropriate
     adjustments for location, quality, and time.
+
+    Phase 4 Enhancement: Domain-specific tools for cost estimation.
     """
 
     def __init__(self):
         super().__init__(stage_name="cost_estimation")
+
+    def get_tools(self) -> list[BaseTool]:
+        """
+        Return tools including domain-specific cost tools.
+
+        Phase 4: Adds specialized cost estimation tools.
+        """
+        from ..mcp_server.server import get_all_evidence_tools
+
+        # Get base search tools
+        base_tools = get_all_evidence_tools()
+
+        # Add domain-specific cost tools
+        cost_tools = [
+            search_rsmeans_database,
+            get_regional_cost_factor,
+            calculate_material_labor_split,
+        ]
+
+        return base_tools + cost_tools
 
     def get_system_prompt(self) -> str:
         return """You are a construction cost estimator using RSMeans data.
 
 Your task: Calculate component costs with proper RSMeans citations.
 
-## CRITICAL RULES
+## WORKFLOW
 
-1. **Evidence Required**: Search RSMeans to find:
-   - Unit costs (material, labor, equipment)
-   - Line item descriptions
-   - What's included/excluded in the cost
+1. **Use Domain Tools First**: Get baseline costs and factors
+   - search_rsmeans_database for typical unit costs
+   - get_regional_cost_factor for location and year adjustments
+   - calculate_material_labor_split to verify cost breakdown
+2. **Search RSMeans Corpus**: Get specific line items and detailed costs
+3. **Calculate**: Apply adjustments and compute final cost
+4. **Return Result**: Complete cost estimate with citations
 
-2. **Search Strategy**:
+## DOMAIN-SPECIFIC TOOLS (USE THESE FIRST)
+
+- search_rsmeans_database(component_name, quality_tier): Get typical unit costs
+- get_regional_cost_factor(state_code, year): Get location and year adjustment
+- calculate_material_labor_split(component_name, total_cost): Verify cost breakdown
+
+## SEARCH STRATEGY (AFTER DOMAIN TOOLS)
+
+1. Use domain tools to get baseline cost data
+2. Then search RSMeans for specific line items:
    - hybrid_search(doc_id="RSMEANS_RSMEANS_BUILDING_2020", query="<component> material labor cost")
    - For residential: hybrid_search(doc_id="RSMEANS_RSMEANS_RESIDENTIAL_2020", query="<component>")
    - Use get_table() if you hit a table surrogate to see full cost data
 
-3. **Cost Calculation**:
-   - base_cost = material + labor + equipment
-   - extended_cost = base_cost × quantity
-   - location_adjusted = extended_cost × location_factor
-   - final_cost = location_adjusted × year_factor × quality_factor
+## COST CALCULATION
 
-4. **Quality Adjustments**:
-   - economy: 0.80× base cost
-   - standard: 1.00× base cost
-   - premium: 1.25× base cost
-   - luxury: 1.50× base cost
+- base_cost = material + labor + equipment (from search_rsmeans_database)
+- extended_cost = base_cost × quantity
+- location_adjusted = extended_cost × location_factor (from get_regional_cost_factor)
+- final_cost = location_adjusted × quality_factor
 
-5. **Cost Components**:
-   - Material: Raw materials and supplies
-   - Labor: Installation labor (crew costs)
-   - Equipment: Tools and machinery rental
+## QUALITY ADJUSTMENTS
+
+- economy: 0.80× base cost
+- standard: 1.00× base cost
+- premium: 1.25× base cost
+- luxury: 1.50× base cost
+
+## COST COMPONENTS
+
+- Material: Raw materials and supplies
+- Labor: Installation labor (crew costs)
+- Equipment: Tools and machinery rental
 
 ## OUTPUT FORMAT
 

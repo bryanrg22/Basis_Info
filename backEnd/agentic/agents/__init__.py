@@ -61,6 +61,13 @@ from .vision_agent import (
     analyze_image,
     analyze_study_images,
 )
+from .document_extraction_agent import (
+    DocumentExtractionAgent,
+    ExtractionInput,
+    ExtractionResult,
+    ExtractedField,
+    extract_document_fields,
+)
 
 __all__ = [
     # Base
@@ -112,4 +119,10 @@ __all__ = [
     "parse_vision_response",
     "analyze_image",
     "analyze_study_images",
+    # Document Extraction
+    "DocumentExtractionAgent",
+    "ExtractionInput",
+    "ExtractionResult",
+    "ExtractedField",
+    "extract_document_fields",
 ]

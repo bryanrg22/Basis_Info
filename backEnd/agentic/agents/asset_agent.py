@@ -3,15 +3,27 @@ Asset Classification Agent - IRS-grounded MACRS classification.
 
 Uses hybrid search over IRS reference corpus to classify components
 with proper citations and evidence backing.
+
+Phase 4 Enhancement: Self-verification using validation tools.
+The agent now validates its own classifications before returning,
+and can reconsider if validation fails.
 """
 
 import json
 import re
 from typing import Optional
 
+from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from .base_agent import BaseStageAgent, StageContext
+from .classification_verifier import (
+    validate_section_bucket,
+    check_component_context,
+    VALID_SECTION_BUCKETS,
+    validate_section_bucket_tool,
+    check_component_context_tool,
+)
 
 
 # =============================================================================
@@ -66,40 +78,162 @@ class AssetClassification(BaseModel):
 
 
 # =============================================================================
+# Self-Verification Tools for Classification
+# =============================================================================
+
+
+@tool
+def reconsider_classification(
+    component_name: str,
+    original_section: str,
+    original_bucket: str,
+    issue: str,
+) -> dict:
+    """
+    Reconsider a classification when validation fails.
+
+    Use this tool when validate_section_bucket_tool or check_component_context_tool
+    indicates an invalid combination. It provides guidance on how to correct the
+    classification.
+
+    Args:
+        component_name: Name of the component being classified
+        original_section: The originally assigned IRS section (1245 or 1250)
+        original_bucket: The originally assigned MACRS bucket
+        issue: The validation issue that was found
+
+    Returns:
+        Guidance on how to correct the classification with search queries
+    """
+    # Determine likely correction based on the issue
+    suggestions = []
+    search_queries = []
+
+    # Check if it's a section/bucket mismatch
+    if "1245" in original_section and original_bucket in ["27.5-year", "39-year"]:
+        suggestions.append(
+            f"Section 1245 (personal property) cannot have {original_bucket} recovery. "
+            "Consider either:\n"
+            "  - Changing to Section 1250 if this is real property\n"
+            "  - Changing to 5-year, 7-year, or 15-year recovery if truly personal property"
+        )
+        search_queries.extend([
+            f"{component_name} IRS section 1245 vs 1250",
+            f"{component_name} personal property real property",
+        ])
+    elif "1250" in original_section and original_bucket in ["5-year", "7-year"]:
+        suggestions.append(
+            f"Section 1250 (real property) cannot have {original_bucket} recovery. "
+            "Consider either:\n"
+            "  - Changing to Section 1245 if this is personal property\n"
+            "  - Changing to 15-year, 27.5-year, or 39-year recovery if truly real property"
+        )
+        search_queries.extend([
+            f"{component_name} IRS section 1245 vs 1250",
+            f"{component_name} tangible personal property",
+        ])
+
+    # Check for structural vs personal property mismatch
+    if "structural" in issue.lower() and "1245" in original_section:
+        suggestions.append(
+            f"'{component_name}' appears structural but classified as Section 1245. "
+            "Structural elements are typically Section 1250 with 27.5-year or 39-year recovery."
+        )
+        search_queries.extend([
+            f"{component_name} structural building component",
+            f"{component_name} IRS cost segregation",
+        ])
+
+    # Provide valid bucket options
+    valid_buckets = VALID_SECTION_BUCKETS.get(original_section, [])
+
+    return {
+        "component_name": component_name,
+        "original_classification": {
+            "section": original_section,
+            "bucket": original_bucket,
+        },
+        "issue": issue,
+        "suggestions": suggestions,
+        "search_queries": search_queries,
+        "valid_buckets_for_section": valid_buckets,
+        "action": "search_and_reclassify",
+        "hint": "Search for more IRS guidance and make a corrected classification",
+    }
+
+
+# =============================================================================
 # Asset Classification Agent
 # =============================================================================
 
 
 class AssetClassificationAgent(BaseStageAgent[ComponentInput, AssetClassification]):
     """
-    Agent for IRS-grounded asset classification.
+    Agent for IRS-grounded asset classification with self-verification.
 
     Uses hybrid search to find relevant IRS guidance and classifies
     building components into MACRS depreciation buckets.
+
+    Phase 4 Enhancement: Now includes self-verification tools.
+    The agent validates its classification before returning and can
+    self-correct if validation fails.
     """
 
     def __init__(self):
         super().__init__(stage_name="asset_classification")
+
+    def get_tools(self) -> list[BaseTool]:
+        """
+        Return tools including search tools AND verification tools.
+
+        The agent uses verification tools to validate its own
+        classifications before returning, enabling self-correction.
+        """
+        from ..mcp_server.server import get_all_evidence_tools
+
+        # Get base search tools
+        base_tools = get_all_evidence_tools()
+
+        # Add verification/self-correction tools
+        verification_tools = [
+            validate_section_bucket_tool,
+            check_component_context_tool,
+            reconsider_classification,
+        ]
+
+        return base_tools + verification_tools
 
     def get_system_prompt(self) -> str:
         return """You are a tax classification expert specializing in cost segregation studies.
 
 Your task: Classify building components for MACRS depreciation using IRS guidance.
 
-## CRITICAL RULES
+## CRITICAL WORKFLOW (MUST FOLLOW)
 
-1. **Evidence Required**: You MUST search the IRS reference corpus before making any classification.
-   Use bm25_search for exact codes (e.g., "1245", "57.0") and hybrid_search for component context.
+1. **Search IRS Guidance**: Search for relevant IRS guidance about the component
+2. **Make Classification**: Determine section (1245/1250) and MACRS bucket
+3. **SELF-VERIFY**: ALWAYS use validate_section_bucket_tool to verify your choice
+4. **Check Context**: Use check_component_context_tool to verify consistency
+5. **Correct if Invalid**: If validation fails, use reconsider_classification and search again
+6. **Return Classification**: Only return after validation passes
 
-2. **Cite Everything**: Every classification MUST cite at least one chunk_id or table_id from your search results.
-   Include the page number in your irs_note.
+NEVER return an invalid section/bucket combination. Always validate first.
 
-3. **No Guessing**: If you cannot find supporting evidence, you must set needs_review=true.
-   Never guess or infer without IRS documentation.
+## VALIDATION RULES
 
-4. **Use Correct Section**:
-   - Section 1245: Tangible personal property (equipment, fixtures, certain improvements)
-   - Section 1250: Real property (building structure, land improvements)
+**Section 1245 (Personal Property)** - ONLY these buckets:
+- 5-year
+- 7-year
+- 15-year
+
+**Section 1250 (Real Property)** - ONLY these buckets:
+- 15-year (land improvements)
+- 27.5-year (residential rental)
+- 39-year (nonresidential)
+
+INVALID combinations that MUST be corrected:
+- Section 1245 with 27.5-year or 39-year → INVALID
+- Section 1250 with 5-year or 7-year → INVALID
 
 ## SEARCH STRATEGY
 
@@ -112,6 +246,17 @@ Your task: Classify building components for MACRS depreciation using IRS guidanc
 
 3. If you get table hits, fetch the full table:
    - get_table(doc_id, table_id) to see all rows and find the right asset class
+
+## SELF-VERIFICATION (REQUIRED)
+
+After determining section and bucket, ALWAYS:
+1. Call validate_section_bucket_tool(section=<your_section>, bucket=<your_bucket>)
+2. Call check_component_context_tool(component_name=<name>, section=<your_section>, room_type=<room>)
+3. If either returns is_valid=false or has warnings:
+   - Call reconsider_classification with the issue
+   - Search for more guidance using the suggested queries
+   - Make a corrected classification
+   - Validate again
 
 ## OUTPUT FORMAT
 
