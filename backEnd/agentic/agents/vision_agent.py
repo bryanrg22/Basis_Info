@@ -60,7 +60,7 @@ def _download_image_sync(url: str) -> Optional[bytes]:
             if response.status == 200:
                 return response.read()
     except Exception as e:
-        print(f"Error downloading image: {e}")
+        logger.error(f"Error downloading image: {e}")
     return None
 
 
@@ -72,7 +72,7 @@ async def download_image_as_base64(url: str) -> Optional[str]:
         if image_data:
             return base64.b64encode(image_data).decode('utf-8')
     except Exception as e:
-        print(f"Error downloading image: {e}")
+        logger.error(f"Error downloading image: {e}")
     return None
 
 
@@ -245,7 +245,7 @@ Return your analysis as JSON:
             )
 
         except Exception as e:
-            print(f"Error calling vision model: {e}")
+            logger.error(f"Error calling vision model: {e}")
             return ImageAnalysisResult(
                 image_id=image_id,
                 room_type="unknown",

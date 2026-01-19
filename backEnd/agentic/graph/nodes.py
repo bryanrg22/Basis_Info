@@ -52,6 +52,29 @@ def _build_stage_context(state: WorkflowState) -> StageContext:
     )
 
 
+def _get_room_for_object(obj: dict, rooms: list[dict]) -> dict | None:
+    """
+    Get room context for a specific object.
+
+    Matches objects to rooms by room_id. Falls back to the first room
+    if no match is found.
+
+    Args:
+        obj: Object dict with optional room_id field
+        rooms: List of room dicts with id field
+
+    Returns:
+        Matching room dict, or first room as fallback, or None if no rooms
+    """
+    room_id = obj.get("room_id")
+    if room_id and rooms:
+        room = next((r for r in rooms if r.get("id") == room_id), None)
+        if room:
+            return room
+    # Fallback to first room
+    return rooms[0] if rooms else None
+
+
 # =============================================================================
 # Stage Nodes
 # =============================================================================
@@ -305,8 +328,8 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
 
                         # Get tables path for tiered extraction
                         tables_path = ingest_result.data_dir / "structured" / f"{ingest_result.doc_id}.tables.jsonl"
-                        print(f"[DEBUG] Looking for tables at: {tables_path}")
-                        print(f"[DEBUG] Tables file exists: {tables_path.exists()}")
+                        logger.debug(f"Looking for tables at: {tables_path}")
+                        logger.debug(f"Tables file exists: {tables_path.exists()}")
 
                         # Try AGENTIC extraction (multi-agent with self-correction)
                         try:
@@ -331,12 +354,14 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
 
                             sections = extraction_output["extraction_result"]
                             extraction_audit = extraction_output["audit_trail"]
-                            print(f"[DEBUG] Agentic extraction: confidence={extraction_output['overall_confidence']:.2f}, "
-                                  f"needs_review={extraction_output['needs_review']}, "
-                                  f"iterations={extraction_audit.get('iterations', 0)}")
+                            logger.debug(
+                                f"Agentic extraction: confidence={extraction_output['overall_confidence']:.2f}, "
+                                f"needs_review={extraction_output['needs_review']}, "
+                                f"iterations={extraction_audit.get('iterations', 0)}"
+                            )
 
                         except Exception as tier_err:
-                            print(f"[WARNING] Agentic extraction failed, falling back to regex: {tier_err}")
+                            logger.warning(f"Agentic extraction failed, falling back to regex: {tier_err}")
                             # Fall back to regex-only extraction
                             sections = map_appraisal_tables_to_sections(
                                 tables_path=tables_path,
@@ -344,7 +369,7 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                             )
                             extraction_audit = {"error": str(tier_err), "fallback": "regex"}
 
-                        print(f"[DEBUG] Mapped sections: {list(sections.keys())}")
+                        logger.debug(f"Mapped sections: {list(sections.keys())}")
 
                         # Convert to dict for Firestore
                         # Include both flat fields (backward compat) AND rich sections (for UI)
@@ -362,11 +387,13 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                         pdf_path.unlink(missing_ok=True)
 
                         ingest_elapsed = time.time() - ingest_start
-                        print(f"[TIMING] Appraisal ingestion: {ingest_elapsed:.1f}s "
-                              f"({ingest_result.num_chunks} chunks, {ingest_result.num_tables} tables)")
+                        logger.info(
+                            f"Appraisal ingestion: {ingest_elapsed:.1f}s "
+                            f"({ingest_result.num_chunks} chunks, {ingest_result.num_tables} tables)"
+                        )
 
                     except Exception as e:
-                        print(f"Error ingesting appraisal: {e}")
+                        logger.error(f"Error ingesting appraisal: {e}")
                         # Fall back to empty structure
                         appraisal_resources = {
                             "error": str(e),
@@ -401,12 +428,14 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                     "roomsReady": True,  # Signal that rooms analysis is complete
                 })
 
-                print(f"[BACKGROUND] analyze_rooms completed: "
-                      f"{len(room_state.get('rooms', []))} rooms, "
-                      f"{len(room_state.get('objects', []))} objects")
+                logger.info(
+                    f"Background analyze_rooms completed: "
+                    f"{len(room_state.get('rooms', []))} rooms, "
+                    f"{len(room_state.get('objects', []))} objects"
+                )
 
             except Exception as e:
-                print(f"[BACKGROUND] analyze_rooms error: {e}")
+                logger.error(f"Background analyze_rooms error: {e}")
                 client.update_study(state["study_id"], {
                     "roomsReady": True,  # Mark as ready even on error
                     "roomsError": str(e),
@@ -414,7 +443,7 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
 
         # Start background task (fire and forget)
         asyncio.create_task(run_analyze_rooms_background())
-        print("[TIMING] Started analyze_rooms as background task")
+        logger.info("Started analyze_rooms as background task")
 
         # =================================================================
         # STEP 3: Advance to PAUSE #1 (resource_extraction)
@@ -422,7 +451,7 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
         writeback.advance_workflow(state["study_id"], "resource_extraction")
 
         stage_elapsed = time.time() - stage_start
-        print(f"[TIMING] Total resource_extraction: {stage_elapsed:.1f}s")
+        logger.info(f"Total resource_extraction: {stage_elapsed:.1f}s")
 
         tracer.log_workflow_transition(
             study_id=state["study_id"],
@@ -501,16 +530,15 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
         rooms = state.get("rooms", [])
         evidence_pack = state.get("evidence_pack", [])
 
-        # Get room context
-        default_room_type = rooms[0].get("room_type") if rooms else None
-        room_area_sf = None
-        if rooms:
-            room_context = rooms[0].get("context", {})
-            if room_context:
-                room_area_sf = room_context.get("room_area_sf")
+        # Build a room lookup map for quick access
+        rooms_by_id = {r.get("id"): r for r in rooms if r.get("id")}
+
+        # Get default room context (fallback for objects without room_id)
+        default_room = rooms[0] if rooms else None
+        default_room_type = default_room.get("room_type") if default_room else None
 
         # =====================================================================
-        # STEP 1: Enrich objects with IRS context
+        # STEP 1: Enrich objects with IRS context (per-object room context)
         # =====================================================================
         enriched_objects = []
         if objects:
@@ -522,10 +550,19 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                 stage_summary={"step": "enriching_objects", "count": len(objects)},
             )
 
+            # Add per-object room_type for enrichment
+            objects_with_room_context = []
+            for obj in objects:
+                room = _get_room_for_object(obj, rooms)
+                obj_room_type = room.get("room_type") if room else default_room_type
+                # Pass room_type with each object for context
+                obj_copy = {**obj, "room_type": obj_room_type}
+                objects_with_room_context.append(obj_copy)
+
             enriched_objects = await enrich_objects_batch(
-                detections=objects,
+                detections=objects_with_room_context,
                 context=context,
-                room_type=default_room_type,
+                room_type=default_room_type,  # Still pass default for backward compat
             )
 
             enrich_elapsed = time.time() - enrich_start
@@ -553,7 +590,7 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                 },
             )
 
-            # Build component list from objects for takeoffs
+            # Build component list from objects for takeoffs (per-object room context)
             components = []
             for obj in enriched_objects:
                 obj_context = obj.get("context", {})
@@ -561,21 +598,31 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                 if not component_name:
                     component_name = obj.get("original_label", obj.get("label", "unknown"))
 
+                # Get per-object room context
+                room = _get_room_for_object(obj, rooms)
+                obj_room_type = room.get("room_type") if room else default_room_type
+                obj_room_context = room.get("context", {}) if room else {}
+                obj_room_area_sf = obj_room_context.get("room_area_sf") if obj_room_context else None
+
                 components.append({
                     "component_name": component_name,
                     "detection_count": 1,
-                    "room_type": default_room_type,
-                    "room_area_sf": room_area_sf,
+                    "room_type": obj_room_type,
+                    "room_area_sf": obj_room_area_sf,
                 })
 
             # PARALLEL: Run takeoffs and classification at the same time!
+            # Note: room_type and room_area_sf are now per-component in the components list
+            default_room_context = default_room.get("context", {}) if default_room else {}
+            default_room_area_sf = default_room_context.get("room_area_sf") if default_room_context else None
+
             parallel_start = time.time()
             takeoffs, asset_classifications = await asyncio.gather(
                 calculate_takeoffs_batch(
                     components=components,
                     context=context,
-                    room_type=default_room_type,
-                    room_area_sf=room_area_sf,
+                    room_type=default_room_type,  # Fallback for components without room context
+                    room_area_sf=default_room_area_sf,  # Fallback for components without room context
                     max_concurrent=2,  # 2 concurrent workers
                 ),
                 classify_components_batch(

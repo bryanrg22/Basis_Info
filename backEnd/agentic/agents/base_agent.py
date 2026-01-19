@@ -17,6 +17,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ..config.llm_providers import get_llm_for_stage
+from ..config.settings import get_settings
 from ..mcp_server.server import get_all_evidence_tools
 
 
@@ -265,9 +266,10 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
             HumanMessage(content=full_input),
         ]
 
-        # Simple ReAct loop (max 5 iterations to prevent infinite loops)
+        # Simple ReAct loop (configurable max iterations to prevent infinite loops)
         all_messages = list(messages)
-        max_iterations = 5
+        settings = get_settings()
+        max_iterations = settings.agent_max_iterations
 
         for _ in range(max_iterations):
             # Call the LLM

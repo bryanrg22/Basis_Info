@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=4096, ge=1)
 
+    # Agent behavior settings
+    agent_max_iterations: int = Field(
+        default=5, ge=1, le=20,
+        alias="AGENT_MAX_ITERATIONS",
+        description="Maximum iterations for agent ReAct loops",
+    )
+
     # CORS settings
     cors_origins: list[str] = Field(
         default=["http://localhost:3000"],
