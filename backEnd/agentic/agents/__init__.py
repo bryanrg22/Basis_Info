@@ -45,6 +45,22 @@ from .cost_agent import (
     estimate_costs_batch,
     aggregate_costs,
 )
+from .classification_verifier import (
+    ClassificationVerifierAgent,
+    VerificationInput,
+    VerificationResult,
+    verify_classifications_batch,
+    verify_single_classification,
+)
+from .vision_agent import (
+    VisionAgent,
+    VisionInput,
+    ImageAnalysisResult,
+    DetectedObject,
+    parse_vision_response,
+    analyze_image,
+    analyze_study_images,
+)
 
 __all__ = [
     # Base
@@ -82,4 +98,18 @@ __all__ = [
     "estimate_cost",
     "estimate_costs_batch",
     "aggregate_costs",
+    # Classification Verification
+    "ClassificationVerifierAgent",
+    "VerificationInput",
+    "VerificationResult",
+    "verify_classifications_batch",
+    "verify_single_classification",
+    # Vision Analysis
+    "VisionAgent",
+    "VisionInput",
+    "ImageAnalysisResult",
+    "DetectedObject",
+    "parse_vision_response",
+    "analyze_image",
+    "analyze_study_images",
 ]

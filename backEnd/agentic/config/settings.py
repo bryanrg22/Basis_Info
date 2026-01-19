@@ -88,6 +88,28 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=4096, ge=1)
 
+    # LLM retry settings
+    llm_max_retries: int = Field(
+        default=3, ge=1, le=10,
+        alias="LLM_MAX_RETRIES",
+        description="Maximum retry attempts for LLM calls on rate limit errors",
+    )
+    llm_retry_base_delay: float = Field(
+        default=2.0, ge=0.5, le=30.0,
+        alias="LLM_RETRY_BASE_DELAY",
+        description="Base delay in seconds for exponential backoff",
+    )
+    llm_retry_max_delay: float = Field(
+        default=30.0, ge=5.0, le=120.0,
+        alias="LLM_RETRY_MAX_DELAY",
+        description="Maximum delay in seconds for exponential backoff",
+    )
+    llm_request_timeout: int = Field(
+        default=60, ge=10, le=300,
+        alias="LLM_REQUEST_TIMEOUT",
+        description="Request timeout in seconds for LLM calls",
+    )
+
     # Agent behavior settings
     agent_max_iterations: int = Field(
         default=5, ge=1, le=20,

@@ -9,6 +9,7 @@ Every stage agent follows the same pattern:
 """
 
 from abc import ABC, abstractmethod
+import logging
 from typing import Any, Generic, Optional, TypeVar
 
 from langchain_core.language_models import BaseChatModel
@@ -19,6 +20,9 @@ from pydantic import BaseModel, Field
 from ..config.llm_providers import get_llm_for_stage
 from ..config.settings import get_settings
 from ..mcp_server.server import get_all_evidence_tools
+from ..utils.parallel import retry_with_backoff
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -272,8 +276,24 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
         max_iterations = settings.agent_max_iterations
 
         for _ in range(max_iterations):
-            # Call the LLM
-            response = await llm_with_tools.ainvoke(all_messages)
+            # Call the LLM with retry logic for rate limits
+            try:
+                response = await retry_with_backoff(
+                    lambda: llm_with_tools.ainvoke(all_messages),
+                    max_retries=settings.llm_max_retries,
+                    base_delay=settings.llm_retry_base_delay,
+                    max_delay=settings.llm_retry_max_delay,
+                )
+            except Exception as e:
+                logger.error(f"LLM call failed after retries: {e}")
+                return AgentOutput(
+                    result=None,
+                    citations=[],
+                    confidence=0.0,
+                    needs_review=True,
+                    review_reason=f"LLM call failed: {str(e)}",
+                    raw_response=None,
+                )
             all_messages.append(response)
 
             # Check if there are tool calls

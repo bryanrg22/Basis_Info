@@ -31,6 +31,7 @@ from ..agents.object_agent import enrich_objects_batch
 from ..agents.takeoff_agent import calculate_takeoffs_batch
 from ..agents.cost_agent import estimate_costs_batch, aggregate_costs
 from ..agents.vision_agent import analyze_study_images
+from ..agents.classification_verifier import verify_classifications_batch
 from ..firestore.client import FirestoreClient
 from ..firestore.writeback import FirestoreWriteback
 from ..observability.tracing import get_tracer
@@ -648,6 +649,62 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                     confidence=item.get("confidence", 0),
                     needs_review=item.get("needs_review", False),
                     study_id=state["study_id"],
+                )
+
+            # =====================================================================
+            # STEP 3.5: Verify classifications for IRS defensibility
+            # =====================================================================
+            if asset_classifications:
+                verify_start = time.time()
+                tracer.log_workflow_transition(
+                    study_id=state["study_id"],
+                    from_status="processing_assets",
+                    to_status="processing_assets",
+                    stage_summary={
+                        "step": "verifying_classifications",
+                        "count": len(asset_classifications),
+                    },
+                )
+
+                verification_results = await verify_classifications_batch(
+                    classifications=asset_classifications,
+                    components=enriched_objects,
+                    context=context,
+                    max_concurrent=5,
+                )
+
+                # Merge verification results into classifications
+                for i, verification in enumerate(verification_results):
+                    if i < len(asset_classifications):
+                        # Update needs_review flag if verification found issues
+                        if verification.get("needs_review"):
+                            asset_classifications[i]["needs_review"] = True
+                            existing_reason = asset_classifications[i].get("review_reason", "")
+                            new_reason = verification.get("review_reason", "")
+                            if new_reason and new_reason not in (existing_reason or ""):
+                                asset_classifications[i]["review_reason"] = (
+                                    f"{existing_reason}; {new_reason}" if existing_reason else new_reason
+                                )
+
+                        # Update confidence if verification adjusted it
+                        if verification.get("adjusted_confidence") is not None:
+                            original_conf = asset_classifications[i].get("confidence", 0.5)
+                            verified_conf = verification.get("adjusted_confidence", original_conf)
+                            # Use the lower of the two confidences
+                            asset_classifications[i]["confidence"] = min(original_conf, verified_conf)
+
+                        # Add verification metadata
+                        asset_classifications[i]["verification"] = {
+                            "is_valid": verification.get("is_valid", True),
+                            "issues": verification.get("issues", []),
+                            "suggestions": verification.get("suggestions", []),
+                        }
+
+                verify_elapsed = time.time() - verify_start
+                flagged_count = sum(1 for v in verification_results if v.get("needs_review"))
+                logger.info(
+                    f"[TIMING] Classification verification: {verify_elapsed:.1f}s "
+                    f"({len(asset_classifications)} verified, {flagged_count} flagged)"
                 )
 
         # =====================================================================
