@@ -675,3 +675,87 @@ async def cancel_job(
         )
 
     return {"success": True, "job_id": job_id, "message": "Job cancelled"}
+
+
+# =============================================================================
+# Debug Endpoints
+# =============================================================================
+
+
+class TestAlertRequest(BaseModel):
+    """Request to send a test alert."""
+
+    severity: Literal["warning", "error", "critical"] = Field(
+        default="warning",
+        description="Alert severity level",
+    )
+    message: str = Field(
+        default="This is a test alert from the debug endpoint",
+        description="Custom test message",
+    )
+
+
+class TestAlertResponse(BaseModel):
+    """Response from test alert."""
+
+    success: bool
+    message: str
+    channels_notified: list[str]
+
+
+@router.post("/debug/test-alert", response_model=TestAlertResponse)
+async def send_test_alert(
+    body: TestAlertRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Send a test alert to verify Slack webhook configuration.
+
+    This endpoint sends a test alert through all configured channels
+    (Slack, webhook) to verify the alerting system is working.
+
+    Requires authentication. Use this to test your ALERT_SLACK_WEBHOOK
+    environment variable is configured correctly.
+    """
+    from ...observability.alerts import send_alert, get_alert_manager
+
+    # Send test alert
+    try:
+        result = await send_alert(
+            study_id="TEST_ALERT",
+            stage="debug_endpoint",
+            error_type="TEST_ALERT",
+            error_message=body.message,
+            severity=body.severity,
+            context={
+                "triggered_by": user.uid,
+                "purpose": "Testing alert configuration",
+            },
+        )
+
+        # Check which channels are configured
+        manager = get_alert_manager()
+        channels_notified = []
+        for channel in manager.channels:
+            channel_name = type(channel).__name__.replace("AlertChannel", "")
+            channels_notified.append(channel_name)
+
+        if not channels_notified:
+            return TestAlertResponse(
+                success=False,
+                message="No alert channels configured. Set ALERT_SLACK_WEBHOOK in .env",
+                channels_notified=[],
+            )
+
+        return TestAlertResponse(
+            success=result,
+            message="Test alert sent successfully" if result else "Alert was throttled or failed",
+            channels_notified=channels_notified,
+        )
+
+    except Exception as e:
+        return TestAlertResponse(
+            success=False,
+            message=f"Failed to send alert: {str(e)}",
+            channels_notified=[],
+        )
