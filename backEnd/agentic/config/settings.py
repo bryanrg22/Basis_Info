@@ -8,7 +8,7 @@ Azure OpenAI settings override OpenAI when fully configured.
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -87,6 +87,20 @@ class Settings(BaseSettings):
     # LLM behavior settings
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=4096, ge=1)
+
+    # CORS settings
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000"],
+        alias="CORS_ORIGINS",
+    )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from comma-separated string or list."""
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
 
     def is_azure_configured(self) -> bool:
         """Check if Azure OpenAI is fully configured."""

@@ -2,12 +2,16 @@
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Depends
 from pydantic import BaseModel, Field
 
 from ...firestore.client import FirestoreClient
 from ...graph.workflow import run_workflow, resume_workflow
 from ...graph.state import WorkflowState
+from ..auth import CurrentUser, get_current_user, verify_study_ownership
+from ..exceptions import WorkflowError
+from ..validators import ValidStudyId
+from ..rate_limit import limiter, WORKFLOW_LIMIT, STATUS_LIMIT
 
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
@@ -21,7 +25,7 @@ router = APIRouter(prefix="/workflow", tags=["workflow"])
 class StartWorkflowRequest(BaseModel):
     """Request to start a workflow."""
 
-    study_id: str = Field(..., description="Study document ID")
+    study_id: ValidStudyId = Field(..., description="Study document ID")
     reference_doc_ids: list[str] = Field(
         default_factory=list,
         description="Available IRS/RSMeans document IDs",
@@ -35,7 +39,7 @@ class StartWorkflowRequest(BaseModel):
 class ResumeWorkflowRequest(BaseModel):
     """Request to resume a workflow after engineer review."""
 
-    study_id: str = Field(..., description="Study document ID")
+    study_id: ValidStudyId = Field(..., description="Study document ID")
     engineer_approved: bool = Field(
         default=True,
         description="Whether engineer approved the current stage",
@@ -49,7 +53,7 @@ class ResumeWorkflowRequest(BaseModel):
 class TriggerStageRequest(BaseModel):
     """Request to trigger a specific stage."""
 
-    study_id: str = Field(..., description="Study document ID")
+    study_id: ValidStudyId = Field(..., description="Study document ID")
     stage: str = Field(..., description="Stage to trigger")
     reference_doc_ids: list[str] = Field(default_factory=list)
     study_doc_ids: list[str] = Field(default_factory=list)
@@ -84,9 +88,12 @@ class WorkflowStatusResponse(BaseModel):
 
 
 @router.post("/start", response_model=WorkflowResponse)
+@limiter.limit(WORKFLOW_LIMIT)
 async def start_workflow(
-    request: StartWorkflowRequest,
+    request_obj: Request,
+    body: StartWorkflowRequest,
     background_tasks: BackgroundTasks,
+    user: CurrentUser = Depends(get_current_user),
 ):
     """
     Start a new workflow for a study.
@@ -94,23 +101,22 @@ async def start_workflow(
     This begins the stage-gated workflow from the beginning.
     The workflow will pause at review checkpoints for engineer approval.
     """
-    # Verify study exists
-    client = FirestoreClient()
-    study = client.get_study(request.study_id)
+    # Store user in request state for rate limiting
+    request_obj.state.user = user
 
-    if not study:
-        raise HTTPException(status_code=404, detail=f"Study not found: {request.study_id}")
+    # Verify study exists and user has access
+    verify_study_ownership(body.study_id, user)
 
     # Run workflow
     try:
         final_state = await run_workflow(
-            study_id=request.study_id,
-            reference_doc_ids=request.reference_doc_ids,
-            study_doc_ids=request.study_doc_ids,
+            study_id=body.study_id,
+            reference_doc_ids=body.reference_doc_ids,
+            study_doc_ids=body.study_doc_ids,
         )
 
         return WorkflowResponse(
-            study_id=request.study_id,
+            study_id=body.study_id,
             status="paused" if final_state.get("needs_review") else "running",
             current_stage=final_state.get("current_stage", "unknown"),
             needs_review=final_state.get("needs_review", False),
@@ -118,26 +124,37 @@ async def start_workflow(
             message="Workflow started successfully",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise WorkflowError(internal_message=str(e))
 
 
 @router.post("/resume", response_model=WorkflowResponse)
-async def resume_workflow_endpoint(request: ResumeWorkflowRequest):
+@limiter.limit(WORKFLOW_LIMIT)
+async def resume_workflow_endpoint(
+    request_obj: Request,
+    body: ResumeWorkflowRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
     """
     Resume a workflow after engineer review.
 
     Call this after the engineer has reviewed and approved (or corrected)
     the current stage results.
     """
+    # Store user in request state for rate limiting
+    request_obj.state.user = user
+
+    # Verify study exists and user has access
+    verify_study_ownership(body.study_id, user)
+
     try:
         final_state = await resume_workflow(
-            study_id=request.study_id,
-            engineer_approved=request.engineer_approved,
-            corrections=request.corrections,
+            study_id=body.study_id,
+            engineer_approved=body.engineer_approved,
+            corrections=body.corrections,
         )
 
         return WorkflowResponse(
-            study_id=request.study_id,
+            study_id=body.study_id,
             status="completed" if final_state.get("current_stage") == "completed" else "running",
             current_stage=final_state.get("current_stage", "unknown"),
             needs_review=final_state.get("needs_review", False),
@@ -145,16 +162,28 @@ async def resume_workflow_endpoint(request: ResumeWorkflowRequest):
             message="Workflow resumed successfully",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise WorkflowError(internal_message=str(e))
 
 
 @router.post("/stage/{stage}", response_model=WorkflowResponse)
-async def trigger_stage(stage: str, request: TriggerStageRequest):
+@limiter.limit(WORKFLOW_LIMIT)
+async def trigger_stage(
+    stage: str,
+    request_obj: Request,
+    body: TriggerStageRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
     """
     Trigger a specific workflow stage.
 
     Use this to manually run a specific stage (e.g., re-run classification).
     """
+    # Store user in request state for rate limiting
+    request_obj.state.user = user
+
+    # Verify study exists and user has access
+    verify_study_ownership(body.study_id, user)
+
     valid_stages = [
         "analyze_rooms",
         "analyze_objects",
@@ -173,13 +202,13 @@ async def trigger_stage(stage: str, request: TriggerStageRequest):
     # In the future, we could add logic to run a specific stage
     try:
         final_state = await run_workflow(
-            study_id=request.study_id,
-            reference_doc_ids=request.reference_doc_ids,
-            study_doc_ids=request.study_doc_ids,
+            study_id=body.study_id,
+            reference_doc_ids=body.reference_doc_ids,
+            study_doc_ids=body.study_doc_ids,
         )
 
         return WorkflowResponse(
-            study_id=request.study_id,
+            study_id=body.study_id,
             status="running",
             current_stage=final_state.get("current_stage", stage),
             needs_review=final_state.get("needs_review", False),
@@ -187,19 +216,24 @@ async def trigger_stage(stage: str, request: TriggerStageRequest):
             message=f"Stage '{stage}' triggered",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise WorkflowError(internal_message=str(e))
 
 
 @router.get("/{study_id}/status", response_model=WorkflowStatusResponse)
-async def get_workflow_status(study_id: str):
+@limiter.limit(STATUS_LIMIT)
+async def get_workflow_status(
+    study_id: ValidStudyId,
+    request_obj: Request,
+    user: CurrentUser = Depends(get_current_user),
+):
     """
     Get the current workflow status for a study.
     """
-    client = FirestoreClient()
-    study = client.get_study(study_id)
+    # Store user in request state for rate limiting
+    request_obj.state.user = user
 
-    if not study:
-        raise HTTPException(status_code=404, detail=f"Study not found: {study_id}")
+    # Verify study exists and user has access
+    study = verify_study_ownership(study_id, user)
 
     # Count items needing review
     objects = study.get("objects", [])
@@ -221,15 +255,20 @@ async def get_workflow_status(study_id: str):
 
 
 @router.get("/{study_id}/evidence")
-async def get_workflow_evidence(study_id: str):
+@limiter.limit(STATUS_LIMIT)
+async def get_workflow_evidence(
+    study_id: ValidStudyId,
+    request_obj: Request,
+    user: CurrentUser = Depends(get_current_user),
+):
     """
     Get all evidence citations for a study's classifications.
     """
-    client = FirestoreClient()
-    study = client.get_study(study_id)
+    # Store user in request state for rate limiting
+    request_obj.state.user = user
 
-    if not study:
-        raise HTTPException(status_code=404, detail=f"Study not found: {study_id}")
+    # Verify study exists and user has access
+    study = verify_study_ownership(study_id, user)
 
     # Collect all citations from objects
     citations = []

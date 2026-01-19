@@ -6,6 +6,7 @@
  */
 
 import { API_CONFIG } from '@/config/env';
+import { auth } from '@/lib/firebase';
 
 // =============================================================================
 // Types
@@ -72,23 +73,45 @@ class WorkflowApiClient {
     this.baseUrl = API_CONFIG.backendUrl;
   }
 
+  /**
+   * Get Firebase auth token for authenticated requests
+   */
+  private async getAuthToken(): Promise<string | null> {
+    const user = auth?.currentUser;
+    if (!user) return null;
+    try {
+      return await user.getIdToken();
+    } catch {
+      return null;
+    }
+  }
+
   private async fetch<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    const token = await this.getAuthToken();
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    if (token) {
+      (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, { ...options, headers });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API Error (${response.status}): ${errorText}`);
+      if (response.status === 401) {
+        throw new Error('Please sign in to continue.');
+      }
+      if (response.status === 403) {
+        throw new Error('Access denied.');
+      }
+      throw new Error(`API Error (${response.status})`);
     }
 
     return response.json();
