@@ -17,7 +17,7 @@ from slowapi.errors import RateLimitExceeded
 
 from ..config.settings import get_settings
 from ..observability.tracing import configure_langsmith
-from .routes import workflow_router, health_router
+from .routes import workflow_router, health_router, checkpoints_router
 from .exceptions import APIError, api_error_handler, generic_exception_handler
 from .rate_limit import limiter
 
@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(health_router)
     app.include_router(workflow_router)
+    app.include_router(checkpoints_router)  # Phase 6: Checkpoint history endpoints
 
     @app.get("/")
     async def root():

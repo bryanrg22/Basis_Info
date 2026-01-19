@@ -292,15 +292,44 @@ async def get_workflow_status(
     )
 
 
-@router.get("/{study_id}/evidence")
+class EvidenceFilterParams(BaseModel):
+    """Query parameters for evidence filtering."""
+
+    stage: Optional[str] = Field(default=None, description="Filter by workflow stage")
+    component_id: Optional[str] = Field(default=None, description="Filter by component ID")
+    doc_id: Optional[str] = Field(default=None, description="Filter by source document")
+
+
+class EvidenceResponse(BaseModel):
+    """Response for evidence queries."""
+
+    study_id: str
+    total_citations: int
+    entries: list[dict[str, Any]]
+    summary: dict[str, Any]
+    filters_applied: dict[str, Optional[str]]
+
+
+@router.get("/{study_id}/evidence", response_model=EvidenceResponse)
 @limiter.limit(STATUS_LIMIT)
 async def get_workflow_evidence(
     study_id: ValidStudyId,
     request_obj: Request,
+    stage: Optional[str] = None,
+    component_id: Optional[str] = None,
+    doc_id: Optional[str] = None,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
-    Get all evidence citations for a study's classifications.
+    Get evidence citations for a study with optional filtering.
+
+    Phase 6: Returns organized evidence pack with filtering by stage,
+    component, or source document.
+
+    Query Parameters:
+        stage: Filter by workflow stage (e.g., "room", "object", "classification", "takeoff", "cost")
+        component_id: Filter by component ID
+        doc_id: Filter by source document ID
     """
     # Store user in request state for rate limiting
     request_obj.state.user = user
@@ -308,21 +337,228 @@ async def get_workflow_evidence(
     # Verify study exists and user has access
     study = verify_study_ownership(study_id, user)
 
-    # Collect all citations from objects
-    citations = []
-    for obj in study.get("objects", []):
-        obj_citations = obj.get("citations", [])
-        for citation in obj_citations:
-            citations.append({
-                "component": obj.get("component", obj.get("name")),
-                **citation,
-            })
+    # Get evidence pack from study
+    evidence_pack = study.get("evidence_pack", {})
+    entries = evidence_pack.get("entries", [])
+    summary = evidence_pack.get("summary", {})
 
-    return {
-        "study_id": study_id,
-        "total_citations": len(citations),
-        "citations": citations,
-    }
+    # Apply filters
+    filtered_entries = entries
+
+    if stage:
+        stage_entry_ids = set(evidence_pack.get("by_stage", {}).get(stage, []))
+        filtered_entries = [e for e in filtered_entries if e.get("id") in stage_entry_ids]
+
+    if component_id:
+        component_entry_ids = set(evidence_pack.get("by_component", {}).get(component_id, []))
+        filtered_entries = [e for e in filtered_entries if e.get("id") in component_entry_ids]
+
+    if doc_id:
+        doc_entry_ids = set(evidence_pack.get("by_document", {}).get(doc_id, []))
+        filtered_entries = [e for e in filtered_entries if e.get("id") in doc_entry_ids]
+
+    # If no evidence pack exists, fall back to legacy object citations
+    if not entries:
+        citations = []
+        for obj in study.get("objects", []):
+            obj_citations = obj.get("citations", [])
+            for citation in obj_citations:
+                citations.append({
+                    "component": obj.get("component", obj.get("name")),
+                    "stage": "classification",
+                    **citation,
+                })
+        filtered_entries = citations
+        summary = {"total_citations": len(citations), "legacy_format": True}
+
+    return EvidenceResponse(
+        study_id=study_id,
+        total_citations=len(filtered_entries),
+        entries=filtered_entries,
+        summary=summary,
+        filters_applied={
+            "stage": stage,
+            "component_id": component_id,
+            "doc_id": doc_id,
+        },
+    )
+
+
+# =============================================================================
+# Cost Tracking Endpoints (Phase 6)
+# =============================================================================
+
+
+class CostSummaryResponse(BaseModel):
+    """Response for cost summary endpoint."""
+
+    study_id: str
+    total_cost_usd: float
+    total_input_tokens: int
+    total_output_tokens: int
+    total_calls: int
+    calls_by_agent: dict[str, int]
+    cost_by_agent: dict[str, float]
+    cost_by_stage: dict[str, float]
+    avg_latency_ms: Optional[float]
+
+
+@router.get("/{study_id}/costs", response_model=CostSummaryResponse)
+@limiter.limit(STATUS_LIMIT)
+async def get_workflow_costs(
+    study_id: ValidStudyId,
+    request_obj: Request,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get LLM cost summary for a study workflow.
+
+    Phase 6: Returns aggregated cost metrics including totals,
+    breakdowns by agent and stage, and latency statistics.
+    """
+    request_obj.state.user = user
+    verify_study_ownership(study_id, user)
+
+    from ...observability.cost_tracker import get_cost_tracker
+
+    cost_tracker = get_cost_tracker()
+    summary = await cost_tracker.get_study_summary(study_id)
+
+    return CostSummaryResponse(
+        study_id=summary.study_id,
+        total_cost_usd=summary.total_cost_usd,
+        total_input_tokens=summary.total_input_tokens,
+        total_output_tokens=summary.total_output_tokens,
+        total_calls=summary.total_calls,
+        calls_by_agent=summary.calls_by_agent,
+        cost_by_agent=summary.cost_by_agent,
+        cost_by_stage=summary.cost_by_stage,
+        avg_latency_ms=summary.avg_latency_ms,
+    )
+
+
+# =============================================================================
+# Decision Logging Endpoints (Phase 6)
+# =============================================================================
+
+
+class DecisionResponse(BaseModel):
+    """Response for a single decision."""
+
+    id: str
+    agent: str
+    component_id: Optional[str]
+    component_name: Optional[str]
+    decision_type: str
+    decision: Any
+    reasoning: str
+    confidence: float
+    evidence_used: list[str]
+    timestamp: str
+
+
+class DecisionListResponse(BaseModel):
+    """Response for decision listing."""
+
+    study_id: str
+    decisions: list[DecisionResponse]
+    total: int
+
+
+class DecisionSummaryResponse(BaseModel):
+    """Response for decision summary."""
+
+    study_id: str
+    total_decisions: int
+    decisions_by_agent: dict[str, int]
+    decisions_by_type: dict[str, int]
+    avg_confidence: float
+    low_confidence_count: int
+
+
+@router.get("/{study_id}/decisions", response_model=DecisionListResponse)
+@limiter.limit(STATUS_LIMIT)
+async def get_workflow_decisions(
+    study_id: ValidStudyId,
+    request_obj: Request,
+    agent: Optional[str] = None,
+    decision_type: Optional[str] = None,
+    limit: int = 100,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get agent decisions for a study workflow.
+
+    Phase 6: Returns logged decisions with filtering options
+    for debugging and audit trail.
+
+    Query Parameters:
+        agent: Filter by agent name (optional)
+        decision_type: Filter by decision type (optional)
+        limit: Maximum decisions to return (default: 100)
+    """
+    request_obj.state.user = user
+    verify_study_ownership(study_id, user)
+
+    from ...observability.decision_log import get_decision_logger
+
+    decision_logger = get_decision_logger()
+    decisions = await decision_logger.get_all_decisions(
+        study_id,
+        agent_filter=agent,
+        decision_type_filter=decision_type,
+        limit=limit,
+    )
+
+    return DecisionListResponse(
+        study_id=study_id,
+        decisions=[
+            DecisionResponse(
+                id=d.id,
+                agent=d.agent,
+                component_id=d.component_id,
+                component_name=d.component_name,
+                decision_type=d.decision_type,
+                decision=d.decision,
+                reasoning=d.reasoning,
+                confidence=d.confidence,
+                evidence_used=d.evidence_used,
+                timestamp=d.timestamp.isoformat(),
+            )
+            for d in decisions
+        ],
+        total=len(decisions),
+    )
+
+
+@router.get("/{study_id}/decisions/summary", response_model=DecisionSummaryResponse)
+@limiter.limit(STATUS_LIMIT)
+async def get_decisions_summary(
+    study_id: ValidStudyId,
+    request_obj: Request,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get decision summary statistics for a study.
+
+    Phase 6: Returns aggregate metrics about agent decisions.
+    """
+    request_obj.state.user = user
+    verify_study_ownership(study_id, user)
+
+    from ...observability.decision_log import get_decision_logger
+
+    decision_logger = get_decision_logger()
+    summary = await decision_logger.get_decision_summary(study_id)
+
+    return DecisionSummaryResponse(
+        study_id=summary.study_id,
+        total_decisions=summary.total_decisions,
+        decisions_by_agent=summary.decisions_by_agent,
+        decisions_by_type=summary.decisions_by_type,
+        avg_confidence=summary.avg_confidence,
+        low_confidence_count=summary.low_confidence_count,
+    )
 
 
 # =============================================================================

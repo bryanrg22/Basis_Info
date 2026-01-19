@@ -6,16 +6,21 @@ All agent outputs are written with:
 2. Evidence citations (chunk_ids, table_ids, pages)
 3. Confidence scores
 4. Review flags
+
+Phase 6: Added evidence pack persistence for unified citation tracking.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from firebase_admin import firestore
 from pydantic import BaseModel, Field
 
 from .client import FirestoreClient
 from ..agents.base_agent import Citation
+
+if TYPE_CHECKING:
+    from ..evidence.models import EvidencePack
 
 
 class EvidenceBackedUpdate(BaseModel):
@@ -228,3 +233,52 @@ class FirestoreWriteback:
             f"{stage}_summary": summary,
             "workflowStatus": next_status,
         })
+
+    def persist_evidence_pack(
+        self,
+        study_id: str,
+        pack: "EvidencePack",
+    ) -> None:
+        """
+        Persist an evidence pack to Firestore.
+
+        Phase 6: Stores the unified evidence pack for a study,
+        enabling organized citation retrieval by stage, component, or document.
+
+        Args:
+            study_id: Study document ID
+            pack: Evidence pack to persist
+        """
+        # Store pack data in the study document
+        pack_data = pack.to_firestore_dict()
+
+        # Store summary in study for quick access
+        self.client.update_study(study_id, {
+            "evidence_pack": pack_data,
+            "evidence_summary": pack.summary.model_dump(),
+            "evidence_updated_at": firestore.SERVER_TIMESTAMP,
+        })
+
+    def get_evidence_pack(self, study_id: str) -> Optional["EvidencePack"]:
+        """
+        Retrieve an evidence pack from Firestore.
+
+        Phase 6: Loads the stored evidence pack for evidence retrieval.
+
+        Args:
+            study_id: Study document ID
+
+        Returns:
+            EvidencePack or None if not found
+        """
+        from ..evidence.models import EvidencePack
+
+        study = self.client.get_study(study_id)
+        if not study:
+            return None
+
+        pack_data = study.get("evidence_pack")
+        if not pack_data:
+            return None
+
+        return EvidencePack.from_firestore_dict(pack_data)

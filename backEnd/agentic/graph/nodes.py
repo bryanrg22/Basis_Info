@@ -25,6 +25,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from ..agents.base_agent import StageContext
+from ..evidence.aggregator import EvidenceAggregator
 from ..agents.asset_agent import classify_components_batch
 from ..agents.room_agent import enrich_rooms_batch
 from ..agents.object_agent import enrich_objects_batch
@@ -565,7 +566,9 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
         context = _build_stage_context(state)
         objects = state.get("objects", [])
         rooms = state.get("rooms", [])
-        evidence_pack = state.get("evidence_pack", [])
+
+        # Phase 6: Use EvidenceAggregator instead of simple list
+        evidence_aggregator = EvidenceAggregator(study_id=state["study_id"])
 
         # Build a room lookup map for quick access
         rooms_by_id = {r.get("id"): r for r in rooms if r.get("id")}
@@ -606,7 +609,17 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
             logger.info(f"[TIMING] Object enrichment: {enrich_elapsed:.1f}s ({len(objects)} objects)")
 
             for obj in enriched_objects:
-                evidence_pack.extend(obj.get("citations", []))
+                # Phase 6: Use evidence aggregator with component context
+                obj_id = obj.get("id", obj.get("original_label", "unknown"))
+                obj_name = obj.get("original_label", obj.get("label", "unknown"))
+                evidence_aggregator.add_citations(
+                    citations=obj.get("citations", []),
+                    stage="object",
+                    component_id=obj_id,
+                    component_name=obj_name,
+                )
+                # Register component for evidence tracking
+                evidence_aggregator.register_component(obj_id)
 
         # =====================================================================
         # STEP 2 & 3: Calculate takeoffs AND IRS classification IN PARALLEL!
@@ -671,12 +684,27 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
             parallel_elapsed = time.time() - parallel_start
             logger.info(f"[TIMING] Takeoffs + Classification (parallel): {parallel_elapsed:.1f}s")
 
-            # Collect citations from both
+            # Phase 6: Collect citations using evidence aggregator
             for takeoff in takeoffs:
-                evidence_pack.extend(takeoff.get("citations", []))
+                takeoff_result = takeoff.get("takeoff", {})
+                component_name = takeoff_result.get("component_name", takeoff.get("component_name", "unknown"))
+                component_id = takeoff.get("component_id", component_name)
+                evidence_aggregator.add_citations(
+                    citations=takeoff.get("citations", []),
+                    stage="takeoff",
+                    component_id=component_id,
+                    component_name=component_name,
+                )
 
             for item in asset_classifications:
-                evidence_pack.extend(item.get("citations", []))
+                component_name = item.get("component", "unknown")
+                component_id = item.get("component_id", component_name)
+                evidence_aggregator.add_citations(
+                    citations=item.get("citations", []),
+                    stage="classification",
+                    component_id=component_id,
+                    component_name=component_name,
+                )
 
                 tracer.log_classification(
                     component=item.get("component", ""),
@@ -780,8 +808,16 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
             cost_elapsed = time.time() - cost_start
             logger.info(f"[TIMING] Cost estimation: {cost_elapsed:.1f}s ({len(takeoff_data)} items)")
 
+            # Phase 6: Collect cost citations using evidence aggregator
             for estimate in cost_estimates:
-                evidence_pack.extend(estimate.get("citations", []))
+                component_name = estimate.get("component_name", "unknown")
+                component_id = estimate.get("component_id", component_name)
+                evidence_aggregator.add_citations(
+                    citations=estimate.get("citations", []),
+                    stage="cost",
+                    component_id=component_id,
+                    component_name=component_name,
+                )
 
         # =====================================================================
         # STEP 5: Cross-validation across stages (Phase 5)
@@ -846,6 +882,14 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
         writeback.update_study_with_costs(state["study_id"], cost_estimates, cost_summary)
         writeback.advance_workflow(state["study_id"], "engineering_takeoff")
 
+        # Phase 6: Persist evidence pack
+        evidence_pack = evidence_aggregator.get_organized_pack()
+        writeback.persist_evidence_pack(state["study_id"], evidence_pack)
+        logger.info(
+            f"[EVIDENCE] Persisted evidence pack: {evidence_pack.total_citations} citations, "
+            f"{len(evidence_pack.summary.stages_covered)} stages"
+        )
+
         stage_elapsed = time.time() - stage_start
         logger.info(f"[TIMING] Total process_assets: {stage_elapsed:.1f}s")
 
@@ -871,7 +915,7 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
             "takeoffs": takeoffs,
             "asset_classifications": asset_classifications,
             "cost_estimates": cost_estimates,
-            "evidence_pack": evidence_pack,
+            "evidence_pack": evidence_pack.to_firestore_dict(),  # Phase 6: Serialized pack
             "needs_review": True,  # PAUSE for engineer to review all asset data
         }
 
@@ -902,16 +946,37 @@ async def complete_workflow_node(state: WorkflowState) -> WorkflowState:
 async def error_handler_node(state: WorkflowState) -> WorkflowState:
     """
     Handle errors during workflow execution.
+
+    Phase 6: Sends alerts on workflow errors.
     """
     tracer = get_tracer()
+    from ..observability.alerts import send_alert
 
     error = state.get("last_error", "Unknown error")
+    stage = state.get("current_stage", "unknown")
+
     tracer.log_error(
         Exception(error),
-        context={"study_id": state["study_id"], "stage": state.get("current_stage")},
+        context={"study_id": state["study_id"], "stage": stage},
     )
+
+    # Phase 6: Send alert for workflow error
+    try:
+        await send_alert(
+            study_id=state["study_id"],
+            stage=stage,
+            error_type="WORKFLOW_ERROR",
+            error_message=error,
+            severity="error",
+            context={
+                "user_id": state.get("user_id", "unknown"),
+                "property_name": state.get("property_name", "unknown"),
+            },
+        )
+    except Exception as alert_err:
+        logger.warning(f"Failed to send workflow error alert: {alert_err}")
 
     return {
         **state,
-        "errors": [*state.get("errors", []), {"error": error, "stage": state.get("current_stage")}],
+        "errors": [*state.get("errors", []), {"error": error, "stage": stage}],
     }

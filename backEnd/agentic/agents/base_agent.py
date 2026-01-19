@@ -6,10 +6,13 @@ Every stage agent follows the same pattern:
 2. Search evidence using MCP tools
 3. Generate structured output with citations
 4. Return evidence-backed result with review flags
+
+Phase 6: Added cost tracking and decision logging.
 """
 
 from abc import ABC, abstractmethod
 import logging
+import time
 from typing import Any, Generic, Optional, TypeVar
 
 from langchain_core.language_models import BaseChatModel
@@ -21,6 +24,8 @@ from ..config.llm_providers import get_llm_for_stage
 from ..config.settings import get_settings
 from ..mcp_server.server import get_all_evidence_tools
 from ..utils.parallel import retry_with_backoff
+from ..observability.cost_tracker import get_cost_tracker
+from ..observability.decision_log import get_decision_logger
 
 logger = logging.getLogger(__name__)
 
@@ -275,8 +280,14 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
         settings = get_settings()
         max_iterations = settings.agent_max_iterations
 
+        # Phase 6: Cost tracking setup
+        cost_tracker = get_cost_tracker()
+        total_input_tokens = 0
+        total_output_tokens = 0
+
         for _ in range(max_iterations):
             # Call the LLM with retry logic for rate limits
+            call_start = time.time()
             try:
                 response = await retry_with_backoff(
                     lambda: llm_with_tools.ainvoke(all_messages),
@@ -294,6 +305,35 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
                     review_reason=f"LLM call failed: {str(e)}",
                     raw_response=None,
                 )
+            call_elapsed_ms = int((time.time() - call_start) * 1000)
+
+            # Phase 6: Extract token usage from response
+            if hasattr(response, "response_metadata"):
+                metadata = response.response_metadata
+                usage = metadata.get("usage", metadata.get("token_usage", {}))
+                input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+                output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
+                total_input_tokens += input_tokens
+                total_output_tokens += output_tokens
+
+                # Get model name from metadata or use default
+                model_name = metadata.get("model_name", metadata.get("model", settings.openai_model))
+
+                # Record this iteration's usage
+                if input_tokens > 0 or output_tokens > 0:
+                    try:
+                        await cost_tracker.record_usage(
+                            study_id=context.study_id,
+                            agent=self.stage_name,
+                            model=model_name,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            stage=self.stage_name,
+                            latency_ms=call_elapsed_ms,
+                        )
+                    except Exception as cost_err:
+                        logger.warning(f"Failed to record cost: {cost_err}")
+
             all_messages.append(response)
 
             # Check if there are tool calls
@@ -354,13 +394,58 @@ class BaseStageAgent(ABC, Generic[TInput, TOutput]):
             )
 
         # Determine if review needed
+        confidence = self._determine_confidence(citations)
         needs_review = len(citations) == 0
         review_reason = "No evidence found to support classification" if needs_review else None
+
+        # Phase 6: Log the decision for audit trail
+        try:
+            decision_logger = get_decision_logger()
+            # Extract evidence chunk IDs
+            evidence_ids = [
+                c.chunk_id for c in citations
+                if hasattr(c, "chunk_id") and c.chunk_id
+            ]
+
+            # Get component info from input if available
+            component_id = None
+            component_name = None
+            if hasattr(input_data, "component_id"):
+                component_id = input_data.component_id
+            if hasattr(input_data, "component_name"):
+                component_name = input_data.component_name
+            elif hasattr(input_data, "name"):
+                component_name = input_data.name
+
+            # Build input summary
+            input_summary = {}
+            if hasattr(input_data, "model_dump"):
+                input_dump = input_data.model_dump()
+                # Only include key fields to avoid large payloads
+                for key in ["name", "component_name", "room_type", "label", "original_label"]:
+                    if key in input_dump:
+                        input_summary[key] = input_dump[key]
+
+            # Log the decision
+            await decision_logger.log_decision(
+                study_id=context.study_id,
+                agent=self.stage_name,
+                decision_type="agent_output",
+                decision=parsed_output.model_dump() if hasattr(parsed_output, "model_dump") else parsed_output,
+                reasoning=raw_response[:500] if raw_response else "",  # First 500 chars of response
+                evidence_used=evidence_ids,
+                confidence=confidence,
+                component_id=component_id,
+                component_name=component_name,
+                input_summary=input_summary,
+            )
+        except Exception as log_err:
+            logger.warning(f"Failed to log decision: {log_err}")
 
         return AgentOutput(
             result=parsed_output,
             citations=citations,
-            confidence=self._determine_confidence(citations),
+            confidence=confidence,
             needs_review=needs_review,
             review_reason=review_reason,
             raw_response=raw_response,

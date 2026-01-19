@@ -3,9 +3,12 @@ LangGraph checkpointer using Firestore for persistence.
 
 Stores workflow state in Firestore for resumability across restarts.
 Enables workflows to pause at engineer review checkpoints and resume later.
+
+Phase 6: Added checkpoint history tracking for debugging and audit trail.
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Iterator, Optional, Sequence, Tuple
 
@@ -18,6 +21,13 @@ from langgraph.checkpoint.base import (
 )
 
 from .client import get_firestore_client
+from .checkpoint_history import (
+    CheckpointHistoryEntry,
+    CheckpointHistoryList,
+    CheckpointDiff,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class FirestoreCheckpointer(BaseCheckpointSaver):
@@ -228,3 +238,182 @@ class FirestoreCheckpointer(BaseCheckpointSaver):
             now = datetime.now(timezone.utc)
             return (now - updated_at).total_seconds()
         return None
+
+    # =========================================================================
+    # Phase 6: Checkpoint History Methods
+    # =========================================================================
+
+    def _get_history_collection(self, thread_id: str):
+        """Get the history subcollection for a thread."""
+        return (
+            self.db.collection(self.collection)
+            .document(thread_id)
+            .collection("history")
+        )
+
+    def put_with_history(
+        self,
+        config: dict,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        trigger: str = "stage_complete",
+        from_stage: Optional[str] = None,
+        to_stage: Optional[str] = None,
+        summary: Optional[dict] = None,
+        new_versions: Optional[dict] = None,
+    ) -> dict:
+        """
+        Save a checkpoint with history tracking.
+
+        Phase 6: Writes to both the latest checkpoint and the history subcollection.
+
+        Args:
+            config: Configuration with thread_id
+            checkpoint: Checkpoint to save
+            metadata: Checkpoint metadata
+            trigger: What triggered this checkpoint
+            from_stage: Previous workflow stage
+            to_stage: New workflow stage
+            summary: Summary of changes
+            new_versions: New channel versions (optional)
+
+        Returns:
+            Updated config
+        """
+        thread_id = config["configurable"]["thread_id"]
+
+        # Get the current checkpoint for parent_id
+        current = self.get_tuple(config)
+        parent_id = None
+        version = 1
+
+        if current:
+            # Get the latest history entry ID as parent
+            history_docs = list(
+                self._get_history_collection(thread_id)
+                .order_by("created_at", direction=firestore.Query.DESCENDING)
+                .limit(1)
+                .stream()
+            )
+            if history_docs:
+                parent_id = history_docs[0].id
+                version = history_docs[0].to_dict().get("v", 0) + 1
+
+        # Create history entry
+        history_entry = CheckpointHistoryEntry(
+            thread_id=thread_id,
+            parent_id=parent_id,
+            v=version,
+            from_stage=from_stage,
+            to_stage=to_stage,
+            trigger=trigger,
+            summary=summary or {},
+            channel_values=self._serialize_values(checkpoint.get("channel_values", {})),
+            metadata={
+                "source": metadata.get("source", "input"),
+                "step": metadata.get("step", 0),
+            },
+        )
+
+        # Write history entry
+        self._get_history_collection(thread_id).document(history_entry.id).set(
+            history_entry.to_firestore_dict()
+        )
+
+        logger.debug(
+            f"Checkpoint history entry {history_entry.id} saved for thread {thread_id} "
+            f"(trigger={trigger}, from={from_stage} to={to_stage})"
+        )
+
+        # Also save as latest checkpoint using normal put
+        return self.put(config, checkpoint, metadata, new_versions)
+
+    def get_history(
+        self,
+        thread_id: str,
+        limit: int = 50,
+    ) -> CheckpointHistoryList:
+        """
+        Get checkpoint history for a thread.
+
+        Phase 6: Returns all historical checkpoints for debugging.
+
+        Args:
+            thread_id: Workflow thread ID
+            limit: Maximum entries to return
+
+        Returns:
+            CheckpointHistoryList with all history entries
+        """
+        history_ref = self._get_history_collection(thread_id)
+        query = (
+            history_ref
+            .order_by("created_at", direction=firestore.Query.ASCENDING)
+            .limit(limit)
+        )
+
+        entries = []
+        for doc in query.stream():
+            data = doc.to_dict()
+            data["id"] = doc.id
+            entries.append(CheckpointHistoryEntry.from_firestore_dict(data))
+
+        latest_stage = entries[-1].to_stage if entries else None
+
+        return CheckpointHistoryList(
+            thread_id=thread_id,
+            entries=entries,
+            total_count=len(entries),
+            latest_stage=latest_stage,
+        )
+
+    def get_history_entry(
+        self,
+        thread_id: str,
+        entry_id: str,
+    ) -> Optional[CheckpointHistoryEntry]:
+        """
+        Get a specific history entry.
+
+        Args:
+            thread_id: Workflow thread ID
+            entry_id: History entry ID
+
+        Returns:
+            CheckpointHistoryEntry or None if not found
+        """
+        doc = self._get_history_collection(thread_id).document(entry_id).get()
+
+        if not doc.exists:
+            return None
+
+        data = doc.to_dict()
+        data["id"] = doc.id
+        return CheckpointHistoryEntry.from_firestore_dict(data)
+
+    def diff_checkpoints(
+        self,
+        thread_id: str,
+        entry_id_a: str,
+        entry_id_b: str,
+    ) -> Optional[CheckpointDiff]:
+        """
+        Compute the diff between two checkpoint history entries.
+
+        Phase 6: Shows what changed between two points in workflow history.
+
+        Args:
+            thread_id: Workflow thread ID
+            entry_id_a: First (earlier) entry ID
+            entry_id_b: Second (later) entry ID
+
+        Returns:
+            CheckpointDiff or None if entries not found
+        """
+        entry_a = self.get_history_entry(thread_id, entry_id_a)
+        entry_b = self.get_history_entry(thread_id, entry_id_b)
+
+        if not entry_a or not entry_b:
+            return None
+
+        return CheckpointDiff.compute(entry_a, entry_b)

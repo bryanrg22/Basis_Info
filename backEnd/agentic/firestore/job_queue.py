@@ -8,8 +8,10 @@ Provides reliable task execution with:
 - Progress tracking
 
 Phase 5: Workflow Reliability Implementation
+Phase 6: Added failure alerts
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -300,6 +302,8 @@ class JobQueue:
         """
         Mark a job as failed.
 
+        Phase 6: Sends alert on permanent failures.
+
         Args:
             job_id: Job ID
             error: Error message
@@ -315,6 +319,8 @@ class JobQueue:
         data = doc.to_dict()
         retry_count = data.get("retry_count", 0)
         max_retries = data.get("max_retries", 3)
+        study_id = data.get("study_id", "unknown")
+        job_type = data.get("job_type", "unknown")
 
         if retry and retry_count < max_retries:
             # Schedule retry
@@ -337,6 +343,25 @@ class JobQueue:
                 "completed_at": datetime.now(timezone.utc),
             })
             logger.error(f"Job {job_id} failed permanently: {error}")
+
+            # Phase 6: Send alert on permanent failure
+            try:
+                from ..observability.alerts import send_alert
+                asyncio.create_task(send_alert(
+                    study_id=study_id,
+                    stage=f"job:{job_type}",
+                    error_type="JOB_PERMANENT_FAILURE",
+                    error_message=error,
+                    severity="error",
+                    context={
+                        "job_id": job_id,
+                        "job_type": job_type,
+                        "retry_count": retry_count,
+                        "max_retries": max_retries,
+                    },
+                ))
+            except Exception as alert_err:
+                logger.warning(f"Failed to send job failure alert: {alert_err}")
 
     async def get_job(self, job_id: str) -> Optional[Job]:
         """

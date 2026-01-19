@@ -146,6 +146,25 @@ class Settings(BaseSettings):
         description="Enable cross-stage validation checks",
     )
 
+    # Phase 6: Alert settings
+    alert_slack_webhook: Optional[str] = Field(
+        default=None,
+        alias="ALERT_SLACK_WEBHOOK",
+        description="Slack webhook URL for workflow alerts",
+    )
+    alert_webhook_url: Optional[str] = Field(
+        default=None,
+        alias="ALERT_WEBHOOK_URL",
+        description="Generic webhook URL for alerts",
+    )
+    alert_throttle_seconds: int = Field(
+        default=300,
+        ge=0,
+        le=3600,
+        alias="ALERT_THROTTLE_SECONDS",
+        description="Minimum seconds between similar alerts",
+    )
+
     # CORS settings
     cors_origins: list[str] = Field(
         default=["http://localhost:3000"],
