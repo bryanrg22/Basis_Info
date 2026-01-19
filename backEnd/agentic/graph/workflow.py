@@ -236,21 +236,72 @@ async def resume_workflow(
     - reviewing_rooms approved → runs process_assets → pauses at engineering_takeoff
     - engineering_takeoff approved → runs complete → done
 
+    Phase 5 Enhancement: If corrections are provided, they are processed through
+    the CorrectionCascade system which:
+    1. Applies the direct correction
+    2. Marks dependent data as stale
+    3. Enqueues recalculation jobs for affected downstream stages
+
     Args:
         study_id: Study document ID
         engineer_approved: Whether engineer approved the current stage
-        corrections: Optional list of corrections made by engineer
+        corrections: Optional list of corrections made by engineer, each with:
+            - correction_type: Type of correction (e.g., "classification_section")
+            - component_id: ID of the component being corrected
+            - new_value: The new value to apply
+            - reason: Optional reason for the correction
 
     Returns:
         Updated workflow state (will pause at next review checkpoint)
     """
+    import logging
     from ..firestore.client import FirestoreClient
+
+    logger = logging.getLogger(__name__)
 
     # Get current study state to determine where to resume
     client = FirestoreClient()
     study = client.get_study(study_id)
     current_stage = study.get("workflowStatus", "uploading_documents") if study else "uploading_documents"
     rooms_ready = study.get("roomsReady", False) if study else False
+
+    # ==========================================================================
+    # Phase 5: Process corrections through CorrectionCascade
+    # ==========================================================================
+    jobs_enqueued = []
+    if corrections:
+        from .corrections import CorrectionCascade
+        from ..firestore.job_queue import JobQueue
+
+        cascade = CorrectionCascade()
+        job_queue = JobQueue()
+
+        for correction in corrections:
+            try:
+                correction_type = correction.get("correction_type") or correction.get("type")
+                component_id = correction.get("component_id")
+                new_value = correction.get("new_value")
+
+                if correction_type and component_id and new_value is not None:
+                    result = await cascade.apply_correction(
+                        study_id=study_id,
+                        correction_type=correction_type,
+                        component_id=component_id,
+                        new_value=new_value,
+                        job_queue=job_queue,
+                        user_id=correction.get("user_id"),
+                        reason=correction.get("reason"),
+                    )
+                    jobs_enqueued.extend(result.get("jobs_enqueued", []))
+                    logger.info(
+                        f"Applied correction {correction_type} for {component_id}: "
+                        f"{len(result.get('jobs_enqueued', []))} jobs enqueued"
+                    )
+                else:
+                    logger.warning(f"Invalid correction format: {correction}")
+
+            except Exception as e:
+                logger.error(f"Failed to apply correction: {e}", exc_info=True)
 
     # Create workflow with same thread ID
     app = create_workflow()
@@ -261,6 +312,7 @@ async def resume_workflow(
         "engineer_approved": engineer_approved,
         "engineer_corrections": corrections or [],
         "needs_review": False,  # Clear review flag
+        "pending_jobs": jobs_enqueued,  # Track jobs enqueued from corrections
     }
 
     # Determine which node to resume from

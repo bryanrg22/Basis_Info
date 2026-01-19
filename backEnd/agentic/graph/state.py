@@ -67,6 +67,11 @@ class WorkflowState(TypedDict, total=False):
     appraisal_approved: bool  # True when engineer approves appraisal at PAUSE #1
     rooms_ready: bool         # True when analyze_rooms completes
 
+    # Phase 5: Dependency tracking for bidirectional data flow
+    stale_data: dict[str, dict[str, bool]]  # {"takeoff": {"comp_id": True}, "cost": {...}}
+    correction_history: list[dict[str, Any]]  # Audit trail of engineer corrections
+    pending_jobs: list[str]  # IDs of pending background jobs
+
     # Error tracking
     errors: list[dict[str, Any]]
     last_error: Optional[str]
@@ -113,6 +118,10 @@ def create_initial_state(
         engineer_corrections=[],
         appraisal_approved=False,
         rooms_ready=False,
+        # Phase 5: Initialize dependency tracking
+        stale_data={},
+        correction_history=[],
+        pending_jobs=[],
         errors=[],
         last_error=None,
     )

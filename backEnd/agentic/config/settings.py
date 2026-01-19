@@ -117,6 +117,35 @@ class Settings(BaseSettings):
         description="Maximum iterations for agent ReAct loops",
     )
 
+    # Phase 5: Job queue settings
+    job_poll_interval_seconds: float = Field(
+        default=5.0, ge=1.0, le=60.0,
+        alias="JOB_POLL_INTERVAL_SECONDS",
+        description="Seconds between job queue polls by workers",
+    )
+    job_default_timeout_seconds: int = Field(
+        default=300, ge=30, le=3600,
+        alias="JOB_DEFAULT_TIMEOUT_SECONDS",
+        description="Default job execution timeout in seconds",
+    )
+    job_max_retries: int = Field(
+        default=3, ge=0, le=10,
+        alias="JOB_MAX_RETRIES",
+        description="Maximum retry attempts for failed jobs",
+    )
+    job_stale_cleanup_minutes: int = Field(
+        default=30, ge=5, le=120,
+        alias="JOB_STALE_CLEANUP_MINUTES",
+        description="Minutes after which claimed jobs are considered stale",
+    )
+
+    # Phase 5: Cross-validation settings
+    cross_validation_enabled: bool = Field(
+        default=True,
+        alias="CROSS_VALIDATION_ENABLED",
+        description="Enable cross-stage validation checks",
+    )
+
     # CORS settings
     cors_origins: list[str] = Field(
         default=["http://localhost:3000"],

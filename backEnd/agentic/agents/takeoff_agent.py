@@ -595,6 +595,7 @@ async def calculate_takeoff(
     room_type: Optional[str] = None,
     room_area_sf: Optional[float] = None,
     property_type: str = "commercial",
+    emit_feedback_on_issues: bool = True,
 ) -> dict:
     """
     Convenience function to calculate a takeoff.
@@ -606,6 +607,7 @@ async def calculate_takeoff(
         room_type: Room type
         room_area_sf: Room area in square feet
         property_type: Property type
+        emit_feedback_on_issues: Whether to emit feedback when issues are found
 
     Returns:
         Takeoff result with RSMeans references
@@ -622,9 +624,38 @@ async def calculate_takeoff(
 
     result = await agent.run(context, input_data)
 
+    takeoff_dict = result.result.model_dump() if result.result else None
+
+    # Phase 5: Emit feedback when RSMeans line item not found
+    if emit_feedback_on_issues and takeoff_dict and context.study_id:
+        rsmeans_line_item = takeoff_dict.get("rsmeans_line_item")
+        if not rsmeans_line_item:
+            try:
+                from ..graph.feedback import emit_feedback, FeedbackType, SuggestedAction
+
+                await emit_feedback(
+                    feedback_type=FeedbackType.RSMEANS_NOT_FOUND,
+                    source_stage="takeoff",
+                    target_stage="classification",
+                    component_id=component_name,
+                    study_id=context.study_id,
+                    message=f"No RSMeans line item found for '{component_name}'. Cost estimate may be less accurate.",
+                    suggested_action=SuggestedAction.FLAG_FOR_REVIEW,
+                    details={
+                        "component_name": component_name,
+                        "room_type": room_type,
+                        "detection_count": detection_count,
+                    },
+                    process_immediately=False,  # Don't process immediately, just store
+                )
+            except Exception as e:
+                # Don't fail takeoff if feedback emission fails
+                import logging
+                logging.getLogger(__name__).debug(f"Failed to emit feedback: {e}")
+
     return {
         "component_name": component_name,
-        "takeoff": result.result.model_dump() if result.result else None,
+        "takeoff": takeoff_dict,
         "citations": [c.model_dump() for c in result.citations],
         "confidence": result.confidence,
         "needs_review": result.needs_review,

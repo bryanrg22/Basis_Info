@@ -1,11 +1,12 @@
 """Workflow trigger endpoints."""
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Depends
 from pydantic import BaseModel, Field
 
 from ...firestore.client import FirestoreClient
+from ...firestore.job_queue import JobQueue
 from ...graph.workflow import run_workflow, resume_workflow
 from ...graph.state import WorkflowState
 from ..auth import CurrentUser, get_current_user, verify_study_ownership
@@ -80,6 +81,43 @@ class WorkflowStatusResponse(BaseModel):
     classifications_count: int = 0
     needs_review: bool = False
     items_needing_review: list[str] = Field(default_factory=list)
+
+
+# =============================================================================
+# Job Queue Models (Phase 5)
+# =============================================================================
+
+
+class JobResponse(BaseModel):
+    """Response for a single job."""
+
+    id: str
+    study_id: str
+    job_type: str
+    status: Literal["pending", "claimed", "running", "completed", "failed", "retry"]
+    created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    retry_count: int = 0
+    max_retries: int = 3
+    progress: Optional[dict[str, Any]] = None
+    result: Optional[dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class JobListResponse(BaseModel):
+    """Response for listing jobs."""
+
+    study_id: str
+    jobs: list[JobResponse]
+    total: int
+    pending_count: int = 0
+
+
+class CancelJobRequest(BaseModel):
+    """Request to cancel a job."""
+
+    reason: str = Field(default="Cancelled by user", description="Cancellation reason")
 
 
 # =============================================================================
@@ -285,3 +323,119 @@ async def get_workflow_evidence(
         "total_citations": len(citations),
         "citations": citations,
     }
+
+
+# =============================================================================
+# Job Queue Endpoints (Phase 5)
+# =============================================================================
+
+
+def _job_to_response(job) -> JobResponse:
+    """Convert Job model to JobResponse."""
+    return JobResponse(
+        id=job.id,
+        study_id=job.study_id,
+        job_type=job.job_type,
+        status=job.status,
+        created_at=job.created_at.isoformat() if job.created_at else "",
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+        retry_count=job.retry_count,
+        max_retries=job.max_retries,
+        progress=job.progress,
+        result=job.result,
+        error=job.error,
+    )
+
+
+@router.get("/{study_id}/jobs", response_model=JobListResponse)
+@limiter.limit(STATUS_LIMIT)
+async def list_study_jobs(
+    study_id: ValidStudyId,
+    request_obj: Request,
+    status: Optional[str] = None,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    List background jobs for a study.
+
+    Phase 5: Provides visibility into durable job queue for the frontend.
+    """
+    request_obj.state.user = user
+    verify_study_ownership(study_id, user)
+
+    job_queue = JobQueue()
+    jobs = await job_queue.get_jobs_by_study(study_id, status=status)
+    pending_count = len([j for j in jobs if j.status in ["pending", "retry"]])
+
+    return JobListResponse(
+        study_id=study_id,
+        jobs=[_job_to_response(j) for j in jobs],
+        total=len(jobs),
+        pending_count=pending_count,
+    )
+
+
+@router.get("/{study_id}/jobs/{job_id}", response_model=JobResponse)
+@limiter.limit(STATUS_LIMIT)
+async def get_job_status(
+    study_id: ValidStudyId,
+    job_id: str,
+    request_obj: Request,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get status of a specific job.
+
+    Phase 5: Allows frontend to poll for job completion.
+    """
+    request_obj.state.user = user
+    verify_study_ownership(study_id, user)
+
+    job_queue = JobQueue()
+    job = await job_queue.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+    if job.study_id != study_id:
+        raise HTTPException(status_code=403, detail="Job does not belong to this study")
+
+    return _job_to_response(job)
+
+
+@router.post("/{study_id}/jobs/{job_id}/cancel")
+@limiter.limit(WORKFLOW_LIMIT)
+async def cancel_job(
+    study_id: ValidStudyId,
+    job_id: str,
+    request_obj: Request,
+    body: CancelJobRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Cancel a pending job.
+
+    Phase 5: Allows engineers to cancel stuck or unwanted jobs.
+    """
+    request_obj.state.user = user
+    verify_study_ownership(study_id, user)
+
+    job_queue = JobQueue()
+    job = await job_queue.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+    if job.study_id != study_id:
+        raise HTTPException(status_code=403, detail="Job does not belong to this study")
+
+    cancelled = await job_queue.cancel_job(job_id, body.reason)
+
+    if not cancelled:
+        raise HTTPException(
+            status_code=400,
+            detail="Job cannot be cancelled (already running or completed)",
+        )
+
+    return {"success": True, "job_id": job_id, "message": "Job cancelled"}

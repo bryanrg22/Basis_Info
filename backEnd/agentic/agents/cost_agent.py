@@ -567,6 +567,7 @@ async def estimate_cost(
     location_factor: float = 1.0,
     year_factor: float = 1.0,
     property_type: str = "commercial",
+    emit_feedback_on_issues: bool = True,
 ) -> dict:
     """
     Convenience function to estimate a component cost.
@@ -580,6 +581,7 @@ async def estimate_cost(
         location_factor: Location adjustment
         year_factor: Year adjustment from 2020 base
         property_type: Property type
+        emit_feedback_on_issues: Whether to emit feedback when issues are found
 
     Returns:
         Cost estimate with RSMeans citations
@@ -598,9 +600,78 @@ async def estimate_cost(
 
     result = await agent.run(context, input_data)
 
+    estimate_dict = result.result.model_dump() if result.result else None
+
+    # Phase 5: Emit feedback for cost outliers
+    if emit_feedback_on_issues and estimate_dict and context.study_id:
+        total_cost_per_unit = estimate_dict.get("total_cost_per_unit", 0)
+
+        # Check against typical cost ranges
+        component_lower = component_name.lower().replace(" ", "_")
+        for key, ranges in TYPICAL_UNIT_COSTS.items():
+            if key in component_lower or component_lower in key:
+                tier_costs = ranges.get(quality_tier, ranges.get("standard"))
+                if tier_costs:
+                    expected_total = (
+                        tier_costs.get("material", 0) +
+                        tier_costs.get("labor", 0) +
+                        tier_costs.get("equipment", 0)
+                    )
+
+                    # Flag as outlier if more than 3x expected or less than 1/3 expected
+                    if expected_total > 0 and total_cost_per_unit > 0:
+                        if total_cost_per_unit > expected_total * 3:
+                            try:
+                                from ..graph.feedback import emit_feedback, FeedbackType, SuggestedAction
+
+                                await emit_feedback(
+                                    feedback_type=FeedbackType.COST_OUTLIER,
+                                    source_stage="cost",
+                                    target_stage="classification",
+                                    component_id=component_name,
+                                    study_id=context.study_id,
+                                    message=f"Unit cost ${total_cost_per_unit:.2f} for '{component_name}' is significantly above typical (${expected_total:.2f}).",
+                                    suggested_action=SuggestedAction.FLAG_FOR_REVIEW,
+                                    details={
+                                        "component_name": component_name,
+                                        "actual_unit_cost": total_cost_per_unit,
+                                        "expected_unit_cost": expected_total,
+                                        "ratio": total_cost_per_unit / expected_total,
+                                    },
+                                    process_immediately=False,
+                                )
+                            except Exception as e:
+                                import logging
+                                logging.getLogger(__name__).debug(f"Failed to emit feedback: {e}")
+
+                        elif total_cost_per_unit < expected_total / 3:
+                            try:
+                                from ..graph.feedback import emit_feedback, FeedbackType, SuggestedAction
+
+                                await emit_feedback(
+                                    feedback_type=FeedbackType.COST_OUTLIER,
+                                    source_stage="cost",
+                                    target_stage="classification",
+                                    component_id=component_name,
+                                    study_id=context.study_id,
+                                    message=f"Unit cost ${total_cost_per_unit:.2f} for '{component_name}' is significantly below typical (${expected_total:.2f}).",
+                                    suggested_action=SuggestedAction.FLAG_FOR_REVIEW,
+                                    details={
+                                        "component_name": component_name,
+                                        "actual_unit_cost": total_cost_per_unit,
+                                        "expected_unit_cost": expected_total,
+                                        "ratio": total_cost_per_unit / expected_total,
+                                    },
+                                    process_immediately=False,
+                                )
+                            except Exception as e:
+                                import logging
+                                logging.getLogger(__name__).debug(f"Failed to emit feedback: {e}")
+                break
+
     return {
         "component_name": component_name,
-        "estimate": result.result.model_dump() if result.result else None,
+        "estimate": estimate_dict,
         "citations": [c.model_dump() for c in result.citations],
         "confidence": result.confidence,
         "needs_review": result.needs_review,

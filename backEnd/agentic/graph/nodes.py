@@ -457,37 +457,29 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
             })
 
         # =================================================================
-        # STEP 2: Start analyze_rooms as BACKGROUND TASK
+        # STEP 2: Enqueue analyze_rooms as DURABLE BACKGROUND JOB
         # =================================================================
-        async def run_analyze_rooms_background():
-            """Background task to analyze rooms while engineer reviews appraisal."""
-            try:
-                # Run the full analyze_rooms_node
-                room_state = await analyze_rooms_node(state)
+        # Phase 5: Use durable job queue instead of fire-and-forget asyncio.create_task
+        # Jobs survive server restarts, support retry logic, and provide progress tracking
+        from ..firestore.job_queue import JobQueue
 
-                # Update Firestore with results and set rooms_ready flag
-                client.update_study(state["study_id"], {
-                    "rooms": room_state.get("rooms", []),
-                    "objects": room_state.get("objects", []),
-                    "roomsReady": True,  # Signal that rooms analysis is complete
-                })
-
-                logger.info(
-                    f"Background analyze_rooms completed: "
-                    f"{len(room_state.get('rooms', []))} rooms, "
-                    f"{len(room_state.get('objects', []))} objects"
-                )
-
-            except Exception as e:
-                logger.error(f"Background analyze_rooms error: {e}")
-                client.update_study(state["study_id"], {
-                    "roomsReady": True,  # Mark as ready even on error
-                    "roomsError": str(e),
-                })
-
-        # Start background task (fire and forget)
-        asyncio.create_task(run_analyze_rooms_background())
-        logger.info("Started analyze_rooms as background task")
+        job_queue = JobQueue()
+        job_id = await job_queue.enqueue(
+            job_type="analyze_rooms",
+            study_id=state["study_id"],
+            input_data={
+                "user_id": state.get("user_id", ""),
+                "property_name": state.get("property_name", ""),
+                "rooms": state.get("rooms", []),
+                "objects": state.get("objects", []),
+                "reference_doc_ids": state.get("reference_doc_ids", []),
+                "study_doc_ids": state.get("study_doc_ids", []),
+            },
+            timeout_seconds=600,  # 10 minute timeout for vision analysis
+            max_retries=2,
+            priority=3,  # High priority
+        )
+        logger.info(f"Enqueued analyze_rooms job {job_id} for study {state['study_id']}")
 
         # =================================================================
         # STEP 3: Advance to PAUSE #1 (resource_extraction)
@@ -508,13 +500,14 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
             },
         )
 
-        # PAUSE #1 - Engineer reviews appraisal while vision runs in background
+        # PAUSE #1 - Engineer reviews appraisal while vision job runs in background
         return {
             **state,
             "current_stage": "resource_extraction",
             "appraisal_resources": appraisal_resources,
             "needs_review": True,
-            "rooms_ready": False,  # Will be set to True when background task completes
+            "rooms_ready": False,  # Will be set to True when job completes
+            "pending_jobs": [job_id],  # Phase 5: Track pending jobs for status checks
         }
 
 
@@ -789,6 +782,62 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
 
             for estimate in cost_estimates:
                 evidence_pack.extend(estimate.get("citations", []))
+
+        # =====================================================================
+        # STEP 5: Cross-validation across stages (Phase 5)
+        # =====================================================================
+        # Validates consistency between classification, takeoff, and cost data
+        from ..validation.cross_validator import CrossValidator
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        cross_validation_enabled = getattr(settings, "cross_validation_enabled", True)
+
+        if cross_validation_enabled and asset_classifications and takeoffs and cost_estimates:
+            validation_start = time.time()
+            tracer.log_workflow_transition(
+                study_id=state["study_id"],
+                from_status="processing_assets",
+                to_status="processing_assets",
+                stage_summary={"step": "cross_validation", "count": len(asset_classifications)},
+            )
+
+            validator = CrossValidator()
+            validation_results = validator.validate_all(
+                classifications=asset_classifications,
+                takeoffs=takeoffs,
+                costs=cost_estimates,
+            )
+
+            # Merge validation results into classifications
+            for i, validation in enumerate(validation_results):
+                if i < len(asset_classifications):
+                    # Add cross-validation results
+                    asset_classifications[i]["cross_validation"] = validation.to_dict()
+
+                    # Flag for review if warnings found
+                    if validation.has_warnings:
+                        asset_classifications[i]["needs_review"] = True
+                        existing_reason = asset_classifications[i].get("review_reason", "")
+                        warning_reasons = [
+                            issue.message
+                            for issue in validation.issues
+                            if issue.severity.value == "warning"
+                        ]
+                        if warning_reasons:
+                            new_reason = "; ".join(warning_reasons[:2])  # Limit to first 2
+                            if new_reason not in (existing_reason or ""):
+                                asset_classifications[i]["review_reason"] = (
+                                    f"{existing_reason}; {new_reason}" if existing_reason else new_reason
+                                )
+
+            validation_elapsed = time.time() - validation_start
+            total_warnings = sum(v.warning_count for v in validation_results)
+            total_errors = sum(v.error_count for v in validation_results)
+            logger.info(
+                f"[TIMING] Cross-validation: {validation_elapsed:.1f}s "
+                f"({len(validation_results)} components, {total_warnings} warnings, {total_errors} errors)"
+            )
 
         # =====================================================================
         # Write all results to Firestore
