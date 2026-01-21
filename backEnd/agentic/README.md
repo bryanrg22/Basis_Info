@@ -11,6 +11,22 @@ This package provides the agentic orchestration layer that sits on top of the ev
 
 Agents use evidence retrieval tools via MCP to make evidence-backed decisions with full provenance tracking.
 
+## Tech Stack
+
+| Category | Technology | Purpose |
+|----------|------------|---------|
+| **Framework** | LangGraph | Stage-gated workflow orchestration |
+| **Agents** | LangChain | Tool-calling agents with ReAct pattern |
+| **LLMs** | GPT-5-nano (text), GPT-4o-mini (vision) | Cost-optimized model selection |
+| **Document AI** | Azure Document Intelligence | PDF field extraction with KEY_VALUE_PAIRS |
+| **Database** | Firestore | Real-time state, checkpoints, job queue |
+| **API** | FastAPI | Async REST endpoints |
+| **Background Jobs** | Custom Firestore-backed worker | Durable task execution |
+| **Observability** | LangSmith | Trace visualization, debugging |
+| **Alerting** | Slack webhooks | Real-time failure notifications |
+| **Evidence Search** | MCP (Model Context Protocol) | BM25, vector, hybrid search tools |
+| **Containerization** | Docker Compose | Backend + Worker deployment |
+
 ## Architecture
 
 ```
@@ -563,9 +579,9 @@ The `resource_extraction_node` handles appraisal PDF ingestion with a **multi-ag
 
 | Agent | Role | Tools | LLM |
 |-------|------|-------|-----|
-| **ExtractorAgent** | Intelligent extraction | `parse_mismo_xml`, `extract_with_azure_di`, `extract_with_vision` | gpt-4.1-nano |
-| **VerifierAgent** | Skeptical plausibility checking | `validate_extraction`, `vision_recheck_field` | gpt-4.1-nano |
-| **CorrectorAgent** | Fix errors using different method | `extract_with_azure_di`, `extract_with_vision`, `vision_recheck_field` | gpt-4.1-nano |
+| **ExtractorAgent** | Intelligent extraction | `parse_mismo_xml`, `extract_with_azure_di`, `extract_with_vision` | gpt-5-nano |
+| **VerifierAgent** | Skeptical plausibility checking | `validate_extraction`, `vision_recheck_field` | gpt-5-nano |
+| **CorrectorAgent** | Fix errors using different method | `extract_with_azure_di`, `extract_with_vision`, `vision_recheck_field` | gpt-5-nano |
 
 **Tool Cost Strategy:**
 - `parse_mismo_xml` - FREE, 100% confidence
@@ -634,11 +650,11 @@ audit_trail = {
 The vision pipeline processes appraisal photos to detect and classify building components for cost segregation.
 
 **Current Implementation:**
-- Azure OpenAI GPT-4.1 vision for room/object detection
+- GPT-4o-mini vision for room/object detection (GPT-5.2 when Azure approved)
 - 2 concurrent workers for parallel image processing
 - Results stored in Firestore as `rooms` and `objects`
 
-**Architecture (with Grounding):**
+**Architecture:**
 ```
 +------------------------------------------------------------------+
 |                    VISION PIPELINE                                 |
@@ -648,35 +664,22 @@ The vision pipeline processes appraisal photos to detect and classify building c
 |         |                                                          |
 |         v                                                          |
 |  +-------------------------------------------+                     |
-|  |  Grounding DINO                           |                     |
-|  |  (Open-set object detection)              |                     |
+|  |  GPT-4o-mini Vision (Azure OpenAI)        |                     |
 |  |                                           |                     |
-|  |  - Detects objects without predefined     |                     |
-|  |    classes                                |                     |
-|  |  - Returns bounding boxes + labels        |                     |
-|  |  - Text-prompted: "HVAC, lighting,        |                     |
-|  |    electrical panel, flooring"            |                     |
+|  |  - Analyzes full image                    |                     |
+|  |  - Detects room type                      |                     |
+|  |  - Identifies building components         |                     |
+|  |  - Returns structured JSON                |                     |
 |  +-------------------------------------------+                     |
 |         |                                                          |
 |         v                                                          |
 |  +-------------------------------------------+                     |
-|  |  SAM2 (Segment Anything Model 2)          |                     |
-|  |  (Precise segmentation)                   |                     |
+|  |  Self-Verification Tools                  |                     |
 |  |                                           |                     |
-|  |  - Takes bounding boxes from DINO         |                     |
-|  |  - Generates pixel-perfect masks          |                     |
-|  |  - Enables accurate measurements          |                     |
-|  +-------------------------------------------+                     |
-|         |                                                          |
-|         v                                                          |
-|  +-------------------------------------------+                     |
-|  |  GPT-4.1 (Azure OpenAI)                   |                     |
-|  |  (Classification + Cost Segregation)      |                     |
-|  |                                           |                     |
-|  |  - Classifies detected objects            |                     |
-|  |  - Determines IRS asset class             |                     |
-|  |  - Assigns recovery periods (5/7/15/39)   |                     |
-|  |  - Generates evidence citations           |                     |
+|  |  - verify_room_classification             |                     |
+|  |  - estimate_detection_confidence          |                     |
+|  |  - crop_and_analyze_region (PIL)          |                     |
+|  |  - request_human_verification             |                     |
 |  +-------------------------------------------+                     |
 |         |                                                          |
 |         v                                                          |
@@ -685,11 +688,25 @@ The vision pipeline processes appraisal photos to detect and classify building c
 +------------------------------------------------------------------+
 ```
 
-**Why DINO + SAM2?**
-- **Grounding DINO**: Open-vocabulary detection - no need to retrain for new object types
-- **SAM2**: State-of-the-art segmentation for precise object boundaries
-- **GPT-4.1**: Reasoning layer for IRS classification and cost segregation rules
-- **Combination**: Grounds LLM outputs in actual detected objects (reduces hallucination)
+**Vision Agent Features:**
+- **Self-verification**: Cross-checks room type against detected objects
+- **Focused analysis**: Crops and re-analyzes specific regions for unclear areas
+- **Human flagging**: Requests review for low-confidence results
+- **Retry logic**: Re-prompts for JSON when parsing fails
+
+**Future Goal: Grounded Vision Pipeline**
+
+A planned enhancement using Grounding DINO + SAM2 for improved object detection:
+
+```
+Image → Grounding DINO → [Bounding boxes] → SAM2 → [Pixel masks] → GPT → Classification
+```
+
+- **Grounding DINO**: Open-vocabulary object detection with text prompts
+- **SAM2**: Pixel-perfect segmentation masks for precise boundaries
+- **Benefits**: Reduced hallucination, exact object localization, measurement capability
+
+This would require GPU infrastructure and is planned for a future phase.
 
 ---
 
