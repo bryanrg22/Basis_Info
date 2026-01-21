@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 from langgraph.graph import END, StateGraph
 
 from ..base_agent import StageContext
+from ...observability.alerts import alert_on_failure
 from .extractor_agent import run_extractor_agent
 from .verifier_agent import run_verifier_agent
 from .corrector_agent import run_corrector_agent
@@ -186,6 +187,7 @@ def create_appraisal_extraction_graph() -> StateGraph:
 # =============================================================================
 
 
+@alert_on_failure("appraisal_extraction", study_id_param="study_id")
 async def run_appraisal_extraction(
     study_id: str,
     pdf_path: str,

@@ -10,7 +10,7 @@ Phase 6: Added checkpoint history tracking for debugging and audit trail.
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Iterator, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Iterator, Optional, Sequence, Tuple
 
 from firebase_admin import firestore
 from langgraph.checkpoint.base import (
@@ -113,6 +113,10 @@ class FirestoreCheckpointer(BaseCheckpointSaver):
             metadata=metadata,
         )
 
+    async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        """Async version of get_tuple."""
+        return self.get_tuple(config)
+
     def put(
         self,
         config: dict,
@@ -154,6 +158,16 @@ class FirestoreCheckpointer(BaseCheckpointSaver):
 
         return config
 
+    async def aput(
+        self,
+        config: dict,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: Optional[dict] = None,
+    ) -> dict:
+        """Async version of put."""
+        return self.put(config, checkpoint, metadata, new_versions)
+
     def list(
         self,
         config: Optional[dict] = None,
@@ -175,14 +189,31 @@ class FirestoreCheckpointer(BaseCheckpointSaver):
         if tuple_result:
             yield tuple_result
 
+    async def alist(
+        self,
+        config: Optional[dict] = None,
+        *,
+        filter: Optional[dict] = None,
+        before: Optional[dict] = None,
+        limit: Optional[int] = None,
+    ):
+        """Async version of list."""
+        for item in self.list(config, filter=filter, before=before, limit=limit):
+            yield item
+
     def _serialize_values(self, values: dict) -> dict:
         """
         Serialize channel values for Firestore storage.
 
         Handles non-JSON-serializable types by converting to JSON strings.
+        Filters out LangGraph internal fields that Firestore doesn't allow.
         """
         serialized = {}
         for key, value in values.items():
+            # Skip LangGraph internal fields - Firestore doesn't allow field names
+            # starting with '__' (e.g., '__start__', '__end__')
+            if key.startswith("__"):
+                continue
             try:
                 # Try to store directly (works for basic types)
                 json.dumps(value)  # Test if serializable

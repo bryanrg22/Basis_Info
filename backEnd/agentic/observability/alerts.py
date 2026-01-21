@@ -3,18 +3,26 @@ Workflow failure alerts for production monitoring.
 
 Phase 6: Provides multi-channel alerting for workflow failures
 with throttling to prevent alert fatigue.
+
+Includes @alert_on_failure decorator for automatic alerting on any component failure.
 """
 
+import functools
 import logging
 import hashlib
 import httpx
+import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone, timedelta
-from typing import Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional, TypeVar, ParamSpec
 
 from pydantic import BaseModel, Field
 
 from ..config.settings import get_settings
+
+# Type variables for decorator
+P = ParamSpec("P")
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +67,22 @@ class AlertPayload(BaseModel):
         default_factory=dict,
         description="Additional context (e.g., component_id, user_id)",
     )
+    trace_summary: Optional[str] = Field(
+        default=None,
+        description="LangSmith trace summary for debugging",
+    )
+    langsmith_url: Optional[str] = Field(
+        default=None,
+        description="Link to LangSmith trace",
+    )
+    flagged_fields: list[str] = Field(
+        default_factory=list,
+        description="Fields flagged for review",
+    )
+    workflow_stats: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Workflow statistics (tokens, cost, duration)",
+    )
 
     def to_slack_message(self) -> dict[str, Any]:
         """Format as Slack message payload."""
@@ -95,11 +119,51 @@ class AlertPayload(BaseModel):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Error:*\n```{self.error_message[:1000]}```",
+                    "text": f"*Error:*\n```{self.error_message[:500]}```",
                 },
             },
         ]
 
+        # Add trace summary if available
+        if self.trace_summary:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*📊 Trace Summary:*\n```{self.trace_summary[:1500]}```",
+                },
+            })
+
+        # Add flagged fields if available
+        if self.flagged_fields:
+            flagged_list = "\n".join([f"• {f}" for f in self.flagged_fields[:10]])
+            if len(self.flagged_fields) > 10:
+                flagged_list += f"\n• ... and {len(self.flagged_fields) - 10} more"
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*❌ {len(self.flagged_fields)} Flagged Fields:*\n{flagged_list}",
+                },
+            })
+
+        # Add workflow stats if available
+        if self.workflow_stats:
+            stats = self.workflow_stats
+            stats_text = (
+                f"*💰 Cost:* ${stats.get('cost', 0):.4f} | "
+                f"*⏱️ Duration:* {stats.get('duration', 0):.0f}s | "
+                f"*🔢 Tokens:* {stats.get('tokens', 0):,}"
+            )
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": stats_text,
+                },
+            })
+
+        # Add context if available
         if self.context:
             context_str = "\n".join(f"• {k}: {v}" for k, v in self.context.items())
             blocks.append({
@@ -107,6 +171,16 @@ class AlertPayload(BaseModel):
                 "text": {
                     "type": "mrkdwn",
                     "text": f"*Context:*\n{context_str}",
+                },
+            })
+
+        # Add LangSmith link if available
+        if self.langsmith_url:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*🔗 LangSmith:* <{self.langsmith_url}|View Trace>",
                 },
             })
 
@@ -184,20 +258,24 @@ class SlackAlertChannel(AlertChannel):
     async def send(self, payload: AlertPayload) -> bool:
         """Send alert to Slack."""
         try:
+            logger.info(f"Attempting to send Slack alert to: {self.webhook_url[:50]}...")
+            message = payload.to_slack_message()
+            logger.debug(f"Slack message payload: {message}")
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     self.webhook_url,
-                    json=payload.to_slack_message(),
+                    json=message,
                     timeout=10.0,
                 )
                 if response.status_code == 200:
-                    logger.info(f"Slack alert sent for {payload.study_id}")
+                    logger.info(f"Slack alert sent successfully for {payload.study_id}")
                     return True
                 else:
-                    logger.error(f"Slack webhook failed: {response.status_code}")
+                    logger.error(f"Slack webhook failed: {response.status_code} - {response.text}")
                     return False
         except Exception as e:
-            logger.error(f"Failed to send Slack alert: {e}")
+            logger.error(f"Failed to send Slack alert: {e}", exc_info=True)
             return False
 
 
@@ -421,7 +499,10 @@ def get_alert_manager() -> AlertManager:
         # Add Slack channel if configured
         slack_webhook = getattr(settings, "alert_slack_webhook", None)
         if slack_webhook:
+            logger.info(f"Configuring Slack alert channel: {slack_webhook[:50]}...")
             channels.append(SlackAlertChannel(slack_webhook))
+        else:
+            logger.warning("No ALERT_SLACK_WEBHOOK configured - Slack alerts disabled")
 
         # Add generic webhook if configured
         webhook_url = getattr(settings, "alert_webhook_url", None)
@@ -432,6 +513,8 @@ def get_alert_manager() -> AlertManager:
         channels.append(LogAlertChannel())
 
         throttle_seconds = getattr(settings, "alert_throttle_seconds", 300)
+
+        logger.info(f"Alert manager initialized with {len(channels)} channels, throttle={throttle_seconds}s")
 
         _alert_manager = AlertManager(
             channels=channels,
@@ -473,3 +556,355 @@ async def send_alert(
         context=context or {},
     )
     return await manager.alert(payload)
+
+
+# =============================================================================
+# @alert_on_failure Decorator
+# =============================================================================
+
+
+def alert_on_failure(
+    component: str,
+    severity: Literal["warning", "error", "critical"] = "error",
+    study_id_param: str = "study_id",
+    reraise: bool = True,
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """
+    Decorator that sends a Slack alert when a function fails.
+
+    Automatically extracts study_id from function parameters or kwargs.
+    Works with both sync and async functions.
+
+    Args:
+        component: Name of the component (e.g., "room_agent", "firestore_client")
+        severity: Alert severity level
+        study_id_param: Name of the parameter containing study_id
+        reraise: Whether to re-raise the exception after alerting
+
+    Usage:
+        @alert_on_failure("room_agent")
+        async def analyze_rooms(study_id: str, images: list[str]) -> dict:
+            ...
+
+        @alert_on_failure("firestore_client", study_id_param="doc_id")
+        async def update_document(doc_id: str, data: dict) -> None:
+            ...
+
+    Returns:
+        Decorated function that alerts on failure
+    """
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @functools.wraps(func)
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            # Try to extract study_id from args/kwargs
+            study_id = _extract_study_id(func, args, kwargs, study_id_param)
+
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                # Build error context
+                error_type = type(e).__name__
+                error_message = str(e)
+                tb = traceback.format_exc()
+
+                # Categorize the error
+                categorized_type = _categorize_error(error_type, error_message)
+
+                # Send alert
+                try:
+                    await send_alert(
+                        study_id=study_id or "unknown",
+                        stage=component,
+                        error_type=categorized_type,
+                        error_message=f"{error_message}\n\nTraceback:\n{tb[-1000:]}",
+                        severity=severity,
+                        context={
+                            "function": func.__name__,
+                            "exception_type": error_type,
+                            "component": component,
+                        },
+                    )
+                except Exception as alert_error:
+                    logger.error(f"Failed to send failure alert: {alert_error}")
+
+                if reraise:
+                    raise
+
+        @functools.wraps(func)
+        def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            # For sync functions, we can't send async alerts easily
+            # Log the error and re-raise
+            study_id = _extract_study_id(func, args, kwargs, study_id_param)
+
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                error_type = type(e).__name__
+                error_message = str(e)
+
+                # Log the failure (can't send async alert from sync context)
+                logger.error(
+                    f"ALERT [{severity.upper()}] {component}.{func.__name__} failed: "
+                    f"study_id={study_id}, error={error_type}: {error_message}"
+                )
+
+                if reraise:
+                    raise
+
+        # Return appropriate wrapper based on function type
+        import asyncio
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper  # type: ignore
+        else:
+            return sync_wrapper  # type: ignore
+
+    return decorator
+
+
+def _extract_study_id(
+    func: Callable,
+    args: tuple,
+    kwargs: dict,
+    param_name: str,
+) -> Optional[str]:
+    """Extract study_id from function arguments."""
+    # Check kwargs first
+    if param_name in kwargs:
+        return str(kwargs[param_name])
+
+    # Try to find in positional args using function signature
+    try:
+        import inspect
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+        if param_name in params:
+            idx = params.index(param_name)
+            if idx < len(args):
+                return str(args[idx])
+    except Exception:
+        pass
+
+    # Check if first arg looks like a study_id (contains underscore or is alphanumeric)
+    if args and isinstance(args[0], str) and len(args[0]) > 5:
+        return args[0]
+
+    # Check kwargs for common study_id variations
+    for key in ["study_id", "studyId", "doc_id", "document_id", "id"]:
+        if key in kwargs:
+            return str(kwargs[key])
+
+    return None
+
+
+def _categorize_error(error_type: str, error_message: str) -> str:
+    """Categorize error for better alert grouping."""
+    message_lower = error_message.lower()
+    type_lower = error_type.lower()
+
+    # Rate limiting
+    if "429" in error_message or "rate" in message_lower:
+        return "RATE_LIMITED"
+
+    # Authentication/Authorization
+    if "401" in error_message or "403" in error_message:
+        return "AUTH_ERROR"
+    if "auth" in message_lower or "credential" in message_lower:
+        return "AUTH_ERROR"
+
+    # Timeout
+    if "timeout" in message_lower or "timed out" in message_lower:
+        return "TIMEOUT"
+
+    # Connection issues
+    if "connection" in message_lower or "network" in message_lower:
+        return "CONNECTION_ERROR"
+
+    # Validation
+    if "validation" in type_lower or "pydantic" in type_lower:
+        return "VALIDATION_ERROR"
+
+    # Not found
+    if "not found" in message_lower or "404" in error_message:
+        return "NOT_FOUND"
+
+    # Package/Import
+    if "import" in type_lower or "module" in message_lower or "package" in message_lower:
+        return "IMPORT_ERROR"
+
+    # File operations
+    if "file" in message_lower or "permission" in message_lower:
+        return "FILE_ERROR"
+
+    # Default to exception type
+    return error_type.upper()
+
+
+# =============================================================================
+# Alert with Trace Summary
+# =============================================================================
+
+
+async def send_alert_with_trace(
+    study_id: str,
+    stage: str,
+    error_type: str,
+    error_message: str,
+    severity: Literal["warning", "error", "critical"] = "error",
+    context: Optional[dict[str, Any]] = None,
+    trace_id: Optional[str] = None,
+) -> bool:
+    """
+    Send an alert with LangSmith trace summary for debugging.
+
+    Automatically fetches trace information from LangSmith if available.
+
+    Args:
+        study_id: Study ID
+        stage: Workflow stage
+        error_type: Type of error
+        error_message: Error message
+        severity: Alert severity
+        context: Additional context
+        trace_id: Optional specific trace ID (uses latest if not provided)
+
+    Returns:
+        True if alert was sent
+    """
+    from .trace_analyzer import get_trace_analyzer
+
+    manager = get_alert_manager()
+
+    # Try to get trace summary
+    trace_summary = None
+    langsmith_url = None
+    flagged_fields = []
+    workflow_stats = None
+
+    try:
+        analyzer = get_trace_analyzer()
+        if trace_id:
+            summary = analyzer.get_trace_by_id(trace_id)
+        else:
+            summary = analyzer.get_latest_trace(study_id)
+
+        if summary:
+            # Build trace summary string
+            agent_lines = []
+            for agent in summary.agents:
+                status_icon = "✅" if agent.status == "success" else "❌"
+                line = f"{status_icon} {agent.name}: {agent.duration_seconds:.0f}s"
+                if agent.flagged_count > 0:
+                    line += f" → flagged {agent.flagged_count}"
+                if agent.error:
+                    line += " ❌"
+                agent_lines.append(line)
+
+            trace_summary = "\n".join(agent_lines)
+            langsmith_url = summary.langsmith_url
+            flagged_fields = summary.flagged_fields
+            workflow_stats = {
+                "cost": summary.total_cost_usd,
+                "duration": summary.duration_seconds,
+                "tokens": summary.total_tokens,
+            }
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch trace summary: {e}")
+
+    payload = AlertPayload(
+        study_id=study_id,
+        workflow_stage=stage,
+        error_type=error_type,
+        error_message=error_message,
+        severity=severity,
+        context=context or {},
+        trace_summary=trace_summary,
+        langsmith_url=langsmith_url,
+        flagged_fields=flagged_fields,
+        workflow_stats=workflow_stats,
+    )
+
+    return await manager.alert(payload)
+
+
+async def send_workflow_completion_alert(
+    study_id: str,
+    trace_id: Optional[str] = None,
+) -> bool:
+    """
+    Send an alert when workflow completes with issues (needs review).
+
+    Only sends if there are flagged fields or errors.
+
+    Args:
+        study_id: Study ID
+        trace_id: Optional specific trace ID
+
+    Returns:
+        True if alert was sent (or no alert needed)
+    """
+    from .trace_analyzer import get_trace_analyzer
+
+    try:
+        analyzer = get_trace_analyzer()
+        if trace_id:
+            summary = analyzer.get_trace_by_id(trace_id)
+        else:
+            summary = analyzer.get_latest_trace(study_id)
+
+        if not summary:
+            logger.warning(f"Could not fetch trace for study {study_id}")
+            return False
+
+        # Only alert if there are issues
+        if summary.final_state == "completed" and not summary.flagged_fields:
+            logger.info(f"Workflow completed successfully for {study_id}, no alert needed")
+            return True
+
+        # Determine severity based on state
+        if summary.errors:
+            severity = "error"
+            error_type = "WORKFLOW_ERROR"
+        elif summary.flagged_fields:
+            severity = "warning"
+            error_type = "NEEDS_REVIEW"
+        else:
+            return True  # No issues
+
+        # Build error message
+        if summary.errors:
+            error_message = f"Workflow completed with errors:\n" + "\n".join(summary.errors[:5])
+        else:
+            error_message = f"Workflow completed but {len(summary.flagged_fields)} fields need review"
+
+        # Build trace summary string
+        agent_lines = []
+        for agent in summary.agents:
+            status_icon = "✅" if agent.status == "success" else "❌"
+            line = f"{status_icon} {agent.name}: {agent.duration_seconds:.0f}s"
+            if agent.flagged_count > 0:
+                line += f" → flagged {agent.flagged_count}"
+            agent_lines.append(line)
+
+        manager = get_alert_manager()
+        payload = AlertPayload(
+            study_id=study_id,
+            workflow_stage="workflow_completion",
+            error_type=error_type,
+            error_message=error_message,
+            severity=severity,
+            trace_summary="\n".join(agent_lines),
+            langsmith_url=summary.langsmith_url,
+            flagged_fields=summary.flagged_fields,
+            workflow_stats={
+                "cost": summary.total_cost_usd,
+                "duration": summary.duration_seconds,
+                "tokens": summary.total_tokens,
+            },
+        )
+
+        return await manager.alert(payload)
+
+    except Exception as e:
+        logger.error(f"Failed to send workflow completion alert: {e}")
+        return False

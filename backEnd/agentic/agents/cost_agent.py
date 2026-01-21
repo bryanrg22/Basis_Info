@@ -15,6 +15,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from .base_agent import BaseStageAgent, StageContext
+from ..observability.alerts import alert_on_failure
 
 
 # =============================================================================
@@ -558,6 +559,7 @@ Always use corpus="reference" for RSMeans documents."""
 # =============================================================================
 
 
+@alert_on_failure("cost_agent", study_id_param="context")
 async def estimate_cost(
     component_name: str,
     quantity: float,
@@ -678,6 +680,7 @@ async def estimate_cost(
     }
 
 
+@alert_on_failure("cost_agent", study_id_param="context")
 async def estimate_costs_batch(
     takeoffs: list[dict],
     context: StageContext,

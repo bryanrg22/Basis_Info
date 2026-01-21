@@ -14,94 +14,34 @@ Agents use evidence retrieval tools via MCP to make evidence-backed decisions wi
 ## Architecture
 
 ```
-Frontend (Next.js) ←→ Firestore (real-time)
-                           ↑
-                    Agentic API (FastAPI)
-                           ↑
-              LangGraph Workflow Engine
-                           ↑
-    ┌──────────────────────┼──────────────────────┐
-    │                      │                      │
-    ▼                      ▼                      ▼
-┌────────────┐     ┌─────────────┐      ┌─────────────┐
-│ Appraisal  │     │ Room/Asset/ │      │ Cost Agent  │
-│ Extraction │     │ Object/Take │      │             │
-│ (Agentic   │     │ off Agents  │      │ (Agentic    │
-│ Tool Use)  │     │ (Agentic    │      │ RAG)        │
-│            │     │ RAG)        │      │             │
-└─────┬──────┘     └──────┬──────┘      └──────┬──────┘
-      │                   │                    │
-      │    Azure DI       │    MCP Tool        │
-      │    Vision         │    Registry        │
-      │    MISMO          │    (search)        │
-      │                   │                    │
-      └───────────────────┴────────────────────┘
-                           ↑
-              Evidence Layer (retrieval.py)
-```
-
-## Quick Start
-
-### 1. Install dependencies
-
-```bash
-cd backEnd/agentic
-pip install -e .
-
-# Also install evidence layer
-pip install -e ../evidence_layer
-```
-
-### 2. Configure environment
-
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
-
-Required environment variables:
-```env
-# Azure OpenAI (primary provider)
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_API_KEY=...
-
-# Model deployments (GPT-4.1 combo for best cost/performance)
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4.1           # Best results - complex reasoning
-AZURE_OPENAI_DEPLOYMENT_NAME_FAST=gpt-4.1-nano # Most efficient - high-volume tasks
-
-# Azure Document Intelligence (for tiered appraisal extraction)
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
-AZURE_DOCUMENT_INTELLIGENCE_KEY=...
-
-# LangSmith (optional but recommended)
-LANGCHAIN_API_KEY=ls-...
-LANGCHAIN_PROJECT=basis-agentic
-
-# Firebase
-GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
-```
-
-**Model Strategy:**
-- **GPT-4.1**: Primary model for complex reasoning, classification, and cost segregation decisions
-- **GPT-4.1 nano**: Fast/cheap model for high-volume tasks (object detection, simple extraction)
-- This combo provides the best cost/performance ratio for production workloads
-
-### 3. Run the API server
-
-```bash
-uvicorn agentic.api.main:app --reload --port 8000
-```
-
-### 4. Start a workflow
-
-```bash
-curl -X POST http://localhost:8000/workflow/start \
-  -H "Content-Type: application/json" \
-  -d '{
-    "study_id": "STUDY_001",
-    "reference_doc_ids": ["IRS_PUB946_2024", "IRS_COSTSEG_ATG"],
-    "study_doc_ids": []
-  }'
+Frontend (Next.js) <--> Firestore (real-time)
+                              |
+                    +--------------------+
+                    |                    |
+              Agentic API           Job Worker
+              (FastAPI)             (Background)
+                    |                    |
+                    +--------------------+
+                              |
+                  LangGraph Workflow Engine
+                              |
+        +---------------------+---------------------+
+        |                     |                     |
+        v                     v                     v
++---------------+     +---------------+     +---------------+
+|  Appraisal    |     | Room/Asset/   |     |  Cost Agent   |
+|  Extraction   |     | Object/Take   |     |               |
+|  (Agentic     |     | off Agents    |     |  (Agentic     |
+|  Tool Use)    |     | (Agentic RAG) |     |  RAG)         |
++-------+-------+     +-------+-------+     +-------+-------+
+        |                     |                     |
+        |    Azure DI         |    MCP Tool         |
+        |    Vision           |    Registry         |
+        |    MISMO            |    (search)         |
+        |                     |                     |
+        +---------------------+---------------------+
+                              |
+                  Evidence Layer (retrieval.py)
 ```
 
 ## Package Structure
@@ -124,6 +64,8 @@ agentic/
 │   ├── takeoff_agent.py  # Quantity takeoff (Agentic RAG)
 │   ├── cost_agent.py     # Cost estimation (Agentic RAG)
 │   ├── vision_agent.py   # Image analysis (GPT-4o Vision)
+│   ├── classification_verifier.py  # IRS defensibility verification
+│   ├── document_extraction_agent.py # PDF field extraction
 │   └── appraisal/        # Multi-agent appraisal extraction
 │       ├── __init__.py       # Module exports
 │       ├── schemas.py        # Pydantic I/O models
@@ -136,13 +78,34 @@ agentic/
 │   ├── state.py          # Workflow state definition
 │   ├── nodes.py          # Stage node functions
 │   ├── edges.py          # Conditional routing
-│   └── workflow.py       # Compiled workflow
+│   ├── workflow.py       # Compiled workflow
+│   ├── corrections.py    # Correction cascade logic
+│   └── feedback.py       # Engineer feedback handling
 ├── firestore/            # Firestore integration
 │   ├── client.py         # Firestore client
 │   ├── checkpointer.py   # LangGraph state persistence
-│   └── writeback.py      # Evidence-backed writes
-├── observability/        # LangSmith tracing
+│   ├── writeback.py      # Evidence-backed writes
+│   ├── job_queue.py      # Durable background job queue
+│   └── checkpoint_history.py  # Checkpoint history tracking
+├── workers/              # Background job processing
+│   └── job_worker.py     # Durable job worker
+├── validation/           # Cross-stage validation
+│   └── cross_validator.py # Classification/Takeoff/Cost consistency
+├── evidence/             # Evidence aggregation
+│   ├── models.py         # Evidence models
+│   └── aggregator.py     # Citation deduplication
+├── observability/        # Monitoring and debugging
+│   ├── tracing.py        # LangSmith tracing
+│   ├── alerts.py         # Slack/webhook alerting
+│   ├── trace_analyzer.py # Trace analysis and debugging
+│   ├── cost_tracker.py   # Token/cost tracking
+│   └── decision_log.py   # Agent decision logging
 └── api/                  # FastAPI endpoints
+    ├── main.py           # App initialization
+    ├── routes/           # API routes
+    ├── auth/             # Authentication
+    ├── rate_limit.py     # Rate limiting
+    └── exceptions.py     # Exception handlers
 ```
 
 ## Key Concepts
@@ -152,21 +115,21 @@ agentic/
 Unlike traditional RAG where retrieval happens before generation, **Agentic RAG** lets the LLM control the retrieval process:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  TRADITIONAL RAG                                                 │
-│                                                                 │
-│  Query ──► Retrieve ──► Generate                                │
-│  (fixed)   (always)     (once)                                  │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|  TRADITIONAL RAG                                                  |
+|                                                                   |
+|  Query --> Retrieve --> Generate                                  |
+|  (fixed)   (always)     (once)                                    |
++------------------------------------------------------------------+
 
-┌─────────────────────────────────────────────────────────────────┐
-│  AGENTIC RAG (What Basis Uses)                                   │
-│                                                                 │
-│  Task ──► Think ──► Search? ──► Think ──► Search? ──► Generate  │
-│           │         (LLM       │         (LLM        │          │
-│           │          decides)  │          decides)   │          │
-│           └──── ReAct Loop ────┴──── Multi-hop ──────┘          │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|  AGENTIC RAG (What Basis Uses)                                    |
+|                                                                   |
+|  Task --> Think --> Search? --> Think --> Search? --> Generate    |
+|           |         (LLM       |         (LLM        |            |
+|           |          decides)  |          decides)   |            |
+|           +---- ReAct Loop ----+---- Multi-hop ------+            |
++------------------------------------------------------------------+
 ```
 
 **Benefits of Agentic RAG:**
@@ -174,7 +137,7 @@ Unlike traditional RAG where retrieval happens before generation, **Agentic RAG*
 | Capability | Traditional RAG | Agentic RAG |
 |------------|-----------------|-------------|
 | Query formulation | Fixed template | LLM crafts optimal query |
-| Multi-hop reasoning | Single pass | Search → analyze → search again |
+| Multi-hop reasoning | Single pass | Search -> analyze -> search again |
 | Tool selection | Same retriever | LLM picks BM25 vs vector vs hybrid |
 | Self-correction | No | Re-search if results unhelpful |
 
@@ -182,12 +145,12 @@ Unlike traditional RAG where retrieval happens before generation, **Agentic RAG*
 
 | Agent | Uses Agentic RAG | Search Tools |
 |-------|------------------|--------------|
-| AssetAgent | ✅ Yes | `bm25_search`, `hybrid_search`, `get_table` |
-| RoomAgent | ✅ Yes | `hybrid_search` |
-| ObjectAgent | ✅ Yes | `hybrid_search` |
-| TakeoffAgent | ✅ Yes | `hybrid_search` |
-| CostAgent | ✅ Yes | `hybrid_search` |
-| Appraisal Agents | ❌ No | Uses extraction tools instead |
+| AssetAgent | Yes | `bm25_search`, `hybrid_search`, `get_table` |
+| RoomAgent | Yes | `hybrid_search` |
+| ObjectAgent | Yes | `hybrid_search` |
+| TakeoffAgent | Yes | `hybrid_search` |
+| CostAgent | Yes | `hybrid_search` |
+| Appraisal Agents | No | Uses extraction tools instead |
 
 ### Evidence-Backed Outputs
 
@@ -197,92 +160,401 @@ Every agent output includes:
 - **confidence**: Score based on evidence quality (0.0-1.0)
 - **needs_review**: Flag if no evidence found
 
-### Parallel Stage-Gated Workflow
+---
 
-The workflow uses **parallel execution with staggered pauses** for optimal engineer productivity:
+## API Server + Worker Architecture
+
+Basis uses a **separate worker process** for long-running tasks. This is an industry-standard pattern used by production systems at scale.
+
+### Why Separate API and Worker?
+
+Your backend API server handles HTTP requests from users. When a user starts a workflow:
+
+1. **API must respond quickly** - Users expect responses within seconds
+2. **Vision analysis is slow** - Takes 2-3+ minutes
+
+If the API runs vision analysis directly:
+- HTTP request hangs for minutes (bad UX, timeouts)
+- Server resources tied up (can't handle other requests)
+- If server restarts, work is lost
+
+### The Solution
+
+```
++-------------------+         +-------------------+
+|   API Server      |         |     Worker        |
+|   (backend)       |         |                   |
+|                   |         |                   |
+| - Fast responses  |         | - Long tasks      |
+| - User requests   |         | - Vision AI       |
+| - Enqueue jobs    |         | - Retries         |
++--------+----------+         +---------+---------+
+         |                              |
+         |      +---------------+       |
+         +----->|  Job Queue    |<------+
+                | (Firestore)   |
+                +---------------+
+```
+
+**API Server (backend)**:
+- Receives user request: "Start workflow"
+- Writes job to queue: `{type: "analyze_rooms", study_id: "abc"}`
+- Returns immediately: "Workflow started!" (~100ms)
+
+**Worker**:
+- Polls the job queue continuously
+- Picks up jobs and runs vision analysis (2-3 min)
+- Updates Firestore with results
+- Handles retries if something fails
+
+### Industry Examples
+
+This pattern is used by virtually every production system:
+
+| Company | Pattern |
+|---------|---------|
+| **Stripe** | API server + async workers for payment processing |
+| **GitHub** | Web server + Sidekiq workers for CI/CD jobs |
+| **Slack** | API + workers for message processing, search indexing |
+| **Netflix** | Microservices + worker pools for encoding, recommendations |
+
+**Common tools for this pattern:**
+- **Celery** (Python) - most popular
+- **Sidekiq** (Ruby)
+- **Bull** (Node.js)
+- **AWS SQS + Lambda**
+- **Google Cloud Tasks**
+
+Basis uses Firestore as the job queue, which provides durability and works well at our scale.
+
+---
+
+## Parallel Stage-Gated Workflow
+
+The workflow uses **true parallel execution** for optimal engineer productivity:
 
 ```
                          load_study
-                               │
-                  ┌────────────┴────────────┐
-                  ▼                         ▼
-            resource_extraction       analyze_rooms
-            (ingest appraisal PDF)    (vision, 2 workers)
-            ~30 seconds               ~2-3 minutes (BACKGROUND)
-                  │                         │
-                  ▼                         │
-            PAUSE #1 ◄──────────────────────┤ (vision continues in background)
-            (engineer reviews               │
-             appraisal data)                │
-                  │                         │
-                  └────────────┬────────────┘
-                               ▼
+                               |
+                  +------------+------------+
+                  |                         |
+                  v                         v
+            Enqueue Job              resource_extraction
+            (analyze_rooms)          (ingest appraisal PDF)
+                  |                   ~30 seconds
+                  v                         |
+            Worker picks up                 v
+            job immediately           PAUSE #1 <-- Engineer reviews appraisal
+                  |                         |   (vision runs in background)
+                  v                         |
+            Vision analysis           +-----+
+            ~2-3 minutes              |
+            (background)              v
+                  |              roomsReady?
+                  |                   |
+                  +-------------------+
+                               |
+                               v
                           PAUSE #2
                           (engineer reviews rooms)
-                               │
-                               ▼
+                               |
+                               v
                         process_assets
                         (objects + takeoffs + classification + costs)
-                               │
-                               ▼
-                    engineering_takeoff ←── PAUSE #3
-                               │
-                               ▼
+                               |
+                               v
+                    engineering_takeoff <-- PAUSE #3
+                               |
+                               v
                           completed
 ```
 
 **Key Optimizations:**
-- **Parallel ingestion**: Appraisal PDF ingested while vision runs in background
+- **True parallel execution**: Vision analysis starts immediately when workflow begins
 - **2 concurrent workers**: Vision analysis ~50% faster with parallel Azure OpenAI calls
-- **Staggered pauses**: Engineer can review appraisal (~30s wait) while vision continues
-- **Background processing**: `analyze_rooms` runs as `asyncio.create_task()`
+- **Staggered pauses**: Engineer reviews appraisal (~30s wait) while vision continues
+- **Background processing**: `analyze_rooms` runs via durable job queue
+
+**UX Impact**: Engineer sees first review screen at ~30s instead of ~3+ minutes.
 
 **Workflow Status Values** (matches frontend):
 ```
-uploading_documents → analyzing_rooms → resource_extraction → reviewing_rooms → engineering_takeoff → completed
+uploading_documents -> analyzing_rooms -> resource_extraction -> reviewing_rooms -> engineering_takeoff -> completed
 ```
 
-### Appraisal Processing (Multi-Agent Agentic Extraction)
+---
+
+## Durable Job Queue (Phase 5)
+
+Background tasks are processed via a **Firestore-backed durable job queue** that survives server restarts.
+
+### Job Types
+
+| Job Type | Description | Timeout |
+|----------|-------------|---------|
+| `analyze_rooms` | Vision analysis + room enrichment | 10 min |
+| `process_assets` | Objects, takeoffs, classification, costs | 10 min |
+| `reclassify` | Re-run classification for specific components | 5 min |
+| `recalculate_costs` | Re-run cost estimation | 5 min |
+| `cascade_correction` | Propagate engineer corrections | 5 min |
+
+### Job Lifecycle
+
+```
+pending --> claimed --> running --> completed
+                           |
+                           +--> failed (retries exhausted)
+                           |
+                           +--> retry (will be picked up again)
+```
+
+### Features
+
+- **Persistence**: Jobs survive server/worker restarts
+- **Priority ordering**: Higher priority jobs processed first (1-10 scale)
+- **Retry logic**: Automatic retry with configurable max retries
+- **Timeout protection**: Jobs reset if worker crashes
+- **Progress tracking**: Real-time progress updates
+- **Stale job cleanup**: Automatically recovers from worker crashes
+
+### Usage
+
+```python
+from agentic.firestore.job_queue import JobQueue
+
+job_queue = JobQueue()
+
+# Enqueue a job
+job_id = await job_queue.enqueue(
+    job_type="analyze_rooms",
+    study_id="study_123",
+    input_data={"images": [...]},
+    timeout_seconds=600,
+    max_retries=2,
+    priority=3,  # Higher priority (1-10, lower = higher)
+)
+
+# Check job status
+job = await job_queue.get_job(job_id)
+print(job.status)  # "pending", "running", "completed", etc.
+```
+
+---
+
+## Cross-Stage Validation (Phase 5)
+
+The `CrossValidator` ensures data consistency across workflow stages:
+
+### Validation Rules
+
+**Classification <-> Takeoff:**
+- Section 1245 with large SF quantity -> warning (likely structural)
+- 39-year bucket with EA unit -> info (typically SF/LF)
+- Unit type mismatch with depreciation bucket
+
+**Takeoff <-> Cost:**
+- Unit cost within industry range
+- RSMeans line item found
+- Total cost proportional to quantity
+
+### Industry Reference Data
+
+```python
+# Cost ranges by component type ($/unit)
+COST_RANGES = {
+    "light_fixture": {"min": 20, "max": 1000, "unit": "EA"},
+    "electrical_outlet": {"min": 15, "max": 150, "unit": "EA"},
+    "hvac_unit": {"min": 1000, "max": 15000, "unit": "EA"},
+    "carpet": {"min": 2, "max": 30, "unit": "SF"},
+    # ...
+}
+```
+
+### Usage
+
+```python
+from agentic.validation.cross_validator import CrossValidator
+
+validator = CrossValidator()
+results = validator.validate_all(
+    classifications=asset_classifications,
+    takeoffs=takeoffs,
+    costs=cost_estimates,
+)
+
+for result in results:
+    if result.has_warnings:
+        for issue in result.issues:
+            print(f"{issue.severity}: {issue.message}")
+```
+
+---
+
+## Slack Alerting System (Phase 6)
+
+Production alerting via **Slack** for workflow failures, with throttling to prevent alert fatigue. Alerts are sent to the team's Slack channel in real-time when workflows fail or need review.
+
+### Alert Channels
+
+| Channel | Configuration | Use Case |
+|---------|---------------|----------|
+| **Slack** | `ALERT_SLACK_WEBHOOK` | Team notifications |
+| **Webhook** | `ALERT_WEBHOOK_URL` | Custom integrations |
+| **Log** | Always enabled | Development/debugging |
+
+### Alert Severity
+
+- **warning**: Needs review, may be correct (yellow)
+- **error**: Likely incorrect, requires attention (red)
+- **critical**: System failure, immediate action needed (dark red)
+
+### Automatic Alerting
+
+Use the `@alert_on_failure` decorator for automatic alerting:
+
+```python
+from agentic.observability.alerts import alert_on_failure
+
+@alert_on_failure("room_agent")
+async def analyze_rooms(study_id: str, images: list[str]) -> dict:
+    # If this function throws, a Slack alert is sent automatically
+    ...
+```
+
+### Manual Alerting
+
+```python
+from agentic.observability.alerts import send_alert
+
+await send_alert(
+    study_id="study_123",
+    stage="classification",
+    error_type="LLM_TIMEOUT",
+    error_message="LLM call timed out after 60s",
+    severity="error",
+    context={"component_id": "light_fixture_1"},
+)
+```
+
+### Alert Payload (Slack)
+
+Alerts include:
+- Study ID and workflow stage
+- Error type and message
+- Timestamp and severity
+- LangSmith trace link (if available)
+- Flagged fields list
+- Workflow stats (cost, duration, tokens)
+
+### Throttling
+
+Similar alerts are throttled (default: 5 minutes between duplicates) to prevent alert fatigue during incident storms.
+
+---
+
+## Evidence Aggregator (Phase 6)
+
+Unified evidence collection and deduplication across all workflow stages.
+
+### Features
+
+- **Automatic deduplication**: Same citation from multiple stages stored once
+- **Component tracking**: Know which components lack evidence
+- **Stage organization**: Evidence indexed by stage, component, and document
+- **Summary statistics**: Coverage metrics for audit
+
+### Usage
+
+```python
+from agentic.evidence.aggregator import EvidenceAggregator
+
+aggregator = EvidenceAggregator(study_id="study_123")
+
+# Add citations from different stages
+aggregator.add_citations(
+    citations=room_agent_citations,
+    stage="room",
+    component_id="room_1",
+    component_name="Kitchen",
+)
+
+aggregator.add_citations(
+    citations=classification_citations,
+    stage="classification",
+    component_id="hvac_1",
+    component_name="HVAC Unit",
+)
+
+# Get organized pack
+pack = aggregator.get_organized_pack()
+
+print(f"Total citations: {pack.total_citations}")
+print(f"Stages covered: {pack.summary.stages_covered}")
+print(f"Components without evidence: {pack.summary.components_without_evidence}")
+```
+
+### Evidence Pack Structure
+
+```python
+{
+    "study_id": "study_123",
+    "total_citations": 45,
+    "entries": [...],
+    "by_stage": {"room": [...], "classification": [...]},
+    "by_component": {"hvac_1": [...], "light_1": [...]},
+    "by_document": {"IRS_PUB946": [...], "RSMEANS_2024": [...]},
+    "summary": {
+        "unique_documents": 5,
+        "stages_covered": ["room", "object", "classification", "cost"],
+        "avg_citations_per_component": 2.5,
+        "components_without_evidence": ["misc_item_1"],
+    }
+}
+```
+
+---
+
+## Appraisal Processing (Multi-Agent Agentic Extraction)
 
 The `resource_extraction_node` handles appraisal PDF ingestion with a **multi-agent LangGraph system** that reasons, verifies, and self-corrects:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  APPRAISAL EXTRACTION LANGGRAPH                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│                    ┌──────────────────────────┐                 │
-│                    │    EXTRACTOR AGENT       │                 │
-│                    │                          │                 │
-│                    │  "Extract intelligently" │                 │
-│                    │  Tools: MISMO, Azure DI, │                 │
-│                    │         Vision           │                 │
-│                    └───────────┬──────────────┘                 │
-│                                │                                │
-│                                ▼                                │
-│                    ┌──────────────────────────┐                 │
-│                    │    VERIFIER AGENT        │                 │
-│                    │                          │                 │
-│                    │  "Be skeptical. Find     │                 │
-│                    │   errors. Question       │                 │
-│                    │   everything."           │                 │
-│                    └───────────┬──────────────┘                 │
-│                                │                                │
-│              ┌─────────────────┼─────────────────┐              │
-│              │                 │                 │              │
-│         all_good        needs_correction    max_iterations      │
-│              │                 │                 │              │
-│              ▼                 ▼                 ▼              │
-│           ┌─────┐    ┌────────────────────┐   ┌─────┐          │
-│           │ END │    │  CORRECTOR AGENT   │   │ END │          │
-│           └─────┘    │                    │   └─────┘          │
-│                      │  "Fix using        │                    │
-│                      │   DIFFERENT method"│                    │
-│                      └─────────┬──────────┘                    │
-│                                │                               │
-│                                └───► loops back to verifier    │
-│                                      (max 2 iterations)        │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|  APPRAISAL EXTRACTION LANGGRAPH                                    |
++------------------------------------------------------------------+
+|                                                                    |
+|                    +----------------------------+                  |
+|                    |    EXTRACTOR AGENT         |                  |
+|                    |                            |                  |
+|                    |  "Extract intelligently"   |                  |
+|                    |  Tools: MISMO, Azure DI,   |                  |
+|                    |         Vision             |                  |
+|                    +-------------+--------------+                  |
+|                                  |                                 |
+|                                  v                                 |
+|                    +----------------------------+                  |
+|                    |    VERIFIER AGENT          |                  |
+|                    |                            |                  |
+|                    |  "Be skeptical. Find       |                  |
+|                    |   errors. Question         |                  |
+|                    |   everything."             |                  |
+|                    +-------------+--------------+                  |
+|                                  |                                 |
+|              +-------------------+-------------------+             |
+|              |                   |                   |             |
+|         all_good          needs_correction     max_iterations      |
+|              |                   |                   |             |
+|              v                   v                   v             |
+|           +-----+    +----------------------+     +-----+          |
+|           | END |    |  CORRECTOR AGENT     |     | END |          |
+|           +-----+    |                      |     +-----+          |
+|                      |  "Fix using          |                      |
+|                      |   DIFFERENT method"  |                      |
+|                      +-----------+----------+                      |
+|                                  |                                 |
+|                                  +--> loops back to verifier       |
+|                                       (max 2 iterations)           |
++------------------------------------------------------------------+
 ```
 
 **Module:** `agentic/agents/appraisal/`
@@ -291,9 +563,9 @@ The `resource_extraction_node` handles appraisal PDF ingestion with a **multi-ag
 
 | Agent | Role | Tools | LLM |
 |-------|------|-------|-----|
-| **ExtractorAgent** | Intelligent extraction | `parse_mismo_xml`, `extract_with_azure_di`, `extract_with_vision` | gpt-5-nano |
-| **VerifierAgent** | Skeptical plausibility checking | `validate_extraction`, `vision_recheck_field` | gpt-5-nano |
-| **CorrectorAgent** | Fix errors using different method | `extract_with_azure_di`, `extract_with_vision`, `vision_recheck_field` | gpt-5-nano |
+| **ExtractorAgent** | Intelligent extraction | `parse_mismo_xml`, `extract_with_azure_di`, `extract_with_vision` | gpt-4.1-nano |
+| **VerifierAgent** | Skeptical plausibility checking | `validate_extraction`, `vision_recheck_field` | gpt-4.1-nano |
+| **CorrectorAgent** | Fix errors using different method | `extract_with_azure_di`, `extract_with_vision`, `vision_recheck_field` | gpt-4.1-nano |
 
 **Tool Cost Strategy:**
 - `parse_mismo_xml` - FREE, 100% confidence
@@ -351,11 +623,13 @@ audit_trail = {
 - `appraised_value`, `contract_price`, `effective_date`
 
 **Graceful Degradation:**
-- Agentic extraction fails? → Falls back to regex via `map_appraisal_tables_to_sections()`
-- No Azure DI? → ExtractorAgent uses Vision fallback
-- All fail? → Returns regex results with `needs_review: true`
+- Agentic extraction fails? -> Falls back to regex via `map_appraisal_tables_to_sections()`
+- No Azure DI? -> ExtractorAgent uses Vision fallback
+- All fail? -> Returns regex results with `needs_review: true`
 
-### Vision Pipeline (analyze_rooms_node)
+---
+
+## Vision Pipeline (analyze_rooms_node)
 
 The vision pipeline processes appraisal photos to detect and classify building components for cost segregation.
 
@@ -366,49 +640,49 @@ The vision pipeline processes appraisal photos to detect and classify building c
 
 **Architecture (with Grounding):**
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    VISION PIPELINE                               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Appraisal Photos                                                │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌─────────────────────────────────────────┐                     │
-│  │  Grounding DINO                         │                     │
-│  │  (Open-set object detection)            │                     │
-│  │                                         │                     │
-│  │  - Detects objects without predefined   │                     │
-│  │    classes                              │                     │
-│  │  - Returns bounding boxes + labels      │                     │
-│  │  - Text-prompted: "HVAC, lighting,      │                     │
-│  │    electrical panel, flooring"          │                     │
-│  └─────────────────────────────────────────┘                     │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌─────────────────────────────────────────┐                     │
-│  │  SAM2 (Segment Anything Model 2)        │                     │
-│  │  (Precise segmentation)                 │                     │
-│  │                                         │                     │
-│  │  - Takes bounding boxes from DINO       │                     │
-│  │  - Generates pixel-perfect masks        │                     │
-│  │  - Enables accurate measurements        │                     │
-│  └─────────────────────────────────────────┘                     │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌─────────────────────────────────────────┐                     │
-│  │  GPT-4.1 (Azure OpenAI)                 │                     │
-│  │  (Classification + Cost Segregation)    │                     │
-│  │                                         │                     │
-│  │  - Classifies detected objects          │                     │
-│  │  - Determines IRS asset class           │                     │
-│  │  - Assigns recovery periods (5/7/15/39) │                     │
-│  │  - Generates evidence citations         │                     │
-│  └─────────────────────────────────────────┘                     │
-│         │                                                        │
-│         ▼                                                        │
-│  Firestore: rooms[], objects[]                                   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|                    VISION PIPELINE                                 |
++------------------------------------------------------------------+
+|                                                                    |
+|  Appraisal Photos                                                  |
+|         |                                                          |
+|         v                                                          |
+|  +-------------------------------------------+                     |
+|  |  Grounding DINO                           |                     |
+|  |  (Open-set object detection)              |                     |
+|  |                                           |                     |
+|  |  - Detects objects without predefined     |                     |
+|  |    classes                                |                     |
+|  |  - Returns bounding boxes + labels        |                     |
+|  |  - Text-prompted: "HVAC, lighting,        |                     |
+|  |    electrical panel, flooring"            |                     |
+|  +-------------------------------------------+                     |
+|         |                                                          |
+|         v                                                          |
+|  +-------------------------------------------+                     |
+|  |  SAM2 (Segment Anything Model 2)          |                     |
+|  |  (Precise segmentation)                   |                     |
+|  |                                           |                     |
+|  |  - Takes bounding boxes from DINO         |                     |
+|  |  - Generates pixel-perfect masks          |                     |
+|  |  - Enables accurate measurements          |                     |
+|  +-------------------------------------------+                     |
+|         |                                                          |
+|         v                                                          |
+|  +-------------------------------------------+                     |
+|  |  GPT-4.1 (Azure OpenAI)                   |                     |
+|  |  (Classification + Cost Segregation)      |                     |
+|  |                                           |                     |
+|  |  - Classifies detected objects            |                     |
+|  |  - Determines IRS asset class             |                     |
+|  |  - Assigns recovery periods (5/7/15/39)   |                     |
+|  |  - Generates evidence citations           |                     |
+|  +-------------------------------------------+                     |
+|         |                                                          |
+|         v                                                          |
+|  Firestore: rooms[], objects[]                                     |
+|                                                                    |
++------------------------------------------------------------------+
 ```
 
 **Why DINO + SAM2?**
@@ -417,7 +691,9 @@ The vision pipeline processes appraisal photos to detect and classify building c
 - **GPT-4.1**: Reasoning layer for IRS classification and cost segregation rules
 - **Combination**: Grounds LLM outputs in actual detected objects (reduces hallucination)
 
-### MCP Tools
+---
+
+## MCP Tools
 
 Available evidence tools:
 - `bm25_search_tool`: Exact token matching (IRS codes, section numbers)
@@ -426,46 +702,35 @@ Available evidence tools:
 - `get_table_tool`: Fetch structured table by ID
 - `get_chunk_tool`: Fetch chunk with provenance
 
-### Observability (LangSmith)
+---
+
+## Observability (LangSmith)
 
 All workflow executions are traced via LangSmith for debugging, monitoring, and optimization.
-
-![LangSmith Trace View](https://github.com/user-attachments/assets/75340053-603c-4ad2-9c40-c28c62ad703e)
 
 **What's captured:**
 - Full workflow execution tree (nodes, edges, timing)
 - LLM calls with prompts and responses
 - Tool invocations and results
 - Token usage and latency metrics
+- Error traces with full context
 
-**Setup:** Add `LANGCHAIN_API_KEY` and `LANGCHAIN_PROJECT` to your `.env` file.
+### Trace Analyzer (Phase 6)
 
-## API Endpoints
+Programmatic access to trace data for alerting and debugging:
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/workflow/start` | POST | Start workflow for a study |
-| `/workflow/resume` | POST | Resume after engineer review |
-| `/workflow/stage/{stage}` | POST | Trigger specific stage |
-| `/workflow/{study_id}/status` | GET | Get workflow status |
-| `/workflow/{study_id}/evidence` | GET | Get all citations |
-| `/health` | GET | Health check |
-| `/health/ready` | GET | Readiness check |
+```python
+from agentic.observability.trace_analyzer import get_trace_analyzer
 
-## Development
+analyzer = get_trace_analyzer()
+summary = analyzer.get_latest_trace(study_id="study_123")
 
-### Run tests
-
-```bash
-pytest tests/
+print(f"Duration: {summary.duration_seconds}s")
+print(f"Cost: ${summary.total_cost_usd}")
+print(f"Flagged fields: {summary.flagged_fields}")
 ```
 
-### Add a new agent
-
-1. Create new file in `agents/` extending `BaseStageAgent`
-2. Implement `get_system_prompt()`, `get_output_schema()`, `parse_output()`
-3. Add node function in `graph/nodes.py`
-4. Wire into workflow in `graph/workflow.py`
+---
 
 ## License
 

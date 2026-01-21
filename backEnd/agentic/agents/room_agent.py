@@ -15,6 +15,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from .base_agent import BaseStageAgent, StageContext
+from ..observability.alerts import alert_on_failure
 
 
 # =============================================================================
@@ -566,6 +567,7 @@ Always use corpus="reference" for IRS documents."""
 # =============================================================================
 
 
+@alert_on_failure("room_agent", study_id_param="context")
 async def enrich_room_context(
     image_id: str,
     room_type: str,
@@ -610,6 +612,7 @@ async def enrich_room_context(
     }
 
 
+@alert_on_failure("room_agent", study_id_param="context")
 async def enrich_rooms_batch(
     rooms: list[dict],
     context: StageContext,

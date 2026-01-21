@@ -129,7 +129,7 @@ def _entry_to_detail_response(
 @limiter.limit(STATUS_LIMIT)
 async def list_checkpoint_history(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     limit: int = 50,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -142,7 +142,7 @@ async def list_checkpoint_history(
     Query Parameters:
         limit: Maximum number of entries to return (default: 50)
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     # Thread ID is the study ID for workflow checkpoints
@@ -167,7 +167,7 @@ async def list_checkpoint_history(
 async def get_checkpoint_entry(
     study_id: ValidStudyId,
     entry_id: str,
-    request_obj: Request,
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
@@ -176,7 +176,7 @@ async def get_checkpoint_entry(
     Phase 6: Returns the complete checkpoint state including
     channel values for detailed inspection.
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     thread_id = study_id
@@ -202,7 +202,7 @@ async def compare_checkpoints(
     study_id: ValidStudyId,
     entry_id_a: str,
     entry_id_b: str,
-    request_obj: Request,
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
@@ -215,7 +215,7 @@ async def compare_checkpoints(
         entry_id_a: First (earlier) checkpoint entry ID
         entry_id_b: Second (later) checkpoint entry ID
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     thread_id = study_id
@@ -246,7 +246,7 @@ async def compare_checkpoints(
 @limiter.limit(STATUS_LIMIT)
 async def get_stage_transitions(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
@@ -255,7 +255,7 @@ async def get_stage_transitions(
     Phase 6: Returns a timeline of stage transitions for easy
     visualization of workflow progress.
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     thread_id = study_id

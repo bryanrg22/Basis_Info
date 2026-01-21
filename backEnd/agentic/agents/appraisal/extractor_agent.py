@@ -292,6 +292,7 @@ async def run_extractor_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     from datetime import datetime
     import time
+    from ...observability.alerts import send_alert
 
     start_time = time.time()
     agent = ExtractorAgent()
@@ -304,6 +305,33 @@ async def run_extractor_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
     output = await agent.run(input_data)
     duration_ms = int((time.time() - start_time) * 1000)
+
+    # Check for empty extraction - this is a critical failure
+    if not output.sections:
+        logger.error(
+            f"ExtractorAgent returned empty sections for study {state['study_id']}. "
+            f"Tools invoked: {output.tools_invoked}"
+        )
+        # Send alert for empty extraction
+        try:
+            await send_alert(
+                study_id=state["study_id"],
+                stage="extractor_agent",
+                error_type="EXTRACTION_EMPTY",
+                error_message=(
+                    f"ExtractorAgent returned no data. "
+                    f"Tools invoked: {output.tools_invoked}. "
+                    f"This usually means all extraction tools failed or LLM output parsing failed."
+                ),
+                severity="error",
+                context={
+                    "pdf_path": state["pdf_path"],
+                    "tools_invoked": output.tools_invoked,
+                    "duration_ms": duration_ms,
+                },
+            )
+        except Exception as alert_err:
+            logger.warning(f"Failed to send empty extraction alert: {alert_err}")
 
     # Update audit trail
     audit = state.get("audit_trail", {})

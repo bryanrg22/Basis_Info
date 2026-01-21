@@ -52,6 +52,14 @@ class Settings(BaseSettings):
         default="2024-02-15-preview", alias="AZURE_OPENAI_API_VERSION"
     )
 
+    # Azure Document Intelligence settings
+    azure_document_intelligence_endpoint: Optional[str] = Field(
+        default=None, alias="AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT"
+    )
+    azure_document_intelligence_key: Optional[str] = Field(
+        default=None, alias="AZURE_DOCUMENT_INTELLIGENCE_KEY"
+    )
+
     # LangSmith settings
     langchain_api_key: Optional[str] = Field(default=None, alias="LANGCHAIN_API_KEY")
     langchain_project: str = Field(default="basis-agentic", alias="LANGCHAIN_PROJECT")
@@ -167,7 +175,7 @@ class Settings(BaseSettings):
 
     # CORS settings
     cors_origins: list[str] = Field(
-        default=["http://localhost:3000"],
+        default=["http://localhost:3000", "http://localhost:3001"],
         alias="CORS_ORIGINS",
     )
 
@@ -194,6 +202,13 @@ class Settings(BaseSettings):
     def is_gcs_configured(self) -> bool:
         """Check if GCS index storage is configured."""
         return self.gcs_bucket_name is not None and not self.use_local_indexes
+
+    def is_document_intelligence_configured(self) -> bool:
+        """Check if Azure Document Intelligence is configured."""
+        return all([
+            self.azure_document_intelligence_endpoint,
+            self.azure_document_intelligence_key,
+        ])
 
 
 @lru_cache()

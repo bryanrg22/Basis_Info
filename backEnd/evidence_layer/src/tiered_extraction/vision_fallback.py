@@ -32,23 +32,43 @@ class VisionFallbackExtractor:
 
     Converts PDF pages to images and uses multimodal AI
     to extract specific fields that other methods missed.
+
+    Supports both Azure OpenAI and direct OpenAI as fallback.
     """
 
     def __init__(self):
-        self.azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-        self.api_key = os.environ.get("AZURE_OPENAI_API_KEY")
-        self.deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
-        self.client = None
-        self._initialized = False
+        # Load from settings (which reads .env) with fallback to os.environ
+        try:
+            from agentic.config.settings import get_settings
+            settings = get_settings()
+            self.azure_endpoint = settings.azure_openai_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
+            self.azure_api_key = settings.azure_openai_api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+            self.deployment = settings.azure_openai_deployment_name or os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+            # OpenAI direct fallback - load from settings which reads .env
+            self.openai_api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY")
+            self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-4o")
+        except ImportError:
+            # Fallback if settings module not available
+            self.azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+            self.azure_api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+            self.deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+            self.openai_api_key = os.environ.get("OPENAI_API_KEY")
+            self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
-    def _ensure_client(self) -> bool:
+        self.azure_client = None
+        self.openai_client = None
+        self._azure_initialized = False
+        self._openai_initialized = False
+        self._use_openai_fallback = False  # Set to True after Azure rate limit
+
+    def _ensure_azure_client(self) -> bool:
         """Initialize the Azure OpenAI client if not already done."""
-        if self._initialized:
-            return self.client is not None
+        if self._azure_initialized:
+            return self.azure_client is not None
 
-        self._initialized = True
+        self._azure_initialized = True
 
-        if not self.azure_endpoint or not self.api_key:
+        if not self.azure_endpoint or not self.azure_api_key:
             logger.warning(
                 "Azure OpenAI credentials not configured. "
                 "Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY"
@@ -58,9 +78,9 @@ class VisionFallbackExtractor:
         try:
             from openai import AzureOpenAI
 
-            self.client = AzureOpenAI(
+            self.azure_client = AzureOpenAI(
                 azure_endpoint=self.azure_endpoint,
-                api_key=self.api_key,
+                api_key=self.azure_api_key,
                 api_version="2024-02-15-preview"
             )
             return True
@@ -74,6 +94,37 @@ class VisionFallbackExtractor:
         except Exception as e:
             logger.error(f"Failed to initialize Azure OpenAI client: {e}")
             return False
+
+    def _ensure_openai_client(self) -> bool:
+        """Initialize the direct OpenAI client as fallback."""
+        if self._openai_initialized:
+            return self.openai_client is not None
+
+        self._openai_initialized = True
+
+        if not self.openai_api_key:
+            logger.warning("OpenAI API key not configured for fallback")
+            return False
+
+        try:
+            from openai import OpenAI
+
+            self.openai_client = OpenAI(api_key=self.openai_api_key)
+            logger.info("OpenAI fallback client initialized")
+            return True
+
+        except ImportError:
+            logger.warning("openai package not installed")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
+            return False
+
+    def _ensure_client(self) -> bool:
+        """Initialize an available client (Azure preferred, OpenAI as fallback)."""
+        if self._use_openai_fallback:
+            return self._ensure_openai_client()
+        return self._ensure_azure_client() or self._ensure_openai_client()
 
     async def extract_fields(
         self,
@@ -249,48 +300,121 @@ Only return the JSON object, no additional text."""
     def _call_vision_api(
         self,
         images: List[str],
-        prompt: str
+        prompt: str,
+        max_retries: int = 2
     ) -> Optional[str]:
         """
-        Call GPT-4o vision API with images and prompt.
+        Call vision API with images and prompt.
+
+        Tries Azure OpenAI first, falls back to direct OpenAI on rate limits.
 
         Args:
             images: List of base64-encoded images
             prompt: Extraction prompt
+            max_retries: Maximum retry attempts per provider
 
         Returns:
             API response content or None
         """
-        try:
-            # Build message content with images
-            content = [{"type": "text", "text": prompt}]
+        import time
 
-            for i, img_base64 in enumerate(images):
-                content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/png;base64,{img_base64}",
-                        "detail": "high"  # Use high detail for form reading
-                    }
-                })
+        # Build message content with images
+        content = [{"type": "text", "text": prompt}]
 
-            response = self.client.chat.completions.create(
+        for i, img_base64 in enumerate(images):
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{img_base64}",
+                    "detail": "high"  # Use high detail for form reading
+                }
+            })
+
+        # Try Azure OpenAI first (unless we've already switched to fallback)
+        if not self._use_openai_fallback and self._ensure_azure_client():
+            result = self._try_provider(
+                client=self.azure_client,
                 model=self.deployment,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": content
-                    }
-                ],
-                max_tokens=2000,
-                temperature=0.1  # Low temperature for extraction accuracy
+                content=content,
+                provider_name="Azure OpenAI",
+                max_retries=max_retries
             )
+            if result is not None:
+                return result
 
-            return response.choices[0].message.content
+            # Azure failed with rate limits, switch to OpenAI fallback
+            logger.warning("Azure OpenAI rate limited, switching to OpenAI fallback")
+            self._use_openai_fallback = True
 
-        except Exception as e:
-            logger.error(f"Vision API call failed: {e}")
-            return None
+        # Try direct OpenAI as fallback
+        if self._ensure_openai_client():
+            logger.info(f"Using OpenAI fallback with model: {self.openai_model}")
+            result = self._try_provider(
+                client=self.openai_client,
+                model=self.openai_model,
+                content=content,
+                provider_name="OpenAI",
+                max_retries=max_retries
+            )
+            if result is not None:
+                return result
+
+        logger.error("All vision API providers failed")
+        return None
+
+    def _try_provider(
+        self,
+        client: Any,
+        model: str,
+        content: List[Dict],
+        provider_name: str,
+        max_retries: int
+    ) -> Optional[str]:
+        """
+        Try to call a specific provider with retries.
+
+        Returns:
+            Response content, or None if all retries failed
+        """
+        import time
+
+        for attempt in range(max_retries):
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": content
+                        }
+                    ],
+                    max_tokens=2000,
+                    temperature=0.1
+                )
+
+                logger.info(f"{provider_name} vision call succeeded")
+                return response.choices[0].message.content
+
+            except Exception as e:
+                error_str = str(e)
+
+                # Check for rate limit error (429)
+                if "429" in error_str or "RateLimitReached" in error_str or "rate" in error_str.lower():
+                    wait_time = (2 ** attempt) * 5  # 5s, 10s
+                    logger.warning(
+                        f"{provider_name} rate limited (attempt {attempt + 1}/{max_retries}), "
+                        f"waiting {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # Non-retryable error
+                    logger.error(f"{provider_name} API call failed: {e}")
+                    return None
+
+        # Rate limit retries exhausted for this provider
+        logger.warning(f"{provider_name} rate limit retries exhausted")
+        return None
 
     def _parse_response(
         self,

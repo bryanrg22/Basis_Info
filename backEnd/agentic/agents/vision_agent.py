@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from .base_agent import BaseStageAgent, StageContext, AgentOutput
 from ..config.llm_providers import get_vision_llm
 from ..config.settings import get_settings
+from ..observability.alerts import alert_on_failure
 from ..observability.tracing import get_tracer
 from ..utils.parallel import retry_with_backoff
 
@@ -728,6 +729,7 @@ async def download_image_as_base64(url: str) -> Optional[str]:
     return None
 
 
+@alert_on_failure("vision_agent", study_id_param="image_id")
 async def analyze_image(
     image_url: str,
     image_id: str,
@@ -912,6 +914,7 @@ Return your analysis as JSON:
             )
 
 
+@alert_on_failure("vision_agent", study_id_param="property_name")
 async def analyze_study_images(
     uploaded_files: list[dict],
     property_name: str = "",

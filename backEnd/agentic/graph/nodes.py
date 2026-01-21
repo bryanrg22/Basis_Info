@@ -37,6 +37,8 @@ from ..agents.document_extraction_agent import extract_document_fields
 from ..firestore.client import FirestoreClient
 from ..firestore.writeback import FirestoreWriteback
 from ..observability.tracing import get_tracer
+from ..observability.alerts import send_alert, send_workflow_completion_alert
+from ..observability.trace_analyzer import save_trace_to_firestore
 from .state import WorkflowState
 
 
@@ -85,9 +87,7 @@ def _get_room_for_object(obj: dict, rooms: list[dict]) -> dict | None:
 
 async def load_study_node(state: WorkflowState) -> WorkflowState:
     """
-    Load study data from Firestore.
-
-    This is the entry point - loads current study state.
+    Load study data from Firestore and start background vision analysis.
     """
     tracer = get_tracer()
     client = FirestoreClient()
@@ -101,15 +101,50 @@ async def load_study_node(state: WorkflowState) -> WorkflowState:
                 "last_error": f"Study not found: {state['study_id']}",
             }
 
+        user_id = study.get("userId", "")
+        property_name = study.get("propertyName", "")
+        rooms = study.get("rooms", [])
+        objects = study.get("objects", [])
+
+        # =================================================================
+        # Enqueue analyze_rooms IMMEDIATELY for true parallel execution
+        # This runs while resource_extraction handles the appraisal PDF
+        # =================================================================
+        job_id = None
+        uploaded_files = study.get("uploadedFiles", [])
+        image_files = [f for f in uploaded_files if f.get("type", "").startswith("image/")]
+
+        if image_files and not rooms:  # Only if images exist and rooms not processed
+            from ..firestore.job_queue import JobQueue
+
+            job_queue = JobQueue()
+            job_id = await job_queue.enqueue(
+                job_type="analyze_rooms",
+                study_id=state["study_id"],
+                input_data={
+                    "user_id": user_id,
+                    "property_name": property_name,
+                    "rooms": rooms,
+                    "objects": objects,
+                    "reference_doc_ids": state.get("reference_doc_ids", []),
+                    "study_doc_ids": state.get("study_doc_ids", []),
+                },
+                timeout_seconds=600,
+                max_retries=2,
+                priority=3,
+            )
+            logger.info(f"Enqueued analyze_rooms job {job_id} for study {state['study_id']} ({len(image_files)} images)")
+
         return {
             **state,
-            "user_id": study.get("userId", ""),
-            "property_name": study.get("propertyName", ""),
+            "user_id": user_id,
+            "property_name": property_name,
             "current_stage": study.get("workflowStatus", "uploading_documents"),
-            "rooms": study.get("rooms", []),
-            "objects": study.get("objects", []),
+            "rooms": rooms,
+            "objects": objects,
             "takeoffs": study.get("takeoffs", []),
             "appraisal_resources": study.get("appraisalResources", {}),
+            "pending_jobs": [job_id] if job_id else [],
         }
 
 
@@ -337,7 +372,11 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                         # Try AGENTIC extraction (multi-agent with self-correction)
                         try:
                             from ..agents.appraisal import run_appraisal_extraction
+                            from ..agents.appraisal.tools import set_extraction_context
                             from ..agents.base_agent import StageContext
+
+                            # Set context for tool-level alerting
+                            set_extraction_context(state["study_id"])
 
                             extraction_context = StageContext(
                                 study_id=state["study_id"],
@@ -407,6 +446,38 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
 
                         except Exception as tier_err:
                             logger.warning(f"Agentic extraction failed, falling back to regex: {tier_err}")
+
+                            # ALERT: Agentic extraction failed - send immediately before fallback
+                            # This catches missing packages, rate limits, validation errors, etc.
+                            error_message = str(tier_err)
+                            error_type_name = type(tier_err).__name__
+
+                            # Categorize the error for better alerting
+                            if "not installed" in error_message.lower() or "package" in error_message.lower():
+                                alert_type = "EXTRACTION_PACKAGE_MISSING"
+                                severity = "error"
+                            elif "429" in error_message or "rate" in error_message.lower():
+                                alert_type = "EXTRACTION_RATE_LIMITED"
+                                severity = "warning"
+                            elif "validation" in error_message.lower() or "pydantic" in error_type_name.lower():
+                                alert_type = "EXTRACTION_VALIDATION_ERROR"
+                                severity = "error"
+                            else:
+                                alert_type = "EXTRACTION_AGENTIC_FAILED"
+                                severity = "error"
+
+                            await send_alert(
+                                study_id=state["study_id"],
+                                stage="resource_extraction",
+                                error_type=alert_type,
+                                error_message=f"Agentic extraction failed, falling back to regex: {error_message[:500]}",
+                                severity=severity,
+                                context={
+                                    "exception_type": error_type_name,
+                                    "fallback": "regex",
+                                },
+                            )
+
                             # Fall back to regex-only extraction
                             sections = map_appraisal_tables_to_sections(
                                 tables_path=tables_path,
@@ -437,8 +508,71 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                             f"({ingest_result.num_chunks} chunks, {ingest_result.num_tables} tables)"
                         )
 
+                        # =============================================================
+                        # ALERT: Check extraction quality and tool configuration
+                        # =============================================================
+                        overall_confidence = extraction_audit.get("final_confidence", 0)
+                        review_reasons = extraction_audit.get("review_reasons", [])
+
+                        # Alert on critically low confidence
+                        if overall_confidence < 0.3:
+                            # Check if it's a tool configuration issue
+                            tool_config_issue = any(
+                                "not configured" in reason.lower() or
+                                "not extracted" in reason.lower()
+                                for reason in review_reasons
+                            )
+
+                            if tool_config_issue:
+                                await send_alert(
+                                    study_id=state["study_id"],
+                                    stage="resource_extraction",
+                                    error_type="EXTRACTION_TOOL_NOT_CONFIGURED",
+                                    error_message=(
+                                        f"Appraisal extraction failed due to missing tool configuration. "
+                                        f"Confidence: {overall_confidence:.0%}. "
+                                        f"Review reasons: {'; '.join(review_reasons[:3])}"
+                                    ),
+                                    severity="error",
+                                    context={
+                                        "confidence": overall_confidence,
+                                        "missing_fields": len(review_reasons),
+                                        "duration_ms": extraction_audit.get("duration_ms", 0),
+                                        "iterations": extraction_audit.get("iterations", 0),
+                                    },
+                                )
+                            else:
+                                await send_alert(
+                                    study_id=state["study_id"],
+                                    stage="resource_extraction",
+                                    error_type="EXTRACTION_LOW_CONFIDENCE",
+                                    error_message=(
+                                        f"Appraisal extraction completed with critically low confidence: "
+                                        f"{overall_confidence:.0%}. {len(review_reasons)} fields flagged for review."
+                                    ),
+                                    severity="warning",
+                                    context={
+                                        "confidence": overall_confidence,
+                                        "flagged_fields": len(review_reasons),
+                                        "duration_ms": extraction_audit.get("duration_ms", 0),
+                                    },
+                                )
+
                     except Exception as e:
                         logger.error(f"Error ingesting appraisal: {e}")
+
+                        # ALERT: Ingestion completely failed
+                        await send_alert(
+                            study_id=state["study_id"],
+                            stage="resource_extraction",
+                            error_type="INGESTION_FAILED",
+                            error_message=f"Appraisal ingestion failed: {str(e)[:500]}",
+                            severity="critical",
+                            context={
+                                "exception_type": type(e).__name__,
+                            },
+                        )
+
                         # Fall back to empty structure
                         appraisal_resources = {
                             "error": str(e),
@@ -458,32 +592,8 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
             })
 
         # =================================================================
-        # STEP 2: Enqueue analyze_rooms as DURABLE BACKGROUND JOB
-        # =================================================================
-        # Phase 5: Use durable job queue instead of fire-and-forget asyncio.create_task
-        # Jobs survive server restarts, support retry logic, and provide progress tracking
-        from ..firestore.job_queue import JobQueue
-
-        job_queue = JobQueue()
-        job_id = await job_queue.enqueue(
-            job_type="analyze_rooms",
-            study_id=state["study_id"],
-            input_data={
-                "user_id": state.get("user_id", ""),
-                "property_name": state.get("property_name", ""),
-                "rooms": state.get("rooms", []),
-                "objects": state.get("objects", []),
-                "reference_doc_ids": state.get("reference_doc_ids", []),
-                "study_doc_ids": state.get("study_doc_ids", []),
-            },
-            timeout_seconds=600,  # 10 minute timeout for vision analysis
-            max_retries=2,
-            priority=3,  # High priority
-        )
-        logger.info(f"Enqueued analyze_rooms job {job_id} for study {state['study_id']}")
-
-        # =================================================================
-        # STEP 3: Advance to PAUSE #1 (resource_extraction)
+        # STEP 2: Advance to PAUSE #1 (resource_extraction)
+        # Note: analyze_rooms job was enqueued in load_study_node for parallel execution
         # =================================================================
         writeback.advance_workflow(state["study_id"], "resource_extraction")
 
@@ -501,6 +611,20 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
             },
         )
 
+        # =================================================================
+        # STEP 3: Capture trace and send alert if needed
+        # =================================================================
+        try:
+            # Save trace to Firestore for audit trail
+            await save_trace_to_firestore(state["study_id"])
+
+            # Send alert with trace summary if extraction had issues
+            overall_confidence = extraction_audit.get("final_confidence", 0) if 'extraction_audit' in locals() else 0
+            if overall_confidence < 0.5 or appraisal_resources.get("error"):
+                await send_workflow_completion_alert(state["study_id"])
+        except Exception as trace_err:
+            logger.warning(f"Failed to capture trace: {trace_err}")
+
         # PAUSE #1 - Engineer reviews appraisal while vision job runs in background
         return {
             **state,
@@ -508,7 +632,7 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
             "appraisal_resources": appraisal_resources,
             "needs_review": True,
             "rooms_ready": False,  # Will be set to True when job completes
-            "pending_jobs": [job_id],  # Phase 5: Track pending jobs for status checks
+            # pending_jobs already set in load_study_node
         }
 
 

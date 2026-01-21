@@ -4,6 +4,7 @@ Authentication dependencies for FastAPI.
 Provides Firebase token verification using FastAPI dependency injection.
 """
 
+import logging
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -11,6 +12,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import auth
+
+logger = logging.getLogger(__name__)
 
 # HTTP Bearer security scheme
 security = HTTPBearer(auto_error=False)
@@ -33,6 +36,7 @@ async def get_current_user(
     Raises HTTPException 401 if token is missing or invalid.
     """
     if credentials is None:
+        logger.warning("Auth failed: No credentials provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
@@ -40,21 +44,35 @@ async def get_current_user(
         )
 
     token = credentials.credentials
+    logger.debug(f"Auth: Received token starting with {token[:20]}...")
+
+    # Ensure Firebase Admin SDK is initialized
+    try:
+        firebase_admin.get_app()
+    except ValueError:
+        # Not initialized, initialize it now
+        logger.info("Initializing Firebase Admin SDK for auth")
+        from ...firestore.client import _initialize_firebase
+        _initialize_firebase()
+
     try:
         # Verify the Firebase ID token
         decoded_token = auth.verify_id_token(token)
+        logger.info(f"Auth success: user {decoded_token.get('email', decoded_token['uid'])}")
         return CurrentUser(
             uid=decoded_token["uid"],
             email=decoded_token.get("email"),
             name=decoded_token.get("name"),
         )
     except firebase_admin.exceptions.FirebaseError as e:
+        logger.error(f"Auth failed: Firebase error - {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"Auth failed: {type(e).__name__} - {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed",

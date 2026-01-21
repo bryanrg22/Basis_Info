@@ -38,6 +38,8 @@ from .tools import (
     get_extractor_tools,
     get_verifier_tools,
     get_corrector_tools,
+    # Context for alerting
+    set_extraction_context,
 )
 
 from .extractor_agent import ExtractorAgent, run_extractor_agent
@@ -85,4 +87,6 @@ __all__ = [
     "get_extractor_tools",
     "get_verifier_tools",
     "get_corrector_tools",
+    # Context
+    "set_extraction_context",
 ]

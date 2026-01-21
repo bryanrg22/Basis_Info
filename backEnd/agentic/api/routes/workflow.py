@@ -128,7 +128,7 @@ class CancelJobRequest(BaseModel):
 @router.post("/start", response_model=WorkflowResponse)
 @limiter.limit(WORKFLOW_LIMIT)
 async def start_workflow(
-    request_obj: Request,
+    request: Request,
     body: StartWorkflowRequest,
     background_tasks: BackgroundTasks,
     user: CurrentUser = Depends(get_current_user),
@@ -140,7 +140,7 @@ async def start_workflow(
     The workflow will pause at review checkpoints for engineer approval.
     """
     # Store user in request state for rate limiting
-    request_obj.state.user = user
+    request.state.user = user
 
     # Verify study exists and user has access
     verify_study_ownership(body.study_id, user)
@@ -168,7 +168,7 @@ async def start_workflow(
 @router.post("/resume", response_model=WorkflowResponse)
 @limiter.limit(WORKFLOW_LIMIT)
 async def resume_workflow_endpoint(
-    request_obj: Request,
+    request: Request,
     body: ResumeWorkflowRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -179,7 +179,7 @@ async def resume_workflow_endpoint(
     the current stage results.
     """
     # Store user in request state for rate limiting
-    request_obj.state.user = user
+    request.state.user = user
 
     # Verify study exists and user has access
     verify_study_ownership(body.study_id, user)
@@ -207,7 +207,7 @@ async def resume_workflow_endpoint(
 @limiter.limit(WORKFLOW_LIMIT)
 async def trigger_stage(
     stage: str,
-    request_obj: Request,
+    request: Request,
     body: TriggerStageRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -217,7 +217,7 @@ async def trigger_stage(
     Use this to manually run a specific stage (e.g., re-run classification).
     """
     # Store user in request state for rate limiting
-    request_obj.state.user = user
+    request.state.user = user
 
     # Verify study exists and user has access
     verify_study_ownership(body.study_id, user)
@@ -261,14 +261,14 @@ async def trigger_stage(
 @limiter.limit(STATUS_LIMIT)
 async def get_workflow_status(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
     Get the current workflow status for a study.
     """
     # Store user in request state for rate limiting
-    request_obj.state.user = user
+    request.state.user = user
 
     # Verify study exists and user has access
     study = verify_study_ownership(study_id, user)
@@ -314,7 +314,7 @@ class EvidenceResponse(BaseModel):
 @limiter.limit(STATUS_LIMIT)
 async def get_workflow_evidence(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     stage: Optional[str] = None,
     component_id: Optional[str] = None,
     doc_id: Optional[str] = None,
@@ -332,7 +332,7 @@ async def get_workflow_evidence(
         doc_id: Filter by source document ID
     """
     # Store user in request state for rate limiting
-    request_obj.state.user = user
+    request.state.user = user
 
     # Verify study exists and user has access
     study = verify_study_ownership(study_id, user)
@@ -407,7 +407,7 @@ class CostSummaryResponse(BaseModel):
 @limiter.limit(STATUS_LIMIT)
 async def get_workflow_costs(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
@@ -416,7 +416,7 @@ async def get_workflow_costs(
     Phase 6: Returns aggregated cost metrics including totals,
     breakdowns by agent and stage, and latency statistics.
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     from ...observability.cost_tracker import get_cost_tracker
@@ -480,7 +480,7 @@ class DecisionSummaryResponse(BaseModel):
 @limiter.limit(STATUS_LIMIT)
 async def get_workflow_decisions(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     agent: Optional[str] = None,
     decision_type: Optional[str] = None,
     limit: int = 100,
@@ -497,7 +497,7 @@ async def get_workflow_decisions(
         decision_type: Filter by decision type (optional)
         limit: Maximum decisions to return (default: 100)
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     from ...observability.decision_log import get_decision_logger
@@ -535,7 +535,7 @@ async def get_workflow_decisions(
 @limiter.limit(STATUS_LIMIT)
 async def get_decisions_summary(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
@@ -543,7 +543,7 @@ async def get_decisions_summary(
 
     Phase 6: Returns aggregate metrics about agent decisions.
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     from ...observability.decision_log import get_decision_logger
@@ -588,7 +588,7 @@ def _job_to_response(job) -> JobResponse:
 @limiter.limit(STATUS_LIMIT)
 async def list_study_jobs(
     study_id: ValidStudyId,
-    request_obj: Request,
+    request: Request,
     status: Optional[str] = None,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -597,7 +597,7 @@ async def list_study_jobs(
 
     Phase 5: Provides visibility into durable job queue for the frontend.
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     job_queue = JobQueue()
@@ -617,7 +617,7 @@ async def list_study_jobs(
 async def get_job_status(
     study_id: ValidStudyId,
     job_id: str,
-    request_obj: Request,
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
     """
@@ -625,7 +625,7 @@ async def get_job_status(
 
     Phase 5: Allows frontend to poll for job completion.
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     job_queue = JobQueue()
@@ -645,7 +645,7 @@ async def get_job_status(
 async def cancel_job(
     study_id: ValidStudyId,
     job_id: str,
-    request_obj: Request,
+    request: Request,
     body: CancelJobRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -654,7 +654,7 @@ async def cancel_job(
 
     Phase 5: Allows engineers to cancel stuck or unwanted jobs.
     """
-    request_obj.state.user = user
+    request.state.user = user
     verify_study_ownership(study_id, user)
 
     job_queue = JobQueue()

@@ -22,12 +22,52 @@ from typing import Any, Dict, List, Optional
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
+# Import alert function for infrastructure failure notifications
+from ...observability.alerts import send_alert
+
+logger = logging.getLogger(__name__)
+
+# Module-level context for tracking current study_id (set by caller before tool invocation)
+_current_study_id: Optional[str] = None
+
+
+def set_extraction_context(study_id: str) -> None:
+    """Set the current study_id for tool alerting context."""
+    global _current_study_id
+    _current_study_id = study_id
+
+
+def get_extraction_context() -> Optional[str]:
+    """Get the current study_id for alerting."""
+    return _current_study_id
+
+
+async def _send_tool_alert(
+    tool_name: str,
+    error_type: str,
+    error_message: str,
+    severity: str = "error",
+) -> None:
+    """Send alert for tool infrastructure failures."""
+    study_id = get_extraction_context()
+    if not study_id:
+        logger.warning(f"Cannot send alert - no study_id context set. Error: {error_message}")
+        return
+
+    await send_alert(
+        study_id=study_id,
+        stage="resource_extraction",
+        error_type=error_type,
+        error_message=f"[{tool_name}] {error_message}",
+        severity=severity,
+        context={"tool": tool_name},
+    )
+
+
 # Add evidence_layer to path for imports
 evidence_layer_path = Path(__file__).parent.parent.parent.parent / "evidence_layer" / "src"
 if str(evidence_layer_path) not in sys.path:
     sys.path.insert(0, str(evidence_layer_path))
-
-logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -194,33 +234,80 @@ async def extract_with_azure_di(pdf_path: str) -> Dict[str, Any]:
 
         extractor = AzureDocumentExtractor()
         if not extractor.is_available():
+            error_msg = "Azure DI not configured. Set AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY"
+            await _send_tool_alert(
+                tool_name="extract_with_azure_di",
+                error_type="AZURE_DI_NOT_CONFIGURED",
+                error_message=error_msg,
+                severity="error",
+            )
             return {
                 "success": False,
-                "error": "Azure DI not configured. Set AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY",
+                "error": error_msg,
                 "source": "azure_di",
             }
 
         result = await extractor.extract(pdf_path)
 
+        # Alert if extraction returned no data (infrastructure issue)
+        if result.overall_confidence == 0:
+            await _send_tool_alert(
+                tool_name="extract_with_azure_di",
+                error_type="AZURE_DI_NO_DATA",
+                error_message="Azure DI returned 0% confidence - possible API or document parsing issue",
+                severity="error",
+            )
+
+        # Get the dict and extract sections (everything except _metadata)
+        result_dict = result.to_dict()
+        sections = {k: v for k, v in result_dict.items() if k != "_metadata"}
+
         return {
             "success": True,
-            "sections": result.to_dict().get("sections", {}),
+            "sections": sections,
             "overall_confidence": result.overall_confidence,
             "needs_review": result.needs_review,
             "source": "azure_di",
         }
     except ImportError as e:
+        error_msg = "azure-ai-documentintelligence package not installed"
         logger.warning(f"Azure DI extractor not available: {e}")
+        await _send_tool_alert(
+            tool_name="extract_with_azure_di",
+            error_type="AZURE_DI_PACKAGE_MISSING",
+            error_message=error_msg,
+            severity="error",
+        )
         return {
             "success": False,
-            "error": "azure-ai-documentintelligence package not installed",
+            "error": error_msg,
             "source": "azure_di",
         }
     except Exception as e:
+        error_msg = str(e)
         logger.error(f"Azure DI extraction failed: {e}")
+        # Categorize the error for better alerting
+        if "429" in error_msg or "rate" in error_msg.lower():
+            error_type = "AZURE_DI_RATE_LIMITED"
+            severity = "warning"
+        elif "401" in error_msg or "403" in error_msg or "auth" in error_msg.lower():
+            error_type = "AZURE_DI_AUTH_ERROR"
+            severity = "error"
+        elif "body" in error_msg.lower() or "argument" in error_msg.lower():
+            error_type = "AZURE_DI_API_ERROR"
+            severity = "error"
+        else:
+            error_type = "AZURE_DI_EXTRACTION_FAILED"
+            severity = "error"
+        await _send_tool_alert(
+            tool_name="extract_with_azure_di",
+            error_type=error_type,
+            error_message=error_msg[:500],
+            severity=severity,
+        )
         return {
             "success": False,
-            "error": str(e),
+            "error": error_msg,
             "source": "azure_di",
         }
 
@@ -246,9 +333,16 @@ async def extract_with_vision(pdf_path: str, missing_fields: List[str]) -> Dict[
 
         extractor = VisionFallbackExtractor()
         if not extractor.is_available():
+            error_msg = "Vision extractor not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY"
+            await _send_tool_alert(
+                tool_name="extract_with_vision",
+                error_type="VISION_NOT_CONFIGURED",
+                error_message=error_msg,
+                severity="error",
+            )
             return {
                 "success": False,
-                "error": "Vision extractor not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY",
+                "error": error_msg,
                 "source": "vision",
             }
 
@@ -268,6 +362,15 @@ async def extract_with_vision(pdf_path: str, missing_fields: List[str]) -> Dict[
 
         results = await extractor.extract_fields(pdf_path, field_tuples)
 
+        # Alert if vision returned no results (possible PDF conversion or API issue)
+        if not results:
+            await _send_tool_alert(
+                tool_name="extract_with_vision",
+                error_type="VISION_NO_RESULTS",
+                error_message=f"Vision extraction returned no results for {len(field_tuples)} fields - check PDF conversion and OpenAI API",
+                severity="error",
+            )
+
         # Convert FieldResult objects to dicts
         sections = {}
         for field_key, field_result in results.items():
@@ -286,17 +389,44 @@ async def extract_with_vision(pdf_path: str, missing_fields: List[str]) -> Dict[
             "source": "vision",
         }
     except ImportError as e:
+        error_msg = "openai package not installed"
         logger.warning(f"Vision extractor not available: {e}")
+        await _send_tool_alert(
+            tool_name="extract_with_vision",
+            error_type="VISION_PACKAGE_MISSING",
+            error_message=error_msg,
+            severity="error",
+        )
         return {
             "success": False,
-            "error": "openai package not installed",
+            "error": error_msg,
             "source": "vision",
         }
     except Exception as e:
+        error_msg = str(e)
         logger.error(f"Vision extraction failed: {e}")
+        # Categorize the error
+        if "429" in error_msg or "rate" in error_msg.lower():
+            error_type = "VISION_RATE_LIMITED"
+            severity = "warning"
+        elif "poppler" in error_msg.lower() or "pdf" in error_msg.lower():
+            error_type = "VISION_PDF_CONVERSION_FAILED"
+            severity = "error"
+        elif "401" in error_msg or "403" in error_msg or "auth" in error_msg.lower():
+            error_type = "VISION_AUTH_ERROR"
+            severity = "error"
+        else:
+            error_type = "VISION_EXTRACTION_FAILED"
+            severity = "error"
+        await _send_tool_alert(
+            tool_name="extract_with_vision",
+            error_type=error_type,
+            error_message=error_msg[:500],
+            severity=severity,
+        )
         return {
             "success": False,
-            "error": str(e),
+            "error": error_msg,
             "source": "vision",
         }
 

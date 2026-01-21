@@ -306,6 +306,40 @@ async def run_verifier_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     import time
 
     start_time = time.time()
+
+    # Handle empty sections - extraction failed completely
+    if not state.get("sections"):
+        logger.error(
+            f"VerifierAgent received empty sections for study {state['study_id']}. "
+            "Extraction must have failed. Marking as not plausible."
+        )
+        # Update audit trail with failure
+        audit = state.get("audit_trail", {})
+        if "agent_calls" not in audit:
+            audit["agent_calls"] = []
+        audit["agent_calls"].append({
+            "agent_name": "VerifierAgent",
+            "timestamp": datetime.utcnow().isoformat(),
+            "input_summary": "Received empty sections - extraction failed",
+            "output_summary": "Skipped verification due to empty input",
+            "tools_used": [],
+            "duration_ms": 0,
+        })
+
+        # Return state indicating failure (all fields are suspicious since none exist)
+        return {
+            **state,
+            "all_plausible": False,
+            "suspicious_fields": [{
+                "field_key": "ALL",
+                "current_value": None,
+                "issue_type": "extraction_failed",
+                "reasoning": "Extraction returned no data. All tools may have failed.",
+                "suggested_recheck_method": "retry_extraction",
+            }],
+            "audit_trail": audit,
+        }
+
     agent = VerifierAgent()
 
     input_data = VerifierInput(

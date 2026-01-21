@@ -1,0 +1,52 @@
+# Environment and secrets - NEVER include in Docker image
+.env
+.env.*
+*.env
+credentials/
+secrets/
+*-firebase-adminsdk-*.json
+*-sa-key.json
+*-service-account.json
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Tests and docs (not needed in production image)
+tests/
+test_*/
+*_test.py
+test_*.py
+*.md
+docs/
+
+# Large data files (mounted separately)
+evidence_layer/data/
+
+# Logs
+logs/
+*.log
+
+# Scripts (development only)
+scripts/

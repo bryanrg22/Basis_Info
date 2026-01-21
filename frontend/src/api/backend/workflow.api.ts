@@ -75,12 +75,13 @@ class WorkflowApiClient {
 
   /**
    * Get Firebase auth token for authenticated requests
+   * @param forceRefresh - Force refresh the token even if not expired
    */
-  private async getAuthToken(): Promise<string | null> {
+  private async getAuthToken(forceRefresh = false): Promise<string | null> {
     const user = auth?.currentUser;
     if (!user) return null;
     try {
-      return await user.getIdToken();
+      return await user.getIdToken(forceRefresh);
     } catch {
       return null;
     }
@@ -88,23 +89,32 @@ class WorkflowApiClient {
 
   private async fetch<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit & { _isRetry?: boolean } = {}
   ): Promise<T> {
+    const { _isRetry, ...fetchOptions } = options;
     const url = `${this.baseUrl}${endpoint}`;
     const token = await this.getAuthToken();
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...fetchOptions.headers,
     };
 
     if (token) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(url, { ...fetchOptions, headers });
 
     if (!response.ok) {
+      // On 401, retry once with a forced token refresh
+      if (response.status === 401 && !_isRetry) {
+        const newToken = await this.getAuthToken(true);
+        if (newToken) {
+          // Retry the request with the refreshed token
+          return this.fetch<T>(endpoint, { ...options, _isRetry: true });
+        }
+      }
       if (response.status === 401) {
         throw new Error('Please sign in to continue.');
       }

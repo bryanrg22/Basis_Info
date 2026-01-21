@@ -13,6 +13,7 @@ interface UsePollingOptions {
   interval?: number;
   maxTime?: number;
   onError?: (error: Error) => void;
+  stopOnAuthError?: boolean;
 }
 
 /**
@@ -35,6 +36,7 @@ export function usePolling<T>(
     interval = POLLING_INTERVAL,
     maxTime = MAX_POLLING_TIME,
     onError,
+    stopOnAuthError = true,
   } = options;
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -83,11 +85,28 @@ export function usePolling<T>(
           stop();
         }
       } catch (error) {
+        const errorObj = error instanceof Error ? error : new Error(String(error));
+
+        // Check if this is an auth error (401 or sign-in required)
+        const isAuthError =
+          errorObj.message.includes('sign in') ||
+          errorObj.message.includes('401') ||
+          errorObj.message.includes('unauthorized');
+
+        if (isAuthError && stopOnAuthError) {
+          logger.warn('Auth error during polling, stopping', { error: errorObj.message });
+          stop();
+          if (onError) {
+            onError(errorObj);
+          }
+          return;
+        }
+
+        // Continue polling on non-auth errors
         logger.error('Polling error', { error });
         if (onError) {
-          onError(error instanceof Error ? error : new Error(String(error)));
+          onError(errorObj);
         }
-        // Continue polling on error (don't stop)
       }
     };
 
@@ -104,7 +123,7 @@ export function usePolling<T>(
         onError(new Error('Polling timeout reached'));
       }
     }, maxTime);
-  }, [enabled, interval, maxTime, pollFn, shouldStop, onError, stop]);
+  }, [enabled, interval, maxTime, pollFn, shouldStop, onError, stop, stopOnAuthError]);
 
   useEffect(() => {
     return () => {

@@ -2,16 +2,56 @@
 Firestore client wrapper for Basis agentic layer.
 
 Provides async-compatible access to Firestore with proper initialization.
+Phase 6: Added Slack alerts for Firestore connection/operation failures.
 """
 
+import asyncio
+import logging
 from functools import lru_cache
 from typing import Any, Optional
 
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore_v1 import AsyncClient, Client
+from google.api_core import exceptions as google_exceptions
 
 from ..config.settings import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+def _send_firestore_alert(operation: str, error: Exception, study_id: str = "unknown"):
+    """Send alert for Firestore errors (fire-and-forget)."""
+    try:
+        # Import here to avoid circular imports
+        from ..observability.alerts import send_alert
+
+        async def _alert():
+            await send_alert(
+                study_id=study_id,
+                stage="firestore",
+                error_type=f"FIRESTORE_{type(error).__name__.upper()}",
+                error_message=f"Firestore {operation} failed: {str(error)}",
+                severity="critical",
+                context={
+                    "operation": operation,
+                    "error_type": type(error).__name__,
+                },
+            )
+
+        # Run in background
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(_alert())
+            else:
+                loop.run_until_complete(_alert())
+        except RuntimeError:
+            # No event loop, try creating one
+            asyncio.run(_alert())
+
+    except Exception as e:
+        logger.warning(f"Failed to send Firestore alert: {e}")
 
 
 def _initialize_firebase() -> None:
@@ -68,15 +108,24 @@ class FirestoreClient:
         Returns:
             Study document data or None if not found
         """
-        doc_ref = self.db.collection("studies").document(study_id)
-        doc = doc_ref.get()
+        try:
+            doc_ref = self.db.collection("studies").document(study_id)
+            doc = doc_ref.get()
 
-        if not doc.exists:
-            return None
+            if not doc.exists:
+                return None
 
-        data = doc.to_dict()
-        data["id"] = doc.id
-        return data
+            data = doc.to_dict()
+            data["id"] = doc.id
+            return data
+        except google_exceptions.GoogleAPIError as e:
+            logger.error(f"Firestore get_study failed for {study_id}: {e}")
+            _send_firestore_alert("get_study", e, study_id)
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in get_study for {study_id}: {e}")
+            _send_firestore_alert("get_study", e, study_id)
+            raise
 
     def update_study(
         self,
@@ -90,12 +139,21 @@ class FirestoreClient:
             study_id: Study document ID
             updates: Fields to update
         """
-        doc_ref = self.db.collection("studies").document(study_id)
+        try:
+            doc_ref = self.db.collection("studies").document(study_id)
 
-        # Add server timestamp
-        updates["updatedAt"] = firestore.SERVER_TIMESTAMP
+            # Add server timestamp
+            updates["updatedAt"] = firestore.SERVER_TIMESTAMP
 
-        doc_ref.update(updates)
+            doc_ref.update(updates)
+        except google_exceptions.GoogleAPIError as e:
+            logger.error(f"Firestore update_study failed for {study_id}: {e}")
+            _send_firestore_alert("update_study", e, study_id)
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in update_study for {study_id}: {e}")
+            _send_firestore_alert("update_study", e, study_id)
+            raise
 
     def update_workflow_status(
         self,

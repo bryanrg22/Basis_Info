@@ -31,7 +31,13 @@ export default function FirstAnalyzerPage() {
   const study = state.studies.find(s => s.id === studyId);
   const hasAdvancedRef = useRef(false);
   const classificationStartedRef = useRef(false);
+  const statusUpdatedRef = useRef(false);
   const { progress, currentMessage, complete } = useProgressAnimation({ messages });
+
+  // Extract stable values from study to prevent infinite loops
+  const workflowStatus = study?.workflowStatus as string | undefined;
+  const currentStep = study?.currentStep;
+  const visitedSteps = study?.visitedSteps;
 
   const navigateToWorkflowStep = useCallback(
     (status: string) => {
@@ -72,42 +78,41 @@ export default function FirstAnalyzerPage() {
       return;
     }
 
-    const status = migrateWorkflowStatus(study.workflowStatus as string);
-    const currentStep = study.currentStep || status;
-    const visitedSteps = study.visitedSteps || [status];
+    const status = migrateWorkflowStatus(workflowStatus || '');
+    const step = currentStep || status;
+    const visited = visitedSteps || [status];
 
     // Allow access if current step is analyzing_rooms or uploading_documents, or if it's been visited
-    const canAccess = 
-      currentStep === 'analyzing_rooms' || 
-      currentStep === 'uploading_documents' ||
-      visitedSteps.includes('analyzing_rooms') ||
-      visitedSteps.includes('uploading_documents') ||
+    const canAccess =
+      step === 'analyzing_rooms' ||
+      step === 'uploading_documents' ||
+      visited.includes('analyzing_rooms') ||
+      visited.includes('uploading_documents') ||
       status === 'uploading_documents' ||
       status === 'analyzing_rooms';
 
     if (!canAccess) {
-      navigateToWorkflowStep(currentStep);
+      navigateToWorkflowStep(step);
       return;
     }
 
-    // Update currentStep if needed
-    if (currentStep !== 'analyzing_rooms' && currentStep !== 'uploading_documents') {
+    // Update currentStep if needed (only once)
+    if (step !== 'analyzing_rooms' && step !== 'uploading_documents' && !statusUpdatedRef.current) {
+      statusUpdatedRef.current = true;
       const targetStep = status === 'uploading_documents' ? 'uploading_documents' : 'analyzing_rooms';
-      const updatedVisitedSteps = visitedSteps.includes(targetStep) 
-        ? visitedSteps 
-        : [...visitedSteps, targetStep];
-      
+
       updateWorkflowStatus(studyId, targetStep).catch(() => {
         // Silently handle error
       });
     }
 
-    if (status === 'uploading_documents') {
-      // Update workflow status first
+    if (status === 'uploading_documents' && !statusUpdatedRef.current) {
+      // Update workflow status first (only once)
+      statusUpdatedRef.current = true;
       updateWorkflowStatus(studyId, 'analyzing_rooms').catch(() => {
         // Silently handle error
       });
-      
+
       // Trigger room classification if not already started
       if (!classificationStartedRef.current) {
         classificationStartedRef.current = true;
@@ -123,7 +128,7 @@ export default function FirstAnalyzerPage() {
         });
       }
     }
-  }, [study, studyId, router, updateWorkflowStatus, navigateToWorkflowStep, startRoomClassification]);
+  }, [study, workflowStatus, currentStep, visitedSteps, studyId, router, updateWorkflowStatus, navigateToWorkflowStep, startRoomClassification]);
 
   // Check if appraisal resources have been ingested (PAUSE #1 trigger)
   // This happens BEFORE rooms are ready in the parallel workflow
