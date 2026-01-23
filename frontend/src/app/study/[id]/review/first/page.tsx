@@ -740,24 +740,34 @@ export default function FirstReviewPage() {
     // Update rooms and annotations in study (ensure latest state is persisted)
     try {
       // Persist both rooms and photo annotations
-      await studyService.update(studyId, { 
-        rooms, 
-        photoAnnotations 
+      await studyService.update(studyId, {
+        rooms,
+        photoAnnotations
       });
-      
+
       // Also dispatch rooms update to context
       dispatch({
         type: 'UPDATE_ROOMS',
         payload: { studyId, rooms },
       });
-      
-      // Update workflow status and persist to Firestore
+
+      // IMPORTANT: Call backend to resume workflow and run process_assets
+      // This triggers classification, takeoffs, and cost estimation
+      const { workflowApi } = await import('@/api/backend/workflow.api');
+      const result = await workflowApi.resumeWorkflow({
+        study_id: studyId,
+        engineer_approved: true,
+      });
+
+      console.log('Workflow resumed:', result);
+
+      // Update local workflow status after backend processing
       await updateWorkflowStatus(studyId, 'engineering_takeoff');
-      
+
       router.push(`/study/${studyId}/engineering-takeoff`);
     } catch (error) {
-      console.error('Error saving rooms before continuing:', error);
-      alert('Failed to save changes. Please try again.');
+      console.error('Error resuming workflow:', error);
+      alert('Failed to process assets. Please try again.');
     }
   };
 

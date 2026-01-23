@@ -71,8 +71,8 @@ class SuspiciousField(BaseModel):
     reasoning: str = Field(
         ..., description="Why this field is suspicious"
     )
-    suggested_recheck_method: str = Field(
-        ..., description="Recommended tool to re-extract: azure_di, vision"
+    suggested_recheck_method: Optional[str] = Field(
+        default="azure_di", description="Recommended tool to re-extract: azure_di, vision"
     )
 
 

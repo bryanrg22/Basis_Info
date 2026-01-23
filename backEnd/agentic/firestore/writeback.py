@@ -124,8 +124,42 @@ class FirestoreWriteback:
 
             objects_with_evidence.append(obj_data)
 
+        # Transform objects to assets format for frontend compatibility
+        assets = []
+        for obj in objects_with_evidence:
+            classification = obj.get("asset_classification", {})
+            # Map MACRS class to frontend category
+            macrs_class = classification.get("macrs_class", "")
+            if "5" in str(macrs_class):
+                category = "5-year"
+            elif "15" in str(macrs_class):
+                category = "15-year"
+            else:
+                category = "27.5-year"
+
+            asset = {
+                "id": obj.get("id", obj.get("original_label", f"asset_{len(assets)}")),
+                "name": obj.get("original_label", obj.get("label", "Unknown")),
+                "description": classification.get("description", ""),
+                "category": category,
+                "estimatedValue": obj.get("estimated_cost", 0),
+                "depreciationPeriod": classification.get("recovery_period", 27.5),
+                "percentageOfTotal": 0,  # Calculated later
+                "verified": not obj.get("needs_review", True),
+            }
+            assets.append(asset)
+
+        # Calculate percentage of total
+        total_value = sum(a.get("estimatedValue", 0) for a in assets)
+        if total_value > 0:
+            for asset in assets:
+                asset["percentageOfTotal"] = round(
+                    (asset.get("estimatedValue", 0) / total_value) * 100, 2
+                )
+
         self.client.update_study(study_id, {
-            "objects": objects_with_evidence,
+            "objects": objects_with_evidence,  # Keep detailed objects
+            "assets": assets,  # Add frontend-compatible assets
             "classification_summary": {
                 "total": len(objects_with_evidence),
                 "needs_review": needs_review_count,

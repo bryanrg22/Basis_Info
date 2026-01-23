@@ -78,10 +78,13 @@ class VisionFallbackExtractor:
         try:
             from openai import AzureOpenAI
 
+            # Use a valid Azure OpenAI API version (not model version!)
+            # Valid versions: 2024-02-15-preview, 2024-08-01-preview
+            api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
             self.azure_client = AzureOpenAI(
                 azure_endpoint=self.azure_endpoint,
                 api_key=self.azure_api_key,
-                api_version="2024-02-15-preview"
+                api_version=api_version
             )
             return True
 
@@ -378,25 +381,37 @@ Only return the JSON object, no additional text."""
         """
         import time
 
+        # Newer models (gpt-4o, gpt-5.x, o1, etc.) use max_completion_tokens
+        # Older models use max_tokens
+        use_completion_tokens = any(x in model.lower() for x in ['gpt-4o', 'gpt-5', 'o1-', 'o3-'])
+
         for attempt in range(max_retries):
             try:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": content
-                        }
-                    ],
-                    max_tokens=2000,
-                    temperature=0.1
-                )
+                # Build request params based on model type
+                request_params = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": content}],
+                    "temperature": 0.1,
+                }
+
+                if use_completion_tokens:
+                    request_params["max_completion_tokens"] = 2000
+                else:
+                    request_params["max_tokens"] = 2000
+
+                response = client.chat.completions.create(**request_params)
 
                 logger.info(f"{provider_name} vision call succeeded")
                 return response.choices[0].message.content
 
             except Exception as e:
                 error_str = str(e)
+
+                # Check if we need to switch token parameter type
+                if "max_tokens" in error_str and "max_completion_tokens" in error_str:
+                    logger.info(f"{provider_name}: Switching to max_completion_tokens")
+                    use_completion_tokens = True
+                    continue
 
                 # Check for rate limit error (429)
                 if "429" in error_str or "RateLimitReached" in error_str or "rate" in error_str.lower():

@@ -202,6 +202,10 @@ async def run_workflow(
     Returns:
         Workflow state (paused at first review checkpoint)
     """
+    # Reset LLM fallback state for new workflow (start fresh with Azure)
+    from ..config.llm_providers import reset_fallback_state
+    reset_fallback_state()
+
     # Create workflow
     app = create_workflow()
 

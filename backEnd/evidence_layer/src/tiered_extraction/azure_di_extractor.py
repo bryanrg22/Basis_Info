@@ -318,7 +318,7 @@ class AzureDocumentExtractor:
                 rows[row_idx] = {}
             rows[row_idx][col_idx] = cell.content
             # Track cell confidence from Azure DI
-            cell_confidences[(row_idx, col_idx)] = getattr(cell, 'confidence', None) or 0.85
+            cell_confidences[(row_idx, col_idx)] = getattr(cell, 'confidence', None) or 0.95
 
         # Look for Subject and Comparable columns
         # Typically: Column 0 = Field name, Column 1 = Subject, Columns 2-4 = Comparables
@@ -333,11 +333,11 @@ class AzureDocumentExtractor:
                 value = row_data.get(col_idx, "").strip()
                 if field_name and value:
                     comparable[self._normalize_field_name(field_name)] = value
-                    col_conf_values.append(cell_confidences.get((row_idx, col_idx), 0.85))
+                    col_conf_values.append(cell_confidences.get((row_idx, col_idx), 0.95))
             if comparable:
                 comparables.append(comparable)
                 # Use average confidence for this comparable
-                avg_conf = sum(col_conf_values) / len(col_conf_values) if col_conf_values else 0.85
+                avg_conf = sum(col_conf_values) / len(col_conf_values) if col_conf_values else 0.95
                 comparable_confidences.append(avg_conf)
 
         # Store comparables with actual confidence
@@ -347,7 +347,7 @@ class AzureDocumentExtractor:
                 f"comparable_{i+1}",
                 FieldResult(
                     value=comp,
-                    confidence=comparable_confidences[i] if i < len(comparable_confidences) else 0.85,
+                    confidence=comparable_confidences[i] if i < len(comparable_confidences) else 0.95,
                     source="azure_di"
                 )
             )
@@ -420,11 +420,11 @@ class AzureDocumentExtractor:
 
         # Calculate average confidence from table cells
         cell_confidences = [
-            getattr(cell, 'confidence', None) or 0.85
+            getattr(cell, 'confidence', None) or 0.95
             for cell in table.cells
             if cell.content
         ]
-        avg_table_confidence = sum(cell_confidences) / len(cell_confidences) if cell_confidences else 0.85
+        avg_table_confidence = sum(cell_confidences) / len(cell_confidences) if cell_confidences else 0.95
 
         # Extract common fields using patterns
         patterns = {
@@ -491,17 +491,17 @@ class AzureDocumentExtractor:
             label_cell: Cell containing the field label
 
         Returns:
-            Tuple of (value, confidence) from adjacent cell, or (None, 0.85) if not found
+            Tuple of (value, confidence) from adjacent cell, or (None, 0.95) if not found
         """
         target_row = label_cell.row_index
         target_col = label_cell.column_index + 1
 
         for cell in table.cells:
             if cell.row_index == target_row and cell.column_index == target_col:
-                confidence = getattr(cell, 'confidence', None) or 0.85
+                confidence = getattr(cell, 'confidence', None) or 0.95
                 return cell.content, confidence
 
-        return None, 0.85
+        return None, 0.95
 
     def _match_key_to_field(self, key_text: str) -> Optional[str]:
         """

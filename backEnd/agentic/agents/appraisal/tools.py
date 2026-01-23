@@ -229,6 +229,16 @@ async def extract_with_azure_di(pdf_path: str) -> Dict[str, Any]:
     Returns:
         Extracted sections with confidence scores.
     """
+    # Validate pdf_path before proceeding
+    path_error = _validate_pdf_path(pdf_path)
+    if path_error:
+        logger.error(f"extract_with_azure_di called with invalid path: {path_error}")
+        return {
+            "success": False,
+            "error": path_error,
+            "source": "azure_di",
+        }
+
     try:
         from tiered_extraction.azure_di_extractor import AzureDocumentExtractor
 
@@ -312,6 +322,29 @@ async def extract_with_azure_di(pdf_path: str) -> Dict[str, Any]:
         }
 
 
+def _validate_pdf_path(pdf_path: str) -> Optional[str]:
+    """
+    Validate that pdf_path looks like a real file path, not a method name.
+
+    Returns:
+        Error message if invalid, None if valid.
+    """
+    # Common invalid values that might be passed by mistake
+    invalid_values = {"azure_di", "vision", "regex", "mismo_xml", "vision_recheck", "unknown"}
+
+    if not pdf_path:
+        return "pdf_path is empty"
+
+    if pdf_path.lower() in invalid_values:
+        return f"Invalid pdf_path: '{pdf_path}' appears to be a method name, not a file path"
+
+    # Check for common path indicators
+    if not ("/" in pdf_path or "\\" in pdf_path or pdf_path.endswith(".pdf")):
+        return f"Invalid pdf_path: '{pdf_path}' does not look like a file path"
+
+    return None
+
+
 @tool(args_schema=VisionInput)
 async def extract_with_vision(pdf_path: str, missing_fields: List[str]) -> Dict[str, Any]:
     """
@@ -328,6 +361,16 @@ async def extract_with_vision(pdf_path: str, missing_fields: List[str]) -> Dict[
     Returns:
         Extracted fields with confidence scores.
     """
+    # Validate pdf_path before proceeding
+    path_error = _validate_pdf_path(pdf_path)
+    if path_error:
+        logger.error(f"extract_with_vision called with invalid path: {path_error}")
+        return {
+            "success": False,
+            "error": path_error,
+            "source": "vision",
+        }
+
     try:
         from tiered_extraction.vision_fallback import VisionFallbackExtractor
 
@@ -524,6 +567,16 @@ async def vision_recheck_field(
     Returns:
         Single field with confidence score.
     """
+    # Validate pdf_path before proceeding
+    path_error = _validate_pdf_path(pdf_path)
+    if path_error:
+        logger.error(f"vision_recheck_field called with invalid path: {path_error}")
+        return {
+            "success": False,
+            "error": path_error,
+            "source": "vision_recheck",
+        }
+
     try:
         from tiered_extraction.vision_fallback import VisionFallbackExtractor
 

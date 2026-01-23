@@ -28,7 +28,7 @@ CONFIDENCE_THRESHOLDS: Dict[str, float] = {
 # Source confidence baselines
 SOURCE_CONFIDENCE: Dict[str, tuple] = {
     "mismo_xml": (1.0, 1.0),           # Always authoritative
-    "azure_di": (0.70, 0.95),          # Range based on clarity
+    "azure_di": (0.90, 0.99),          # ~99.8% accuracy per Azure benchmarks
     "gpt4o_vision": (0.60, 0.90),      # Range based on complexity
     "regex": (0.50, 0.80),             # Range based on match quality
 }

@@ -188,7 +188,7 @@ class TraceAnalyzer:
             runs = list(self.client.list_runs(
                 project_name=self.project_name,
                 trace_id=trace_id,
-                limit=200
+                limit=100
             ))
 
             if not runs:
@@ -237,7 +237,7 @@ class TraceAnalyzer:
             trace_runs = list(self.client.list_runs(
                 project_name=self.project_name,
                 trace_id=latest.trace_id,
-                limit=200
+                limit=100
             ))
 
             return self._analyze_runs(trace_runs, str(latest.trace_id))

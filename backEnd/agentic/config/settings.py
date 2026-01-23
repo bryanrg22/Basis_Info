@@ -5,6 +5,7 @@ Configuration is loaded from environment variables with optional .env file.
 Azure OpenAI settings override OpenAI when fully configured.
 """
 
+import os
 from functools import lru_cache
 from typing import Optional
 
@@ -16,7 +17,9 @@ class Settings(BaseSettings):
     """Application settings from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Skip .env file in Docker (env_file in docker-compose loads vars)
+        # This prevents file lock conflicts when multiple containers start
+        env_file=".env" if not os.environ.get("PYTHONPATH") else None,
         env_file_encoding="utf-8",
         extra="ignore",
     )

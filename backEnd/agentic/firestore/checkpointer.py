@@ -139,17 +139,18 @@ class FirestoreCheckpointer(BaseCheckpointSaver):
         thread_id = config["configurable"]["thread_id"]
 
         # Serialize checkpoint data
+        # Filter out reserved field names (starting with __) from all dicts
         doc_data = {
             "v": checkpoint["v"],
             "id": checkpoint.get("id", ""),
             "ts": checkpoint.get("ts", ""),
             "channel_values": self._serialize_values(checkpoint.get("channel_values", {})),
-            "channel_versions": checkpoint.get("channel_versions", {}),
-            "versions_seen": checkpoint.get("versions_seen", {}),
+            "channel_versions": self._filter_reserved_keys(checkpoint.get("channel_versions", {})),
+            "versions_seen": self._filter_reserved_keys(checkpoint.get("versions_seen", {})),
             "metadata": {
                 "source": metadata.get("source", "input"),
                 "step": metadata.get("step", 0),
-                "writes": metadata.get("writes"),
+                "writes": self._filter_reserved_keys(metadata.get("writes") or {}),
             },
             "updated_at": firestore.SERVER_TIMESTAMP,
         }
@@ -167,6 +168,71 @@ class FirestoreCheckpointer(BaseCheckpointSaver):
     ) -> dict:
         """Async version of put."""
         return self.put(config, checkpoint, metadata, new_versions)
+
+    def put_writes(
+        self,
+        config: dict,
+        writes: Sequence[Tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """
+        Store intermediate writes for a checkpoint.
+
+        This is used by LangGraph to store partial writes before the full
+        checkpoint is saved. For Firestore, we store these in a subcollection.
+
+        Args:
+            config: Configuration with thread_id
+            writes: List of (channel, value) tuples to write
+            task_id: Task identifier for these writes
+            task_path: Path to the task in the graph (optional)
+        """
+        thread_id = config["configurable"]["thread_id"]
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
+        checkpoint_id = config["configurable"].get("checkpoint_id", "")
+
+        # Store writes in a subcollection
+        writes_ref = (
+            self.db.collection(self.collection)
+            .document(thread_id)
+            .collection("writes")
+        )
+
+        # Serialize writes
+        for idx, (channel, value) in enumerate(writes):
+            # Skip reserved channel names
+            if channel.startswith("__"):
+                continue
+
+            write_id = f"{checkpoint_id}_{task_id}_{idx}"
+            try:
+                # Try to serialize the value
+                serialized_value = value
+                if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                    serialized_value = str(value)
+
+                writes_ref.document(write_id).set({
+                    "channel": channel,
+                    "value": serialized_value,
+                    "task_id": task_id,
+                    "task_path": task_path,
+                    "checkpoint_ns": checkpoint_ns,
+                    "checkpoint_id": checkpoint_id,
+                    "created_at": firestore.SERVER_TIMESTAMP,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to save write for channel {channel}: {e}")
+
+    async def aput_writes(
+        self,
+        config: dict,
+        writes: Sequence[Tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """Async version of put_writes."""
+        return self.put_writes(config, writes, task_id, task_path)
 
     def list(
         self,
@@ -200,6 +266,17 @@ class FirestoreCheckpointer(BaseCheckpointSaver):
         """Async version of list."""
         for item in self.list(config, filter=filter, before=before, limit=limit):
             yield item
+
+    def _filter_reserved_keys(self, data: dict) -> dict:
+        """
+        Filter out Firestore reserved field names from a dictionary.
+
+        Firestore doesn't allow field names starting with '__'.
+        LangGraph uses '__start__', '__end__', etc. internally.
+        """
+        if not isinstance(data, dict):
+            return data
+        return {k: v for k, v in data.items() if not k.startswith("__")}
 
     def _serialize_values(self, values: dict) -> dict:
         """

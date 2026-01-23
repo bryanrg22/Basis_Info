@@ -57,6 +57,88 @@ def _build_stage_context(state: WorkflowState) -> StageContext:
     )
 
 
+def _azure_di_to_sections(azure_result, fallback_fields: dict) -> dict:
+    """
+    Convert Azure DI ExtractionResult to frontend sections format.
+
+    Args:
+        azure_result: ExtractionResult from AzureDocumentExtractor
+        fallback_fields: Regex-extracted fields for fallback
+
+    Returns:
+        Dict with section keys matching AppraisalResources TypeScript interface
+    """
+    sections = {
+        "subject": {},
+        "listing_and_contract": {},
+        "neighborhood": {},
+        "site": {},
+        "improvements": {"general": {}, "exterior": {}, "interior_mechanical": {}},
+        "sales_comparison": {"market_stats": {}, "subject": {}, "comparables": []},
+        "cost_approach": {},
+        "reconciliation": {},
+        "photos": [],
+        "sketch": {"areas": [], "basement_layout": []},
+    }
+
+    # Map Azure DI sections to our format
+    if hasattr(azure_result, 'sections') and azure_result.sections:
+        for section_name, fields in azure_result.sections.items():
+            if section_name in sections:
+                if isinstance(sections[section_name], dict):
+                    for field_name, field_result in fields.items():
+                        value = field_result.value if hasattr(field_result, 'value') else field_result
+                        # Handle nested sections like improvements
+                        if section_name == "improvements":
+                            # Map to appropriate sub-section
+                            if field_name in ["year_built", "effective_age", "gla_sqft", "bedrooms", "bathrooms", "stories"]:
+                                sections["improvements"]["general"][field_name] = value
+                            elif field_name in ["foundation", "exterior_walls", "roof"]:
+                                sections["improvements"]["exterior"][field_name] = value
+                            else:
+                                sections["improvements"]["interior_mechanical"][field_name] = value
+                        elif section_name == "sales_comparison" and field_name.startswith("comparable_"):
+                            # Handle comparables list
+                            sections["sales_comparison"]["comparables"].append(value)
+                        else:
+                            sections[section_name][field_name] = value
+
+    # Apply fallback values where Azure DI didn't extract
+    if fallback_fields:
+        # Subject fallbacks
+        if not sections["subject"].get("property_address") and fallback_fields.get("property_address"):
+            sections["subject"]["property_address"] = fallback_fields["property_address"]
+        if not sections["subject"].get("city") and fallback_fields.get("city"):
+            sections["subject"]["city"] = fallback_fields["city"]
+        if not sections["subject"].get("state") and fallback_fields.get("state"):
+            sections["subject"]["state"] = fallback_fields["state"]
+        if not sections["subject"].get("zip") and fallback_fields.get("zip_code"):
+            sections["subject"]["zip"] = fallback_fields["zip_code"]
+        if not sections["subject"].get("county") and fallback_fields.get("county"):
+            sections["subject"]["county"] = fallback_fields["county"]
+
+        # Improvements fallbacks
+        general = sections["improvements"]["general"]
+        if not general.get("year_built") and fallback_fields.get("year_built"):
+            general["year_built"] = fallback_fields["year_built"]
+        if not general.get("gla_sqft") and fallback_fields.get("gross_living_area"):
+            general["gla_sqft"] = fallback_fields["gross_living_area"]
+        if not general.get("bedrooms") and fallback_fields.get("bedroom_count"):
+            general["bedrooms"] = fallback_fields["bedroom_count"]
+        if not general.get("bathrooms") and fallback_fields.get("bathroom_count"):
+            general["bathrooms"] = fallback_fields["bathroom_count"]
+
+        # Cost approach fallbacks
+        if not sections["cost_approach"].get("site_value") and fallback_fields.get("land_value"):
+            sections["cost_approach"]["site_value"] = fallback_fields["land_value"]
+
+        # Reconciliation fallbacks
+        if not sections["reconciliation"].get("final_market_value") and fallback_fields.get("total_value"):
+            sections["reconciliation"]["final_market_value"] = fallback_fields["total_value"]
+
+    return sections
+
+
 def _get_room_for_object(obj: dict, rooms: list[dict]) -> dict | None:
     """
     Get room context for a specific object.
@@ -369,134 +451,235 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                         logger.debug(f"Looking for tables at: {tables_path}")
                         logger.debug(f"Tables file exists: {tables_path.exists()}")
 
-                        # Try AGENTIC extraction (multi-agent with self-correction)
-                        try:
-                            from ..agents.appraisal import run_appraisal_extraction
-                            from ..agents.appraisal.tools import set_extraction_context
-                            from ..agents.base_agent import StageContext
+                        # =============================================================
+                        # EXTRACTION METHOD OPTIONS:
+                        # 1. Azure DI (recommended) - High quality, no LLM calls
+                        # 2. Multi-agent LLM - Expensive, slow, error-prone (disabled)
+                        # 3. pdfplumber fallback - Free but lower quality
+                        # =============================================================
+                        SKIP_AGENTIC_EXTRACTION = True  # Skip multi-agent LLM loop
+                        USE_AZURE_DI = True  # Use Azure Document Intelligence directly
 
-                            # Set context for tool-level alerting
-                            set_extraction_context(state["study_id"])
-
-                            extraction_context = StageContext(
-                                study_id=state["study_id"],
-                                property_name=state.get("property_name"),
-                                reference_doc_ids=state.get("reference_doc_ids", []),
-                                study_doc_ids=state.get("study_doc_ids", []),
-                            )
-
-                            extraction_output = await run_appraisal_extraction(
-                                study_id=state["study_id"],
-                                pdf_path=str(pdf_path),
-                                context=extraction_context,
-                                mismo_xml=None,  # TODO: Support MISMO XML upload
-                                tables_path=str(tables_path) if tables_path.exists() else None,
-                                max_iterations=2,
-                            )
-
-                            sections = extraction_output["extraction_result"]
-                            extraction_audit = extraction_output["audit_trail"]
-                            logger.debug(
-                                f"Agentic extraction: confidence={extraction_output['overall_confidence']:.2f}, "
-                                f"needs_review={extraction_output['needs_review']}, "
-                                f"iterations={extraction_audit.get('iterations', 0)}"
-                            )
-
-                            # Phase 4: Supplement with DocumentExtractionAgent for additional fields
+                        # Try Azure DI first (high quality, no LLM)
+                        azure_di_succeeded = False
+                        if USE_AZURE_DI:
                             try:
-                                doc_extraction_result = await extract_document_fields(
-                                    pdf_path=str(pdf_path),
-                                    context=extraction_context,
-                                    field_hints=[
-                                        "property_address",
-                                        "appraised_value",
-                                        "land_value",
-                                        "building_value",
-                                        "year_built",
-                                        "gross_building_area",
-                                        "effective_age",
-                                    ],
-                                )
+                                from evidence_layer.src.tiered_extraction.azure_di_extractor import AzureDocumentExtractor
 
-                                # Merge high-confidence extractions into existing fields
-                                if doc_extraction_result.get("overall_confidence", 0) > 0.7:
-                                    for field in doc_extraction_result.get("fields", []):
-                                        if field.get("confidence", 0) > 0.8 and field.get("value"):
-                                            field_name = field.get("field_name")
-                                            # Add to fields_dict if not already present or higher confidence
-                                            if field_name not in fields_dict or fields_dict.get(field_name) is None:
-                                                fields_dict[field_name] = field.get("value")
+                                azure_extractor = AzureDocumentExtractor()
+                                if azure_extractor.is_available():
+                                    logger.info(f"Using Azure DI for extraction (study {state['study_id']})")
 
-                                    extraction_audit["document_extraction_agent"] = {
-                                        "used": True,
-                                        "confidence": doc_extraction_result.get("overall_confidence", 0),
-                                        "fields_added": len(doc_extraction_result.get("fields", [])),
-                                    }
-                                    logger.debug(
-                                        f"DocumentExtractionAgent supplemented extraction: "
-                                        f"confidence={doc_extraction_result.get('overall_confidence', 0):.2f}"
-                                    )
+                                    # Run Azure DI extraction
+                                    azure_result = await azure_extractor.extract(str(pdf_path))
 
-                            except Exception as doc_err:
-                                logger.debug(f"DocumentExtractionAgent skipped: {doc_err}")
-                                extraction_audit["document_extraction_agent"] = {
-                                    "used": False,
-                                    "error": str(doc_err),
-                                }
+                                    if azure_result and azure_result.overall_confidence > 0.3:
+                                        # Convert Azure DI result to sections format
+                                        sections = _azure_di_to_sections(azure_result, fields_dict)
+                                        extraction_audit = {
+                                            "method": "azure_di_direct",
+                                            "confidence": azure_result.overall_confidence,
+                                            "needs_review": azure_result.needs_review,
+                                            "sources_used": azure_result.sources_used,
+                                        }
+                                        azure_di_succeeded = True
+                                        logger.info(
+                                            f"Azure DI extraction complete: confidence={azure_result.overall_confidence:.2f}, "
+                                            f"needs_review={azure_result.needs_review}"
+                                        )
+                                    else:
+                                        logger.warning(f"Azure DI extraction low confidence, falling back to table mapping")
+                                else:
+                                    logger.info("Azure DI not configured, falling back to table mapping")
 
-                        except Exception as tier_err:
-                            logger.warning(f"Agentic extraction failed, falling back to regex: {tier_err}")
+                            except Exception as azure_err:
+                                logger.warning(f"Azure DI extraction failed: {azure_err}, falling back to table mapping")
 
-                            # ALERT: Agentic extraction failed - send immediately before fallback
-                            # This catches missing packages, rate limits, validation errors, etc.
-                            error_message = str(tier_err)
-                            error_type_name = type(tier_err).__name__
-
-                            # Categorize the error for better alerting
-                            if "not installed" in error_message.lower() or "package" in error_message.lower():
-                                alert_type = "EXTRACTION_PACKAGE_MISSING"
-                                severity = "error"
-                            elif "429" in error_message or "rate" in error_message.lower():
-                                alert_type = "EXTRACTION_RATE_LIMITED"
-                                severity = "warning"
-                            elif "validation" in error_message.lower() or "pydantic" in error_type_name.lower():
-                                alert_type = "EXTRACTION_VALIDATION_ERROR"
-                                severity = "error"
-                            else:
-                                alert_type = "EXTRACTION_AGENTIC_FAILED"
-                                severity = "error"
-
-                            await send_alert(
-                                study_id=state["study_id"],
-                                stage="resource_extraction",
-                                error_type=alert_type,
-                                error_message=f"Agentic extraction failed, falling back to regex: {error_message[:500]}",
-                                severity=severity,
-                                context={
-                                    "exception_type": error_type_name,
-                                    "fallback": "regex",
-                                },
-                            )
-
-                            # Fall back to regex-only extraction
+                        # Fall back to table mapping if Azure DI didn't succeed
+                        if not azure_di_succeeded:
+                            logger.info(f"Using direct table extraction for study {state['study_id']}")
                             sections = map_appraisal_tables_to_sections(
                                 tables_path=tables_path,
                                 fallback_fields=fields_dict,
                             )
-                            extraction_audit = {"error": str(tier_err), "fallback": "regex"}
+                            extraction_audit = {
+                                "method": "direct_table_mapping",
+                                "azure_di_attempted": USE_AZURE_DI,
+                                "tables_path": str(tables_path),
+                                "tables_exist": tables_path.exists(),
+                            }
+
+                        if not SKIP_AGENTIC_EXTRACTION:
+                            # Try AGENTIC extraction (multi-agent with self-correction)
+                            try:
+                                from ..agents.appraisal import run_appraisal_extraction
+                                from ..agents.appraisal.tools import set_extraction_context
+                                from ..agents.base_agent import StageContext
+
+                                logger.info(f"Starting agentic extraction for study {state['study_id']}")
+
+                                # Set context for tool-level alerting
+                                set_extraction_context(state["study_id"])
+
+                                extraction_context = StageContext(
+                                    study_id=state["study_id"],
+                                    property_name=state.get("property_name"),
+                                    reference_doc_ids=state.get("reference_doc_ids", []),
+                                    study_doc_ids=state.get("study_doc_ids", []),
+                                )
+
+                                extraction_output = await run_appraisal_extraction(
+                                    study_id=state["study_id"],
+                                    pdf_path=str(pdf_path),
+                                    context=extraction_context,
+                                    mismo_xml=None,  # TODO: Support MISMO XML upload
+                                    tables_path=str(tables_path) if tables_path.exists() else None,
+                                    max_iterations=2,
+                                )
+
+                                sections = extraction_output["extraction_result"]
+                                extraction_audit = extraction_output["audit_trail"]
+                                logger.debug(
+                                    f"Agentic extraction: confidence={extraction_output['overall_confidence']:.2f}, "
+                                    f"needs_review={extraction_output['needs_review']}, "
+                                    f"iterations={extraction_audit.get('iterations', 0)}"
+                                )
+
+                                # Phase 4: Supplement with DocumentExtractionAgent for additional fields
+                                try:
+                                    doc_extraction_result = await extract_document_fields(
+                                        pdf_path=str(pdf_path),
+                                        context=extraction_context,
+                                        field_hints=[
+                                            "property_address",
+                                            "appraised_value",
+                                            "land_value",
+                                            "building_value",
+                                            "year_built",
+                                            "gross_building_area",
+                                            "effective_age",
+                                        ],
+                                    )
+
+                                    # Merge high-confidence extractions into existing fields
+                                    if doc_extraction_result.get("overall_confidence", 0) > 0.7:
+                                        for field in doc_extraction_result.get("fields", []):
+                                            if field.get("confidence", 0) > 0.8 and field.get("value"):
+                                                field_name = field.get("field_name")
+                                                # Add to fields_dict if not already present or higher confidence
+                                                if field_name not in fields_dict or fields_dict.get(field_name) is None:
+                                                    fields_dict[field_name] = field.get("value")
+
+                                        extraction_audit["document_extraction_agent"] = {
+                                            "used": True,
+                                            "confidence": doc_extraction_result.get("overall_confidence", 0),
+                                            "fields_added": len(doc_extraction_result.get("fields", [])),
+                                        }
+                                        logger.debug(
+                                            f"DocumentExtractionAgent supplemented extraction: "
+                                            f"confidence={doc_extraction_result.get('overall_confidence', 0):.2f}"
+                                        )
+
+                                except Exception as doc_err:
+                                    logger.debug(f"DocumentExtractionAgent skipped: {doc_err}")
+                                    extraction_audit["document_extraction_agent"] = {
+                                        "used": False,
+                                        "error": str(doc_err),
+                                    }
+
+                            except Exception as tier_err:
+                                logger.warning(f"Agentic extraction failed, falling back to regex: {tier_err}")
+
+                                # ALERT: Agentic extraction failed - send immediately before fallback
+                                # This catches missing packages, rate limits, validation errors, etc.
+                                error_message = str(tier_err)
+                                error_type_name = type(tier_err).__name__
+
+                                # Categorize the error for better alerting
+                                if "not installed" in error_message.lower() or "package" in error_message.lower():
+                                    alert_type = "EXTRACTION_PACKAGE_MISSING"
+                                    severity = "error"
+                                elif "429" in error_message or "rate" in error_message.lower():
+                                    alert_type = "EXTRACTION_RATE_LIMITED"
+                                    severity = "warning"
+                                elif "validation" in error_message.lower() or "pydantic" in error_type_name.lower():
+                                    alert_type = "EXTRACTION_VALIDATION_ERROR"
+                                    severity = "error"
+                                else:
+                                    alert_type = "EXTRACTION_AGENTIC_FAILED"
+                                    severity = "error"
+
+                                await send_alert(
+                                    study_id=state["study_id"],
+                                    stage="resource_extraction",
+                                    error_type=alert_type,
+                                    error_message=f"Agentic extraction failed, falling back to regex: {error_message[:500]}",
+                                    severity=severity,
+                                    context={
+                                        "exception_type": error_type_name,
+                                        "fallback": "regex",
+                                    },
+                                )
+
+                                # Fall back to regex-only extraction
+                                sections = map_appraisal_tables_to_sections(
+                                    tables_path=tables_path,
+                                    fallback_fields=fields_dict,
+                                )
+                                extraction_audit = {"error": str(tier_err), "fallback": "regex"}
+                        else:
+                            # =============================================================
+                            # DIRECT EXTRACTION: Skip LLM, use table mapping directly
+                            # This is fast (~2-3s), free, and reliable
+                            # =============================================================
+                            logger.info(f"Using direct table extraction for study {state['study_id']} (multi-agent skipped)")
+
+                            sections = map_appraisal_tables_to_sections(
+                                tables_path=tables_path,
+                                fallback_fields=fields_dict,
+                            )
+                            extraction_audit = {
+                                "method": "direct_table_mapping",
+                                "agentic_skipped": True,
+                                "tables_path": str(tables_path),
+                                "tables_exist": tables_path.exists(),
+                            }
 
                         logger.debug(f"Mapped sections: {list(sections.keys())}")
 
                         # Convert to dict for Firestore
-                        # Include both flat fields (backward compat) AND rich sections (for UI)
+                        # IMPORTANT: Ensure ALL required sections exist with defaults
+                        # This prevents frontend "entryCSSFiles" and type errors
                         appraisal_resources = {
+                            # Metadata
                             "doc_id": doc_id,
                             "ingested": True,
                             "num_chunks": ingest_result.num_chunks,
                             "num_tables": ingest_result.num_tables,
                             "fields": fields_dict,  # Flat extraction for backward compat
                             "_extraction_audit": extraction_audit,  # Audit trail for IRS defensibility
-                            **sections,  # Rich sections: subject, listing_and_contract, etc.
+                            # Required sections with defaults (match AppraisalResources TypeScript interface)
+                            "subject": sections.get("subject", {}),
+                            "listing_and_contract": sections.get("listing_and_contract", {}),
+                            "neighborhood": sections.get("neighborhood", {}),
+                            "site": sections.get("site", {}),
+                            "improvements": sections.get("improvements", {
+                                "general": {},
+                                "exterior": {},
+                                "interior_mechanical": {},
+                            }),
+                            "sales_comparison": sections.get("sales_comparison", {
+                                "market_stats": {},
+                                "subject": {},
+                                "comparables": [],
+                            }),
+                            "cost_approach": sections.get("cost_approach", {}),
+                            "reconciliation": sections.get("reconciliation", {}),
+                            "photos": sections.get("photos", []),
+                            "sketch": sections.get("sketch", {
+                                "areas": [],
+                                "basement_layout": [],
+                            }),
                         }
 
                         # Clean up temp file
@@ -510,53 +693,57 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
 
                         # =============================================================
                         # ALERT: Check extraction quality and tool configuration
+                        # (Only applies to agentic extraction, skip for Azure DI / table mapping)
                         # =============================================================
-                        overall_confidence = extraction_audit.get("final_confidence", 0)
-                        review_reasons = extraction_audit.get("review_reasons", [])
+                        extraction_method = extraction_audit.get("method", "")
+                        skip_confidence_alerts = extraction_method in ["azure_di_direct", "direct_table_mapping"]
+                        if not skip_confidence_alerts:
+                            overall_confidence = extraction_audit.get("final_confidence", 0)
+                            review_reasons = extraction_audit.get("review_reasons", [])
 
-                        # Alert on critically low confidence
-                        if overall_confidence < 0.3:
-                            # Check if it's a tool configuration issue
-                            tool_config_issue = any(
-                                "not configured" in reason.lower() or
-                                "not extracted" in reason.lower()
-                                for reason in review_reasons
-                            )
+                            # Alert on critically low confidence
+                            if overall_confidence < 0.3:
+                                # Check if it's a tool configuration issue
+                                tool_config_issue = any(
+                                    "not configured" in reason.lower() or
+                                    "not extracted" in reason.lower()
+                                    for reason in review_reasons
+                                )
 
-                            if tool_config_issue:
-                                await send_alert(
-                                    study_id=state["study_id"],
-                                    stage="resource_extraction",
-                                    error_type="EXTRACTION_TOOL_NOT_CONFIGURED",
-                                    error_message=(
-                                        f"Appraisal extraction failed due to missing tool configuration. "
-                                        f"Confidence: {overall_confidence:.0%}. "
-                                        f"Review reasons: {'; '.join(review_reasons[:3])}"
-                                    ),
-                                    severity="error",
-                                    context={
-                                        "confidence": overall_confidence,
-                                        "missing_fields": len(review_reasons),
-                                        "duration_ms": extraction_audit.get("duration_ms", 0),
-                                        "iterations": extraction_audit.get("iterations", 0),
-                                    },
-                                )
-                            else:
-                                await send_alert(
-                                    study_id=state["study_id"],
-                                    stage="resource_extraction",
-                                    error_type="EXTRACTION_LOW_CONFIDENCE",
-                                    error_message=(
-                                        f"Appraisal extraction completed with critically low confidence: "
-                                        f"{overall_confidence:.0%}. {len(review_reasons)} fields flagged for review."
-                                    ),
-                                    severity="warning",
-                                    context={
-                                        "confidence": overall_confidence,
-                                        "flagged_fields": len(review_reasons),
-                                        "duration_ms": extraction_audit.get("duration_ms", 0),
-                                    },
-                                )
+                                if tool_config_issue:
+                                    await send_alert(
+                                        study_id=state["study_id"],
+                                        stage="resource_extraction",
+                                        error_type="EXTRACTION_TOOL_NOT_CONFIGURED",
+                                        error_message=(
+                                            f"Appraisal extraction failed due to missing tool configuration. "
+                                            f"Confidence: {overall_confidence:.0%}. "
+                                            f"Review reasons: {'; '.join(review_reasons[:3])}"
+                                        ),
+                                        severity="error",
+                                        context={
+                                            "confidence": overall_confidence,
+                                            "missing_fields": len(review_reasons),
+                                            "duration_ms": extraction_audit.get("duration_ms", 0),
+                                            "iterations": extraction_audit.get("iterations", 0),
+                                        },
+                                    )
+                                else:
+                                    await send_alert(
+                                        study_id=state["study_id"],
+                                        stage="resource_extraction",
+                                        error_type="EXTRACTION_LOW_CONFIDENCE",
+                                        error_message=(
+                                            f"Appraisal extraction completed with critically low confidence: "
+                                            f"{overall_confidence:.0%}. {len(review_reasons)} fields flagged for review."
+                                        ),
+                                        severity="warning",
+                                        context={
+                                            "confidence": overall_confidence,
+                                            "flagged_fields": len(review_reasons),
+                                            "duration_ms": extraction_audit.get("duration_ms", 0),
+                                        },
+                                    )
 
                     except Exception as e:
                         logger.error(f"Error ingesting appraisal: {e}")
