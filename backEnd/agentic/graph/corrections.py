@@ -5,6 +5,7 @@ When an engineer makes a correction, dependent downstream data
 must be recalculated to maintain consistency.
 
 Phase 5: Workflow Reliability Implementation
+Phase 2 Enhancement: Save approved classifications to verified cache
 """
 
 import logging
@@ -12,6 +13,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+from ..firestore.classification_cache import save_to_cache
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +135,7 @@ class CorrectionCascade:
             correction_type=correction_type,
             component_id=component_id,
             new_value=new_value,
+            user_id=user_id,
         )
 
         # 2. Record the correction for audit trail
@@ -181,9 +185,12 @@ class CorrectionCascade:
         correction_type: str,
         component_id: str,
         new_value: Any,
+        user_id: Optional[str] = None,
     ) -> Any:
         """
         Apply the correction directly to the data.
+
+        Phase 2: Also saves approved classifications to verified cache.
 
         Returns the old value for audit trail.
         """
@@ -201,6 +208,7 @@ class CorrectionCascade:
             CorrectionType.CLASSIFICATION_BUCKET,
             CorrectionType.CLASSIFICATION_PERIOD,
         ):
+            corrected_component = None
             for obj in objects:
                 if obj.get("id") == component_id:
                     clf = obj.get("asset_classification", {})
@@ -221,9 +229,40 @@ class CorrectionCascade:
 
                     clf["classification"] = classification
                     obj["asset_classification"] = clf
+                    corrected_component = obj
                     break
 
             self._client.update_study(study_id, {"objects": objects})
+
+            # Phase 2: Save approved classification to verified cache
+            # Only cache if we have citations for IRS defensibility
+            if corrected_component:
+                clf = corrected_component.get("asset_classification", {})
+                classification = clf.get("classification", {})
+                citations = clf.get("citations", [])
+                component_name = corrected_component.get("label") or corrected_component.get("original_label", "")
+
+                # Get property type from study
+                property_type = study.get("propertyType", "residential").lower()
+                if "commercial" in property_type or "office" in property_type:
+                    property_type = "commercial"
+                else:
+                    property_type = "residential"
+
+                if citations and component_name:
+                    save_to_cache(
+                        db=self._client.db,
+                        component_name=component_name,
+                        classification=classification,
+                        citations=citations,
+                        property_type=property_type,
+                        approved_by=user_id,
+                        study_id=study_id,
+                    )
+                    logger.info(
+                        f"Cached approved classification for '{component_name}' "
+                        f"({property_type})"
+                    )
 
         # Takeoff corrections
         elif correction_type in (

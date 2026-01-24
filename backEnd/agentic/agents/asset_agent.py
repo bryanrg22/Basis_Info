@@ -7,9 +7,13 @@ with proper citations and evidence backing.
 Phase 4 Enhancement: Self-verification using validation tools.
 The agent now validates its own classifications before returning,
 and can reconsider if validation fails.
+
+Phase 2 Optimization: Classification cache for engineer-approved classifications.
+Checks verified_classifications cache before LLM calls to reduce costs.
 """
 
 import json
+import logging
 import re
 from typing import Optional
 
@@ -24,6 +28,9 @@ from .classification_verifier import (
     validate_section_bucket_tool,
     check_component_context_tool,
 )
+from ..firestore.classification_cache import get_cached_classification
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -441,26 +448,126 @@ async def classify_components_batch(
     components: list[dict],
     context: StageContext,
     max_concurrent: int = 1,  # Sequential for rate limit
+    use_cache: bool = True,  # Phase 2: Check verified cache first
+    property_type: str = "residential",  # Phase 2: For cache key
 ) -> list[dict]:
     """
-    Classify multiple components IN PARALLEL.
+    Classify multiple components, checking cache first for verified classifications.
+
+    Phase 2 Optimization: Checks verified_classifications cache before LLM calls.
+    Only engineer-approved classifications with IRS citations are cached.
 
     Args:
         components: List of component dicts with 'component' key
         context: Study context
-        max_concurrent: Maximum concurrent classifications (default: 20)
+        max_concurrent: Maximum concurrent classifications (default: 1)
+        use_cache: Whether to check cache before LLM (default: True)
+        property_type: "residential" or "commercial" for cache key
 
     Returns:
-        List of classification results
+        List of classification results (cached entries have from_cache=True)
     """
     from ..utils.parallel import parallel_map
+    from ..firestore.client import get_firestore_client
 
     if not components:
         return []
 
-    async def classify_single_component(comp: dict) -> dict:
-        """Classify a single component."""
-        # Get component name from various possible keys
+    # Phase 2: Check cache first for verified classifications
+    cached_results = []
+    needs_llm = []
+
+    if use_cache:
+        db = get_firestore_client()
+
+        for comp in components:
+            component_name = (
+                comp.get("component") or
+                comp.get("label") or
+                comp.get("name") or
+                comp.get("original_label") or
+                ""
+            )
+
+            cached = get_cached_classification(db, component_name, property_type)
+            if cached:
+                # Build result from cache
+                cached_results.append({
+                    "component": component_name,
+                    "component_name": component_name,
+                    "classification": cached["classification"],
+                    "citations": cached["citations"],
+                    "confidence": cached["confidence"],
+                    "needs_review": False,  # Already engineer-approved
+                    "from_cache": True,
+                    "cache_key": cached["cache_key"],
+                    "approval_count": cached["approval_count"],
+                    "original": comp,
+                })
+            else:
+                needs_llm.append(comp)
+
+        logger.info(
+            f"Classification cache: {len(cached_results)} hits, {len(needs_llm)} misses "
+            f"({property_type})"
+        )
+    else:
+        needs_llm = components
+        logger.info(f"Classification cache disabled, processing {len(needs_llm)} via LLM")
+
+    # LLM for cache misses
+    llm_results = []
+    if needs_llm:
+        async def classify_single_component(comp: dict) -> dict:
+            """Classify a single component via LLM."""
+            # Get component name from various possible keys
+            component_name = (
+                comp.get("component") or
+                comp.get("label") or
+                comp.get("name") or
+                comp.get("original_label") or
+                ""
+            )
+
+            # Get context from enriched object if available
+            obj_context = comp.get("context", {}) or {}
+
+            result = await classify_component(
+                component=component_name,
+                context=context,
+                space_type=comp.get("space_type") or comp.get("room_type"),
+                indoor_outdoor=comp.get("indoor_outdoor") or obj_context.get("indoor_outdoor"),
+                attachment_type=comp.get("attachment_type") or obj_context.get("attachment_type"),
+                function_type=comp.get("function_type") or obj_context.get("function_type"),
+            )
+            result["original"] = comp
+            result["component_name"] = component_name
+            result["from_cache"] = False  # Explicitly mark as LLM-generated
+            return result
+
+        # PARALLEL: Classify cache misses concurrently
+        llm_results = await parallel_map(
+            items=needs_llm,
+            async_fn=classify_single_component,
+            max_concurrent=max_concurrent,
+            desc=f"Classifying {len(needs_llm)} components (LLM)",
+        )
+
+    # Combine cached + LLM results (preserve original order)
+    # Build a map of component name -> result
+    result_map = {}
+    for r in cached_results:
+        key = r.get("component_name", "")
+        if key:
+            result_map[key] = r
+    for r in llm_results:
+        key = r.get("component_name", "")
+        if key:
+            result_map[key] = r
+
+    # Return in original order
+    final_results = []
+    for comp in components:
         component_name = (
             comp.get("component") or
             comp.get("label") or
@@ -468,28 +575,7 @@ async def classify_components_batch(
             comp.get("original_label") or
             ""
         )
+        if component_name in result_map:
+            final_results.append(result_map[component_name])
 
-        # Get context from enriched object if available
-        obj_context = comp.get("context", {}) or {}
-
-        result = await classify_component(
-            component=component_name,
-            context=context,
-            space_type=comp.get("space_type") or comp.get("room_type"),
-            indoor_outdoor=comp.get("indoor_outdoor") or obj_context.get("indoor_outdoor"),
-            attachment_type=comp.get("attachment_type") or obj_context.get("attachment_type"),
-            function_type=comp.get("function_type") or obj_context.get("function_type"),
-        )
-        result["original"] = comp
-        result["component_name"] = component_name
-        return result
-
-    # PARALLEL: Classify all components concurrently
-    results = await parallel_map(
-        items=components,
-        async_fn=classify_single_component,
-        max_concurrent=max_concurrent,
-        desc=f"Classifying {len(components)} components",
-    )
-
-    return results
+    return final_results

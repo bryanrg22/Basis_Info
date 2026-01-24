@@ -979,6 +979,18 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
             default_room_context = default_room.get("context", {}) if default_room else {}
             default_room_area_sf = default_room_context.get("room_area_sf") if default_room_context else None
 
+            # Phase 2: Get property type for classification cache
+            appraisal_resources = state.get("appraisal_resources", {})
+            raw_property_type = (
+                appraisal_resources.get("propertyType") or
+                appraisal_resources.get("subject", {}).get("property_type") or
+                "residential"
+            ).lower()
+            if "commercial" in raw_property_type or "office" in raw_property_type:
+                property_type = "commercial"
+            else:
+                property_type = "residential"
+
             parallel_start = time.time()
             takeoffs, asset_classifications = await asyncio.gather(
                 calculate_takeoffs_batch(
@@ -993,10 +1005,19 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                     components=enriched_objects,
                     context=context,
                     max_concurrent=2,  # 2 concurrent workers - classification still uses LLM
+                    use_cache=True,  # Phase 2: Check verified cache first
+                    property_type=property_type,  # Phase 2: For cache key
                 ),
             )
             parallel_elapsed = time.time() - parallel_start
-            logger.info(f"[TIMING] Takeoffs (static) + Classification (LLM): {parallel_elapsed:.1f}s")
+
+            # Phase 2: Log cache hit rate
+            cache_hits = sum(1 for c in asset_classifications if c.get("from_cache"))
+            cache_misses = len(asset_classifications) - cache_hits
+            logger.info(
+                f"[TIMING] Takeoffs (static) + Classification: {parallel_elapsed:.1f}s "
+                f"({cache_hits}/{len(asset_classifications)} from cache, {cache_misses} LLM calls)"
+            )
 
             # Phase 6: Collect citations using evidence aggregator
             for takeoff in takeoffs:
