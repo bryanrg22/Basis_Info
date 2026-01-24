@@ -109,6 +109,89 @@ TYPICAL_UNIT_COSTS = {
 }
 
 
+# =============================================================================
+# Static Estimation Function (Phase 1 Optimization)
+# =============================================================================
+
+
+def estimate_cost_static(
+    component_name: str,
+    quantity: float,
+    unit: str = "EA",
+    quality_tier: str = "standard",
+    state: str = "CA",
+    year: int = 2024,
+) -> dict:
+    """
+    Calculate cost using direct lookup and math. No LLM needed.
+
+    Args:
+        component_name: Component to estimate cost for
+        quantity: Quantity from takeoff
+        unit: Unit of measure
+        quality_tier: economy, standard, premium, or luxury
+        state: State for regional adjustment
+        year: Year for cost escalation
+
+    Returns:
+        Cost estimate dict with breakdown
+    """
+    normalized = component_name.lower().replace(" ", "_").replace("-", "_")
+
+    # Get unit costs from dictionary
+    component_costs = TYPICAL_UNIT_COSTS.get(normalized, {})
+    tier_costs = component_costs.get(quality_tier, component_costs.get("standard"))
+
+    if not tier_costs:
+        # Component not in cost database - flag for review
+        return {
+            "component_name": component_name,
+            "quantity": quantity,
+            "unit": unit,
+            "needs_review": True,
+            "review_reason": f"Component '{component_name}' not in cost database",
+            "final_cost": 0,
+            "confidence": 0.3,
+            "enrichment_method": "not_found",
+        }
+
+    # Extract cost components
+    material = tier_costs.get("material", 0)
+    labor = tier_costs.get("labor", 0)
+    equipment = tier_costs.get("equipment", 0)
+    unit_cost = material + labor + equipment
+
+    # Apply regional and year adjustments
+    location_factor = REGIONAL_COST_FACTORS.get(state.upper(), 1.0)
+    year_factor = YEAR_ADJUSTMENT_FACTORS.get(year, 1.15)
+
+    # Calculate costs
+    base_cost = quantity * unit_cost
+    adjusted_cost = base_cost * location_factor * year_factor
+
+    return {
+        "component_name": component_name,
+        "quantity": quantity,
+        "unit": unit,
+        "material_cost_per_unit": material,
+        "labor_cost_per_unit": labor,
+        "equipment_cost_per_unit": equipment,
+        "total_cost_per_unit": unit_cost,
+        "base_extended_cost": round(base_cost, 2),
+        "location_factor": location_factor,
+        "location_state": state,
+        "year_factor": year_factor,
+        "cost_year": year,
+        "location_adjusted_cost": round(base_cost * location_factor, 2),
+        "final_cost": round(adjusted_cost, 2),
+        "quality_tier": quality_tier,
+        "confidence": 0.85,
+        "rsmeans_note": f"RSMeans 2020 base, {quality_tier} tier, adjusted for {state} {year}",
+        "enrichment_method": "static_calculation",
+        "needs_review": False,
+    }
+
+
 @tool
 def search_rsmeans_database(component_name: str, quality_tier: str = "standard") -> dict:
     """
@@ -688,9 +771,15 @@ async def estimate_costs_batch(
     location_factor: float = 1.0,
     year_factor: float = 1.0,
     max_concurrent: int = 1,  # Sequential for rate limit
+    use_static: bool = True,  # NEW: Flag to use static calculation
+    state: str = "CA",  # NEW: State for regional factor
+    year: int = 2024,  # NEW: Year for escalation
 ) -> list[dict]:
     """
-    Estimate costs for multiple takeoffs IN PARALLEL.
+    Estimate costs for multiple takeoffs.
+
+    Uses static calculation by default for instant results (no LLM calls).
+    Falls back to LLM agent if use_static=False.
 
     Args:
         takeoffs: List of takeoff dicts with 'component_name', 'quantity', 'unit'
@@ -698,15 +787,47 @@ async def estimate_costs_batch(
         quality_tier: Quality tier for all
         location_factor: Location factor for all
         year_factor: Year factor for all
-        max_concurrent: Maximum concurrent estimations (default: 10)
+        max_concurrent: Maximum concurrent estimations (default: 1)
+        use_static: Use static calculation (default: True)
+        state: State for regional cost adjustment
+        year: Year for cost escalation
 
     Returns:
         List of cost estimates
     """
-    from ..utils.parallel import parallel_map
-
     if not takeoffs:
         return []
+
+    if use_static:
+        # Fast path: Direct calculation (no LLM)
+        results = []
+        for takeoff in takeoffs:
+            # Get component name from takeoff or nested takeoff result
+            takeoff_data = takeoff.get("takeoff", {}) or {}
+            comp_name = (
+                takeoff.get("component_name") or
+                takeoff_data.get("component_name") or
+                "unknown"
+            )
+            qty = takeoff.get("quantity") or takeoff_data.get("quantity", 1)
+            unit = takeoff.get("unit") or takeoff_data.get("unit", "EA")
+
+            estimate = estimate_cost_static(
+                comp_name, qty, unit, quality_tier, state, year
+            )
+
+            results.append({
+                "component_name": comp_name,
+                "estimate": estimate,
+                "citations": [],
+                "confidence": estimate.get("confidence", 0.85),
+                "needs_review": estimate.get("needs_review", False),
+                "takeoff": takeoff,
+            })
+        return results
+
+    # Original LLM path (kept for fallback)
+    from ..utils.parallel import parallel_map
 
     async def estimate_single_cost(takeoff: dict) -> dict:
         """Estimate cost for a single takeoff."""

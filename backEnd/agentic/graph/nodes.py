@@ -320,15 +320,16 @@ async def analyze_rooms_node(state: WorkflowState) -> WorkflowState:
         context = _build_stage_context(state)
         evidence_pack = state.get("evidence_pack", [])
 
-        # PARALLEL: Enrich all rooms with IRS context concurrently
+        # PARALLEL: Enrich all rooms with IRS context (static lookup by default)
         enrich_start = time.time()
         enriched_rooms = await enrich_rooms_batch(
             rooms=rooms,
             context=context,
-            max_concurrent=2,  # 2 concurrent workers (3 hits rate limits)
+            max_concurrent=2,  # 2 concurrent workers (only used if use_static=False)
+            use_static=True,  # Phase 1 optimization: static lookup, no LLM
         )
         enrich_elapsed = time.time() - enrich_start
-        logger.info(f"[TIMING] Room enrichment: {enrich_elapsed:.1f}s ({len(rooms)} rooms)")
+        logger.info(f"[TIMING] Room enrichment (static): {enrich_elapsed:.3f}s ({len(rooms)} rooms)")
 
         # Collect citations from all enriched rooms
         for room in enriched_rooms:
@@ -914,10 +915,11 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                 detections=objects_with_room_context,
                 context=context,
                 room_type=default_room_type,  # Still pass default for backward compat
+                use_static=True,  # Phase 1 optimization: static lookup, no LLM
             )
 
             enrich_elapsed = time.time() - enrich_start
-            logger.info(f"[TIMING] Object enrichment: {enrich_elapsed:.1f}s ({len(objects)} objects)")
+            logger.info(f"[TIMING] Object enrichment (static): {enrich_elapsed:.3f}s ({len(objects)} objects)")
 
             for obj in enriched_objects:
                 # Phase 6: Use evidence aggregator with component context
@@ -984,16 +986,17 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                     context=context,
                     room_type=default_room_type,  # Fallback for components without room context
                     room_area_sf=default_room_area_sf,  # Fallback for components without room context
-                    max_concurrent=2,  # 2 concurrent workers
+                    max_concurrent=2,  # 2 concurrent workers (only used if use_static=False)
+                    use_static=True,  # Phase 1 optimization: static calculation, no LLM
                 ),
                 classify_components_batch(
                     components=enriched_objects,
                     context=context,
-                    max_concurrent=2,  # 2 concurrent workers
+                    max_concurrent=2,  # 2 concurrent workers - classification still uses LLM
                 ),
             )
             parallel_elapsed = time.time() - parallel_start
-            logger.info(f"[TIMING] Takeoffs + Classification (parallel): {parallel_elapsed:.1f}s")
+            logger.info(f"[TIMING] Takeoffs (static) + Classification (LLM): {parallel_elapsed:.1f}s")
 
             # Phase 6: Collect citations using evidence aggregator
             for takeoff in takeoffs:
@@ -1107,17 +1110,26 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                         "unit": takeoff_result.get("unit", "EA"),
                     })
 
+            # Get state from appraisal for regional cost adjustment
+            appraisal_resources = state.get("appraisal_resources", {})
+            property_state = (
+                appraisal_resources.get("subject", {}).get("state") or
+                appraisal_resources.get("fields", {}).get("state") or
+                "CA"  # Default to CA
+            )
+
             cost_estimates = await estimate_costs_batch(
                 takeoffs=takeoff_data,
                 context=context,
                 quality_tier="standard",
-                location_factor=1.0,
-                year_factor=1.0,
+                use_static=True,  # Phase 1 optimization: static calculation, no LLM
+                state=property_state,
+                year=2024,
             )
 
             cost_summary = aggregate_costs(cost_estimates)
             cost_elapsed = time.time() - cost_start
-            logger.info(f"[TIMING] Cost estimation: {cost_elapsed:.1f}s ({len(takeoff_data)} items)")
+            logger.info(f"[TIMING] Cost estimation (static): {cost_elapsed:.3f}s ({len(takeoff_data)} items)")
 
             # Phase 6: Collect cost citations using evidence aggregator
             for estimate in cost_estimates:

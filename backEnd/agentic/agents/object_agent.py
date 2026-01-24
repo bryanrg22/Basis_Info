@@ -158,6 +158,88 @@ COMPONENT_SPECIFICATIONS = {
 }
 
 
+# =============================================================================
+# Static Enrichment Functions (Phase 1 Optimization)
+# =============================================================================
+
+
+def _infer_category(component_key: str) -> str:
+    """Infer category from component key using SIMILAR_COMPONENTS."""
+    for category, components in SIMILAR_COMPONENTS.items():
+        if component_key in components or any(c in component_key for c in components):
+            return category
+    return "fixture"  # Default
+
+
+def enrich_object_static(label: str, room_type: str = None) -> dict:
+    """
+    Enrich an object using static dictionary lookup. No LLM needed.
+
+    Args:
+        label: Detected object label (e.g., "toilet", "light_fixture")
+        room_type: Optional room context
+
+    Returns:
+        ObjectContext-compatible dict, or flag for LLM classification if unknown
+    """
+    normalized = label.lower().replace(" ", "_").replace("-", "_")
+
+    # Try exact match in COMPONENT_STANDARDS
+    if normalized in COMPONENT_STANDARDS:
+        std = COMPONENT_STANDARDS[normalized]
+        return {
+            "component_name": label,
+            "component_category": _infer_category(normalized),
+            "attachment_type": "permanent",
+            "function_type": "utility",
+            "likely_section": std.get("typical_section", "1245"),
+            "likely_recovery": std.get("typical_recovery", "5-year"),
+            "requires_inspection": False,
+            "inspection_reason": None,
+            "irs_note": std.get("notes", ""),
+            "citation_refs": [],
+            "industry_standards": std.get("industry_standards", []),
+            "typical_lifespan": std.get("typical_lifespan_years"),
+            "enrichment_method": "static_lookup",
+            "needs_llm_classification": False,
+        }
+
+    # Try fuzzy match (component name contains key or vice versa)
+    for key, std in COMPONENT_STANDARDS.items():
+        if key in normalized or normalized in key:
+            return {
+                "component_name": label,
+                "component_category": _infer_category(key),
+                "attachment_type": "permanent",
+                "function_type": "utility",
+                "likely_section": std.get("typical_section", "1245"),
+                "likely_recovery": std.get("typical_recovery", "5-year"),
+                "requires_inspection": False,
+                "inspection_reason": None,
+                "irs_note": std.get("notes", ""),
+                "citation_refs": [],
+                "matched_key": key,
+                "enrichment_method": "fuzzy_match",
+                "needs_llm_classification": False,
+            }
+
+    # Unknown component - flag for LLM classification
+    return {
+        "component_name": label,
+        "component_category": "unknown",
+        "attachment_type": "unknown",
+        "function_type": "unknown",
+        "likely_section": "unknown",
+        "likely_recovery": "needs_classification",
+        "requires_inspection": True,
+        "inspection_reason": f"Component '{label}' not in static mapping",
+        "irs_note": "",
+        "citation_refs": [],
+        "enrichment_method": "unknown",
+        "needs_llm_classification": True,  # KEY FLAG for downstream
+    }
+
+
 @tool
 def search_component_standards(component_name: str) -> dict:
     """
@@ -582,23 +664,49 @@ async def enrich_objects_batch(
     context: StageContext,
     room_type: Optional[str] = None,
     max_concurrent: int = 1,  # Sequential for rate limit
+    use_static: bool = True,  # NEW: Flag to use static lookup
 ) -> list[dict]:
     """
-    Enrich multiple detections IN PARALLEL.
+    Enrich multiple detections with IRS context.
+
+    Uses static lookup by default for instant enrichment (no LLM calls).
+    Falls back to LLM agent if use_static=False.
 
     Args:
         detections: List of detection dicts with 'detection_id' and 'label'
         context: Study context
         room_type: Room type (if known)
-        max_concurrent: Maximum concurrent enrichments (default: 3)
+        max_concurrent: Maximum concurrent enrichments (default: 1)
+        use_static: Use static dictionary lookup (default: True)
 
     Returns:
         List of enriched object contexts
     """
-    from ..utils.parallel import parallel_map
-
     if not detections:
         return []
+
+    if use_static:
+        # Fast path: Static dictionary lookup (no LLM)
+        enriched = []
+        for detection in detections:
+            label = detection.get("label", detection.get("original_label", "unknown"))
+            det_room_type = detection.get("room_type", room_type)
+
+            context_data = enrich_object_static(label, det_room_type)
+
+            enriched.append({
+                "detection_id": detection.get("detection_id", detection.get("id", "")),
+                "original_label": label,
+                "context": context_data,
+                "citations": [],
+                "confidence": 0.9 if not context_data.get("needs_llm_classification") else 0.3,
+                "needs_review": context_data.get("needs_llm_classification", False),
+                "original_detection": detection,
+            })
+        return enriched
+
+    # Original LLM path (kept for fallback)
+    from ..utils.parallel import parallel_map
 
     async def enrich_single_detection(det: dict) -> dict:
         """Enrich a single detection."""

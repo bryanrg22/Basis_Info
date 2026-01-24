@@ -201,6 +201,58 @@ ROOM_AREA_ESTIMATES = {
 }
 
 
+# =============================================================================
+# Static Enrichment Function (Phase 1 Optimization)
+# =============================================================================
+
+
+def enrich_room_static(room_type: str, property_type: str = "residential") -> dict:
+    """
+    Enrich a room using static dictionary lookup. No LLM needed.
+
+    Args:
+        room_type: Detected room type (e.g., "kitchen", "bathroom")
+        property_type: Property type (residential, commercial, industrial)
+
+    Returns:
+        RoomContext-compatible dict with IRS guidance and components
+    """
+    normalized = room_type.lower().replace(" ", "_")
+
+    # Get IRS guidance (default to generic if not found)
+    guidance = ROOM_IRS_GUIDANCE.get(normalized, {
+        "space_category": "unit_space",
+        "typical_section": "mixed",
+        "guidance": "Evaluate components individually for MACRS classification.",
+        "asset_classes": [],
+        "key_considerations": [],
+    })
+
+    # Get typical components
+    components = ROOM_TYPICAL_COMPONENTS.get(normalized, [])
+
+    # Get area estimates
+    prop_areas = ROOM_AREA_ESTIMATES.get(property_type, ROOM_AREA_ESTIMATES.get("residential", {}))
+    area_info = prop_areas.get(normalized, {"min": 100, "typical": 150, "max": 200})
+
+    # Determine default recovery period
+    default_recovery = 27 if property_type == "residential" else 39
+
+    return {
+        "room_type": room_type,
+        "irs_space_category": guidance.get("space_category", "unit_space"),
+        "property_class": f"{property_type}_rental" if property_type == "residential" else property_type,
+        "indoor_outdoor": "indoor",
+        "default_recovery_period": default_recovery,
+        "asset_class_hint": guidance.get("asset_classes", [None])[0] if guidance.get("asset_classes") else None,
+        "component_expectations": components,
+        "irs_note": guidance.get("guidance", ""),
+        "citation_refs": [],  # Static lookup, no RAG citations
+        "typical_area_sf": area_info.get("typical", 150),
+        "enrichment_method": "static_lookup",
+    }
+
+
 @tool
 def search_room_irs_guidance(room_type: str) -> dict:
     """
@@ -617,22 +669,46 @@ async def enrich_rooms_batch(
     rooms: list[dict],
     context: StageContext,
     max_concurrent: int = 1,  # Sequential for rate limit
+    use_static: bool = True,  # NEW: Flag to use static lookup
 ) -> list[dict]:
     """
-    Enrich multiple rooms IN PARALLEL with IRS context.
+    Enrich multiple rooms with IRS context.
+
+    Uses static lookup by default for instant enrichment (no LLM calls).
+    Falls back to LLM agent if use_static=False.
 
     Args:
         rooms: List of room dicts from vision layer
         context: Study context with available documents
-        max_concurrent: Maximum concurrent enrichments (default: 3)
+        max_concurrent: Maximum concurrent enrichments (default: 1)
+        use_static: Use static dictionary lookup (default: True)
 
     Returns:
         List of enriched room dicts with IRS context
     """
-    from ..utils.parallel import parallel_map
-
     if not rooms:
         return []
+
+    if use_static:
+        # Fast path: Static dictionary lookup (no LLM)
+        enriched = []
+        for room in rooms:
+            room_type = room.get("type") or room.get("room_type", "unknown")
+            property_type = room.get("property_type", "residential")
+
+            context_data = enrich_room_static(room_type, property_type)
+
+            enriched.append({
+                **room,
+                "context": context_data,
+                "enrichment_confidence": 0.9,  # High confidence for known room types
+                "citations": [],
+                "needs_review": False,
+            })
+        return enriched
+
+    # Original LLM path (kept for fallback)
+    from ..utils.parallel import parallel_map
 
     async def enrich_single_room(room: dict) -> dict:
         """Enrich a single room and merge results."""

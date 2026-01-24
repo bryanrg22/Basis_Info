@@ -162,6 +162,92 @@ INSTALLATION_RATES = {
 }
 
 
+# =============================================================================
+# Static Calculation Function (Phase 1 Optimization)
+# =============================================================================
+
+
+def calculate_takeoff_static(
+    component_name: str,
+    detection_count: int = 1,
+    room_area_sf: float = None,
+) -> dict:
+    """
+    Calculate takeoff using direct math. No LLM needed.
+
+    Args:
+        component_name: Component to calculate quantity for
+        detection_count: Number of times detected (for EA items)
+        room_area_sf: Room area in square feet (for area-based items)
+
+    Returns:
+        Takeoff dict with quantity, unit, and calculation notes
+    """
+    normalized = component_name.lower().replace(" ", "_").replace("-", "_")
+
+    # Get quantity estimate specs
+    spec = QUANTITY_ESTIMATES.get(normalized, {
+        "unit": "EA",
+        "per_sf": None,
+        "min_per_room": 1,
+        "notes": "Default: use detection count",
+    })
+
+    unit = spec.get("unit", "EA")
+    notes = spec.get("notes", "")
+
+    # Calculate quantity based on unit type
+    if unit == "EA":
+        # Count-based: use detection count with minimum
+        min_qty = spec.get("min_per_room", 1)
+        quantity = max(detection_count, min_qty)
+        method = "count"
+        calculation = f"Detected {detection_count}, min {min_qty} per room"
+
+    elif unit in ("SF", "SY") and room_area_sf:
+        # Area-based: calculate from room area
+        per_sf = spec.get("per_sf", 1.0)
+        waste = spec.get("waste_factor", 1.0)
+
+        if unit == "SY":
+            quantity = (room_area_sf / 9) * waste  # Convert SF to SY
+            calculation = f"{room_area_sf} SF / 9 x {waste} waste = {quantity:.1f} SY"
+        else:
+            quantity = room_area_sf * per_sf * waste
+            calculation = f"{room_area_sf} SF x {per_sf} x {waste} waste = {quantity:.1f} SF"
+        method = "area"
+
+    elif unit == "LF" and room_area_sf:
+        # Linear: estimate perimeter from area (assume square-ish room)
+        side = room_area_sf ** 0.5
+        quantity = 4 * side  # Perimeter
+        method = "perimeter"
+        calculation = f"sqrt({room_area_sf}) x 4 = {quantity:.1f} LF (perimeter estimate)"
+
+    else:
+        # Fallback: use detection count
+        quantity = detection_count
+        method = "count"
+        calculation = f"Fallback to detection count: {detection_count}"
+
+    # Get installation rate info if available
+    install_rate = INSTALLATION_RATES.get(normalized, {})
+    labor_hours = install_rate.get("labor_hours_per_unit", 0) * quantity if install_rate else None
+
+    return {
+        "component_name": component_name,
+        "quantity": round(quantity, 2),
+        "unit": unit,
+        "measurement_method": method,
+        "calculation_note": calculation,
+        "rsmeans_line_item": None,  # Would need RSMeans lookup
+        "assumptions": [notes] if notes else [],
+        "confidence": 0.85,
+        "labor_hours_estimate": round(labor_hours, 2) if labor_hours else None,
+        "enrichment_method": "static_calculation",
+    }
+
+
 @tool
 def lookup_unit_conversion(from_unit: str, to_unit: str, dimension: float = None) -> dict:
     """
@@ -668,24 +754,50 @@ async def calculate_takeoffs_batch(
     room_type: Optional[str] = None,
     room_area_sf: Optional[float] = None,
     max_concurrent: int = 1,  # Sequential for rate limit
+    use_static: bool = True,  # NEW: Flag to use static calculation
 ) -> list[dict]:
     """
-    Calculate takeoffs for multiple components IN PARALLEL.
+    Calculate takeoffs for multiple components.
+
+    Uses static calculation by default for instant results (no LLM calls).
+    Falls back to LLM agent if use_static=False.
 
     Args:
         components: List of dicts with 'component_name' and optional 'detection_count'
         context: Study context
         room_type: Room type (applied to all)
         room_area_sf: Room area (applied to all)
-        max_concurrent: Maximum concurrent calculations (default: 3)
+        max_concurrent: Maximum concurrent calculations (default: 1)
+        use_static: Use static calculation (default: True)
 
     Returns:
         List of takeoff results
     """
-    from ..utils.parallel import parallel_map
-
     if not components:
         return []
+
+    if use_static:
+        # Fast path: Direct calculation (no LLM)
+        results = []
+        for comp in components:
+            comp_name = comp.get("component_name", comp.get("label", "unknown"))
+            count = comp.get("detection_count", 1)
+            area = comp.get("room_area_sf", room_area_sf)
+
+            takeoff = calculate_takeoff_static(comp_name, count, area)
+
+            results.append({
+                "component_name": comp_name,
+                "takeoff": takeoff,
+                "citations": [],
+                "confidence": takeoff.get("confidence", 0.85),
+                "needs_review": False,
+                "original": comp,
+            })
+        return results
+
+    # Original LLM path (kept for fallback)
+    from ..utils.parallel import parallel_map
 
     async def calculate_single_takeoff(comp: dict) -> dict:
         """Calculate takeoff for a single component."""
