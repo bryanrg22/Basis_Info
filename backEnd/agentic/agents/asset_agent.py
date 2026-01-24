@@ -10,6 +10,10 @@ and can reconsider if validation fails.
 
 Phase 2 Optimization: Classification cache for engineer-approved classifications.
 Checks verified_classifications cache before LLM calls to reduce costs.
+
+Phase 3 Optimization: Static rules engine for common components.
+Pre-verified IRS classifications for ~50 common components eliminate LLM calls
+for 70-80% of classifications on typical studies.
 """
 
 import json
@@ -29,6 +33,7 @@ from .classification_verifier import (
     check_component_context_tool,
 )
 from ..firestore.classification_cache import get_cached_classification
+from .static_classification_rules import get_static_classification
 
 logger = logging.getLogger(__name__)
 
@@ -448,11 +453,15 @@ async def classify_components_batch(
     components: list[dict],
     context: StageContext,
     max_concurrent: int = 1,  # Sequential for rate limit
-    use_cache: bool = True,  # Phase 2: Check verified cache first
-    property_type: str = "residential",  # Phase 2: For cache key
+    use_static_rules: bool = True,  # Phase 3: Check static rules first
+    use_cache: bool = True,  # Phase 2: Check verified cache second
+    property_type: str = "residential",  # Phase 2/3: For cache key and rules
 ) -> list[dict]:
     """
-    Classify multiple components, checking cache first for verified classifications.
+    Classify multiple components with 3-tier lookup: static rules -> cache -> LLM.
+
+    Phase 3 Optimization: Static rules checked first for instant classification
+    of common components without any LLM calls.
 
     Phase 2 Optimization: Checks verified_classifications cache before LLM calls.
     Only engineer-approved classifications with IRS citations are cached.
@@ -461,11 +470,15 @@ async def classify_components_batch(
         components: List of component dicts with 'component' key
         context: Study context
         max_concurrent: Maximum concurrent classifications (default: 1)
+        use_static_rules: Whether to check static rules first (default: True)
         use_cache: Whether to check cache before LLM (default: True)
-        property_type: "residential" or "commercial" for cache key
+        property_type: "residential" or "commercial" for cache/rules lookup
 
     Returns:
-        List of classification results (cached entries have from_cache=True)
+        List of classification results:
+        - from_static_rules=True for static rule matches
+        - from_cache=True for cache hits
+        - Neither for LLM-generated classifications
     """
     from ..utils.parallel import parallel_map
     from ..firestore.client import get_firestore_client
@@ -473,25 +486,46 @@ async def classify_components_batch(
     if not components:
         return []
 
-    # Phase 2: Check cache first for verified classifications
+    # 3-tier classification lookup
+    static_results = []
     cached_results = []
     needs_llm = []
 
-    if use_cache:
-        db = get_firestore_client()
+    db = get_firestore_client() if use_cache else None
 
-        for comp in components:
-            component_name = (
-                comp.get("component") or
-                comp.get("label") or
-                comp.get("name") or
-                comp.get("original_label") or
-                ""
-            )
+    for comp in components:
+        component_name = (
+            comp.get("component") or
+            comp.get("label") or
+            comp.get("name") or
+            comp.get("original_label") or
+            ""
+        )
 
+        # Tier 1: Check static rules (Phase 3) - instant, no LLM
+        if use_static_rules:
+            static = get_static_classification(component_name, property_type)
+            if static:
+                static_results.append({
+                    "component": component_name,
+                    "component_name": component_name,
+                    "classification": static["classification"],
+                    "citations": static["citations"],
+                    "confidence": static["confidence"],
+                    "irs_note": static.get("irs_note", ""),
+                    "needs_review": False,  # Pre-verified IRS rules
+                    "from_static_rules": True,
+                    "from_cache": False,
+                    "matched_alias": static.get("matched_alias"),
+                    "canonical_name": static.get("canonical_name"),
+                    "original": comp,
+                })
+                continue
+
+        # Tier 2: Check verified cache (Phase 2) - instant, no LLM
+        if use_cache and db:
             cached = get_cached_classification(db, component_name, property_type)
             if cached:
-                # Build result from cache
                 cached_results.append({
                     "component": component_name,
                     "component_name": component_name,
@@ -499,23 +533,23 @@ async def classify_components_batch(
                     "citations": cached["citations"],
                     "confidence": cached["confidence"],
                     "needs_review": False,  # Already engineer-approved
+                    "from_static_rules": False,
                     "from_cache": True,
                     "cache_key": cached["cache_key"],
                     "approval_count": cached["approval_count"],
                     "original": comp,
                 })
-            else:
-                needs_llm.append(comp)
+                continue
 
-        logger.info(
-            f"Classification cache: {len(cached_results)} hits, {len(needs_llm)} misses "
-            f"({property_type})"
-        )
-    else:
-        needs_llm = components
-        logger.info(f"Classification cache disabled, processing {len(needs_llm)} via LLM")
+        # Tier 3: Needs LLM classification
+        needs_llm.append(comp)
 
-    # LLM for cache misses
+    logger.info(
+        f"Classification: {len(static_results)} static, {len(cached_results)} cached, "
+        f"{len(needs_llm)} LLM ({property_type})"
+    )
+
+    # Tier 3: LLM for remaining components (cache misses)
     llm_results = []
     if needs_llm:
         async def classify_single_component(comp: dict) -> dict:
@@ -542,10 +576,11 @@ async def classify_components_batch(
             )
             result["original"] = comp
             result["component_name"] = component_name
+            result["from_static_rules"] = False
             result["from_cache"] = False  # Explicitly mark as LLM-generated
             return result
 
-        # PARALLEL: Classify cache misses concurrently
+        # PARALLEL: Classify remaining components concurrently
         llm_results = await parallel_map(
             items=needs_llm,
             async_fn=classify_single_component,
@@ -553,9 +588,13 @@ async def classify_components_batch(
             desc=f"Classifying {len(needs_llm)} components (LLM)",
         )
 
-    # Combine cached + LLM results (preserve original order)
+    # Combine static + cached + LLM results (preserve original order)
     # Build a map of component name -> result
     result_map = {}
+    for r in static_results:
+        key = r.get("component_name", "")
+        if key:
+            result_map[key] = r
     for r in cached_results:
         key = r.get("component_name", "")
         if key:

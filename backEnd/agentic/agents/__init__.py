@@ -17,6 +17,12 @@ from .asset_agent import (
     classify_component,
     classify_components_batch,
 )
+from .static_classification_rules import (
+    get_static_classification,
+    get_all_static_components,
+    ASSET_CLASSIFICATION_RULES,
+    COMPONENT_ALIASES,
+)
 from .room_agent import (
     RoomContextAgent,
     RoomContext,
@@ -81,6 +87,11 @@ __all__ = [
     "ComponentInput",
     "classify_component",
     "classify_components_batch",
+    # Static Classification Rules (Phase 3)
+    "get_static_classification",
+    "get_all_static_components",
+    "ASSET_CLASSIFICATION_RULES",
+    "COMPONENT_ALIASES",
     # Room Context
     "RoomContextAgent",
     "RoomContext",

@@ -1005,18 +1005,21 @@ async def process_assets_node(state: WorkflowState) -> WorkflowState:
                     components=enriched_objects,
                     context=context,
                     max_concurrent=2,  # 2 concurrent workers - classification still uses LLM
-                    use_cache=True,  # Phase 2: Check verified cache first
-                    property_type=property_type,  # Phase 2: For cache key
+                    use_static_rules=True,  # Phase 3: Check static rules first
+                    use_cache=True,  # Phase 2: Check verified cache second
+                    property_type=property_type,  # Phase 2/3: For cache/rules lookup
                 ),
             )
             parallel_elapsed = time.time() - parallel_start
 
-            # Phase 2: Log cache hit rate
+            # Phase 3: Log 3-tier classification breakdown
+            static_hits = sum(1 for c in asset_classifications if c.get("from_static_rules"))
             cache_hits = sum(1 for c in asset_classifications if c.get("from_cache"))
-            cache_misses = len(asset_classifications) - cache_hits
+            llm_calls = len(asset_classifications) - static_hits - cache_hits
             logger.info(
                 f"[TIMING] Takeoffs (static) + Classification: {parallel_elapsed:.1f}s "
-                f"({cache_hits}/{len(asset_classifications)} from cache, {cache_misses} LLM calls)"
+                f"({static_hits} static, {cache_hits} cached, {llm_calls} LLM - "
+                f"{len(asset_classifications)} total)"
             )
 
             # Phase 6: Collect citations using evidence aggregator
