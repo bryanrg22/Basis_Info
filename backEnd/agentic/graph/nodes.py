@@ -468,15 +468,24 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                                 from evidence_layer.src.tiered_extraction.azure_di_extractor import AzureDocumentExtractor
 
                                 azure_extractor = AzureDocumentExtractor()
+                                print(f"[DEBUG] Azure DI is_available: {azure_extractor.is_available()}")
                                 if azure_extractor.is_available():
+                                    print(f"[DEBUG] Starting Azure DI extraction for study {state['study_id']}")
                                     logger.info(f"Using Azure DI for extraction (study {state['study_id']})")
 
                                     # Run Azure DI extraction
                                     azure_result = await azure_extractor.extract(str(pdf_path))
+                                    print(f"[DEBUG] Azure DI result: confidence={azure_result.overall_confidence if azure_result else 'None'}")
 
                                     if azure_result and azure_result.overall_confidence > 0.3:
                                         # Convert Azure DI result to sections format
-                                        sections = _azure_di_to_sections(azure_result, fields_dict)
+                                        print(f"[DEBUG] Azure DI confidence {azure_result.overall_confidence} > 0.3, converting to sections...")
+                                        try:
+                                            sections = _azure_di_to_sections(azure_result, fields_dict)
+                                            print(f"[DEBUG] Azure DI sections converted successfully: {list(sections.keys())}")
+                                        except Exception as conv_err:
+                                            print(f"[DEBUG] Azure DI section conversion FAILED: {conv_err}")
+                                            raise
                                         extraction_audit = {
                                             "method": "azure_di_direct",
                                             "confidence": azure_result.overall_confidence,
@@ -484,20 +493,25 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                                             "sources_used": azure_result.sources_used,
                                         }
                                         azure_di_succeeded = True
+                                        print(f"[DEBUG] Azure DI extraction SUCCEEDED, azure_di_succeeded={azure_di_succeeded}")
                                         logger.info(
                                             f"Azure DI extraction complete: confidence={azure_result.overall_confidence:.2f}, "
                                             f"needs_review={azure_result.needs_review}"
                                         )
                                     else:
+                                        print(f"[DEBUG] Azure DI extraction low confidence ({azure_result.overall_confidence if azure_result else 'None'}), falling back to table mapping")
                                         logger.warning(f"Azure DI extraction low confidence, falling back to table mapping")
                                 else:
+                                    print("[DEBUG] Azure DI not configured/available, falling back to table mapping")
                                     logger.info("Azure DI not configured, falling back to table mapping")
 
                             except Exception as azure_err:
+                                print(f"[DEBUG] Azure DI extraction FAILED: {azure_err}")
                                 logger.warning(f"Azure DI extraction failed: {azure_err}, falling back to table mapping")
 
                         # Fall back to table mapping if Azure DI didn't succeed
                         if not azure_di_succeeded:
+                            print(f"[DEBUG] Using direct table extraction (fallback) for study {state['study_id']}")
                             logger.info(f"Using direct table extraction for study {state['study_id']}")
                             sections = map_appraisal_tables_to_sections(
                                 tables_path=tables_path,
@@ -632,19 +646,24 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                             # =============================================================
                             # DIRECT EXTRACTION: Skip LLM, use table mapping directly
                             # This is fast (~2-3s), free, and reliable
+                            # BUT: Only if Azure DI didn't already succeed!
                             # =============================================================
-                            logger.info(f"Using direct table extraction for study {state['study_id']} (multi-agent skipped)")
+                            if not azure_di_succeeded:
+                                logger.info(f"Using direct table extraction for study {state['study_id']} (multi-agent skipped)")
+                                print(f"[DEBUG] Using direct table extraction (agentic skipped) for study {state['study_id']}")
 
-                            sections = map_appraisal_tables_to_sections(
-                                tables_path=tables_path,
-                                fallback_fields=fields_dict,
-                            )
-                            extraction_audit = {
-                                "method": "direct_table_mapping",
-                                "agentic_skipped": True,
-                                "tables_path": str(tables_path),
-                                "tables_exist": tables_path.exists(),
-                            }
+                                sections = map_appraisal_tables_to_sections(
+                                    tables_path=tables_path,
+                                    fallback_fields=fields_dict,
+                                )
+                                extraction_audit = {
+                                    "method": "direct_table_mapping",
+                                    "agentic_skipped": True,
+                                    "tables_path": str(tables_path),
+                                    "tables_exist": tables_path.exists(),
+                                }
+                            else:
+                                print(f"[DEBUG] Skipping direct table extraction - Azure DI already succeeded")
 
                         logger.debug(f"Mapped sections: {list(sections.keys())}")
 
