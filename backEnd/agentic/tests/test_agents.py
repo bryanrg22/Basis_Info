@@ -119,7 +119,7 @@ class TestAssetClassificationAgent:
         assert "MACRS" in prompt
         assert "1245" in prompt
         assert "1250" in prompt
-        assert "evidence" in prompt.lower()
+        assert "citation" in prompt.lower()  # Prompt uses citation terminology
 
     def test_agent_output_schema(self):
         """Test output schema is correct."""
