@@ -61,6 +61,12 @@ def _azure_di_to_sections(azure_result, fallback_fields: dict) -> dict:
     """
     Convert Azure DI ExtractionResult to frontend sections format.
 
+    Applies robust value cleaning to handle Azure DI form artifacts:
+    - :selected:/:unselected: checkbox markers
+    - Malformed currency (e.g., "=$692,831")
+    - Concatenated fields
+    - OCR word splits
+
     Args:
         azure_result: ExtractionResult from AzureDocumentExtractor
         fallback_fields: Regex-extracted fields for fallback
@@ -68,7 +74,22 @@ def _azure_di_to_sections(azure_result, fallback_fields: dict) -> dict:
     Returns:
         Dict with section keys matching AppraisalResources TypeScript interface
     """
-    sections = {
+    from ..utils.azure_di_cleaner import (
+        clean_text,
+        clean_currency,
+        clean_integer,
+        clean_subject_section,
+        clean_listing_contract_section,
+        clean_neighborhood_section,
+        clean_site_section,
+        clean_improvements_section,
+        clean_cost_approach_section,
+        clean_reconciliation_section,
+        clean_sales_comparison_section,
+    )
+
+    # Initialize with empty structure
+    raw_sections = {
         "subject": {},
         "listing_and_contract": {},
         "neighborhood": {},
@@ -81,61 +102,140 @@ def _azure_di_to_sections(azure_result, fallback_fields: dict) -> dict:
         "sketch": {"areas": [], "basement_layout": []},
     }
 
-    # Map Azure DI sections to our format
+    # Map Azure DI sections to our format (raw values)
     if hasattr(azure_result, 'sections') and azure_result.sections:
         for section_name, fields in azure_result.sections.items():
-            if section_name in sections:
-                if isinstance(sections[section_name], dict):
+            if section_name in raw_sections:
+                if isinstance(raw_sections[section_name], dict):
                     for field_name, field_result in fields.items():
                         value = field_result.value if hasattr(field_result, 'value') else field_result
                         # Handle nested sections like improvements
                         if section_name == "improvements":
                             # Map to appropriate sub-section
-                            if field_name in ["year_built", "effective_age", "gla_sqft", "bedrooms", "bathrooms", "stories"]:
-                                sections["improvements"]["general"][field_name] = value
-                            elif field_name in ["foundation", "exterior_walls", "roof"]:
-                                sections["improvements"]["exterior"][field_name] = value
+                            if field_name in ["year_built", "effective_age", "effective_age_years", "gla_sqft",
+                                               "bedrooms", "bathrooms", "stories", "total_rooms", "units",
+                                               "type", "status", "design_style", "foundation_type",
+                                               "basement_area_sqft", "basement_finish_percent", "basement_access",
+                                               "overall_quality", "overall_condition"]:
+                                raw_sections["improvements"]["general"][field_name] = value
+                            elif field_name in ["foundation", "foundation_walls", "exterior_walls", "roof",
+                                                 "roof_surface", "gutters", "window_type", "storm_sash", "screens"]:
+                                raw_sections["improvements"]["exterior"][field_name] = value
                             else:
-                                sections["improvements"]["interior_mechanical"][field_name] = value
-                        elif section_name == "sales_comparison" and field_name.startswith("comparable_"):
-                            # Handle comparables list
-                            sections["sales_comparison"]["comparables"].append(value)
+                                raw_sections["improvements"]["interior_mechanical"][field_name] = value
+                        elif section_name == "sales_comparison":
+                            if field_name.startswith("comparable_") or field_name == "comparables":
+                                if isinstance(value, list):
+                                    raw_sections["sales_comparison"]["comparables"].extend(value)
+                                else:
+                                    raw_sections["sales_comparison"]["comparables"].append(value)
+                            elif field_name.startswith("market_"):
+                                raw_sections["sales_comparison"]["market_stats"][field_name.replace("market_", "")] = value
+                            elif field_name.startswith("subject_"):
+                                raw_sections["sales_comparison"]["subject"][field_name.replace("subject_", "")] = value
+                            else:
+                                raw_sections["sales_comparison"][field_name] = value
                         else:
-                            sections[section_name][field_name] = value
+                            raw_sections[section_name][field_name] = value
 
-    # Apply fallback values where Azure DI didn't extract
+    # =================================================================
+    # CRITICAL: Clean all values to remove Azure DI artifacts
+    # =================================================================
+    sections = {
+        "subject": clean_subject_section(raw_sections["subject"]),
+        "listing_and_contract": clean_listing_contract_section(raw_sections["listing_and_contract"]),
+        "neighborhood": clean_neighborhood_section(raw_sections["neighborhood"]),
+        "site": clean_site_section(raw_sections["site"]),
+        "improvements": clean_improvements_section(raw_sections["improvements"]),
+        "sales_comparison": clean_sales_comparison_section(raw_sections["sales_comparison"]),
+        "cost_approach": clean_cost_approach_section(raw_sections["cost_approach"]),
+        "reconciliation": clean_reconciliation_section(raw_sections["reconciliation"]),
+        "photos": [],
+        "sketch": {"areas": [], "basement_layout": []},
+    }
+
+    # =================================================================
+    # Apply AGGRESSIVE fallbacks from regex extraction
+    # Use fallback if Azure DI value is empty, 0, or None
+    # =================================================================
     if fallback_fields:
         # Subject fallbacks
-        if not sections["subject"].get("property_address") and fallback_fields.get("property_address"):
-            sections["subject"]["property_address"] = fallback_fields["property_address"]
-        if not sections["subject"].get("city") and fallback_fields.get("city"):
-            sections["subject"]["city"] = fallback_fields["city"]
-        if not sections["subject"].get("state") and fallback_fields.get("state"):
-            sections["subject"]["state"] = fallback_fields["state"]
-        if not sections["subject"].get("zip") and fallback_fields.get("zip_code"):
-            sections["subject"]["zip"] = fallback_fields["zip_code"]
-        if not sections["subject"].get("county") and fallback_fields.get("county"):
-            sections["subject"]["county"] = fallback_fields["county"]
+        subject = sections["subject"]
+        if not subject.get("property_address") and fallback_fields.get("property_address"):
+            subject["property_address"] = fallback_fields["property_address"]
+        if not subject.get("city") and fallback_fields.get("city"):
+            subject["city"] = fallback_fields["city"]
+        if not subject.get("state") and fallback_fields.get("state"):
+            subject["state"] = fallback_fields["state"]
+        if not subject.get("zip") and fallback_fields.get("zip_code"):
+            subject["zip"] = fallback_fields["zip_code"]
+        if not subject.get("county") and fallback_fields.get("county"):
+            subject["county"] = fallback_fields["county"]
+        if not subject.get("borrower") and fallback_fields.get("borrower"):
+            subject["borrower"] = fallback_fields["borrower"]
+        if not subject.get("legal_description") and fallback_fields.get("legal_description"):
+            subject["legal_description"] = fallback_fields["legal_description"]
+
+        # Listing/Contract fallbacks
+        listing = sections["listing_and_contract"]
+        if not listing.get("contract_price") and fallback_fields.get("total_value"):
+            listing["contract_price"] = fallback_fields["total_value"]
+
+        # Site fallbacks
+        site = sections["site"]
+        if not site.get("area_acres") and fallback_fields.get("land_area_acres"):
+            site["area_acres"] = fallback_fields["land_area_acres"]
 
         # Improvements fallbacks
         general = sections["improvements"]["general"]
         if not general.get("year_built") and fallback_fields.get("year_built"):
             general["year_built"] = fallback_fields["year_built"]
+        if not general.get("effective_age_years") and fallback_fields.get("effective_age_years"):
+            general["effective_age_years"] = fallback_fields["effective_age_years"]
         if not general.get("gla_sqft") and fallback_fields.get("gross_living_area"):
             general["gla_sqft"] = fallback_fields["gross_living_area"]
         if not general.get("bedrooms") and fallback_fields.get("bedroom_count"):
             general["bedrooms"] = fallback_fields["bedroom_count"]
         if not general.get("bathrooms") and fallback_fields.get("bathroom_count"):
             general["bathrooms"] = fallback_fields["bathroom_count"]
+        if not general.get("overall_quality") and fallback_fields.get("quality_rating"):
+            general["overall_quality"] = fallback_fields["quality_rating"]
+        if not general.get("overall_condition") and fallback_fields.get("condition_rating"):
+            general["overall_condition"] = fallback_fields["condition_rating"]
+
+        # Also populate interior_mechanical GLA for frontend compatibility
+        interior = sections["improvements"]["interior_mechanical"]
+        if not interior.get("gross_living_area_above_grade_sqft") and general.get("gla_sqft"):
+            interior["gross_living_area_above_grade_sqft"] = general["gla_sqft"]
+        if not interior.get("rooms_above_grade") or not interior["rooms_above_grade"].get("total_rooms"):
+            interior["rooms_above_grade"] = {
+                "total_rooms": general.get("total_rooms", 0),
+                "bedrooms": general.get("bedrooms", 0),
+                "bathrooms": general.get("bathrooms", 0),
+            }
 
         # Cost approach fallbacks
-        if not sections["cost_approach"].get("site_value") and fallback_fields.get("land_value"):
-            sections["cost_approach"]["site_value"] = fallback_fields["land_value"]
+        cost = sections["cost_approach"]
+        if not cost.get("site_value") and fallback_fields.get("land_value"):
+            cost["site_value"] = fallback_fields["land_value"]
+        if not cost.get("total_cost_new") and fallback_fields.get("building_value"):
+            cost["total_cost_new"] = fallback_fields["building_value"]
+        if not cost.get("indicated_value_by_cost_approach"):
+            land = cost.get("site_value") or fallback_fields.get("land_value") or 0
+            building = cost.get("depreciated_cost_of_improvements") or fallback_fields.get("building_value") or 0
+            if land or building:
+                cost["indicated_value_by_cost_approach"] = land + building
 
         # Reconciliation fallbacks
-        if not sections["reconciliation"].get("final_market_value") and fallback_fields.get("total_value"):
-            sections["reconciliation"]["final_market_value"] = fallback_fields["total_value"]
+        recon = sections["reconciliation"]
+        if not recon.get("final_market_value") and fallback_fields.get("total_value"):
+            recon["final_market_value"] = fallback_fields["total_value"]
+        if not recon.get("indicated_value_sales_comparison") and fallback_fields.get("total_value"):
+            recon["indicated_value_sales_comparison"] = fallback_fields["total_value"]
+        if not recon.get("indicated_value_cost_approach") and cost.get("indicated_value_by_cost_approach"):
+            recon["indicated_value_cost_approach"] = cost["indicated_value_by_cost_approach"]
 
+    logger.debug(f"Azure DI to sections: cleaned and applied fallbacks")
     return sections
 
 
