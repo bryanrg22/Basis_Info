@@ -36,11 +36,15 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from .base_agent import BaseStageAgent, StageContext, AgentOutput
-from ..config.llm_providers import get_vision_llm
+from ..config.llm_providers import (
+    get_vision_llm,
+    get_vision_llm_for_provider,
+    is_hybrid_vision_available,
+)
 from ..config.settings import get_settings
 from ..observability.alerts import alert_on_failure
 from ..observability.tracing import get_tracer
-from ..utils.parallel import retry_with_backoff
+from ..utils.parallel import retry_with_backoff, HybridVisionPool
 
 # Try to import PIL for image cropping
 try:
@@ -729,6 +733,177 @@ async def download_image_as_base64(url: str) -> Optional[str]:
     return None
 
 
+async def analyze_image_with_provider(
+    image_url: str,
+    image_id: str,
+    property_name: str = "",
+    image_index: int = 0,
+    total_images: int = 1,
+    provider: str = "auto",
+) -> ImageAnalysisResult:
+    """
+    Analyze a single image using a specific provider (for hybrid pool).
+
+    Args:
+        image_url: URL to the image
+        image_id: Identifier for this image
+        property_name: Name of the property for context
+        image_index: Index of this image (for logging)
+        total_images: Total number of images (for logging)
+        provider: "azure", "openai", or "auto" (uses default with fallback)
+
+    Returns:
+        ImageAnalysisResult with room type and detected objects
+    """
+    image_start = time.time()
+    tracer = get_tracer()
+
+    with tracer.span(f"analyze_image_vision_{provider}"):
+        # Download and encode image
+        download_start = time.time()
+        image_base64 = await download_image_as_base64(image_url)
+        download_elapsed = time.time() - download_start
+
+        if not image_base64:
+            return ImageAnalysisResult(
+                image_id=image_id,
+                room_type="unknown",
+                room_confidence=0.0,
+                description="Could not download image for analysis",
+                detected_objects=[],
+            )
+
+        # Determine image type from URL
+        image_type = "image/jpeg"
+        if ".png" in image_url.lower():
+            image_type = "image/png"
+        elif ".gif" in image_url.lower():
+            image_type = "image/gif"
+        elif ".webp" in image_url.lower():
+            image_type = "image/webp"
+
+        # Build the vision prompt
+        system_prompt = """You are a cost segregation expert analyzing property photos.
+
+Your task: Analyze this image to identify:
+1. The room/space type (kitchen, bathroom, office, lobby, mechanical room, exterior, etc.)
+2. All visible building components that could be depreciable assets
+3. Whether this is indoor or outdoor
+4. The likely property type (residential, commercial, or industrial)
+
+For each detected object, identify items that are relevant to cost segregation:
+- HVAC equipment (units, vents, thermostats)
+- Lighting (fixtures, switches, emergency lights)
+- Plumbing (fixtures, water heaters, pipes)
+- Electrical (panels, outlets, wiring)
+- Flooring (carpet, tile, hardwood)
+- Cabinets and countertops
+- Appliances
+- Windows and doors
+- Fire safety (sprinklers, alarms, extinguishers)
+- Specialty items (security systems, elevators, etc.)
+
+Return your analysis as JSON:
+{
+    "room_type": "kitchen|bathroom|bedroom|office|lobby|hallway|mechanical_room|storage|exterior|parking|other",
+    "room_confidence": 0.0-1.0,
+    "indoor_outdoor": "indoor|outdoor",
+    "property_type": "residential|commercial|industrial",
+    "description": "Brief description of what you see",
+    "detected_objects": [
+        {
+            "label": "Object name",
+            "confidence": 0.0-1.0,
+            "description": "Brief description",
+            "potential_asset": true/false
+        }
+    ]
+}"""
+
+        user_content = f"Analyze this property photo"
+        if property_name:
+            user_content += f" from '{property_name}'"
+        user_content += ". Identify the room type and all visible building components."
+
+        settings = get_settings()
+        MAX_PARSE_RETRIES = 2
+
+        try:
+            # Get the appropriate LLM based on provider
+            if provider in ("azure", "openai"):
+                model = get_vision_llm_for_provider(provider)
+            else:
+                model = get_vision_llm()
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_content},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{image_type};base64,{image_base64}",
+                                "detail": "high",
+                            },
+                        },
+                    ],
+                },
+            ]
+
+            for attempt in range(MAX_PARSE_RETRIES + 1):
+                vision_start = time.time()
+
+                response = await model.ainvoke(messages)
+                vision_elapsed = time.time() - vision_start
+                response_text = response.content
+
+                image_elapsed = time.time() - image_start
+                logger.info(
+                    f"[TIMING] Image {image_index + 1}/{total_images} ({provider}): {image_elapsed:.1f}s "
+                    f"(download: {download_elapsed:.1f}s, vision: {vision_elapsed:.1f}s)"
+                    + (f" [attempt {attempt + 1}]" if attempt > 0 else "")
+                )
+
+                parsed = parse_vision_response(response_text)
+
+                if parsed and parsed.get("room_type") != "unknown":
+                    result = build_analysis_result(parsed, image_id)
+                    return result
+
+                if attempt < MAX_PARSE_RETRIES:
+                    logger.warning(
+                        f"Vision parsing attempt {attempt + 1} failed or returned unknown, retrying..."
+                    )
+                    messages.append({"role": "assistant", "content": response_text})
+                    messages.append({
+                        "role": "user",
+                        "content": "Please respond with ONLY valid JSON. No explanation, no markdown, just the raw JSON object with room_type, room_confidence, indoor_outdoor, property_type, description, and detected_objects fields."
+                    })
+
+            if parsed:
+                return build_analysis_result(parsed, image_id)
+
+            return ImageAnalysisResult(
+                image_id=image_id,
+                room_type="unknown",
+                room_confidence=0.5,
+                description=response_text[:200] if response_text else "Analysis completed",
+                detected_objects=[],
+            )
+
+        except Exception as e:
+            logger.error(f"Error calling vision model ({provider}): {e}")
+            return ImageAnalysisResult(
+                image_id=image_id,
+                room_type="unknown",
+                room_confidence=0.0,
+                description=f"Error during analysis: {str(e)}",
+                detected_objects=[],
+            )
+
+
 @alert_on_failure("vision_agent", study_id_param="image_id")
 async def analyze_image(
     image_url: str,
@@ -918,22 +1093,25 @@ Return your analysis as JSON:
 async def analyze_study_images(
     uploaded_files: list[dict],
     property_name: str = "",
-    max_concurrent: int = 2,  # Default to 2 concurrent workers
+    max_concurrent: int = 2,  # Default to 2 concurrent workers (ignored if hybrid)
+    use_hybrid_pool: bool = True,  # Use hybrid pool if both providers available
 ) -> tuple[list[dict], list[dict]]:
     """
     Analyze all images in a study IN PARALLEL.
 
-    Uses max_concurrent workers to analyze images simultaneously.
-    With 2 workers, ~50% faster than sequential.
+    If both Azure and OpenAI are configured and use_hybrid_pool=True,
+    uses HybridVisionPool with 2 Azure + 3 OpenAI = 5 concurrent workers.
+    Otherwise, falls back to single-provider parallel_map.
 
     Timing logs:
-    - [TIMING] Image X/N: Xs (download: Xs, vision: Xs) - per image
+    - [TIMING] Image X/N (provider): Xs (download: Xs, vision: Xs) - per image
     - [TIMING] Vision analysis complete: N images in Xs (avg Xs/image, W workers)
 
     Args:
         uploaded_files: List of uploaded file metadata with downloadURL
         property_name: Property name for context
-        max_concurrent: Maximum concurrent image analyses (default: 2)
+        max_concurrent: Maximum concurrent image analyses (fallback mode only)
+        use_hybrid_pool: If True, use hybrid pool when both providers available
 
     Returns:
         Tuple of (rooms, objects) lists for Firestore
@@ -955,46 +1133,101 @@ async def analyze_study_images(
 
         total_images = len(image_files)
 
-        # Define the async function to analyze a single image with index tracking
-        async def analyze_single(file_info_with_index: tuple[int, dict]) -> ImageAnalysisResult:
-            idx, file_info = file_info_with_index
-            download_url = file_info.get("downloadURL")
-            file_id = file_info.get("id", "unknown")
+        # Check if hybrid pool is available and should be used
+        hybrid_available = use_hybrid_pool and is_hybrid_vision_available()
 
-            if not download_url:
-                return ImageAnalysisResult(
+        if hybrid_available:
+            # Use hybrid pool: 2 Azure + 3 OpenAI = 5 concurrent
+            logger.info(
+                f"[HYBRID POOL] Using 2 Azure + 3 OpenAI workers for {total_images} images"
+            )
+            pool = HybridVisionPool(azure_concurrent=2, openai_concurrent=3)
+
+            async def analyze_with_provider(
+                file_info: dict,
+                provider: str,
+            ) -> ImageAnalysisResult:
+                download_url = file_info.get("downloadURL")
+                file_id = file_info.get("id", "unknown")
+                idx = image_files.index(file_info)
+
+                if not download_url:
+                    return ImageAnalysisResult(
+                        image_id=file_id,
+                        room_type="unknown",
+                        room_confidence=0.0,
+                        description="No download URL provided",
+                        detected_objects=[],
+                    )
+
+                return await analyze_image_with_provider(
+                    image_url=download_url,
                     image_id=file_id,
-                    room_type="unknown",
-                    room_confidence=0.0,
-                    description="No download URL provided",
-                    detected_objects=[],
+                    property_name=property_name,
+                    image_index=idx,
+                    total_images=total_images,
+                    provider=provider,
                 )
 
-            return await analyze_image(
-                image_url=download_url,
-                image_id=file_id,
-                property_name=property_name,
-                image_index=idx,
-                total_images=total_images,
+            results = await pool.map(
+                items=image_files,
+                async_fn=analyze_with_provider,
+                desc=f"Analyzing {len(image_files)} images (hybrid)",
             )
 
-        # Add index to each file for tracking
-        indexed_files = list(enumerate(image_files))
+            # Log pool stats
+            stats = pool.get_stats()
+            logger.info(f"[HYBRID POOL] Stats: {stats}")
 
-        # PARALLEL: Analyze all images concurrently with rate limiting
-        results = await parallel_map(
-            items=indexed_files,
-            async_fn=analyze_single,
-            max_concurrent=max_concurrent,
-            desc=f"Analyzing {len(image_files)} images",
-        )
+        else:
+            # Fallback: single provider with parallel_map
+            logger.info(
+                f"[SINGLE PROVIDER] Using {max_concurrent} concurrent workers "
+                f"for {total_images} images"
+            )
+
+            async def analyze_single(
+                file_info_with_index: tuple[int, dict]
+            ) -> ImageAnalysisResult:
+                idx, file_info = file_info_with_index
+                download_url = file_info.get("downloadURL")
+                file_id = file_info.get("id", "unknown")
+
+                if not download_url:
+                    return ImageAnalysisResult(
+                        image_id=file_id,
+                        room_type="unknown",
+                        room_confidence=0.0,
+                        description="No download URL provided",
+                        detected_objects=[],
+                    )
+
+                return await analyze_image(
+                    image_url=download_url,
+                    image_id=file_id,
+                    property_name=property_name,
+                    image_index=idx,
+                    total_images=total_images,
+                )
+
+            # Add index to each file for tracking
+            indexed_files = list(enumerate(image_files))
+
+            results = await parallel_map(
+                items=indexed_files,
+                async_fn=analyze_single,
+                max_concurrent=max_concurrent,
+                desc=f"Analyzing {len(image_files)} images",
+            )
 
         # Log summary timing
         batch_elapsed = time.time() - batch_start
         avg_per_image = batch_elapsed / total_images if total_images else 0
+        worker_count = 5 if hybrid_available else max_concurrent
+        pool_type = "hybrid 2+3" if hybrid_available else "single"
         logger.info(
             f"[TIMING] Vision analysis complete: {total_images} images in {batch_elapsed:.1f}s "
-            f"(avg {avg_per_image:.1f}s/image, {max_concurrent} workers)"
+            f"(avg {avg_per_image:.1f}s/image, {worker_count} workers, {pool_type})"
         )
 
         # Process results into rooms and objects

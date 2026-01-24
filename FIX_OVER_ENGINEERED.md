@@ -791,14 +791,59 @@ def add_citation(component_id: str, classification: str, source: dict):
 
 ## Components That ARE Appropriately Designed
 
-### 1. Vision Analysis (GPT-4o)
+### 1. Vision Analysis (GPT-4o) [OPTIMIZED]
 
 **Why it's appropriate:**
 - Requires visual understanding (what objects are in this photo?)
 - No static mapping can identify objects in arbitrary photos
 - LLM vision models are the right tool for this
 
-**Keep as-is:** `backEnd/agentic/agents/vision_agent.py`
+**Optimization Applied: Hybrid Vision Pool**
+
+The vision analysis was taking ~3.2 seconds per image with 2 concurrent workers. We implemented a hybrid pool that uses both Azure OpenAI and OpenAI simultaneously:
+
+```
+BEFORE: 2 Azure workers → 4 images in 12.7s (3.2s/image)
+AFTER:  2 Azure + 3 OpenAI = 5 workers → 4 images in ~5s (1.25s/image)
+```
+
+**Implementation:**
+
+```python
+# backEnd/agentic/utils/parallel.py
+
+class HybridVisionPool:
+    """
+    Hybrid pool: 2 Azure + 3 OpenAI = 5 concurrent workers.
+    Round-robin distribution with fallback on rate limits.
+    """
+    def __init__(self, azure_concurrent=2, openai_concurrent=3):
+        self._azure_semaphore = asyncio.Semaphore(azure_concurrent)
+        self._openai_semaphore = asyncio.Semaphore(openai_concurrent)
+
+    def _assign_provider(self, index: int) -> str:
+        # Items 0,1 → Azure; Items 2,3,4 → OpenAI (repeats)
+        cycle_position = index % 5
+        return "azure" if cycle_position < 2 else "openai"
+```
+
+**Usage in vision_agent.py:**
+
+```python
+# When both providers are configured:
+if is_hybrid_vision_available():
+    pool = HybridVisionPool(azure_concurrent=2, openai_concurrent=3)
+    results = await pool.map(image_files, analyze_with_provider)
+```
+
+**Expected improvement for 52 images:**
+- Before: 52 images × 3.2s/image ÷ 2 workers = ~83 seconds
+- After: 52 images × 3.2s/image ÷ 5 workers = ~33 seconds (~60% faster)
+
+**Files modified:**
+- `backEnd/agentic/utils/parallel.py` - Added `HybridVisionPool` class
+- `backEnd/agentic/config/llm_providers.py` - Added `get_vision_llm_for_provider()`, `is_hybrid_vision_available()`
+- `backEnd/agentic/agents/vision_agent.py` - Added `analyze_image_with_provider()`, updated `analyze_study_images()`
 
 ### 2. Asset Classification (for edge cases)
 

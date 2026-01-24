@@ -313,3 +313,59 @@ def get_vision_llm() -> BaseChatModel:
 def get_text_llm() -> BaseChatModel:
     """Get LLM for text tasks (GPT-5-nano)."""
     return get_llm(model_override="gpt-5-nano", use_vision_model=False)
+
+
+def get_vision_llm_for_provider(provider: str) -> BaseChatModel:
+    """
+    Get vision LLM for a specific provider (used by HybridVisionPool).
+
+    Args:
+        provider: "azure" or "openai"
+
+    Returns:
+        Vision-capable LLM for the specified provider
+
+    Raises:
+        ValueError: If provider is not configured
+    """
+    if provider == "azure":
+        azure_llm = _get_azure_llm(model_override="gpt-4o-mini", use_vision_model=True)
+        if azure_llm:
+            return azure_llm
+        raise ValueError("Azure OpenAI not configured")
+    elif provider == "openai":
+        openai_llm = _get_openai_llm(model_override="gpt-4o-mini", use_vision_model=True)
+        if openai_llm:
+            return openai_llm
+        raise ValueError("OpenAI not configured")
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+
+def get_available_vision_providers() -> list[str]:
+    """
+    Get list of available vision providers.
+
+    Returns:
+        List of provider names that are configured and available
+    """
+    providers = []
+    settings = get_settings()
+
+    if settings.is_azure_configured():
+        providers.append("azure")
+    if settings.openai_api_key:
+        providers.append("openai")
+
+    return providers
+
+
+def is_hybrid_vision_available() -> bool:
+    """
+    Check if both Azure and OpenAI are configured for hybrid vision pool.
+
+    Returns:
+        True if both providers are available
+    """
+    providers = get_available_vision_providers()
+    return "azure" in providers and "openai" in providers
