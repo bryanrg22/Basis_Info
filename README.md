@@ -13,6 +13,10 @@
 
 ---
 
+## System Architecture
+
+<img src="docs/architecture.svg" alt="System architecture diagram" width="900"/>
+
 ## Table of Contents
 
 * [What is Basis?](#what-is-basis)
