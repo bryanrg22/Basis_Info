@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 950" font-family="'DM Sans', -apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <marker id="ag" markerWidth="14" markerHeight="12" refX="12" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L14,6 L0,12 z" fill="#E8A838"/></marker>
+    <marker id="an" markerWidth="14" markerHeight="12" refX="12" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L14,6 L0,12 z" fill="#9a948a"/></marker>
+    <marker id="ai" markerWidth="14" markerHeight="12" refX="12" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L14,6 L0,12 z" fill="#b0aaa0"/></marker>
+  </defs>
+
+  <rect x="8" y="8" width="1384" height="934" rx="26" fill="#242220"/>
+
+  <!-- Group: Browser -->
+  <rect x="28" y="28" width="470" height="188" rx="20" fill="#2e2b28" stroke="#4a463f" stroke-width="2"/>
+  <text x="48" y="62" font-size="24" font-weight="bold" fill="#c9c3b8">Browser</text>
+  <rect x="52" y="84" width="422" height="112" rx="14" fill="#B8842C"/>
+  <text x="72" y="114" font-size="25" font-weight="bold" fill="#ffffff">Next.js 14 Frontend</text>
+  <text x="72" y="140" font-size="18" fill="#e6e0d6">App Router wizard /study/[id]/*</text>
+  <text x="72" y="162" font-size="18" fill="#e6e0d6">usePolling /status every 10s</text>
+  <text x="72" y="184" font-size="18" fill="#e6e0d6">Firebase SDK login + uploads</text>
+
+  <!-- Group: Backend (Docker Compose) -->
+  <rect x="76" y="268" width="840" height="458" rx="20" fill="#2e2b28" stroke="#4a463f" stroke-width="2"/>
+  <text x="440" y="300" font-size="24" font-weight="bold" fill="#c9c3b8">Backend (Docker Compose)</text>
+
+  <rect x="100" y="316" width="380" height="112" rx="14" fill="#0E9F7A"/>
+  <text x="120" y="346" font-size="25" font-weight="bold" fill="#ffffff">FastAPI Workflow API</text>
+  <text x="120" y="372" font-size="18" fill="#e6e0d6">:8000 &#183; POST /workflow/start</text>
+  <text x="120" y="394" font-size="18" fill="#e6e0d6">GET /status &#183; /costs &#183; /jobs</text>
+  <text x="120" y="416" font-size="18" fill="#e6e0d6">Firebase ID token + slowapi</text>
+
+  <rect x="508" y="316" width="380" height="112" rx="14" fill="#0E9F7A"/>
+  <text x="528" y="346" font-size="25" font-weight="bold" fill="#ffffff">Multi-Agent Extraction</text>
+  <text x="528" y="372" font-size="18" fill="#e6e0d6">extract &#8594; verify &#8594; correct</text>
+  <text x="528" y="394" font-size="18" fill="#e6e0d6">MISMO &#8594; Azure DI &#8594; GPT-4o</text>
+  <text x="528" y="416" font-size="18" fill="#e6e0d6">critical fields &#8805;0.90 conf</text>
+
+  <rect x="100" y="458" width="380" height="112" rx="14" fill="#0E9F7A"/>
+  <text x="120" y="488" font-size="25" font-weight="bold" fill="#ffffff">Job Worker</text>
+  <text x="120" y="514" font-size="18" fill="#e6e0d6">polls job_queue every 5s</text>
+  <text x="120" y="536" font-size="18" fill="#e6e0d6">transactional job claims</text>
+  <text x="120" y="558" font-size="18" fill="#e6e0d6">stale cleanup every 300s</text>
+
+  <rect x="508" y="458" width="380" height="112" rx="14" fill="#0E9F7A"/>
+  <text x="528" y="488" font-size="25" font-weight="bold" fill="#ffffff">LangGraph Engine</text>
+  <text x="528" y="514" font-size="18" fill="#e6e0d6">3 engineer pause points</text>
+  <text x="528" y="536" font-size="18" fill="#e6e0d6">FirestoreCheckpointer</text>
+  <text x="528" y="558" font-size="18" fill="#e6e0d6">asyncio fan-out &#215;20/&#215;10</text>
+
+  <rect x="508" y="600" width="380" height="112" rx="14" fill="#0E9F7A"/>
+  <text x="528" y="630" font-size="25" font-weight="bold" fill="#ffffff">Evidence Layer (RAG+MCP)</text>
+  <text x="528" y="656" font-size="18" fill="#e6e0d6">BM25 IRS tokens + FAISS</text>
+  <text x="528" y="678" font-size="18" fill="#e6e0d6">hybrid_search &#183; get_table</text>
+  <text x="528" y="700" font-size="18" fill="#e6e0d6">Pub 946/527 &#183; RSMeans</text>
+
+  <!-- Group: External AI APIs -->
+  <rect x="938" y="268" width="434" height="472" rx="20" fill="#2e2b28" stroke="#4a463f" stroke-width="2"/>
+  <text x="958" y="300" font-size="24" font-weight="bold" fill="#c9c3b8">External AI APIs</text>
+
+  <rect x="960" y="322" width="390" height="112" rx="14" fill="#B34A3E"/>
+  <text x="980" y="352" font-size="25" font-weight="bold" fill="#ffffff">Vision &#183; Replicate</text>
+  <text x="980" y="378" font-size="18" fill="#e6e0d6">Grounding DINO open-vocab</text>
+  <text x="980" y="400" font-size="18" fill="#e6e0d6">SAM2 masks &#183; verifier gate</text>
+  <text x="980" y="422" font-size="18" fill="#e6e0d6">GPT-4o/-mini VLM describe</text>
+
+  <rect x="960" y="560" width="390" height="112" rx="14" fill="#B34A3E"/>
+  <text x="980" y="590" font-size="25" font-weight="bold" fill="#ffffff">LLMs + Observability</text>
+  <text x="980" y="616" font-size="18" fill="#e6e0d6">Azure OpenAI nano/mini</text>
+  <text x="980" y="638" font-size="18" fill="#e6e0d6">429 &#8594; OpenAI fallback</text>
+  <text x="980" y="660" font-size="18" fill="#e6e0d6">LangSmith + cost_tracker</text>
+
+  <!-- Group: Google Cloud -->
+  <rect x="28" y="792" width="884" height="138" rx="20" fill="#2e2b28" stroke="#4a463f" stroke-width="2"/>
+  <text x="48" y="824" font-size="24" font-weight="bold" fill="#c9c3b8">Google Cloud</text>
+
+  <rect x="260" y="806" width="630" height="112" rx="14" fill="#6D5BD8"/>
+  <text x="280" y="836" font-size="25" font-weight="bold" fill="#ffffff">Firebase &#8212; Firestore &#183; Auth &#183; Storage</text>
+  <text x="280" y="862" font-size="18" fill="#e6e0d6">studies &#183; job_queue &#183; workflow_checkpoints (+writes)</text>
+  <text x="280" y="884" font-size="18" fill="#e6e0d6">Auth ID tokens &#183; Storage photo + appraisal uploads</text>
+  <text x="280" y="906" font-size="18" fill="#e6e0d6">writeback: rooms, assets, takeoffs, evidencePack</text>
+
+  <!-- Primary flows (solid gold) -->
+  <path d="M160 196 L160 312" stroke="#E8A838" stroke-width="3" fill="none" marker-end="url(#ag)"/>
+  <text x="172" y="236" font-size="17" fill="#cfc9bf">POST /workflow/start&#183;resume</text>
+  <path d="M52 160 L38 160 L38 865 L256 865" stroke="#E8A838" stroke-width="3" fill="none" marker-end="url(#ag)"/>
+  <text x="46" y="780" font-size="17" fill="#cfc9bf">Firebase SDK &#183; uploads</text>
+  <path d="M888 496 L1050 496 L1050 438" stroke="#E8A838" stroke-width="3" fill="none" marker-end="url(#ag)"/>
+  <text x="944" y="516" font-size="17" fill="#cfc9bf">DINO &#8594; SAM2 &#8594; VLM</text>
+
+  <!-- Async / polling flows (dashed gray) -->
+  <path d="M420 196 L420 312" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" fill="none" marker-end="url(#an)"/>
+  <text x="200" y="262" font-size="17" fill="#cfc9bf">GET /status &#183; 10s poll</text>
+  <path d="M100 412 L88 412 L88 758 L290 758 L290 801" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" fill="none" marker-end="url(#an)"/>
+  <text x="100" y="746" font-size="17" fill="#cfc9bf">enqueue &#8594; job_queue</text>
+  <path d="M340 570 L340 801" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" fill="none" marker-end="url(#an)"/>
+  <text x="350" y="655" font-size="17" fill="#cfc9bf">polls job_queue</text>
+  <text x="350" y="677" font-size="17" fill="#cfc9bf">5s txn claim</text>
+  <path d="M508 552 L494 552 L494 801" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" fill="none" marker-end="url(#an)"/>
+  <text x="505" y="746" font-size="17" fill="#cfc9bf">checkpoints + writeback</text>
+  <path d="M888 540 L924 540 L924 616 L956 616" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" fill="none" marker-end="url(#an)"/>
+  <text x="942" y="554" font-size="17" fill="#cfc9bf">Azure OpenAI &#183; LangSmith</text>
+
+  <!-- Internal flows (solid light gray) -->
+  <path d="M480 512 L504 512" stroke="#b0aaa0" stroke-width="2.5" fill="none" marker-end="url(#ai)"/>
+  <text x="424" y="449" font-size="17" fill="#cfc9bf">runs graph nodes</text>
+  <path d="M698 458 L698 432" stroke="#b0aaa0" stroke-width="2.5" fill="none" marker-end="url(#ai)"/>
+  <text x="706" y="449" font-size="17" fill="#cfc9bf">resource_extraction</text>
+  <path d="M620 570 L620 596" stroke="#b0aaa0" stroke-width="2.5" fill="none" marker-end="url(#ai)"/>
+  <text x="630" y="590" font-size="17" fill="#cfc9bf">hybrid_search &#183; get_table</text>
+  <path d="M760 712 L760 801" stroke="#b0aaa0" stroke-width="2.5" fill="none" marker-end="url(#ai)"/>
+  <text x="770" y="746" font-size="17" fill="#cfc9bf">GCS: bm25 &#183; faiss</text>
+
+  <!-- Legend -->
+  <line x1="950" y1="808" x2="1030" y2="808" stroke="#E8A838" stroke-width="3" marker-end="url(#ag)"/>
+  <text x="1044" y="814" font-size="17" fill="#cfc9bf">primary user / task flow</text>
+  <line x1="950" y1="852" x2="1030" y2="852" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" marker-end="url(#an)"/>
+  <text x="1044" y="858" font-size="17" fill="#cfc9bf">polling / async / background</text>
+  <line x1="950" y1="896" x2="1030" y2="896" stroke="#b0aaa0" stroke-width="2.5" marker-end="url(#ai)"/>
+  <text x="1044" y="902" font-size="17" fill="#cfc9bf">internal data flow</text>
+</svg>
