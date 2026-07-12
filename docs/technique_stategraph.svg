@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 950" font-family="'DM Sans', -apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <marker id="arrowP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#E8A838"/></marker>
+    <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9a948a"/></marker>
+  </defs>
+  <rect x="8" y="8" width="1384" height="934" fill="#242220" rx="26"/>
+
+  <!-- ================= GROUP A: STATE MACHINE ================= -->
+  <rect x="40" y="40" width="1320" height="540" fill="#2e2b28" stroke="#4a463f" stroke-width="2" rx="20"/>
+  <text x="64" y="75" font-size="24" font-weight="bold" fill="#c9c3b8">LANGGRAPH STATE MACHINE — 3 PAUSES</text>
+
+  <!-- Row 1 -->
+  <rect x="70" y="100" width="330" height="110" fill="#0E9F7A" rx="14"/>
+  <text x="86" y="132" font-size="25" font-weight="bold" fill="#ffffff">load_study</text>
+  <text x="86" y="158" font-size="18" fill="#e6e0d6">reads study doc (Firestore)</text>
+  <text x="86" y="181" font-size="18" fill="#e6e0d6">enqueues analyze_rooms job</text>
+  <text x="86" y="204" font-size="18" fill="#e6e0d6">for true parallel start</text>
+
+  <rect x="460" y="100" width="370" height="110" fill="#0E9F7A" rx="14"/>
+  <text x="476" y="132" font-size="25" font-weight="bold" fill="#ffffff">resource_extraction</text>
+  <text x="476" y="158" font-size="18" fill="#e6e0d6">multi-agent appraisal loop</text>
+  <text x="476" y="181" font-size="18" fill="#e6e0d6">extract → verify → correct</text>
+  <text x="476" y="204" font-size="18" fill="#e6e0d6">then graph hits END</text>
+
+  <rect x="950" y="100" width="380" height="110" fill="#B8842C" rx="14"/>
+  <text x="966" y="132" font-size="25" font-weight="bold" fill="#ffffff">PAUSE #1 · Appraisal</text>
+  <text x="966" y="158" font-size="18" fill="#e6e0d6">engineer reviews fields in UI</text>
+  <text x="966" y="181" font-size="18" fill="#e6e0d6">state saved — safe to close</text>
+  <text x="966" y="204" font-size="18" fill="#e6e0d6">resume sets appraisalApproved</text>
+
+  <!-- Row 2 -->
+  <rect x="70" y="280" width="400" height="120" fill="#0E9F7A" rx="14"/>
+  <text x="86" y="316" font-size="25" font-weight="bold" fill="#ffffff">analyze_rooms · background</text>
+  <text x="86" y="344" font-size="18" fill="#e6e0d6">runs while engineer reviews</text>
+  <text x="86" y="368" font-size="18" fill="#e6e0d6">2 vision workers · 3 hit limits</text>
+  <text x="86" y="392" font-size="18" fill="#e6e0d6">sets roomsReady = true</text>
+
+  <rect x="950" y="280" width="380" height="120" fill="#B8842C" rx="14"/>
+  <text x="966" y="316" font-size="25" font-weight="bold" fill="#ffffff">PAUSE #2 · Rooms</text>
+  <text x="966" y="344" font-size="18" fill="#e6e0d6">gate: approved AND roomsReady</text>
+  <text x="966" y="368" font-size="18" fill="#e6e0d6">engineer fixes room labels</text>
+  <text x="966" y="392" font-size="18" fill="#e6e0d6">resume → reviewing_rooms</text>
+
+  <!-- Row 3 -->
+  <rect x="70" y="460" width="400" height="110" fill="#0E9F7A" rx="14"/>
+  <text x="86" y="492" font-size="25" font-weight="bold" fill="#ffffff">process_assets</text>
+  <text x="86" y="518" font-size="18" fill="#e6e0d6">enrich: static IRS lookups</text>
+  <text x="86" y="541" font-size="18" fill="#e6e0d6">takeoffs + classify in parallel</text>
+  <text x="86" y="564" font-size="18" fill="#e6e0d6">LLM ×2 · verify ×5 · RSMeans</text>
+
+  <rect x="560" y="460" width="380" height="110" fill="#B8842C" rx="14"/>
+  <text x="576" y="492" font-size="25" font-weight="bold" fill="#ffffff">PAUSE #3 · Takeoff</text>
+  <text x="576" y="518" font-size="18" fill="#e6e0d6">engineer reviews every asset</text>
+  <text x="576" y="541" font-size="18" fill="#e6e0d6">corrections → CorrectionCascade</text>
+  <text x="576" y="564" font-size="18" fill="#e6e0d6">stale marks + recalc jobs</text>
+
+  <rect x="1030" y="460" width="300" height="110" fill="#0E9F7A" rx="14"/>
+  <text x="1046" y="492" font-size="25" font-weight="bold" fill="#ffffff">complete</text>
+  <text x="1046" y="518" font-size="18" fill="#e6e0d6">writeback → studies doc</text>
+  <text x="1046" y="541" font-size="18" fill="#e6e0d6">status: completed</text>
+
+  <!-- Graph edges -->
+  <line x1="400" y1="155" x2="456" y2="155" stroke="#E8A838" stroke-width="3" marker-end="url(#arrowP)"/>
+  <line x1="830" y1="155" x2="946" y2="155" stroke="#E8A838" stroke-width="3" marker-end="url(#arrowP)"/>
+  <text x="888" y="143" font-size="17" fill="#cfc9bf" text-anchor="middle">END</text>
+
+  <line x1="235" y1="210" x2="235" y2="276" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" marker-end="url(#arrowA)"/>
+  <text x="249" y="250" font-size="17" fill="#cfc9bf">enqueue job</text>
+
+  <line x1="470" y1="340" x2="946" y2="340" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" marker-end="url(#arrowA)"/>
+  <text x="710" y="328" font-size="17" fill="#cfc9bf" text-anchor="middle">roomsReady = true</text>
+
+  <line x1="1140" y1="210" x2="1140" y2="276" stroke="#E8A838" stroke-width="3" marker-end="url(#arrowP)"/>
+  <text x="1152" y="250" font-size="17" fill="#cfc9bf">approve</text>
+
+  <path d="M1140,400 V435 H270 V456" fill="none" stroke="#E8A838" stroke-width="3" marker-end="url(#arrowP)"/>
+  <text x="705" y="428" font-size="17" fill="#cfc9bf" text-anchor="middle">resume(thread_id = study_id)</text>
+
+  <line x1="470" y1="515" x2="556" y2="515" stroke="#E8A838" stroke-width="3" marker-end="url(#arrowP)"/>
+  <text x="513" y="503" font-size="17" fill="#cfc9bf" text-anchor="middle">END</text>
+
+  <line x1="940" y1="515" x2="1026" y2="515" stroke="#E8A838" stroke-width="3" marker-end="url(#arrowP)"/>
+  <text x="983" y="503" font-size="17" fill="#cfc9bf" text-anchor="middle">approve</text>
+
+  <!-- ================= GROUP B: PERSISTENCE + WORKERS ================= -->
+  <rect x="40" y="620" width="1320" height="200" fill="#2e2b28" stroke="#4a463f" stroke-width="2" rx="20"/>
+  <text x="64" y="655" font-size="24" font-weight="bold" fill="#c9c3b8">PERSISTENCE + WORKERS</text>
+
+  <rect x="70" y="680" width="440" height="110" fill="#6D5BD8" rx="14"/>
+  <text x="86" y="712" font-size="25" font-weight="bold" fill="#ffffff">FirestoreCheckpointer</text>
+  <text x="86" y="738" font-size="18" fill="#e6e0d6">workflow_checkpoints/{thread}</text>
+  <text x="86" y="761" font-size="18" fill="#e6e0d6">thread_id = study_id</text>
+  <text x="86" y="784" font-size="18" fill="#e6e0d6">partial writes → subcollection</text>
+
+  <rect x="560" y="680" width="400" height="110" fill="#6D5BD8" rx="14"/>
+  <text x="576" y="712" font-size="25" font-weight="bold" fill="#ffffff">Job Worker</text>
+  <text x="576" y="738" font-size="18" fill="#e6e0d6">polls job_queue every 5 s</text>
+  <text x="576" y="761" font-size="18" fill="#e6e0d6">transactional claim · 5 handlers</text>
+  <text x="576" y="784" font-size="18" fill="#e6e0d6">stale-job sweep every 300 s</text>
+
+  <rect x="1010" y="680" width="320" height="110" fill="#0E9F7A" rx="14"/>
+  <text x="1026" y="712" font-size="25" font-weight="bold" fill="#ffffff">3-tier classify</text>
+  <text x="1026" y="738" font-size="18" fill="#e6e0d6">static rules → cache → LLM</text>
+  <text x="1026" y="761" font-size="18" fill="#e6e0d6">cache = engineer-approved</text>
+  <text x="1026" y="784" font-size="18" fill="#e6e0d6">only cited results cached</text>
+
+  <line x1="290" y1="680" x2="272" y2="574" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" marker-end="url(#arrowA)"/>
+  <text x="330" y="630" font-size="17" fill="#cfc9bf">state after every node</text>
+
+  <line x1="760" y1="680" x2="354" y2="574" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" marker-end="url(#arrowA)"/>
+  <text x="775" y="660" font-size="17" fill="#cfc9bf">claims graph-node jobs</text>
+
+  <!-- ================= LEGEND ================= -->
+  <line x1="60" y1="865" x2="130" y2="865" stroke="#E8A838" stroke-width="3" marker-end="url(#arrowP)"/>
+  <text x="140" y="871" font-size="17" fill="#cfc9bf">graph edge / engineer resume</text>
+  <line x1="440" y1="865" x2="510" y2="865" stroke="#9a948a" stroke-width="2.5" stroke-dasharray="7 7" marker-end="url(#arrowA)"/>
+  <text x="520" y="871" font-size="17" fill="#cfc9bf">async / background job</text>
+</svg>
