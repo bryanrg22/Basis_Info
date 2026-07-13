@@ -593,6 +593,8 @@ results = hybrid_search("IRS_PUB946_2024", "tangible personal property", top_k=5
 
 When documents are large or interrelated, naive RAG retrieves too much context, saturating the LLM's context window and degrading response quality. The solution is **agent-based selective retrieval**—the agent plans what evidence is needed, retrieves selectively, and verifies sufficiency before generating.
 
+<img src="docs/technique_rag.svg" alt="Agentic RAG technique: agent tool calls into the MCP evidence server backed by hybrid BM25 + FAISS retrieval" width="900"/>
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                      AGENTIC RAG vs NAIVE RAG                               │
@@ -728,6 +730,8 @@ The workflow has been optimized to have exactly **3 engineer checkpoints** match
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+<img src="docs/technique_stategraph.svg" alt="LangGraph workflow state machine with three engineer pause points" width="900"/>
 
 **Frontend WorkflowStatus values:**
 ```
@@ -939,6 +943,8 @@ The appraisal extraction system uses a **3-agent LangGraph StateGraph** for inte
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+<img src="docs/agent_loop.svg" alt="Multi-agent self-correction loop: Extractor, Verifier, and Corrector agents with audit trail" width="900"/>
 
 **Why Multi-Agent? (Agentic Tool Use)**
 
