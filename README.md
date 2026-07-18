@@ -35,6 +35,7 @@
   * [Vision Layer — Detection-First Image Processing](#5-vision-layer--detection-first-image-processing)
   * [Tool Registry](#6-tool-registry)
 * [Tech Stack](#tech-stack)
+* [Production Deployment](#production-deployment)
 * [Engineer-in-the-Loop Workflow](#engineer-in-the-loop-workflow)
 * [User Workflow (High Level)](#user-workflow-high-level)
 * [Current Application: Cost Segregation](#current-application-cost-segregation)
@@ -43,7 +44,6 @@
 * [Accuracy, Safety & Defensibility](#accuracy-safety--defensibility)
 * [Data Handling](#data-handling)
 * [Why Not Just Use ChatGPT?](#why-not-just-use-chatgpt)
-* [Getting Started (Dev)](#getting-started-dev)
 * [About](#about)
 
 ---
@@ -1379,6 +1379,36 @@ def hybrid_search(
 - **Hosting:** Firebase App Hosting, Google Cloud Run
 - **Containers:** Docker
 - **State Persistence:** Firestore checkpointer for workflow state
+
+---
+
+## Production Deployment
+
+Basis is not a demo — it runs in production for paying customers (see
+[Traction & Validation](#traction--validation)). What that means concretely:
+
+- **Backend on Google Cloud Run.** The FastAPI app ships as a container
+  (`backEnd/Dockerfile`: `python:3.12-slim`, uvicorn on `:8000`) — stateless by
+  design so Cloud Run can scale and restart it freely.
+- **Dedicated async worker.** Long-running document/vision jobs run in a
+  separate worker container (`agentic.workers.job_worker`), decoupled from the
+  API so a 200-page appraisal ingest never blocks a user request. Both services
+  carry restart policies; `docker-compose.yml` mirrors the production topology
+  for local dev, so dev/prod parity is structural, not aspirational.
+- **Frontend on Firebase App Hosting** (Next.js 14, TypeScript).
+- **Durable workflow state.** LangGraph checkpoints persist to Firestore
+  (`agentic/firestore/checkpointer.py`) — a multi-stage study survives server
+  restarts and redeploys mid-workflow, which is what makes the stage-gated
+  engineer-review process trustworthy in practice.
+- **Managed AI services.** Azure OpenAI (LLM) and Azure Document Intelligence
+  (appraisal extraction) — no self-hosted model infrastructure to babysit.
+- **Data layer.** Firestore (structured study data), Firebase Storage / GCS
+  (documents and images), Firebase Auth.
+- **Observability.** Every agent run is traced with LangSmith
+  (`agentic/observability/tracing.py`), so production extraction errors are
+  debuggable from traces rather than reproduced by hand.
+- **Configuration.** 12-factor style: all environment-specific settings come
+  from env files injected at deploy time.
 
 ---
 
