@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from basis import __version__
 from basis.api.errors import install_error_handlers
+from basis.api.idempotency import InMemoryIdempotencyStore
 from basis.api.middleware import RequestIdMiddleware
 from basis.api.ratelimit import InMemoryRateLimiter
 from basis.auth.firebase import FirebaseTokenVerifier
@@ -31,7 +32,8 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings = settings
     # Raises ConfigError (refuses to start) if the auth emulator is set in staging/prod.
     app.state.token_verifier = FirebaseTokenVerifier(settings)
-    # Process-local default; S1-C replaces it with the Postgres-backed implementation.
+    # Process-local defaults; S1-C replaces them with the Postgres-backed implementations.
+    app.state.idempotency_store = InMemoryIdempotencyStore()
     app.state.rate_limiter = InMemoryRateLimiter()
     # Order matters: middleware added later wraps earlier middleware, and the 500
     # handler must run inside the request-id context.
