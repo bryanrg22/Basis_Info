@@ -29,9 +29,12 @@ fails loudly in tests instead of silently never storing responses. ``/health`` i
 on these routers and is unaffected.
 
 The store is an :class:`IdempotencyStore`; :class:`InMemoryIdempotencyStore` is for a
-single process and tests. The Postgres-backed store (S1-C, table ``idempotency_keys``)
-implements ``reserve`` as ``INSERT ... ON CONFLICT DO NOTHING`` on ``(user_id, key)``,
-treating a row with a NULL status as in flight and expired rows as absent.
+single process and tests. :class:`basis.api.idempotency_pg.PostgresIdempotencyStore`
+(table ``idempotency_keys``) is used whenever a database is configured; it treats a row
+with a NULL status as in flight and expired rows as absent.
+
+Repository errors raised by a handler (``NotVisibleError``, ``ConflictError``, ...) are
+mapped with :func:`basis.api.errors.as_api_error` and stored like any deliberate 4xx.
 """
 
 from __future__ import annotations
@@ -51,7 +54,13 @@ from fastapi.routing import APIRoute
 from starlette.responses import Response
 
 from basis.api.auth import CurrentPrincipal
-from basis.api.errors import ApiError, BadRequest, Conflict, Unprocessable, api_error_response
+from basis.api.errors import (
+    BadRequest,
+    Conflict,
+    Unprocessable,
+    api_error_response,
+    as_api_error,
+)
 
 IDEMPOTENCY_HEADER: Final = "Idempotency-Key"
 REPLAYED_HEADER: Final = "Idempotent-Replayed"
@@ -111,12 +120,13 @@ class IdempotencyStore(Protocol):
         ...
 
     async def reserve(
-        self, user_key: UserKey, request_hash: str, ttl: timedelta
+        self, user_key: UserKey, request_hash: str, ttl: timedelta, *, route: str = ""
     ) -> StoredResponse | None:
         """Atomically create an in-flight record unless a live one exists.
 
         Returns ``None`` when this call created the reservation, otherwise the existing
-        record (in flight or completed).
+        record (in flight or completed). ``route`` (``"POST /v1/studies"``) is recorded for
+        diagnostics only; it is not part of the key.
         """
         ...
 
@@ -132,8 +142,13 @@ class IdempotencyStore(Protocol):
         """Store the completed response, replacing the reservation."""
         ...
 
-    async def release(self, user_key: UserKey) -> None:
-        """Drop an in-flight reservation; a completed record is left alone."""
+    async def release(self, user_key: UserKey, *, request_hash: str | None = None) -> None:
+        """Drop an in-flight reservation; a completed record is left alone.
+
+        With ``request_hash``, only a reservation for that fingerprint is dropped, so a
+        request whose reservation expired and was re-made by another request cannot
+        release the newer one.
+        """
         ...
 
 
@@ -170,7 +185,7 @@ class InMemoryIdempotencyStore:
         return self._live(user_key)
 
     async def reserve(
-        self, user_key: UserKey, request_hash: str, ttl: timedelta
+        self, user_key: UserKey, request_hash: str, ttl: timedelta, *, route: str = ""
     ) -> StoredResponse | None:
         self._sweep()
         existing = self._live(user_key)
@@ -202,9 +217,11 @@ class InMemoryIdempotencyStore:
             expires_at=self._clock() + ttl.total_seconds(),
         )
 
-    async def release(self, user_key: UserKey) -> None:
+    async def release(self, user_key: UserKey, *, request_hash: str | None = None) -> None:
         record = self._records.get(user_key)
-        if record is not None and record.in_progress:
+        if record is None or not record.in_progress:
+            return
+        if request_hash is None or record.request_hash == request_hash:
             del self._records[user_key]
 
 
@@ -280,7 +297,7 @@ class _Pending:
 
     async def abandon(self) -> None:
         try:
-            await self.store.release(self.user_key)
+            await self.store.release(self.user_key, request_hash=self.request_hash)
         except Exception:
             # The reservation then expires after IN_FLIGHT_TTL; the original error matters more.
             logger.exception("failed to release idempotency reservation")
@@ -327,7 +344,9 @@ async def idempotency(
         await request.body(),
     )
     user_key = UserKey(principal.uid, key)
-    existing = await store.reserve(user_key, fingerprint, IN_FLIGHT_TTL)
+    route = request.scope.get("route")
+    route_label = f"{request.method} {getattr(route, 'path', request.url.path)}"
+    existing = await store.reserve(user_key, fingerprint, IN_FLIGHT_TTL, route=route_label)
     if existing is None:
         setattr(request.state, STATE_ATTR, _Pending(store, user_key, fingerprint))
         return
@@ -352,21 +371,17 @@ class IdempotentRoute(APIRoute):
                 response = await handler(request)
             except _Replay as replay:
                 return replay_response(replay.stored)
-            except ApiError as exc:
+            except BaseException as exc:
                 pending = _pending(request)
                 if pending is None:
                     raise
-                if exc.status >= 500:
+                api_error = as_api_error(exc) if isinstance(exc, Exception) else None
+                if api_error is None or api_error.status >= 500:
                     await pending.abandon()
                     raise
-                response = api_error_response(request, exc)
+                response = api_error_response(request, api_error)
                 await pending.complete(response)
                 return response
-            except BaseException:
-                pending = _pending(request)
-                if pending is not None:
-                    await pending.abandon()
-                raise
             pending = _pending(request)
             if pending is not None:
                 await pending.complete(response)
