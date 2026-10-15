@@ -109,7 +109,7 @@ known-first-party = ["basis"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["basis"]
+files = ["basis", "evals"]
 strict = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]

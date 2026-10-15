@@ -175,6 +175,10 @@ class InMemoryChunkStore:
 
     async def search_bm25(self, corpus_version_id: uuid.UUID, query: str, k: int) -> list[StoreHit]:
         self.calls.append(("search_bm25", str(corpus_version_id)))
+        return self.bm25(corpus_version_id, query, k)
+
+    def bm25(self, corpus_version_id: uuid.UUID, query: str, k: int) -> list[StoreHit]:
+        """Synchronous BM25 (the eval harness runs it outside an event loop)."""
         terms = tokenize(query)
         docs = self._version(corpus_version_id)
         if not terms or not docs or k <= 0:
