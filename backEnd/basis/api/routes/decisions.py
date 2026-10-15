@@ -94,6 +94,25 @@ async def check_correction_targets(
         raise RequestValidationError(errors)
 
 
+def check_no_corrections_on_approve(decision: str, corrections: Sequence[CorrectionIn]) -> None:
+    """422: an approval cannot carry corrections.
+
+    The workflow's update validator refuses such a decision, and because a validator
+    refusal is final for the outbox relay, the decision would be recorded by the API but
+    never applied. Reject with corrections instead.
+    """
+    if decision == "approve" and corrections:
+        raise RequestValidationError(
+            [
+                {
+                    "loc": ("body", "corrections"),
+                    "msg": "an approval cannot carry corrections; reject with corrections",
+                    "type": CORRECTION_TYPE_ERROR,
+                }
+            ]
+        )
+
+
 @writes.post(
     "/studies/{study_id}/decisions",
     status_code=status.HTTP_202_ACCEPTED,
@@ -119,6 +138,7 @@ async def record_decision(
     # Already validated by the idempotency dependency; read again for the review row.
     key = parse_idempotency_key(request.headers.get(IDEMPOTENCY_HEADER))
     check_correction_types(body.stage, body.corrections)
+    check_no_corrections_on_approve(body.decision, body.corrections)
     reviews = ReviewRepository(session)
     record = await reviews.record_decision(
         study_id=access.study.id,

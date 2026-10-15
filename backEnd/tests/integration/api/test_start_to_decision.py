@@ -86,6 +86,14 @@ async def test_start_decide_relay_cancel(
             ],
         },
     )
+    # An approval cannot carry corrections (the workflow validator would refuse it and the
+    # decision would be lost); the API answers 422 before anything is recorded.
+    assert decision.status_code == 422, decision.text
+    decision = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        {"stage": "appraisal_review", "revision": 1, "decision": "approve"},
+    )
     assert decision.status_code == 202, decision.text
     review_id = decision.json()["review"]["id"]
     # Accepted by the API, not yet seen by the workflow.
@@ -99,8 +107,7 @@ async def test_start_decide_relay_cancel(
     assert status["status"]["decisions_applied"] == [review_id]
     (applied,) = await applied_decisions(handle)
     assert applied.review_id == review_id
-    assert applied.corrections[0].entity_id == entity
-    assert applied.corrections[0].after == {"year_built": 1998}
+    assert applied.corrections == ()
 
     cancelled = await api.post("alice", f"/v1/studies/{sid}/cancel", {"reason": "withdrawn"})
     assert cancelled.status_code == 202, cancelled.text

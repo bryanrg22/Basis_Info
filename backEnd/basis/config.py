@@ -88,8 +88,8 @@ class Settings(BaseSettings):
     relay_poll_seconds: float = Field(default=2.0, gt=0)
     gcs_bucket: str | None = None
     firebase_project_id: str | None = None
-    rate_limit_reads_per_min: int = Field(default=60, gt=0)
-    rate_limit_mutations_per_min: int = Field(default=10, gt=0)
+    rate_limit_reads_per_min: int = Field(default=240, gt=0)
+    rate_limit_mutations_per_min: int = Field(default=60, gt=0)
 
     @field_validator("log_level", mode="before")
     @classmethod

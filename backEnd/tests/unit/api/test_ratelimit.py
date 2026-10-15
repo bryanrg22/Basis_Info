@@ -1,6 +1,7 @@
 """Invariants for rate limiting (S1_SPEC section 5, BUILD_PLAN 6.4).
 
-* Defaults: 60 reads and 10 mutations per minute per caller, from settings.
+* Limits come from settings; this module pins 60 reads and 10 mutations per minute so the
+  arithmetic below is explicit (the production defaults are higher, see test_default_limits).
 * Sliding-window log: never more than ``limit`` accepted in any 60 s interval; capacity
   returns exactly when the oldest request leaves the window; rejected requests do not
   extend the lockout.
@@ -57,6 +58,14 @@ def clock() -> FakeClock:
 
 
 @pytest.fixture
+def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
+    """Explicit limits for the arithmetic in this module (independent of the defaults)."""
+    monkeypatch.setenv("RATE_LIMIT_READS_PER_MIN", "60")
+    monkeypatch.setenv("RATE_LIMIT_MUTATIONS_PER_MIN", "10")
+    return load_settings()
+
+
+@pytest.fixture
 def app(settings: Settings, clock: FakeClock) -> FastAPI:
     app = create_app(settings)
     app.state.rate_limiter = InMemoryRateLimiter(clock=clock)
@@ -102,9 +111,13 @@ async def burn(client: httpx.AsyncClient, n: int, method: str, path: str, user: 
 # --------------------------------------------------------------------------- settings
 
 
-def test_default_limits(settings: Settings) -> None:
-    assert settings.rate_limit_reads_per_min == 60
-    assert settings.rate_limit_mutations_per_min == 10
+def test_default_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production defaults: one study needs 1 + 2 per document + start + 3 decisions."""
+    monkeypatch.delenv("RATE_LIMIT_READS_PER_MIN", raising=False)
+    monkeypatch.delenv("RATE_LIMIT_MUTATIONS_PER_MIN", raising=False)
+    fresh = load_settings()
+    assert fresh.rate_limit_reads_per_min == 240
+    assert fresh.rate_limit_mutations_per_min == 60
 
 
 def test_limits_come_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
