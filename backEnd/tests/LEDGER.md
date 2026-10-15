@@ -17,6 +17,20 @@ basis suite; `-m "not slow"` skips the subprocess-based checks.
 | `tests/unit/legacy/test_src_isolation.py` | The root `conftest.py` switcher keeps evidence_layer's and vision_layer's top-level `src` packages apart so all legacy suites run in one process, in either order | v0.1.0 (S0) | 9 tests, one `slow` + `regression` (subprocess). Delete with the legacy packages (S3) |
 | `tests/unit/legacy/test_vision_lazy_replicate.py` | vision_layer Replicate clients import without the `replicate` SDK, and calling them without it still raises `ImportError` | v0.1.0 (S0) | 2 tests, `slow` + `regression` (subprocess). Delete with vision_layer (S3) |
 
+## regression (reproduced legacy defects, strict `xfail` until fixed)
+
+Each test asserts the correct behavior and is marked `xfail(strict=True)`, so it fails the
+run the moment the behavior is fixed; the fix removes the mark in the same change.
+Run with `-m regression`. Sources: REVIEW_AND_PLAN.md A.3 (W1, W2, W3, W5) and A.8.
+
+| Test file | Invariant protected | Introduced in | Notes |
+|---|---|---|---|
+| `tests/regression/test_legacy_graph_reachability.py` | Every workflow node is reachable from START | v0.1.0 (S0) | xfail: 4 of 7 nodes orphaned (W1). Fixed by S2 (Temporal workflow replaces the graph) |
+| `tests/regression/test_legacy_resume_runs_expected_node.py` | Resuming at a stage runs that stage's next node, never extraction again | v0.1.0 (S0) | 2 xfails (W2). Fixed by S2 |
+| `tests/regression/test_legacy_rejection_not_recorded_as_approval.py` | A rejection never writes an approval | v0.1.0 (S0) | xfail (W3). Fixed by S2 |
+| `tests/regression/test_legacy_citation_extraction.py` | Search tool results become citations | v0.1.0 (S0) | 1 xfail + 1 passing test documenting the three causes (W5). Fixed by S3 |
+| `tests/regression/test_legacy_critical_fields_mapping.py` | Every critical field name is produced by the mapping tables | v0.1.0 (S0) | xfail (A.8, commit 277703c). Fixed by S3 |
+
 ## legacy (pre-rebuild, auto-marked `legacy`)
 
 These suites predate the rebuild. They are migrated into `tests/` module by module in
