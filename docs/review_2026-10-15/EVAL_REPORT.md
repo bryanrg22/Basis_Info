@@ -251,3 +251,63 @@ What to do next, in order, each measured with this dataset:
    Boxes also give the engineer's interface what it needs to show and correct a count.
 4. Re-label the two rooms whose floors were too dark to judge once better photos exist,
    and decide the open tub-versus-shower calls with the engineer.
+
+## 8. Per-photo model and prompt: a two-by-two on the real photos (2026-10-15)
+
+Question: does a stronger vision model, or writing the label guide's conventions into the
+prompt, move the per-photo numbers of section 6? Four runs of `evals.predict_photos`,
+three repeats each, scored with the same labels (loose furniture `other` on both sides).
+`gpt-4.1-mini` is the Azure deployment the pipeline uses today; `gpt-4.1` was called
+through OpenAI directly (`LLM_PRIMARY=openai`, `--model gpt-4.1`). Prompt `v2` is
+`photo_analysis/v2`: windows and doors always counted, finishes once and only when
+distinct, composite objects, loose furniture as `other`, careful counts of repeated
+objects. The pipeline stays pinned to `v1` (`basis.vision.analyze.PROMPT_VERSION`).
+
+| Run | Room accuracy | Room pass^3 | Component precision | Component recall | Component F1 | Label set identical across 3 repeats | Count MAE on shared labels | Exact count on shared labels | Cost per 52 photos | Seconds per photo |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gpt-4.1-mini, v1 (today) | 0.81 | 0.79 | 0.60 | 0.63 | 0.62 | 16 of 52 | 0.50 | 0.74 | $0.06 | 4.3 |
+| gpt-4.1-mini, v2 | 0.85 | 0.79 | 0.58 | 0.66 | 0.62 | 9 of 52 | 0.46 | 0.77 | $0.08 | 5.5 |
+| gpt-4.1, v1 | 0.85 | 0.85 | 0.63 | 0.72 | 0.67 | 26 of 52 | 0.44 | 0.78 | $0.30 | 2.2 |
+| gpt-4.1, v2 | 0.81 | 0.79 | 0.63 | 0.68 | 0.65 | 27 of 52 | 0.39 | 0.82 | $0.38 | 2.3 |
+
+"Shared labels" are the (photo, label) pairs both the model and the labels list; the count
+metrics there ask whether the model counts right what it did find. Per-photo count
+metrics are not yet in the harness (computed from the raw records; add them).
+
+Reading the table:
+
+- The model is the lever. `gpt-4.1` raises component recall from 0.63 to 0.72 and F1 from
+  0.62 to 0.67, gets 46 of 52 room labels right on all three repeats, returns the same
+  label set across repeats for half the photos instead of a third, and answers in half
+  the time. It costs five times more per photo, which is still under a dollar per
+  property.
+- The prompt is not. Writing the conventions in (`v2`) improves the counts of what is
+  found (exact count 0.74 to 0.77 on the small model, 0.78 to 0.82 on the large one) but
+  lowers precision or recall on label sets, and on the small model makes the output less
+  stable. Its instructions about what not to list cost more than its counting
+  instructions gain. `v2` stays released for later experiments; the pipeline keeps `v1`.
+- Repeated small objects are not solved by either change: the exterior's windows and
+  lights are still undercounted by every run. That is the detector question (section 7,
+  next steps, and the detection research).
+
+Decision: switch the pipeline's vision model to `gpt-4.1` (a settings change:
+`VISION_MODEL=gpt-4.1` with an OpenAI key, or an Azure `gpt-4.1` vision deployment);
+keep prompt `v1`; re-run section 7 with the new per-photo results (below).
+
+Section 7 re-run on the `gpt-4.1` per-photo results (repeat 1), three repeats of the
+reconciliation call:
+
+| System | count MAE | exact-count rate | signed bias | rooms exact (of 33) | label F1 | inventory identical across 3 repeats | cost |
+|---|---|---|---|---|---|---|---|
+| heuristic merge (section 7, `gpt-4.1-mini` per photo) | 0.95 | 0.36 | +0.09 | 0 | 0.64 | deterministic | |
+| reconciliation call, `gpt-4.1-mini` throughout (section 7) | 0.89 | 0.38 | +0.03 | 0 | 0.64 | 19 | $0.15 |
+| heuristic merge, `gpt-4.1` per photo | 0.82 | 0.43 | +0.04 | 0 | 0.69 | deterministic | |
+| reconciliation call, `gpt-4.1` per photo, `gpt-4.1-mini` reconciling | 0.81 | 0.43 | +0.03 | 1 | 0.69 | 22 | $0.17 |
+| reconciliation call, `gpt-4.1` per photo, `gpt-4.1` reconciling | 0.84 | 0.41 | +0.09 | 0 | 0.69 | 22 | $0.75 |
+
+The per-photo model upgrade moved the room-level numbers more than the reconciliation
+step does (count MAE 0.95 to 0.82 from the model alone; 0.82 to 0.81 from reconciling).
+Reconciling with the larger model is not better and costs five times more, so the
+reconciliation call can stay on the small model. Both reconciliation variants are stable
+for 22 of 33 rooms. Per-room exact inventories remain rare (one room), which is the
+detection ceiling again: the objects the per-photo step never finds cannot be counted.
