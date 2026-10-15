@@ -9,7 +9,8 @@ listens on the same port again. The tests read the database directly, never thro
 proxy.
 
 * Engine: connection-establishment failures become ``DatabaseUnavailableError``; an
-  authentication failure and an error on an established connection do not.
+  authentication failure and an error on an established connection do not; the
+  translation wraps only ``asyncpg.connect``, after every ``do_connect`` listener.
 * Activities, on the time-skipping test server with the real stub activities and a
   worker whose ``Deps`` use the proxied engine:
   - the database is unreachable for the whole first attempt of ``process_assets`` /
@@ -51,7 +52,7 @@ from dbtest_support import db_settings, execute_admin, truncate_all
 from faulttest_support import no_open_transactions, writing_transactions
 from lifecycle_support import Harness
 from lifecycletest_support import make_deps
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -62,7 +63,7 @@ from temporalio.testing import WorkflowEnvironment
 
 from basis.activities import build_activities
 from basis.api.errors import DB_UNAVAILABLE_DETAIL, PROBLEM_JSON, as_api_error
-from basis.db.engine import create_engine
+from basis.db.engine import connect_or_unavailable, create_engine
 from basis.db.enums import Stage
 from basis.db.errors import DatabaseUnavailableError
 from basis.db.models import (
@@ -234,7 +235,7 @@ async def test_connection_errors_are_translated_and_query_errors_are_not(
     limited = create_engine(
         db_settings(
             make_url(database_url)
-            .set(username=role, password="pw")
+            .set(username=role, password="pw")  # pragma: allowlist secret
             .render_as_string(hide_password=False)
         )
     )
@@ -263,6 +264,30 @@ async def test_connection_errors_are_translated_and_query_errors_are_not(
     await proxy.start()
     async with proxied_engine.connect() as connection:
         assert (await connection.execute(text("SELECT 1"))).scalar() == 1
+
+
+async def test_do_connect_listeners_run_before_the_translating_connect() -> None:
+    """The wrapper replaces only ``asyncpg.connect``: a ``do_connect`` listener still sees
+    (and could change) every parameter, including the wrapper itself."""
+    engine = create_engine(db_settings("postgresql://u:x@db.invalid:5432/d"))
+    seen: dict[str, Any] = {}
+
+    class Stop(Exception):
+        pass
+
+    def capture(dialect: Any, record: Any, cargs: Any, cparams: dict[str, Any]) -> None:
+        seen.update(cparams)
+        raise Stop
+
+    event.listen(engine.sync_engine, "do_connect", capture)
+    try:
+        with pytest.raises(Stop):
+            async with engine.connect():
+                pass
+    finally:
+        await engine.dispose()
+    assert seen["async_creator_fn"] is connect_or_unavailable
+    assert seen["host"] == "db.invalid" and "statement_timeout" in seen["server_settings"]
 
 
 def test_only_the_translated_error_maps_to_503() -> None:
