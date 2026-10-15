@@ -218,7 +218,11 @@ def main() -> int:
             "short": git("rev-parse", "--short", "HEAD"),
             "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
             "describe": git("describe", "--tags", "--always"),
-            "dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
+            # Uncommitted changes outside the evidence tree (re-capturing a label rewrites
+            # tracked files under docs/test-evidence, which is not what "dirty" means).
+            "dirty": bool(
+                git("status", "--porcelain", "--untracked-files=no", "--", ".", ":!docs/test-evidence")
+            ),
             "uv_lock_sha256": subprocess.run(
                 ["shasum", "-a", "256", str(BACKEND / "uv.lock")], capture_output=True, text=True
             ).stdout.split()[0],
