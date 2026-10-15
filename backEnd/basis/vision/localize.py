@@ -23,7 +23,10 @@ in, every matching instance out, each with a mask, a box and a score) and counts
   label (mask IoU > :data:`PHRASE_DEDUPE_IOU`) are kept once, at the higher score.
   Rate limits, 5xx and timeouts are retried with a bounded backoff (:data:`RETRY_DELAYS_S`,
   ``Retry-After`` honoured up to :data:`MAX_RETRY_AFTER_S`); anything else raises a
-  :class:`LocalizerError`. The token is sent only to ``api.replicate.com`` (result files on
+  :class:`LocalizerError`. The create call carries no idempotency key, so one that timed
+  out after the prediction was accepted is billed twice when retried (bounded by the
+  retries; a poll or download error re-polls or re-downloads, never re-creates). The
+  token is sent only to ``api.replicate.com`` (result files on
   ``replicate.delivery`` are fetched without it) and is never logged or put in an error.
 * Cost: Replicate bills public models by predict seconds on the hardware (an L40S at
   :data:`L40S_USD_PER_SECOND`). ``metrics.predict_time`` of every finished prediction is
