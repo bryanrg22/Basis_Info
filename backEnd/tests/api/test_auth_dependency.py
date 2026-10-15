@@ -26,7 +26,6 @@ from basis.api.auth import (
     DETAIL_MALFORMED,
     DETAIL_MISSING,
     CurrentPrincipal,
-    CurrentUser,
     OptionalPrincipal,
     get_principal,
     get_token_verifier,
@@ -68,10 +67,6 @@ def app(settings: Settings, verifier: FakeVerifier) -> FastAPI:
     async def me(principal: CurrentPrincipal) -> dict[str, Any]:
         return {"uid": principal.uid, "email": principal.email, "name": principal.display_name}
 
-    @app.get("/v1/user")
-    async def user(current: CurrentUser) -> dict[str, str]:
-        return {"uid": current.uid}
-
     @app.get("/v1/maybe")
     async def maybe(principal: OptionalPrincipal) -> dict[str, str | None]:
         return {"uid": principal.uid if principal else None}
@@ -111,11 +106,6 @@ async def test_valid_token_yields_principal(
     assert response.status_code == 200
     assert response.json() == {"uid": "alice", "email": "alice@example.com", "name": "Alice"}
     assert verifier.tokens == [GOOD_TOKEN]
-
-
-async def test_current_user_alias_resolves_principal(client: httpx.AsyncClient) -> None:
-    response = await client.get("/v1/user", headers=bearer(GOOD_TOKEN))
-    assert response.json() == {"uid": "alice"}
 
 
 async def test_missing_header_is_401(client: httpx.AsyncClient, verifier: FakeVerifier) -> None:

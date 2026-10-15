@@ -111,28 +111,54 @@ class IdempotencyRepository:
         return await self._get_live(scoped_key(user_id, key))
 
     async def complete(
-        self, user_id: uuid.UUID | None, key: str, status_code: int, response: Any
+        self,
+        user_id: uuid.UUID | None,
+        key: str,
+        status_code: int,
+        response: Any,
+        *,
+        ttl: timedelta | None = None,
+        request_hash: str | None = None,
     ) -> bool:
-        """Store the response of the request that owns the key. False if not in flight."""
+        """Store the response of the request that owns the key. False if not in flight.
+
+        ``ttl``, when given, restarts the expiry from now: the caller can claim with a
+        short in-flight lease (so a crashed request frees the key soon) and keep the
+        completed response for the full replay window. ``request_hash``, when given, must
+        match the stored one, so a request whose lease expired and was reclaimed by a
+        different request cannot write its response onto the new claim.
+        """
+        values: dict[str, Any] = {"status_code": status_code, "response": response}
+        if ttl is not None:
+            if ttl <= timedelta(0):
+                raise ValueError("ttl must be positive")
+            values["expires_at"] = func.now() + ttl
         stmt = (
             update(IdempotencyKey)
             .where(
                 IdempotencyKey.key == scoped_key(user_id, key),
                 IdempotencyKey.status_code.is_(None),
+                *(() if request_hash is None else (IdempotencyKey.request_hash == request_hash,)),
             )
-            .values(status_code=status_code, response=response)
+            .values(values)
             .execution_options(synchronize_session=False)
         )
         result = await self._session.execute(stmt)
         return bool(getattr(result, "rowcount", 0))
 
-    async def release(self, user_id: uuid.UUID | None, key: str) -> bool:
-        """Drop an in-flight key (the handler failed) so the client may retry."""
+    async def release(
+        self, user_id: uuid.UUID | None, key: str, *, request_hash: str | None = None
+    ) -> bool:
+        """Drop an in-flight key (the handler failed) so the client may retry.
+
+        ``request_hash``, when given, must match (see :meth:`complete`).
+        """
         stmt = (
             delete(IdempotencyKey)
             .where(
                 IdempotencyKey.key == scoped_key(user_id, key),
                 IdempotencyKey.status_code.is_(None),
+                *(() if request_hash is None else (IdempotencyKey.request_hash == request_hash,)),
             )
             .execution_options(synchronize_session=False)
         )

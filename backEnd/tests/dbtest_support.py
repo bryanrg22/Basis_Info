@@ -1,6 +1,10 @@
-"""Helpers shared by the database integration tests (imported as a top-level module:
-pytest puts this directory on ``sys.path``; the name is unique to avoid collisions with
-the legacy ``tests`` packages)."""
+"""Helpers shared by the database-backed tests (``tests/integration/db`` and ``tests/api``).
+
+Imported as a top-level module: pytest puts ``tests/`` on ``sys.path`` because
+``tests/conftest.py`` lives there; the name is unique to avoid collisions with the legacy
+``tests`` packages. The session-wide ``postgres`` and ``database_url`` fixtures that use
+it are in ``tests/conftest.py``, so every suite shares one container.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from basis.db.models import Base, Org, OrgMember, Study, User
 from basis.db.repositories import StudyRepository, UserRepository
 
 PG_IMAGE = "pgvector/pgvector:pg16"
-BACKEND_ROOT = Path(__file__).resolve().parents[3]
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def alembic_config(database_url: str, **attributes: Any) -> Config:

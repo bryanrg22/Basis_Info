@@ -108,9 +108,25 @@ async def test_docs_url_resolves(client: httpx.AsyncClient) -> None:
     assert (await client.get("/docs")).status_code == 200
 
 
-def test_only_skeleton_routes_exist(app: FastAPI) -> None:
-    """Stage 0 exposes nothing else; new routes arrive with their own tests."""
-    assert set(app.openapi()["paths"]) == {"/health", "/"}
+def test_only_known_routes_exist(app: FastAPI) -> None:
+    """Exactly the S1 routes; a new route must arrive with its own tests (and this list)."""
+    operations = {
+        f"{method.upper()} {path}"
+        for path, methods in app.openapi()["paths"].items()
+        for method in methods
+    }
+    assert operations == {
+        "GET /health",
+        "GET /",
+        "GET /v1/studies",
+        "POST /v1/studies",
+        "GET /v1/studies/{study_id}",
+        "DELETE /v1/studies/{study_id}",
+        "POST /v1/studies/{study_id}/documents",
+        "POST /v1/studies/{study_id}/documents/{document_id}/complete",
+        "POST /v1/studies/{study_id}/decisions",
+        "GET /v1/studies/{study_id}/evidence",
+    }
 
 
 def test_version_matches_package_metadata() -> None:
@@ -221,10 +237,10 @@ async def test_request_id_captured_by_caplog(
             seen.append(get_context().get("request_id"))
 
     probe = Probe()
-    logger = logging.getLogger("basis.api.app")
+    logger = logging.getLogger("basis.api.health")
     logger.addHandler(probe)
     try:
-        with caplog.at_level(logging.DEBUG, logger="basis.api.app"):
+        with caplog.at_level(logging.DEBUG, logger="basis.api.health"):
             await client.get("/health", headers={REQUEST_ID_HEADER: "req-caplog"})
     finally:
         logger.removeHandler(probe)
