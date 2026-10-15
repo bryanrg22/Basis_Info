@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     temporal_api_key: SecretStr | None = None
     gcs_bucket: str | None = None
     firebase_project_id: str | None = None
+    rate_limit_reads_per_min: int = Field(default=60, gt=0)
+    rate_limit_mutations_per_min: int = Field(default=10, gt=0)
 
     @field_validator("log_level", mode="before")
     @classmethod
