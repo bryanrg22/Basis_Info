@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "seed": 20261015,
+  "synthetic": true,
+  "vocabulary": {
+    "room_type": [
+      "kitchen",
+      "bathroom",
+      "bedroom",
+      "living_room",
+      "garage",
+      "exterior",
+      "mechanical",
+      "ambiguous"
+    ],
+    "component": [
+      "kitchen_cabinet",
+      "countertop",
+      "bathtub",
+      "toilet",
+      "carpet",
+      "ceiling_fan",
+      "garage_door",
+      "ac_condenser",
+      "other"
+    ]
+  },
+  "photos": [
+    {
+      "file": "photos/01_kitchen.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": "KITCHEN",
+      "room_type": "kitchen",
+      "floor": 1,
+      "components": [
+        {
+          "label": "kitchen_cabinet",
+          "count": 6,
+          "note": "2 upper and 4 base cabinets"
+        },
+        {
+          "label": "countertop",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "file": "photos/02_bathroom.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": "BATHROOM",
+      "room_type": "bathroom",
+      "floor": 2,
+      "components": [
+        {
+          "label": "bathtub",
+          "count": 1
+        },
+        {
+          "label": "toilet",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "file": "photos/03_bedroom.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": "BEDROOM",
+      "room_type": "bedroom",
+      "floor": 2,
+      "components": [
+        {
+          "label": "carpet",
+          "count": 1
+        },
+        {
+          "label": "other",
+          "count": 1,
+          "note": "bed (furniture, not a building component)"
+        }
+      ]
+    },
+    {
+      "file": "photos/04_living_room.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": "LIVING ROOM",
+      "room_type": "living_room",
+      "floor": 1,
+      "components": [
+        {
+          "label": "carpet",
+          "count": 1
+        },
+        {
+          "label": "ceiling_fan",
+          "count": 1
+        },
+        {
+          "label": "other",
+          "count": 1,
+          "note": "sofa (furniture, not a building component)"
+        }
+      ]
+    },
+    {
+      "file": "photos/05_garage.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": "GARAGE",
+      "room_type": "garage",
+      "floor": 1,
+      "components": [
+        {
+          "label": "garage_door",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "file": "photos/06_exterior_front.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": "EXTERIOR FRONT",
+      "room_type": "exterior",
+      "floor": null,
+      "components": [
+        {
+          "label": "garage_door",
+          "count": 1
+        },
+        {
+          "label": "other",
+          "count": 1,
+          "note": "front entry door"
+        }
+      ]
+    },
+    {
+      "file": "photos/07_ac_condenser.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": "AC CONDENSER",
+      "room_type": "mechanical",
+      "floor": null,
+      "components": [
+        {
+          "label": "ac_condenser",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "file": "photos/08_ambiguous.jpg",
+      "width": 800,
+      "height": 600,
+      "caption_text": null,
+      "room_type": "ambiguous",
+      "floor": null,
+      "components": []
+    }
+  ]
+}

@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "grades": {
+    "2": "exact code match: the page contains every code token in the query",
+    "1": "paraphrase: the page states the same rule without the code token"
+  },
+  "unit": "doc_id + page (1-based)",
+  "queries": [
+    {
+      "id": "q01",
+      "query": "168(e)(3)",
+      "codes": [
+        "168(e)(3)"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 1,
+          "grade": 2
+        }
+      ]
+    },
+    {
+      "id": "q02",
+      "query": "recovery classes under section 168(e)(3)",
+      "codes": [
+        "168(e)(3)"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 1,
+          "grade": 2
+        }
+      ]
+    },
+    {
+      "id": "q03",
+      "query": "asset class 57.0",
+      "codes": [
+        "57.0"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 2,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 3,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 2,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q04",
+      "query": "57.0 class life",
+      "codes": [
+        "57.0"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 2,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 3,
+          "grade": 2
+        }
+      ]
+    },
+    {
+      "id": "q05",
+      "query": "00.11 office furniture",
+      "codes": [
+        "00.11"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 2,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 3,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 3,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q06",
+      "query": "asset class 00.3 land improvements",
+      "codes": [
+        "00.3"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 2,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 3,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 2,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q07",
+      "query": "section 1245 property",
+      "codes": [
+        "1245"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 1,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 2,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 3,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 2,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q08",
+      "query": "section 1250 property",
+      "codes": [
+        "1250"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 1,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 2,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 3,
+          "grade": 2
+        }
+      ]
+    },
+    {
+      "id": "q09",
+      "query": "1245 carpet",
+      "codes": [
+        "1245"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 1,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 2,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 3,
+          "grade": 2
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 2,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 3,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q10",
+      "query": "00.12 information systems",
+      "codes": [
+        "00.12"
+      ],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 3,
+          "grade": 2
+        }
+      ]
+    },
+    {
+      "id": "q11",
+      "query": "how long are retail store fixtures depreciated",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 2,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 2,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q12",
+      "query": "depreciation period for parking lots and fences",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 2,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 3,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 2,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 3,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q13",
+      "query": "useful life of office desks and filing cabinets",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 2,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 3,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q14",
+      "query": "is removable carpet personal property",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 3,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 2,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q15",
+      "query": "recovery period for apartment buildings",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 4,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 3,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q16",
+      "query": "what does a cost segregation study do",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 1,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q17",
+      "query": "which building parts are structural components",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 2,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q18",
+      "query": "is a bathtub part of the building",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_B",
+          "page": 3,
+          "grade": 1
+        },
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 3,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q19",
+      "query": "half-year and mid-month conventions",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_A",
+          "page": 4,
+          "grade": 1
+        }
+      ]
+    },
+    {
+      "id": "q20",
+      "query": "what source should a classification cite",
+      "codes": [],
+      "relevant": [
+        {
+          "doc_id": "SYN_PUB_C",
+          "page": 3,
+          "grade": 1
+        }
+      ]
+    }
+  ]
+}
