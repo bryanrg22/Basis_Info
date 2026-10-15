@@ -107,12 +107,14 @@ def code_artefact_versions() -> dict[str, object]:
     prompts: dict[str, list[str]] = {}
     prompts_dir = BACKEND / "basis" / "prompts"
     if prompts_dir.exists():
-        for name_dir in sorted(p for p in prompts_dir.iterdir() if p.is_dir()):
+        for name_dir in sorted(
+            p for p in prompts_dir.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))
+        ):
             prompts[name_dir.name] = sorted(p.stem for p in name_dir.glob("*.md"))
     return {
         "prompts": prompts,
         "rules_version": grep_first(
-            BACKEND / "basis" / "domain" / "rules.py", r'RULES_VERSION\s*=\s*"([^"]+)"'
+            BACKEND / "basis" / "domain" / "rules.py", r'RULES_VERSION(?::\s*Final)?\s*=\s*"([^"]+)"'
         ),
         "postgres_test_image": grep_first(
             BACKEND / "tests" / "dbtest_support.py", r'PG_IMAGE\s*=\s*"([^"]+)"'
