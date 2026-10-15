@@ -182,6 +182,18 @@ class Unprocessable(ApiError):
         super().__init__(detail=detail, type_suffix=type_suffix)
 
 
+class ServiceUnavailable(ApiError):
+    """503 for a dependency the server needs and cannot reach (RFC 9110 section 15.6.4)."""
+
+    status = 503
+    title = "Service Unavailable"
+    type_suffix = "service-unavailable"
+
+    def __init__(self, detail: str, *, retry_after: int = 5) -> None:
+        self.retry_after = max(1, int(retry_after))
+        super().__init__(detail=detail, headers={"Retry-After": str(self.retry_after)})
+
+
 class TooManyRequests(ApiError):
     """429 with ``Retry-After`` in whole seconds (RFC 9110 section 10.2.3), at least 1."""
 

@@ -29,7 +29,7 @@ import pytest
 from firebase_admin import auth as firebase_auth
 
 from basis.api.app import create_app
-from basis.api.errors import Unauthorized
+from basis.api.errors import ServiceUnavailable, Unauthorized
 from basis.auth import firebase as fb
 from basis.auth.firebase import FirebaseTokenVerifier, Principal, principal_from_claims
 from basis.config import ConfigError, Settings, load_settings
@@ -87,9 +87,8 @@ CLAIMS = {"uid": "u-1", "sub": "u-1", "email": "a@example.com", "name": "Ada"}
         (firebase_auth.UserDisabledError("disabled"), fb.DETAIL_DISABLED),
         (firebase_auth.UserNotFoundError("deleted"), fb.DETAIL_DELETED),
         (firebase_auth.InvalidIdTokenError("bad"), fb.DETAIL_INVALID),
-        (firebase_auth.CertificateFetchError("no certs", cause=None), fb.DETAIL_CERTIFICATES),
     ],
-    ids=["expired", "revoked", "disabled", "deleted", "invalid", "certificates"],
+    ids=["expired", "revoked", "disabled", "deleted", "invalid"],
 )
 def test_sdk_errors_map_to_unauthorized(settings: Settings, exc: Exception, detail: str) -> None:
     verifier = FirebaseTokenVerifier(settings, verify_fn=RecordingVerify(exc), environ={})
@@ -98,6 +97,19 @@ def test_sdk_errors_map_to_unauthorized(settings: Settings, exc: Exception, deta
     assert caught.value.status == 401
     assert caught.value.detail == detail
     assert caught.value.headers["WWW-Authenticate"] == 'Bearer error="invalid_token"'
+    assert caught.value.__cause__ is exc
+
+
+def test_certificate_fetch_failure_is_503(settings: Settings) -> None:
+    """Unreachable Google keys are a server-side outage, not a bad token: 503, not 401."""
+    exc = firebase_auth.CertificateFetchError("no certs", cause=None)
+    verifier = FirebaseTokenVerifier(settings, verify_fn=RecordingVerify(exc), environ={})
+    with pytest.raises(ServiceUnavailable) as caught:
+        verifier.verify("tok")
+    assert caught.value.status == 503
+    assert caught.value.detail == fb.DETAIL_CERTIFICATES
+    assert "WWW-Authenticate" not in caught.value.headers
+    assert caught.value.headers["Retry-After"]
     assert caught.value.__cause__ is exc
 
 
@@ -351,8 +363,9 @@ def test_real_sdk_certificate_failure_maps_to_certificates(
         raise google.auth.exceptions.TransportError("connection refused")
 
     monkeypatch.setattr("google.oauth2.id_token.verify_token", unreachable)
-    with pytest.raises(Unauthorized) as caught:
+    with pytest.raises(ServiceUnavailable) as caught:
         FirebaseTokenVerifier(project_settings).verify(_signed_looking_token())
+    assert caught.value.status == 503
     assert caught.value.detail == fb.DETAIL_CERTIFICATES
 
 

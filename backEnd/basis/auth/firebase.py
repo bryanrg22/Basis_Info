@@ -34,7 +34,7 @@ import google.auth.credentials
 from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials as firebase_credentials
 
-from basis.api.errors import Unauthorized
+from basis.api.errors import ServiceUnavailable, Unauthorized
 from basis.config import ConfigError, Settings
 
 EMULATOR_ENV_VAR: Final = "FIREBASE_AUTH_EMULATOR_HOST"
@@ -137,7 +137,8 @@ class FirebaseTokenVerifier:
             raise Unauthorized(DETAIL_INVALID) from exc
         except firebase_auth.CertificateFetchError as exc:
             logger.warning("firebase certificate fetch failed", exc_info=True)
-            raise Unauthorized(DETAIL_CERTIFICATES) from exc
+            # Google's public keys were unreachable: the server, not the token, is at fault.
+            raise ServiceUnavailable(DETAIL_CERTIFICATES) from exc
         return principal_from_claims(claims)
 
 
