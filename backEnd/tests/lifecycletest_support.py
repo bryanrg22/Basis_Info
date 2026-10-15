@@ -18,12 +18,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.activities import Deps
+from basis.classify.schemas import Classification
+from basis.classify.store_protocol import ChunkStore, InMemoryChunkStore
 from basis.config import Settings
 from basis.db.enums import DocumentKind, Stage
 from basis.db.models import ActivityResult, Base, Run
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
+from basis.llm.provider import ChatProvider, ScriptedProvider, ScriptedTurn
 from basis.storage import Storage
 
 TEST_BUCKET: Final = "basis-test"
@@ -108,10 +111,46 @@ async def seed_run(
         )
 
 
+# One scripted answer per residual classification: a building-bucket guess with no
+# citations, which the pipeline writes as needs_review (missing evidence). Enough turns for
+# every lifecycle scenario; an unexpected extra call fails loudly (ScriptedProvider).
+SCRIPTED_CLASSIFIER_TURNS: Final = 400
+
+
+def scripted_classifier(turns: int = SCRIPTED_CLASSIFIER_TURNS) -> ScriptedProvider:
+    answer = Classification(
+        category="Building component (scripted)",
+        section="1250",
+        bucket="y27_5",
+        confidence=0.4,
+        needs_review=True,
+        reason="scripted test answer",
+    )
+    return ScriptedProvider([ScriptedTurn(parsed=answer) for _ in range(turns)])
+
+
+_DEFAULT: Final = object()
+
+
 def make_deps(
-    sessionmaker: async_sessionmaker[AsyncSession], storage: Storage, settings: Settings
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: Storage,
+    settings: Settings,
+    *,
+    chat_provider: ChatProvider | None | object = _DEFAULT,
+    chunk_store: ChunkStore | None | object = _DEFAULT,
 ) -> Deps:
-    return Deps(sessionmaker=sessionmaker, storage=storage, bucket=TEST_BUCKET, settings=settings)
+    """Deps for tests: a scripted classifier and an empty in-memory store by default."""
+    provider = scripted_classifier() if chat_provider is _DEFAULT else chat_provider
+    store = InMemoryChunkStore() if chunk_store is _DEFAULT else chunk_store
+    return Deps(
+        sessionmaker=sessionmaker,
+        storage=storage,
+        bucket=TEST_BUCKET,
+        settings=settings,
+        chat_provider=provider,  # type: ignore[arg-type]
+        chunk_store=store,  # type: ignore[arg-type]
+    )
 
 
 async def count_rows(

@@ -15,7 +15,9 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from basis.classify.store_protocol import ChunkStore
 from basis.config import Settings
+from basis.llm.provider import ChatProvider
 from basis.storage import Storage
 
 
@@ -26,6 +28,12 @@ class Deps:
     # Bucket the exports are written to (gs://<bucket>/studies/<id>/exports/...).
     bucket: str
     settings: Settings
+    # The model provider and the retrieval store for classification (process_assets).
+    # ``None`` means "not wired": rule hits still classify; everything else is written
+    # needs_review (classifier_unavailable) and no rule citation can be resolved. Tests
+    # pass ScriptedProvider and InMemoryChunkStore; the worker wires the real ones.
+    chat_provider: ChatProvider | None = None
+    chunk_store: ChunkStore | None = None
 
     @property
     def faults_enabled(self) -> bool:

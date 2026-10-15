@@ -159,7 +159,7 @@ async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harn
         await harness.wait_awaiting(handle, "assets_review", 1)
 
         assets_r1 = await rows(harness, Asset, sid, revision=1)
-        target = next(a for a in assets_r1 if a.bucket is Bucket.Y39)
+        target = next(a for a in assets_r1 if a.bucket is Bucket.Y27_5)  # a building guess
         correction = CorrectionInput(
             entity_type="asset",
             entity_id=str(target.id),

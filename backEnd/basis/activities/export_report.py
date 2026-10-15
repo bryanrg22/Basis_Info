@@ -1,10 +1,15 @@
-"""``export_report`` (Stage 2 body): the approved revision as one JSON document in storage.
+"""``export_report``: the approved revision as canonical JSON plus a CSV of its assets.
 
-Written to ``gs://<bucket>/studies/<study_id>/exports/rev-<n>.json``. The document is
-canonical JSON (sorted keys, no insignificant whitespace, rows in a fixed order, no
-timestamps), so exporting the same revision twice yields byte-identical output and the
-same sha256; it also embeds a sha256 per section so a consumer can check each part. Stage
-3/4 adds the PDF and the engineer's evidence pack next to it.
+Written to ``gs://<bucket>/studies/<study_id>/exports/rev-<n>.json`` and
+``rev-<n>.assets.csv``. The JSON holds the extraction, rooms, photo assignments,
+components, and the evidence pack (:mod:`basis.evidence`): every asset with bucket,
+recovery period, quantity, cost and its citations (excerpt, document, pages), the
+groupings by stage, component and document, and the per-bucket summary. It names the CSV
+and the CSV's sha256 (``files``).
+
+Both files are canonical (sorted keys, no insignificant whitespace, rows in a fixed order,
+no timestamps), so exporting the same revision twice yields byte-identical files and the
+same sha256; the JSON also embeds a sha256 per section so a consumer can check each part.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Final
 
@@ -20,19 +26,31 @@ from temporalio import activity
 
 from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
 from basis.activities.deps import Deps
-from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
+from basis.evidence.export import pack_document, pack_to_csv, sha256_hex
+from basis.evidence.pack import load_pack
 from basis.storage.base import SCHEME
 from basis.workflow.contracts import ExportReportInput, ExportReportOutput
 
-FORMAT: Final = "basis-export/1"
+FORMAT: Final = "basis-export/2"
 CONTENT_TYPE: Final = "application/json"
+CSV_CONTENT_TYPE: Final = "text/csv"
 
 
 def export_uri(bucket: str, study_id: uuid.UUID, revision: int) -> str:
     return f"{SCHEME}{bucket}/studies/{study_id}/exports/rev-{revision}.json"
+
+
+def csv_uri(bucket: str, study_id: uuid.UUID, revision: int) -> str:
+    return f"{SCHEME}{bucket}/studies/{study_id}/exports/rev-{revision}.assets.csv"
+
+
+@dataclass(frozen=True, slots=True)
+class ExportFiles:
+    json: bytes
+    csv: bytes
 
 
 def canonical_json(value: Any) -> bytes:
@@ -47,7 +65,9 @@ def _id(value: uuid.UUID | None) -> str | None:
     return None if value is None else str(value)
 
 
-async def build_export(session: AsyncSession, study_id: uuid.UUID, revision: int) -> bytes:
+async def build_export(
+    session: AsyncSession, study_id: uuid.UUID, revision: int, csv_location: str = ""
+) -> ExportFiles:
     study = await StudyRepository(session).get(study_id)
     if study is None:
         raise validation_error(f"study {study_id} not found")
@@ -94,57 +114,36 @@ async def build_export(session: AsyncSession, study_id: uuid.UUID, revision: int
         for c in await rooms_repo.components(study_id, revision)
     ]
     heartbeat("rooms")
-    assets_repo = AssetRepository(session)
-    asset_rows = await assets_repo.list_for_revision(study_id, revision)
-    ids = [a.id for a in asset_rows]
-    takeoffs = await assets_repo.takeoffs(ids)
-    costs = await assets_repo.cost_estimates(ids)
-    citations: dict[uuid.UUID, list[str]] = {}
-    for citation in await assets_repo.citations(ids):
-        citations.setdefault(citation.asset_id, []).append(str(citation.chunk_id))
-    assets = []
-    for a in asset_rows:
-        takeoff = takeoffs.get(a.id)
-        cost = costs.get(a.id)
-        assets.append(
-            {
-                "id": str(a.id),
-                "component_id": _id(a.component_id),
-                "category": a.category,
-                "bucket": a.bucket.value,
-                "recovery_period": _num(a.recovery_period),
-                "irs_section": a.irs_section,
-                "method": a.method.value,
-                "needs_review": a.needs_review,
-                "takeoff": None
-                if takeoff is None
-                else {"quantity": _num(takeoff.quantity), "unit": takeoff.unit},
-                "cost": None
-                if cost is None
-                else {"unit_cost": _num(cost.unit_cost), "total": _num(cost.total)},
-                "citations": sorted(citations.get(a.id, [])),
-            }
-        )
+    pack = await load_pack(session, study_id, revision)
+    evidence = pack_document(pack)
     heartbeat("assets")
     sections = {
         "extraction": extractions,
         "rooms": rooms,
         "photos": photos,
         "components": components,
-        "assets": assets,
+        "assets": evidence["assets"],
+        "evidence": {
+            "by_stage": evidence["by_stage"],
+            "by_component": evidence["by_component"],
+            "by_document": evidence["by_document"],
+        },
+        "summary": evidence["summary"],
     }
+    csv_bytes = pack_to_csv(pack)
     document = {
         "format": FORMAT,
         "study_id": str(study_id),
         "property_name": study.property_name,
         "revision": revision,
         **sections,
+        "files": {"assets_csv": {"uri": csv_location, "sha256": sha256_hex(csv_bytes)}},
         "checksums": {
             name: hashlib.sha256(canonical_json(rows)).hexdigest()
             for name, rows in sections.items()
         },
     }
-    return canonical_json(document)
+    return ExportFiles(json=canonical_json(document), csv=csv_bytes)
 
 
 class ExportReport:
@@ -156,12 +155,14 @@ class ExportReport:
         study_id = parse_uuid(input.study_id, "study_id")
 
         async def work(session: AsyncSession) -> ExportReportOutput:
-            data = await build_export(session, study_id, input.revision)
+            table_uri = csv_uri(self._deps.bucket, study_id, input.revision)
+            files = await build_export(session, study_id, input.revision, table_uri)
             uri = export_uri(self._deps.bucket, study_id, input.revision)
             # Written before the completion commits: if the commit fails the retry
-            # rewrites the same bytes, so the object is never half of two versions.
-            await self._deps.storage.put(uri, data, CONTENT_TYPE)
-            return ExportReportOutput(export_uri=uri, sha256=hashlib.sha256(data).hexdigest())
+            # rewrites the same bytes, so the objects are never half of two versions.
+            await self._deps.storage.put(table_uri, files.csv, CSV_CONTENT_TYPE)
+            await self._deps.storage.put(uri, files.json, CONTENT_TYPE)
+            return ExportReportOutput(export_uri=uri, sha256=sha256_hex(files.json))
 
         return await run_once(
             self._deps,
