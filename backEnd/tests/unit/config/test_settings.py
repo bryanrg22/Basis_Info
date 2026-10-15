@@ -36,6 +36,9 @@ MANAGED_VARS = (
     "TEMPORAL_API_KEY",
     "GCS_BUCKET",
     "FIREBASE_PROJECT_ID",
+    "REPLICATE_API_TOKEN",
+    "SAM3_REPLICATE_VERSION",
+    "LOCALIZER_CONCURRENCY",
 )
 
 DEPLOYED_VALUES = {
@@ -343,6 +346,33 @@ def test_model_dump_json_masks_secret(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("BASIS_ENV", "test")
     clean_env.setenv("TEMPORAL_API_KEY", "temporal-secret-xyz")
     assert "temporal-secret-xyz" not in load_settings().model_dump_json()
+
+
+def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("BASIS_ENV", "test")
+    settings = load_settings()
+    assert settings.replicate_api_token is None
+    assert settings.sam3_replicate_version == (
+        "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # noqa: E501  pragma: allowlist secret
+    )
+    assert settings.localizer_concurrency == 4
+    clean_env.setenv("REPLICATE_API_TOKEN", "r8_replicate-secret-xyz")
+    clean_env.setenv("SAM3_REPLICATE_VERSION", "abc123")
+    clean_env.setenv("LOCALIZER_CONCURRENCY", "8")
+    settings = load_settings()
+    assert isinstance(settings.replicate_api_token, SecretStr)
+    assert settings.replicate_api_token.get_secret_value() == "r8_replicate-secret-xyz"
+    assert (settings.sam3_replicate_version, settings.localizer_concurrency) == ("abc123", 8)
+    for rendered in (repr(settings), str(settings), settings.model_dump_json()):
+        assert "r8_replicate-secret-xyz" not in rendered
+
+
+@pytest.mark.parametrize("value", ["0", "33", "many"])
+def test_invalid_localizer_concurrency_raises(clean_env: pytest.MonkeyPatch, value: str) -> None:
+    clean_env.setenv("BASIS_ENV", "test")
+    clean_env.setenv("LOCALIZER_CONCURRENCY", value)
+    with pytest.raises(ValidationError):
+        load_settings()
 
 
 # --------------------------------------------------------------------------- caching
