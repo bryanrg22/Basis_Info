@@ -49,6 +49,7 @@ tests that need Docker (a `pgvector/pgvector:pg16` container via testcontainers)
 | Test file | Invariant protected | Introduced in | Notes |
 |---|---|---|---|
 | `tests/integration/storage/test_gcs.py` | Against a real bucket: a PUT with the returned headers to the signed URL succeeds and a wrong-size body is rejected by GCS; `stat` reports the uploaded size, MD5 and content type; `read` returns the bytes; delete is idempotent | S1 | 1 test. Skipped unless `BASIS_GCS_TEST_BUCKET` is set (ADC must be able to write and sign). BUILD_PLAN 6.5 |
+| `tests/unit/temporal/test_client_config.py` | Temporal client config: dev server without TLS; an API key implies TLS; secret never in repr; build id falls back to git sha; Stage 2 settings defaults | v0.3.0 (S2) | 5 tests. S2_SPEC §1, §8 |
 
 ## regression (reproduced legacy defects, strict `xfail` until fixed)
 

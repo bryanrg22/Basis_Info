@@ -77,6 +77,15 @@ class Settings(BaseSettings):
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
     temporal_api_key: SecretStr | None = None
+    temporal_task_queue: str = "basis-studies"
+    temporal_worker_versioning: bool = False
+    temporal_deployment_name: str = "basis-worker"
+    temporal_build_id: str | None = None  # defaults to git_sha when unset
+    photo_concurrency: int = Field(default=5, ge=1, le=32)
+    review_reminder_days: int = Field(default=7, ge=1)
+    review_deadline_days: int = Field(default=30, ge=1)
+    study_budget_usd: float = Field(default=25.0, gt=0)
+    relay_poll_seconds: float = Field(default=2.0, gt=0)
     gcs_bucket: str | None = None
     firebase_project_id: str | None = None
     rate_limit_reads_per_min: int = Field(default=60, gt=0)
