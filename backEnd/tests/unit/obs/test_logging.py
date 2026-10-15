@@ -201,7 +201,9 @@ async def test_concurrent_tasks_do_not_share_context(capture: Capture) -> None:
 
 
 def test_trace_field_becomes_cloud_trace_key(capture: Capture) -> None:
-    trace = "projects/basis-staging/traces/0123456789abcdef0123456789abcdef"
+    trace = (
+        "projects/basis-staging/traces/0123456789abcdef0123456789abcdef"  # pragma: allowlist secret
+    )
     bind(trace=trace)
     capture.logger.info("traced")
     entry = capture.last()
@@ -218,7 +220,8 @@ def test_no_trace_key_without_bound_trace(capture: Capture) -> None:
 
 
 def test_api_key_extra_is_redacted(capture: Capture) -> None:
-    capture.logger.info("calling provider", extra={"api_key": "fake-provider-key-1"})
+    fake_key = "fake-provider-key-1"  # pragma: allowlist secret
+    capture.logger.info("calling provider", extra={"api_key": fake_key})
     entry = capture.last()
     assert entry["api_key"] == REDACTED
     assert "fake-provider-key-1" not in capture.stream.getvalue()

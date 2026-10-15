@@ -37,6 +37,7 @@ MANAGED_VARS = (
 )
 
 DEPLOYED_VALUES = {
+    # pragma: allowlist nextline secret
     "DATABASE_URL": "postgresql+asyncpg://basis:db-password-123@db/basis",
     "GCS_BUCKET": "basis-staging-files",
     "FIREBASE_PROJECT_ID": "basis-staging",
@@ -216,7 +217,8 @@ def test_dev_ignores_unknown_keys_in_env_file(
     clean_env: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The legacy backEnd/.env carries many unrelated keys; they must not break dev."""
-    write_env_file(tmp_path, SOME_LEGACY_SETTING="x", OPENAI_API_KEY="fake-provider-key")
+    fake_key = "fake-provider-key"  # pragma: allowlist secret
+    write_env_file(tmp_path, SOME_LEGACY_SETTING="x", OPENAI_API_KEY=fake_key)
     clean_env.setenv("BASIS_ENV", "dev")
     load_settings()
 
