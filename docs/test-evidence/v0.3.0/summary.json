@@ -1,0 +1,42 @@
+{
+  "totals": {
+    "tests": 1589,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 7
+  },
+  "passed": 1582,
+  "skipped": [
+    {
+      "test": "tests.api.test_auth::test_real_verifier_against_the_auth_emulator",
+      "reason": "needs the Firebase Auth emulator (FIREBASE_AUTH_EMULATOR_HOST)"
+    },
+    {
+      "test": "tests.integration.storage.test_gcs::test_signed_upload_stat_read_delete",
+      "reason": "BASIS_GCS_TEST_BUCKET is not set"
+    },
+    {
+      "test": "tests.lifecycle.test_versioning::test_record_histories[appraisal_reject]",
+      "reason": "set BASIS_RECORD_HISTORIES=1 to re-record"
+    },
+    {
+      "test": "tests.lifecycle.test_versioning::test_record_histories[cancelled]",
+      "reason": "set BASIS_RECORD_HISTORIES=1 to re-record"
+    },
+    {
+      "test": "tests.lifecycle.test_versioning::test_record_histories[happy_path]",
+      "reason": "set BASIS_RECORD_HISTORIES=1 to re-record"
+    }
+  ],
+  "xfailed": [
+    {
+      "test": "tests.regression.test_legacy_citation_extraction::test_tool_message_as_built_by_run_yields_citation",
+      "reason": "W5: ToolMessage from run() has no name and str(list) content; the filter also expects names without the _tool suffix -> 0 citations"
+    },
+    {
+      "test": "tests.regression.test_legacy_critical_fields_mapping::test_every_critical_field_is_a_mapping_target",
+      "reason": "A.8: 277703c renamed mapping targets (gla_sqft, effective_date_of_appraisal, final_market_value) without updating CRITICAL_FIELDS"
+    }
+  ],
+  "failed": []
+}
