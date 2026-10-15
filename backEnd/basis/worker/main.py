@@ -38,6 +38,8 @@ from basis.api.app import default_storage
 from basis.config import Settings, load_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
+from basis.extraction.azure_di import AzureDocumentIntelligence
+from basis.llm.pool import ProviderPool
 from basis.obs.logging import configure_logging
 from basis.temporal.client import build_id, connect
 from basis.worker.health import HealthServer
@@ -123,11 +125,19 @@ async def run_worker(
     engine = create_engine(settings)
     try:
         storage, bucket = default_storage(settings)
+        llm = ProviderPool.from_settings(settings)
+        azure_di = AzureDocumentIntelligence.from_settings(settings)
+        if llm is None:
+            logger.warning("no model provider configured: photo analysis will fail")
+        if azure_di is None:
+            logger.warning("Azure DI not configured: appraisals use the text layer only")
         deps = Deps(
             sessionmaker=create_sessionmaker(engine),
             storage=storage,
             bucket=bucket,
             settings=settings,
+            llm=llm,
+            azure_di=azure_di,
         )
         worker = build_worker(client, settings, deps)
         polling = asyncio.create_task(worker.run())
@@ -142,6 +152,8 @@ async def run_worker(
                 "worker_versioning": settings.temporal_worker_versioning,
                 "metrics_port": metrics_port,
                 "health_port": health.port,
+                "llm_providers": llm.name if llm is not None else None,
+                "azure_di": azure_di is not None,
             },
         )
         stopping = asyncio.create_task(stop.wait())

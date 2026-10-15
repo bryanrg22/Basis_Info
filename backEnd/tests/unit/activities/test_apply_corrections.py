@@ -129,7 +129,9 @@ async def test_rooms_reject_applies_room_and_component_corrections_and_skips_fla
     # The extraction is carried for a rooms rejection, fields included.
     [extraction] = await rows(deps, Extraction, sid, 2)
     assert extraction.raw["carried_from"]
-    assert await count_rows(deps.sessionmaker, ExtractionField, extraction_id=extraction.id) == 5
+    [first] = await rows(deps, Extraction, sid, 1)
+    carried = await count_rows(deps.sessionmaker, ExtractionField, extraction_id=extraction.id)
+    assert carried == await count_rows(deps.sessionmaker, ExtractionField, extraction_id=first.id)
     # Revision 1 untouched.
     assert {r.name for r in await rows(deps, Room, sid, 1)} == {"Kitchen", "Bathroom"}
 

@@ -70,7 +70,8 @@ async def test_writes_the_revision_as_canonical_json(
     document = json.loads(data)
     assert canonical_json(document) == data  # sorted keys, no whitespace
     assert (document["format"], document["revision"]) == ("basis-export/1", 1)
-    assert len(document["extraction"][0]["fields"]) == 5
+    # Every field the real extraction wrote (S3-B: the 110 golden fields and more).
+    assert len(document["extraction"][0]["fields"]) >= 110
     assert (len(document["rooms"]), len(document["photos"]), len(document["components"])) == (
         2,
         3,

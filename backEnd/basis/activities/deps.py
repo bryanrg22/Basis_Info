@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.config import Settings
+from basis.extraction.azure_di import AzureDiClient
+from basis.llm.provider import ChatProvider
 from basis.storage import Storage
 
 
@@ -26,6 +28,11 @@ class Deps:
     # Bucket the exports are written to (gs://<bucket>/studies/<id>/exports/...).
     bucket: str
     settings: Settings
+    # Model provider (a ProviderPool in the worker; a scripted or fixture provider in tests)
+    # and Azure Document Intelligence. None means not configured: extraction then uses the
+    # text layer only and skips the LLM fallback; photo analysis fails non-retryably.
+    llm: ChatProvider | None = None
+    azure_di: AzureDiClient | None = None
 
     @property
     def faults_enabled(self) -> bool:
