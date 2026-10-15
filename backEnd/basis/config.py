@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     git_sha: str = "unknown"
     log_level: LogLevel = "INFO"
     database_url: str | None = Field(default=None, repr=False)
+    # Connections held per process (SQLAlchemy pool_size; max_overflow is always 0).
+    db_pool_size: int = Field(default=5, ge=1, le=100)
+    # Cloud SQL instance connection name ("project:region:instance"). When set, the
+    # engine connects through the Cloud SQL Python Connector instead of database_url.
+    cloud_sql_instance: str | None = None
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
     temporal_api_key: SecretStr | None = None

@@ -1,0 +1,62 @@
+"""Domain exceptions raised by the repositories.
+
+They carry no HTTP knowledge; the API maps them (suggested: ``NotVisibleError`` -> 404,
+``ConflictError`` and subclasses -> 409, ``InvalidCursorError`` -> 422).
+"""
+
+from __future__ import annotations
+
+from sqlalchemy.exc import IntegrityError
+
+
+class RepositoryError(Exception):
+    """Base class for every error a repository raises on purpose."""
+
+
+class NotVisibleError(RepositoryError):
+    """The row does not exist, or exists but is not visible to the caller.
+
+    The two cases are deliberately indistinguishable (S1_SPEC §4: 404, not 403).
+    """
+
+
+class ConflictError(RepositoryError):
+    """The write conflicts with the current state of the database."""
+
+
+class StaleStateError(ConflictError):
+    """A compare-and-set lost: the row is no longer in the expected state.
+
+    Raised by ``StudyRepository.transition`` when the study is not at ``from_stage`` and
+    ``expected_revision`` (or is archived), and by ``ReviewRepository.record_decision``
+    when the stage/revision was already decided.
+    """
+
+
+class DuplicateDocumentError(ConflictError):
+    """A document with the same sha256 (or storage URI) already exists in the study."""
+
+
+class DuplicateKeyError(ConflictError):
+    """An idempotency key was already used for a different write."""
+
+
+class InvalidCursorError(RepositoryError, ValueError):
+    """A pagination cursor could not be decoded."""
+
+
+def constraint_name(exc: IntegrityError) -> str | None:
+    """Name of the violated constraint, as reported by the driver, or None.
+
+    SQLAlchemy's asyncpg adapter wraps the asyncpg exception: the adapted error is
+    ``exc.orig`` and the original asyncpg error (which has ``constraint_name``) is its
+    ``__cause__``.
+    """
+    candidates: list[object] = [exc.orig]
+    if exc.orig is not None:
+        candidates.append(exc.orig.__cause__)
+    for candidate in candidates:
+        name = getattr(candidate, "constraint_name", None)
+        if isinstance(name, str) and name:
+            return name
+    return None

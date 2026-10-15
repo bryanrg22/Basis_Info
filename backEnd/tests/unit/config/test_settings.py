@@ -29,6 +29,8 @@ MANAGED_VARS = (
     "GIT_SHA",
     "LOG_LEVEL",
     "DATABASE_URL",
+    "DB_POOL_SIZE",
+    "CLOUD_SQL_INSTANCE",
     "TEMPORAL_ADDRESS",
     "TEMPORAL_NAMESPACE",
     "TEMPORAL_API_KEY",
@@ -108,6 +110,8 @@ def test_valid_envs_and_defaults(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.git_sha == "unknown"
     assert settings.log_level == "INFO"
     assert settings.database_url is None
+    assert settings.db_pool_size == 5
+    assert settings.cloud_sql_instance is None
     assert settings.temporal_address == "localhost:7233"
     assert settings.temporal_namespace == "default"
     assert settings.temporal_api_key is None
@@ -126,6 +130,23 @@ def test_values_read_from_environment(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.log_level == "DEBUG"
     assert settings.temporal_address == "basis.tmprl.cloud:7233"
     assert settings.temporal_namespace == "basis-test"
+
+
+def test_database_pool_settings_read_from_environment(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("BASIS_ENV", "test")
+    clean_env.setenv("DB_POOL_SIZE", "12")
+    clean_env.setenv("CLOUD_SQL_INSTANCE", "proj:us-central1:basis")
+    settings = load_settings()
+    assert settings.db_pool_size == 12
+    assert settings.cloud_sql_instance == "proj:us-central1:basis"
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "101", "five"])
+def test_invalid_db_pool_size_raises(clean_env: pytest.MonkeyPatch, value: str) -> None:
+    clean_env.setenv("BASIS_ENV", "test")
+    clean_env.setenv("DB_POOL_SIZE", value)
+    with pytest.raises(ValidationError):
+        load_settings()
 
 
 def test_invalid_log_level_raises(clean_env: pytest.MonkeyPatch) -> None:
