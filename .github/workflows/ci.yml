@@ -140,6 +140,16 @@ jobs:
         if: env.BACKEND_CHANGED == 'true'
         run: uv sync --locked --group dev
 
+      # The worker-kill and worker-process tests run `temporal server start-dev`
+      # from the installed CLI (they are skipped without it); the SDK's own test
+      # servers cover the other lifecycle tests.
+      - name: Install the Temporal CLI
+        if: env.BACKEND_CHANGED == 'true'
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+          "$HOME/.temporalio/bin/temporal" --version
+
       # The chunker's tiktoken encoding (cl100k_base) is one download; cache it
       # between runs. The tests embed with the hash embedder, so no model files.
       - name: Cache the tiktoken encoding
