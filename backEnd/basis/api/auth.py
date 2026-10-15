@@ -12,8 +12,8 @@ The verifier is resolved through :func:`get_token_verifier`; tests replace it wi
 ``app.dependency_overrides[get_token_verifier] = lambda: FakeVerifier()`` so the header
 parsing and error mapping still run.
 
-User upsert and organization lookup need the database and are wired in later (S1-C);
-``CurrentUser`` is the alias routes use, and will be rebound to the database user then.
+The database user (upsert on first sight, personal org) and study authorization build
+on ``get_principal`` in :mod:`basis.api.users` (``CurrentUserDep``, ``study_access``).
 """
 
 from __future__ import annotations
@@ -84,5 +84,3 @@ async def get_principal(
 
 CurrentPrincipal = Annotated[Principal, Depends(get_principal)]
 OptionalPrincipal = Annotated[Principal | None, Depends(get_optional_principal)]
-# Rebound to the database user by S1-C; until then routes receive the token principal.
-CurrentUser = CurrentPrincipal
