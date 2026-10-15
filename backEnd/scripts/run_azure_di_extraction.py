@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Test Azure DI extraction across multiple PDFs.
+Run Azure DI extraction across multiple PDFs (manual script; needs Azure credentials, not a pytest test).
 
 Reports which fields were extracted vs which fell back to vision.
 
 Usage:
-    python scripts/test_azure_di_extraction.py path/to/pdf1.pdf path/to/pdf2.pdf ...
-    python scripts/test_azure_di_extraction.py data/appraisals/*.pdf
+    python scripts/run_azure_di_extraction.py path/to/pdf1.pdf path/to/pdf2.pdf ...
+    python scripts/run_azure_di_extraction.py data/appraisals/*.pdf
 """
 
 import asyncio
@@ -128,9 +128,9 @@ def print_report(results: list[dict]):
 
 async def main():
     if len(sys.argv) < 2:
-        print("Usage: python test_azure_di_extraction.py <pdf_path> [pdf_path2] ...")
+        print("Usage: python run_azure_di_extraction.py <pdf_path> [pdf_path2] ...")
         print("\nExample:")
-        print("  python scripts/test_azure_di_extraction.py data/appraisals/*.pdf")
+        print("  python scripts/run_azure_di_extraction.py data/appraisals/*.pdf")
         sys.exit(1)
 
     pdf_paths = sys.argv[1:]
