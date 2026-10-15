@@ -11,10 +11,11 @@
 Review policy (any one sets ``needs_review``; all reasons are kept, in a fixed order):
 a dropped or unresolvable citation (``citation_unverified``), zero verified citations on
 the model path (``citation_unverified``), a model answer without any search
-(``missing_evidence``, confidence capped at 0.3), a contested rule row, a model that asks
+(``missing_evidence``), a contested rule row, a model that asks
 for review, a loop failure, and any validator error or warning. When the model gives no
 usable answer the asset gets the building bucket for the property class (no accelerated
-depreciation is claimed) with confidence 0 and the failure as the reason.
+depreciation is claimed) with confidence 0 and the failure as the reason. A model answer
+without a search or without any verified citation has its confidence capped at 0.3.
 
 The result carries no study status and nothing here writes one; the caller turns results
 into rows.
@@ -297,6 +298,8 @@ async def _from_model(component: ComponentView, ctx: ClassifyContext) -> Classif
     reasons: list[str] = []
     if not outcome.searched:
         reasons.append(MISSING_EVIDENCE)
+    if not outcome.searched or not verified:
+        # An answer with no search, or with nothing verifiable behind it, is a guess.
         confidence = min(confidence, MISSING_EVIDENCE_CONFIDENCE)
     if dropped or not verified:
         reasons.append(CITATION_UNVERIFIED)
