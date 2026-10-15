@@ -639,7 +639,7 @@ tests/lifecycle/test_restart_recovery.py::test_worker_stopped_in_the_middle_of_a
 tests/lifecycle/test_stale_approval.py::test_approving_a_superseded_revision_is_rejected
 tests/lifecycle/test_stale_approval.py::test_decision_for_another_stage_is_rejected
 tests/lifecycle/test_stale_approval.py::test_decision_while_no_gate_is_open_is_rejected
-tests/lifecycle/test_stale_approval.py::test_corrections_the_gate_does_not_accept_are_rejected[appraisal_review-room-12f61423-c79e-4040-be48-ed3ab9f74fd7-does not accept corrections]
+tests/lifecycle/test_stale_approval.py::test_corrections_the_gate_does_not_accept_are_rejected[appraisal_review-room-a5ae9532-8bd0-4b4e-bd0d-5626dc689b9e-does not accept corrections]
 tests/lifecycle/test_stale_approval.py::test_corrections_the_gate_does_not_accept_are_rejected[appraisal_review-extraction_field-not-a-uuid-is not a UUID]
 tests/lifecycle/test_timeouts.py::test_reminder_after_seven_days
 tests/lifecycle/test_timeouts.py::test_deadline_marks_stalled_and_a_late_decision_completes
@@ -825,7 +825,7 @@ tests/unit/api/test_idempotency.py::test_malformed_key_is_400[has space]
 tests/unit/api/test_idempotency.py::test_malformed_key_is_400[tab\tkey]
 tests/unit/api/test_idempotency.py::test_malformed_key_is_400[""]
 tests/unit/api/test_idempotency.py::test_malformed_key_is_400[\xfc]
-tests/unit/api/test_idempotency.py::test_valid_keys[310ca3f5-8441-47e8-aff5-d710331f414d]
+tests/unit/api/test_idempotency.py::test_valid_keys[edefaa76-586f-4069-be09-5cc298204813]
 tests/unit/api/test_idempotency.py::test_valid_keys[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
 tests/unit/api/test_idempotency.py::test_valid_keys[k]
 tests/unit/api/test_idempotency.py::test_valid_keys[order-42:retry_1]
@@ -923,7 +923,7 @@ tests/unit/auth/test_firebase_verifier.py::test_construction_does_not_initialize
 tests/unit/auth/test_firebase_verifier.py::test_default_firebase_app_is_untouched
 tests/unit/auth/test_firebase_verifier.py::test_real_sdk_rejects_bad_tokens_as_invalid[not-a-jwt]
 tests/unit/auth/test_firebase_verifier.py::test_real_sdk_rejects_bad_tokens_as_invalid[a.b.c]
-tests/unit/auth/test_firebase_verifier.py::test_real_sdk_rejects_bad_tokens_as_invalid[eyJhbGciOiAibm9uZSIsICJ0eXAiOiAiSldUIn0.eyJpc3MiOiAiaHR0cHM6Ly9zZWN1cmV0b2tlbi5nb29nbGUuY29tL2RlbW8tYmFzaXMtdGVzdCIsICJhdWQiOiAiZGVtby1iYXNpcy10ZXN0IiwgInN1YiI6ICJlbXUtdXNlciIsICJpYXQiOiAxNzkyMDg0MjM0LCAiZXhwIjogMTc5MjA4NzgzNCwgImF1dGhfdGltZSI6IDE3OTIwODQyMzQsICJlbWFpbCI6ICJlbXVAZXhhbXBsZS5jb20iLCAibmFtZSI6ICJFbXUifQ.]
+tests/unit/auth/test_firebase_verifier.py::test_real_sdk_rejects_bad_tokens_as_invalid[eyJhbGciOiAibm9uZSIsICJ0eXAiOiAiSldUIn0.eyJpc3MiOiAiaHR0cHM6Ly9zZWN1cmV0b2tlbi5nb29nbGUuY29tL2RlbW8tYmFzaXMtdGVzdCIsICJhdWQiOiAiZGVtby1iYXNpcy10ZXN0IiwgInN1YiI6ICJlbXUtdXNlciIsICJpYXQiOiAxNzkyMDg1MDI0LCAiZXhwIjogMTc5MjA4ODYyNCwgImF1dGhfdGltZSI6IDE3OTIwODUwMjQsICJlbWFpbCI6ICJlbXVAZXhhbXBsZS5jb20iLCAibmFtZSI6ICJFbXUifQ.]
 tests/unit/auth/test_firebase_verifier.py::test_real_sdk_expired_maps_to_expired
 tests/unit/auth/test_firebase_verifier.py::test_real_sdk_certificate_failure_maps_to_certificates
 tests/unit/auth/test_firebase_verifier.py::test_real_sdk_accepts_emulator_tokens_when_emulator_set
@@ -1225,7 +1225,7 @@ tests/unit/db/test_repository_errors.py::test_cursor_round_trip
 tests/unit/db/test_repository_errors.py::test_invalid_cursor[]
 tests/unit/db/test_repository_errors.py::test_invalid_cursor[!!!]
 tests/unit/db/test_repository_errors.py::test_invalid_cursor[bm90LWpzb24]
-tests/unit/db/test_repository_errors.py::test_invalid_cursor[eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMCswMDowMCIsImlkIjoiMGM1OGE1MDMtMTQwNi00ZTc5LWE1MjUtODM3NzZlZTliYTN]
+tests/unit/db/test_repository_errors.py::test_invalid_cursor[eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMCswMDowMCIsImlkIjoiNTUxYWU4ZjUtYWJiNi00ZWQzLTkwZTMtMDVhMTc0ZDFiODU]
 tests/unit/db/test_repository_errors.py::test_invalid_cursor[eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMCIsImlkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIn0]
 tests/unit/db/test_repository_errors.py::test_invalid_cursor[eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMCswMDowMCIsImlkIjoibm9wZSJ9]
 tests/unit/db/test_repository_errors.py::test_scoped_key
@@ -2244,7 +2244,7 @@ tests/unit/workflow/test_validator.py::test_correction_types_are_checked_per_sta
 tests/unit/workflow/test_validator.py::test_correction_targets_must_be_uuids[]
 tests/unit/workflow/test_validator.py::test_correction_targets_must_be_uuids[12]
 tests/unit/workflow/test_validator.py::test_correction_targets_must_be_uuids[not-a-uuid]
-tests/unit/workflow/test_validator.py::test_correction_targets_must_be_uuids[99f7b6aa-6d21-4e73-8a68-ede89494e9790]
+tests/unit/workflow/test_validator.py::test_correction_targets_must_be_uuids[b964ba22-56ff-4d38-9367-a02190a083a00]
 tests/unit/workflow/test_validator.py::test_an_approval_cannot_carry_corrections
 tests/unit/workflow/test_validator.py::test_a_rejection_without_corrections_is_valid
 tests/unit/workflow/test_workflow_rules.py::test_every_scheduled_activity_is_registered_and_configured
@@ -2285,5 +2285,5 @@ tests/unit/workflow/test_workflow_rules.py::test_workflow_uses_workflow_time_onl
   <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-2273 tests collected in 3.28s
+2273 tests collected in 2.79s
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

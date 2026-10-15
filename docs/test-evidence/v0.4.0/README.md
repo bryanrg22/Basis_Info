@@ -1,13 +1,13 @@
 # Test evidence: v0.4.0
 
-Captured 2026-10-15T17:10:31+00:00 on macOS-26.6-arm64-arm-64bit (arm64).
-Commit `0b7af0bee54c2d04a7c7730374bce2889c4b12a0` on `rebuild/stage-3` (v0.3.0-28-g0b7af0b).
+Captured 2026-10-15T17:23:41+00:00 on macOS-26.6-arm64-arm-64bit (arm64).
+Commit `04328c1c075b0a8dcc2e56c738cec48d7b8d6b14` on `rebuild/stage-3` (v0.3.0-31-g04328c1).
 
 ## What was under test
 
 - Python 3.12.15 (pinned 3.12), uv 0.13.1 (Homebrew 2026-10-14 aarch64-apple-darwin), temporal version 1.9.1 (Server 1.32.0, UI 2.54.1), Docker version 29.1.5, build 0e6fee6
 - Postgres test image: `pgvector/pgvector:pg16`; Alembic head: `0003_chunks_hnsw`
-- Prompt versions: `{"__pycache__": [], "appraisal_field_fallback": ["v1"], "classify": ["v1"], "photo_analysis": ["v1"]}`; rules version: `None`; embedding model default: `sentence-transformers/all-MiniLM-L6-v2`
+- Prompt versions: `{"appraisal_field_fallback": ["v1"], "classify": ["v1"], "photo_analysis": ["v1"]}`; rules version: `2026-10-15.1`; embedding model default: `sentence-transformers/all-MiniLM-L6-v2`
 - Key packages: alembic 1.20.0, asyncpg 0.32.0, azure-ai-documentintelligence 1.0.2, fastapi 0.143.1, firebase-admin 7.7.0, google-cloud-storage 3.17.0, mypy 2.4.0, openai 3.31.0, pdfplumber 0.11.10, pgvector 0.5.1, pydantic 2.14.1, pymupdf 1.28.2, pytest 9.1.1, rank-bm25 0.2.2, ruff 0.17.0, schemathesis 4.31.1, sentence-transformers 6.1.0, sqlalchemy 2.1.4, temporalio 1.34.0, testcontainers 4.15.0, tiktoken 0.14.0
 - `uv.lock` sha256 `ac5be4c935c1009fcc6368cc36bf18c7881b3c8561620b446270b7115706d693`
 

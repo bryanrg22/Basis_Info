@@ -1,11 +1,11 @@
 {
   "label": "v0.4.0",
-  "captured_at": "2026-10-15T17:10:31+00:00",
+  "captured_at": "2026-10-15T17:23:41+00:00",
   "git": {
-    "sha": "0b7af0bee54c2d04a7c7730374bce2889c4b12a0",
-    "short": "0b7af0b",
+    "sha": "04328c1c075b0a8dcc2e56c738cec48d7b8d6b14",
+    "short": "04328c1",
     "branch": "rebuild/stage-3",
-    "describe": "v0.3.0-28-g0b7af0b",
+    "describe": "v0.3.0-31-g04328c1",
     "dirty": false,
     "uv_lock_sha256": "ac5be4c935c1009fcc6368cc36bf18c7881b3c8561620b446270b7115706d693"
   },
@@ -43,7 +43,6 @@
   },
   "code_artefacts": {
     "prompts": {
-      "__pycache__": [],
       "appraisal_field_fallback": [
         "v1"
       ],
@@ -54,7 +53,7 @@
         "v1"
       ]
     },
-    "rules_version": null,
+    "rules_version": "2026-10-15.1",
     "postgres_test_image": "pgvector/pgvector:pg16",
     "embedding_model_default": "sentence-transformers/all-MiniLM-L6-v2",
     "alembic_head": "0003_chunks_hnsw",
