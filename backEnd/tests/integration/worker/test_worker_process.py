@@ -27,11 +27,11 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from dbtest_support import BACKEND_ROOT, db_settings, truncate_all
+from lifecycletest_support import seed_study
 from temporalio.client import WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
-from lifecycletest_support import seed_study
 
 from basis.db.engine import create_engine
 from basis.db.enums import Stage, StudyStatus

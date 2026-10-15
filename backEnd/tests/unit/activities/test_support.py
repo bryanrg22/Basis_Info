@@ -11,10 +11,10 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from lifecycletest_support import SeededStudy, count_rows
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.exceptions import ApplicationError
-from lifecycletest_support import SeededStudy, count_rows
 
 from basis.activities import Deps
 from basis.activities._support import activity_key, run_once

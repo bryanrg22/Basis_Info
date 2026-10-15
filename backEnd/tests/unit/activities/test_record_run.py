@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from lifecycletest_support import SeededStudy, count_rows, seed_study
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.exceptions import ApplicationError
-from lifecycletest_support import SeededStudy, count_rows, seed_study
 
 from basis.activities import Deps
 from basis.activities.record_run_end import RecordRunEnd

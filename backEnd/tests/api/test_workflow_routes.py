@@ -312,6 +312,9 @@ async def test_status_after_start(
         "decisions_applied": ["r-1"],
         "stalled": False,
         "budget_remaining_usd": 24.5,
+        "awaiting": None,
+        "flagged_photos": [],
+        "needs_review_stages": [],
     }
     (run,) = body["runs"]
     assert (run["run_id"], run["workflow_version"], run["input_revision"]) == (

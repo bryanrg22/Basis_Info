@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from lifecycletest_support import SeededStudy
 from sqlalchemy import update
 from temporalio.exceptions import ApplicationError
-from lifecycletest_support import SeededStudy
 
 from basis.activities import Deps
 from basis.activities.transition import Transition

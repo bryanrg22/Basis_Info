@@ -2659,6 +2659,39 @@
           "budget_remaining_usd": {
             "type": "number",
             "title": "Budget Remaining Usd"
+          },
+          "awaiting": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "appraisal_review",
+                  "rooms_review",
+                  "assets_review"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awaiting",
+            "description": "The review gate the workflow is waiting at; decisions are accepted only here."
+          },
+          "flagged_photos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Flagged Photos",
+            "description": "Photo document ids whose analysis failed permanently, hit the budget, or was flagged."
+          },
+          "needs_review_stages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Needs Review Stages",
+            "description": "Stages whose output needs an engineer's attention because the budget ran out."
           }
         },
         "type": "object",

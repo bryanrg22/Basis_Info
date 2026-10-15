@@ -6,8 +6,8 @@ import asyncio
 import uuid
 
 import pytest
-from temporalio.exceptions import ApplicationError
 from lifecycletest_support import SeededStudy, count_rows
+from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
 from basis.activities.analyze_photo import SIMULATED_FAILURE, AnalyzePhoto

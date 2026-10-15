@@ -17,9 +17,9 @@ from typing import Any
 
 import pytest
 from dbtest_support import db_settings, truncate_all
+from lifecycletest_support import SeededStudy, make_deps, seed_run, seed_study
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.testing import ActivityEnvironment
-from lifecycletest_support import SeededStudy, make_deps, seed_run, seed_study
 
 from basis.activities import Deps
 from basis.config import Settings

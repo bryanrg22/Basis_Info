@@ -20,13 +20,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
+from lifecycletest_support import DEFAULT_APPRAISAL, DEFAULT_PHOTOS, SeededStudy, seed_study
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
-from lifecycletest_support import DEFAULT_APPRAISAL, DEFAULT_PHOTOS, SeededStudy, seed_study
 
 from basis.activities import Deps, build_activities
 from basis.config import Settings

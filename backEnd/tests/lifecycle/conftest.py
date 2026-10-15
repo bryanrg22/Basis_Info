@@ -25,10 +25,10 @@ from pathlib import Path
 import pytest_asyncio
 from dbtest_support import db_settings, truncate_all
 from lifecycle_support import Harness
+from lifecycletest_support import make_deps
 from sqlalchemy.ext.asyncio import AsyncEngine
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
-from lifecycletest_support import make_deps
 
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker

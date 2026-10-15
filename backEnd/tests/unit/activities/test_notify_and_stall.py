@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import update
 from lifecycletest_support import SeededStudy, count_rows
+from sqlalchemy import update
 
 from basis.activities import Deps
 from basis.activities.mark_stalled import MarkStalled

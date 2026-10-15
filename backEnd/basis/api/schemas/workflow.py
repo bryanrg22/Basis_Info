@@ -9,7 +9,7 @@ two together so a contract change is a visible, deliberate API change.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from pydantic import ConfigDict, Field
 
@@ -46,6 +46,20 @@ class WorkflowProgress(ResponseModel):
     decisions_applied: list[str] = Field(description="Review ids the workflow has applied.")
     stalled: bool
     budget_remaining_usd: float
+    awaiting: Literal["appraisal_review", "rooms_review", "assets_review"] | None = Field(
+        default=None,
+        description="The review gate the workflow is waiting at; decisions are accepted only here.",
+    )
+    flagged_photos: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Photo document ids whose analysis failed permanently, hit the budget, or was flagged."
+        ),
+    )
+    needs_review_stages: list[str] = Field(
+        default_factory=list,
+        description="Stages whose output needs an engineer's attention because the budget ran out.",
+    )
 
 
 class WorkflowRunOut(ResponseModel):

@@ -6,9 +6,9 @@ import uuid
 from typing import Any
 
 import pytest
+from lifecycletest_support import SeededStudy, count_rows
 from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
-from lifecycletest_support import SeededStudy, count_rows
 
 from basis.activities import Deps
 from basis.activities.analyze_photo import AnalyzePhoto

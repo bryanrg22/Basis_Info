@@ -9,8 +9,8 @@ import hashlib
 import json
 
 import pytest
-from temporalio.exceptions import ApplicationError
 from lifecycletest_support import SeededStudy
+from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
 from basis.activities.analyze_photo import AnalyzePhoto
