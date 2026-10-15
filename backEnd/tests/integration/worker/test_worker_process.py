@@ -91,6 +91,9 @@ def worker_process(
     env = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ.get("HOME", ""),
+        # Same temp dir as this process: the worker's LocalStorage(LOCAL_STORAGE_DIR) must
+        # read the files seed_study writes there.
+        "TMPDIR": tempfile.gettempdir(),
         "BASIS_ENV": "test",
         "DATABASE_URL": database_url,
         "TEMPORAL_ADDRESS": dev_server.client.service_client.config.target_host,
@@ -165,6 +168,9 @@ async def test_worker_process_runs_a_study_and_drains_on_sigterm(
         sessionmaker = create_sessionmaker(engine)
         # The worker has no GCS bucket configured, so it reads LocalStorage at the API's
         # local directory: put the appraisal PDF there for the real ingest_appraisal.
+        # The worker process reads files from LocalStorage(LOCAL_STORAGE_DIR) and has no
+        # provider credentials: the appraisal is extracted from its text layer and the
+        # photos fail with ProviderNotConfigured (flagged); the study still completes.
         study = await seed_study(
             sessionmaker,
             photos=("kitchen_1.jpg", "bathroom_1.jpg"),
@@ -200,6 +206,7 @@ async def test_worker_process_runs_a_study_and_drains_on_sigterm(
             )
         result = await asyncio.wait_for(handle.result(), 60)
         assert result.outcome == "completed"
+        assert sorted(result.flagged_photos) == sorted(str(p) for p in study.photo_ids)
         async with session_scope(sessionmaker) as session:
             row = await session.get(Study, study.study_id)
             assert row is not None

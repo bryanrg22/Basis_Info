@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.config import Settings
 from basis.retrieval import Retrieval, default_retrieval
+from basis.extraction.azure_di import AzureDiClient
+from basis.llm.provider import ChatProvider
 from basis.storage import Storage
 
 
@@ -33,6 +35,12 @@ class Deps:
 
     def retrieval_deps(self) -> Retrieval:
         return self.retrieval if self.retrieval is not None else default_retrieval(self.settings)
+
+    # Model provider (a ProviderPool in the worker; a scripted or fixture provider in tests)
+    # and Azure Document Intelligence. None means not configured: extraction then uses the
+    # text layer only and skips the LLM fallback; photo analysis fails non-retryably.
+    llm: ChatProvider | None = None
+    azure_di: AzureDiClient | None = None
 
     @property
     def faults_enabled(self) -> bool:

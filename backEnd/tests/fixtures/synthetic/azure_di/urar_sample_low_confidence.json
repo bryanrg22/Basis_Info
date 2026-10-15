@@ -1,0 +1,1850 @@
+{
+  "model_id": "prebuilt-layout",
+  "api_version": "2024-11-30",
+  "synthetic": true,
+  "content": "UNIFORM RESIDENTIAL APPRAISAL REPORT\nFile No. SYN-0001\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nSubject\nProperty Address:\n1290 Example Way\nCity:\nSpringfield\nState:\nXX\nZip Code:\n00000\nBorrower:\nSample Borrower\nOwner of Public Record:\nSample Owner\nCounty:\nExample County\nLegal Description:\nLot 7, Block 3, Example Addition\nAssessor's Parcel #:\n000-000-0000\nTax Year:\n2026\nR.E. Taxes:\n$4,321\nNeighborhood Name:\nExample Heights\nMap Reference:\nMAP-00\nCensus Tract:\n0000.00\nOccupant:\nOwner\nSpecial Assessments:\n$0\nHOA Dues:\n$0\nProperty Rights Appraised:\nFee Simple\nAssignment Type:\nPurchase Transaction\nLender/Client:\nExample Lending Co.\nThe subject is a fictional one-unit property created for automated tests. No part of this report describes a real property, borrower,\nlender or appraiser.\nContract\nContract Price:\n$412,000\nDate of Contract:\n09/01/2026\nOffering Price:\n$415,000\nListing Date:\n08/01/2026\nDOM:\n21\nSale Type:\nArms Length\nFinancial Assistance (Concessions):\n$0\nData Source(s):\nSYN-MLS-0000\nThe contract was analyzed. The sale is an arms length transaction between unrelated fictional parties with no financing\nconcessions.\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nPage 1 of 7\nUNIFORM RESIDENTIAL APPRAISAL REPORT\nFile No. SYN-0001\nNeighborhood\nLocation:\nSuburban\nBuilt-Up:\n25-75%\nGrowth:\nStable\nProperty Values:\nStable\nDemand/Supply:\nIn Balance\nMarketing Time:\n3-6 mths\nOne-Unit:\n80%\n2-4 Unit:\n5%\nMulti-Family:\n5%\nCommercial:\n5%\nOther Land Use:\n5%\nNeighborhood Boundaries:\nNorth: Sample Road; South: Test Creek; East: Example Parkway; West: Fixture Lane\nNeighborhood Description: Example Heights is an established suburban area of one-unit homes with schools, parks and\nshopping within two miles. Market conditions are stable with a typical marketing time of three to six months.\nSite\nDimensions:\n80 x 125\nSite Area:\n10,000 sf\nShape:\nRectangular\nView:\nResidential\nZoning Classification:\nR-1\nZoning Description:\nSingle Family Residential\nZoning Compliance:\nLegal\nHighest and Best Use:\nPresent Use\nElectricity:\nPublic\nGas:\nPublic\nWater:\nPublic\nSanitary Sewer:\nPublic\nStreet:\nAsphalt\nAlley:\nNone\nFEMA Special Flood Hazard Area:\nNo\nFEMA Flood Zone:\nX\nFEMA Map #:\n00000C0000Z\nFEMA Map Date:\n01/01/2020\nSite Comments: The site is level and rectangular with typical utilities. No adverse easements, encroachments or environmental\nconditions were observed.\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nPage 2 of 7\nUNIFORM RESIDENTIAL APPRAISAL REPORT\nFile No. SYN-0001\nImprovements\nUnits:\nOne\nStories:\n2\nType:\nDetached\nDesign (Style):\nColonial\nYear Built:\n1987\nEffective Age:\n12\nFoundation:\nFull Basement\nBasement Area:\n900 sq ft\nBasement Finish:\n50%\nExterior Walls:\nVinyl Siding\nRoof Surface:\nAsphalt Shingle\nGutters and Downspouts:\nAluminum\nWindow Type:\nDouble Hung\nHeating:\nFWA\nFuel:\nGas\nCooling:\nCentral Air Conditioning\nFireplaces:\n1\nPatio/Deck:\nDeck\nCar Storage:\nGarage, Attached\nGarage Cars:\n2\nRooms:\n7\nBedrooms:\n3\nBath(s):\n2.1\nGross Living Area:\n1,850 sq ft\nQuality of Construction:\nQ4\nCondition:\nC3\nAppliances:\nRange/Oven, Dishwasher, Refrigerator, Microwave, Washer/Dryer\nAdditional Features:\nRear deck, fireplace, ceiling fans\nCondition of the Property: The dwelling is maintained in average condition. The kitchen has wood cabinets and laminate\ncountertops; bathrooms have a tub and toilets; bedrooms are carpeted; the living room has a ceiling fan; the two-car garage has\na sectional garage door; cooling is by an exterior AC condenser.\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nPage 3 of 7\nUNIFORM RESIDENTIAL APPRAISAL REPORT\nFile No. SYN-0001\nSales Comparison Approach\nThere are 4 comparable properties currently offered for sale in the subject neighborhood and 11 comparable sales in the past\ntwelve months. The three most similar closed sales are analyzed in the grid below.\nFeature\nSubject\nComparable Sale 1\nComparable Sale 2\nComparable Sale 3\nAddress\n1290 Example Way\n1302 Example Way\n88 Sample Court\n455 Test Avenue\nProximity to Subject\n-\n0.10 miles N\n0.45 miles E\n0.80 miles SW\nSale Price\n$412,000\n$405,000\n$418,500\n$399,900\nSale Price/Gross Liv. Area\n$222.70\n$225.00\n$217.97\n$227.22\nData Source(s)\nSYN-MLS-0000\nSYN-MLS-0001\nSYN-MLS-0002\nSYN-MLS-0003\nDate of Sale\n-\n07/15/2026\n06/02/2026\n08/20/2026\nLocation\nSuburban\nSuburban\nSuburban\nSuburban\nSite\n10,000 sf\n9,600 sf\n10,400 sf\n9,800 sf\nDesign (Style)\nColonial\nColonial\nColonial\nColonial\nQuality of Construction\nQ4\nQ4\nQ4\nQ4\nActual Age\n39\n36\n41\n38\nCondition\nC3\nC3\nC3\nC3\nRooms / Bedrooms / Baths\n7 / 3 / 2.1\n7 / 3 / 2.0\n8 / 4 / 2.1\n7 / 3 / 2.0\nGross Living Area\n1,850 sq ft\n1,800 sq ft\n1,920 sq ft\n1,760 sq ft\nBasement\n900 sf, 50% fin.\n900 sf, 40% fin.\n950 sf, 60% fin.\n850 sf, 50% fin.\nGarage/Carport\n2-car attached\n2-car attached\n2-car attached\n1-car attached\nNet Adjustment (Total)\n-\n+$5,000\n-$7,500\n+$9,100\nAdjusted Sale Price\n-\n$410,000\n$411,000\n$409,000\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nPage 4 of 7\nUNIFORM RESIDENTIAL APPRAISAL REPORT\nFile No. SYN-0001\nSales Comparison Approach (continued)\nSummary of Sales Comparison Approach: All three sales are in the subject neighborhood, closed within four months, and\nbracket the subject in size. Adjustments were made for gross living area, room count, basement finish and garage capacity.\nMost weight is given to Comparable Sale 1.\nIndicated Value by Sales Comparison Approach:\n$410,000\nReconciliation\nIndicated Value by Sales Comparison:\n$410,000\nIndicated Value by Cost Approach:\n$419,850\nIndicated Value by Income Approach:\nNot Developed\nThis Appraisal Is Made:\nAs Is\nFinal Opinion of Market Value:\n$410,000\nEffective Date:\n10/01/2026\nReconciliation: The sales comparison approach best reflects the actions of buyers and sellers and is given the most weight. The\ncost approach supports the conclusion. The income approach was not developed because one-unit homes in this fictional\nmarket are rarely rented.\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nPage 5 of 7\nUNIFORM RESIDENTIAL APPRAISAL REPORT\nFile No. SYN-0001\nAdditional Comments\nThe appraiser inspected the interior and exterior of the subject. Photographs, a sketch and a location map would accompany a\nreal report; this fixture contains only the text and tables needed by automated tests.\nCost Approach\nSupport for the opinion of site value: land sales in the fictional market and the allocation method. Cost data are from a synthetic\ncost service, effective for the third quarter of 2026.\nItem\nArea\nCost per Sq Ft\nAmount\nOpinion of Site Value\n$95,000\nDwelling\n1,850 sq ft\n$165.00\n$305,250\nBasement\n900 sq ft\n$40.00\n$36,000\nGarage/Carport\n480 sq ft\n$45.00\n$21,600\nTotal Estimate of Cost-New\n$362,850\nLess Physical Depreciation\n$50,000\nLess Functional Depreciation\n$0\nLess External Depreciation\n$0\nTotal Depreciation\n$50,000\nDepreciated Cost of Improvements\n$312,850\n\"As-is\" Value of Site Improvements\n$12,000\nIndicated Value by Cost Approach\n$419,850\nRemaining Economic Life:\n48 years\nSource of Cost Data:\nSYN-COST-2026\nIncome Approach\nIncome Approach: not developed for this assignment.\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nPage 6 of 7\nUNIFORM RESIDENTIAL APPRAISAL REPORT\nFile No. SYN-0001\nAppraiser Certification and Signature\n1. This fixture certifies nothing. The statements below imitate the structure of an appraiser certification so that section detection\ncan be tested.\n2. The fictional appraiser personally inspected the fictional property and has no interest in it.\n3. The reported analyses, opinions and conclusions are limited only by the stated assumptions, all of which are invented.\n4. Compensation is not contingent on the value reported.\nAppraiser:\nSample Appraiser\nCompany Name:\nExample Appraisal Group\nState Certification #:\nSYN-000000\nLicense State:\nXX\nDate of Signature and Report:\n10/05/2026\nEffective Date of Appraisal:\n10/01/2026\nAppraised Value of Subject Property:\n$410,000\nSYNTHETIC TEST FIXTURE - fictional data - not an appraisal\nPage 7 of 7",
+  "pages": [
+    {
+      "page_number": 1,
+      "lines": [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "File No. SYN-0001",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Subject",
+        "Property Address:",
+        "1290 Example Way",
+        "City:",
+        "Springfield",
+        "State:",
+        "XX",
+        "Zip Code:",
+        "00000",
+        "Borrower:",
+        "Sample Borrower",
+        "Owner of Public Record:",
+        "Sample Owner",
+        "County:",
+        "Example County",
+        "Legal Description:",
+        "Lot 7, Block 3, Example Addition",
+        "Assessor's Parcel #:",
+        "000-000-0000",
+        "Tax Year:",
+        "2026",
+        "R.E. Taxes:",
+        "$4,321",
+        "Neighborhood Name:",
+        "Example Heights",
+        "Map Reference:",
+        "MAP-00",
+        "Census Tract:",
+        "0000.00",
+        "Occupant:",
+        "Owner",
+        "Special Assessments:",
+        "$0",
+        "HOA Dues:",
+        "$0",
+        "Property Rights Appraised:",
+        "Fee Simple",
+        "Assignment Type:",
+        "Purchase Transaction",
+        "Lender/Client:",
+        "Example Lending Co.",
+        "The subject is a fictional one-unit property created for automated tests. No part of this report describes a real property, borrower,",
+        "lender or appraiser.",
+        "Contract",
+        "Contract Price:",
+        "$412,000",
+        "Date of Contract:",
+        "09/01/2026",
+        "Offering Price:",
+        "$415,000",
+        "Listing Date:",
+        "08/01/2026",
+        "DOM:",
+        "21",
+        "Sale Type:",
+        "Arms Length",
+        "Financial Assistance (Concessions):",
+        "$0",
+        "Data Source(s):",
+        "SYN-MLS-0000",
+        "The contract was analyzed. The sale is an arms length transaction between unrelated fictional parties with no financing",
+        "concessions.",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Page 1 of 7"
+      ]
+    },
+    {
+      "page_number": 2,
+      "lines": [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "File No. SYN-0001",
+        "Neighborhood",
+        "Location:",
+        "Suburban",
+        "Built-Up:",
+        "25-75%",
+        "Growth:",
+        "Stable",
+        "Property Values:",
+        "Stable",
+        "Demand/Supply:",
+        "In Balance",
+        "Marketing Time:",
+        "3-6 mths",
+        "One-Unit:",
+        "80%",
+        "2-4 Unit:",
+        "5%",
+        "Multi-Family:",
+        "5%",
+        "Commercial:",
+        "5%",
+        "Other Land Use:",
+        "5%",
+        "Neighborhood Boundaries:",
+        "North: Sample Road; South: Test Creek; East: Example Parkway; West: Fixture Lane",
+        "Neighborhood Description: Example Heights is an established suburban area of one-unit homes with schools, parks and",
+        "shopping within two miles. Market conditions are stable with a typical marketing time of three to six months.",
+        "Site",
+        "Dimensions:",
+        "80 x 125",
+        "Site Area:",
+        "10,000 sf",
+        "Shape:",
+        "Rectangular",
+        "View:",
+        "Residential",
+        "Zoning Classification:",
+        "R-1",
+        "Zoning Description:",
+        "Single Family Residential",
+        "Zoning Compliance:",
+        "Legal",
+        "Highest and Best Use:",
+        "Present Use",
+        "Electricity:",
+        "Public",
+        "Gas:",
+        "Public",
+        "Water:",
+        "Public",
+        "Sanitary Sewer:",
+        "Public",
+        "Street:",
+        "Asphalt",
+        "Alley:",
+        "None",
+        "FEMA Special Flood Hazard Area:",
+        "No",
+        "FEMA Flood Zone:",
+        "X",
+        "FEMA Map #:",
+        "00000C0000Z",
+        "FEMA Map Date:",
+        "01/01/2020",
+        "Site Comments: The site is level and rectangular with typical utilities. No adverse easements, encroachments or environmental",
+        "conditions were observed.",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Page 2 of 7"
+      ]
+    },
+    {
+      "page_number": 3,
+      "lines": [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "File No. SYN-0001",
+        "Improvements",
+        "Units:",
+        "One",
+        "Stories:",
+        "2",
+        "Type:",
+        "Detached",
+        "Design (Style):",
+        "Colonial",
+        "Year Built:",
+        "1987",
+        "Effective Age:",
+        "12",
+        "Foundation:",
+        "Full Basement",
+        "Basement Area:",
+        "900 sq ft",
+        "Basement Finish:",
+        "50%",
+        "Exterior Walls:",
+        "Vinyl Siding",
+        "Roof Surface:",
+        "Asphalt Shingle",
+        "Gutters and Downspouts:",
+        "Aluminum",
+        "Window Type:",
+        "Double Hung",
+        "Heating:",
+        "FWA",
+        "Fuel:",
+        "Gas",
+        "Cooling:",
+        "Central Air Conditioning",
+        "Fireplaces:",
+        "1",
+        "Patio/Deck:",
+        "Deck",
+        "Car Storage:",
+        "Garage, Attached",
+        "Garage Cars:",
+        "2",
+        "Rooms:",
+        "7",
+        "Bedrooms:",
+        "3",
+        "Bath(s):",
+        "2.1",
+        "Gross Living Area:",
+        "1,850 sq ft",
+        "Quality of Construction:",
+        "Q4",
+        "Condition:",
+        "C3",
+        "Appliances:",
+        "Range/Oven, Dishwasher, Refrigerator, Microwave, Washer/Dryer",
+        "Additional Features:",
+        "Rear deck, fireplace, ceiling fans",
+        "Condition of the Property: The dwelling is maintained in average condition. The kitchen has wood cabinets and laminate",
+        "countertops; bathrooms have a tub and toilets; bedrooms are carpeted; the living room has a ceiling fan; the two-car garage has",
+        "a sectional garage door; cooling is by an exterior AC condenser.",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Page 3 of 7"
+      ]
+    },
+    {
+      "page_number": 4,
+      "lines": [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "File No. SYN-0001",
+        "Sales Comparison Approach",
+        "There are 4 comparable properties currently offered for sale in the subject neighborhood and 11 comparable sales in the past",
+        "twelve months. The three most similar closed sales are analyzed in the grid below.",
+        "Feature",
+        "Subject",
+        "Comparable Sale 1",
+        "Comparable Sale 2",
+        "Comparable Sale 3",
+        "Address",
+        "1290 Example Way",
+        "1302 Example Way",
+        "88 Sample Court",
+        "455 Test Avenue",
+        "Proximity to Subject",
+        "-",
+        "0.10 miles N",
+        "0.45 miles E",
+        "0.80 miles SW",
+        "Sale Price",
+        "$412,000",
+        "$405,000",
+        "$418,500",
+        "$399,900",
+        "Sale Price/Gross Liv. Area",
+        "$222.70",
+        "$225.00",
+        "$217.97",
+        "$227.22",
+        "Data Source(s)",
+        "SYN-MLS-0000",
+        "SYN-MLS-0001",
+        "SYN-MLS-0002",
+        "SYN-MLS-0003",
+        "Date of Sale",
+        "-",
+        "07/15/2026",
+        "06/02/2026",
+        "08/20/2026",
+        "Location",
+        "Suburban",
+        "Suburban",
+        "Suburban",
+        "Suburban",
+        "Site",
+        "10,000 sf",
+        "9,600 sf",
+        "10,400 sf",
+        "9,800 sf",
+        "Design (Style)",
+        "Colonial",
+        "Colonial",
+        "Colonial",
+        "Colonial",
+        "Quality of Construction",
+        "Q4",
+        "Q4",
+        "Q4",
+        "Q4",
+        "Actual Age",
+        "39",
+        "36",
+        "41",
+        "38",
+        "Condition",
+        "C3",
+        "C3",
+        "C3",
+        "C3",
+        "Rooms / Bedrooms / Baths",
+        "7 / 3 / 2.1",
+        "7 / 3 / 2.0",
+        "8 / 4 / 2.1",
+        "7 / 3 / 2.0",
+        "Gross Living Area",
+        "1,850 sq ft",
+        "1,800 sq ft",
+        "1,920 sq ft",
+        "1,760 sq ft",
+        "Basement",
+        "900 sf, 50% fin.",
+        "900 sf, 40% fin.",
+        "950 sf, 60% fin.",
+        "850 sf, 50% fin.",
+        "Garage/Carport",
+        "2-car attached",
+        "2-car attached",
+        "2-car attached",
+        "1-car attached",
+        "Net Adjustment (Total)",
+        "-",
+        "+$5,000",
+        "-$7,500",
+        "+$9,100",
+        "Adjusted Sale Price",
+        "-",
+        "$410,000",
+        "$411,000",
+        "$409,000",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Page 4 of 7"
+      ]
+    },
+    {
+      "page_number": 5,
+      "lines": [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "File No. SYN-0001",
+        "Sales Comparison Approach (continued)",
+        "Summary of Sales Comparison Approach: All three sales are in the subject neighborhood, closed within four months, and",
+        "bracket the subject in size. Adjustments were made for gross living area, room count, basement finish and garage capacity.",
+        "Most weight is given to Comparable Sale 1.",
+        "Indicated Value by Sales Comparison Approach:",
+        "$410,000",
+        "Reconciliation",
+        "Indicated Value by Sales Comparison:",
+        "$410,000",
+        "Indicated Value by Cost Approach:",
+        "$419,850",
+        "Indicated Value by Income Approach:",
+        "Not Developed",
+        "This Appraisal Is Made:",
+        "As Is",
+        "Final Opinion of Market Value:",
+        "$410,000",
+        "Effective Date:",
+        "10/01/2026",
+        "Reconciliation: The sales comparison approach best reflects the actions of buyers and sellers and is given the most weight. The",
+        "cost approach supports the conclusion. The income approach was not developed because one-unit homes in this fictional",
+        "market are rarely rented.",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Page 5 of 7"
+      ]
+    },
+    {
+      "page_number": 6,
+      "lines": [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "File No. SYN-0001",
+        "Additional Comments",
+        "The appraiser inspected the interior and exterior of the subject. Photographs, a sketch and a location map would accompany a",
+        "real report; this fixture contains only the text and tables needed by automated tests.",
+        "Cost Approach",
+        "Support for the opinion of site value: land sales in the fictional market and the allocation method. Cost data are from a synthetic",
+        "cost service, effective for the third quarter of 2026.",
+        "Item",
+        "Area",
+        "Cost per Sq Ft",
+        "Amount",
+        "Opinion of Site Value",
+        "$95,000",
+        "Dwelling",
+        "1,850 sq ft",
+        "$165.00",
+        "$305,250",
+        "Basement",
+        "900 sq ft",
+        "$40.00",
+        "$36,000",
+        "Garage/Carport",
+        "480 sq ft",
+        "$45.00",
+        "$21,600",
+        "Total Estimate of Cost-New",
+        "$362,850",
+        "Less Physical Depreciation",
+        "$50,000",
+        "Less Functional Depreciation",
+        "$0",
+        "Less External Depreciation",
+        "$0",
+        "Total Depreciation",
+        "$50,000",
+        "Depreciated Cost of Improvements",
+        "$312,850",
+        "\"As-is\" Value of Site Improvements",
+        "$12,000",
+        "Indicated Value by Cost Approach",
+        "$419,850",
+        "Remaining Economic Life:",
+        "48 years",
+        "Source of Cost Data:",
+        "SYN-COST-2026",
+        "Income Approach",
+        "Income Approach: not developed for this assignment.",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Page 6 of 7"
+      ]
+    },
+    {
+      "page_number": 7,
+      "lines": [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "File No. SYN-0001",
+        "Appraiser Certification and Signature",
+        "1. This fixture certifies nothing. The statements below imitate the structure of an appraiser certification so that section detection",
+        "can be tested.",
+        "2. The fictional appraiser personally inspected the fictional property and has no interest in it.",
+        "3. The reported analyses, opinions and conclusions are limited only by the stated assumptions, all of which are invented.",
+        "4. Compensation is not contingent on the value reported.",
+        "Appraiser:",
+        "Sample Appraiser",
+        "Company Name:",
+        "Example Appraisal Group",
+        "State Certification #:",
+        "SYN-000000",
+        "License State:",
+        "XX",
+        "Date of Signature and Report:",
+        "10/05/2026",
+        "Effective Date of Appraisal:",
+        "10/01/2026",
+        "Appraised Value of Subject Property:",
+        "$410,000",
+        "SYNTHETIC TEST FIXTURE - fictional data - not an appraisal",
+        "Page 7 of 7"
+      ]
+    }
+  ],
+  "key_value_pairs": [
+    {
+      "key": "Property Address",
+      "value": "1290 Example Way",
+      "confidence": 0.947,
+      "page": 1
+    },
+    {
+      "key": "City",
+      "value": "Springfield",
+      "confidence": 0.945,
+      "page": 1
+    },
+    {
+      "key": "State",
+      "value": "XX",
+      "confidence": 0.961,
+      "page": 1
+    },
+    {
+      "key": "Zip Code",
+      "value": "00000",
+      "confidence": 0.938,
+      "page": 1
+    },
+    {
+      "key": "Borrower",
+      "value": "Sample Borrower",
+      "confidence": 0.939,
+      "page": 1
+    },
+    {
+      "key": "Owner of Public Record",
+      "value": "Sample Owner",
+      "confidence": 0.974,
+      "page": 1
+    },
+    {
+      "key": "County",
+      "value": "Example County",
+      "confidence": 0.932,
+      "page": 1
+    },
+    {
+      "key": "Legal Description",
+      "value": "Lot 7, Block 3, Example Addition",
+      "confidence": 0.949,
+      "page": 1
+    },
+    {
+      "key": "Assessor's Parcel #",
+      "value": "000-000-0000",
+      "confidence": 0.988,
+      "page": 1
+    },
+    {
+      "key": "Tax Year",
+      "value": "2026",
+      "confidence": 0.949,
+      "page": 1
+    },
+    {
+      "key": "R.E. Taxes",
+      "value": "$4,321",
+      "confidence": 0.978,
+      "page": 1
+    },
+    {
+      "key": "Neighborhood Name",
+      "value": "Example Heights",
+      "confidence": 0.978,
+      "page": 1
+    },
+    {
+      "key": "Map Reference",
+      "value": "MAP-00",
+      "confidence": 0.938,
+      "page": 1
+    },
+    {
+      "key": "Census Tract",
+      "value": "0000.00",
+      "confidence": 0.958,
+      "page": 1
+    },
+    {
+      "key": "Occupant",
+      "value": "Owner",
+      "confidence": 0.988,
+      "page": 1
+    },
+    {
+      "key": "Special Assessments",
+      "value": "$0",
+      "confidence": 0.94,
+      "page": 1
+    },
+    {
+      "key": "HOA Dues",
+      "value": "$0",
+      "confidence": 0.959,
+      "page": 1
+    },
+    {
+      "key": "Property Rights Appraised",
+      "value": "Fee Simple",
+      "confidence": 0.939,
+      "page": 1
+    },
+    {
+      "key": "Assignment Type",
+      "value": "Purchase Transaction",
+      "confidence": 0.936,
+      "page": 1
+    },
+    {
+      "key": "Lender/Client",
+      "value": "Example Lending Co.",
+      "confidence": 0.968,
+      "page": 1
+    },
+    {
+      "key": "Contract Price",
+      "value": "$412,000",
+      "confidence": 0.969,
+      "page": 1
+    },
+    {
+      "key": "Date of Contract",
+      "value": "09/01/2026",
+      "confidence": 0.958,
+      "page": 1
+    },
+    {
+      "key": "Offering Price",
+      "value": "$415,000",
+      "confidence": 0.945,
+      "page": 1
+    },
+    {
+      "key": "Listing Date",
+      "value": "08/01/2026",
+      "confidence": 0.967,
+      "page": 1
+    },
+    {
+      "key": "DOM",
+      "value": "21",
+      "confidence": 0.939,
+      "page": 1
+    },
+    {
+      "key": "Sale Type",
+      "value": "Arms Length",
+      "confidence": 0.974,
+      "page": 1
+    },
+    {
+      "key": "Financial Assistance (Concessions)",
+      "value": "$0",
+      "confidence": 0.947,
+      "page": 1
+    },
+    {
+      "key": "Data Source(s)",
+      "value": "SYN-MLS-0000",
+      "confidence": 0.994,
+      "page": 1
+    },
+    {
+      "key": "Location",
+      "value": "Suburban",
+      "confidence": 0.944,
+      "page": 2
+    },
+    {
+      "key": "Built-Up",
+      "value": "25-75%",
+      "confidence": 0.947,
+      "page": 2
+    },
+    {
+      "key": "Growth",
+      "value": "Stable",
+      "confidence": 0.988,
+      "page": 2
+    },
+    {
+      "key": "Property Values",
+      "value": "Stable",
+      "confidence": 0.949,
+      "page": 2
+    },
+    {
+      "key": "Demand/Supply",
+      "value": "In Balance",
+      "confidence": 0.983,
+      "page": 2
+    },
+    {
+      "key": "Marketing Time",
+      "value": "3-6 mths",
+      "confidence": 0.933,
+      "page": 2
+    },
+    {
+      "key": "One-Unit",
+      "value": "80%",
+      "confidence": 0.958,
+      "page": 2
+    },
+    {
+      "key": "2-4 Unit",
+      "value": "5%",
+      "confidence": 0.935,
+      "page": 2
+    },
+    {
+      "key": "Multi-Family",
+      "value": "5%",
+      "confidence": 0.946,
+      "page": 2
+    },
+    {
+      "key": "Commercial",
+      "value": "5%",
+      "confidence": 0.953,
+      "page": 2
+    },
+    {
+      "key": "Other Land Use",
+      "value": "5%",
+      "confidence": 0.967,
+      "page": 2
+    },
+    {
+      "key": "Neighborhood Boundaries",
+      "value": "North: Sample Road; South: Test Creek; East: Example Parkway; West: Fixture Lane",
+      "confidence": 0.955,
+      "page": 2
+    },
+    {
+      "key": "Dimensions",
+      "value": "80 x 125",
+      "confidence": 0.936,
+      "page": 2
+    },
+    {
+      "key": "Site Area",
+      "value": "10,000 sf",
+      "confidence": 0.956,
+      "page": 2
+    },
+    {
+      "key": "Shape",
+      "value": "Rectangular",
+      "confidence": 0.986,
+      "page": 2
+    },
+    {
+      "key": "View",
+      "value": "Residential",
+      "confidence": 0.952,
+      "page": 2
+    },
+    {
+      "key": "Zoning Classification",
+      "value": "R-1",
+      "confidence": 0.986,
+      "page": 2
+    },
+    {
+      "key": "Zoning Description",
+      "value": "Single Family Residential",
+      "confidence": 0.948,
+      "page": 2
+    },
+    {
+      "key": "Zoning Compliance",
+      "value": "Legal",
+      "confidence": 0.974,
+      "page": 2
+    },
+    {
+      "key": "Highest and Best Use",
+      "value": "Present Use",
+      "confidence": 0.961,
+      "page": 2
+    },
+    {
+      "key": "Electricity",
+      "value": "Public",
+      "confidence": 0.959,
+      "page": 2
+    },
+    {
+      "key": "Gas",
+      "value": "Public",
+      "confidence": 0.972,
+      "page": 2
+    },
+    {
+      "key": "Water",
+      "value": "Public",
+      "confidence": 0.972,
+      "page": 2
+    },
+    {
+      "key": "Sanitary Sewer",
+      "value": "Public",
+      "confidence": 0.936,
+      "page": 2
+    },
+    {
+      "key": "Street",
+      "value": "Asphalt",
+      "confidence": 0.96,
+      "page": 2
+    },
+    {
+      "key": "Alley",
+      "value": "None",
+      "confidence": 0.994,
+      "page": 2
+    },
+    {
+      "key": "FEMA Special Flood Hazard Area",
+      "value": "No",
+      "confidence": 0.953,
+      "page": 2
+    },
+    {
+      "key": "FEMA Flood Zone",
+      "value": "X",
+      "confidence": 0.936,
+      "page": 2
+    },
+    {
+      "key": "FEMA Map #",
+      "value": "00000C0000Z",
+      "confidence": 0.944,
+      "page": 2
+    },
+    {
+      "key": "FEMA Map Date",
+      "value": "01/01/2020",
+      "confidence": 0.96,
+      "page": 2
+    },
+    {
+      "key": "Units",
+      "value": "One",
+      "confidence": 0.989,
+      "page": 3
+    },
+    {
+      "key": "Stories",
+      "value": "2",
+      "confidence": 0.967,
+      "page": 3
+    },
+    {
+      "key": "Type",
+      "value": "Detached",
+      "confidence": 0.968,
+      "page": 3
+    },
+    {
+      "key": "Design (Style)",
+      "value": "Colonial",
+      "confidence": 0.938,
+      "page": 3
+    },
+    {
+      "key": "Year Built",
+      "value": "1987",
+      "confidence": 0.969,
+      "page": 3
+    },
+    {
+      "key": "Effective Age",
+      "value": "12",
+      "confidence": 0.967,
+      "page": 3
+    },
+    {
+      "key": "Foundation",
+      "value": "Full Basement",
+      "confidence": 0.98,
+      "page": 3
+    },
+    {
+      "key": "Basement Area",
+      "value": "900 sq ft",
+      "confidence": 0.971,
+      "page": 3
+    },
+    {
+      "key": "Basement Finish",
+      "value": "50%",
+      "confidence": 0.931,
+      "page": 3
+    },
+    {
+      "key": "Exterior Walls",
+      "value": "Vinyl Siding",
+      "confidence": 0.942,
+      "page": 3
+    },
+    {
+      "key": "Roof Surface",
+      "value": "Asphalt Shingle",
+      "confidence": 0.952,
+      "page": 3
+    },
+    {
+      "key": "Gutters and Downspouts",
+      "value": "Aluminum",
+      "confidence": 0.984,
+      "page": 3
+    },
+    {
+      "key": "Window Type",
+      "value": "Double Hung",
+      "confidence": 0.954,
+      "page": 3
+    },
+    {
+      "key": "Heating",
+      "value": "FWA",
+      "confidence": 0.963,
+      "page": 3
+    },
+    {
+      "key": "Fuel",
+      "value": "Gas",
+      "confidence": 0.961,
+      "page": 3
+    },
+    {
+      "key": "Cooling",
+      "value": "Central Air Conditioning",
+      "confidence": 0.941,
+      "page": 3
+    },
+    {
+      "key": "Fireplaces",
+      "value": "1",
+      "confidence": 0.99,
+      "page": 3
+    },
+    {
+      "key": "Patio/Deck",
+      "value": "Deck",
+      "confidence": 0.945,
+      "page": 3
+    },
+    {
+      "key": "Car Storage",
+      "value": "Garage, Attached",
+      "confidence": 0.978,
+      "page": 3
+    },
+    {
+      "key": "Garage Cars",
+      "value": "2",
+      "confidence": 0.951,
+      "page": 3
+    },
+    {
+      "key": "Rooms",
+      "value": "7",
+      "confidence": 0.964,
+      "page": 3
+    },
+    {
+      "key": "Bedrooms",
+      "value": "3",
+      "confidence": 0.977,
+      "page": 3
+    },
+    {
+      "key": "Bath(s)",
+      "value": "2.1",
+      "confidence": 0.951,
+      "page": 3
+    },
+    {
+      "key": "Gross Living Area",
+      "value": "1,850 sq ft",
+      "confidence": 0.62,
+      "page": 3
+    },
+    {
+      "key": "Quality of Construction",
+      "value": "Q4",
+      "confidence": 0.946,
+      "page": 3
+    },
+    {
+      "key": "Condition",
+      "value": "C3",
+      "confidence": 0.972,
+      "page": 3
+    },
+    {
+      "key": "Appliances",
+      "value": "Range/Oven, Dishwasher, Refrigerator, Microwave, Washer/Dryer",
+      "confidence": 0.976,
+      "page": 3
+    },
+    {
+      "key": "Additional Features",
+      "value": "Rear deck, fireplace, ceiling fans",
+      "confidence": 0.944,
+      "page": 3
+    },
+    {
+      "key": "Indicated Value by Sales Comparison Approach",
+      "value": "$410,000",
+      "confidence": 0.995,
+      "page": 5
+    },
+    {
+      "key": "Indicated Value by Sales Comparison",
+      "value": "$410,000",
+      "confidence": 0.994,
+      "page": 5
+    },
+    {
+      "key": "Indicated Value by Cost Approach",
+      "value": "$419,850",
+      "confidence": 0.984,
+      "page": 5
+    },
+    {
+      "key": "Indicated Value by Income Approach",
+      "value": "Not Developed",
+      "confidence": 0.941,
+      "page": 5
+    },
+    {
+      "key": "This Appraisal Is Made",
+      "value": "As Is",
+      "confidence": 0.967,
+      "page": 5
+    },
+    {
+      "key": "Final Opinion of Market Value",
+      "value": "$410,000",
+      "confidence": 0.984,
+      "page": 5
+    },
+    {
+      "key": "Effective Date",
+      "value": "10/01/2026",
+      "confidence": 0.973,
+      "page": 5
+    },
+    {
+      "key": "Remaining Economic Life",
+      "value": "48 years",
+      "confidence": 0.949,
+      "page": 6
+    },
+    {
+      "key": "Source of Cost Data",
+      "value": "SYN-COST-2026",
+      "confidence": 0.977,
+      "page": 6
+    },
+    {
+      "key": "Appraiser",
+      "value": "Sample Appraiser",
+      "confidence": 0.956,
+      "page": 7
+    },
+    {
+      "key": "Company Name",
+      "value": "Example Appraisal Group",
+      "confidence": 0.982,
+      "page": 7
+    },
+    {
+      "key": "State Certification #",
+      "value": "SYN-000000",
+      "confidence": 0.96,
+      "page": 7
+    },
+    {
+      "key": "License State",
+      "value": "XX",
+      "confidence": 0.968,
+      "page": 7
+    },
+    {
+      "key": "Date of Signature and Report",
+      "value": "10/05/2026",
+      "confidence": 0.973,
+      "page": 7
+    },
+    {
+      "key": "Effective Date of Appraisal",
+      "value": "10/01/2026",
+      "confidence": 0.972,
+      "page": 7
+    },
+    {
+      "key": "Appraised Value of Subject Property",
+      "value": "$410,000",
+      "confidence": 0.933,
+      "page": 7
+    }
+  ],
+  "tables": [
+    {
+      "page": 4,
+      "row_count": 19,
+      "column_count": 5,
+      "cells": [
+        {
+          "row_index": 0,
+          "column_index": 0,
+          "content": "Feature",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 0,
+          "column_index": 1,
+          "content": "Subject",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 0,
+          "column_index": 2,
+          "content": "Comparable Sale 1",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 0,
+          "column_index": 3,
+          "content": "Comparable Sale 2",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 0,
+          "column_index": 4,
+          "content": "Comparable Sale 3",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 1,
+          "column_index": 0,
+          "content": "Address",
+          "kind": "content"
+        },
+        {
+          "row_index": 1,
+          "column_index": 1,
+          "content": "1290 Example Way",
+          "kind": "content"
+        },
+        {
+          "row_index": 1,
+          "column_index": 2,
+          "content": "1302 Example Way",
+          "kind": "content"
+        },
+        {
+          "row_index": 1,
+          "column_index": 3,
+          "content": "88 Sample Court",
+          "kind": "content"
+        },
+        {
+          "row_index": 1,
+          "column_index": 4,
+          "content": "455 Test Avenue",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 0,
+          "content": "Proximity to Subject",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 1,
+          "content": "-",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 2,
+          "content": "0.10 miles N",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 3,
+          "content": "0.45 miles E",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 4,
+          "content": "0.80 miles SW",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 0,
+          "content": "Sale Price",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 1,
+          "content": "$412,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 2,
+          "content": "$405,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 3,
+          "content": "$418,500",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 4,
+          "content": "$399,900",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 0,
+          "content": "Sale Price/Gross Liv. Area",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 1,
+          "content": "$222.70",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 2,
+          "content": "$225.00",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 3,
+          "content": "$217.97",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 4,
+          "content": "$227.22",
+          "kind": "content"
+        },
+        {
+          "row_index": 5,
+          "column_index": 0,
+          "content": "Data Source(s)",
+          "kind": "content"
+        },
+        {
+          "row_index": 5,
+          "column_index": 1,
+          "content": "SYN-MLS-0000",
+          "kind": "content"
+        },
+        {
+          "row_index": 5,
+          "column_index": 2,
+          "content": "SYN-MLS-0001",
+          "kind": "content"
+        },
+        {
+          "row_index": 5,
+          "column_index": 3,
+          "content": "SYN-MLS-0002",
+          "kind": "content"
+        },
+        {
+          "row_index": 5,
+          "column_index": 4,
+          "content": "SYN-MLS-0003",
+          "kind": "content"
+        },
+        {
+          "row_index": 6,
+          "column_index": 0,
+          "content": "Date of Sale",
+          "kind": "content"
+        },
+        {
+          "row_index": 6,
+          "column_index": 1,
+          "content": "-",
+          "kind": "content"
+        },
+        {
+          "row_index": 6,
+          "column_index": 2,
+          "content": "07/15/2026",
+          "kind": "content"
+        },
+        {
+          "row_index": 6,
+          "column_index": 3,
+          "content": "06/02/2026",
+          "kind": "content"
+        },
+        {
+          "row_index": 6,
+          "column_index": 4,
+          "content": "08/20/2026",
+          "kind": "content"
+        },
+        {
+          "row_index": 7,
+          "column_index": 0,
+          "content": "Location",
+          "kind": "content"
+        },
+        {
+          "row_index": 7,
+          "column_index": 1,
+          "content": "Suburban",
+          "kind": "content"
+        },
+        {
+          "row_index": 7,
+          "column_index": 2,
+          "content": "Suburban",
+          "kind": "content"
+        },
+        {
+          "row_index": 7,
+          "column_index": 3,
+          "content": "Suburban",
+          "kind": "content"
+        },
+        {
+          "row_index": 7,
+          "column_index": 4,
+          "content": "Suburban",
+          "kind": "content"
+        },
+        {
+          "row_index": 8,
+          "column_index": 0,
+          "content": "Site",
+          "kind": "content"
+        },
+        {
+          "row_index": 8,
+          "column_index": 1,
+          "content": "10,000 sf",
+          "kind": "content"
+        },
+        {
+          "row_index": 8,
+          "column_index": 2,
+          "content": "9,600 sf",
+          "kind": "content"
+        },
+        {
+          "row_index": 8,
+          "column_index": 3,
+          "content": "10,400 sf",
+          "kind": "content"
+        },
+        {
+          "row_index": 8,
+          "column_index": 4,
+          "content": "9,800 sf",
+          "kind": "content"
+        },
+        {
+          "row_index": 9,
+          "column_index": 0,
+          "content": "Design (Style)",
+          "kind": "content"
+        },
+        {
+          "row_index": 9,
+          "column_index": 1,
+          "content": "Colonial",
+          "kind": "content"
+        },
+        {
+          "row_index": 9,
+          "column_index": 2,
+          "content": "Colonial",
+          "kind": "content"
+        },
+        {
+          "row_index": 9,
+          "column_index": 3,
+          "content": "Colonial",
+          "kind": "content"
+        },
+        {
+          "row_index": 9,
+          "column_index": 4,
+          "content": "Colonial",
+          "kind": "content"
+        },
+        {
+          "row_index": 10,
+          "column_index": 0,
+          "content": "Quality of Construction",
+          "kind": "content"
+        },
+        {
+          "row_index": 10,
+          "column_index": 1,
+          "content": "Q4",
+          "kind": "content"
+        },
+        {
+          "row_index": 10,
+          "column_index": 2,
+          "content": "Q4",
+          "kind": "content"
+        },
+        {
+          "row_index": 10,
+          "column_index": 3,
+          "content": "Q4",
+          "kind": "content"
+        },
+        {
+          "row_index": 10,
+          "column_index": 4,
+          "content": "Q4",
+          "kind": "content"
+        },
+        {
+          "row_index": 11,
+          "column_index": 0,
+          "content": "Actual Age",
+          "kind": "content"
+        },
+        {
+          "row_index": 11,
+          "column_index": 1,
+          "content": "39",
+          "kind": "content"
+        },
+        {
+          "row_index": 11,
+          "column_index": 2,
+          "content": "36",
+          "kind": "content"
+        },
+        {
+          "row_index": 11,
+          "column_index": 3,
+          "content": "41",
+          "kind": "content"
+        },
+        {
+          "row_index": 11,
+          "column_index": 4,
+          "content": "38",
+          "kind": "content"
+        },
+        {
+          "row_index": 12,
+          "column_index": 0,
+          "content": "Condition",
+          "kind": "content"
+        },
+        {
+          "row_index": 12,
+          "column_index": 1,
+          "content": "C3",
+          "kind": "content"
+        },
+        {
+          "row_index": 12,
+          "column_index": 2,
+          "content": "C3",
+          "kind": "content"
+        },
+        {
+          "row_index": 12,
+          "column_index": 3,
+          "content": "C3",
+          "kind": "content"
+        },
+        {
+          "row_index": 12,
+          "column_index": 4,
+          "content": "C3",
+          "kind": "content"
+        },
+        {
+          "row_index": 13,
+          "column_index": 0,
+          "content": "Rooms / Bedrooms / Baths",
+          "kind": "content"
+        },
+        {
+          "row_index": 13,
+          "column_index": 1,
+          "content": "7 / 3 / 2.1",
+          "kind": "content"
+        },
+        {
+          "row_index": 13,
+          "column_index": 2,
+          "content": "7 / 3 / 2.0",
+          "kind": "content"
+        },
+        {
+          "row_index": 13,
+          "column_index": 3,
+          "content": "8 / 4 / 2.1",
+          "kind": "content"
+        },
+        {
+          "row_index": 13,
+          "column_index": 4,
+          "content": "7 / 3 / 2.0",
+          "kind": "content"
+        },
+        {
+          "row_index": 14,
+          "column_index": 0,
+          "content": "Gross Living Area",
+          "kind": "content"
+        },
+        {
+          "row_index": 14,
+          "column_index": 1,
+          "content": "1,850 sq ft",
+          "kind": "content"
+        },
+        {
+          "row_index": 14,
+          "column_index": 2,
+          "content": "1,800 sq ft",
+          "kind": "content"
+        },
+        {
+          "row_index": 14,
+          "column_index": 3,
+          "content": "1,920 sq ft",
+          "kind": "content"
+        },
+        {
+          "row_index": 14,
+          "column_index": 4,
+          "content": "1,760 sq ft",
+          "kind": "content"
+        },
+        {
+          "row_index": 15,
+          "column_index": 0,
+          "content": "Basement",
+          "kind": "content"
+        },
+        {
+          "row_index": 15,
+          "column_index": 1,
+          "content": "900 sf, 50% fin.",
+          "kind": "content"
+        },
+        {
+          "row_index": 15,
+          "column_index": 2,
+          "content": "900 sf, 40% fin.",
+          "kind": "content"
+        },
+        {
+          "row_index": 15,
+          "column_index": 3,
+          "content": "950 sf, 60% fin.",
+          "kind": "content"
+        },
+        {
+          "row_index": 15,
+          "column_index": 4,
+          "content": "850 sf, 50% fin.",
+          "kind": "content"
+        },
+        {
+          "row_index": 16,
+          "column_index": 0,
+          "content": "Garage/Carport",
+          "kind": "content"
+        },
+        {
+          "row_index": 16,
+          "column_index": 1,
+          "content": "2-car attached",
+          "kind": "content"
+        },
+        {
+          "row_index": 16,
+          "column_index": 2,
+          "content": "2-car attached",
+          "kind": "content"
+        },
+        {
+          "row_index": 16,
+          "column_index": 3,
+          "content": "2-car attached",
+          "kind": "content"
+        },
+        {
+          "row_index": 16,
+          "column_index": 4,
+          "content": "1-car attached",
+          "kind": "content"
+        },
+        {
+          "row_index": 17,
+          "column_index": 0,
+          "content": "Net Adjustment (Total)",
+          "kind": "content"
+        },
+        {
+          "row_index": 17,
+          "column_index": 1,
+          "content": "-",
+          "kind": "content"
+        },
+        {
+          "row_index": 17,
+          "column_index": 2,
+          "content": "+$5,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 17,
+          "column_index": 3,
+          "content": "-$7,500",
+          "kind": "content"
+        },
+        {
+          "row_index": 17,
+          "column_index": 4,
+          "content": "+$9,100",
+          "kind": "content"
+        },
+        {
+          "row_index": 18,
+          "column_index": 0,
+          "content": "Adjusted Sale Price",
+          "kind": "content"
+        },
+        {
+          "row_index": 18,
+          "column_index": 1,
+          "content": "-",
+          "kind": "content"
+        },
+        {
+          "row_index": 18,
+          "column_index": 2,
+          "content": "$410,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 18,
+          "column_index": 3,
+          "content": "$411,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 18,
+          "column_index": 4,
+          "content": "$409,000",
+          "kind": "content"
+        }
+      ]
+    },
+    {
+      "page": 6,
+      "row_count": 13,
+      "column_count": 4,
+      "cells": [
+        {
+          "row_index": 0,
+          "column_index": 0,
+          "content": "Item",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 0,
+          "column_index": 1,
+          "content": "Area",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 0,
+          "column_index": 2,
+          "content": "Cost per Sq Ft",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 0,
+          "column_index": 3,
+          "content": "Amount",
+          "kind": "columnHeader"
+        },
+        {
+          "row_index": 1,
+          "column_index": 0,
+          "content": "Opinion of Site Value",
+          "kind": "content"
+        },
+        {
+          "row_index": 1,
+          "column_index": 3,
+          "content": "$95,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 0,
+          "content": "Dwelling",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 1,
+          "content": "1,850 sq ft",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 2,
+          "content": "$165.00",
+          "kind": "content"
+        },
+        {
+          "row_index": 2,
+          "column_index": 3,
+          "content": "$305,250",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 0,
+          "content": "Basement",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 1,
+          "content": "900 sq ft",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 2,
+          "content": "$40.00",
+          "kind": "content"
+        },
+        {
+          "row_index": 3,
+          "column_index": 3,
+          "content": "$36,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 0,
+          "content": "Garage/Carport",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 1,
+          "content": "480 sq ft",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 2,
+          "content": "$45.00",
+          "kind": "content"
+        },
+        {
+          "row_index": 4,
+          "column_index": 3,
+          "content": "$21,600",
+          "kind": "content"
+        },
+        {
+          "row_index": 5,
+          "column_index": 0,
+          "content": "Total Estimate of Cost-New",
+          "kind": "content"
+        },
+        {
+          "row_index": 5,
+          "column_index": 3,
+          "content": "$362,850",
+          "kind": "content"
+        },
+        {
+          "row_index": 6,
+          "column_index": 0,
+          "content": "Less Physical Depreciation",
+          "kind": "content"
+        },
+        {
+          "row_index": 6,
+          "column_index": 3,
+          "content": "$50,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 7,
+          "column_index": 0,
+          "content": "Less Functional Depreciation",
+          "kind": "content"
+        },
+        {
+          "row_index": 7,
+          "column_index": 3,
+          "content": "$0",
+          "kind": "content"
+        },
+        {
+          "row_index": 8,
+          "column_index": 0,
+          "content": "Less External Depreciation",
+          "kind": "content"
+        },
+        {
+          "row_index": 8,
+          "column_index": 3,
+          "content": "$0",
+          "kind": "content"
+        },
+        {
+          "row_index": 9,
+          "column_index": 0,
+          "content": "Total Depreciation",
+          "kind": "content"
+        },
+        {
+          "row_index": 9,
+          "column_index": 3,
+          "content": "$50,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 10,
+          "column_index": 0,
+          "content": "Depreciated Cost of Improvements",
+          "kind": "content"
+        },
+        {
+          "row_index": 10,
+          "column_index": 3,
+          "content": "$312,850",
+          "kind": "content"
+        },
+        {
+          "row_index": 11,
+          "column_index": 0,
+          "content": "\"As-is\" Value of Site Improvements",
+          "kind": "content"
+        },
+        {
+          "row_index": 11,
+          "column_index": 3,
+          "content": "$12,000",
+          "kind": "content"
+        },
+        {
+          "row_index": 12,
+          "column_index": 0,
+          "content": "Indicated Value by Cost Approach",
+          "kind": "content"
+        },
+        {
+          "row_index": 12,
+          "column_index": 3,
+          "content": "$419,850",
+          "kind": "content"
+        }
+      ]
+    }
+  ]
+}

@@ -11,17 +11,16 @@ from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
-from basis.activities.analyze_photo import AnalyzePhoto
 from basis.activities.apply_corrections import ApplyCorrections
 from basis.activities.ingest_appraisal import IngestAppraisal
 from basis.activities.process_assets import ProcessAssets
-from basis.activities.stub_rules import COMPONENT_COST_USD
+from basis.activities.stub_rules import COMPONENT_COST_USD, components_for, room_for_filename
 from basis.db.enums import Bucket, ClassificationMethod
 from basis.db.models import Asset, Citation, Component, CostEstimate, Takeoff
+from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.workflow.contracts import (
-    AnalyzePhotoInput,
     ApplyCorrectionsInput,
     CorrectionInput,
     IngestAppraisalInput,
@@ -39,17 +38,34 @@ async def analyzed(deps: Deps, seeded: SeededStudy, activity_env: Env) -> Seeded
         IngestAppraisal(deps).run,
         IngestAppraisalInput(study_id=str(seeded.study_id), revision=1, idempotency_key="k-i"),
     )
-    for photo in seeded.photo_ids:
-        await activity_env.run(
-            AnalyzePhoto(deps).run,
-            AnalyzePhotoInput(
-                study_id=str(seeded.study_id),
-                document_id=str(photo),
-                revision=1,
-                idempotency_key=f"k-p-{photo}",
-                budget_remaining_usd=1.0,
-            ),
-        )
+    # The Stage 2 photo outputs (room from the file name, two template components),
+    # written directly: the stub classifier here only knows the stub labels, while the
+    # real analyze_photo (S3-B) emits the vision vocabulary. S3-C replaces both.
+    async with session_scope(deps.sessionmaker) as session:
+        rooms = RoomRepository(session)
+        documents = await DocumentRepository(session).list_for_study(seeded.study_id)
+        for document in documents:
+            if document.id not in seeded.photo_ids:
+                continue
+            name, room_type = room_for_filename(document.filename)
+            room, _ = await rooms.get_or_create(
+                study_id=seeded.study_id, revision=1, name=name, room_type=room_type, source="stub"
+            )
+            await rooms.assign_photo(
+                study_id=seeded.study_id, document_id=document.id, room_id=room.id, revision=1
+            )
+            for label in components_for(room_type):
+                await rooms.add_component(
+                    study_id=seeded.study_id,
+                    revision=1,
+                    document_id=document.id,
+                    room_id=room.id,
+                    label=label,
+                    material=None,
+                    attachment=None,
+                    confidence=0.5,
+                    raw={"source": "stub"},
+                )
     activity_env.heartbeats.clear()
     return seeded
 

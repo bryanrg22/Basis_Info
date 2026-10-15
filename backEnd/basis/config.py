@@ -21,7 +21,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Final, Literal, get_args
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Env = Literal["dev", "test", "staging", "prod"]
@@ -93,6 +93,60 @@ class Settings(BaseSettings):
     # Sentence-embedding model for the evidence corpora (recorded per corpus version).
     # "hash" selects the deterministic test embedder and is refused outside dev and test.
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    # ------------------------------------------------------------------ model providers
+    # Environment names match the legacy backEnd/.env (agentic/config/settings.py), so an
+    # existing .env works unchanged; the newer names are accepted too. Mapping:
+    #   OPENAI_API_KEY                       -> openai_api_key
+    #   OPENAI_MODEL | TEXT_MODEL            -> text_model   (OpenAI model for text calls)
+    #   VISION_MODEL                         -> vision_model (OpenAI model for photos)
+    #   AZURE_OPENAI_ENDPOINT / _API_KEY     -> azure_openai_endpoint / azure_openai_api_key
+    #   AZURE_OPENAI_API_VERSION             -> azure_openai_api_version (>= 2024-08-01)
+    #   AZURE_OPENAI_DEPLOYMENT_NAME         -> azure_openai_deployment_name (default)
+    #   AZURE_OPENAI_VISION_DEPLOYMENT       -> azure_openai_vision_deployment
+    #   AZURE_OPENAI_NANO_DEPLOYMENT | AZURE_OPENAI_TEXT_DEPLOYMENT
+    #                                        -> azure_openai_text_deployment
+    #   AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT / _KEY -> azure_document_intelligence_*
+    #   LLM_REQUEST_TIMEOUT | LLM_REQUEST_TIMEOUT_SECONDS -> llm_request_timeout_seconds
+    openai_api_key: SecretStr | None = None
+    text_model: str = Field(
+        default="gpt-4o-mini",
+        validation_alias=AliasChoices("text_model", "TEXT_MODEL", "OPENAI_MODEL"),
+    )
+    vision_model: str = "gpt-4o-mini"
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_key: SecretStr | None = None
+    azure_openai_api_version: str = "2024-10-21"
+    azure_openai_deployment_name: str | None = None
+    azure_openai_vision_deployment: str | None = None
+    azure_openai_text_deployment: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "azure_openai_text_deployment",
+            "AZURE_OPENAI_TEXT_DEPLOYMENT",
+            "AZURE_OPENAI_NANO_DEPLOYMENT",
+        ),
+    )
+    # Which configured provider is tried first; the other is the per-call fallback.
+    llm_primary: Literal["azure", "openai"] = "azure"
+    llm_request_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        le=600,
+        validation_alias=AliasChoices(
+            "llm_request_timeout_seconds", "LLM_REQUEST_TIMEOUT_SECONDS", "LLM_REQUEST_TIMEOUT"
+        ),
+    )
+    # Concurrent model calls per worker process (the provider pool's semaphore).
+    llm_concurrency: int = Field(default=4, ge=1, le=64)
+    vision_max_tokens: int = Field(default=1200, ge=64, le=16384)
+    extraction_fallback_max_tokens: int = Field(default=800, ge=64, le=16384)
+    azure_document_intelligence_endpoint: str | None = None
+    azure_document_intelligence_key: SecretStr | None = None
+    azure_di_timeout_seconds: float = Field(default=180.0, gt=0, le=1800)
+    # A critical appraisal field below this confidence sends the extraction to review
+    # (S3_SPEC section 4; tuned later by the real-data eval).
+    extraction_review_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
 
     @field_validator("log_level", mode="before")
     @classmethod

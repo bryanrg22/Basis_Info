@@ -46,7 +46,7 @@ async def test_appraisal_reject_reextracts_with_corrections(harness: Harness) ->
         started = await harness.start()
         handle, sid = started.handle, started.study_id
         await harness.wait_awaiting(handle, "appraisal_review", 1)
-        [field] = await rows(harness, ExtractionField, sid, field="property_name")
+        [field] = await rows(harness, ExtractionField, sid, field="property_address")
         correction = CorrectionInput(
             entity_type="extraction_field",
             entity_id=str(field.id),
@@ -85,11 +85,11 @@ async def test_appraisal_reject_reextracts_with_corrections(harness: Harness) ->
             for f in await rows(harness, ExtractionField, sid)
             if f.extraction_id == new.id
         }
-        assert old_fields["property_name"].value_text == "Appraisal 12 Main St"
-        assert old_fields["property_name"].source == "stub"
-        assert new_fields["property_name"].value_text == "12 Main Street"
-        assert new_fields["property_name"].source == "manual"
-        assert len(new_fields) == 5
+        assert old_fields["property_address"].value_text == "1290 Example Way"
+        assert old_fields["property_address"].source == "azure"
+        assert new_fields["property_address"].value_text == "12 Main Street"
+        assert new_fields["property_address"].source == "manual"
+        assert len(new_fields) == len(old_fields)
         # Photo outputs were carried into the new revision unchanged.
         assert len(await rows(harness, PhotoRoom, sid, revision=2)) == 3
         assert len(await rows(harness, Component, sid, revision=2)) == 6
@@ -227,7 +227,7 @@ async def test_refused_corrections_start_the_revision_uncorrected_and_flag_the_s
         assert "apply_corrections:appraisal_review:r1:uncorrected" in ids
         [new] = await rows(harness, Extraction, sid, revision=2)
         fields = [f for f in await rows(harness, ExtractionField, sid) if f.extraction_id == new.id]
-        assert {f.source for f in fields} == {"stub"}  # recomputed without the correction
+        assert fields and "manual" not in {f.source for f in fields}  # without the correction
         await harness.approve_all(handle, revision=2)
         result = await harness.result(handle)
     assert result.outcome == "completed"

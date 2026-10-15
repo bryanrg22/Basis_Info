@@ -59,6 +59,59 @@ class RoomRepository:
         await self._session.refresh(room)
         return room, True
 
+    async def get_or_create_by_identity(
+        self,
+        *,
+        study_id: uuid.UUID,
+        revision: int,
+        room_type: str,
+        floor: str | None,
+        name: str,
+        source: str,
+        reuse_renamed: bool,
+    ) -> tuple[Room, bool]:
+        """The room with this identity in the revision, created if missing.
+
+        Identity is ``(room_type, floor, name)`` where ``name`` encodes the ordinal
+        ("Bedroom 2"). With ``reuse_renamed`` and no room of that name, a room of the same
+        type and floor that a reviewer corrected (``source="manual"``, e.g. renamed to
+        "Main Kitchen") is reused, oldest first. Serialized per
+        ``(study, revision, room_type, floor)`` with a transaction-scoped advisory lock, so
+        concurrent photos of one room share a row.
+        """
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": f"room-identity:{study_id}:{revision}:{room_type}:{floor}"},
+        )
+        same_kind = (
+            select(Room)
+            .where(
+                Room.study_id == study_id,
+                Room.revision == revision,
+                Room.room_type == room_type,
+                Room.floor.is_not_distinct_from(floor),
+            )
+            .order_by(Room.created_at, Room.id)
+        )
+        rooms = list((await self._session.scalars(same_kind)).all())
+        for room in rooms:
+            if room.name == name:
+                return room, False
+        renamed = [room for room in rooms if room.source == "manual"]
+        if reuse_renamed and renamed:
+            return renamed[0], False
+        return (
+            await self.create(
+                study_id=study_id,
+                revision=revision,
+                name=name,
+                room_type=room_type,
+                source=source,
+                floor=floor,
+            ),
+            True,
+        )
+
     async def create(
         self,
         *,

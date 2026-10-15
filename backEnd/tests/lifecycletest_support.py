@@ -2,9 +2,16 @@
 
 Imported as a top-level module (``tests/`` is on ``sys.path``, see ``dbtest_support``).
 Everything here writes synthetic rows only: file names like ``kitchen_1.jpg``, random
-sha256 values, and ``gs://basis-test/...`` URIs. When ``seed_study`` is given a storage,
-the appraisal URI holds the synthetic ``urar_sample.pdf`` (S3: ``ingest_appraisal``
-downloads and parses it); otherwise the URIs point at nothing.
+sha256 values, and ``gs://basis-test/...`` URIs. With ``storage`` given, ``seed_study``
+writes bytes at those URIs so the Stage 3 activities, which read the files, have something
+real to read: the appraisal gets ``appraisal_bytes`` (default the synthetic
+``urar_sample.pdf``) and the photos get ``llm_fakes.fixture_bytes_for``; the document rows
+carry the real size and sha256 of what was written.
+
+``make_deps`` wires the hash embedder with a fresh BM25 registry (no model download) and
+the offline providers by default: ``FixtureVisionProvider`` for photos and ``FixtureAzureDi``
+(the hand-built Azure DI result) for the appraisal; pass ``llm=None`` / ``azure_di=None``
+for the unconfigured paths.
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ from typing import Final
 
 from dbtest_support import Factory
 from fixtures import fixture_path
+from llm_fakes import FixtureAzureDi, FixtureVisionProvider, fixture_bytes_for
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -29,6 +37,8 @@ from basis.db.models import ActivityResult, Base, Run
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
+from basis.extraction.azure_di import AzureDiClient
+from basis.llm.provider import ChatProvider
 from basis.retrieval import Retrieval
 from basis.retrieval.bm25 import Bm25Registry
 from basis.retrieval.chunk import chunk_document
@@ -67,11 +77,17 @@ async def _document(
     owner_id: uuid.UUID,
     kind: DocumentKind,
     name: str,
+    storage: Storage | None = None,
     content: bytes | None = None,
 ) -> tuple[uuid.UUID, str]:
     repo = DocumentRepository(session)
     document_id = uuid.uuid4()
     uri = f"gs://{TEST_BUCKET}/studies/{study_id}/{document_id}/{name}"
+    is_appraisal = kind is DocumentKind.APPRAISAL
+    if storage is not None and content is None:
+        content = fixture_bytes_for(name, appraisal=is_appraisal)
+    if storage is not None and content is not None:
+        await storage.put(uri, content, "application/pdf" if is_appraisal else "image/jpeg")
     await repo.create(
         study_id=study_id,
         kind=kind,
@@ -98,8 +114,10 @@ async def seed_study(
 ) -> SeededStudy:
     """A committed study with an owner, an uploaded appraisal and uploaded photos.
 
-    With ``storage``, the appraisal object is written there (``appraisal_bytes``, default
-    the synthetic URAR sample) so the real ``ingest_appraisal`` can read it.
+    With ``storage``, each document's bytes are written to its URI: the appraisal gets
+    ``appraisal_bytes`` (default the synthetic URAR sample) and the photos get fixture
+    images, so the real ``ingest_appraisal``, ``extract_fields`` and ``analyze_photo``
+    can read them.
     """
     content = None
     if storage is not None and appraisal is not None:
@@ -110,13 +128,11 @@ async def seed_study(
         study = await make.study(owner, stage=stage)
         appraisal_id = None
         if appraisal is not None:
-            appraisal_id, uri = await _document(
-                session, study.id, owner.id, DocumentKind.APPRAISAL, appraisal, content
+            appraisal_id, _uri = await _document(
+                session, study.id, owner.id, DocumentKind.APPRAISAL, appraisal, storage, content
             )
-            if storage is not None and content is not None:
-                await storage.put(uri, content, "application/pdf")
         photo_ids = [
-            (await _document(session, study.id, owner.id, DocumentKind.PHOTO, name))[0]
+            (await _document(session, study.id, owner.id, DocumentKind.PHOTO, name, storage))[0]
             for name in photos
         ]
         return SeededStudy(
@@ -146,16 +162,26 @@ async def seed_run(
         )
 
 
+_DEFAULT: object = object()
+
+
 def make_deps(
-    sessionmaker: async_sessionmaker[AsyncSession], storage: Storage, settings: Settings
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: Storage,
+    settings: Settings,
+    *,
+    llm: ChatProvider | None | object = _DEFAULT,
+    azure_di: AzureDiClient | None | object = _DEFAULT,
 ) -> Deps:
-    """Deps with the hash embedder and a fresh BM25 registry (no model download)."""
+    """Deps with the hash embedder, a fresh BM25 registry and the offline providers."""
     return Deps(
         sessionmaker=sessionmaker,
         storage=storage,
         bucket=TEST_BUCKET,
         settings=settings,
         retrieval=Retrieval(embedder=HashEmbedder(), registry=Bm25Registry()),
+        llm=FixtureVisionProvider() if llm is _DEFAULT else llm,  # type: ignore[arg-type]
+        azure_di=FixtureAzureDi() if azure_di is _DEFAULT else azure_di,  # type: ignore[arg-type]
     )
 
 

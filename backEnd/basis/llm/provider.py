@@ -23,6 +23,25 @@ class BudgetExceededError(RuntimeError):
     """The study's LLM budget would be exceeded; the caller must not retry."""
 
 
+class ToolCall(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+class ImagePart(BaseModel):
+    """An image attached to a user message (vision calls). Already prepared: resized,
+    EXIF-stripped and re-encoded by ``basis.vision.prep``."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    media_type: Literal["image/jpeg", "image/png"] = "image/jpeg"
+    data_base64: str
+    detail: Literal["low", "high", "auto"] = "auto"
+
+
 class Message(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -30,6 +49,10 @@ class Message(BaseModel):
     content: str
     name: str | None = None  # tool name on role="tool"; REQUIRED there (fixes legacy W5)
     tool_call_id: str | None = None
+    # Images on a user message (vision); tool calls on an assistant message, replayed so a
+    # following role="tool" message answers a call the provider has seen.
+    images: tuple[ImagePart, ...] = ()
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 class ToolSpec(BaseModel):
@@ -38,14 +61,6 @@ class ToolSpec(BaseModel):
     name: str
     description: str
     parameters: dict[str, Any]  # JSON schema; study scope is bound at construction, never here
-
-
-class ToolCall(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    id: str
-    name: str
-    arguments: dict[str, Any]
 
 
 class Usage(BaseModel):
