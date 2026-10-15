@@ -140,14 +140,15 @@ jobs:
         if: env.BACKEND_CHANGED == 'true'
         run: uv sync --locked --group dev --group legacy
 
-      - name: pytest (unit, excluding integration and slow)
+      # The whole suite, including integration tests: ubuntu-latest runners ship
+      # Docker, and testcontainers starts the pgvector Postgres image on demand.
+      - name: pytest (full suite, including integration)
         if: env.BACKEND_CHANGED == 'true'
         run: |
           # Tests must import the installed project, never a path hack.
           unset PYTHONPATH
           uv run --no-sync pytest -q \
-            -m "not integration and not slow" \
-            --timeout=300 \
+            --timeout=600 \
             --junitxml=../reports/backend.xml \
             -p no:cacheprovider
 
