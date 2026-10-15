@@ -52,7 +52,9 @@ def agent():
     return _Agent("asset")
 
 
-def _tool_message_as_built_by_run(tool_result, tool_call_id: str = "call_1") -> ToolMessage:
+def _tool_message_as_built_by_run(
+    tool_result, tool_call_id: str = "call_1"
+) -> ToolMessage:
     """Same construction as BaseStageAgent.run() (agentic/agents/base_agent.py)."""
     return ToolMessage(
         content=str(tool_result) if not isinstance(tool_result, str) else tool_result,
@@ -84,7 +86,11 @@ def test_citation_filter_current_behavior_documents_the_three_causes(agent) -> N
 
     # Cause 2: the real tool names carry a _tool suffix the filter does not accept.
     tool_names = {t.name for t in get_all_evidence_tools()}
-    assert {"bm25_search_tool", "vector_search_tool", "hybrid_search_tool"} <= tool_names
+    assert {
+        "bm25_search_tool",
+        "vector_search_tool",
+        "hybrid_search_tool",
+    } <= tool_names
     assert not tool_names & {"bm25_search", "vector_search", "hybrid_search"}
 
     as_json = json.dumps(SAMPLE_RESULT)

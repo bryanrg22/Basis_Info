@@ -13,9 +13,10 @@ Nothing here imports from ``basis``.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -47,8 +48,14 @@ _NODE_STATE_PATCH: dict[str, Callable[[dict], dict]] = {
         "appraisal_resources": {"ingested": True},
     },
     "analyze_rooms": lambda s: {"rooms_ready": True},
-    "reviewing_rooms": lambda s: {"current_stage": "reviewing_rooms", "needs_review": True},
-    "process_assets": lambda s: {"current_stage": "engineering_takeoff", "needs_review": True},
+    "reviewing_rooms": lambda s: {
+        "current_stage": "reviewing_rooms",
+        "needs_review": True,
+    },
+    "process_assets": lambda s: {
+        "current_stage": "engineering_takeoff",
+        "needs_review": True,
+    },
     "complete": lambda s: {"current_stage": "completed", "needs_review": False},
     "error_handler": lambda s: {},
 }

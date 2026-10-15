@@ -127,3 +127,9 @@ temporal.db
 !backEnd/.python-version
 !backEnd/uv.lock
 !.secrets.baseline
+
+# Reference PDFs (IRS publications, RSMeans) are downloaded separately; indexes live in GCS
+backEnd/files/*
+!backEnd/files/README.md
+# Service-account keys are mounted at runtime; never tracked
+backEnd/credentials/

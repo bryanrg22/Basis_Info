@@ -1005,7 +1005,7 @@ The architecture currently targets **cost segregation**—accelerating tax depre
 
 ## Traction & Validation
 
-This isn't a proof-of-concept—it's a deployed product with paying customers.
+Basis has been used in paid pilots with design partners. The backend is being rebuilt before wider deployment (see [Status](#status-october-2026)).
 
 **Customers:**
 - **CSSI** (top-5 cost segregation firm) — paying user
