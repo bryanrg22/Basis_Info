@@ -107,6 +107,7 @@ tests (`test_timeouts.py`) get their own server.
 | `tests/lifecycle/test_cancel.py` | `cancel_study` while waiting or during an in-flight photo: the activity stops within seconds and its transaction rolls back, the result is `cancelled` with the reason and the `runs` row says `cancelled`; an activity that completes despite the cancel request does not let the lifecycle schedule more; `handle.cancel()` ends the execution `CANCELED` with the run recorded `cancelled`; a decision after cancel is refused | v0.3.0 (S2) | 5 tests |
 | `tests/lifecycle/test_history_size.py` | A 300-photo study (photo listing and analysis mocked) completes in one history of fewer than 10,000 events | v0.3.0 (S2) | 1 test, `slow`. S2_SPEC 3 |
 | `tests/lifecycle/test_versioning.py` | The recorded histories in `tests/lifecycle/histories/` (happy path, appraisal reject, cancelled) replay without nondeterminism; a freshly recorded history of each scenario round-trips through JSON and replays; an unguarded reordering of commands is detected (`NondeterminismError`) | v0.3.0 (S2) | 8 tests + 3 recorders skipped unless `BASIS_RECORD_HISTORIES=1`. BUILD_PLAN 13.1 |
+| `tests/unit/llm/test_provider_contract.py` | The one model-call contract: budget reserve/charge arithmetic and overrun errors; the scripted provider replays turns in order, records requests, fails loudly when exhausted or on a wrong response model, raises configured errors; tool messages carry the tool name | v0.4.0 (S3) | 6 tests. S3_SPEC §0, §2 |
 
 ## regression (reproduced legacy defects, strict `xfail` until fixed)
 
