@@ -1,0 +1,170 @@
+"""Rooms, photo-to-room assignments and components (``rooms``, ``photo_rooms``, ``components``).
+
+All three are grouped by the study's revision: a rejection starts a new revision and the
+outputs that survive are copied into it (``basis.activities.apply_corrections``), so the
+rows of a decided revision stay unchanged as history.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from basis.db.models import Component, PhotoRoom, Room
+
+
+class RoomRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_or_create(
+        self,
+        *,
+        study_id: uuid.UUID,
+        revision: int,
+        name: str,
+        room_type: str,
+        source: str,
+        floor: str | None = None,
+    ) -> tuple[Room, bool]:
+        """The room named ``name`` in this study revision, created if missing.
+
+        ``rooms`` has no unique key on the name, so two photos of the same room analyzed
+        concurrently would both insert; a transaction-scoped advisory lock on
+        ``(study, revision, name)`` serializes them instead.
+        """
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": f"room:{study_id}:{revision}:{name}"},
+        )
+        stmt = select(Room).where(
+            Room.study_id == study_id, Room.revision == revision, Room.name == name
+        )
+        existing = (await self._session.scalars(stmt)).first()
+        if existing is not None:
+            return existing, False
+        room = Room(
+            study_id=study_id,
+            revision=revision,
+            name=name,
+            room_type=room_type,
+            floor=floor,
+            source=source,
+        )
+        self._session.add(room)
+        await self._session.flush()
+        await self._session.refresh(room)
+        return room, True
+
+    async def create(
+        self,
+        *,
+        study_id: uuid.UUID,
+        revision: int,
+        name: str,
+        room_type: str,
+        source: str,
+        floor: str | None = None,
+    ) -> Room:
+        room = Room(
+            study_id=study_id,
+            revision=revision,
+            name=name,
+            room_type=room_type,
+            floor=floor,
+            source=source,
+        )
+        self._session.add(room)
+        await self._session.flush()
+        await self._session.refresh(room)
+        return room
+
+    async def get(self, study_id: uuid.UUID, room_id: uuid.UUID) -> Room | None:
+        stmt = select(Room).where(Room.id == room_id, Room.study_id == study_id)
+        return (await self._session.scalars(stmt)).one_or_none()
+
+    async def list_for_revision(self, study_id: uuid.UUID, revision: int) -> list[Room]:
+        stmt = (
+            select(Room)
+            .where(Room.study_id == study_id, Room.revision == revision)
+            .order_by(Room.name, Room.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
+    async def assign_photo(
+        self, *, study_id: uuid.UUID, document_id: uuid.UUID, room_id: uuid.UUID, revision: int
+    ) -> PhotoRoom:
+        assignment = PhotoRoom(
+            study_id=study_id, document_id=document_id, room_id=room_id, revision=revision
+        )
+        self._session.add(assignment)
+        await self._session.flush()
+        return assignment
+
+    async def photo_room(self, document_id: uuid.UUID, revision: int) -> PhotoRoom | None:
+        return await self._session.get(PhotoRoom, (document_id, revision))
+
+    async def photo_rooms(self, study_id: uuid.UUID, revision: int) -> list[PhotoRoom]:
+        stmt = (
+            select(PhotoRoom)
+            .where(PhotoRoom.study_id == study_id, PhotoRoom.revision == revision)
+            .order_by(PhotoRoom.document_id)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
+    async def add_component(
+        self,
+        *,
+        study_id: uuid.UUID,
+        revision: int,
+        document_id: uuid.UUID | None,
+        room_id: uuid.UUID | None,
+        label: str,
+        material: str | None,
+        attachment: str | None,
+        confidence: float | None,
+        bbox: Any = None,
+        raw: Any = None,
+    ) -> Component:
+        component = Component(
+            study_id=study_id,
+            revision=revision,
+            document_id=document_id,
+            room_id=room_id,
+            label=label,
+            material=material,
+            attachment=attachment,
+            confidence=confidence,
+            bbox=bbox,
+            raw=raw,
+        )
+        self._session.add(component)
+        await self._session.flush()
+        await self._session.refresh(component)
+        return component
+
+    async def get_component(self, study_id: uuid.UUID, component_id: uuid.UUID) -> Component | None:
+        stmt = select(Component).where(Component.id == component_id, Component.study_id == study_id)
+        return (await self._session.scalars(stmt)).one_or_none()
+
+    async def components(self, study_id: uuid.UUID, revision: int) -> list[Component]:
+        stmt = (
+            select(Component)
+            .where(Component.study_id == study_id, Component.revision == revision)
+            .order_by(Component.document_id, Component.label, Component.id)
+            .execution_options(populate_existing=True)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
+    async def count_components(
+        self, study_id: uuid.UUID, revision: int, document_id: uuid.UUID | None = None
+    ) -> int:
+        stmt = select(func.count()).where(
+            Component.study_id == study_id, Component.revision == revision
+        )
+        if document_id is not None:
+            stmt = stmt.where(Component.document_id == document_id)
+        return int((await self._session.scalar(stmt)) or 0)
