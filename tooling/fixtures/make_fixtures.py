@@ -870,6 +870,72 @@ def urar_expected(result: UrarResult, document: str, scan: bool) -> dict[str, An
     }
 
 
+# --------------------------------------------------------------------------- azure di
+
+AZURE_DI_API_VERSION = "2024-11-30"
+LOW_CONFIDENCE_KEY = "improvements.gla_sqft"
+LOW_CONFIDENCE = 0.62
+
+
+def azure_di_payload(result: UrarResult, variant: str) -> dict[str, Any]:
+    """A hand-built Azure DI ``prebuilt-layout`` result for the sample, as
+    ``basis.extraction.azure_di.AzureDiResult`` JSON.
+
+    Built from the golden values, never from a real call: every drawn string is a page
+    line (Azure DI reports labels and values as separate lines for this layout), every
+    ``kv`` golden field is a key-value pair (key = printed label without the colon, value
+    = printed text) with a seeded confidence in [0.93, 0.995], and the two ruled tables
+    are cells (row 0 = column headers). ``variant="low_confidence"`` lowers the GLA pair
+    to 0.62 so the review gate has a critical field below its threshold.
+    """
+    rng = rng_for(f"azure_di:{variant}")
+    pages = [
+        {"page_number": number, "lines": list(strings)}
+        for number, strings in enumerate(result.page_text, start=1)
+    ]
+    pairs = []
+    for f in result.fields:
+        if f["source"] != "kv":
+            continue
+        confidence = round(rng.uniform(0.93, 0.995), 3)
+        if variant == "low_confidence" and f["key"] == LOW_CONFIDENCE_KEY:
+            confidence = LOW_CONFIDENCE
+        pairs.append(
+            {"key": f["label"], "value": f["text"], "confidence": confidence, "page": f["page"]}
+        )
+    tables = []
+    for t in result.tables:
+        grid = [t["headers"], *t["rows"]]
+        cells = [
+            {
+                "row_index": r,
+                "column_index": c,
+                "content": text,
+                "kind": "columnHeader" if r == 0 else "content",
+            }
+            for r, row in enumerate(grid)
+            for c, text in enumerate(row)
+            if text != ""
+        ]
+        tables.append(
+            {
+                "page": t["page"],
+                "row_count": len(grid),
+                "column_count": len(t["headers"]),
+                "cells": cells,
+            }
+        )
+    return {
+        "model_id": "prebuilt-layout",
+        "api_version": AZURE_DI_API_VERSION,
+        "synthetic": True,
+        "content": "\n".join("\n".join(page["lines"]) for page in pages),
+        "pages": pages,
+        "key_value_pairs": pairs,
+        "tables": tables,
+    }
+
+
 # --------------------------------------------------------------------------- scan render
 
 
@@ -1872,6 +1938,11 @@ def generate() -> dict[str, bytes]:
             "doc_id": URAR_DOC_ID,
             "tables": sample.tables,
         }
+    )
+
+    files["azure_di/urar_sample.json"] = dump_json(azure_di_payload(sample, "clean"))
+    files["azure_di/urar_sample_low_confidence.json"] = dump_json(
+        azure_di_payload(sample, "low_confidence")
     )
 
     scan_pdf, angles = render_scan(sample.pdf)
