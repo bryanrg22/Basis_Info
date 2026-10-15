@@ -10,11 +10,13 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fixtures import fixture_path
 from llm_fakes import FixtureVisionProvider, photo_labels
 
+from basis.llm.errors import ProviderUnavailable
 from evals import predict_photos
 
 pytestmark = pytest.mark.asyncio
@@ -122,3 +124,60 @@ async def test_prompt_and_model_options_reach_the_request(
     assert {r.model for r in provider.requests} == {"gpt-4.1"}
     run = json.loads((out / "run.json").read_text())
     assert (run["prompt"], run["model_requested"]) == ("photo_analysis/v2", "gpt-4.1")
+
+
+class FlakyProvider:
+    """Fails the first ``failures`` calls with a transient error, then answers."""
+
+    name = "flaky"
+
+    def __init__(self, failures: int) -> None:
+        self.inner = FixtureVisionProvider()
+        self.failures = failures
+        self.calls = 0
+
+    async def complete(self, request: Any) -> Any:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise ProviderUnavailable("timed out")
+        return await self.inner.complete(request)
+
+
+async def test_transient_provider_errors_are_retried_then_recorded(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FlakyProvider(failures=1)
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    monkeypatch.setattr(predict_photos, "RETRY_DELAYS_S", (0.0, 0.0))
+    out = tmp_path / "out"
+    assert (
+        await predict_photos.run(
+            predict_photos.parse_args(
+                ["--photos", str(photo_dir), "--out", str(out), "--concurrency", "1"]
+            )
+        )
+        == 0
+    )
+    rooms = json.loads((out / "photo_rooms.json").read_text())
+    assert set(rooms) == {"01_kitchen.jpg", "02_bathroom.jpg"}  # the failure was retried
+    assert json.loads((out / "run.json").read_text())["errors"] == []
+
+    hopeless = FlakyProvider(failures=99)
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: hopeless)
+    )
+    out2 = tmp_path / "out2"
+    assert (
+        await predict_photos.run(
+            predict_photos.parse_args(
+                ["--photos", str(photo_dir), "--out", str(out2), "--concurrency", "1"]
+            )
+        )
+        == 0
+    )
+    run = json.loads((out2 / "run.json").read_text())
+    assert [e["file"] for e in run["errors"]] == ["01_kitchen.jpg", "02_bathroom.jpg"]
+    assert json.loads((out2 / "photo_rooms.json").read_text()) == {}
+    assert hopeless.calls == 2 * (len(predict_photos.RETRY_DELAYS_S) + 1)
