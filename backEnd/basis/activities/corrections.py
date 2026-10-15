@@ -14,6 +14,11 @@ from typing import Any, Final
 
 from basis.activities._support import validation_error
 from basis.db.enums import Bucket
+from basis.domain.validators import (
+    VALID_SECTION_BUCKETS,
+    check_recovery_period,
+    validate_section_bucket,
+)
 
 EXTRACTION_FIELD_VALUES: Final = frozenset({"value_text", "value_num", "value_date"})
 ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor"})
@@ -74,8 +79,23 @@ def check_extraction_field(after: dict[str, Any]) -> None:
 
 
 def check_asset(after: dict[str, Any]) -> None:
+    """Known fields, parseable values, and an internally consistent classification.
+
+    A bucket given with a recovery period must agree with it (``y5`` is 5 years), and a
+    section given with a bucket must allow it (section 1245 takes 5/7/15 years, 1250 takes
+    15/27.5/39): the domain validators of ``basis.domain.validators``.
+    """
     check_fields("asset", after, ASSET_FIELDS)
-    if "bucket" in after:
-        parse_bucket(after["bucket"])
-    if "recovery_period" in after:
-        parse_recovery_period(after["recovery_period"])
+    bucket = parse_bucket(after["bucket"]) if "bucket" in after else None
+    period = parse_recovery_period(after["recovery_period"]) if "recovery_period" in after else None
+    section = after.get("irs_section")
+    if section is not None and str(section) not in VALID_SECTION_BUCKETS:
+        raise validation_error(f"irs_section {section!r} must be 1245 or 1250")
+    if bucket is not None and period is not None:
+        issues = check_recovery_period(bucket, period)
+        if issues:
+            raise validation_error(issues[0].message)
+    if bucket is not None and section is not None:
+        issues = validate_section_bucket(str(section), bucket)
+        if issues:
+            raise validation_error(issues[0].message)

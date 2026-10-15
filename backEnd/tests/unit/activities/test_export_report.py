@@ -69,7 +69,7 @@ async def test_writes_the_revision_as_canonical_json(
     assert hashlib.sha256(data).hexdigest() == output.sha256
     document = json.loads(data)
     assert canonical_json(document) == data  # sorted keys, no whitespace
-    assert (document["format"], document["revision"]) == ("basis-export/1", 1)
+    assert (document["format"], document["revision"]) == ("basis-export/2", 1)
     # Every field the real extraction wrote (S3-B: the 110 golden fields and more).
     assert len(document["extraction"][0]["fields"]) >= 110
     assert (len(document["rooms"]), len(document["photos"]), len(document["components"])) == (
@@ -78,7 +78,25 @@ async def test_writes_the_revision_as_canonical_json(
         6,
     )
     assert len(document["assets"]) == 6
-    for name in ("extraction", "rooms", "photos", "components", "assets"):
+    for asset in document["assets"]:
+        assert {"bucket", "recovery_period", "quantity", "unit", "total", "citations"} <= set(asset)
+    assert document["summary"]["assets"] == 6
+    assert set(document["evidence"]) == {"by_stage", "by_component", "by_document"}
+    csv_file = document["files"]["assets_csv"]
+    assert csv_file["uri"] == output.export_uri.replace(".json", ".assets.csv")
+    csv_bytes = await deps.storage.read(csv_file["uri"])
+    assert hashlib.sha256(csv_bytes).hexdigest() == csv_file["sha256"]
+    assert csv_bytes.count(b"\n") == 7  # header + one row per asset
+    assert set(document["checksums"]) == {
+        "extraction",
+        "rooms",
+        "photos",
+        "components",
+        "assets",
+        "evidence",
+        "summary",
+    }
+    for name in document["checksums"]:
         expected = hashlib.sha256(canonical_json(document[name])).hexdigest()
         assert document["checksums"][name] == expected
     stat = await deps.storage.stat(output.export_uri)
@@ -91,9 +109,11 @@ async def test_same_revision_exports_byte_identical_output(
     activity = ExportReport(deps)
     first = await activity_env.run(activity.run, export(processed))
     first_bytes = await deps.storage.read(first.export_uri)
+    first_csv = await deps.storage.read(first.export_uri.replace(".json", ".assets.csv"))
     second = await activity_env.run(activity.run, export(processed, key="k-export-again"))
     assert second.sha256 == first.sha256
     assert await deps.storage.read(second.export_uri) == first_bytes
+    assert await deps.storage.read(second.export_uri.replace(".json", ".assets.csv")) == first_csv
 
 
 async def test_unknown_study_is_not_retried(

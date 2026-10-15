@@ -99,11 +99,22 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         assets = (await session.scalars(select(Asset).where(Asset.study_id == sid))).all()
         assert len(assets) == 6
         citations = (await session.scalars(select(Citation).where(Citation.study_id == sid))).all()
-        assert len(citations) == 6
+        # The harness has no reference corpus and a scripted classifier without
+        # citations: nothing verifiable to cite (S3), so every asset needs review.
+        assert citations == []
+        assert all(a.needs_review for a in assets)
 
     exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))
     assert exported["revision"] == 1 and len(exported["assets"]) == 6
-    assert set(exported["checksums"]) == {"extraction", "rooms", "photos", "components", "assets"}
+    assert set(exported["checksums"]) == {
+        "extraction",
+        "rooms",
+        "photos",
+        "components",
+        "assets",
+        "evidence",
+        "summary",
+    }
 
 
 async def test_status_query_reports_the_gate_and_the_budget(harness: Harness) -> None:

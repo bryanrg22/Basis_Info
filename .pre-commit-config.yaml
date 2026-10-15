@@ -25,18 +25,18 @@ repos:
     hooks:
       - id: ruff-check
         args: [--fix, --config, backEnd/pyproject.toml]
-        files: ^backEnd/(basis|tests)/
+        files: ^backEnd/(basis|tests|evals)/
       - id: ruff-format
         args: [--config, backEnd/pyproject.toml]
-        files: ^backEnd/(basis|tests)/
+        files: ^backEnd/(basis|tests|evals)/
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
     hooks:
       - id: end-of-file-fixer
-        files: ^(backEnd/(basis|tests)/|tooling/|\.github/|docs/review_2026-10-15/)
+        files: ^(backEnd/(basis|tests|evals)/|tooling/|\.github/|docs/review_2026-10-15/)
       - id: trailing-whitespace
-        files: ^(backEnd/(basis|tests)/|tooling/|\.github/|docs/review_2026-10-15/)
+        files: ^(backEnd/(basis|tests|evals)/|tooling/|\.github/|docs/review_2026-10-15/)
       - id: check-added-large-files
         args: [--maxkb=2048]
       - id: check-merge-conflict

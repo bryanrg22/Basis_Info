@@ -148,6 +148,14 @@ class Settings(BaseSettings):
     # (S3_SPEC section 4; tuned later by the real-data eval).
     extraction_review_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
 
+    # Classification and pricing (process_assets, S3_SPEC section 5).
+    classify_model: str = "gpt-4o-mini"
+    classify_concurrency: int = Field(default=4, ge=1, le=32)
+    # residential_rental (27.5-year building) or nonresidential (39-year building).
+    property_class: Literal["residential_rental", "nonresidential"] = "residential_rental"
+    cost_year: int = Field(default=2026, ge=2020, le=2026)  # the cost table's range
+    cost_location_factor: float = Field(default=1.0, gt=0, le=3)
+
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value: object) -> object:

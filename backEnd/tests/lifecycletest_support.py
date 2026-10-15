@@ -31,6 +31,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.activities import Deps
+from basis.classify.schemas import Classification
+from basis.classify.store_protocol import ChunkStore, InMemoryChunkStore
 from basis.config import Settings
 from basis.db.enums import DocumentKind, Stage
 from basis.db.models import ActivityResult, Base, Run
@@ -38,7 +40,7 @@ from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
 from basis.extraction.azure_di import AzureDiClient
-from basis.llm.provider import ChatProvider
+from basis.llm.provider import ChatProvider, ScriptedProvider, ScriptedTurn
 from basis.retrieval import Retrieval
 from basis.retrieval.bm25 import Bm25Registry
 from basis.retrieval.chunk import chunk_document
@@ -162,7 +164,25 @@ async def seed_run(
         )
 
 
-_DEFAULT: object = object()
+# One scripted answer per residual classification: a building-bucket guess with no
+# citations, which the pipeline writes as needs_review (missing evidence). Enough turns for
+# every lifecycle scenario; an unexpected extra call fails loudly (ScriptedProvider).
+SCRIPTED_CLASSIFIER_TURNS: Final = 400
+
+
+def scripted_classifier(turns: int = SCRIPTED_CLASSIFIER_TURNS) -> ScriptedProvider:
+    answer = Classification(
+        category="Building component (scripted)",
+        section="1250",
+        bucket="y27_5",
+        confidence=0.4,
+        needs_review=True,
+        reason="scripted test answer",
+    )
+    return ScriptedProvider([ScriptedTurn(parsed=answer) for _ in range(turns)])
+
+
+_DEFAULT: Final = object()
 
 
 def make_deps(
@@ -172,8 +192,13 @@ def make_deps(
     *,
     llm: ChatProvider | None | object = _DEFAULT,
     azure_di: AzureDiClient | None | object = _DEFAULT,
+    chat_provider: ChatProvider | None | object = _DEFAULT,
+    chunk_store: ChunkStore | None | object = _DEFAULT,
 ) -> Deps:
-    """Deps with the hash embedder, a fresh BM25 registry and the offline providers."""
+    """Deps for tests: hash embedder + fresh BM25 registry, the offline vision/Azure DI
+    fixtures, a scripted classifier and an empty in-memory store by default."""
+    provider = scripted_classifier() if chat_provider is _DEFAULT else chat_provider
+    store = InMemoryChunkStore() if chunk_store is _DEFAULT else chunk_store
     return Deps(
         sessionmaker=sessionmaker,
         storage=storage,
@@ -182,6 +207,8 @@ def make_deps(
         retrieval=Retrieval(embedder=HashEmbedder(), registry=Bm25Registry()),
         llm=FixtureVisionProvider() if llm is _DEFAULT else llm,  # type: ignore[arg-type]
         azure_di=FixtureAzureDi() if azure_di is _DEFAULT else azure_di,  # type: ignore[arg-type]
+        chat_provider=provider,  # type: ignore[arg-type]
+        chunk_store=store,  # type: ignore[arg-type]
     )
 
 
