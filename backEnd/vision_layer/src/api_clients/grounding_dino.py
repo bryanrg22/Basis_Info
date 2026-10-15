@@ -3,7 +3,6 @@
 import logging
 from typing import Optional
 
-import replicate
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..schemas.detection import BoundingBox, Detection
@@ -75,6 +74,9 @@ class GroundingDINOClient:
         logger.info(f"Running Grounding DINO on {image_url} with prompts: {prompts}")
 
         # Run Replicate prediction
+        # Imported lazily so the module (and the package __init__) imports without replicate.
+        import replicate
+
         output = await replicate.async_run(
             self.model_version,
             input={
