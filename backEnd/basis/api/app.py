@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from basis import __version__
+from basis.api.errors import install_error_handlers
 from basis.api.middleware import RequestIdMiddleware
 from basis.config import Settings
 
@@ -26,6 +27,9 @@ def create_app(settings: Settings) -> FastAPI:
         openapi_url="/openapi.json",
     )
     app.state.settings = settings
+    # Order matters: middleware added later wraps earlier middleware, and the 500
+    # handler must run inside the request-id context.
+    install_error_handlers(app)
     app.add_middleware(RequestIdMiddleware)
 
     @app.get("/health", tags=["ops"])
