@@ -6,19 +6,44 @@
 
 > **Cost segregation shouldn't take weeks. Basis gets engineers 80% of the way there—fast, guided, and defensible.**
 
+---
+
+## Status (October 2026)
+
+The system is being rebuilt against a reviewed plan: [REVIEW_AND_PLAN.md](docs/review_2026-10-15/REVIEW_AND_PLAN.md) records what was verified in the code and the cloud project, and [BUILD_PLAN.md](docs/review_2026-10-15/BUILD_PLAN.md) is the build contract. The previous LangGraph workflow is being replaced by Temporal for workflow progress and PostgreSQL for application data. The backend is not currently deployed.
+
+**Works today**
+- PDF ingestion (pdfplumber parsing, intact tables, overlapping chunks) and hybrid BM25 + FAISS retrieval over the IRS and RSMeans reference corpus.
+- Appraisal field extraction with Azure Document Intelligence, merged with regex extraction and pdfplumber table mapping.
+- Per-photo vision classification: one gpt-4o-mini call per photo returns a room type and detected objects.
+- Static rules for room and object enrichment, takeoff quantities, cost estimates, and IRS classification of known components. They are unit-tested; apart from room enrichment, they run inside the asset stage, which the current workflow never reaches.
+
+**Does not work today**
+- The end-to-end workflow. Only `load_study` and `resource_extraction` are reachable in the LangGraph graph, every resume restarts from the first stage, and the asset pipeline (takeoffs, classification, costs) never runs on the backend.
+- Citations on the LLM classification path. Search results are never converted into citations, so every LLM classification is flagged `needs_review`.
+- Review rejection. A rejection at the appraisal checkpoint is recorded as an approval, and the frontend has no reject control.
+
+Each of these failures is encoded as a strict `xfail` test in `backEnd/tests/regression/`.
+
+---
+
 **Powered by:**
-- **Agentic RAG** – LLM-driven retrieval where agents decide when, what, and how to search
-- **Multi-Agent Self-Correction** – Extraction → Verification → Correction loops with audit trails
-- **Detection-First Vision** – Grounding DINO + SAM2 + GPT-4o for hallucination-free image analysis
+- **Hybrid retrieval with table preservation** – BM25 with an IRS-aware tokenizer plus FAISS semantic search; tables are stored whole and fetched by id
+- **Azure Document Intelligence extraction** – appraisal fields from Azure DI, with regex and table-mapping fallbacks
+- **Engineer-in-the-loop design** – the engineer reviews appraisal data, rooms, and assets before anything becomes client-facing
 
 ---
 
 ## System Architecture
 
-<img src="docs/architecture.svg" alt="System architecture diagram" width="900"/>
+<img src="docs/architecture.svg" alt="System architecture diagram (original design)" width="900"/>
+
+*This diagram shows the original design. Several components in it are not on the live path today: the multi-agent extraction loop, the Grounding DINO / SAM2 vision stages, the MCP connection, and the `FirestoreCheckpointer`-backed resume. The target architecture is in [BUILD_PLAN.md §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture).*
 
 ## Table of Contents
 
+* [Status (October 2026)](#status-october-2026)
+* [System Architecture](#system-architecture)
 * [What is Basis?](#what-is-basis)
 * [Why Cost Seg?](#why-cost-seg)
 * [The Problem](#the-problem)
@@ -26,16 +51,16 @@
 * [Demo Video](#demo-video)
 * [Current Project Overview](#current-project-overview)
 * [The Problem: Document Intelligence at Scale](#the-problem-document-intelligence-at-scale)
-* [The Solution: Agentic RAG + Multi-Agent Workflow](#the-solution-agentic-rag--multi-agent-workflow)
+* [The Solution: Hybrid Retrieval + Engineer-Reviewed Workflow](#the-solution-hybrid-retrieval--engineer-reviewed-workflow)
 * [Architecture Deep Dive](#architecture-deep-dive)
   * [Offline Pipeline — PDF Ingestion](#1-offline-pipeline--pdf-ingestion)
   * [Evidence Layer — Hybrid RAG](#2-evidence-layer-hybrid-rag)
-  * [Agentic RAG — LLM-Driven Retrieval](#3-agentic-rag--llm-driven-retrieval)
-  * [Multi-Agent Appraisal Extraction](#4-multi-agent-appraisal-extraction)
-  * [Vision Layer — Detection-First Image Processing](#5-vision-layer--detection-first-image-processing)
-  * [Tool Registry](#6-tool-registry)
+  * [Agent Loop and Workflow (as implemented)](#3-agent-loop-and-workflow-as-implemented)
+  * [Appraisal Extraction — Azure Document Intelligence + Regex](#4-appraisal-extraction--azure-document-intelligence--regex)
+  * [Vision — Per-Photo Classification](#5-vision--per-photo-classification)
+  * [Evidence Tools (in-process LangChain tools)](#6-evidence-tools-in-process-langchain-tools)
 * [Tech Stack](#tech-stack)
-* [Production Deployment](#production-deployment)
+* [Deployment status](#deployment-status)
 * [Engineer-in-the-Loop Workflow](#engineer-in-the-loop-workflow)
 * [User Workflow (High Level)](#user-workflow-high-level)
 * [Current Application: Cost Segregation](#current-application-cost-segregation)
@@ -44,6 +69,7 @@
 * [Accuracy, Safety & Defensibility](#accuracy-safety--defensibility)
 * [Data Handling](#data-handling)
 * [Why Not Just Use ChatGPT?](#why-not-just-use-chatgpt)
+* [System Architecture (Full, as built)](#system-architecture-full-as-built)
 * [About](#about)
 
 ---
@@ -56,9 +82,9 @@
 
 Basis is not a "one-click study generator." It's a **human-in-the-loop, agentic workflow** powered by three core systems:
 
-1. **Vision Layer** — Detection-first image processing that reduces VLM hallucinations through grounded detection
+1. **Vision** — per-photo room and object classification with a vision-language model
 2. **Evidence Layer** — PDF ingestion pipeline with hybrid BM25 + vector retrieval for IRS-grounded reasoning
-3. **Agentic Workflow** — LangGraph-orchestrated multi-agent system with stage-gated engineer review checkpoints
+3. **Engineer-Reviewed Workflow** — stage-gated review checkpoints for appraisal data, rooms, and assets (being rebuilt on Temporal; see [Status](#status-october-2026))
 
 This architecture **walks the engineer through every decision before anything becomes client-facing.**
 
@@ -151,17 +177,17 @@ These documents contain critical structured data (IDs, codes, classifications, t
 
 ---
 
-## The Solution: Agentic RAG + Multi-Agent Workflow
+## The Solution: Hybrid Retrieval + Engineer-Reviewed Workflow
 
-Basis implements a **three-layer architecture** designed for document intelligence problems:
+Basis is built as a **three-layer architecture** for document intelligence problems. The bottom two layers work today; the workflow layer is being rebuilt.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     AGENTIC LAYER (LangGraph)                   │
-│  • Multi-agent orchestration with stage-gated checkpoints       │
-│  • Tool routing based on query intent                           │
-│  • "No evidence, no claim" enforcement                          │
-│  • Human-in-the-loop verification at every stage                │
+│          WORKFLOW + AGENT LAYER (legacy LangGraph, rebuilding)  │
+│  • Stage-gated engineer checkpoints, shown in the frontend      │
+│  • Bounded tool-calling loop for residual IRS classification    │
+│  • Static rules for enrichment, takeoffs, costs                 │
+│  • Rebuild: Temporal workflow + PostgreSQL (see BUILD_PLAN)     │
 └────────────────────────────────┬────────────────────────────────┘
                                  │
 ┌────────────────────────────────▼────────────────────────────────┐
@@ -337,11 +363,11 @@ For appraisal documents, extracted tables are additionally mapped to URAR (Unifo
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-This mapping uses the same high-quality table extraction from ingestion—no additional parsing or GPT calls required.
+This mapping uses the same table extraction from ingestion—no additional parsing or GPT calls required. On the live path it is the fallback when Azure Document Intelligence is unavailable or returns low confidence (see [Appraisal Extraction](#4-appraisal-extraction--azure-document-intelligence--regex)).
 
-**Production Enhancement: Tiered Extraction**
+**Tiered Extraction (implemented, not on the live path)**
 
-For production deployments, appraisal extraction uses a multi-tier approach with confidence scoring:
+`backEnd/evidence_layer/src/tiered_extraction/` contains a `TieredExtractor` with a multi-tier approach and confidence scoring. The workflow does not call it; it calls only the Azure DI extractor from this package.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -359,11 +385,11 @@ For production deployments, appraisal extraction uses a multi-tier approach with
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Benefits:**
+**Design:**
 - **Field-level confidence scoring** — Each field tracks confidence + source
-- **Critical field validation** — `property_address`, `year_built`, `gross_living_area`, `appraised_value`, `contract_price`, `effective_date` require >= 0.90 confidence
+- **Critical field validation** — `CRITICAL_FIELDS` lists `property_address`, `year_built`, `gross_living_area`, `appraised_value`, `contract_price`, `effective_date` at >= 0.90 confidence. Known bug: the mapping tables now emit `gla_sqft`, `effective_date_of_appraisal`, and `final_market_value`, so three critical fields always read as missing and `needs_review` is always true (regression test: `test_legacy_critical_fields_mapping.py`)
 - **Automatic review flagging** — `needs_review: true` when confidence thresholds not met
-- **Graceful degradation** — Falls back through tiers if services unavailable
+- **Fallback chain** — Falls back through tiers if services are unavailable
 
 ---
 
@@ -507,8 +533,8 @@ Chunks
    │
    ▼
 ┌─────────────────────────────────────┐
-│  FAISS Index                        │
-│  • L2 distance metric               │
+│  FAISS Index (IndexFlatIP)          │
+│  • Cosine via normalized vectors    │
 │  • Metadata mapping (chunk_id)      │
 └─────────────────────────────────────┘
    │
@@ -585,262 +611,108 @@ results = hybrid_search("IRS_PUB946_2024", "tangible personal property", top_k=5
 
 ---
 
-### 3) Agentic RAG — LLM-Driven Retrieval
+### 3) Agent Loop and Workflow (as implemented)
 
 **Location:** `backEnd/agentic/`
 
-**Agentic RAG** solves a critical problem: **context window saturation**.
+**The agent loop.** Each stage agent extends `BaseStageAgent` (`agents/base_agent.py`). Its `run()` is a plain tool-calling loop: call the model with the evidence tools bound, execute any requested tool calls in-process, append the results, and stop when the model answers without tool calls or after `agent_max_iterations` (5). It does not use LangGraph's `create_react_agent`. The tools are LangChain `@tool` wrappers over the evidence layer, called in the same process (see [Evidence Tools](#6-evidence-tools-in-process-langchain-tools)).
 
-When documents are large or interrelated, naive RAG retrieves too much context, saturating the LLM's context window and degrading response quality. The solution is **agent-based selective retrieval**—the agent plans what evidence is needed, retrieves selectively, and verifies sufficiency before generating.
+**What is static.** Room enrichment, object enrichment, takeoffs, and cost estimates run with `use_static=True`: dictionary lookups and formulas, no LLM. IRS classification checks static rules first, then a cache of engineer-approved results, and calls the LLM loop only for the remainder. LLM calls are made for photo analysis, residual classification, and classification verification.
 
-<img src="docs/technique_rag.svg" alt="Agentic RAG technique: agent tool calls into the MCP evidence server backed by hybrid BM25 + FAISS retrieval" width="900"/>
+**Reproduced defects** (details in [REVIEW_AND_PLAN.md A.3](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a3-workflow-and-agent-correctness-topic-3)):
+- Only `load_study` → `resource_extraction` (or `error_handler`) is reachable from START; `analyze_rooms`, `reviewing_rooms`, `process_assets`, and `complete` have no incoming path.
+- Every "pause" is a graph `END`, not an interrupt. `resume_workflow` re-invokes the graph, which starts again from START and runs `load_study` → `resource_extraction` whatever the stage.
+- `resume_workflow(..., engineer_approved=False)` at the appraisal checkpoint writes `appraisalApproved: True`.
+- `_extract_citations_from_messages` drops every tool result, so LLM-path classifications have no citations, confidence 0.3, and `needs_review: true`.
+
+#### Design intent: selective retrieval
+
+The retrieval design targets **context window saturation**: when documents are large or interrelated, naive RAG retrieves too much context. The intended pattern is that the agent plans what evidence it needs, retrieves selectively, and checks sufficiency before answering. In the current code this pattern exists only inside the residual classification loop, which the live workflow never reaches.
+
+<img src="docs/technique_rag.svg" alt="Original design: classification agent calling evidence tools backed by hybrid BM25 + FAISS retrieval" width="900"/>
+
+*Original design diagram. The hybrid retrieval, custom tokenizer, and whole-table store match the code. The "MCP Evidence Server" box does not: agents call the same functions as in-process LangChain tools. The "Citation Gate" does not work on the LLM path today (see above).*
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      AGENTIC RAG vs NAIVE RAG                               │
+│                  NAIVE RAG vs SELECTIVE RETRIEVAL (design)                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  NAIVE RAG:                          AGENTIC RAG:                           │
-│  ┌─────────┐                         ┌─────────┐                            │
-│  │  Query  │                         │  Query  │                            │
-│  └────┬────┘                         └────┬────┘                            │
-│       │                                   │                                 │
-│       ▼                                   ▼                                 │
-│  ┌─────────┐                         ┌─────────────┐                        │
-│  │ Retrieve│                         │ Agent Plans │◄── "What evidence      │
-│  │ top-k   │                         │ what to get │    do I need?"         │
-│  └────┬────┘                         └──────┬──────┘                        │
-│       │                                     │                               │
-│       │ (may retrieve                       ▼                               │
-│       │  too much or                 ┌─────────────┐                        │
-│       │  wrong docs)                 │ Tool Router │◄── BM25 vs Vector      │
-│       │                              │             │    vs Structured       │
-│       ▼                              └──────┬──────┘                        │
-│  ┌─────────┐                                │                               │
-│  │ Generate│                                ▼                               │
-│  │ (hope   │                         ┌─────────────┐                        │
-│  │ it fits)│                         │ Selective   │◄── Only what's needed  │
-│  └─────────┘                         │ Retrieval   │                        │
-│                                      └──────┬──────┘                        │
-│       ❌ Context                            │                               │
-│          saturation                         ▼                               │
-│                                      ┌─────────────┐                        │
-│                                      │ Verify      │◄── "Is this enough?"   │
-│                                      │ Sufficiency │    If not, retrieve    │
-│                                      └──────┬──────┘    more                │
-│                                             │                               │
-│                                             ▼                               │
-│                                      ┌─────────────┐                        │
-│                                      │ Generate    │                        │
-│                                      │ with        │                        │
-│                                      │ citations   │                        │
-│                                      └─────────────┘                        │
-│                                                                             │
-│                                        ✓ Selective retrieval                │
-│                                        ✓ Fits context window                │
-│                                        ✓ Grounded in evidence               │
+│  NAIVE RAG:                          SELECTIVE RETRIEVAL:                   │
+│  Query → retrieve top-k → generate   Query → plan evidence needed           │
+│                                            → choose BM25 / vector / table   │
+│  ❌ may retrieve too much or the            → retrieve only what is needed   │
+│     wrong documents                        → check sufficiency              │
+│                                            → answer with citations          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-#### Why Agentic? (The Context Saturation Problem)
+#### Workflow: intended design vs as built
 
-**Mosi's observation:** Safety documents have standardized headers but messy context sections. When you retrieve naively, you pull in entire documents or too many chunks, saturating the context window.
-
-**The agentic solution:**
-
-1. **Agent plans first** — Before retrieving, the agent analyzes the query and decides what evidence is needed
-2. **Tool routing** — Agent chooses the right retrieval method (BM25 for exact IDs, vector for concepts, structured for tables)
-3. **Selective retrieval** — Only pulls what's necessary, not top-k everything
-4. **Verification loop** — Checks if evidence is sufficient; if not, retrieves more targeted chunks
-5. **Grounded generation** — Only claims what the evidence supports
-
----
-
-#### Workflow State Machine (Simplified 3-Pause Architecture)
-
-The workflow has been optimized to have exactly **3 engineer checkpoints** matching the frontend UI:
+The legacy LangGraph workflow was designed around **3 engineer checkpoints** matching the frontend UI. As built, the graph does not connect them:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    SIMPLIFIED WORKFLOW (3 PAUSE POINTS)                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  load_study                                                                 │
-│       │                                                                     │
-│       ▼                                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                      analyze_rooms_node                             │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
-│  │  │ 1. Vision Analysis (PARALLEL - 10 concurrent)               │    │    │
-│  │  │    All images analyzed simultaneously with GPT-4o Vision    │    │    │
-│  │  └─────────────────────────────────────────────────────────────┘    │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
-│  │  │ 2. Room Enrichment (PARALLEL - 10 concurrent)               │    │    │
-│  │  │    All rooms enriched with IRS context simultaneously       │    │    │
-│  │  └─────────────────────────────────────────────────────────────┘    │    │
-│  └────────────────────────────────┬────────────────────────────────────┘    │
-│                                   │                                         │
-│                                   ▼                                         │
-│  ╔═════════════════════════════════════════════════════════════════════╗    │
-│  ║  ⏸️ PAUSE #1: resource_extraction                                   ║    │
-│  ║  Engineer reviews: Appraisal data + detected rooms                  ║    │
-│  ╚═════════════════════════════════════════════════════════════════════╝    │
-│                                   │ (engineer approves)                     │
-│                                   ▼                                         │
-│  ╔═════════════════════════════════════════════════════════════════════╗    │
-│  ║  ⏸️ PAUSE #2: reviewing_rooms                                       ║    │
-│  ║  Engineer reviews: Room classifications + IRS context               ║    │
-│  ╚═════════════════════════════════════════════════════════════════════╝    │
-│                                   │ (engineer approves)                     │
-│                                   ▼                                         │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                      process_assets_node                            │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
-│  │  │ 1. Object Enrichment (PARALLEL - 20 concurrent)             │    │    │
-│  │  │    All objects enriched with IRS context simultaneously     │    │    │
-│  │  └─────────────────────────────────────────────────────────────┘    │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
-│  │  │ 2. Takeoffs + Classification (CROSS-PHASE PARALLEL!)        │    │    │
-│  │  │    ┌────────────────────┐  ┌────────────────────┐           │    │    │
-│  │  │    │ Takeoff Calc (×10) │  │ IRS Classify (×20) │           │    │    │
-│  │  │    │ RSMeans lookup     │  │ Asset classes      │           │    │    │
-│  │  │    └────────────────────┘  └────────────────────┘           │    │    │
-│  │  │    Both run simultaneously via asyncio.gather()             │    │    │
-│  │  └─────────────────────────────────────────────────────────────┘    │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
-│  │  │ 3. Cost Estimation (PARALLEL - 10 concurrent)               │    │    │
-│  │  │    All costs estimated simultaneously with RSMeans          │    │    │
-│  │  └─────────────────────────────────────────────────────────────┘    │    │
-│  └────────────────────────────────┬────────────────────────────────────┘    │
-│                                   │                                         │
-│                                   ▼                                         │
-│  ╔═════════════════════════════════════════════════════════════════════╗    │
-│  ║  ⏸️ PAUSE #3: engineering_takeoff                                   ║    │
-│  ║  Engineer reviews: Objects, takeoffs, classifications, costs        ║    │
-│  ║  (Tabbed UI showing all asset data with citations)                  ║    │
-│  ╚═════════════════════════════════════════════════════════════════════╝    │
-│                                   │ (engineer approves)                     │
-│                                   ▼                                         │
-│                          ┌─────────────────┐                                │
-│                          │   completed     │                                │
-│                          └─────────────────┘                                │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+INTENDED (legacy design)                         AS BUILT (graph edges at HEAD)
+─────────────────────────────────────────        ─────────────────────────────────
+load_study                                       START → load_study
+  ├─ resource_extraction                                  ├─ error_handler → END
+  │    → PAUSE 1: engineer reviews appraisal              └─ resource_extraction → END
+  └─ analyze_rooms (background job)
+PAUSE 2: engineer reviews rooms                  No path from START to:
+  → reviewing_rooms → process_assets               analyze_rooms, reviewing_rooms,
+  → PAUSE 3: engineer reviews assets               process_assets, complete
+  → complete
 ```
 
-<img src="docs/technique_stategraph.svg" alt="LangGraph workflow state machine with three engineer pause points" width="900"/>
+`analyze_rooms` still runs: `load_study` enqueues it as a job and the job worker calls the node directly. `process_assets` has a job handler, but nothing enqueues it, so takeoffs, classification, costs, and the evidence pack do not run on the backend. The frontend's engineering-takeoff page runs on client-side demo models, and the browser writes `workflowStatus` to Firestore directly.
+
+<img src="docs/technique_stategraph.svg" alt="Original design: LangGraph workflow with three engineer pause points" width="900"/>
+
+*Original design diagram of the legacy LangGraph workflow. It shows the intended three-pause flow, not the graph that compiles today.*
 
 **Frontend WorkflowStatus values:**
 ```
 uploading_documents → analyzing_rooms → resource_extraction → reviewing_rooms → engineering_takeoff → completed
 ```
 
-**Key Design:** Only 3 engineer checkpoints (not 5-6), matching the frontend UI. The `process_assets_node` combines objects, takeoffs, classification, and costs into a single processing phase with no pauses between—engineers review all asset data together on one page.
+**Planned (see [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture)).** One Temporal `StudyWorkflow` per study. It runs appraisal ingestion and field extraction, fans out photo analysis per photo, then waits for `appraisal_decision`, `rooms_decision`, and `assets_decision` signals from the API. A rejection with corrections re-runs the affected activities and waits again. Each approval references the exact revision it approved. Activities are idempotent, keyed by `(study_id, input_revision, activity)`, and write to PostgreSQL.
 
 ---
 
-#### Agent Architecture
+#### Residual classification loop (AssetAgent)
 
-Each agent follows a **plan → retrieve → verify → generate** pattern:
+The AssetAgent system prompt (`agents/asset_agent.py`) tells the model to search IRS guidance, choose a section (1245/1250) and MACRS bucket, verify the pair with `validate_section_bucket_tool`, check consistency with `check_component_context_tool`, and call `reconsider_classification` if validation fails. These steps are prompted, not enforced by code. The output schema includes `citation_refs`.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          AGENT EXECUTION FLOW                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Input: Component to classify (e.g., "hardwood flooring in living room")    │
-│                                                                             │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ STEP 1: PLAN                                                         │   │
-│  │                                                                      │   │
-│  │ Agent thinks: "I need to find:                                       │   │
-│  │   1. IRS classification for flooring                                 │   │
-│  │   2. Whether hardwood is personal or real property                   │   │
-│  │   3. Applicable recovery period"                                     │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                              │                                              │
-│                              ▼                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ STEP 2: TOOL ROUTING                                                 │   │
-│  │                                                                      │   │
-│  │ Agent decides:                                                       │   │
-│  │   • "flooring" → vector_search (semantic concept)                    │   │
-│  │   • "1245 vs 1250" → bm25_search (exact IRS sections)                │   │
-│  │   • "recovery period table" → get_table (structured data)            │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                              │                                              │
-│                              ▼                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ STEP 3: SELECTIVE RETRIEVAL                                          │   │
-│  │                                                                      │   │
-│  │ Agent calls tools:                                                   │   │
-│  │   → hybrid_search("flooring depreciation residential")               │   │
-│  │   → bm25_search("1245")                                              │   │
-│  │   → get_table("MACRS_recovery_periods")                              │   │
-│  │                                                                      │   │
-│  │ Returns: 3 relevant chunks + 1 table (not 50 chunks)                 │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                              │                                              │
-│                              ▼                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ STEP 4: VERIFY SUFFICIENCY                                           │   │
-│  │                                                                      │   │
-│  │ Agent checks: "Do I have enough evidence to classify?"               │   │
-│  │   • If YES → proceed to generation                                   │   │
-│  │   • If NO → retrieve more specific chunks                            │   │
-│  │   • If AMBIGUOUS → flag needs_review=true                            │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                              │                                              │
-│                              ▼                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ STEP 5: GROUNDED GENERATION                                          │   │
-│  │                                                                      │   │
-│  │ Agent generates classification WITH citations:                       │   │
-│  │   "Hardwood flooring is Section 1245 property (5-year recovery)      │   │
-│  │    per IRS Pub 946, page 42, because..."                             │   │
-│  │                                                                      │   │
-│  │ "No evidence, no claim" — won't classify without source              │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+#### Agents and how they run today
+
+| Agent | Purpose | How it runs today |
+|-------|---------|-------------------|
+| **VisionAgent** | Room type and objects per photo | gpt-4o-mini, one call per photo, 2 concurrent; run by the job worker |
+| **RoomAgent** | Room enrichment | Static lookup (`use_static=True`) |
+| **ObjectAgent** | Component enrichment | Static lookup (`use_static=True`) |
+| **TakeoffAgent** | Quantity estimation | Static formulas (`use_static=True`) |
+| **AssetAgent** | MACRS classification | Static rules → engineer-approved cache → LLM loop with evidence tools |
+| **ClassificationVerifier** | IRS defensibility checks | LLM |
+| **CostAgent** | RSMeans cost estimates | Static calculation (`use_static=True`) |
+
+Every agent after VisionAgent is called from `process_assets`, which the live workflow does not reach.
 
 ---
 
-#### Specialized Agents
+#### Evidence requirement: "no evidence, no claim" (being built)
 
-| Agent | Purpose | Tools Used | Evidence Source |
-|-------|---------|------------|-----------------|
-| **Room Agent** | Enriches vision outputs with space context | `hybrid_search` | Domain guidelines |
-| **Asset Agent** | MACRS classification with IRS citations | `bm25_search`, `vector_search`, `get_table` | IRS Pub 946, ATG |
-| **Takeoff Agent** | Measurement extraction with confidence | `hybrid_search`, `get_chunk` | Property appraisals |
-| **Cost Agent** | RSMeans cost code mapping | `hybrid_search`, `get_table` | RSMeans databases |
+Today nothing enforces this. On the LLM path citations are always empty, for three independent reasons in `agents/base_agent.py`: the `ToolMessage` built in `run()` has no `name`, which the citation filter requires; the registered tool names end in `_tool`, which the filter does not accept; and tool results are serialized with `str()`, which `json.loads` cannot parse. Static-rule classifications carry their own pre-populated IRS citations and are unaffected.
 
----
-
-#### "No Evidence, No Claim" Enforcement
-
-The Asset Agent system prompt explicitly requires evidence before classification:
-
-```
-CRITICAL INSTRUCTION:
-You MUST search for evidence before making any classification.
-- Call hybrid_search() or bm25_search() BEFORE outputting a classification
-- Every classification MUST include citation_refs with chunk_ids
-- If you cannot find supporting documentation, output:
-    needs_review: true
-    reason: "insufficient_evidence"
-- NEVER guess or rely on training data—only cite retrieved documents
-```
+"No evidence, no claim" is the invariant being built and tested in the rebuild ([BUILD_PLAN §6.6](docs/review_2026-10-15/BUILD_PLAN.md#66-behavioral-evals-scripted-model-pr-gate)): no search means `needs_review` with confidence ≤ 0.3, a nonexistent chunk id is rejected, and a model cannot request another study's corpus.
 
 ---
 
 #### Agent Output Schema
 
-Every agent produces structured output with provenance:
+`AgentOutput` (`agents/base_agent.py`) carries the structured result, `citations`, `confidence`, `needs_review`, and `review_reason`. The intended shape of an asset classification, as an example:
 
 ```json
 {
@@ -862,37 +734,20 @@ Every agent produces structured output with provenance:
 }
 ```
 
+On the LLM path today, `citations` is empty and `confidence` is 0.3.
+
 ---
 
 #### Checkpointing & Observability
 
-**Persistent State:**
-- Production: `FirestoreCheckpointer` — workflow state survives server restarts
-- Development: `MemorySaver` — in-memory for fast iteration
-- Thread-based resumption for long-running workflows
+**Checkpointing:**
+- `create_workflow()` uses `FirestoreCheckpointer` (`agentic/firestore/checkpointer.py`) when `GCS_BUCKET_NAME` is set, and otherwise creates a new in-memory `MemorySaver` on every call, so in development nothing persists between start and resume.
+- Resume does not read the checkpoint. `resume_workflow` reads `workflowStatus` from the study document and re-invokes the graph from START.
+- `FirestoreCheckpointer` stores only the latest checkpoint per thread and does not return pending writes or parent configs.
 
-**LangSmith Integration:**
-
-Every agent execution is traced in LangSmith:
-- Tool calls with inputs/outputs
-- LLM prompts and completions
-- Latency and token usage
-- Error tracking
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    LANGSMITH TRACE                              │
-├─────────────────────────────────────────────────────────────────┤
-│ Asset Agent Run                                                 │
-│ ├── hybrid_search("flooring depreciation") → 3 chunks          │
-│ ├── bm25_search("1245") → 2 chunks                             │
-│ ├── get_table("MACRS_periods") → 1 table                       │
-│ ├── LLM: classify with evidence                                │
-│ └── Output: { bucket: "5-year", citations: [...] }             │
-│                                                                 │
-│ Total tokens: 2,847  |  Latency: 3.2s  |  Status: Success      │
-└─────────────────────────────────────────────────────────────────┘
-```
+**LangSmith:**
+- The API process calls `configure_langsmith()` at startup, which covers graph runs started by `/workflow/start` and `/workflow/resume` (these run inside the HTTP request).
+- The job worker does not configure LangSmith, so photo analysis run by the worker is not traced.
 
 **LangSmith Dashboard:**
 
@@ -900,113 +755,59 @@ Every agent execution is traced in LangSmith:
 
 ---
 
-### 4) Multi-Agent Appraisal Extraction
+### 4) Appraisal Extraction — Azure Document Intelligence + Regex
 
-**Location:** `backEnd/agentic/agents/appraisal/`
+**Location:** `resource_extraction_node` in `backEnd/agentic/graph/nodes.py`, using `backEnd/evidence_layer/`
 
-The appraisal extraction system uses a **3-agent LangGraph StateGraph** for intelligent extraction with self-correction:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  APPRAISAL EXTRACTION LANGGRAPH                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────────────────┐                                   │
-│  │    EXTRACTOR AGENT       │                                   │
-│  │    "Extract intelligently │                                   │
-│  │     using available tools"│                                   │
-│  └───────────┬──────────────┘                                   │
-│              │                                                  │
-│              ▼                                                  │
-│  ┌──────────────────────────┐                                   │
-│  │    VERIFIER AGENT        │                                   │
-│  │    "Be skeptical. Find   │                                   │
-│  │     errors. Question     │                                   │
-│  │     everything."         │                                   │
-│  └───────────┬──────────────┘                                   │
-│              │                                                  │
-│   ┌──────────┼──────────┐                                       │
-│   │          │          │                                       │
-│   ▼          ▼          ▼                                       │
-│ all_good  needs_corr  max_iter                                  │
-│   │          │          │                                       │
-│   ▼          ▼          ▼                                       │
-│ [END]  ┌──────────┐  [END]                                      │
-│        │CORRECTOR │                                             │
-│        │  AGENT   │                                             │
-│        │"Fix using│                                             │
-│        │ DIFFERENT│                                             │
-│        │ method"  │                                             │
-│        └────┬─────┘                                             │
-│             │                                                   │
-│             └──────► back to verifier (max 2 iterations)        │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-<img src="docs/agent_loop.svg" alt="Multi-agent self-correction loop: Extractor, Verifier, and Corrector agents with audit trail" width="900"/>
-
-**Why Multi-Agent? (Agentic Tool Use)**
-
-Unlike the Agentic RAG pattern used by AssetAgent and RoomAgent (which focus on retrieval), appraisal extraction uses **Agentic Tool Use**—a multi-agent system where agents reason about which extraction tools to invoke:
-
-| Agent | Role | Tools |
-|-------|------|-------|
-| **ExtractorAgent** | "Extract appraisal data intelligently" | `parse_mismo_xml` (FREE), `extract_with_azure_di` (PAID), `extract_with_vision` (EXPENSIVE) |
-| **VerifierAgent** | "Be skeptical. Find errors. Question everything." | `validate_extraction` (FREE), `vision_recheck_field` (PAID) |
-| **CorrectorAgent** | "Fix flagged errors using DIFFERENT method" | Same as Extractor, but MUST use different tool than original |
-
-**Cost-Aware Tool Selection:**
+This is the extraction path the workflow runs today:
 
 ```
-Extraction Strategy (minimize cost):
-┌─────────────────────────────────────────────────────────────┐
-│  1. MISMO XML Parser (FREE) — if XML uploaded               │
-│     ↓ (if unavailable)                                      │
-│  2. Azure Document Intelligence ($0.10-0.50)                │
-│     ↓ (for stubborn fields with confidence < 0.85)          │
-│  3. GPT-4o Vision Fallback ($0.10-0.20)                     │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     APPRAISAL EXTRACTION (live path)                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Appraisal PDF (downloaded from its storage URL)                            │
+│     │                                                                       │
+│     ├── Phase 1, in parallel                                                │
+│     │     • ingest_document: parse → tables → chunks → BM25 + FAISS         │
+│     │     • AzureDocumentExtractor: Azure DI key-value pairs + tables       │
+│     │                                                                       │
+│     ├── Phase 2, after ingest (pdfplumber is not thread-safe)               │
+│     │     • extract_appraisal_fields: regex over the PDF text               │
+│     │                                                                       │
+│     └── Merge                                                               │
+│           Azure DI confidence > 0.3 → Azure DI sections, cleaned by         │
+│                                       azure_di_cleaner; regex fills gaps    │
+│           else, tables exist        → URAR table → section mapping,         │
+│                                       regex fallback                        │
+│           else                      → regex fields only                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Verification Checks:**
-- **Plausibility**: year_built 1800-2026, GLA 500-15000 sq ft
-- **OCR errors**: 0↔O, 1↔I, digit transposition detection
-- **Consistency**: GLA vs bedrooms, contract vs appraised value
-- **Confidence**: Critical fields < 0.90 flagged for review
+The result is written to the study as `appraisalResources`, with an extraction audit recording the method used, the Azure DI confidence, and phase timings.
 
-**Audit Trail (IRS Defensibility):**
+**Not used: multi-agent extraction loop.** `backEnd/agentic/agents/appraisal/` contains an Extractor → Verifier → Corrector LangGraph `StateGraph` (bounded correction iterations) with tools for MISMO XML, Azure DI, GPT-4o vision, validation, and vision re-checks. The workflow does not import it.
 
-Every extraction produces a complete audit trail for compliance:
+<img src="docs/agent_loop.svg" alt="Design of the unused Extractor, Verifier, Corrector loop" width="900"/>
 
-```json
-{
-  "study_id": "STUDY_001",
-  "iterations": 1,
-  "final_confidence": 0.92,
-  "agent_calls": [
-    {"agent_name": "ExtractorAgent", "tools_used": ["extract_with_azure_di"]},
-    {"agent_name": "VerifierAgent", "tools_used": ["validate_extraction"]}
-  ],
-  "field_history": [
-    {"field_key": "improvements.year_built", "action": "extracted", "value": "I995", "source": "azure_di"},
-    {"field_key": "improvements.year_built", "action": "flagged", "notes": "OCR error: 'I' vs '1'"},
-    {"field_key": "improvements.year_built", "action": "corrected", "value": 1995, "source": "vision_recheck"}
-  ]
-}
-```
+*Design of the multi-agent loop in `agents/appraisal/`. This code is not called by the workflow; live extraction is the Azure DI + regex path above.*
+
+**Planned (see BUILD_PLAN).** `ingest_appraisal` and `extract_fields` become Temporal activities: deterministic Azure DI + regex + validation rules, with a single targeted LLM call only for fields that fail validation ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)).
 
 ---
 
-### 5) Vision Layer — Detection-First Image Processing
+### 5) Vision — Per-Photo Classification
 
-**Location:** `backEnd/vision_layer/`
+**Location:** `backEnd/agentic/agents/vision_agent.py` (live), `backEnd/vision_layer/` (implemented, not wired)
 
-The vision layer processes property images using a **detection-first** approach that reduces VLM hallucinations.
+**Live path.** `load_study` enqueues an `analyze_rooms` job; the job worker runs `analyze_rooms_node`, which calls `analyze_study_images` with 2 concurrent workers. Each photo is sent whole to gpt-4o-mini (Azure OpenAI, with an OpenAI fallback after a rate-limit error). The model returns a room type and detected objects as structured JSON, and the node writes the resulting rooms to the study.
+
+**`vision_layer/` (implemented, not wired).** This package implements a detection-first pipeline intended to reduce VLM hallucinations by classifying cropped regions instead of whole images. No module in `agentic/` imports it. It has its own unit tests.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                      VISION PIPELINE — DETECTION FIRST                       │
+│               vision_layer/ PIPELINE — DETECTION FIRST (not wired)           │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌─────────┐ │
@@ -1022,328 +823,49 @@ The vision layer processes property images using a **detection-first** approach 
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+| Stage | File | What it does |
+|-------|------|--------------|
+| Detect | [`api_clients/grounding_dino.py`](backEnd/vision_layer/src/api_clients/grounding_dino.py) | Open-vocabulary detection via Replicate; default box threshold 0.3 |
+| Segment | [`api_clients/sam2.py`](backEnd/vision_layer/src/api_clients/sam2.py) | SAM 2 masks from detection boxes (optional) |
+| Crop | [`pipeline/cropper.py`](backEnd/vision_layer/src/pipeline/cropper.py) | Crops each detection with 20% padding |
+| Classify | [`api_clients/vlm.py`](backEnd/vision_layer/src/api_clients/vlm.py) | VLM classification of each crop (component type, material, condition, installation type) |
+| Orchestrate | [`pipeline/ingest.py`](backEnd/vision_layer/src/pipeline/ingest.py) | Runs the stages per image with a concurrency semaphore |
 
-#### Why Detection-First? (Reducing VLM Hallucinations)
-
-**The Problem:** VLMs (Vision Language Models) hallucinate when given full images. They "see" objects that aren't there or misclassify materials.
-
-**The Solution:** Detect objects first, then classify only the cropped regions.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                VLM-ONLY vs DETECTION-FIRST                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  VLM-ONLY (hallucination-prone):     DETECTION-FIRST (grounded):            │
-│                                                                             │
-│  ┌─────────────────┐                 ┌─────────────────┐                    │
-│  │  Full Image     │                 │  Full Image     │                    │
-│  │  ┌───┐ ┌───┐    │                 │  ┌───┐ ┌───┐    │                    │
-│  │  │   │ │   │    │                 │  │ A │ │ B │    │◄── Detect objects  │
-│  │  └───┘ └───┘    │                 │  └───┘ └───┘    │    with bboxes     │
-│  └────────┬────────┘                 └────────┬────────┘                    │
-│           │                                   │                             │
-│           ▼                                   ▼                             │
-│  ┌─────────────────┐                 ┌─────────────────┐                    │
-│  │ "I see a marble │                 │  Crop region A  │                    │
-│  │  countertop,    │                 │  ┌───────────┐  │                    │
-│  │  granite floor, │◄── May be       │  │  [A only] │  │◄── Send crop       │
-│  │  stainless steel│    wrong!       │  └───────────┘  │    to VLM          │
-│  │  appliances..." │                 └────────┬────────┘                    │
-│  └─────────────────┘                          │                             │
-│                                               ▼                             │
-│                                      ┌─────────────────┐                    │
-│                                      │ VLM classifies  │                    │
-│                                      │ ONLY the crop:  │                    │
-│                                      │ "wood_veneer,   │◄── Focused         │
-│                                      │  built_in,      │    classification  │
-│                                      │  good_condition"│                    │
-│                                      └────────┬────────┘                    │
-│                                               │                             │
-│                                               ▼                             │
-│                                      ┌─────────────────┐                    │
-│                                      │ Verify: Does    │                    │
-│                                      │ VLM output match│◄── Grounding       │
-│                                      │ detection label?│    verification    │
-│                                      └─────────────────┘                    │
-│                                                                             │
-│       ❌ Hallucinates objects              ✓ Grounded in detections         │
-│       ❌ No provenance                     ✓ Full audit trail               │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+**Planned.** BUILD_PLAN keeps one structured-output VLM call per photo as the `analyze_photo` activity. Re-wiring detection-first is optional ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)).
 
 ---
 
-#### Stage 1: Object Detection (Grounding DINO 1.5 Pro)
+### 6) Evidence Tools (in-process LangChain tools)
 
-**File:** [`api_clients/grounding_dino.py`](backEnd/vision_layer/src/api_clients/grounding_dino.py)
+Agents reach the evidence layer through LangChain `@tool` functions in `backEnd/agentic/mcp_server/tools/`, bound to the model and executed in the agent's own process:
 
-Open-vocabulary object detection via Replicate API.
+| Registered tool | Purpose |
+|-----------------|---------|
+| `bm25_search_tool` | Exact token matching (codes, IDs, standard references) |
+| `vector_search_tool` | Semantic similarity for conceptual queries |
+| `hybrid_search_tool` | Combined search with score fusion |
+| `get_chunk_tool` | Fetch chunk by ID with full provenance |
+| `get_table_tool` | Fetch structured table (never chunked) |
 
-```
-Property Image
-      │
-      ▼
-┌─────────────────────────────────────┐
-│  Grounding DINO 1.5 Pro             │
-│                                     │
-│  Prompt: "cabinet, countertop,      │
-│           flooring, appliance,      │
-│           lighting fixture..."      │
-│                                     │
-│  Confidence threshold: 0.3          │
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│  Detections:                        │
-│  [                                  │
-│    { label: "cabinet",              │
-│      bbox: [100, 200, 400, 500],    │
-│      confidence: 0.92 },            │
-│    { label: "countertop",           │
-│      bbox: [150, 50, 600, 200],     │
-│      confidence: 0.87 },            │
-│    ...                              │
-│  ]                                  │
-└─────────────────────────────────────┘
-```
+`backEnd/agentic/mcp_server/server.py` also exposes the same five functions as an MCP server over stdio (`bm25_search`, `vector_search`, `hybrid_search`, `get_table`, `get_chunk`). Nothing in the application launches that server or connects to it.
 
-**Key Features:**
-- Open-vocabulary: detects any object described in prompt
-- Returns bounding boxes with confidence scores
-- Retry logic with exponential backoff
-
----
-
-#### Stage 2: Segmentation (SAM 2)
-
-**File:** [`api_clients/sam2.py`](backEnd/vision_layer/src/api_clients/sam2.py)
-
-Precise segmentation masks for detected regions.
-
-```
-Detection bboxes
-      │
-      ▼
-┌─────────────────────────────────────┐
-│  SAM 2 (Segment Anything Model 2)   │
-│                                     │
-│  Input: bbox coordinates            │
-│  Output: Precise polygon mask       │
-└─────────────────────────────────────┘
-      │
-      ▼
-Refined masks with exact boundaries
-```
-
-**Purpose:** Refines rough bounding boxes into precise object boundaries. Optional stage—can be skipped for speed.
-
----
-
-#### Stage 3: Region Cropping
-
-**File:** [`pipeline/cropper.py`](backEnd/vision_layer/src/pipeline/cropper.py)
-
-Extracts and pads regions for VLM classification.
-
-```
-Detection + Mask
-      │
-      ▼
-┌─────────────────────────────────────┐
-│  Region Cropper                     │
-│                                     │
-│  • Crop around bbox                 │
-│  • Add 20% padding for context      │
-│  • Save crop for audit trail        │
-└─────────────────────────────────────┘
-      │
-      ▼
-Cropped image (just the object + context)
-```
-
-**Why crop?**
-- VLM focuses on single object, not entire scene
-- Reduces hallucination from other objects in image
-- Smaller image = faster inference
-
----
-
-#### Stage 4: VLM Classification (GPT-4o Vision)
-
-**File:** [`api_clients/vlm.py`](backEnd/vision_layer/src/api_clients/vlm.py)
-
-Material and attribute classification on cropped regions.
-
-```
-Cropped Image
-      │
-      ▼
-┌─────────────────────────────────────┐
-│  GPT-4o Vision                      │
-│                                     │
-│  Prompt: "Classify this object:     │
-│    - material (wood, metal, etc.)   │
-│    - condition (good/fair/poor)     │
-│    - attachment (built-in/portable) │
-│    - dimensions if visible"         │
-│                                     │
-│  Output: Structured JSON            │
-└─────────────────────────────────────┘
-      │
-      ▼
-{
-  "material": "wood_veneer",
-  "condition": "good",
-  "attachment_type": "built_in",
-  "color": "natural_oak",
-  "estimated_dimensions": "36in x 24in"
-}
-```
-
-**LLM Provider:**
-- **Azure OpenAI** (primary - enterprise deployment)
-  - **GPT-4.1**: Best results for complex reasoning and classification
-  - **GPT-4.1 nano**: Most efficient for high-volume tasks
-  - This combo provides optimal cost/performance ratio
-
----
-
-#### Stage 5: Grounding Verification
-
-Cross-reference VLM claims against detection labels.
-
-```
-VLM Output + Detection Label
-      │
-      ▼
-┌─────────────────────────────────────┐
-│  Grounding Verifier                 │
-│                                     │
-│  Detection label: "cabinet"         │
-│  VLM classification: "wood_veneer   │
-│                       cabinet"      │
-│                                     │
-│  Match? ✓ YES                       │
-│  → verified: true                   │
-│                                     │
-│  If mismatch:                       │
-│  → needs_review: true               │
-│  → reason: "grounding_mismatch"     │
-└─────────────────────────────────────┘
-```
-
-**Purpose:** Catches VLM hallucinations where it classifies an object as something the detector didn't see.
-
----
-
-#### Vision Artifact Output
-
-Every processed object produces a complete artifact with provenance:
-
-```json
-{
-  "artifact_id": "va_abc123",
-  "image_id": "photo_456",
-  "detection": {
-    "label": "cabinet",
-    "confidence": 0.92,
-    "bbox": {"x1": 100, "y1": 200, "x2": 400, "y2": 500},
-    "model": "grounding_dino_1.5_pro"
-  },
-  "segmentation": {
-    "mask_path": "masks/va_abc123.png",
-    "model": "sam2"
-  },
-  "crop": {
-    "crop_path": "crops/va_abc123.jpg",
-    "padding": 0.2
-  },
-  "classification": {
-    "material": "wood_veneer",
-    "condition": "good",
-    "attachment_type": "built_in",
-    "cost_seg_relevant": true,
-    "model": "gpt-4.1"
-  },
-  "provenance": {
-    "detection_model": "grounding_dino_1.5_pro",
-    "segmentation_model": "sam2",
-    "vlm_model": "gpt-4.1",
-    "verified": true,
-    "grounding_match": true
-  },
-  "confidence": 0.89,
-  "needs_review": false
-}
-```
-
----
-
-#### Batch Processing
-
-**File:** [`pipeline/ingest.py`](backEnd/vision_layer/src/pipeline/ingest.py)
-
-Concurrent processing with configurable parallelism:
-
-```python
-class VisionPipeline:
-    async def process_batch(
-        self,
-        images: List[str],
-        max_concurrent: int = 5
-    ) -> List[VisionArtifact]:
-        """
-        Process multiple images concurrently.
-        Uses semaphore to limit parallel API calls.
-        """
-        semaphore = asyncio.Semaphore(max_concurrent)
-        tasks = [self._process_single(img, semaphore) for img in images]
-        return await asyncio.gather(*tasks)
-```
-
----
-
-### 6) Tool Registry
-
-Agents access evidence through standardized MCP tools:
-
-**Retrieval Tools:**
-
-| Tool | Purpose |
-|------|---------|
-| `bm25_search` | Exact token matching (codes, IDs, standard references) |
-| `vector_search` | Semantic similarity for conceptual queries |
-| `hybrid_search` | Combined search with score fusion |
-| `get_chunk` | Fetch chunk by ID with full provenance |
-| `get_table` | Fetch structured table (never chunked) |
-
-**Tool Implementation (example):**
+**Tool signature (from `mcp_server/tools/search_tools.py`):**
 
 ```python
 @tool
-def hybrid_search(
+def hybrid_search_tool(
     doc_id: str,
     query: str,
-    top_k: int = 5,
-    bm25_weight: float = 0.5
-) -> List[SearchResult]:
-    """
-    Combined BM25 + vector search with score normalization.
-    Returns chunks with provenance (page_span, section_path, element_ids).
-    """
-    bm25_results = bm25_search(doc_id, query, top_k * 2)
-    vector_results = vector_search(doc_id, query, top_k * 2)
-
-    # Normalize and fuse scores
-    fused = fuse_scores(bm25_results, vector_results, bm25_weight)
-
-    # Deduplicate and expand tables
-    return dedupe_and_expand(fused, top_k)
+    top_k: int = 10,
+    corpus: str = "reference",
+    study_id: Optional[str] = None,
+    bm25_weight: float = 0.5,
+) -> list[dict]:
+    """Combined BM25 + vector search with score fusion.
+    Automatically expands table surrogate hits to include full table data."""
 ```
+
+`corpus` and `study_id` are arguments the model supplies. Binding them to the current study on the server side is part of the rebuild (BUILD_PLAN §6.6, tool scope test).
 
 ---
 
@@ -1354,15 +876,15 @@ def hybrid_search(
 | Component | Technology |
 |-----------|------------|
 | **Framework** | FastAPI |
-| **Workflow Orchestration** | LangGraph 0.2+ |
-| **LLM** | Azure OpenAI |
+| **Workflow Orchestration** | Temporal (in progress; LangGraph being removed) |
+| **LLM** | Azure OpenAI (gpt-4o-mini for vision, GPT-5-nano for text), OpenAI as rate-limit fallback |
 | **Document Intelligence** | Azure Document Intelligence (appraisal extraction) |
 | **PDF Parsing** | pdfplumber, PyMuPDF |
-| **Vector Store** | FAISS |
+| **Vector Store** | FAISS (moving to PostgreSQL + pgvector) |
 | **Lexical Search** | rank-bm25 |
 | **Embeddings** | sentence-transformers (`all-MiniLM-L6-v2`) |
-| **Observability** | LangSmith (tracing) |
-| **Database** | Firebase Firestore |
+| **Observability** | LangSmith (API process only) |
+| **Database** | Firestore (migrating to PostgreSQL) |
 | **Storage** | Firebase Storage, GCS |
 
 ### Frontend
@@ -1376,39 +898,21 @@ def hybrid_search(
 
 ### Infrastructure
 
-- **Hosting:** Firebase App Hosting, Google Cloud Run
-- **Containers:** Docker
-- **State Persistence:** Firestore checkpointer for workflow state
+- **Containers:** `backEnd/Dockerfile` and a development `docker-compose.yml` (API + job worker)
+- **Workflow state today:** study document fields in Firestore; the LangGraph checkpointer is not used on resume
+- **Target:** Cloud Run (API + worker), Cloud SQL PostgreSQL, Temporal, GCS — see [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture)
 
 ---
 
-## Production Deployment
+## Deployment status
 
-Basis is not a demo — it runs in production for paying customers (see
-[Traction & Validation](#traction--validation)). What that means concretely:
+Facts as verified on 2026-10-15 ([REVIEW_AND_PLAN.md A.7](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a7-build-and-deploy-configuration-verified)):
 
-- **Backend on Google Cloud Run.** The FastAPI app ships as a container
-  (`backEnd/Dockerfile`: `python:3.12-slim`, uvicorn on `:8000`) — stateless by
-  design so Cloud Run can scale and restart it freely.
-- **Dedicated async worker.** Long-running document/vision jobs run in a
-  separate worker container (`agentic.workers.job_worker`), decoupled from the
-  API so a 200-page appraisal ingest never blocks a user request. Both services
-  carry restart policies; `docker-compose.yml` mirrors the production topology
-  for local dev, so dev/prod parity is structural, not aspirational.
-- **Frontend on Firebase App Hosting** (Next.js 14, TypeScript).
-- **Durable workflow state.** LangGraph checkpoints persist to Firestore
-  (`agentic/firestore/checkpointer.py`) — a multi-stage study survives server
-  restarts and redeploys mid-workflow, which is what makes the stage-gated
-  engineer-review process trustworthy in practice.
-- **Managed AI services.** Azure OpenAI (LLM) and Azure Document Intelligence
-  (appraisal extraction) — no self-hosted model infrastructure to babysit.
-- **Data layer.** Firestore (structured study data), Firebase Storage / GCS
-  (documents and images), Firebase Auth.
-- **Observability.** Every agent run is traced with LangSmith
-  (`agentic/observability/tracing.py`), so production extraction errors are
-  debuggable from traces rather than reproduced by hand.
-- **Configuration.** 12-factor style: all environment-specific settings come
-  from env files injected at deploy time.
+- **Backend: not deployed.** No Cloud Run service or job exists in the `cost-seg-basis` project.
+- **Frontend: Firebase App Hosting backend bound to an older repository.** The App Hosting backend `basisbackend` is connected to a different repository and was last updated before this repository's first substantive commit, so it does not serve this code.
+- **`docker-compose.yml` is a development setup.** It bind-mounts the source and runs uvicorn with `--reload`, plus a separate job-worker container (`agentic.workers.job_worker`). It is not a production topology.
+- **No deployment pipeline yet.** CI for lint and tests is being added in Stage 0 of the rebuild; there is no Cloud Build config, deploy workflow, or infrastructure-as-code.
+- **Target topology:** API and worker on Cloud Run, PostgreSQL on Cloud SQL, Temporal for workflow progress, GCS for files, separate staging, GitHub Actions with OIDC. See [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture) and [§7](docs/review_2026-10-15/BUILD_PLAN.md#7-cicd-pipeline).
 
 ---
 
@@ -1424,11 +928,13 @@ Every module follows the same contract:
 6. **Engineer reviews + corrects**
 7. **Engineer manually advances** to the next stage
 
-This is the core design principle that keeps deliverables defensible.
+This is the core design principle that keeps deliverables defensible. Today the contract holds for appraisal extraction and photo analysis. The asset stages on the engineering-takeoff page run on client-side demo models, and the browser writes stage status to Firestore directly; in the rebuild, the API is the only writer and stage moves happen only through recorded engineer decisions ([BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture)).
 
 ---
 
 ## User Workflow (High Level)
+
+This is the product flow as presented in the UI. Steps 5–8 currently run on client-side demo models in the frontend, not on the backend (see [Status](#status-october-2026)).
 
 1. 📝 **Create New Study**
 
@@ -1445,14 +951,9 @@ This is the core design principle that keeps deliverables defensible.
 
    * Ingest PDF using same pipeline as IRS docs (parse → chunk → index)
    * Extract tables with structure preserved (headers, rows, page)
-   * **Tiered extraction** with confidence scoring:
-     - Tier 1: MISMO XML (if uploaded) - 100% accurate
-     - Tier 2: Azure Document Intelligence - 70-95% confidence
-     - Tier 3: GPT-4o Vision fallback - 60-90% confidence
-     - Tier 4: Regex fallback - 50-80% confidence
-   * Map URAR tables to frontend sections (subject, neighborhood, site, improvements, etc.)
-   * Create property constraints (GLA, bedrooms, room counts, etc.)
-   * Auto-flag fields with `needs_review: true` when confidence < 0.90
+   * **Field extraction:** Azure Document Intelligence in parallel with ingestion, then regex extraction; Azure DI values are cleaned and regex values fill gaps
+   * If Azure DI is unavailable or low-confidence: map URAR tables to frontend sections (subject, neighborhood, site, improvements, etc.), with regex fallback
+   * Store the extraction method and Azure DI confidence with the results
    * ⏸️ **Engineer reviews + corrects**
 
 4. 🏠 **Room Classification**
@@ -1490,15 +991,15 @@ This is the core design principle that keeps deliverables defensible.
 
 ## Current Application: Cost Segregation
 
-The architecture is currently deployed for **cost segregation**—accelerating tax depreciation analysis for commercial real estate.
+The architecture currently targets **cost segregation**—accelerating tax depreciation analysis for commercial real estate.
 
 **Domain-Specific Implementation:**
 
 - **Reference Corpus:** IRS Pub 946, Pub 527, Cost Seg ATG, Rev Proc 87-56, RSMeans databases
 - **Exact-Match Queries:** Asset class codes (e.g., `"57.0"`), IRS sections (e.g., `"§1245"`)
 - **Semantic Queries:** "What property qualifies for 5-year depreciation?"
-- **Traceability:** Every classification cites specific IRS publication pages
-- **Vision Processing:** Detection-first pipeline for property photos (see [Vision Layer](#4-vision-layer--detection-first-image-processing))
+- **Traceability:** Static-rule classifications carry IRS citations; citations on the LLM path are broken today and are a tested invariant in the rebuild
+- **Vision Processing:** One vision-language model call per property photo (see [Vision](#5-vision--per-photo-classification))
 
 ---
 
@@ -1541,7 +1042,7 @@ Querying these documents with traditional RAG fails: vector search hallucinates 
 | **80-Token Overlap** | Safety goal rationale spanning paragraphs isn't split |
 | **Hybrid Search** | Exact ID lookup + semantic "what evidence supports this safety goal?" |
 | **Surrogate → Full Table** | Search hits "FMEA row for HAZ-001" → returns complete FMEA with all columns |
-| **Citation Enforcement** | "No evidence, no claim" — every classification cites specific document + page |
+| **Citation Requirement** | "No evidence, no claim" — the invariant being built and tested in the rebuild (BUILD_PLAN §6.6) |
 | **Human-in-the-Loop** | Engineer reviews before any safety decision is finalized |
 
 **Example Queries This Architecture Handles:**
@@ -1578,7 +1079,7 @@ The custom tokenizer pattern extends directly to safety document codes:
 3. **Agent prompts** — swap IRS classification logic for safety goal verification logic
 4. **Structured store** — FMEA tables, DFA matrices instead of depreciation tables
 
-The pipeline, retrieval, and agentic architecture remain identical.
+The ingestion pipeline and hybrid retrieval would carry over unchanged.
 
 ---
 
@@ -1586,24 +1087,27 @@ The pipeline, retrieval, and agentic architecture remain identical.
 
 Basis is designed for **engineering-grade output**, not generic AI chat.
 
-We ensure accuracy through:
+What is in place today:
 
-* **Detection-first vision processing** — Grounding DINO detects objects before VLM classifies, reducing hallucinations
-* **Evidence-backed reasoning** — Every agent output cites documents with chunk IDs and page numbers
-* **Grounding verification** — VLM claims are cross-referenced against detections using IoU thresholds
-* **Human-in-the-loop checkpoints** — Engineers review and approve at every workflow stage
-* **Confidence scoring + needs_review flags** — Uncertain outputs are flagged for engineer attention
-* **Full provenance tracking** — Every artifact traces back to source image, detection, and model
-* **"No evidence, no claim" enforcement** — Agents cannot classify without citing retrieved evidence
+* **Retrieval over the actual IRS documents** — hybrid BM25 + vector search over ingested IRS publications, with tables kept whole
+* **Deterministic rules first** — static rules classify, enrich, measure, and cost known components and carry their own IRS citations (unit-tested; see [Status](#status-october-2026) for which of them run today)
+* **Human-in-the-loop checkpoints** — the UI gates appraisal, room, and asset review; a reject path is not implemented yet
+* **Confidence scoring + needs_review flags** — low-confidence outputs are flagged; on the LLM classification path every result is flagged today because citations are lost (see [section 3](#3-agent-loop-and-workflow-as-implemented))
+
+What the rebuild adds, each as a test in [BUILD_PLAN §6](docs/review_2026-10-15/BUILD_PLAN.md#6-the-full-test-inventory):
+
+* **"No evidence, no claim"** — the invariant being built and tested ([BUILD_PLAN §6.6](docs/review_2026-10-15/BUILD_PLAN.md#66-behavioral-evals-scripted-model-pr-gate)): no search means `needs_review` with confidence ≤ 0.3, and a citation must resolve to a real chunk
+* **Rejection never records approval**, and approvals bind to the exact revision reviewed
+* **Tool scope** — a model cannot request another study's documents
 
 ---
 
 ## Data Handling
 
-* Customer artifacts are stored encrypted in **Firebase Storage**.
-* Study data is stored in **Firestore** with role-based access.
-* Vision pipelines can be isolated for sensitive drawings and photos.
-* Use Enterprise API's for LLMs to prevent data being stored for training.
+* Customer artifacts are stored in **Firebase Storage**, which encrypts data at rest.
+* Study data is stored in **Firestore** with owner-only security rules.
+* LLM and document calls go to Azure OpenAI and Azure Document Intelligence, with the OpenAI API as a rate-limit fallback; none of these train on API data by default.
+* No known client file is tracked in this public repository. `docs/review_2026-10-15/blocked_file_hashes.txt` lists SHA-256 hashes of known client files so they can be blocked from commits.
 
 ---
 
@@ -1613,68 +1117,68 @@ Cost segregation is not a single "upload a PDF" problem.
 
 Engineers often work with **hundreds of photos and mixed documents** per study, with strict IRS expectations for classification and auditability.
 
-Basis is a **three-layer agentic system** that:
+Basis is a **three-layer system** that:
 
-* **Detects before classifying** — Grounding DINO + SAM 2 detect objects before GPT-4o classifies, eliminating VLM hallucinations
-* **Cites every classification** — Asset classifications include IRS document citations with page numbers, not just model training data
-* **Preserves full provenance** — Every artifact traces back to source image, detection, crop, and model response
-* **Stage-gates everything** — Engineers review and approve before any workflow advances
 * **Uses actual IRS documents** — Hybrid BM25 + vector retrieval over ingested IRS publications, not model knowledge cutoff
-* **Solves context saturation** — Agentic retrieval selects only relevant evidence instead of dumping everything into context
+* **Keeps tables whole** — depreciation tables are stored intact and fetched by id instead of chunked
+* **Extracts appraisals with a document model** — Azure Document Intelligence plus regex, not a chat prompt
+* **Prefers rules to the model** — known components are handled by deterministic rules; the LLM handles only the residual cases
+* **Stage-gates the work** — Engineers review appraisal data, rooms, and assets in the UI before the study moves on
+* **Is being rebuilt to enforce citations** — "no evidence, no claim" and rejection handling are tested invariants in the [build plan](docs/review_2026-10-15/BUILD_PLAN.md)
 
 
 ---
 
-## System Architecture (Full)
+## System Architecture (Full, as built)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                         ENGINEER UI                              │
-│  • Review checkpoints at every workflow stage                    │
-│  • Citation verification                                         │
-│  • Correction interface                                          │
+│  • Review screens for appraisal, rooms, and assets               │
+│  • Engineer edits values in place (no reject path yet)           │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
 ┌────────────────────────────────▼─────────────────────────────────┐
 │                      NEXT.JS FRONTEND                            │
-│  • Typed UI state + workflow gating                              │
-│  • Firebase Auth + role-aware access                             │
-│  • Real-time Firestore listeners                                 │
+│  • Firebase Auth (Google sign-in), ID token sent to the API      │
+│  • Firestore listeners; writes workflowStatus directly           │
+│  • Asset stages run on client-side demo models                   │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
 ┌────────────────────────────────▼─────────────────────────────────┐
-│                     FASTAPI BACKEND                              │
+│               FASTAPI BACKEND + JOB WORKER (not deployed)        │
 │                                                                  │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
-│  │  VISION LAYER   │  │ EVIDENCE LAYER  │  │  AGENTIC LAYER  │   │
+│  │  VISION         │  │ EVIDENCE LAYER  │  │  WORKFLOW       │   │
 │  ├─────────────────┤  ├─────────────────┤  ├─────────────────┤   │
-│  │ Grounding DINO  │  │ PDF Parsing     │  │ LangGraph       │   │
-│  │ SAM 2           │  │ Table Extract   │  │ Workflow Engine │   │
-│  │ GPT-4o Vision   │  │ Text Chunking   │  │                 │   │
-│  │ Region Cropper  │  │ BM25 Index      │  │ Room Agent      │   │
-│  │ Grounding       │  │ FAISS Index     │  │ Asset Agent     │   │
-│  │ Verifier        │  │ Hybrid Search   │  │ Takeoff Agent   │   │
-│  └────────┬────────┘  └────────┬────────┘  │ Cost Agent      │   │
-│           │                    │           └────────┬────────┘   │
-│           │                    └────────────────────┤            │
-│           └─────────────────────────────────────────┤            │
-│                                                     │            │
-│                    ┌────────────────────────────────▼──────┐     │
-│                    │        MCP TOOL REGISTRY              │     │
-│                    │  • bm25_search    • vector_search     │     │
-│                    │  • hybrid_search  • get_table         │     │
-│                    │  • get_chunk      • vision_detect     │     │
+│  │ gpt-4o-mini,    │  │ PDF Parsing     │  │ LangGraph graph │   │
+│  │ one call per    │  │ Table Extract   │  │ (2 of 7 nodes   │   │
+│  │ photo (worker)  │  │ Text Chunking   │  │  reachable)     │   │
+│  │                 │  │ BM25 Index      │  │ Azure DI + regex│   │
+│  │ vision_layer/   │  │ FAISS Index     │  │ extraction      │   │
+│  │ DINO + SAM2:    │  │ Hybrid Search   │  │ Static rules +  │   │
+│  │ not wired       │  │                 │  │ residual LLM    │   │
+│  └─────────────────┘  └────────┬────────┘  └────────┬────────┘   │
+│                                │                    │            │
+│                    ┌───────────▼────────────────────▼──────┐     │
+│                    │   IN-PROCESS LANGCHAIN TOOLS          │     │
+│                    │  • bm25_search_tool                   │     │
+│                    │  • vector_search_tool                 │     │
+│                    │  • hybrid_search_tool                 │     │
+│                    │  • get_table_tool • get_chunk_tool    │     │
 │                    └───────────────────────────────────────┘     │
 │                                                                  │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
 ┌────────────────────────────────▼─────────────────────────────────┐
 │                     FIREBASE DATA LAYER                          │
-│  • Storage: documents, images, exports                           │
-│  • Firestore: studies, classifications, audit trails             │
-│  • Auth: role-based access                                       │
+│  • Storage: documents, images                                    │
+│  • Firestore: studies, job_queue, workflow_checkpoints           │
+│  • Security rules: owner-only access to studies                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+The target architecture (Temporal, PostgreSQL, Cloud Run, API as the only writer) is in [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture).
 
 ---
 
