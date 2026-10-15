@@ -34,6 +34,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.4.0",
     "ruff>=0.17.0",
+    "schemathesis>=4.31.1",
     "testcontainers[postgres]>=4.15.0",
 ]
 legacy = [
