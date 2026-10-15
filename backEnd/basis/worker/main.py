@@ -11,6 +11,8 @@
   ``TEMPORAL_WORKER_VERSIONING`` is true, with deployment ``temporal_deployment_name`` and
   build id ``temporal_build_id`` (default: the git sha).
 * ``/health`` on ``:8080`` for the Cloud Run worker-pool startup probe.
+* The latest published reference corpus's BM25 index is built before polling starts
+  (S3_SPEC section 3); a failure there is logged and the index is built on first use.
 * SIGTERM/SIGINT: stop polling, give in-flight activities ``SHUTDOWN_GRACE`` to finish,
   then cancel them and exit. Cloud Run sends SIGKILL 10 s after SIGTERM, so the drain is
   8 s, leaving time to close the database pool and exit cleanly. A cancelled activity is
@@ -39,6 +41,7 @@ from basis.config import Settings, load_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
 from basis.obs.logging import configure_logging
+from basis.retrieval.store import warm_latest_reference
 from basis.temporal.client import build_id, connect
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
@@ -100,6 +103,17 @@ def build_worker(
     )
 
 
+async def warm_reference_index(deps: Deps) -> None:
+    """Build the reference BM25 index now so the first classification is not cold."""
+    registry = deps.retrieval_deps().registry
+    try:
+        version = await warm_latest_reference(deps.sessionmaker, registry)
+    except Exception:  # never block startup: the index is built on first use instead
+        logger.warning("could not warm the reference BM25 index", exc_info=True)
+        return
+    logger.info("reference BM25 index warm", extra={"corpus_version_id": str(version)})
+
+
 def metrics_runtime(port: int) -> Runtime:
     return Runtime(
         telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{port}"))
@@ -129,6 +143,7 @@ async def run_worker(
             bucket=bucket,
             settings=settings,
         )
+        await warm_reference_index(deps)
         worker = build_worker(client, settings, deps)
         polling = asyncio.create_task(worker.run())
         health.status = "ok"

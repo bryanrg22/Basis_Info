@@ -107,7 +107,9 @@ class Harness:
     async def seed(
         self, *, photos: Sequence[str] = DEFAULT_PHOTOS, appraisal: str | None = DEFAULT_APPRAISAL
     ) -> SeededStudy:
-        return await seed_study(self.sessionmaker, photos=photos, appraisal=appraisal)
+        return await seed_study(
+            self.sessionmaker, photos=photos, appraisal=appraisal, storage=self.deps.storage
+        )
 
     def workflow_input(self, study: SeededStudy, **overrides: Any) -> StudyWorkflowInput:
         values: dict[str, Any] = {

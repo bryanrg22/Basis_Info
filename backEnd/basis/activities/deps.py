@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.config import Settings
+from basis.retrieval import Retrieval, default_retrieval
 from basis.storage import Storage
 
 
@@ -26,6 +27,12 @@ class Deps:
     # Bucket the exports are written to (gs://<bucket>/studies/<id>/exports/...).
     bucket: str
     settings: Settings
+    # Embedder + BM25 registry. None means the process defaults for ``settings``
+    # (``EMBEDDING_MODEL``); tests pass a hash embedder so no model is downloaded.
+    retrieval: Retrieval | None = None
+
+    def retrieval_deps(self) -> Retrieval:
+        return self.retrieval if self.retrieval is not None else default_retrieval(self.settings)
 
     @property
     def faults_enabled(self) -> bool:
