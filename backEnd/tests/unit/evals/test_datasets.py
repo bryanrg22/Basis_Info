@@ -10,10 +10,13 @@ from pydantic import ValidationError
 
 from evals import datasets as ds
 
+BOX = {"label": "window", "x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.3}
+
 
 def test_synthetic_smoke_builds_all_six_datasets_from_the_fixtures() -> None:
     data = ds.synthetic_smoke()
-    assert set(data) == set(ds.DATASET_FILES)
+    # detection_boxes comes from Open Images (evals.openimages); there is no synthetic one.
+    assert set(data) == set(ds.DATASET_FILES) - {"detection_boxes"}
     fields = data["appraisal_fields"]
     assert isinstance(fields, ds.AppraisalFields)
     [doc] = fields.documents
@@ -154,6 +157,39 @@ def test_missing_directory_file_and_unknown_dataset(
             },
         ),
         (
+            "detection_boxes",
+            {
+                "images": [
+                    {"file": "a.jpg", "width": 10, "height": 10, "boxes": [BOX | {"label": "lamp"}]}
+                ]
+            },
+        ),
+        (
+            "detection_boxes",
+            {
+                "images": [
+                    {"file": "a.jpg", "width": 10, "height": 10, "boxes": [BOX | {"x2": 0.05}]}
+                ]
+            },
+        ),
+        (
+            "detection_boxes",
+            {
+                "images": [
+                    {"file": "a.jpg", "width": 10, "height": 10, "boxes": [BOX | {"y2": 1.5}]}
+                ]
+            },
+        ),
+        (
+            "detection_boxes",
+            {
+                "images": [
+                    {"file": "a.jpg", "width": 10, "height": 10, "boxes": []},
+                    {"file": "a.jpg", "width": 10, "height": 10, "boxes": []},
+                ]
+            },
+        ),
+        (
             "room_inventory",
             {
                 "rooms": [
@@ -181,6 +217,31 @@ def test_malformed_files_are_rejected(tmp_path: Path, name: str, payload: object
     write(tmp_path, name, payload)
     with pytest.raises(ValidationError):
         ds.load(name, tmp_path)
+
+
+def test_detection_boxes_load_with_component_labels_and_door(tmp_path: Path) -> None:
+    write(
+        tmp_path,
+        "detection_boxes",
+        {
+            "schema_version": 1,
+            "images": [
+                {
+                    "file": "0a1b.jpg",
+                    "width": 1024,
+                    "height": 768,
+                    "document": "0a1b",
+                    "verified": ["window", "door"],
+                    "boxes": [BOX, BOX | {"label": "door", "group_of": True}],
+                }
+            ],
+        },
+    )
+    data = ds.load("detection_boxes", tmp_path)
+    assert isinstance(data, ds.DetectionBoxes)
+    [image] = data.images
+    assert (image.split, image.verified) == ("dev", ["window", "door"])
+    assert [(b.label, b.group_of) for b in image.boxes] == [("window", False), ("door", True)]
 
 
 def test_corpus_pdfs_are_keyed_by_file_stem() -> None:

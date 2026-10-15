@@ -15,6 +15,7 @@ from evals.run import (
     main,
     max_merge,
     render_report,
+    score_detection_boxes,
     score_room_inventory,
     write_results,
 )
@@ -230,6 +231,93 @@ def test_missing_dataset_and_empty_split_are_reported_as_skipped() -> None:
     assert "dataset file not found" in text and "no held_out items" in text
 
 
+def detection_dataset() -> ds.DetectionBoxes:
+    window = {"label": "window", "x1": 0.0, "y1": 0.0, "x2": 0.2, "y2": 0.2}
+    return ds.DetectionBoxes.model_validate(
+        {
+            "images": [
+                {
+                    "file": "a.jpg",
+                    "width": 100,
+                    "height": 100,
+                    "document": "a",
+                    "boxes": [window, window | {"x1": 0.5, "x2": 0.7, "y1": 0.5, "y2": 0.7}],
+                },
+                {
+                    "file": "b.jpg",
+                    "width": 100,
+                    "height": 100,
+                    "document": "b",
+                    "verified": ["door"],
+                    "boxes": [{"label": "door", "x1": 0.1, "y1": 0.1, "x2": 0.4, "y2": 0.9}],
+                },
+                {"file": "c.jpg", "width": 100, "height": 100, "split": "held_out", "boxes": []},
+            ]
+        }
+    )
+
+
+def box(label: str, score: float, x1: float, y1: float, x2: float, y2: float) -> dict[str, object]:
+    return {"label": label, "score": score, "x1": x1, "y1": y1, "x2": x2, "y2": y2}
+
+
+def test_detection_boxes_are_scored_from_saved_predictions_with_repeats() -> None:
+    first = {
+        "a.jpg": [box("window", 0.9, 0.0, 0.0, 0.2, 0.2), box("window", 0.3, 0.5, 0.5, 0.7, 0.7)],
+        "b.jpg": [
+            box("Interior Door", 0.8, 0.1, 0.1, 0.4, 0.9),  # normalized; counts as a door
+            box("window", 0.9, 0.5, 0.5, 0.6, 0.6),  # window is not verified in b.jpg
+        ],
+    }
+    second = {
+        "a.jpg": [box("window", 0.9, 0.0, 0.0, 0.2, 0.2), box("window", 0.8, 0.5, 0.5, 0.7, 0.7)]
+    }
+    saved = {f: {"repeats": [first.get(f), second.get(f)]} for f in ("a.jpg", "b.jpg")}
+    result = score_detection_boxes(detection_dataset(), "dev", 2, saved, threshold=0.5)
+    rows = {r.metric: r for r in result.rows}
+    assert result.system == "predictions" and not result.skipped
+    assert rows["map_50"].value == 1.0 and rows["map_50"].n == 2  # door and window
+    assert rows["ap_50:window"].value == 1.0 and rows["ap_50:door"].value == 1.0
+    # Repeat 1 at 0.5: a.jpg window 2 gold / 1 predicted, b.jpg door 1 / 1.
+    assert rows["count_mae"].value == pytest.approx(0.5) and rows["count_mae"].n == 2
+    assert rows["count_signed_bias"].value == pytest.approx(-0.5)
+    assert rows["count_mae:window"].value == 1.0 and rows["count_mae:door"].value == 0.0
+    assert rows["precision_at_threshold"].value == 1.0
+    assert rows["recall_at_threshold"].value == pytest.approx(2 / 3)
+    # Repeat 2 gets a.jpg right and predicts no door: pass^2 = 0 for both pairs.
+    assert rows["count_pass^2"].value == 0.0 and rows["count_pass^1"].value == pytest.approx(0.5)
+
+
+def test_detection_boxes_need_predictions_and_items() -> None:
+    data = detection_dataset()
+    skipped = score_detection_boxes(data, "dev", 1, None)
+    assert skipped.skipped and "evals.predict_boxes" in skipped.notes[0]
+    assert score_detection_boxes(data, "regression", 1, {}).skipped
+    partial = score_detection_boxes(data, "dev", 1, {"a.jpg": []})
+    assert "1 images have no predictions" in partial.notes[0]
+    with pytest.raises(ValueError):
+        score_detection_boxes(data, "dev", 1, {"a.jpg": {"label": "window"}})
+
+
+def test_detection_threshold_option_reaches_the_scorer(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "detection_boxes_v1.json").write_text(detection_dataset().model_dump_json())
+    predictions = tmp_path / "pred"
+    predictions.mkdir()
+    (predictions / "detection_boxes.json").write_text(
+        json.dumps({"a.jpg": [box("window", 0.4, 0.0, 0.0, 0.2, 0.2)]})
+    )
+    report = tmp_path / "r.md"
+    args = ["--data-dir", str(data_dir), "--predictions", str(predictions), "--no-db"]
+    assert main([*args, "--report", str(report), "--detection-threshold", "0.3"]) == 0
+    assert "| recall_at_threshold | 0.3333 |" in report.read_text()
+    assert main([*args, "--report", str(report)]) == 0
+    assert "| recall_at_threshold | 0.0000 |" in report.read_text()
+    with pytest.raises(SystemExit):
+        main([*args, "--detection-threshold", "2"])
+
+
 @pytest.mark.integration
 async def test_results_are_written_to_eval_tables(database_url: str) -> None:
     from dbtest_support import db_settings, truncate_all
@@ -251,11 +339,12 @@ async def test_results_are_written_to_eval_tables(database_url: str) -> None:
             corpus_dir=ds.SYNTHETIC_DIR / "corpus",
         )
         ids = await write_results(sm, results, split="dev", git_sha="abc123")
-        assert len(ids) == len(ds.DATASET_FILES) == 6
+        # detection_boxes has no synthetic dataset, so it is skipped and writes no row.
+        assert len(ids) == len(ds.DATASET_FILES) - 1 == 6
         async with session_scope(sm) as session:
             runs = (await session.scalars(select(EvalRun))).all()
             rows = (await session.scalars(select(EvalResult))).all()
-        assert {r.dataset for r in runs} == set(ds.DATASET_FILES)
+        assert {r.dataset for r in runs} == set(ds.DATASET_FILES) - {"detection_boxes"}
         assert {(r.split, r.git_sha) for r in runs} == {("dev", "abc123")}
         ndcg = next(r for r in rows if r.metric == "ndcg_10")
         assert ndcg.n == 20 and ndcg.value is not None and ndcg.stderr is not None

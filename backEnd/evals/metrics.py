@@ -17,6 +17,22 @@
   (predicted - gold: over-counting is the duplicate failure, so the sign matters), with
   standard errors clustered by room; per room, exact inventory and label-set
   precision/recall/F1 (counts ignored).
+* Detection boxes (VISION_DETECTION_RESEARCH.md, step 0): per-class AP@0.5 with PASCAL
+  VOC's all-point interpolation (the area under the precision envelope, VOC 2010 and
+  later) and the Open Images matching rules: in descending score order each prediction
+  takes the gold box of highest IoU if that box is still free (a second prediction on a
+  matched box is a false positive, as in VOC); a prediction that matches
+  no ordinary box but lies mostly inside a ``group_of`` box (intersection over the
+  prediction's area >= the threshold) is absorbed by it: the highest-scoring such
+  prediction is one true positive, the rest are ignored, and a group box nobody hits is
+  not a miss. Classes are scored only on images where they are exhaustively annotated
+  (``verified``; Open Images labels are not exhaustive across classes). mAP is the mean
+  over classes with at least one positive. Counts at a score threshold: per (image,
+  class) over the union of gold and predicted classes, skipping classes with a group box
+  in that image (their count is unknown): MAE and signed bias with SE clustered by
+  document; precision and recall at the threshold; pass^k of the exact count. The class
+  ``door`` (Open Images has no interior/exterior split) is scored against the union of
+  ``interior_door`` and ``exterior_door`` predictions (:data:`CLASS_UNION`).
 
 """
 
@@ -486,3 +502,284 @@ def inventory_metrics(
         label_f1=mean([s.f1 for s in scores]),
         per_room=per_room,
     )
+
+
+# --------------------------------------------------------------------------- detection
+
+# A gold class scored against the union of several predicted labels.
+CLASS_UNION: Final[dict[str, frozenset[str]]] = {
+    "door": frozenset({"interior_door", "exterior_door"}),
+}
+
+
+@dataclass(frozen=True)
+class GoldBox:
+    label: str
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    group_of: bool = False
+
+
+@dataclass(frozen=True)
+class PredictedBox:
+    label: str
+    score: float
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+@dataclass(frozen=True)
+class DetectionImage:
+    """One image's gold boxes; ``verified`` = the classes exhaustively annotated in it
+    (present or verified absent), or None when every class is."""
+
+    file: str
+    boxes: tuple[GoldBox, ...]
+    document: str = "package"
+    verified: frozenset[str] | None = None
+
+    def scores(self, label: str) -> bool:
+        return self.verified is None or label in self.verified
+
+
+Rect = GoldBox | PredictedBox
+
+
+def _area(r: Rect) -> float:
+    return max(0.0, r.x2 - r.x1) * max(0.0, r.y2 - r.y1)
+
+
+def _intersection(a: Rect, b: Rect) -> float:
+    width = min(a.x2, b.x2) - max(a.x1, b.x1)
+    height = min(a.y2, b.y2) - max(a.y1, b.y1)
+    return width * height if width > 0 and height > 0 else 0.0
+
+
+def rect_iou(a: Rect, b: Rect) -> float:
+    inter = _intersection(a, b)
+    union = _area(a) + _area(b) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def rect_ioa(prediction: Rect, gold: Rect) -> float:
+    """Intersection over the prediction's area (Open Images' group-of criterion)."""
+    area = _area(prediction)
+    return _intersection(prediction, gold) / area if area > 0 else 0.0
+
+
+def average_precision(scored: Sequence[tuple[float, bool]], positives: int) -> float:
+    """VOC all-point interpolated AP of ``(score, is_true_positive)`` over ``positives``
+    gold instances; ``nan`` when there are none. Ties keep the input order."""
+    if positives <= 0:
+        return math.nan
+    ranked = sorted(scored, key=lambda s: -s[0])
+    tp = fp = 0
+    recall: list[float] = []
+    precision: list[float] = []
+    for _, hit in ranked:
+        tp += hit
+        fp += not hit
+        recall.append(tp / positives)
+        precision.append(tp / (tp + fp))
+    mrec = [0.0, *recall, 1.0]
+    mpre = [0.0, *precision, 0.0]
+    for i in range(len(mpre) - 2, -1, -1):
+        mpre[i] = max(mpre[i], mpre[i + 1])
+    return sum(
+        (mrec[i + 1] - mrec[i]) * mpre[i + 1]
+        for i in range(len(mrec) - 1)
+        if mrec[i + 1] != mrec[i]
+    )
+
+
+def predicted_for(label: str, predictions: Iterable[PredictedBox]) -> list[PredictedBox]:
+    members = CLASS_UNION.get(label, frozenset({label}))
+    return [p for p in predictions if p.label in members]
+
+
+def match_class(
+    gold: Sequence[GoldBox], predictions: Sequence[PredictedBox], iou_threshold: float = 0.5
+) -> tuple[list[tuple[float, bool]], int]:
+    """One image, one class: ``(score, true positive)`` per counted prediction and the
+    number of positives (ordinary boxes + group boxes that were hit)."""
+    plain = [g for g in gold if not g.group_of]
+    groups = [g for g in gold if g.group_of]
+    taken = [False] * len(plain)
+    group_best: list[float | None] = [None] * len(groups)
+    scored: list[tuple[float, bool]] = []
+    for pred in sorted(predictions, key=lambda p: -p.score):
+        if plain:
+            overlaps = [rect_iou(pred, g) for g in plain]
+            best = max(range(len(plain)), key=overlaps.__getitem__)
+            if overlaps[best] >= iou_threshold:
+                if not taken[best]:
+                    taken[best] = True
+                    scored.append((pred.score, True))
+                    continue
+        if groups:
+            covers = [rect_ioa(pred, g) for g in groups]
+            best = max(range(len(groups)), key=covers.__getitem__)
+            if covers[best] >= iou_threshold:
+                current = group_best[best]
+                group_best[best] = pred.score if current is None else max(current, pred.score)
+                continue
+        scored.append((pred.score, False))
+    scored += [(score, True) for score in group_best if score is not None]
+    return scored, len(plain) + sum(1 for score in group_best if score is not None)
+
+
+@dataclass(frozen=True)
+class ClassDetection:
+    ap: float
+    positives: int
+    predictions: int
+    precision: float  # at the threshold
+    recall: float
+    count_pairs: int
+    count_mae: float
+    count_bias: float
+
+
+@dataclass(frozen=True)
+class CountPair:
+    file: str
+    document: str
+    label: str
+    gold: int
+    predicted: int
+
+
+@dataclass(frozen=True)
+class DetectionMetrics:
+    threshold: float
+    images: int
+    classes: dict[str, ClassDetection]
+    map: float
+    precision: float
+    recall: float
+    count_pairs: int
+    count_mae: float
+    count_mae_se: float
+    count_bias: float
+    count_bias_se: float
+    pairs: tuple[CountPair, ...] = ()
+
+
+def detection_classes(images: Sequence[DetectionImage]) -> list[str]:
+    return sorted({b.label for image in images for b in image.boxes})
+
+
+def count_pairs(
+    images: Sequence[DetectionImage],
+    predictions: Mapping[str, Sequence[PredictedBox]],
+    threshold: float,
+    classes: Sequence[str] | None = None,
+) -> list[CountPair]:
+    """Per (image, class): the gold count and the predictions at or above ``threshold``,
+    for every scored class where either is non-zero and no group box makes the gold count
+    unknown."""
+    pairs: list[CountPair] = []
+    for label in classes if classes is not None else detection_classes(images):
+        for image in images:
+            if not image.scores(label):
+                continue
+            gold = [b for b in image.boxes if b.label == label]
+            if any(b.group_of for b in gold):
+                continue
+            guess = [
+                p
+                for p in predicted_for(label, predictions.get(image.file, ()))
+                if p.score >= threshold
+            ]
+            if gold or guess:
+                pairs.append(CountPair(image.file, image.document, label, len(gold), len(guess)))
+    return pairs
+
+
+def detection_metrics(
+    images: Sequence[DetectionImage],
+    predictions: Mapping[str, Sequence[PredictedBox]],
+    *,
+    threshold: float = 0.5,
+    iou_threshold: float = 0.5,
+) -> DetectionMetrics:
+    """AP@``iou_threshold`` per class, mAP, and precision, recall and counts at
+    ``threshold`` (module docstring). Predictions for files not in ``images`` and for
+    classes not in the gold set are ignored."""
+    classes = detection_classes(images)
+    per_class: dict[str, ClassDetection] = {}
+    total_tp = total_pred = total_pos = 0
+    pairs = count_pairs(images, predictions, threshold, classes)
+    for label in classes:
+        scored: list[tuple[float, bool]] = []
+        positives = 0
+        tp_at = pred_at = pos_at = 0
+        for image in images:
+            if not image.scores(label):
+                continue
+            gold = [b for b in image.boxes if b.label == label]
+            preds = predicted_for(label, predictions.get(image.file, ()))
+            image_scored, image_positives = match_class(gold, preds, iou_threshold)
+            scored += image_scored
+            positives += image_positives
+            kept = [p for p in preds if p.score >= threshold]
+            at_scored, at_positives = match_class(gold, kept, iou_threshold)
+            tp_at += sum(hit for _, hit in at_scored)
+            pred_at += len(at_scored)
+            pos_at += at_positives
+        mine = [p for p in pairs if p.label == label]
+        per_class[label] = ClassDetection(
+            ap=average_precision(scored, positives),
+            positives=positives,
+            predictions=len(scored),
+            precision=_ratio(tp_at, pred_at),
+            recall=tp_at / pos_at if pos_at else math.nan,
+            count_pairs=len(mine),
+            count_mae=mean([float(abs(p.predicted - p.gold)) for p in mine]),
+            count_bias=mean([float(p.predicted - p.gold) for p in mine]),
+        )
+        total_tp += tp_at
+        total_pred += pred_at
+        total_pos += pos_at
+    errors = [float(abs(p.predicted - p.gold)) for p in pairs]
+    signed = [float(p.predicted - p.gold) for p in pairs]
+    clusters = [p.document for p in pairs]
+    return DetectionMetrics(
+        threshold=threshold,
+        images=len(images),
+        classes=per_class,
+        map=mean([c.ap for c in per_class.values() if c.positives > 0]),
+        precision=_ratio(total_tp, total_pred),
+        recall=total_tp / total_pos if total_pos else math.nan,
+        count_pairs=len(pairs),
+        count_mae=mean(errors),
+        count_mae_se=clustered_standard_error(errors, clusters) if errors else math.nan,
+        count_bias=mean(signed),
+        count_bias_se=clustered_standard_error(signed, clusters) if signed else math.nan,
+        pairs=tuple(pairs),
+    )
+
+
+def count_pass_hat_k(
+    images: Sequence[DetectionImage],
+    runs: Sequence[Mapping[str, Sequence[PredictedBox]]],
+    threshold: float,
+    k: int,
+) -> tuple[float, int]:
+    """pass^k of the exact count per (image, class), over the pairs any run touches;
+    ``(value, pairs)``."""
+    per_run = [{(p.file, p.label): p for p in count_pairs(images, run, threshold)} for run in runs]
+    keys = sorted(set().union(*per_run)) if per_run else []
+    gold: dict[tuple[str, str], int] = {}
+    for run in per_run:
+        for key, pair in run.items():
+            gold[key] = pair.gold
+    outcomes = [
+        [run[key].predicted == run[key].gold if key in run else gold[key] == 0 for run in per_run]
+        for key in keys
+    ]
+    return (pass_hat_k(outcomes, k) if outcomes else math.nan), len(outcomes)

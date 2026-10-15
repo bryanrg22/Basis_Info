@@ -4,7 +4,9 @@ Real datasets live outside the repository under ``BASIS_EVAL_DATA_DIR`` (client 
 enters the repo); :func:`synthetic_smoke` builds the same five datasets from
 ``tests/fixtures/synthetic/`` so the harness can be exercised anywhere (``--dry-run``);
 the sixth, ``room_inventory``, is built there from the fixture photos with every photo its
-own room (named by :func:`basis.vision.rooms.name_hint`).
+own room (named by :func:`basis.vision.rooms.name_hint`). ``detection_boxes`` (boxes per
+component instance, built from Open Images by :mod:`evals.openimages`) has no synthetic
+counterpart: the dry run reports it as missing.
 
 Every item has a ``split`` (``dev``, ``regression``, ``held_out``) and a ``document``, the
 cluster used for clustered standard errors (photos and fields from one property are not
@@ -18,9 +20,10 @@ import os
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from basis.vision.rooms import display_name, name_hint
+from basis.vision.schemas import COMPONENT_LABELS
 from evals.metrics import FieldType
 
 Split = Literal["dev", "regression", "held_out"]
@@ -32,7 +35,11 @@ DATASET_FILES: Final[dict[str, str]] = {
     "assets": "assets_v1.json",
     "retrieval_qrels": "retrieval_qrels_v1.json",
     "room_inventory": "room_inventory_v1.json",
+    "detection_boxes": "detection_boxes_v1.json",
 }
+# Gold labels a detection dataset may use besides the component vocabulary: Open Images'
+# Door does not say interior or exterior (scored against both, evals.metrics.CLASS_UNION).
+DETECTION_EXTRA_LABELS: Final = frozenset({"door"})
 SYNTHETIC_DIR: Final = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "synthetic"
 
 
@@ -187,8 +194,66 @@ class RoomInventorySet(_Model):
         return self
 
 
+def _detection_label(value: str) -> str:
+    if value not in COMPONENT_LABELS and value not in DETECTION_EXTRA_LABELS:
+        raise ValueError(f"{value!r} is not a component label (or 'door')")
+    return value
+
+
+class DetectionBox(_Model):
+    """One instance, normalized to the image; ``group_of`` marks a box around several
+    instances (Open Images' IsGroupOf): it is never a miss and its count is unknown."""
+
+    label: str
+    x1: float = Field(ge=0.0, le=1.0)
+    y1: float = Field(ge=0.0, le=1.0)
+    x2: float = Field(ge=0.0, le=1.0)
+    y2: float = Field(ge=0.0, le=1.0)
+    group_of: bool = False
+
+    _label = field_validator("label")(_detection_label)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> DetectionBox:
+        if self.x2 < self.x1 or self.y2 < self.y1:
+            raise ValueError("a box needs x1 <= x2 and y1 <= y2")
+        return self
+
+
+class DetectionImageLabel(_Model):
+    file: str
+    width: int = Field(ge=1)
+    height: int = Field(ge=1)
+    document: str = "package"
+    split: Split = "dev"
+    # Labels exhaustively annotated in this image (boxed, or verified absent); None means
+    # every label is (our own labelling). Open Images is exhaustive only per verified label.
+    verified: list[str] | None = None
+    boxes: list[DetectionBox]
+
+
+class DetectionBoxes(_Model):
+    schema_version: int = 1
+    images: list[DetectionImageLabel]
+
+    @model_validator(mode="after")
+    def _unique_files(self) -> DetectionBoxes:
+        seen: set[str] = set()
+        for image in self.images:
+            if image.file in seen:
+                raise ValueError(f"file {image.file!r} appears twice")
+            seen.add(image.file)
+        return self
+
+
 Dataset = (
-    AppraisalFields | PhotoRooms | PhotoComponentsSet | Assets | RetrievalQrels | RoomInventorySet
+    AppraisalFields
+    | PhotoRooms
+    | PhotoComponentsSet
+    | Assets
+    | RetrievalQrels
+    | RoomInventorySet
+    | DetectionBoxes
 )
 MODELS: Final[dict[str, type[BaseModel]]] = {
     "appraisal_fields": AppraisalFields,
@@ -197,6 +262,7 @@ MODELS: Final[dict[str, type[BaseModel]]] = {
     "assets": Assets,
     "retrieval_qrels": RetrievalQrels,
     "room_inventory": RoomInventorySet,
+    "detection_boxes": DetectionBoxes,
 }
 
 
