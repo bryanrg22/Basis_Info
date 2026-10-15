@@ -4,7 +4,8 @@ database), ``temporal_env`` (a local Temporal dev server), ``task_queue``, and
 
 ``tests/api`` is put on ``sys.path`` so ``apitest_support`` (the API test client and the
 fake Firebase verifier) can be imported when this directory runs on its own; pytest adds
-it by itself only when it collects ``tests/api``.
+it by itself only when it collects ``tests/api``. ``tests/lifecycle`` is added for the
+same reason, for ``lifecycle_support.Harness`` (used by ``test_db_outage.py``).
 """
 
 import sys
@@ -18,6 +19,7 @@ from workflowtest_support import (  # noqa: F401 - imported fixtures are registe
     wf_engine,
 )
 
-API_TESTS = str(Path(__file__).resolve().parents[1] / "api")
-if API_TESTS not in sys.path:
-    sys.path.insert(0, API_TESTS)
+TESTS = Path(__file__).resolve().parents[1]
+for extra in (TESTS / "api", TESTS / "lifecycle"):
+    if str(extra) not in sys.path:
+        sys.path.insert(0, str(extra))

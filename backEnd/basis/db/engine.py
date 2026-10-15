@@ -12,16 +12,28 @@
   hanging.
 * ``statement_timeout`` is a server setting applied to every connection at connect time
   (30 s), so a runaway query is cancelled by PostgreSQL even if the client is gone.
+* Connection establishment failures become :class:`~basis.db.errors.DatabaseUnavailableError`
+  (``do_connect`` hook, :data:`CONNECT_ERRORS`): the network errors asyncpg raises while
+  connecting (refused, unreachable, DNS, connect timeout: all ``OSError``) and the
+  server's "not now" answers (SQLSTATE class 08, ``57P03`` starting up or shutting down,
+  ``53300`` too many connections). Authentication and unknown-database errors are
+  configuration faults and pass through unchanged, as does every error on an established
+  connection. The API maps the translated error to 503; anywhere else it is an ordinary
+  retryable exception.
 """
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
-from sqlalchemy.engine import URL, make_url
+import asyncpg
+from sqlalchemy import event
+from sqlalchemy.engine import URL, Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from basis.config import ConfigError, Settings
+from basis.db.errors import DatabaseUnavailableError
 
 ASYNC_DRIVER: Final = "postgresql+asyncpg"
 STATEMENT_TIMEOUT_MS: Final = 30_000
@@ -29,6 +41,27 @@ POOL_TIMEOUT_S: Final = 10.0
 APPLICATION_NAME: Final = "basis"
 
 _SYNC_POSTGRES_DRIVERS: Final = frozenset({"postgres", "postgresql"})
+
+# Raised by asyncpg.connect when the server cannot be reached or will not take a
+# connection right now. OSError covers ConnectionRefusedError, socket.gaierror and
+# TimeoutError (asyncio's connect timeout is the builtin TimeoutError since 3.11); it
+# reaches the hook as raised. The server's refusals are asyncpg ``PostgresError``s, which
+# SQLAlchemy's adapter re-raises at connect time as its own DBAPI ``Error`` with the
+# asyncpg error as ``__cause__``, so both the error and its cause are checked.
+CONNECT_ERRORS: Final[tuple[type[Exception], ...]] = (
+    OSError,
+    asyncpg.PostgresConnectionError,  # SQLSTATE class 08
+    asyncpg.CannotConnectNowError,  # 57P03: starting up, shutting down, recovering
+    asyncpg.TooManyConnectionsError,  # 53300: max_connections or the role's limit
+)
+
+
+def unavailable_cause(exc: BaseException) -> BaseException | None:
+    """The :data:`CONNECT_ERRORS` instance behind ``exc`` (itself or its cause), if any."""
+    for candidate in (exc, exc.__cause__):
+        if isinstance(candidate, CONNECT_ERRORS):
+            return candidate
+    return None
 
 
 def async_database_url(raw: str) -> URL:
@@ -77,7 +110,7 @@ def create_engine(
     if pool_timeout <= 0:
         raise ValueError("pool_timeout must be positive")
 
-    return create_async_engine(
+    engine = create_async_engine(
         async_database_url(settings.database_url),
         pool_size=settings.db_pool_size,
         max_overflow=0,
@@ -90,3 +123,25 @@ def create_engine(
             }
         },
     )
+    event.listen(engine.sync_engine, "do_connect", _connect_or_unavailable)
+    return engine
+
+
+def _connect_or_unavailable(
+    dialect: Dialect, conn_rec: ConnectionPoolEntry, cargs: Any, cparams: Any
+) -> Any:
+    """``do_connect`` hook: the dialect's own connect, with :data:`CONNECT_ERRORS` translated.
+
+    Returning the connection replaces SQLAlchemy's default call, which is exactly
+    ``dialect.connect(*cargs, **cparams)``. The driver's message can name the host and
+    port, so only the exception type goes into the message; the original is the cause.
+    """
+    try:
+        return dialect.connect(*cargs, **cparams)
+    except Exception as exc:
+        cause = unavailable_cause(exc)
+        if cause is None:
+            raise
+        raise DatabaseUnavailableError(
+            f"could not connect to the database ({type(cause).__name__})"
+        ) from exc
