@@ -1,0 +1,476 @@
+"""The SQLAlchemy metadata matches S1_SPEC §2 (no database needed).
+
+The spec's tables, columns, enum labels, composite foreign keys, unique constraints,
+checks and indexes are written out here independently of ``basis.db.models``. Columns
+the models add beyond the spec are listed in ``EXTRA_COLUMNS`` with the reason, so any
+other difference fails. ``alembic check`` (integration) then proves the migration matches
+these models.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    CHAR,
+    REAL,
+    BigInteger,
+    CheckConstraint,
+    Double,
+    ForeignKeyConstraint,
+    Numeric,
+    Table,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import ENUM, JSONB
+
+from basis.db import enums
+from basis.db.models import APPEND_ONLY_TABLES, PG_ENUMS, UPDATED_AT_TABLES, Base
+
+MIGRATION = Path(__file__).resolve().parents[3] / "basis/db/alembic/versions/0001_initial.py"
+
+SPEC_TABLES = {
+    "orgs": "id name created_at",
+    "users": "id firebase_uid email display_name created_at last_seen_at",
+    "org_members": "org_id user_id role",
+    "studies": "id org_id created_by property_name status current_stage workflow_id "
+    "created_at updated_at",
+    "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
+    "uploaded_at",
+    "document_pages": "document_id page_no gcs_uri",
+    "extractions": "id study_id document_id revision method overall_confidence needs_review "
+    "raw audit created_at",
+    "extraction_fields": "id extraction_id study_id section field value_text value_num "
+    "value_date confidence source page",
+    "rooms": "id study_id revision name room_type floor source created_at",
+    "photo_rooms": "study_id document_id room_id revision",
+    "components": "id study_id revision document_id room_id label material attachment "
+    "confidence bbox raw",
+    "assets": "id study_id revision component_id category bucket recovery_period irs_section "
+    "method confidence needs_review review_reason verified",
+    "takeoffs": "id study_id asset_id quantity unit formula inputs",
+    "cost_estimates": "id study_id asset_id unit_cost total source_row location_factor cost_year",
+    "corpus_versions": "id corpus study_id version embedding_model published_at",
+    "chunks": "id corpus_version_id doc_id chunk_key page_start page_end section_path text "
+    "embedding table_id",
+    "evidence_tables": "id corpus_version_id doc_id page headers rows markdown",
+    "citations": "id study_id asset_id chunk_id excerpt verified_at verification_method",
+    "reviews": "id study_id stage revision decision reviewer_id comment idempotency_key created_at",
+    "corrections": "id study_id entity_type entity_id revision before after reason "
+    "reviewer_id created_at",
+    "runs": "id study_id workflow_id run_id workflow_version input_revision started_at "
+    "ended_at outcome",
+    "activity_results": "id run_id activity idempotency_key status output_ref error "
+    "created_at updated_at",
+    "llm_calls": "id study_id run_id activity provider model prompt_version input_tokens "
+    "output_tokens cost_usd latency_ms created_at",
+    "classification_cache": "key result hits source rules_version created_at updated_at",
+    "idempotency_keys": "key user_id route request_hash status_code response created_at expires_at",
+    "outbox": "id kind payload attempts next_attempt_at delivered_at last_error created_at",
+    "eval_runs": "id dataset split git_sha model prompt_version created_at",
+    "eval_results": "id eval_run_id metric value n stderr details",
+}
+
+# Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
+# is the current output revision that transition() compares (S1_SPEC §3 expected_revision).
+EXTRA_COLUMNS = {table: {"created_at"} for table in SPEC_TABLES} | {
+    "studies": {"created_at", "revision"},
+}
+
+SPEC_ENUMS = {
+    "study_status": ["draft", "processing", "waiting_review", "stalled", "completed", "archived"],
+    "stage": [
+        "uploading",
+        "extracting",
+        "appraisal_review",
+        "rooms_review",
+        "assets_processing",
+        "assets_review",
+        "exporting",
+        "completed",
+    ],
+    "document_kind": ["appraisal", "photo", "other"],
+    "decision": ["approve", "reject"],
+    "classification_method": ["rule", "cache", "llm", "manual"],
+    "bucket": ["y5", "y7", "y15", "y27_5", "y39", "land"],
+}
+
+ENUM_COLUMNS = {
+    ("studies", "status"): "study_status",
+    ("studies", "current_stage"): "stage",
+    ("documents", "kind"): "document_kind",
+    ("reviews", "stage"): "stage",
+    ("reviews", "decision"): "decision",
+    ("assets", "bucket"): "bucket",
+    ("assets", "method"): "classification_method",
+}
+
+# (child table, child columns, parent table, parent columns)
+SPEC_COMPOSITE_FKS = {
+    ("photo_rooms", ("study_id", "room_id"), "rooms", ("study_id", "id")),
+    ("components", ("study_id", "room_id"), "rooms", ("study_id", "id")),
+    ("assets", ("study_id", "component_id"), "components", ("study_id", "id")),
+    ("takeoffs", ("study_id", "asset_id"), "assets", ("study_id", "id")),
+    ("cost_estimates", ("study_id", "asset_id"), "assets", ("study_id", "id")),
+    ("citations", ("study_id", "asset_id"), "assets", ("study_id", "id")),
+    # Same tenancy rule (S1_SPEC §1) applied to the remaining study-scoped parents.
+    ("photo_rooms", ("study_id", "document_id"), "documents", ("study_id", "id")),
+    ("components", ("study_id", "document_id"), "documents", ("study_id", "id")),
+    ("extractions", ("study_id", "document_id"), "documents", ("study_id", "id")),
+    ("extraction_fields", ("study_id", "extraction_id"), "extractions", ("study_id", "id")),
+}
+
+SPEC_SIMPLE_FKS = {
+    ("org_members", "org_id", "orgs"),
+    ("org_members", "user_id", "users"),
+    ("studies", "org_id", "orgs"),
+    ("studies", "created_by", "users"),
+    ("documents", "study_id", "studies"),
+    ("documents", "uploaded_by", "users"),
+    ("document_pages", "document_id", "documents"),
+    ("corpus_versions", "study_id", "studies"),
+    ("chunks", "corpus_version_id", "corpus_versions"),
+    ("evidence_tables", "corpus_version_id", "corpus_versions"),
+    ("citations", "chunk_id", "chunks"),
+    ("reviews", "study_id", "studies"),
+    ("reviews", "reviewer_id", "users"),
+    ("corrections", "study_id", "studies"),
+    ("corrections", "reviewer_id", "users"),
+    ("runs", "study_id", "studies"),
+    ("activity_results", "run_id", "runs"),
+    ("llm_calls", "study_id", "studies"),
+    ("llm_calls", "run_id", "runs"),
+    ("idempotency_keys", "user_id", "users"),
+    ("eval_results", "eval_run_id", "eval_runs"),
+}
+
+SPEC_UNIQUES = {
+    ("users", ("firebase_uid",)),
+    ("studies", ("workflow_id",)),
+    ("documents", ("gcs_uri",)),
+    ("documents", ("study_id", "sha256")),
+    ("extractions", ("document_id", "revision")),
+    ("extraction_fields", ("extraction_id", "section", "field")),
+    ("rooms", ("study_id", "id")),
+    ("takeoffs", ("asset_id",)),
+    ("cost_estimates", ("asset_id",)),
+    ("corpus_versions", ("corpus", "study_id", "version")),
+    ("chunks", ("corpus_version_id", "chunk_key")),
+    ("evidence_tables", ("corpus_version_id", "doc_id", "page", "id")),
+    ("reviews", ("study_id", "stage", "revision")),
+    ("reviews", ("idempotency_key",)),
+    ("runs", ("workflow_id", "run_id")),
+    ("activity_results", ("idempotency_key",)),
+}
+
+SPEC_PRIMARY_KEYS = {
+    "org_members": ("org_id", "user_id"),
+    "document_pages": ("document_id", "page_no"),
+    "photo_rooms": ("document_id", "revision"),
+    "classification_cache": ("key",),
+    "idempotency_keys": ("key",),
+}
+
+SPEC_CHECKS = {
+    "ck_org_members_role_valid",
+    "ck_documents_bytes_positive",
+    "ck_corpus_versions_corpus_valid",
+    "ck_extractions_overall_confidence_range",
+    "ck_extraction_fields_confidence_range",
+    "ck_components_confidence_range",
+    "ck_assets_confidence_range",
+}
+
+SPEC_NOT_NULL = {
+    "orgs": "name",
+    "users": "firebase_uid",
+    "studies": "org_id created_by property_name status current_stage",
+    "documents": "kind filename content_type bytes sha256 gcs_uri",
+    "extractions": "revision method needs_review raw",
+    "extraction_fields": "section field source",
+    "rooms": "revision name room_type source",
+    "assets": "revision category bucket recovery_period method needs_review verified",
+    "takeoffs": "quantity unit",
+    "corpus_versions": "corpus version embedding_model",
+    "chunks": "corpus_version_id doc_id chunk_key text",
+    "citations": "chunk_id excerpt",
+    "reviews": "stage revision decision reviewer_id idempotency_key",
+    "corrections": "entity_type entity_id revision after reviewer_id",
+    "runs": "workflow_id run_id workflow_version input_revision",
+    "activity_results": "activity idempotency_key status",
+    "llm_calls": "provider model input_tokens output_tokens cost_usd",
+    "classification_cache": "result hits source rules_version",
+    "idempotency_keys": "route request_hash expires_at",
+    "outbox": "kind payload attempts next_attempt_at",
+}
+
+STUDY_SCOPED = {
+    "documents",
+    "extractions",
+    "extraction_fields",
+    "rooms",
+    "photo_rooms",
+    "components",
+    "assets",
+    "takeoffs",
+    "cost_estimates",
+    "citations",
+    "reviews",
+    "corrections",
+    "runs",
+    "llm_calls",
+}
+
+
+def table(name: str) -> Table:
+    return Base.metadata.tables[name]
+
+
+def load_migration() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("migration_0001", MIGRATION)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_every_spec_table_exists_and_nothing_else() -> None:
+    missing = set(SPEC_TABLES) - set(Base.metadata.tables)
+    assert not missing, f"tables in S1_SPEC §2 missing from the models: {sorted(missing)}"
+    assert set(Base.metadata.tables) == set(SPEC_TABLES)
+
+
+@pytest.mark.parametrize("name", sorted(SPEC_TABLES))
+def test_columns_match_spec(name: str) -> None:
+    expected = set(SPEC_TABLES[name].split()) | EXTRA_COLUMNS[name]
+    assert set(table(name).columns.keys()) == expected
+
+
+@pytest.mark.parametrize("name", sorted(SPEC_NOT_NULL))
+def test_spec_not_null_columns(name: str) -> None:
+    for column in SPEC_NOT_NULL[name].split():
+        assert not table(name).c[column].nullable, f"{name}.{column} must be NOT NULL"
+
+
+@pytest.mark.parametrize("name", sorted(STUDY_SCOPED))
+def test_study_scoped_tables_have_not_null_study_id_fk(name: str) -> None:
+    column = table(name).c.study_id
+    assert not column.nullable  # a NULL would disable every composite FK on the row
+    assert (name, ("study_id",), "studies", ("id",)) in foreign_keys()
+
+
+def test_every_table_has_created_at_with_default() -> None:
+    for t in Base.metadata.sorted_tables:
+        column = t.c.created_at
+        assert not column.nullable
+        assert str(column.server_default.arg) == "now()"  # type: ignore[union-attr]
+
+
+def test_uuid_primary_keys_default_to_gen_random_uuid() -> None:
+    for t in Base.metadata.sorted_tables:
+        if t.name in SPEC_PRIMARY_KEYS:
+            continue
+        assert [c.name for c in t.primary_key.columns] == ["id"], t.name
+        assert str(t.c.id.server_default.arg) == "gen_random_uuid()"  # type: ignore[union-attr]
+
+
+@pytest.mark.parametrize(("name", "columns"), sorted(SPEC_PRIMARY_KEYS.items()))
+def test_natural_primary_keys(name: str, columns: tuple[str, ...]) -> None:
+    assert tuple(c.name for c in table(name).primary_key.columns) == columns
+
+
+def test_enum_labels_match_spec_and_python_enums() -> None:
+    assert {e.name: list(e.enums) for e in PG_ENUMS} == SPEC_ENUMS
+    python = {
+        "study_status": enums.StudyStatus,
+        "stage": enums.Stage,
+        "document_kind": enums.DocumentKind,
+        "decision": enums.Decision,
+        "classification_method": enums.ClassificationMethod,
+        "bucket": enums.Bucket,
+    }
+    for name, enum_cls in python.items():
+        assert [member.value for member in enum_cls] == SPEC_ENUMS[name]
+
+
+@pytest.mark.parametrize(("location", "enum_name"), sorted(ENUM_COLUMNS.items()))
+def test_enum_columns_use_named_native_enums(location: tuple[str, str], enum_name: str) -> None:
+    column = table(location[0]).c[location[1]]
+    assert isinstance(column.type, ENUM)
+    assert column.type.name == enum_name
+    assert column.type.native_enum
+
+
+def test_migration_enum_labels_match_models() -> None:
+    # alembic check does not compare enum labels, so pin the migration to the models.
+    assert load_migration().ENUMS == {name: tuple(labels) for name, labels in SPEC_ENUMS.items()}
+
+
+def test_migration_trigger_tables_match_models() -> None:
+    migration = load_migration()
+    assert migration.UPDATED_AT_TABLES == UPDATED_AT_TABLES
+    assert migration.APPEND_ONLY_TABLES == APPEND_ONLY_TABLES
+    with_updated_at = {t.name for t in Base.metadata.sorted_tables if "updated_at" in t.c}
+    assert with_updated_at == set(UPDATED_AT_TABLES)
+
+
+def foreign_keys() -> set[tuple[str, tuple[str, ...], str, tuple[str, ...]]]:
+    found = set()
+    for t in Base.metadata.sorted_tables:
+        for constraint in t.constraints:
+            if isinstance(constraint, ForeignKeyConstraint):
+                found.add(
+                    (
+                        t.name,
+                        tuple(constraint.column_keys),
+                        constraint.referred_table.name,
+                        tuple(element.column.name for element in constraint.elements),
+                    )
+                )
+    return found
+
+
+@pytest.mark.parametrize("fk", sorted(SPEC_COMPOSITE_FKS))
+def test_composite_tenancy_foreign_keys(
+    fk: tuple[str, tuple[str, ...], str, tuple[str, ...]],
+) -> None:
+    assert fk in foreign_keys()
+
+
+def test_composite_fk_parents_have_unique_study_id_id() -> None:
+    for _, _, parent, parent_columns in SPEC_COMPOSITE_FKS:
+        assert (parent, parent_columns) in uniques(), parent
+
+
+@pytest.mark.parametrize("fk", sorted(SPEC_SIMPLE_FKS))
+def test_simple_foreign_keys(fk: tuple[str, str, str]) -> None:
+    child, column, parent = fk
+    assert (child, (column,), parent, ("id",)) in foreign_keys()
+
+
+def uniques() -> set[tuple[str, tuple[str, ...]]]:
+    found = set()
+    for t in Base.metadata.sorted_tables:
+        for constraint in t.constraints:
+            if isinstance(constraint, UniqueConstraint):
+                found.add((t.name, tuple(c.name for c in constraint.columns)))
+    return found
+
+
+@pytest.mark.parametrize("unique", sorted(SPEC_UNIQUES))
+def test_unique_constraints(unique: tuple[str, tuple[str, ...]]) -> None:
+    assert unique in uniques()
+
+
+def test_reference_corpus_uniqueness_treats_null_study_as_equal() -> None:
+    (constraint,) = [
+        c
+        for c in table("corpus_versions").constraints
+        if isinstance(c, UniqueConstraint)
+        and c.name == "uq_corpus_versions_corpus_study_id_version"
+    ]
+    assert constraint.dialect_options["postgresql"]["nulls_not_distinct"] is True
+
+
+def test_check_constraints() -> None:
+    names = {
+        str(c.name)
+        for t in Base.metadata.sorted_tables
+        for c in t.constraints
+        if isinstance(c, CheckConstraint)
+    }
+    assert SPEC_CHECKS <= names
+
+
+def test_confidence_columns_are_real_with_range_check() -> None:
+    for name, column in [
+        ("extractions", "overall_confidence"),
+        ("extraction_fields", "confidence"),
+        ("components", "confidence"),
+        ("assets", "confidence"),
+    ]:
+        assert isinstance(table(name).c[column].type, REAL)
+        checks = {str(c.sqltext) for c in table(name).constraints if isinstance(c, CheckConstraint)}
+        assert f"{column} BETWEEN 0 AND 1" in checks
+
+
+@pytest.mark.parametrize(
+    ("name", "column", "precision", "scale"),
+    [
+        ("takeoffs", "quantity", 14, 4),
+        ("cost_estimates", "unit_cost", 14, 2),
+        ("cost_estimates", "total", 14, 2),
+        ("cost_estimates", "location_factor", 6, 3),
+        ("assets", "recovery_period", 4, 1),
+        ("llm_calls", "cost_usd", 10, 6),
+    ],
+)
+def test_numeric_precision(name: str, column: str, precision: int, scale: int) -> None:
+    column_type = table(name).c[column].type
+    assert isinstance(column_type, Numeric)
+    assert (column_type.precision, column_type.scale) == (precision, scale)
+
+
+def test_special_column_types() -> None:
+    embedding = table("chunks").c.embedding.type
+    assert isinstance(embedding, Vector) and embedding.dim == 384
+    assert isinstance(table("documents").c.bytes.type, BigInteger)
+    assert isinstance(table("documents").c.sha256.type, CHAR)
+    assert table("documents").c.sha256.type.length == 64
+    assert isinstance(table("idempotency_keys").c.request_hash.type, CHAR)
+    assert isinstance(table("eval_results").c.value.type, Double)
+
+
+def test_jsonb_columns_store_none_as_sql_null() -> None:
+    jsonb = [
+        (t.name, c.name)
+        for t in Base.metadata.sorted_tables
+        for c in t.columns
+        if isinstance(c.type, JSONB)
+    ]
+    assert len(jsonb) == 13
+    for name, column in jsonb:
+        assert table(name).c[column].type.none_as_null, f"{name}.{column}"
+
+
+def test_indexes() -> None:
+    indexes = {
+        index.name: [str(e) for e in index.expressions]
+        for t in Base.metadata.sorted_tables
+        for index in t.indexes
+    }
+    assert indexes["ix_studies_org_id_created_at"] == ["studies.org_id", "created_at DESC"]
+    assert indexes["ix_chunks_corpus_version_id_doc_id"] == [
+        "chunks.corpus_version_id",
+        "chunks.doc_id",
+    ]
+    assert indexes["ix_outbox_delivered_at_next_attempt_at"] == [
+        "outbox.delivered_at",
+        "outbox.next_attempt_at",
+    ]
+    assert indexes["ix_llm_calls_study_id"] == ["llm_calls.study_id"]
+
+
+def test_server_defaults() -> None:
+    def default(name: str, column: str) -> str:
+        return str(table(name).c[column].server_default.arg)  # type: ignore[union-attr]
+
+    assert default("studies", "status") == "'draft'"
+    assert default("studies", "current_stage") == "'uploading'"
+    assert default("extractions", "needs_review") == "false"
+    assert default("assets", "verified") == "false"
+    assert default("classification_cache", "hits") == "0"
+    assert default("outbox", "attempts") == "0"
+    assert default("outbox", "next_attempt_at") == "now()"
+
+
+def test_constraint_and_index_names_fit_postgres_identifier_limit() -> None:
+    for t in Base.metadata.sorted_tables:
+        for item in [*t.constraints, *t.indexes]:
+            assert item.name is not None, f"unnamed constraint on {t.name}"
+            assert len(str(item.name)) <= 63, item.name
+            assert str(item.name).split("_")[0] in {"pk", "fk", "uq", "ck", "ix"}, item.name

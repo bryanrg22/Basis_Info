@@ -14,6 +14,11 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    # Major bumps are taken deliberately during the stage that owns the code
+    # (frontend in Stage 4, legacy backend packages are deleted in Stage 3).
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       backend-minor-patch:
         patterns: ["*"]
@@ -25,6 +30,11 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    # Major bumps are taken deliberately during the stage that owns the code
+    # (frontend in Stage 4, legacy backend packages are deleted in Stage 3).
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       frontend-minor-patch:
         patterns: ["*"]
