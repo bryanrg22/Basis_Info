@@ -48,6 +48,7 @@ from apitest_support import (
     build_api_app,
 )
 from dbtest_support import db_settings, execute_admin, truncate_all
+from faulttest_support import no_open_transactions, writing_transactions
 from lifecycle_support import Harness
 from lifecycletest_support import make_deps
 from sqlalchemy import func, select, text
@@ -475,34 +476,6 @@ async def claims(sm: async_sessionmaker[AsyncSession], name: str) -> list[Activi
     async with session_scope(sm) as session:
         stmt = select(ActivityResult).where(ActivityResult.activity == name)
         return list((await session.scalars(stmt)).all())
-
-
-async def writing_transactions(sm: async_sessionmaker[AsyncSession]) -> int:
-    """Other sessions idle inside a transaction that has written (has an xid)."""
-    async with sm() as session:
-        found = await session.scalar(
-            text(
-                "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() "
-                "AND state LIKE 'idle in transaction%' AND backend_xid IS NOT NULL"
-            )
-        )
-    return int(found or 0)
-
-
-async def no_open_transactions(sm: async_sessionmaker[AsyncSession]) -> None:
-    """Wait until the server has rolled back the transactions of aborted connections."""
-    async with asyncio.timeout(10):
-        while True:
-            async with sm() as session:
-                open_ = await session.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() "
-                        "AND state LIKE 'idle in transaction%'"
-                    )
-                )
-            if not open_:
-                return
-            await asyncio.sleep(0.1)
 
 
 @pytest.mark.parametrize("name", ["process_assets", "export_report"])
