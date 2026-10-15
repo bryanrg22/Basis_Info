@@ -109,7 +109,7 @@ async def test_docs_url_resolves(client: httpx.AsyncClient) -> None:
 
 
 def test_only_known_routes_exist(app: FastAPI) -> None:
-    """Exactly the S1 routes; a new route must arrive with its own tests (and this list)."""
+    """Exactly the S1 and S2 routes; a new route must arrive with its own tests (and this list)."""
     operations = {
         f"{method.upper()} {path}"
         for path, methods in app.openapi()["paths"].items()
@@ -126,6 +126,10 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "POST /v1/studies/{study_id}/documents/{document_id}/complete",
         "POST /v1/studies/{study_id}/decisions",
         "GET /v1/studies/{study_id}/evidence",
+        # S2 (tests/api/test_workflow_routes.py)
+        "POST /v1/studies/{study_id}/start",
+        "GET /v1/studies/{study_id}/workflow",
+        "POST /v1/studies/{study_id}/cancel",
     }
 
 

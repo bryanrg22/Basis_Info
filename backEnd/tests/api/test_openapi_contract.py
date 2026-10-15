@@ -51,6 +51,7 @@ from hypothesis import HealthCheck
 from hypothesis import settings as hypothesis_settings
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
+from workflowtest_support import FakeWorkflowService
 
 from basis.api.app import create_app
 from basis.api.errors import PROBLEM_JSON
@@ -148,6 +149,8 @@ def contract_app(database_url: str, tmp_path_factory: pytest.TempPathFactory) ->
         sessionmaker,
         LocalStorage(tmp_path_factory.mktemp("contract-objects")),
         FakeVerifier(),
+        # S2: an in-memory Temporal, so the workflow routes run instead of answering 503.
+        FakeWorkflowService(),
     )
     app.state.contract_study_ids = study_ids
     try:

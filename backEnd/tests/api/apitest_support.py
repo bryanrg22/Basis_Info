@@ -34,6 +34,7 @@ from basis.db.models import Org, Study, User
 from basis.db.repositories import UserRepository
 from basis.db.session import session_scope
 from basis.storage import LocalStorage
+from basis.temporal.service import WorkflowService
 
 TOKEN_PREFIX = "uid:"
 # Nothing listens on port 1: connecting fails at once with "connection refused".
@@ -65,9 +66,11 @@ def build_api_app(
     sessionmaker: async_sessionmaker[AsyncSession],
     storage: LocalStorage,
     verifier: FakeVerifier,
+    workflows: WorkflowService | None = None,
 ) -> FastAPI:
-    """The real app with the database and storage injected and Firebase faked."""
-    app = create_app(settings, db_sessionmaker=sessionmaker, storage=storage)
+    """The real app with the database, storage (and optionally Temporal) injected and
+    Firebase faked."""
+    app = create_app(settings, db_sessionmaker=sessionmaker, storage=storage, workflows=workflows)
     app.dependency_overrides[get_token_verifier] = lambda: verifier
     return app
 
