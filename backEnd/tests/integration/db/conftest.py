@@ -1,9 +1,8 @@
 """Fixtures for the database integration tests (S1_SPEC §7).
 
-* ``postgres``: one ``pgvector/pgvector:pg16`` container per test session (testcontainers;
-  Docker must be running).
-* ``database_url``: the container's database with ``CREATE EXTENSION vector`` and Alembic
-  upgraded to head, once per session.
+* ``postgres`` and ``database_url`` (in ``tests/conftest.py``, shared with ``tests/api``):
+  one ``pgvector/pgvector:pg16`` container per test session (testcontainers; Docker must
+  be running), with ``CREATE EXTENSION vector`` and Alembic upgraded to head.
 * ``engine``: a fresh ``basis.db.engine.create_engine`` engine per test (asyncpg
   connections belong to one event loop, and each test has its own loop).
 * ``session``: isolated per test. It runs inside an outer transaction that is rolled
@@ -18,38 +17,14 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 
 import pytest
-from alembic import command
-from dbtest_support import (
-    PG_IMAGE,
-    Factory,
-    alembic_config,
-    db_settings,
-    execute_admin,
-    truncate_all,
-)
+from dbtest_support import Factory, db_settings, truncate_all
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from testcontainers.community.postgres import PostgresContainer
 
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
-
-
-@pytest.fixture(scope="session")
-def postgres() -> Iterator[PostgresContainer]:
-    with PostgresContainer(PG_IMAGE, driver="asyncpg") as container:
-        yield container
-
-
-@pytest.fixture(scope="session")
-def database_url(postgres: PostgresContainer) -> str:
-    url = postgres.get_connection_url()
-    asyncio.run(execute_admin(url, "CREATE EXTENSION IF NOT EXISTS vector"))
-    command.upgrade(alembic_config(url), "head")
-    return url
 
 
 @pytest.fixture
