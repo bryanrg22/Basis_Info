@@ -42,3 +42,19 @@ Commit `04328c1c075b0a8dcc2e56c738cec48d7b8d6b14` on `rebuild/stage-3` (v0.3.0-3
 - none
 
 Files: `manifest.json`, `summary.json`, `tests_collected.txt`, `gates.log`, `junit.xml`.
+
+## CI run on the pull request
+
+`ci_run.json`, `ci_run.log` and `ci_run.png` are GitHub Actions run 38783894815 on commit
+`6798080` of PR #15 (`rebuild/stage-3`, the code of this bundle plus two workflow-only
+commits: the tiktoken cache directory resolved from `$HOME` at run time, and the Temporal
+CLI installed so the worker-kill and worker-process tests run). All seven jobs green:
+changes, secrets-scan, client-data-guard, backend-lint, backend-test (2265 passed, 8
+skipped: the Firebase Auth emulator, the GCS bucket, the MiniLM model not cached on the
+runner, the history re-recorders), frontend, docker-build (the rebuilt uv image builds and
+`import basis` succeeds).
+
+## The runbook run
+
+`runbook/`: the S2 runbook executed end to end on this code (API, outbox relay, worker,
+export) with Temporal UI screenshots; see `runbook/README.md`.
