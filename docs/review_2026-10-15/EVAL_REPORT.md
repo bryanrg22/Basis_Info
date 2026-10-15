@@ -120,3 +120,59 @@ the corpus or the table changes (`evals/run.py`, dataset `rule_citations`).
    assumed in the `assets` labels) before it becomes a hard expectation.
 2. Confirm the 9 `verify` appraisal fields.
 3. Review the re-cited rules table (section 3) once prepared.
+
+## 6. Photo model baseline on the real photos (added 2026-10-15, later the same day)
+
+The current per-photo pipeline (`basis.vision.analyze`: image preparation, the released
+`photo_analysis/v1` prompt, structured output, one retry) was run on the package's 52
+photos three times with the configured provider (the Azure deployment answered as
+`gpt-4.1-mini-2025-04-14`; the `VISION_MODEL` setting still says `gpt-4o-mini`, so the
+deployment name decides). Runner: `python -m evals.predict_photos` (unit-tested with the
+fixture provider); scoring: `python -m evals.run --predictions ... --repeats 3`. Total
+cost of the three passes: $0.18. No image was rejected; every call succeeded on the first
+attempt; one photo was flagged for review by the model.
+
+Labels: the photo labels were mapped onto the model's own vocabulary (21 room types, 72
+component labels) by the private converter; descriptive labels with no building-component
+equivalent (lamps, art, rugs, televisions, piping, meters) became `other`, which the
+harness excludes. That mapping is itself a labelling decision and is listed in the
+converter.
+
+| Metric | Value | n | 95% interval | Notes |
+|---|---|---|---|---|
+| Room accuracy (repeat 1) | 0.808 | 52 | [0.681, 0.892] | repeats 2 and 3: 0.827, 0.788 |
+| Room macro-F1 | 0.748 | 52 | | 13 room types in the labels |
+| Room pass^3 (all three repeats right) | 0.788 | 52 | | the room answer was identical across repeats for 50 of 52 photos |
+| Component set precision | 0.616 | 271 predicted | | over the three repeats: 0.644 |
+| Component set recall | 0.596 | 280 labelled | | over the three repeats: 0.595 |
+| Component set F1 | 0.606 | | | |
+| Photos with the exact label set | 0.058 | 52 | [0.020, 0.156] | |
+| Component set identical across the three repeats | 16 of 52 | | | temperature 0 does not make the list stable |
+
+What the errors are (all three repeats pooled):
+
+- Rooms: bedrooms called `basement` (7 of 156 answers) and `other` (4); exterior
+  utility photos called `mechanical` (4); hallway, bathroom and living room sometimes
+  `other`. The property's sloped upper-floor ceilings and finished-basement look explain
+  the bedroom/basement confusion; the file names ("2nd Floor Bed 2") would settle it.
+- Components most often missed: furniture (54, the prompt asks for building components,
+  so this is partly by design), ceiling finish (29), electrical outlets (22), built-in
+  shelving (16), baseboards (14), gutters (13), hardwood and vinyl floors (12 each).
+- Components most often predicted but not labelled: `wall_finish` (50), `interior_door`
+  (37), `light_fixture` (34), `window` (23), `exterior_door` (17). Several of these are
+  convention disagreements rather than model errors: the labelling did not list plain
+  painted walls or every door, the model does. The label guide has to decide whether
+  walls, ceilings, doors and windows are always listed, and the labels re-checked
+  against that decision before these numbers are read as model quality.
+- Strongest labels: windows, interior doors, carpet, siding, light fixtures, baseboards,
+  window treatments, sinks, hardwood floors, toilets.
+
+What this baseline settles: the per-photo model is usable as a draft for the engineer
+(four of five rooms right, three of five components right) and is not usable as a count.
+It also does not try to count across photos: the two kitchen photos produce two
+countertops. The next step is the design in `VISION_RESEARCH.md`: group photos into rooms
+from file names plus the model's room type, then one reconciliation call per room over
+the per-photo results that returns each distinct object with the photos it appears in,
+scored per room against a human inventory (count error, exact-match rate, signed bias).
+That human per-room inventory does not exist yet for this package; the per-photo labels
+have to be merged by room first, which is the labelling task before that step.
