@@ -31,7 +31,8 @@ from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from basis.db import enums
 from basis.db.models import APPEND_ONLY_TABLES, PG_ENUMS, UPDATED_AT_TABLES, Base
 
-MIGRATION = Path(__file__).resolve().parents[3] / "basis/db/alembic/versions/0001_initial.py"
+VERSIONS = Path(__file__).resolve().parents[3] / "basis/db/alembic/versions"
+MIGRATION = VERSIONS / "0001_initial.py"
 
 SPEC_TABLES = {
     "orgs": "id name created_at",
@@ -70,7 +71,8 @@ SPEC_TABLES = {
     "output_tokens cost_usd latency_ms created_at",
     "classification_cache": "key result hits source rules_version created_at updated_at",
     "idempotency_keys": "key user_id route request_hash status_code response created_at expires_at",
-    "outbox": "id kind payload attempts next_attempt_at delivered_at last_error created_at",
+    # S2: ``status`` added by migration 0002_outbox_status (tests/unit/db/test_outbox_status.py).
+    "outbox": "id kind payload status attempts next_attempt_at delivered_at last_error created_at",
     "eval_runs": "id dataset split git_sha model prompt_version created_at",
     "eval_results": "id eval_run_id metric value n stderr details",
 }
@@ -97,6 +99,8 @@ SPEC_ENUMS = {
     "decision": ["approve", "reject"],
     "classification_method": ["rule", "cache", "llm", "manual"],
     "bucket": ["y5", "y7", "y15", "y27_5", "y39", "land"],
+    # S2: migration 0002_outbox_status.
+    "outbox_status": ["pending", "delivered", "dead"],
 }
 
 ENUM_COLUMNS = {
@@ -107,6 +111,7 @@ ENUM_COLUMNS = {
     ("reviews", "decision"): "decision",
     ("assets", "bucket"): "bucket",
     ("assets", "method"): "classification_method",
+    ("outbox", "status"): "outbox_status",
 }
 
 # (child table, child columns, parent table, parent columns)
@@ -205,7 +210,7 @@ SPEC_NOT_NULL = {
     "llm_calls": "provider model input_tokens output_tokens cost_usd",
     "classification_cache": "result hits source rules_version",
     "idempotency_keys": "route request_hash expires_at",
-    "outbox": "kind payload attempts next_attempt_at",
+    "outbox": "kind payload status attempts next_attempt_at",
 }
 
 STUDY_SCOPED = {
@@ -230,8 +235,8 @@ def table(name: str) -> Table:
     return Base.metadata.tables[name]
 
 
-def load_migration() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("migration_0001", MIGRATION)
+def load_migration(path: Path = MIGRATION) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(f"migration_{path.stem}", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -292,6 +297,7 @@ def test_enum_labels_match_spec_and_python_enums() -> None:
         "decision": enums.Decision,
         "classification_method": enums.ClassificationMethod,
         "bucket": enums.Bucket,
+        "outbox_status": enums.OutboxStatus,
     }
     for name, enum_cls in python.items():
         assert [member.value for member in enum_cls] == SPEC_ENUMS[name]
@@ -306,8 +312,9 @@ def test_enum_columns_use_named_native_enums(location: tuple[str, str], enum_nam
 
 
 def test_migration_enum_labels_match_models() -> None:
-    # alembic check does not compare enum labels, so pin the migration to the models.
-    assert load_migration().ENUMS == {name: tuple(labels) for name, labels in SPEC_ENUMS.items()}
+    # alembic check does not compare enum labels, so pin the migrations to the models.
+    created = load_migration().ENUMS | load_migration(VERSIONS / "0002_outbox_status.py").ENUMS
+    assert created == {name: tuple(labels) for name, labels in SPEC_ENUMS.items()}
 
 
 def test_migration_trigger_tables_match_models() -> None:
@@ -448,8 +455,9 @@ def test_indexes() -> None:
         "chunks.corpus_version_id",
         "chunks.doc_id",
     ]
-    assert indexes["ix_outbox_delivered_at_next_attempt_at"] == [
-        "outbox.delivered_at",
+    # S2: migration 0002 moved the relay's claim index from delivered_at to status.
+    assert indexes["ix_outbox_status_next_attempt_at"] == [
+        "outbox.status",
         "outbox.next_attempt_at",
     ]
     assert indexes["ix_llm_calls_study_id"] == ["llm_calls.study_id"]
@@ -464,6 +472,7 @@ def test_server_defaults() -> None:
     assert default("extractions", "needs_review") == "false"
     assert default("assets", "verified") == "false"
     assert default("classification_cache", "hits") == "0"
+    assert default("outbox", "status") == "'pending'"
     assert default("outbox", "attempts") == "0"
     assert default("outbox", "next_attempt_at") == "now()"
 

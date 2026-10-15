@@ -70,6 +70,19 @@ class OrgRole(StrEnum):
         return list(OrgRole).index(self)
 
 
+class OutboxStatus(StrEnum):
+    """``outbox.status`` (migration ``0002_outbox_status``).
+
+    ``pending`` rows are claimed by the relay when due; ``delivered`` rows were handed to
+    their consumer (or finally refused by it, with ``last_error`` set); ``dead`` rows
+    failed ``RELAY_MAX_ATTEMPTS`` times and wait for an operator.
+    """
+
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    DEAD = "dead"
+
+
 class Corpus(StrEnum):
     """``corpus_versions.corpus`` (TEXT with a CHECK)."""
 

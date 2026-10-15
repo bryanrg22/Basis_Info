@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -94,7 +95,9 @@ async def test_each_transition(
     assert row is not None and row.idempotency_key == scoped_key(alice.id, key)
     assert signal.kind == WORKFLOW_SIGNAL
     assert signal.delivered_at is None
-    assert signal.payload == {
+    payload = dict(signal.payload)
+    assert datetime.fromisoformat(payload.pop("submitted_at")) == row.created_at
+    assert payload == {
         "study_id": sid,
         "workflow_id": None,
         "review_id": review["id"],
@@ -103,6 +106,8 @@ async def test_each_transition(
         "decision": verdict.value,
         "to_stage": to_stage.value,
         "new_revision": expected_revision,
+        "reviewer_id": str(alice.id),
+        "corrections": [],
     }
 
 

@@ -11,7 +11,7 @@
         "tags": [
           "ops"
         ],
-        "summary": "Liveness, build identity and database check",
+        "summary": "Liveness, build identity, database and Temporal checks",
         "operationId": "health_health_get",
         "responses": {
           "200": {
@@ -1119,6 +1119,399 @@
           }
         }
       }
+    },
+    "/v1/studies/{study_id}/start": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "Start the study's workflow (idempotent)",
+        "operationId": "start_study_v1_studies__study_id__start_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[!#-~]{1,128}$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The study is visible but your role is too low for this action.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/cancel": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "Ask the study's workflow to cancel (owner only)",
+        "operationId": "cancel_study_v1_studies__study_id__cancel_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[!#-~]{1,128}$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CancelIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelRequested"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The study is visible but your role is too low for this action.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/workflow": {
+      "get": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "The study's workflow: execution status, progress and runs",
+        "operationId": "get_workflow_v1_studies__study_id__workflow_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyWorkflowOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1178,6 +1571,35 @@
             "sha256": "3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b3a7b"
           }
         ]
+      },
+      "CancelIn": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00]*$",
+            "title": "Reason",
+            "default": "cancelled by owner"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CancelIn"
+      },
+      "CancelRequested": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id"
+        ],
+        "title": "CancelRequested",
+        "description": "202: the cancel signal was delivered; the workflow records the outcome itself."
       },
       "CheckResult": {
         "properties": {
@@ -1631,7 +2053,7 @@
                 "type": "null"
               }
             ],
-            "description": "Dependency checks; absent when no database is configured."
+            "description": "Dependency checks; absent when none is configured."
           }
         },
         "type": "object",
@@ -1647,13 +2069,29 @@
       "HealthChecks": {
         "properties": {
           "db": {
-            "$ref": "#/components/schemas/CheckResult"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent when no database is set."
+          },
+          "temporal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent when Temporal is not configured. A failure here does not make the answer 503 (decisions are queued in the outbox while Temporal is down)."
           }
         },
         "type": "object",
-        "required": [
-          "db"
-        ],
         "title": "HealthChecks"
       },
       "OtherUpload": {
@@ -2114,6 +2552,51 @@
         ],
         "title": "StudyStatus"
       },
+      "StudyWorkflowOut": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "execution_status": {
+            "type": "string",
+            "title": "Execution Status",
+            "description": "Temporal execution status: `RUNNING`, `COMPLETED`, `FAILED`, `CANCELED`, `TERMINATED`, `TIMED_OUT` or `CONTINUED_AS_NEW`."
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The workflow's `status` query; null when it could not answer (for example while no worker is running)."
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowRunOut"
+            },
+            "type": "array",
+            "title": "Runs",
+            "description": "Recorded runs (`runs` rows), oldest first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "run_id",
+          "execution_status",
+          "status",
+          "runs"
+        ],
+        "title": "StudyWorkflowOut"
+      },
       "UploadTicket": {
         "properties": {
           "document": {
@@ -2130,6 +2613,152 @@
         ],
         "title": "UploadTicket",
         "description": "201: the document is registered; upload the bytes, then call `.../complete`."
+      },
+      "WorkflowProgress": {
+        "properties": {
+          "stage": {
+            "$ref": "#/components/schemas/Stage"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "waiting_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Since",
+            "description": "When the current review wait began."
+          },
+          "pending_photos": {
+            "type": "integer",
+            "title": "Pending Photos"
+          },
+          "completed_photos": {
+            "type": "integer",
+            "title": "Completed Photos"
+          },
+          "decisions_applied": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Decisions Applied",
+            "description": "Review ids the workflow has applied."
+          },
+          "stalled": {
+            "type": "boolean",
+            "title": "Stalled"
+          },
+          "budget_remaining_usd": {
+            "type": "number",
+            "title": "Budget Remaining Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "revision",
+          "waiting_since",
+          "pending_photos",
+          "completed_photos",
+          "decisions_applied",
+          "stalled",
+          "budget_remaining_usd"
+        ],
+        "title": "WorkflowProgress"
+      },
+      "WorkflowRunOut": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "workflow_version": {
+            "type": "string",
+            "title": "Workflow Version"
+          },
+          "input_revision": {
+            "type": "integer",
+            "title": "Input Revision"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "run_id",
+          "workflow_version",
+          "input_revision",
+          "started_at",
+          "ended_at",
+          "outcome"
+        ],
+        "title": "WorkflowRunOut"
+      },
+      "WorkflowStarted": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id",
+            "description": "Always `study-{study_id}`."
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id",
+            "description": "The Temporal run id of the study's execution."
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "run_id"
+        ],
+        "title": "WorkflowStarted",
+        "description": "202: the study's workflow is running (or ran); the same answer on every repeat.",
+        "examples": [
+          {
+            "run_id": "0193a1b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b",
+            "workflow_id": "study-5f0c6a52-2f53-4c39-9a3e-2b0a8f1f7d10"
+          }
+        ]
       },
       "FieldError": {
         "description": "One validation failure.",

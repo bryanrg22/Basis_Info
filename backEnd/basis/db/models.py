@@ -69,6 +69,7 @@ from basis.db.enums import (
     ClassificationMethod,
     Decision,
     DocumentKind,
+    OutboxStatus,
     Stage,
     StudyStatus,
 )
@@ -110,6 +111,7 @@ DOCUMENT_KIND_ENUM: Final = _pg_enum(DocumentKind, "document_kind")
 DECISION_ENUM: Final = _pg_enum(Decision, "decision")
 CLASSIFICATION_METHOD_ENUM: Final = _pg_enum(ClassificationMethod, "classification_method")
 BUCKET_ENUM: Final = _pg_enum(Bucket, "bucket")
+OUTBOX_STATUS_ENUM: Final = _pg_enum(OutboxStatus, "outbox_status")  # migration 0002
 
 PG_ENUMS: Final = (
     STUDY_STATUS_ENUM,
@@ -118,6 +120,7 @@ PG_ENUMS: Final = (
     DECISION_ENUM,
     CLASSIFICATION_METHOD_ENUM,
     BUCKET_ENUM,
+    OUTBOX_STATUS_ENUM,
 )
 
 # Python None is stored as SQL NULL, never as the JSON literal 'null', so NOT NULL on a
@@ -605,15 +608,30 @@ class IdempotencyKey(Base):
 
 
 class OutboxMessage(Base):
+    """A message to deliver after the transaction that wrote it commits.
+
+    ``status`` (migration ``0002_outbox_status``) replaces ``delivered_at IS NULL`` as the
+    claim predicate so dead rows stop being polled; the relay's claim query is served by
+    the ``(status, next_attempt_at)`` index. ``delivered_at`` is set exactly when the row
+    is ``delivered`` (``ck_outbox_delivered_at_matches_status``).
+    """
+
     __tablename__ = "outbox"
     __table_args__ = (
         CheckConstraint("attempts >= 0", name="attempts_nonnegative"),
-        Index(None, "delivered_at", "next_attempt_at"),
+        CheckConstraint(
+            "(status = 'delivered') = (delivered_at IS NOT NULL)",
+            name="delivered_at_matches_status",
+        ),
+        Index(None, "status", "next_attempt_at"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     kind: Mapped[str]
     payload: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    status: Mapped[OutboxStatus] = mapped_column(
+        OUTBOX_STATUS_ENUM, server_default=text("'pending'")
+    )
     attempts: Mapped[int] = mapped_column(server_default=ZERO)
     next_attempt_at: Mapped[datetime] = mapped_column(server_default=NOW)
     delivered_at: Mapped[datetime | None]

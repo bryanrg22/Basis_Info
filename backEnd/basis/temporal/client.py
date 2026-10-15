@@ -51,6 +51,19 @@ def build_id(settings: Settings) -> str:
     return settings.temporal_build_id or settings.git_sha
 
 
-async def connect(settings: Settings) -> Client:
+def temporal_configured(settings: Settings) -> bool:
+    """True when a Temporal address is set (``TEMPORAL_ADDRESS=""`` turns Temporal off)."""
+    return bool(settings.temporal_address.strip())
+
+
+async def connect(settings: Settings, *, lazy: bool = False) -> Client:
+    """Connect to Temporal.
+
+    ``lazy=True`` returns at once without a network call; the connection is made on the
+    first request and retried on every later request until it succeeds (verified against
+    the SDK: a refused first connect does not poison the client). The API and the outbox
+    relay use it so they start, and keep serving what does not need Temporal, while
+    Temporal is unreachable.
+    """
     config = client_connect_config(settings)
-    return await Client.connect(config.target_host, **config.connect_kwargs())
+    return await Client.connect(config.target_host, lazy=lazy, **config.connect_kwargs())
