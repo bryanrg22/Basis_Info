@@ -8,9 +8,19 @@ Provides REST endpoints for:
 - Health checks
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+
+# Configure logging to show INFO level for agentic modules
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+# Ensure agentic loggers show INFO
+logging.getLogger("agentic").setLevel(logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 
