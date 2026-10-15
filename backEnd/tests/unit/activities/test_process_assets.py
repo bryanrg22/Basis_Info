@@ -34,7 +34,8 @@ from basis.db.models import (
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
-from basis.llm.provider import ScriptedProvider
+from basis.llm.cost import cost_usd
+from basis.llm.provider import ScriptedProvider, Usage
 from basis.workflow.contracts import (
     ApplyCorrectionsInput,
     CorrectionInput,
@@ -50,7 +51,9 @@ pytestmark = pytest.mark.integration
 # plumbing_fixtures, tile_flooring. cabinetry and tile_flooring hit rules; flooring
 # (no material) and plumbing_fixtures go to the model.
 MODEL_CALLS = 3
-CALL_COST = (100 * 0.15 + 50 * 0.60) / 1_000_000
+# The scripted provider reports model "scripted-model" (100 in / 50 out tokens per call), which
+# the cost table prices at its conservative unknown-model row.
+CALL_COST = cost_usd("scripted-model", Usage(input_tokens=100, output_tokens=50))
 
 
 @pytest.fixture

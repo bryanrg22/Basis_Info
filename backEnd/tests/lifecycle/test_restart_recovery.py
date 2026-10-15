@@ -23,7 +23,7 @@ from temporalio import activity
 from temporalio.client import WorkflowHandle
 
 from basis.activities.ingest_appraisal import IngestAppraisal
-from basis.db.models import Chunk, Component, Extraction, PhotoRoom
+from basis.db.models import Chunk, Component, CorpusVersion, Extraction, PhotoRoom
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.session import session_scope
 from basis.workflow.contracts import IngestAppraisalInput, IngestAppraisalOutput, SimulateFault
@@ -70,7 +70,13 @@ async def output_counts(harness: Harness, study_id: Any) -> dict[str, int]:
             stmt = select(func.count()).select_from(model).where(model.study_id == study_id)
             return int(await session.scalar(stmt) or 0)
 
-        chunks = await session.scalar(select(func.count()).select_from(Chunk))
+        # The study's own chunks only: the harness also seeds the reference corpus.
+        chunks = await session.scalar(
+            select(func.count())
+            .select_from(Chunk)
+            .join(CorpusVersion, Chunk.corpus_version_id == CorpusVersion.id)
+            .where(CorpusVersion.study_id == study_id)
+        )
         return {
             "extractions": await count(Extraction),
             "photo_rooms": await count(PhotoRoom),
