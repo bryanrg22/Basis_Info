@@ -57,6 +57,95 @@ def _build_stage_context(state: WorkflowState) -> StageContext:
     )
 
 
+# =============================================================================
+# Parallel Extraction Helpers
+# =============================================================================
+
+
+async def _run_ingest_task(pdf_path, study_id: str) -> tuple[str, Any]:
+    """Run document ingestion in thread pool (sync → async)."""
+    try:
+        from evidence_layer.src.ingest import ingest_document
+        from evidence_layer.src.manifest import Corpus, DocType
+
+        result = await asyncio.to_thread(
+            ingest_document,
+            pdf_path=pdf_path,
+            corpus=Corpus.STUDY,
+            doc_type=DocType.APPRAISAL,
+            study_id=study_id,
+            verbose=True,
+        )
+        return ("ingest", result)
+    except Exception as e:
+        logger.error(f"Ingestion task failed: {e}")
+        return ("ingest", e)
+
+
+async def _run_regex_task(pdf_path, doc_id: str) -> tuple[str, Any]:
+    """Run regex extraction in thread pool (sync → async)."""
+    try:
+        from evidence_layer.src.extract_fields import extract_appraisal_fields
+
+        result = await asyncio.to_thread(extract_appraisal_fields, pdf_path, doc_id)
+        result_dict = result.to_dict()
+
+        # Defensive check: ensure to_dict() returned a dict
+        if not isinstance(result_dict, dict):
+            logger.error(f"to_dict() returned {type(result_dict).__name__}, expected dict")
+            return ("regex", {})  # Return empty dict as fallback
+
+        logger.debug(f"Regex extraction complete: {len(result_dict)} fields")
+        return ("regex", result_dict)
+    except Exception as e:
+        logger.error(f"Regex task failed: {e}")
+        return ("regex", e)
+
+
+async def _run_azure_di_task(pdf_path, extractor) -> tuple[str, Any]:
+    """Run Azure DI extraction (already async)."""
+    try:
+        result = await extractor.extract(str(pdf_path))
+        return ("azure_di", result)
+    except Exception as e:
+        logger.error(f"Azure DI task failed: {e}")
+        return ("azure_di", e)
+
+
+def _build_sections_from_fields(fields_dict: dict) -> dict:
+    """Build minimal sections structure from regex fields when indexing fails."""
+    return {
+        "subject": {
+            "property_address": fields_dict.get("property_address"),
+            "city": fields_dict.get("city"),
+            "state": fields_dict.get("state"),
+            "zip": fields_dict.get("zip_code"),
+        },
+        "improvements": {
+            "general": {
+                "year_built": fields_dict.get("year_built"),
+                "gla_sqft": fields_dict.get("gross_building_area_sf"),
+            },
+            "exterior": {},
+            "interior_mechanical": {},
+        },
+        "cost_approach": {
+            "site_value": fields_dict.get("land_value"),
+            "total_cost_new": fields_dict.get("building_value"),
+        },
+        "reconciliation": {
+            "final_market_value": fields_dict.get("total_value"),
+        },
+        # Empty defaults for other sections
+        "listing_and_contract": {},
+        "neighborhood": {},
+        "site": {},
+        "sales_comparison": {"market_stats": {}, "subject": {}, "comparables": []},
+        "photos": [],
+        "sketch": {"areas": [], "basement_layout": []},
+    }
+
+
 def _azure_di_to_sections(azure_result, fallback_fields: dict) -> dict:
     """
     Convert Azure DI ExtractionResult to frontend sections format.
@@ -207,7 +296,8 @@ def _azure_di_to_sections(azure_result, fallback_fields: dict) -> dict:
         interior = sections["improvements"]["interior_mechanical"]
         if not interior.get("gross_living_area_above_grade_sqft") and general.get("gla_sqft"):
             interior["gross_living_area_above_grade_sqft"] = general["gla_sqft"]
-        if not interior.get("rooms_above_grade") or not interior["rooms_above_grade"].get("total_rooms"):
+        rooms_above = interior.get("rooms_above_grade")
+        if not isinstance(rooms_above, dict) or not rooms_above.get("total_rooms"):
             interior["rooms_above_grade"] = {
                 "total_rooms": general.get("total_rooms", 0),
                 "bedrooms": general.get("bedrooms", 0),
@@ -527,243 +617,175 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                             tmp.write(pdf_data)
                             pdf_path = Path(tmp.name)
 
-                        # Import ingestion pipeline
-                        from evidence_layer.src.ingest import ingest_document
-                        from evidence_layer.src.manifest import Corpus, DocType
-                        from evidence_layer.src.extract_fields import extract_appraisal_fields
+                        # =============================================================
+                        # PARTIAL PARALLEL EXTRACTION (pdfplumber-safe):
+                        #
+                        # PHASE 1 (Parallel): ingest + Azure DI
+                        #   - ingest_document (15-30s) uses pdfplumber
+                        #   - azure_extractor (5-10s) uses Azure SDK (no conflict!)
+                        #   - Time: max(15-30s, 5-10s) = 15-30s
+                        #
+                        # PHASE 2 (Sequential): regex extraction
+                        #   - extract_appraisal_fields (2s) uses pdfplumber
+                        #   - Runs AFTER ingest completes (pdfplumber now free)
+                        #   - Time: 2s
+                        #
+                        # Total: 17-32s (vs 22-42s fully sequential)
+                        #
+                        # WHY: pdfplumber is NOT thread-safe. Running ingest +
+                        # regex simultaneously corrupts data. Azure DI is safe
+                        # because it uses a completely separate cloud SDK.
+                        # =============================================================
                         from evidence_layer.src.map_appraisal_sections import map_appraisal_tables_to_sections
+                        from evidence_layer.src.extract_fields import extract_appraisal_fields
 
-                        # Run ingestion pipeline (study-scoped)
+                        # Create doc_id early (no dependencies)
                         doc_id = f"{state['study_id']}_appraisal"
-                        ingest_result = ingest_document(
-                            pdf_path=pdf_path,
-                            corpus=Corpus.STUDY,
-                            doc_type=DocType.APPRAISAL,
-                            study_id=state["study_id"],
-                            verbose=True,
-                        )
 
-                        # Extract structured fields (regex-based, used as fallback)
-                        appraisal_fields = extract_appraisal_fields(pdf_path, doc_id)
-                        fields_dict = appraisal_fields.to_dict()
-
-                        # Get tables path for tiered extraction
-                        tables_path = ingest_result.data_dir / "structured" / f"{ingest_result.doc_id}.tables.jsonl"
-                        logger.debug(f"Looking for tables at: {tables_path}")
-                        logger.debug(f"Tables file exists: {tables_path.exists()}")
-
-                        # =============================================================
-                        # EXTRACTION METHOD OPTIONS:
-                        # 1. Azure DI (recommended) - High quality, no LLM calls
-                        # 2. Multi-agent LLM - Expensive, slow, error-prone (disabled)
-                        # 3. pdfplumber fallback - Free but lower quality
-                        # =============================================================
-                        SKIP_AGENTIC_EXTRACTION = True  # Skip multi-agent LLM loop
-                        USE_AZURE_DI = True  # Use Azure Document Intelligence directly
-
-                        # Try Azure DI first (high quality, no LLM)
-                        azure_di_succeeded = False
+                        # Initialize Azure DI extractor
+                        USE_AZURE_DI = True
+                        azure_extractor = None
+                        azure_available = False
                         if USE_AZURE_DI:
                             try:
                                 from evidence_layer.src.tiered_extraction.azure_di_extractor import AzureDocumentExtractor
-
                                 azure_extractor = AzureDocumentExtractor()
-                                print(f"[DEBUG] Azure DI is_available: {azure_extractor.is_available()}")
-                                if azure_extractor.is_available():
-                                    print(f"[DEBUG] Starting Azure DI extraction for study {state['study_id']}")
-                                    logger.info(f"Using Azure DI for extraction (study {state['study_id']})")
+                                azure_available = azure_extractor.is_available()
+                                logger.debug(f"Azure DI is_available: {azure_available}")
+                            except Exception as e:
+                                logger.warning(f"Failed to initialize Azure DI: {e}")
 
-                                    # Run Azure DI extraction
-                                    azure_result = await azure_extractor.extract(str(pdf_path))
-                                    print(f"[DEBUG] Azure DI result: confidence={azure_result.overall_confidence if azure_result else 'None'}")
+                        # =============================================================
+                        # PHASE 1: Run ingest + Azure DI in PARALLEL
+                        # (No conflict - different libraries)
+                        # =============================================================
+                        phase1_tasks = [_run_ingest_task(pdf_path, state["study_id"])]
+                        if azure_available:
+                            phase1_tasks.append(_run_azure_di_task(pdf_path, azure_extractor))
 
-                                    if azure_result and azure_result.overall_confidence > 0.3:
-                                        # Convert Azure DI result to sections format
-                                        print(f"[DEBUG] Azure DI confidence {azure_result.overall_confidence} > 0.3, converting to sections...")
-                                        try:
-                                            sections = _azure_di_to_sections(azure_result, fields_dict)
-                                            print(f"[DEBUG] Azure DI sections converted successfully: {list(sections.keys())}")
-                                        except Exception as conv_err:
-                                            print(f"[DEBUG] Azure DI section conversion FAILED: {conv_err}")
-                                            raise
-                                        extraction_audit = {
-                                            "method": "azure_di_direct",
-                                            "confidence": azure_result.overall_confidence,
-                                            "needs_review": azure_result.needs_review,
-                                            "sources_used": azure_result.sources_used,
-                                        }
-                                        azure_di_succeeded = True
-                                        print(f"[DEBUG] Azure DI extraction SUCCEEDED, azure_di_succeeded={azure_di_succeeded}")
-                                        logger.info(
-                                            f"Azure DI extraction complete: confidence={azure_result.overall_confidence:.2f}, "
-                                            f"needs_review={azure_result.needs_review}"
-                                        )
-                                    else:
-                                        print(f"[DEBUG] Azure DI extraction low confidence ({azure_result.overall_confidence if azure_result else 'None'}), falling back to table mapping")
-                                        logger.warning(f"Azure DI extraction low confidence, falling back to table mapping")
+                        logger.info(f"Phase 1: Starting parallel (ingest + Azure DI) - {len(phase1_tasks)} tasks")
+                        phase1_start = time.time()
+                        phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
+                        phase1_elapsed = time.time() - phase1_start
+                        logger.info(f"Phase 1 complete: {phase1_elapsed:.1f}s")
+
+                        # Parse Phase 1 results
+                        ingest_result = None
+                        azure_result = None
+                        indexing_complete = False
+
+                        for item in phase1_results:
+                            if isinstance(item, Exception):
+                                logger.error(f"Phase 1 task exception: {item}")
+                                continue
+                            if not isinstance(item, tuple) or len(item) != 2:
+                                logger.error(f"Unexpected result format: {type(item)}")
+                                continue
+
+                            task_name, result = item
+
+                            if task_name == "ingest":
+                                if isinstance(result, Exception):
+                                    logger.error(f"Indexing failed: {result}")
                                 else:
-                                    print("[DEBUG] Azure DI not configured/available, falling back to table mapping")
-                                    logger.info("Azure DI not configured, falling back to table mapping")
+                                    ingest_result = result
+                                    indexing_complete = True
+                                    logger.info(f"Ingest complete: {ingest_result.num_chunks} chunks, {ingest_result.num_tables} tables")
 
-                            except Exception as azure_err:
-                                print(f"[DEBUG] Azure DI extraction FAILED: {azure_err}")
-                                logger.warning(f"Azure DI extraction failed: {azure_err}, falling back to table mapping")
+                            elif task_name == "azure_di":
+                                if isinstance(result, Exception):
+                                    logger.warning(f"Azure DI failed: {result}")
+                                else:
+                                    azure_result = result
+                                    logger.info(f"Azure DI complete: confidence={azure_result.overall_confidence:.2f}")
 
-                        # Fall back to table mapping if Azure DI didn't succeed
-                        if not azure_di_succeeded:
-                            print(f"[DEBUG] Using direct table extraction (fallback) for study {state['study_id']}")
-                            logger.info(f"Using direct table extraction for study {state['study_id']}")
-                            sections = map_appraisal_tables_to_sections(
-                                tables_path=tables_path,
-                                fallback_fields=fields_dict,
+                        # =============================================================
+                        # PHASE 2: Run regex extraction SEQUENTIALLY
+                        # (Now safe - ingest is done with pdfplumber)
+                        # =============================================================
+                        logger.info(f"Phase 2: Starting regex extraction (sequential)")
+                        phase2_start = time.time()
+                        fields_dict = {}
+
+                        try:
+                            appraisal_fields = await asyncio.to_thread(
+                                extract_appraisal_fields, pdf_path, doc_id
                             )
-                            extraction_audit = {
-                                "method": "direct_table_mapping",
-                                "azure_di_attempted": USE_AZURE_DI,
-                                "tables_path": str(tables_path),
-                                "tables_exist": tables_path.exists(),
-                            }
+                            fields_dict = appraisal_fields.to_dict()
+                            logger.info(f"Phase 2 complete: {time.time() - phase2_start:.1f}s ({len(fields_dict)} fields)")
+                        except Exception as e:
+                            logger.error(f"Phase 2 failed (regex): {e}")
 
-                        if not SKIP_AGENTIC_EXTRACTION:
-                            # Try AGENTIC extraction (multi-agent with self-correction)
-                            try:
-                                from ..agents.appraisal import run_appraisal_extraction
-                                from ..agents.appraisal.tools import set_extraction_context
-                                from ..agents.base_agent import StageContext
+                        # Calculate total time
+                        total_elapsed = time.time() - phase1_start
+                        logger.info(f"Total extraction: {total_elapsed:.1f}s (Phase 1: {phase1_elapsed:.1f}s, Phase 2: {time.time() - phase2_start:.1f}s)")
 
-                                logger.info(f"Starting agentic extraction for study {state['study_id']}")
+                        # Determine tables_path (needs ingest_result)
+                        tables_path = None
+                        if ingest_result:
+                            tables_path = ingest_result.data_dir / "structured" / f"{ingest_result.doc_id}.tables.jsonl"
+                            logger.debug(f"Tables path: {tables_path}, exists: {tables_path.exists()}")
 
-                                # Set context for tool-level alerting
-                                set_extraction_context(state["study_id"])
+                        # =============================================================
+                        # DEFENSIVE: Ensure fields_dict is always a dict
+                        # =============================================================
+                        if not isinstance(fields_dict, dict):
+                            logger.error(f"fields_dict is {type(fields_dict).__name__}, resetting to empty dict")
+                            fields_dict = {}
 
-                                extraction_context = StageContext(
-                                    study_id=state["study_id"],
-                                    property_name=state.get("property_name"),
-                                    reference_doc_ids=state.get("reference_doc_ids", []),
-                                    study_doc_ids=state.get("study_doc_ids", []),
-                                )
+                        # =============================================================
+                        # Merge logic: Azure DI > Table mapping > Regex fields
+                        # =============================================================
+                        azure_di_succeeded = False
+                        extraction_audit = {"parallel_execution": True, "total_elapsed_s": total_elapsed, "phase1_elapsed_s": phase1_elapsed}
 
-                                extraction_output = await run_appraisal_extraction(
-                                    study_id=state["study_id"],
-                                    pdf_path=str(pdf_path),
-                                    context=extraction_context,
-                                    mismo_xml=None,  # TODO: Support MISMO XML upload
-                                    tables_path=str(tables_path) if tables_path.exists() else None,
-                                    max_iterations=2,
-                                )
-
-                                sections = extraction_output["extraction_result"]
-                                extraction_audit = extraction_output["audit_trail"]
-                                logger.debug(
-                                    f"Agentic extraction: confidence={extraction_output['overall_confidence']:.2f}, "
-                                    f"needs_review={extraction_output['needs_review']}, "
-                                    f"iterations={extraction_audit.get('iterations', 0)}"
-                                )
-
-                                # Phase 4: Supplement with DocumentExtractionAgent for additional fields
-                                try:
-                                    doc_extraction_result = await extract_document_fields(
-                                        pdf_path=str(pdf_path),
-                                        context=extraction_context,
-                                        field_hints=[
-                                            "property_address",
-                                            "appraised_value",
-                                            "land_value",
-                                            "building_value",
-                                            "year_built",
-                                            "gross_building_area",
-                                            "effective_age",
-                                        ],
-                                    )
-
-                                    # Merge high-confidence extractions into existing fields
-                                    if doc_extraction_result.get("overall_confidence", 0) > 0.7:
-                                        for field in doc_extraction_result.get("fields", []):
-                                            if field.get("confidence", 0) > 0.8 and field.get("value"):
-                                                field_name = field.get("field_name")
-                                                # Add to fields_dict if not already present or higher confidence
-                                                if field_name not in fields_dict or fields_dict.get(field_name) is None:
-                                                    fields_dict[field_name] = field.get("value")
-
-                                        extraction_audit["document_extraction_agent"] = {
-                                            "used": True,
-                                            "confidence": doc_extraction_result.get("overall_confidence", 0),
-                                            "fields_added": len(doc_extraction_result.get("fields", [])),
-                                        }
-                                        logger.debug(
-                                            f"DocumentExtractionAgent supplemented extraction: "
-                                            f"confidence={doc_extraction_result.get('overall_confidence', 0):.2f}"
-                                        )
-
-                                except Exception as doc_err:
-                                    logger.debug(f"DocumentExtractionAgent skipped: {doc_err}")
-                                    extraction_audit["document_extraction_agent"] = {
-                                        "used": False,
-                                        "error": str(doc_err),
-                                    }
-
-                            except Exception as tier_err:
-                                logger.warning(f"Agentic extraction failed, falling back to regex: {tier_err}")
-
-                                # ALERT: Agentic extraction failed - send immediately before fallback
-                                # This catches missing packages, rate limits, validation errors, etc.
-                                error_message = str(tier_err)
-                                error_type_name = type(tier_err).__name__
-
-                                # Categorize the error for better alerting
-                                if "not installed" in error_message.lower() or "package" in error_message.lower():
-                                    alert_type = "EXTRACTION_PACKAGE_MISSING"
-                                    severity = "error"
-                                elif "429" in error_message or "rate" in error_message.lower():
-                                    alert_type = "EXTRACTION_RATE_LIMITED"
-                                    severity = "warning"
-                                elif "validation" in error_message.lower() or "pydantic" in error_type_name.lower():
-                                    alert_type = "EXTRACTION_VALIDATION_ERROR"
-                                    severity = "error"
-                                else:
-                                    alert_type = "EXTRACTION_AGENTIC_FAILED"
-                                    severity = "error"
-
-                                await send_alert(
-                                    study_id=state["study_id"],
-                                    stage="resource_extraction",
-                                    error_type=alert_type,
-                                    error_message=f"Agentic extraction failed, falling back to regex: {error_message[:500]}",
-                                    severity=severity,
-                                    context={
-                                        "exception_type": error_type_name,
-                                        "fallback": "regex",
-                                    },
-                                )
-
-                                # Fall back to regex-only extraction
-                                sections = map_appraisal_tables_to_sections(
-                                    tables_path=tables_path,
-                                    fallback_fields=fields_dict,
-                                )
-                                extraction_audit = {"error": str(tier_err), "fallback": "regex"}
+                        if azure_result and azure_result.overall_confidence > 0.3:
+                            # Azure DI succeeded with good confidence
+                            logger.info(
+                                f"Azure DI extraction complete: confidence={azure_result.overall_confidence:.2f}, "
+                                f"needs_review={azure_result.needs_review}"
+                            )
+                            sections = _azure_di_to_sections(azure_result, fields_dict)
+                            extraction_audit.update({
+                                "method": "azure_di_direct",
+                                "confidence": azure_result.overall_confidence,
+                                "needs_review": azure_result.needs_review,
+                                "sources_used": azure_result.sources_used,
+                            })
+                            azure_di_succeeded = True
                         else:
-                            # =============================================================
-                            # DIRECT EXTRACTION: Skip LLM, use table mapping directly
-                            # This is fast (~2-3s), free, and reliable
-                            # BUT: Only if Azure DI didn't already succeed!
-                            # =============================================================
-                            if not azure_di_succeeded:
-                                logger.info(f"Using direct table extraction for study {state['study_id']} (multi-agent skipped)")
-                                print(f"[DEBUG] Using direct table extraction (agentic skipped) for study {state['study_id']}")
+                            # Fall back to table mapping or regex fields
+                            if azure_result:
+                                logger.warning(
+                                    f"Azure DI extraction low confidence ({azure_result.overall_confidence}), "
+                                    f"falling back to table mapping"
+                                )
 
+                            if tables_path and tables_path.exists():
+                                logger.info(f"Using direct table extraction for study {state['study_id']}")
                                 sections = map_appraisal_tables_to_sections(
                                     tables_path=tables_path,
                                     fallback_fields=fields_dict,
                                 )
-                                extraction_audit = {
+                                extraction_audit.update({
                                     "method": "direct_table_mapping",
-                                    "agentic_skipped": True,
+                                    "azure_di_attempted": azure_available,
+                                    "azure_di_confidence": azure_result.overall_confidence if azure_result else None,
                                     "tables_path": str(tables_path),
-                                    "tables_exist": tables_path.exists(),
-                                }
+                                    "tables_exist": True,
+                                })
                             else:
-                                print(f"[DEBUG] Skipping direct table extraction - Azure DI already succeeded")
+                                # No tables available - use regex fields directly
+                                logger.warning(f"No tables available, using regex fields only for study {state['study_id']}")
+                                sections = _build_sections_from_fields(fields_dict)
+                                extraction_audit.update({
+                                    "method": "regex_fields_only",
+                                    "azure_di_attempted": azure_available,
+                                    "azure_di_confidence": azure_result.overall_confidence if azure_result else None,
+                                    "tables_path": str(tables_path) if tables_path else None,
+                                    "tables_exist": False,
+                                    "indexing_failed": not indexing_complete,
+                                })
 
                         logger.debug(f"Mapped sections: {list(sections.keys())}")
 
@@ -774,8 +796,9 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                             # Metadata
                             "doc_id": doc_id,
                             "ingested": True,
-                            "num_chunks": ingest_result.num_chunks,
-                            "num_tables": ingest_result.num_tables,
+                            "indexing_complete": indexing_complete,  # NEW FLAG for agent search availability
+                            "num_chunks": ingest_result.num_chunks if ingest_result else 0,
+                            "num_tables": ingest_result.num_tables if ingest_result else 0,
                             "fields": fields_dict,  # Flat extraction for backward compat
                             "_extraction_audit": extraction_audit,  # Audit trail for IRS defensibility
                             # Required sections with defaults (match AppraisalResources TypeScript interface)
@@ -805,11 +828,17 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                         # Clean up temp file
                         pdf_path.unlink(missing_ok=True)
 
-                        ingest_elapsed = time.time() - ingest_start
-                        logger.info(
-                            f"Appraisal ingestion: {ingest_elapsed:.1f}s "
-                            f"({ingest_result.num_chunks} chunks, {ingest_result.num_tables} tables)"
-                        )
+                        # Log timing with appropriate message
+                        if ingest_result:
+                            logger.info(
+                                f"Appraisal extraction: {total_elapsed:.1f}s total "
+                                f"({ingest_result.num_chunks} chunks, {ingest_result.num_tables} tables)"
+                            )
+                        else:
+                            logger.warning(
+                                f"Appraisal extraction: {total_elapsed:.1f}s total "
+                                f"(indexing failed, field extraction only)"
+                            )
 
                         # =============================================================
                         # ALERT: Check extraction quality and tool configuration
@@ -866,7 +895,8 @@ async def resource_extraction_node(state: WorkflowState) -> WorkflowState:
                                     )
 
                     except Exception as e:
-                        logger.error(f"Error ingesting appraisal: {e}")
+                        import traceback
+                        logger.error(f"Error ingesting appraisal: {e}\n{traceback.format_exc()}")
 
                         # ALERT: Ingestion completely failed
                         await send_alert(

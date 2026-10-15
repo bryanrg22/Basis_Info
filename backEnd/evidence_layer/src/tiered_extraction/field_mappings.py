@@ -257,33 +257,35 @@ MISMO_FIELD_MAPPINGS: Dict[str, str] = {
     "//CONTRACT/ContractDate": "listing_and_contract.contract_date",
     "//CONTRACT/SellerConcessions": "listing_and_contract.seller_concessions",
 
-    # Improvements section
+    # Improvements section - canonical names
     "//IMPROVEMENTS/YearBuilt": "improvements.year_built",
-    "//IMPROVEMENTS/GrossLivingArea": "improvements.gross_living_area",
+    "//IMPROVEMENTS/GrossLivingArea": "improvements.gla_sqft",
     "//IMPROVEMENTS/BasementArea": "improvements.basement_area_sqft",
-    "//IMPROVEMENTS/Stories": "improvements.general_description_stories",
-    "//IMPROVEMENTS/Bedrooms": "improvements.bedrooms_above_grade",
-    "//IMPROVEMENTS/Bathrooms": "improvements.bathrooms_above_grade",
+    "//IMPROVEMENTS/Stories": "improvements.stories",
+    "//IMPROVEMENTS/Bedrooms": "improvements.bedrooms",
+    "//IMPROVEMENTS/Bathrooms": "improvements.bathrooms",
 
-    # Site section
+    # Site section - canonical names
     "//SITE/SiteArea": "site.area_sqft",
     "//SITE/ZoningClassification": "site.zoning_classification",
-    "//SITE/FloodZone": "site.fema_flood_zone",
+    "//SITE/FloodZone": "site.flood_zone",
 
-    # Reconciliation section
-    "//APPRAISAL/AppraisedValue": "reconciliation.final_opinion_of_market_value",
-    "//APPRAISAL/EffectiveDate": "reconciliation.effective_date",
+    # Reconciliation section - canonical names
+    "//APPRAISAL/AppraisedValue": "reconciliation.final_market_value",
+    "//APPRAISAL/EffectiveDate": "reconciliation.effective_date_of_appraisal",
     "//APPRAISAL/AppraiserName": "reconciliation.appraiser_name",
 
-    # Cost Approach section
+    # Cost Approach section - canonical names
     "//COST_APPROACH/SiteValue": "cost_approach.site_value",
     "//COST_APPROACH/TotalCostNew": "cost_approach.total_cost_new",
-    "//COST_APPROACH/Depreciation": "cost_approach.depreciation_total",
+    "//COST_APPROACH/Depreciation": "cost_approach.depreciation",
 }
 
 # Azure Document Intelligence field mappings
-# Maps Azure DI key-value pairs to our field structure
+# Maps Azure DI key-value pairs to our CANONICAL field structure
+# These names MUST match what the cleaners in azure_di_cleaner.py expect
 AZURE_DI_KEY_MAPPINGS: Dict[str, str] = {
+    # Subject section
     "Property Address": "subject.property_address",
     "City": "subject.city",
     "State": "subject.state",
@@ -295,31 +297,44 @@ AZURE_DI_KEY_MAPPINGS: Dict[str, str] = {
     "Assessor's Parcel #": "subject.assessors_parcel",
     "Tax Year": "subject.tax_year",
     "R.E. Taxes": "subject.real_estate_taxes",
+
+    # Listing/Contract section
     "Contract Price": "listing_and_contract.contract_price",
     "Date of Contract": "listing_and_contract.contract_date",
     "DOM": "listing_and_contract.days_on_market",
     "Lender/Client": "listing_and_contract.lender_client",
+
+    # Improvements section - CANONICAL names matching cleaners
     "Year Built": "improvements.year_built",
-    "Effective Age": "improvements.effective_age",
-    "Gross Living Area": "improvements.gross_living_area",
-    "Stories": "improvements.general_description_stories",
-    "Design (Style)": "improvements.general_description_design_style",
+    "Effective Age": "improvements.effective_age_years",
+    "Gross Living Area": "improvements.gla_sqft",
+    "Stories": "improvements.stories",
+    "Design (Style)": "improvements.design_style",
     "Basement Area": "improvements.basement_area_sqft",
-    "Rooms": "improvements.rooms_above_grade",
-    "Bedrooms": "improvements.bedrooms_above_grade",
-    "Bath(s)": "improvements.bathrooms_above_grade",
+    "Rooms": "improvements.total_rooms",
+    "Bedrooms": "improvements.bedrooms",
+    "Bath(s)": "improvements.bathrooms",
+
+    # Neighborhood section
     "Location": "neighborhood.location",
     "Built-Up": "neighborhood.built_up",
     "Growth": "neighborhood.growth",
+
+    # Site section - CANONICAL names matching cleaners
     "Dimensions": "site.dimensions",
     "Site Area": "site.area_sqft",
     "Zoning Classification": "site.zoning_classification",
-    "FEMA Flood Zone": "site.fema_flood_zone",
+    "FEMA Flood Zone": "site.flood_zone",
+
+    # Cost approach section - CANONICAL names matching cleaners
     "Site Value": "cost_approach.site_value",
     "Total Cost New": "cost_approach.total_cost_new",
+    "Depreciation": "cost_approach.depreciation",
+
+    # Reconciliation section - CANONICAL names matching cleaners
     "Indicated Value by Sales Comparison": "reconciliation.indicated_value_sales_comparison",
     "Indicated Value by Cost Approach": "reconciliation.indicated_value_cost_approach",
-    "Final Opinion of Market Value": "reconciliation.final_opinion_of_market_value",
-    "Effective Date": "reconciliation.effective_date",
+    "Final Opinion of Market Value": "reconciliation.final_market_value",
+    "Effective Date": "reconciliation.effective_date_of_appraisal",
     "Appraiser": "reconciliation.appraiser_name",
 }

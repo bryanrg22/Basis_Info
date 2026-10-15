@@ -3,7 +3,6 @@
 import logging
 from typing import Optional
 
-import replicate
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..schemas.detection import BoundingBox, Detection, Mask, RLEMask
@@ -69,6 +68,9 @@ class SAM2Client:
 
         logger.info(f"Running SAM 2 segmentation on {image_url} with box {box_str}")
 
+        # Imported lazily so the module (and the package __init__) imports without replicate.
+        import replicate
+
         try:
             output = await replicate.async_run(
                 self.model_version,
@@ -115,6 +117,9 @@ class SAM2Client:
         point_str = f"{px},{py}"
 
         logger.info(f"Running SAM 2 segmentation on {image_url} with point {point_str}")
+
+        # Imported lazily so the module (and the package __init__) imports without replicate.
+        import replicate
 
         try:
             output = await replicate.async_run(
