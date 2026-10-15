@@ -14,6 +14,11 @@ A rejection sends the study back to the stage that produced the rejected output 
 starts a new revision (S1_SPEC §1: outputs are grouped by revision per study), so the
 rejected revision is never decided twice and its rows stay as history. The table is the
 single place to change if S2's workflow defines the stage graph differently.
+
+The ``workflow_signal`` outbox payload carries every field of
+``basis.workflow.contracts.Decision`` (review id, stage, revision, decision, reviewer,
+corrections, submission time) plus the routing fields, so ``basis.relay`` builds the
+Temporal update from the message alone.
 """
 
 from __future__ import annotations
@@ -150,6 +155,19 @@ class ReviewRepository:
                 "decision": decision.value,
                 "to_stage": to_stage.value,
                 "new_revision": new_revision,
+                # The rest of basis.workflow.contracts.Decision, so the relay can build the
+                # update from the message alone (S2_SPEC section 6).
+                "reviewer_id": str(reviewer_id),
+                "submitted_at": review.created_at.isoformat(),
+                "corrections": [
+                    {
+                        "entity_type": row.entity_type,
+                        "entity_id": str(row.entity_id),
+                        "after": row.after,
+                        "reason": row.reason,
+                    }
+                    for row in rows
+                ],
             },
         )
         return DecisionRecord(review=review, study=study, signal=signal, corrections=rows)

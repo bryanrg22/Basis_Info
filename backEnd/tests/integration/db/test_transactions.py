@@ -8,6 +8,7 @@ actually stored, not against the identity map.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -84,7 +85,9 @@ async def test_decision_commits_review_transition_and_signal_together(
         assert review.idempotency_key == f"{study.created_by}:k-approve"
         signal = (await session.scalars(select(OutboxMessage))).one()
         assert signal.kind == WORKFLOW_SIGNAL
-        assert signal.payload == {
+        payload = dict(signal.payload)
+        assert datetime.fromisoformat(payload.pop("submitted_at")) == review.created_at
+        assert payload == {
             "study_id": str(study.id),
             "workflow_id": None,
             "review_id": str(review.id),
@@ -93,6 +96,15 @@ async def test_decision_commits_review_transition_and_signal_together(
             "decision": "approve",
             "to_stage": "rooms_review",
             "new_revision": 1,
+            "reviewer_id": str(study.created_by),
+            "corrections": [
+                {
+                    "entity_type": "extraction_field",
+                    "entity_id": str(entity),
+                    "after": {"v": 2},
+                    "reason": "typo",
+                }
+            ],
         }
         assert signal.delivered_at is None and signal.attempts == 0
         correction = (await session.scalars(select(Correction))).one()

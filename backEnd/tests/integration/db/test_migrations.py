@@ -4,7 +4,9 @@
   enum, trigger function and trigger;
 * ``alembic check`` reports no drift between the models and the migrations, and does
   report drift when the models change (so the check is not vacuous);
-* downgrade one revision removes everything and upgrading again restores it;
+* downgrade to base removes everything and upgrading again restores it;
+* ``0002_outbox_status`` backfills ``status`` from ``delivered_at``, enforces that the
+  two agree, and downgrades back to the ``0001`` outbox;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -31,7 +33,8 @@ from basis.db.models import APPEND_ONLY_TABLES, PG_ENUMS, UPDATED_AT_TABLES, Bas
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0001"
+HEAD = "0002"
+HISTORY = ["0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -119,7 +122,7 @@ def model_enums() -> dict[str, list[str]]:
 def test_migration_history_is_linear_with_expected_head() -> None:
     script = ScriptDirectory.from_config(alembic_config("postgresql+asyncpg://unused/unused"))
     assert script.get_heads() == [HEAD]
-    assert [rev.revision for rev in script.walk_revisions()] == [HEAD]
+    assert [rev.revision for rev in script.walk_revisions()] == HISTORY
 
 
 async def test_upgrade_from_empty_creates_everything(empty_database_url: str) -> None:
@@ -152,11 +155,12 @@ async def test_alembic_check_detects_drift(database_url: str) -> None:
         await asyncio.to_thread(command.check, config)
 
 
-async def test_downgrade_one_then_upgrade_again(empty_database_url: str) -> None:
+async def test_downgrade_to_base_then_upgrade_again(empty_database_url: str) -> None:
+    # S2: was "downgrade -1"; with 0002 on top of 0001, base is what removes everything.
     await upgrade(empty_database_url)
     upgraded = await snapshot(empty_database_url)
 
-    await downgrade(empty_database_url, "-1")
+    await downgrade(empty_database_url, "base")
     down = await snapshot(empty_database_url)
     assert down["tables"] == {"alembic_version"}
     assert down["version"] is None
@@ -195,3 +199,83 @@ def test_offline_sql_rendering() -> None:
     for table in model_tables():
         assert f"CREATE TABLE {table} " in sql
     assert "CREATE TRIGGER reviews_append_only" in sql
+    assert "CREATE TYPE outbox_status AS ENUM ('pending', 'delivered', 'dead')" in sql
+    assert "UPDATE outbox SET status = 'delivered' WHERE delivered_at IS NOT NULL" in sql
+
+
+# --------------------------------------------------------------------------- 0002
+
+
+async def fetch(url: str, query: str) -> list[asyncpg.Record]:
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        return list(await connection.fetch(query))
+    finally:
+        await connection.close()
+
+
+async def outbox_columns(url: str) -> dict[str, str]:
+    rows = await fetch(
+        url,
+        "SELECT column_name, udt_name FROM information_schema.columns WHERE table_name = 'outbox'",
+    )
+    return {r["column_name"]: r["udt_name"] for r in rows}
+
+
+async def outbox_indexes(url: str) -> set[str]:
+    rows = await fetch(url, "SELECT indexname FROM pg_indexes WHERE tablename = 'outbox'")
+    return {r["indexname"] for r in rows}
+
+
+async def test_0002_backfills_status_from_delivered_at(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0001")
+    await execute_admin(
+        empty_database_url,
+        """INSERT INTO outbox (kind, payload) VALUES ('workflow_signal', '{"n": 1}')""",
+        """INSERT INTO outbox (kind, payload, attempts, last_error)
+           VALUES ('workflow_signal', '{"n": 2}', 3, 'boom')""",
+        """INSERT INTO outbox (kind, payload, delivered_at)
+           VALUES ('notification', '{"n": 3}', now())""",
+    )
+
+    await upgrade(empty_database_url, "0002")
+
+    rows = await fetch(
+        empty_database_url,
+        "SELECT payload->>'n' AS n, status::text AS status, attempts, last_error "
+        "FROM outbox ORDER BY n",
+    )
+    assert [(r["n"], r["status"], r["attempts"], r["last_error"]) for r in rows] == [
+        ("1", "pending", 0, None),
+        ("2", "pending", 3, "boom"),  # failed-but-retrying rows stay pending, attempts kept
+        ("3", "delivered", 0, None),
+    ]
+    assert await outbox_indexes(empty_database_url) == {
+        "pk_outbox",
+        "ix_outbox_status_next_attempt_at",
+    }
+    for statement in (
+        "UPDATE outbox SET status = 'delivered' WHERE delivered_at IS NULL",
+        "UPDATE outbox SET status = 'dead' WHERE delivered_at IS NOT NULL",
+        "UPDATE outbox SET delivered_at = NULL WHERE status = 'delivered'",
+    ):
+        with pytest.raises(asyncpg.CheckViolationError, match="delivered_at_matches_status"):
+            await execute_admin(empty_database_url, statement)
+    with pytest.raises(asyncpg.InvalidTextRepresentationError):
+        await execute_admin(empty_database_url, "UPDATE outbox SET status = 'lost'")
+
+
+async def test_0002_downgrade_restores_the_0001_outbox(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0001")
+    at_0001 = await snapshot(empty_database_url)
+    columns_0001 = await outbox_columns(empty_database_url)
+    indexes_0001 = await outbox_indexes(empty_database_url)
+    await upgrade(empty_database_url)
+    assert (await outbox_columns(empty_database_url))["status"] == "outbox_status"
+
+    await downgrade(empty_database_url, "-1")
+
+    assert await outbox_columns(empty_database_url) == columns_0001
+    assert await outbox_indexes(empty_database_url) == indexes_0001
+    assert await snapshot(empty_database_url) == at_0001
+    assert at_0001["version"] == "0001"

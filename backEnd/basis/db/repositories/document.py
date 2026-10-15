@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Final
 
-from sqlalchemy import select, update
+from sqlalchemy import exists, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
@@ -91,6 +91,17 @@ class DocumentRepository:
             .order_by(Document.created_at, Document.id)
         )
         return list((await self._session.scalars(stmt)).all())
+
+    async def has_uploaded(self, study_id: uuid.UUID, kind: DocumentKind) -> bool:
+        """True when the study has at least one document of ``kind`` whose upload completed."""
+        stmt = select(
+            exists().where(
+                Document.study_id == study_id,
+                Document.kind == kind,
+                Document.uploaded_at.is_not(None),
+            )
+        )
+        return bool(await self._session.scalar(stmt))
 
     async def mark_uploaded(self, study_id: uuid.UUID, document_id: uuid.UUID) -> Document:
         """Set ``uploaded_at = now()`` once. Idempotent: a second call returns the row as is."""
