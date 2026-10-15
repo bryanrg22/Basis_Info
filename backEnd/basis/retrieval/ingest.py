@@ -159,14 +159,14 @@ async def ingest_documents(
     embeddings = await _embed(embedder, [d.text for d in all_drafts], progress)
 
     previous = await store.latest_version(corpus, study_id) if carry_forward else None
+    if previous is not None and previous.embedding_model != embedder.name:
+        raise ValueError(
+            f"cannot carry forward version {previous.version} embedded with "
+            f"{previous.embedding_model!r} into a {embedder.name!r} version; use --fresh"
+        )
     info = await store.create_version(corpus, study_id, embedder.name, version)
     carried = 0
     if previous is not None:
-        if previous.embedding_model != embedder.name:
-            raise ValueError(
-                f"cannot carry forward version {previous.version} embedded with "
-                f"{previous.embedding_model!r} into a {embedder.name!r} version; use --fresh"
-            )
         carried = await store.copy_documents(previous.id, info.id, exclude=doc_ids)
     table_ids = await store.insert_tables(info.id, [t for doc in parsed for t in doc.tables])
     await store.insert_chunks(

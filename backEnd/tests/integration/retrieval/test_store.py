@@ -320,6 +320,14 @@ async def test_fresh_version_does_not_carry_forward(
     assert docs == ["SYN_PUB_C"]
 
 
+async def test_carry_forward_refuses_a_different_embedding_model(
+    reference_corpus: Corpus, store: PostgresChunkStore, sessionmaker: Any
+) -> None:
+    with pytest.raises(ValueError, match="cannot carry forward"):
+        await ingest_reference(sessionmaker, HashEmbedder(dim=16), corpus_sources("SYN_PUB_A"))
+    assert [info.version for info, _, _ in await store.list_versions("reference")] == [1]
+
+
 async def test_search_refuses_unpublished_and_unknown_versions(
     store: PostgresChunkStore, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
