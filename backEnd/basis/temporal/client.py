@@ -12,6 +12,7 @@ from typing import Any
 
 from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.runtime import Runtime
 
 from basis.config import Settings
 
@@ -56,14 +57,20 @@ def temporal_configured(settings: Settings) -> bool:
     return bool(settings.temporal_address.strip())
 
 
-async def connect(settings: Settings, *, lazy: bool = False) -> Client:
+async def connect(
+    settings: Settings, *, lazy: bool = False, runtime: Runtime | None = None
+) -> Client:
     """Connect to Temporal.
 
     ``lazy=True`` returns at once without a network call; the connection is made on the
     first request and retried on every later request until it succeeds (verified against
     the SDK: a refused first connect does not poison the client). The API and the outbox
     relay use it so they start, and keep serving what does not need Temporal, while
-    Temporal is unreachable.
+    Temporal is unreachable. ``runtime`` carries telemetry (the worker's Prometheus
+    endpoint).
     """
     config = client_connect_config(settings)
-    return await Client.connect(config.target_host, lazy=lazy, **config.connect_kwargs())
+    kwargs = config.connect_kwargs()
+    if runtime is not None:
+        kwargs["runtime"] = runtime
+    return await Client.connect(config.target_host, lazy=lazy, **kwargs)

@@ -104,6 +104,9 @@ class LocalStorage:
         self.path_for(uri).unlink(missing_ok=True)
         self._content_types.pop(uri, None)
 
+    async def put(self, uri: str, data: bytes, content_type: str) -> None:
+        self.write(uri, data, content_type)
+
     # ------------------------------------------------------------------ test helpers
 
     def write(self, uri: str, data: bytes, content_type: str | None = None) -> None:
