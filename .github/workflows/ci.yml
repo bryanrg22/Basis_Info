@@ -153,11 +153,12 @@ jobs:
       # Docker, and testcontainers starts the pgvector Postgres image on demand.
       - name: pytest (full suite, including integration)
         if: env.BACKEND_CHANGED == 'true'
-        env:
-          TIKTOKEN_CACHE_DIR: ${{ env.HOME }}/.cache/basis-tiktoken
         run: |
           # Tests must import the installed project, never a path hack.
           unset PYTHONPATH
+          # $HOME is a runner variable, not a workflow-context value: resolve it here.
+          export TIKTOKEN_CACHE_DIR="$HOME/.cache/basis-tiktoken"
+          mkdir -p "$TIKTOKEN_CACHE_DIR"
           uv run --no-sync pytest -q \
             --timeout=600 \
             --junitxml=../reports/backend.xml \
