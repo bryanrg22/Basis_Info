@@ -107,12 +107,14 @@ def code_artefact_versions() -> dict[str, object]:
     prompts: dict[str, list[str]] = {}
     prompts_dir = BACKEND / "basis" / "prompts"
     if prompts_dir.exists():
-        for name_dir in sorted(p for p in prompts_dir.iterdir() if p.is_dir()):
+        for name_dir in sorted(
+            p for p in prompts_dir.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))
+        ):
             prompts[name_dir.name] = sorted(p.stem for p in name_dir.glob("*.md"))
     return {
         "prompts": prompts,
         "rules_version": grep_first(
-            BACKEND / "basis" / "domain" / "rules.py", r'RULES_VERSION\s*=\s*"([^"]+)"'
+            BACKEND / "basis" / "domain" / "rules.py", r'RULES_VERSION(?::\s*Final)?\s*=\s*"([^"]+)"'
         ),
         "postgres_test_image": grep_first(
             BACKEND / "tests" / "dbtest_support.py", r'PG_IMAGE\s*=\s*"([^"]+)"'
@@ -216,7 +218,11 @@ def main() -> int:
             "short": git("rev-parse", "--short", "HEAD"),
             "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
             "describe": git("describe", "--tags", "--always"),
-            "dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
+            # Uncommitted changes outside the evidence tree (re-capturing a label rewrites
+            # tracked files under docs/test-evidence, which is not what "dirty" means).
+            "dirty": bool(
+                git("status", "--porcelain", "--untracked-files=no", "--", ".", ":!docs/test-evidence")
+            ),
             "uv_lock_sha256": subprocess.run(
                 ["shasum", "-a", "256", str(BACKEND / "uv.lock")], capture_output=True, text=True
             ).stdout.split()[0],

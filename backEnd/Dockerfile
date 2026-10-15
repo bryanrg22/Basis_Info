@@ -1,25 +1,37 @@
+# Basis backend image: the API (default command) and the Temporal worker share one image;
+# Cloud Run runs the worker with `python -m basis.worker` (Stage 5 wires the services).
+#
+# Build from backEnd/:  docker build -t basis-backend .
+# Run the API:          docker run --rm -e BASIS_ENV=staging ... basis-backend
+# Run the worker:       docker run --rm -e BASIS_ENV=staging ... basis-backend python -m basis.worker
+
 FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
+# Dependencies first, from the lockfile only, so a code change does not reinstall them.
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
 
-# Copy everything
-COPY . .
+COPY basis ./basis
+COPY alembic.ini ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
-# Install dependencies
-RUN pip install --no-cache-dir -e ./evidence_layer || true
-RUN pip install --no-cache-dir -e ./agentic
+# Run as a non-root user; nothing is written inside the image at run time.
+RUN useradd --create-home --uid 10001 basis
+USER basis
 
-# Set Python path
-ENV PYTHONPATH=/app/agentic
-
-# Expose port
 EXPOSE 8000
 
-# Run the server
-CMD ["uvicorn", "agentic.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "basis.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

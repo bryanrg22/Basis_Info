@@ -49,6 +49,16 @@ class ExtractionRepository:
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
+    async def latest_before(self, document_id: uuid.UUID, revision: int) -> Extraction | None:
+        """The document's extraction with the highest revision below ``revision``."""
+        stmt = (
+            select(Extraction)
+            .where(Extraction.document_id == document_id, Extraction.revision < revision)
+            .order_by(Extraction.revision.desc())
+            .limit(1)
+        )
+        return (await self._session.scalars(stmt)).first()
+
     async def list_for_revision(self, study_id: uuid.UUID, revision: int) -> list[Extraction]:
         stmt = (
             select(Extraction)

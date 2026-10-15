@@ -36,7 +36,10 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 OPENAPI_PATH: Final = REPO_ROOT / "docs" / "api" / "openapi.json"
 # Visible ASCII without the double quote: the documented form of the key. The server also
 # accepts the structured-field form "..." (draft-ietf-httpapi-idempotency-key-header).
-IDEMPOTENCY_KEY_PATTERN: Final = rf"^[!#-~]{{1,{MAX_KEY_LENGTH}}}$"
+# Bare or enclosed in double quotes (draft-ietf-httpapi-idempotency-key-header); the
+# character class is basis.api.idempotency._KEY_PATTERN, so the contract test's
+# negative cases (keys the document calls invalid) are refused by the parser too.
+IDEMPOTENCY_KEY_PATTERN: Final = rf'^("[!#-~]{{1,{MAX_KEY_LENGTH}}}"|[!#-~]{{1,{MAX_KEY_LENGTH}}})$'
 
 DESCRIPTION: Final = """\
 Basis cost segregation API.
@@ -53,7 +56,7 @@ recommended). Retrying with the same key and body replays the stored response wi
 `Idempotent-Replayed: true` for 24 hours; the same key with a different body is 422; a
 retry while the first request is still running is 409. Keys are scoped per user.
 
-**Rate limits.** Per user, by default 60 reads and 10 mutations per minute; 429 with
+**Rate limits.** Per user, by default 240 reads and 60 mutations per minute; 429 with
 `Retry-After`.
 
 **Errors.** Every 4xx/5xx is `application/problem+json` (RFC 9457): `type`, `title`,
@@ -87,7 +90,7 @@ def _require_idempotency_key(schema: dict[str, Any]) -> None:
                     parameter["schema"] = {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": MAX_KEY_LENGTH,
+                        "maxLength": MAX_KEY_LENGTH + 2,  # the quoted form
                         "pattern": IDEMPOTENCY_KEY_PATTERN,
                         "title": IDEMPOTENCY_HEADER,
                     }

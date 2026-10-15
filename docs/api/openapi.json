@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Basis API",
-    "description": "Basis cost segregation API.\n\n**Authentication.** Every `/v1` route needs `Authorization: Bearer <Firebase ID token>`.\nA user (with a personal organization) is created on first sight.\n\n**Authorization.** Studies belong to organizations. A study you are not a member of is\n404, not 403; a study you can see but whose action needs a higher role\n(viewer < engineer < owner) is 403.\n\n**Idempotency.** `POST` and `DELETE` need an `Idempotency-Key` header (a UUID is\nrecommended). Retrying with the same key and body replays the stored response with\n`Idempotent-Replayed: true` for 24 hours; the same key with a different body is 422; a\nretry while the first request is still running is 409. Keys are scoped per user.\n\n**Rate limits.** Per user, by default 60 reads and 10 mutations per minute; 429 with\n`Retry-After`.\n\n**Errors.** Every 4xx/5xx is `application/problem+json` (RFC 9457): `type`, `title`,\n`status`, `detail`, `instance`, `request_id` (equal to the `X-Request-Id` response\nheader), and `errors` (one entry per field) on validation failures.\n\n**Limits.** JSON bodies up to 1 MiB (413 beyond). Files are never sent to the API: request\na signed URL, upload to it, then confirm.\n",
-    "version": "0.1.0"
+    "description": "Basis cost segregation API.\n\n**Authentication.** Every `/v1` route needs `Authorization: Bearer <Firebase ID token>`.\nA user (with a personal organization) is created on first sight.\n\n**Authorization.** Studies belong to organizations. A study you are not a member of is\n404, not 403; a study you can see but whose action needs a higher role\n(viewer < engineer < owner) is 403.\n\n**Idempotency.** `POST` and `DELETE` need an `Idempotency-Key` header (a UUID is\nrecommended). Retrying with the same key and body replays the stored response with\n`Idempotent-Replayed: true` for 24 hours; the same key with a different body is 422; a\nretry while the first request is still running is 409. Keys are scoped per user.\n\n**Rate limits.** Per user, by default 240 reads and 60 mutations per minute; 429 with\n`Retry-After`.\n\n**Errors.** Every 4xx/5xx is `application/problem+json` (RFC 9457): `type`, `title`,\n`status`, `detail`, `instance`, `request_id` (equal to the `X-Request-Id` response\nheader), and `errors` (one entry per field) on validation failures.\n\n**Limits.** JSON bodies up to 1 MiB (413 beyond). Files are never sent to the API: request\na signed URL, upload to it, then confirm.\n",
+    "version": "0.4.0"
   },
   "paths": {
     "/health": {
@@ -182,8 +182,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[!#-~]{1,128}$",
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
               "title": "Idempotency-Key"
             },
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
@@ -423,8 +423,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[!#-~]{1,128}$",
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
               "title": "Idempotency-Key"
             },
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
@@ -566,8 +566,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[!#-~]{1,128}$",
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
               "title": "Idempotency-Key"
             },
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
@@ -750,8 +750,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[!#-~]{1,128}$",
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
               "title": "Idempotency-Key"
             },
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
@@ -894,8 +894,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[!#-~]{1,128}$",
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
               "title": "Idempotency-Key"
             },
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
@@ -1153,8 +1153,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[!#-~]{1,128}$",
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
               "title": "Idempotency-Key"
             },
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
@@ -1296,8 +1296,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[!#-~]{1,128}$",
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
               "title": "Idempotency-Key"
             },
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."

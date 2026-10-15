@@ -29,6 +29,14 @@ Database-side behavior that is not expressible as SQLAlchemy metadata lives in m
   ``users`` that raises the same SQLSTATE when ``firebase_uid`` would change
   (BUILD_PLAN §6.5 "userId cannot change").
 * ``CREATE EXTENSION IF NOT EXISTS vector`` (pgvector) for ``chunks.embedding``.
+
+From migration ``0003_chunks_hnsw``:
+
+* ``forbid_published_corpus_write()``: ``BEFORE INSERT OR UPDATE`` row trigger on
+  ``chunks`` and ``evidence_tables`` that raises SQLSTATE ``23001`` when the row's corpus
+  version is published, and ``forbid_published_version_update()`` on ``corpus_versions``
+  once ``published_at`` is set. A published corpus version is immutable, so a stored
+  citation (a chunk id) always means the same text.
 """
 
 from __future__ import annotations
@@ -88,6 +96,8 @@ NAMING_CONVENTION: Final[dict[str, str]] = {
 UPDATED_AT_TABLES: Final = ("studies", "activity_results", "classification_cache")
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = ("reviews", "corrections")
+# Tables whose rows cannot be inserted or updated once their corpus version is published.
+PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
 
 
 def _enum_values(enum_cls: type[Any]) -> list[str]:
@@ -450,7 +460,13 @@ class Chunk(Base):
     __table_args__ = (
         UniqueConstraint("corpus_version_id", "chunk_key"),
         Index(None, "corpus_version_id", "doc_id"),
-        # HNSW index on embedding is deferred to S3 (S1_SPEC §2).
+        # Migration 0003: approximate nearest neighbour search by cosine distance.
+        Index(
+            "ix_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()

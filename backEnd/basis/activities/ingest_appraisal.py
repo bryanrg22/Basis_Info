@@ -1,34 +1,52 @@
-"""``ingest_appraisal`` (Stage 2 stub): the study's evidence corpus from its appraisal.
+"""``ingest_appraisal``: the study's evidence corpus from its appraisal PDF.
 
-Stage 2 body: find the study's uploaded appraisal document, create the study corpus
-version for this revision, and write three placeholder chunks (one per "page"). Stage 3
-replaces the body with layout parsing, table extraction, chunking and embeddings; the
-contract (ids in, ids and counts out) stays.
+Downloads the study's uploaded appraisal from storage and ingests it with
+:func:`basis.retrieval.ingest.ingest_pdf` into the study corpus version numbered after
+the input revision: layout parsing, whole tables in ``evidence_tables`` with surrogate
+chunks, 400/80-token text chunks per page, embeddings, then publish. The S2 contract is
+unchanged (ids in; document id, corpus version id and chunk count out).
+
+Idempotency, two layers:
+
+* the activity key (``run_once``): a retried or replayed execution returns the stored
+  output without touching storage or the database;
+* the business key (study, revision): a new key for a revision that already has a
+  published study corpus (a reset execution) returns that version instead of ingesting
+  again. Every row of the version is written in the same transaction as the activity's
+  completion, so a failure part-way leaves no version, chunk or table behind; two
+  executions racing on one revision collide on the version's unique key and the loser
+  retries into the "already published" branch. An *unpublished* version for the
+  revision can only be a Stage 2 stub leftover (placeholder chunks, model ``stub``); it
+  is deleted and the revision ingested properly, unless a stub citation still references
+  it (then a non-retryable error says so).
+
+Errors: a study that does not exist, an appraisal whose object is missing from storage,
+and a PDF that cannot be parsed (not a PDF, no pages, too many pages, no text) are
+non-retryable ``ValidationError``s. Storage and database outages propagate and are
+retried. A scanned appraisal (no text layer) is ingested as an empty published version
+and logged; it is not an error, because extraction has its own OCR path.
 """
 
 from __future__ import annotations
 
-from typing import Final
+import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
-from basis.activities._support import (
-    STUB_EMBEDDING_MODEL,
-    heartbeat,
-    parse_uuid,
-    run_once,
-    validation_error,
-)
+from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
 from basis.activities.deps import Deps
 from basis.db.enums import DocumentKind
 from basis.db.models import Document
-from basis.db.repositories.corpus import CorpusRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.study import StudyRepository
+from basis.retrieval.ingest import ingest_pdf
+from basis.retrieval.parse import PdfError
+from basis.retrieval.store import CorpusError, PostgresChunkStore
+from basis.storage import ObjectNotFound
 from basis.workflow.contracts import IngestAppraisalInput, IngestAppraisalOutput
 
-PLACEHOLDER_PAGES: Final = 3
+logger = logging.getLogger("basis.activities.ingest_appraisal")
 
 
 def appraisal_document(documents: list[Document]) -> Document | None:
@@ -46,6 +64,7 @@ class IngestAppraisal:
     @activity.defn(name="ingest_appraisal")
     async def run(self, input: IngestAppraisalInput) -> IngestAppraisalOutput:
         study_id = parse_uuid(input.study_id, "study_id")
+        retrieval = self._deps.retrieval_deps()
 
         async def work(session: AsyncSession) -> IngestAppraisalOutput:
             if await StudyRepository(session).get(study_id) is None:
@@ -54,23 +73,48 @@ class IngestAppraisal:
             document = appraisal_document(documents)
             if document is None:
                 return IngestAppraisalOutput(document_id=None, corpus_version_id=None, chunks=0)
-            corpus = CorpusRepository(session)
-            version = await corpus.study_version(study_id, input.revision, STUB_EMBEDDING_MODEL)
-            for page in range(1, PLACEHOLDER_PAGES + 1):
-                heartbeat(page)
-                await corpus.add_chunk(
-                    corpus_version_id=version.id,
-                    doc_id=str(document.id),
-                    chunk_key=f"{document.id}:p{page}",
-                    text=f"Placeholder text for page {page} of {document.filename}.",
-                    page_start=page,
-                    page_end=page,
-                    section_path=f"page {page}",
+            store = PostgresChunkStore(session=session, registry=retrieval.registry)
+            existing = await store.find_version("study", study_id, input.revision)
+            if existing is not None and existing.published:
+                return IngestAppraisalOutput(
+                    document_id=str(document.id),
+                    corpus_version_id=str(existing.id),
+                    chunks=await store.count_chunks(existing.id),
+                )
+            if existing is not None:  # a Stage 2 stub leftover (placeholder chunks)
+                try:
+                    await store.discard_unpublished(existing.id)
+                except CorpusError as exc:
+                    raise validation_error(f"study {study_id}: {exc}") from exc
+                logger.info(
+                    "discarded an unpublished study corpus version",
+                    extra={"corpus_version_id": str(existing.id), "study_id": str(study_id)},
+                )
+            pdf_bytes = await _download(self._deps, document)
+            heartbeat("downloaded", len(pdf_bytes))
+            try:
+                result = await ingest_pdf(
+                    pdf_bytes,
+                    str(document.id),
+                    "study",
+                    study_id,
+                    store,
+                    retrieval.embedder,
+                    version=input.revision,
+                    carry_forward=False,
+                    progress=lambda step: heartbeat(step),
+                )
+            except PdfError as exc:
+                raise validation_error(f"appraisal {document.id}: {exc}") from exc
+            if result.scanned_docs:
+                logger.warning(
+                    "appraisal has no text layer; study corpus is empty",
+                    extra={"document_id": str(document.id), "study_id": str(study_id)},
                 )
             return IngestAppraisalOutput(
                 document_id=str(document.id),
-                corpus_version_id=str(version.id),
-                chunks=PLACEHOLDER_PAGES,
+                corpus_version_id=str(result.corpus_version_id),
+                chunks=result.chunks,
             )
 
         return await run_once(
@@ -80,3 +124,13 @@ class IngestAppraisal:
             output_type=IngestAppraisalOutput,
             work=work,
         )
+
+
+async def _download(deps: Deps, document: Document) -> bytes:
+    try:
+        return await deps.storage.read(document.gcs_uri)
+    except ObjectNotFound as exc:
+        # The row says "uploaded" but the object is gone: retrying cannot bring it back.
+        raise validation_error(
+            f"appraisal {document.id} is missing from storage ({document.gcs_uri})"
+        ) from exc

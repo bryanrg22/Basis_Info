@@ -122,10 +122,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # The legacy group pulls torch (via sentence-transformers); the uv cache
-      # keyed on uv.lock keeps repeat installs fast. If Linux resolution needs
-      # the CPU-only torch index, that belongs in backEnd/pyproject.toml
-      # ([tool.uv.sources] / [[tool.uv.index]]), not in this workflow.
+      # sentence-transformers pulls torch; the uv cache keyed on uv.lock keeps
+      # repeat installs fast. If Linux resolution needs the CPU-only torch index,
+      # that belongs in backEnd/pyproject.toml ([tool.uv.sources] /
+      # [[tool.uv.index]]), not in this workflow.
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         if: env.BACKEND_CHANGED == 'true'
         with:
@@ -138,7 +138,26 @@ jobs:
 
       - name: Sync locked environment
         if: env.BACKEND_CHANGED == 'true'
-        run: uv sync --locked --group dev --group legacy
+        run: uv sync --locked --group dev
+
+      # The worker-kill and worker-process tests run `temporal server start-dev`
+      # from the installed CLI (they are skipped without it); the SDK's own test
+      # servers cover the other lifecycle tests.
+      - name: Install the Temporal CLI
+        if: env.BACKEND_CHANGED == 'true'
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+          "$HOME/.temporalio/bin/temporal" --version
+
+      # The chunker's tiktoken encoding (cl100k_base) is one download; cache it
+      # between runs. The tests embed with the hash embedder, so no model files.
+      - name: Cache the tiktoken encoding
+        if: env.BACKEND_CHANGED == 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/basis-tiktoken
+          key: tiktoken-cl100k_base-v1
 
       # The whole suite, including integration tests: ubuntu-latest runners ship
       # Docker, and testcontainers starts the pgvector Postgres image on demand.
@@ -147,6 +166,9 @@ jobs:
         run: |
           # Tests must import the installed project, never a path hack.
           unset PYTHONPATH
+          # $HOME is a runner variable, not a workflow-context value: resolve it here.
+          export TIKTOKEN_CACHE_DIR="$HOME/.cache/basis-tiktoken"
+          mkdir -p "$TIKTOKEN_CACHE_DIR"
           uv run --no-sync pytest -q \
             --timeout=600 \
             --junitxml=../reports/backend.xml \
@@ -265,10 +287,9 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 tooling/check_no_client_data.py --ci
 
-  # Placeholder image smoke. The current backEnd/Dockerfile installs the legacy
-  # `agentic` package, not `basis`, so the smoke import is expected to fail
-  # until the Dockerfile is rewritten in Stage 5. Build and smoke steps are
-  # continue-on-error so Stage 0 CI stays green; the summary reports outcomes.
+  # Image build and smoke (`import basis`). backEnd/Dockerfile builds the basis
+  # image with uv from the lockfile (Stage 3); the job stays continue-on-error
+  # until Stage 5 makes the image a deploy gate. The summary reports outcomes.
   docker-build:
     needs: changes
     runs-on: ubuntu-latest
@@ -326,10 +347,10 @@ jobs:
           SMOKE_OUTCOME: ${{ steps.smoke.outcome || 'skipped' }}
         run: |
           {
-            echo "### Backend image (placeholder)"
+            echo "### Backend image"
             echo ""
             echo "- build: ${BUILD_OUTCOME}"
             echo "- smoke (\`import basis\`): ${SMOKE_OUTCOME}"
             echo ""
-            echo "Dockerfile is rewritten in Stage 5"
+            echo "The image becomes a deploy gate in Stage 5"
           } >> "$GITHUB_STEP_SUMMARY"

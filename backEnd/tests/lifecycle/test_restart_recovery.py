@@ -17,12 +17,13 @@ from typing import Any
 
 import pytest
 from lifecycle_support import Harness
+from lifecycletest_support import sample_appraisal_chunks
 from sqlalchemy import func, select
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 
 from basis.activities.ingest_appraisal import IngestAppraisal
-from basis.db.models import Chunk, Component, Extraction, PhotoRoom
+from basis.db.models import Chunk, Component, CorpusVersion, Extraction, PhotoRoom
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.session import session_scope
 from basis.workflow.contracts import IngestAppraisalInput, IngestAppraisalOutput, SimulateFault
@@ -69,7 +70,13 @@ async def output_counts(harness: Harness, study_id: Any) -> dict[str, int]:
             stmt = select(func.count()).select_from(model).where(model.study_id == study_id)
             return int(await session.scalar(stmt) or 0)
 
-        chunks = await session.scalar(select(func.count()).select_from(Chunk))
+        # The study's own chunks only: the harness also seeds the reference corpus.
+        chunks = await session.scalar(
+            select(func.count())
+            .select_from(Chunk)
+            .join(CorpusVersion, Chunk.corpus_version_id == CorpusVersion.id)
+            .where(CorpusVersion.study_id == study_id)
+        )
         return {
             "extractions": await count(Extraction),
             "photo_rooms": await count(PhotoRoom),
@@ -130,7 +137,11 @@ async def test_worker_stopped_between_activities(harness: Harness) -> None:
     assert counts["extract_fields:r1"] == 1  # resumed at the next step, not re-ingested
     await assert_no_duplicates(harness, started.handle)
     outputs = await output_counts(harness, study.study_id)
-    assert (outputs["extractions"], outputs["photo_rooms"], outputs["chunks"]) == (1, 1, 3)
+    assert (outputs["extractions"], outputs["photo_rooms"], outputs["chunks"]) == (
+        1,
+        1,
+        sample_appraisal_chunks(),  # S3: one real ingestion of the sample (S2 stub: 3)
+    )
 
 
 async def test_worker_stopped_in_the_middle_of_an_activity(harness: Harness) -> None:

@@ -61,7 +61,7 @@ from workflowtest_support import FakeWorkflowService
 from basis.api.app import create_app
 from basis.api.errors import PROBLEM_JSON
 from basis.api.idempotency import ENFORCED_METHODS, IDEMPOTENCY_HEADER
-from basis.api.openapi import OPENAPI_PATH, render
+from basis.api.openapi import IDEMPOTENCY_KEY_PATTERN, OPENAPI_PATH, render
 from basis.config import Settings
 from basis.db.engine import async_database_url
 from basis.db.enums import Stage
@@ -114,7 +114,8 @@ def test_idempotency_key_is_required_on_mutations(
     if method in ENFORCED_METHODS:
         key = headers[IDEMPOTENCY_HEADER]
         assert key["required"] is True
-        assert key["schema"]["maxLength"] == 128
+        assert key["schema"]["maxLength"] == 130  # 128 characters, or 128 in double quotes
+        assert key["schema"]["pattern"] == IDEMPOTENCY_KEY_PATTERN
         assert {"400", "409"} <= set(operation["responses"])
     else:
         assert IDEMPOTENCY_HEADER not in headers

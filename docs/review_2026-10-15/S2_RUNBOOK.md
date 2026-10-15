@@ -10,6 +10,12 @@ study of section 7 through the API (create, three uploads, start, three decision
 export), the Temporal searches of section 8, and SIGTERM on all three processes. The
 outputs quoted are from that run (ids differ on every run; sha256 values are shortened).
 
+Re-verified on the Stage 3 code (v0.4.0, 2026-10-15) with the real activities and no model
+provider configured: the study completes with the appraisal extracted from its text layer
+and both photos flagged; logs, database state and Temporal UI screenshots are in
+`docs/test-evidence/v0.4.0/runbook/`. Note that the default mutation rate limit is now 60
+per minute, so the client script no longer sees 429s.
+
 | Process | Command | Ports |
 |---|---|---|
 | Postgres (pgvector) | `docker run ... pgvector/pgvector:pg16` | 5544 |

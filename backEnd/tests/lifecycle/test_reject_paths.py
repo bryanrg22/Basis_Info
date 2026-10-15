@@ -46,7 +46,7 @@ async def test_appraisal_reject_reextracts_with_corrections(harness: Harness) ->
         started = await harness.start()
         handle, sid = started.handle, started.study_id
         await harness.wait_awaiting(handle, "appraisal_review", 1)
-        [field] = await rows(harness, ExtractionField, sid, field="property_name")
+        [field] = await rows(harness, ExtractionField, sid, field="property_address")
         correction = CorrectionInput(
             entity_type="extraction_field",
             entity_id=str(field.id),
@@ -85,11 +85,11 @@ async def test_appraisal_reject_reextracts_with_corrections(harness: Harness) ->
             for f in await rows(harness, ExtractionField, sid)
             if f.extraction_id == new.id
         }
-        assert old_fields["property_name"].value_text == "Appraisal 12 Main St"
-        assert old_fields["property_name"].source == "stub"
-        assert new_fields["property_name"].value_text == "12 Main Street"
-        assert new_fields["property_name"].source == "manual"
-        assert len(new_fields) == 5
+        assert old_fields["property_address"].value_text == "1290 Example Way"
+        assert old_fields["property_address"].source == "azure"
+        assert new_fields["property_address"].value_text == "12 Main Street"
+        assert new_fields["property_address"].source == "manual"
+        assert len(new_fields) == len(old_fields)
         # Photo outputs were carried into the new revision unchanged.
         assert len(await rows(harness, PhotoRoom, sid, revision=2)) == 3
         assert len(await rows(harness, Component, sid, revision=2)) == 6
@@ -152,14 +152,17 @@ async def test_rooms_reject_renames_rooms_and_reanalyzes_only_flagged_photos(
 
 async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harness) -> None:
     async with harness.worker():
-        started = await harness.start()
+        # The living room's unlisted item is a residual: the scripted model calls it a
+        # building component (y27_5), the guess the engineer corrects below.
+        study = await harness.seed(photos=("kitchen_1.jpg", "living_1.jpg", "bathroom_1.jpg"))
+        started = await harness.start(study)
         handle, sid = started.handle, started.study_id
         await harness.approve(handle, "appraisal_review")
         await harness.approve(handle, "rooms_review")
         await harness.wait_awaiting(handle, "assets_review", 1)
 
         assets_r1 = await rows(harness, Asset, sid, revision=1)
-        target = next(a for a in assets_r1 if a.bucket is Bucket.Y39)
+        target = next(a for a in assets_r1 if a.bucket is Bucket.Y27_5)  # a building guess
         correction = CorrectionInput(
             entity_type="asset",
             entity_id=str(target.id),
@@ -175,7 +178,7 @@ async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harn
         assert "process_assets:r2" in ids
 
         assets_r2 = await rows(harness, Asset, sid, revision=2)
-        assert len(assets_r2) == len(assets_r1) == 6
+        assert len(assets_r2) == len(assets_r1) == 7
         manual = [a for a in assets_r2 if a.method is ClassificationMethod.MANUAL]
         assert len(manual) == 1
         assert (manual[0].bucket, str(manual[0].recovery_period)) == (Bucket.Y5, "5.0")
@@ -227,7 +230,7 @@ async def test_refused_corrections_start_the_revision_uncorrected_and_flag_the_s
         assert "apply_corrections:appraisal_review:r1:uncorrected" in ids
         [new] = await rows(harness, Extraction, sid, revision=2)
         fields = [f for f in await rows(harness, ExtractionField, sid) if f.extraction_id == new.id]
-        assert {f.source for f in fields} == {"stub"}  # recomputed without the correction
+        assert fields and "manual" not in {f.source for f in fields}  # without the correction
         await harness.approve_all(handle, revision=2)
         result = await harness.result(handle)
     assert result.outcome == "completed"

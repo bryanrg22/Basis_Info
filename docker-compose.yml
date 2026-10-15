@@ -1,30 +1,92 @@
+# Local development only: the API, one worker and the outbox relay against a local Postgres (pgvector) and
+# a Temporal dev server. Not a production topology (Cloud Run + Cloud SQL + Temporal
+# Cloud: Stage 5).
+#
+#   docker compose up --build
+#   docker compose exec api alembic upgrade head
+#
+# Settings come from backEnd/.env (BASIS_ENV=dev reads it); DATABASE_URL and
+# TEMPORAL_ADDRESS below point at the compose services and override the file.
 services:
-  backend:
+  postgres:
+    image: pgvector/pgvector:pg16  # the image the test suite runs against (tests/dbtest_support.py)
+    environment:
+      POSTGRES_USER: basis
+      POSTGRES_PASSWORD: basis  # local dev only  # pragma: allowlist secret
+      POSTGRES_DB: basis
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U basis -d basis"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  temporal:
+    image: temporalio/temporal:latest
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db"]
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    volumes:
+      - temporaldata:/data
+
+  api:
     build:
       context: ./backEnd
-      dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    volumes:
-      - ./backEnd:/app
     env_file:
       - ./backEnd/.env
     environment:
-      - PYTHONPATH=/app/agentic
-    command: uvicorn agentic.api.main:app --host 0.0.0.0 --port 8000 --reload
+      BASIS_ENV: dev
+      DATABASE_URL: postgresql+asyncpg://basis:basis@postgres:5432/basis  # pragma: allowlist secret
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
     restart: unless-stopped
 
   worker:
     build:
       context: ./backEnd
-      dockerfile: Dockerfile
-    volumes:
-      - ./backEnd:/app
+    command: ["python", "-m", "basis.worker"]
     env_file:
       - ./backEnd/.env
     environment:
-      - PYTHONPATH=/app/agentic
-    command: python -m agentic.workers.job_worker
+      BASIS_ENV: dev
+      DATABASE_URL: postgresql+asyncpg://basis:basis@postgres:5432/basis  # pragma: allowlist secret
+      TEMPORAL_ADDRESS: temporal:7233
     depends_on:
-      - backend
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
     restart: unless-stopped
+
+  # Delivers decisions recorded by the API (outbox rows) to the workflow as Temporal
+  # updates. Without it a decision is stored but never reaches the study.
+  relay:
+    build:
+      context: ./backEnd
+    command: ["python", "-m", "basis.relay"]
+    env_file:
+      - ./backEnd/.env
+    environment:
+      BASIS_ENV: dev
+      DATABASE_URL: postgresql+asyncpg://basis:basis@postgres:5432/basis  # pragma: allowlist secret
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  temporaldata:

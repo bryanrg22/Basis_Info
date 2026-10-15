@@ -7,6 +7,8 @@
 * downgrade to base removes everything and upgrading again restores it;
 * ``0002_outbox_status`` backfills ``status`` from ``delivered_at``, enforces that the
   two agree, and downgrades back to the ``0001`` outbox;
+* ``0003_chunks_hnsw`` adds the HNSW cosine index on ``chunks.embedding`` and makes
+  published corpus versions immutable, and downgrades back to ``0002``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -29,18 +31,32 @@ from dbtest_support import alembic_config, execute_admin, plain_dsn
 from sqlalchemy import Column, MetaData, Text
 from sqlalchemy.engine import make_url
 
-from basis.db.models import APPEND_ONLY_TABLES, PG_ENUMS, UPDATED_AT_TABLES, Base
+from basis.db.models import (
+    APPEND_ONLY_TABLES,
+    PG_ENUMS,
+    PUBLISHED_IMMUTABLE_TABLES,
+    UPDATED_AT_TABLES,
+    Base,
+)
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0002"
-HISTORY = ["0002", "0001"]
+HEAD = "0003"
+HISTORY = ["0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
     | {("users_firebase_uid_immutable", "users")}
+    | {(f"{table}_published_immutable", table) for table in PUBLISHED_IMMUTABLE_TABLES}
+    | {("corpus_versions_published_immutable", "corpus_versions")}
 )
-EXPECTED_FUNCTIONS = {"set_updated_at", "forbid_mutation", "forbid_firebase_uid_change"}
+EXPECTED_FUNCTIONS = {
+    "set_updated_at",
+    "forbid_mutation",
+    "forbid_firebase_uid_change",
+    "forbid_published_corpus_write",
+    "forbid_published_version_update",
+}
 
 
 @pytest.fixture
@@ -201,6 +217,11 @@ def test_offline_sql_rendering() -> None:
     assert "CREATE TRIGGER reviews_append_only" in sql
     assert "CREATE TYPE outbox_status AS ENUM ('pending', 'delivered', 'dead')" in sql
     assert "UPDATE outbox SET status = 'delivered' WHERE delivered_at IS NOT NULL" in sql
+    assert (
+        "CREATE INDEX ix_chunks_embedding_hnsw ON chunks USING hnsw (embedding vector_cosine_ops)"
+        in sql
+    )
+    assert "CREATE TRIGGER chunks_published_immutable" in sql
 
 
 # --------------------------------------------------------------------------- 0002
@@ -273,9 +294,85 @@ async def test_0002_downgrade_restores_the_0001_outbox(empty_database_url: str) 
     await upgrade(empty_database_url)
     assert (await outbox_columns(empty_database_url))["status"] == "outbox_status"
 
-    await downgrade(empty_database_url, "-1")
+    await downgrade(empty_database_url, "0001")
 
     assert await outbox_columns(empty_database_url) == columns_0001
     assert await outbox_indexes(empty_database_url) == indexes_0001
     assert await snapshot(empty_database_url) == at_0001
     assert at_0001["version"] == "0001"
+
+
+# --------------------------------------------------------------------------- 0003
+
+
+async def test_0003_creates_the_hnsw_cosine_index(empty_database_url: str) -> None:
+    await upgrade(empty_database_url)
+    [row] = await fetch(
+        empty_database_url,
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_chunks_embedding_hnsw'",
+    )
+    assert row["indexdef"].endswith("USING hnsw (embedding vector_cosine_ops)")
+
+
+async def test_0003_published_corpus_versions_are_immutable(empty_database_url: str) -> None:
+    await upgrade(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        version = await connection.fetchval(
+            "INSERT INTO corpus_versions (corpus, version, embedding_model) "
+            "VALUES ('reference', 1, 'm') RETURNING id"
+        )
+        insert_chunk = (
+            "INSERT INTO chunks (corpus_version_id, doc_id, chunk_key, text) "
+            "VALUES ($1, 'd', $2, 't') RETURNING id"
+        )
+        draft_chunk = await connection.fetchval(insert_chunk, version, "d:1:0")  # unpublished
+        await connection.execute(
+            "INSERT INTO evidence_tables (corpus_version_id, doc_id) VALUES ($1, 'd')", version
+        )
+        await connection.execute(
+            "UPDATE corpus_versions SET published_at = now() WHERE id = $1", version
+        )
+        statements = [
+            (insert_chunk, (version, "d:1:1")),
+            ("UPDATE chunks SET text = 'changed' WHERE id = $1", (draft_chunk,)),
+            (
+                "INSERT INTO evidence_tables (corpus_version_id, doc_id) VALUES ($1, 'd')",
+                (version,),
+            ),
+            ("UPDATE evidence_tables SET markdown = 'x' WHERE corpus_version_id = $1", (version,)),
+            ("UPDATE corpus_versions SET embedding_model = 'other' WHERE id = $1", (version,)),
+            ("UPDATE corpus_versions SET published_at = NULL WHERE id = $1", (version,)),
+        ]
+        for statement, args in statements:
+            with pytest.raises(asyncpg.RestrictViolationError):
+                await connection.execute(statement, *args)
+        # Moving a chunk out of a published version is an update of that version too.
+        other = await connection.fetchval(
+            "INSERT INTO corpus_versions (corpus, version, embedding_model) "
+            "VALUES ('reference', 2, 'm') RETURNING id"
+        )
+        with pytest.raises(asyncpg.RestrictViolationError):
+            await connection.execute(
+                "UPDATE chunks SET corpus_version_id = $1 WHERE id = $2", other, draft_chunk
+            )
+        # Erasure stays possible.
+        await connection.execute("DELETE FROM chunks WHERE corpus_version_id = $1", version)
+        assert await connection.fetchval("SELECT count(*) FROM chunks") == 0
+    finally:
+        await connection.close()
+
+
+async def test_0003_downgrade_restores_0002(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0002")
+    at_0002 = await snapshot(empty_database_url)
+    await upgrade(empty_database_url)
+    await downgrade(empty_database_url, "0002")
+    assert await snapshot(empty_database_url) == at_0002
+    assert (
+        await fetch(
+            empty_database_url,
+            "SELECT 1 FROM pg_indexes WHERE indexname = 'ix_chunks_embedding_hnsw'",
+        )
+        == []
+    )

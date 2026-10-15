@@ -24,6 +24,16 @@
       "bytes": 14360
     },
     {
+      "path": "azure_di/urar_sample.json",
+      "sha256": "44915875fe350c2aad1490f3cb5519a42cc86fd1e3c6c70c267b0e1a3dc6161b",
+      "bytes": 51501
+    },
+    {
+      "path": "azure_di/urar_sample_low_confidence.json",
+      "sha256": "5aa065551b56d77b0c5254f804b1bb2e8b749a0f78f25108e389c868f4520bfd",
+      "bytes": 51503
+    },
+    {
       "path": "corpus/SYN_PUB_A.pdf",
       "sha256": "1b00f688041d964d0d1d1d89e15aa616b4031f48df1ff4fb8457501e09e16012",
       "bytes": 5991

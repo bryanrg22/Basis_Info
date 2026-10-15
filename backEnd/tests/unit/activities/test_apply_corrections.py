@@ -14,13 +14,15 @@ from basis.activities import Deps
 from basis.activities.analyze_photo import AnalyzePhoto
 from basis.activities.apply_corrections import ApplyCorrections
 from basis.activities.extract_fields import ExtractFields
-from basis.db.models import Component, Extraction, ExtractionField, PhotoRoom, Room
+from basis.activities.process_assets import ProcessAssets
+from basis.db.models import Asset, Component, Extraction, ExtractionField, PhotoRoom, Room
 from basis.db.session import session_scope
 from basis.workflow.contracts import (
     AnalyzePhotoInput,
     ApplyCorrectionsInput,
     CorrectionInput,
     ExtractFieldsInput,
+    ProcessAssetsInput,
 )
 
 from .conftest import Env
@@ -129,7 +131,9 @@ async def test_rooms_reject_applies_room_and_component_corrections_and_skips_fla
     # The extraction is carried for a rooms rejection, fields included.
     [extraction] = await rows(deps, Extraction, sid, 2)
     assert extraction.raw["carried_from"]
-    assert await count_rows(deps.sessionmaker, ExtractionField, extraction_id=extraction.id) == 5
+    [first] = await rows(deps, Extraction, sid, 1)
+    carried = await count_rows(deps.sessionmaker, ExtractionField, extraction_id=extraction.id)
+    assert carried == await count_rows(deps.sessionmaker, ExtractionField, extraction_id=first.id)
     # Revision 1 untouched.
     assert {r.name for r in await rows(deps, Room, sid, 1)} == {"Kitchen", "Bathroom"}
 
@@ -210,3 +214,43 @@ async def test_every_correction_is_validated_before_anything_is_written(
         assert caught.value.type == "ValidationError" and caught.value.non_retryable, correction
         assert await rows(deps, Room, sid, 2) == []
         assert await rows(deps, Extraction, sid, 2) == []
+
+
+async def test_asset_corrections_are_checked_for_consistency_before_anything_is_written(
+    deps: Deps, revision_one: SeededStudy, activity_env: Env
+) -> None:
+    """S3: a correction must be a valid classification (domain validators), not just parse.
+
+    A valid asset correction is accepted here and applied by ``process_assets`` for the
+    new revision (it recomputes the assets); ``applied`` counts only rows written here.
+    """
+    sid = revision_one.study_id
+    await activity_env.run(
+        ProcessAssets(deps).run,
+        ProcessAssetsInput(
+            study_id=str(sid), revision=1, idempotency_key="k-a1", budget_remaining_usd=1.0
+        ),
+    )
+    async with session_scope(deps.sessionmaker) as session:
+        target = (await session.scalars(select(Asset.id).where(Asset.revision == 1))).first()
+
+    def asset(after: dict[str, Any]) -> tuple[CorrectionInput, ...]:
+        return (CorrectionInput(entity_type="asset", entity_id=str(target), after=after),)
+
+    for after in (
+        {"bucket": "y5", "recovery_period": "27.5"},
+        {"bucket": "y39", "irs_section": "1245"},
+        {"irs_section": "personal"},
+    ):
+        with pytest.raises(ApplicationError) as caught:
+            await activity_env.run(
+                ApplyCorrections(deps).run, apply(revision_one, "assets_review", asset(after))
+            )
+        assert caught.value.type == "ValidationError", after
+        assert await rows(deps, Component, sid, 2) == []
+    good = asset({"bucket": "y5", "recovery_period": "5", "irs_section": "1245"})
+    output = await activity_env.run(
+        ApplyCorrections(deps).run, apply(revision_one, "assets_review", good)
+    )
+    assert output.applied == 0
+    assert len(await rows(deps, Component, sid, 2)) == 6

@@ -1,1206 +1,441 @@
-# Basis – Agentic RAG for Document Intelligence
+# Basis
 
 <img width="997" height="336" alt="Basis Logo" src="https://github.com/user-attachments/assets/aaab8d9c-7238-46d0-a8ea-29ea04a666e5" />
 
 ---
 
-> **Cost segregation shouldn't take weeks. Basis gets engineers 80% of the way there—fast, guided, and defensible.**
+> **Cost segregation shouldn't take weeks. Basis gets engineers 80% of the way there: fast, guided, and defensible.**
 
 ---
 
-## Status (October 2026)
+## Contents
 
-The system is being rebuilt against a reviewed plan: [REVIEW_AND_PLAN.md](docs/review_2026-10-15/REVIEW_AND_PLAN.md) records what was verified in the code and the cloud project, and [BUILD_PLAN.md](docs/review_2026-10-15/BUILD_PLAN.md) is the build contract. The previous LangGraph workflow is being replaced by Temporal for workflow progress and PostgreSQL for application data. The backend is not currently deployed.
-
-**Works today**
-- PDF ingestion (pdfplumber parsing, intact tables, overlapping chunks) and hybrid BM25 + FAISS retrieval over the IRS and RSMeans reference corpus.
-- Appraisal field extraction with Azure Document Intelligence, merged with regex extraction and pdfplumber table mapping.
-- Per-photo vision classification: one gpt-4o-mini call per photo returns a room type and detected objects.
-- Static rules for room and object enrichment, takeoff quantities, cost estimates, and IRS classification of known components. They are unit-tested; apart from room enrichment, they run inside the asset stage, which the current workflow never reaches.
-
-**Does not work today**
-- The end-to-end workflow. Only `load_study` and `resource_extraction` are reachable in the LangGraph graph, every resume restarts from the first stage, and the asset pipeline (takeoffs, classification, costs) never runs on the backend.
-- Citations on the LLM classification path. Search results are never converted into citations, so every LLM classification is flagged `needs_review`.
-- Review rejection. A rejection at the appraisal checkpoint is recorded as an approval, and the frontend has no reject control.
-
-Each of these failures is encoded as a strict `xfail` test in `backEnd/tests/regression/`.
-
----
-
-**Powered by:**
-- **Hybrid retrieval with table preservation** – BM25 with an IRS-aware tokenizer plus FAISS semantic search; tables are stored whole and fetched by id
-- **Azure Document Intelligence extraction** – appraisal fields from Azure DI, with regex and table-mapping fallbacks
-- **Engineer-in-the-loop design** – the engineer reviews appraisal data, rooms, and assets before anything becomes client-facing
-
----
-
-## System Architecture
-
-<img src="docs/architecture.svg" alt="System architecture diagram (original design)" width="900"/>
-
-*This diagram shows the original design. Several components in it are not on the live path today: the multi-agent extraction loop, the Grounding DINO / SAM2 vision stages, the MCP connection, and the `FirestoreCheckpointer`-backed resume. The target architecture is in [BUILD_PLAN.md §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture).*
-
-## Table of Contents
-
+* [Overview](#overview)
 * [Status (October 2026)](#status-october-2026)
-* [System Architecture](#system-architecture)
-* [What is Basis?](#what-is-basis)
-* [Why Cost Seg?](#why-cost-seg)
-* [The Problem](#the-problem)
-* [The Solution](#the-solution)
-* [Demo Video](#demo-video)
-* [Current Project Overview](#current-project-overview)
-* [The Problem: Document Intelligence at Scale](#the-problem-document-intelligence-at-scale)
-* [The Solution: Hybrid Retrieval + Engineer-Reviewed Workflow](#the-solution-hybrid-retrieval--engineer-reviewed-workflow)
-* [Architecture Deep Dive](#architecture-deep-dive)
-  * [Offline Pipeline — PDF Ingestion](#1-offline-pipeline--pdf-ingestion)
-  * [Evidence Layer — Hybrid RAG](#2-evidence-layer-hybrid-rag)
-  * [Agent Loop and Workflow (as implemented)](#3-agent-loop-and-workflow-as-implemented)
-  * [Appraisal Extraction — Azure Document Intelligence + Regex](#4-appraisal-extraction--azure-document-intelligence--regex)
-  * [Vision — Per-Photo Classification](#5-vision--per-photo-classification)
-  * [Evidence Tools (in-process LangChain tools)](#6-evidence-tools-in-process-langchain-tools)
-* [Tech Stack](#tech-stack)
+* [Architecture](#architecture)
+* [Backend packages](#backend-packages)
+* [Workflow lifecycle](#workflow-lifecycle)
+* [Retrieval and citations](#retrieval-and-citations)
+* [Extraction and vision](#extraction-and-vision)
+* [Classification, takeoffs and costs](#classification-takeoffs-and-costs)
+* [Evaluation and test evidence](#evaluation-and-test-evidence)
+* [Running locally](#running-locally)
+* [Testing](#testing)
+* [CI](#ci)
+* [Security and data handling](#security-and-data-handling)
+* [Frontend (legacy, unchanged)](#frontend-legacy-unchanged)
 * [Deployment status](#deployment-status)
-* [Engineer-in-the-Loop Workflow](#engineer-in-the-loop-workflow)
-* [User Workflow (High Level)](#user-workflow-high-level)
-* [Current Application: Cost Segregation](#current-application-cost-segregation)
-* [Traction & Validation](#traction--validation)
-* [NVIDIA Applicability: Automotive Functional Safety Project](#nvidia-applicability-automotive-functional-safety-project)
-* [Accuracy, Safety & Defensibility](#accuracy-safety--defensibility)
-* [Data Handling](#data-handling)
-* [Why Not Just Use ChatGPT?](#why-not-just-use-chatgpt)
-* [System Architecture (Full, as built)](#system-architecture-full-as-built)
-* [About](#about)
+* [Roadmap](#roadmap)
+* [History: the legacy design](#history-the-legacy-design)
+* [Other document domains](#other-document-domains)
+* [Traction](#traction)
+* [Planning documents](#planning-documents)
 
 ---
 
-## What is Basis?
+## Overview
 
-**Basis** is an AI-assisted platform for **residential-focused cost segregation firms** that accelerates the most time-consuming part of the study:
+Basis is a platform for residential-focused cost segregation firms. It speeds up the slowest part of a study: going through hundreds of photos, sketches and appraisal pages to produce an IRS-ready asset schedule.
 
-> **analyzing hundreds of photos, sketches, and appraisal documents to produce an IRS-ready report.**
+**Why cost segregation.** A $1M rental property normally depreciates over 27.5 years. A cost segregation study separates out components that qualify for 5-, 7- or 15-year recovery, so the owner deducts more, earlier. Thousands of these studies are done each year in the U.S.
 
-Basis is not a "one-click study generator." It's a **human-in-the-loop, agentic workflow** powered by three core systems:
+**The problem.** A study has three steps: document the property, analyze the documentation, write the report. Step 2 is the bottleneck. In our interviews it took engineers 2 to 3 weeks and more than $1,200 of labor per study, and missed or inconsistently documented components could leave more than $1,000 of savings on the table.
 
-1. **Vision** — per-photo room and object classification with a vision-language model
-2. **Evidence Layer** — PDF ingestion pipeline with hybrid BM25 + vector retrieval for IRS-grounded reasoning
-3. **Engineer-Reviewed Workflow** — stage-gated review checkpoints for appraisal data, rooms, and assets (being rebuilt on Temporal; see [Status](#status-october-2026))
+**What Basis does.** Engineers upload the files they already use. Basis extracts the appraisal fields, identifies rooms and components in the photos, classifies each component for depreciation with citations to the IRS text, and estimates quantities and costs. An engineer reviews and can correct the output at three gates (appraisal, rooms, assets) before anything is exported. Basis is not a one-click study generator.
 
-This architecture **walks the engineer through every decision before anything becomes client-facing.**
-
----
-
-## Why Cost Seg?
-
-**$1M** That's what you might spend to buy a house. That upfront spend can create **tax savings** as the property depreciates over **27.5 years**.
-
-But 27.5 years is a long time to wait.
-
-**Cost segregation** helps owners **accelerate depreciation** and unlock meaningful savings earlier. In the U.S., there are **5,000+** businesses conducting thousands of studies per year—which makes the workflow opportunity massive.
-
----
-
-## The Problem
-
-A cost segregation study typically follows three steps:
-
-1. **Document the property**
-2. **Analyze the documentation**
-3. **Generate the report**
-
-The bottleneck is step 2.
-
-Our interviews revealed that this analysis phase:
-
-* Requires engineers to comb through **hundreds of photos, drawings, and appraisals**
-* Can take **2–3 weeks** to complete
-* Can cost **>$1,200** in labor per study
-* Can leave **>$1,000** in savings on the table due to missed or inconsistently documented components
-
----
-
-## The Solution
-
-**Enter Basis.**
-
-Engineers upload the property artifacts they already use today. Basis:
-
-* **Organizes documents and imagery**
-* **Classifies rooms, materials, and objects**
-* **Guides engineers through review checkpoints**
-* **Surfaces the exact references** needed for takeoffs and tax classification
-  (so engineers aren't hunting across hundreds of pages)
-
-**Result:** faster studies, fewer errors, lower cost to serve.
-
----
-
-## Demo Video
-
-A short walkthrough showing how Basis guides engineers through appraisal constraints, room/object classification, takeoffs, and IRS-grounded asset decisions.
+**Demo video** (recorded on the legacy system):
 
 [![Basis Demo Video](https://img.youtube.com/vi/ZpUEYUvN5II/hqdefault.jpg)](https://youtu.be/ZpUEYUvN5II)
 
 ---
 
-## Current Project Overview
+## Status (October 2026)
 
-* **Objective:**
-  Reduce cost seg analysis time by automating repetitive classification and retrieval tasks while preserving engineer-led accuracy and auditability.
+The backend has been rebuilt against a reviewed plan. [REVIEW_AND_PLAN.md](docs/review_2026-10-15/REVIEW_AND_PLAN.md) records what was verified in the old code and the cloud project; [BUILD_PLAN.md](docs/review_2026-10-15/BUILD_PLAN.md) is the build contract. Stages 0 to 3 are built. The package version is `0.4.0` ([`backEnd/pyproject.toml`](backEnd/pyproject.toml)).
 
-* **Core Features:**
+**Built (Stages 0 to 3), all under [`backEnd/basis/`](backEnd/basis/)**
+- A FastAPI `/v1` API with Firebase ID-token auth, idempotency keys, rate limits, RFC 9457 errors and signed uploads.
+- PostgreSQL as the application database (SQLAlchemy async, Alembic migrations `0001` to `0003`, pgvector for chunk embeddings).
+- A Temporal `StudyWorkflow` with three engineer review gates, reject-with-corrections, idempotent activities and a per-study LLM budget. Decisions travel from the API to the workflow through a transactional outbox and a relay process.
+- The pipeline that the old LangGraph code only partly ran: appraisal ingestion and field extraction, per-photo vision, retrieval over PostgreSQL, classification with verified citations, takeoffs, costs, an evidence pack and a deterministic export.
+- An evaluation harness ([`backEnd/evals/`](backEnd/evals/)) and about 2273 tests collected by pytest.
 
-  * **Study creation + structured upload**
-  * **Appraisal-to-constraints extraction**
-  * **Room classification with scene + object context**
-  * **Object/component detection with metadata enrichment**
-  * **Engineer review checkpoints at every stage**
-  * **Engineering takeoffs assistance**
-  * **Asset classification with IRS-grounded RAG**
-  * **Cost classification hooks for integrated cost databases**
-  * **Export-ready outputs for existing firm templates**
+**Not built yet**
+- **Frontend migration (Stage 4).** The Next.js app in [`frontend/`](frontend/) is still the legacy one. It writes to Firestore directly and calls the legacy `/workflow/...` endpoints, which no longer exist. It does not use the new API yet.
+- **Read endpoints for pipeline output.** The API has no routes yet that return extraction fields, rooms or assets, and `GET /v1/studies/{id}/evidence` still returns an empty list ([`basis/api/routes/evidence.py`](backEnd/basis/api/routes/evidence.py)). The data is in PostgreSQL and in the export file.
+- **Deployment (Stage 5).** Nothing in this branch is deployed. See [Deployment status](#deployment-status).
+- **A real-provider evaluation report.** The harness runs on synthetic fixtures (`--dry-run`) and scores saved predictions. No report from real models on the private client package has been published.
+- **Classification cache writes.** `basis.classify.cache.promote_to_cache` exists and is tested, but nothing calls it yet (Stage 4's review flow will). The cache is read but stays empty.
+- **Hybrid retrieval in classification.** `basis.retrieval.hybrid.hybrid_search` (BM25 + vector, fused) is built and tested, but the classifier's search tools use BM25 only today ([`basis/classify/tools.py`](backEnd/basis/classify/tools.py)).
 
----
+**Legacy defects that caused the rebuild, now fixed.** The old backend had four defects, each reproduced as a strict `xfail` test in Stage 0 ([REVIEW_AND_PLAN.md A.3](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a3-workflow-and-agent-correctness-topic-3)):
 
-## The Problem: Document Intelligence at Scale
+| Legacy defect | Fixed by | Tests that now pass |
+|---|---|---|
+| Only 2 of 7 LangGraph nodes were reachable; rooms, assets and completion never ran | Temporal `StudyWorkflow` runs every stage in order | [`tests/lifecycle/test_happy_path.py`](backEnd/tests/lifecycle/test_happy_path.py) |
+| Every resume restarted from the first stage | Temporal replays history; activities are idempotent | [`tests/lifecycle/test_restart_recovery.py`](backEnd/tests/lifecycle/test_restart_recovery.py) |
+| A rejection at the appraisal checkpoint was recorded as an approval | Decisions are `approve` or `reject`, checked by the API and by the workflow's update validator | [`tests/lifecycle/test_reject_paths.py`](backEnd/tests/lifecycle/test_reject_paths.py), [`test_stale_approval.py`](backEnd/tests/lifecycle/test_stale_approval.py), [`test_concurrent_decisions.py`](backEnd/tests/lifecycle/test_concurrent_decisions.py) |
+| LLM classifications never had citations (tool results were dropped) | Tool results are named JSON tool messages; every citation is verified against the stored chunk | [`tests/unit/classify/test_tool_loop.py`](backEnd/tests/unit/classify/test_tool_loop.py), [`test_citation_verify.py`](backEnd/tests/unit/classify/test_citation_verify.py), [`tests/node/test_process_assets.py`](backEnd/tests/node/test_process_assets.py), [`tests/evals/behavior/test_fabricated_citation.py`](backEnd/tests/evals/behavior/test_fabricated_citation.py) |
 
-Many industries require AI-assisted workflows for querying large document sets—regulatory publications, technical standards, safety baselines—that share a common challenge:
-
-> **Standardized headers, messy context.**
-
-These documents contain critical structured data (IDs, codes, classifications, tables) embedded in unstructured narrative text. Traditional approaches fail because:
-
-- **Pure keyword search** misses semantic relationships
-- **Pure vector search** hallucinates on exact codes and IDs
-- **Context windows** can't hold hundreds of pages
-- **LLM-only approaches** lack auditability and traceability
+The `xfail` tests were deleted when their replacements passed. The "regression" section of [`backEnd/tests/LEDGER.md`](backEnd/tests/LEDGER.md) records each replacement.
 
 ---
 
-## The Solution: Hybrid Retrieval + Engineer-Reviewed Workflow
-
-Basis is built as a **three-layer architecture** for document intelligence problems. The bottom two layers work today; the workflow layer is being rebuilt.
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│          WORKFLOW + AGENT LAYER (legacy LangGraph, rebuilding)  │
-│  • Stage-gated engineer checkpoints, shown in the frontend      │
-│  • Bounded tool-calling loop for residual IRS classification    │
-│  • Static rules for enrichment, takeoffs, costs                 │
-│  • Rebuild: Temporal workflow + PostgreSQL (see BUILD_PLAN)     │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-┌────────────────────────────────▼────────────────────────────────┐
-│                     EVIDENCE LAYER (Hybrid RAG)                 │
-│  • BM25 for exact-term matches (codes, IDs, classifications)    │
-│  • FAISS vector search for semantic similarity                  │
-│  • Score fusion + deduplication                                 │
-│  • Tables stored intact (never chunked)                         │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-┌────────────────────────────────▼────────────────────────────────┐
-│                     OFFLINE PIPELINE                            │
-│  • Layout-aware PDF parsing (pdfplumber)                        │
-│  • Table extraction → structured JSON                           │
-│  • Semantic chunking with 80-token overlap                      │
-│  • Dual indexing (BM25 + FAISS)                                 │
-└─────────────────────────────────────────────────────────────────┘
+  Browser (Next.js 14, Firebase Auth)        [Stage 4: today the frontend still uses Firestore]
+     │ Authorization: Bearer <Firebase ID token>
+     │                                        signed PUT URL
+     ▼                                      ───────────────────►  Google Cloud Storage
+  API  (FastAPI, /v1)                                              documents, photos, exports
+     │  writes ───────────────────────────────►  PostgreSQL + pgvector
+     │  start / status / cancel                  studies, documents, reviews, corrections,
+     │                                           outbox, runs, activity_results, extractions,
+     │                                           rooms, components, assets, takeoffs, costs,
+     │                                           corpus_versions, chunks, citations, llm_calls
+     │                     outbox rows                ▲
+     │                         │                      │
+     │                         ▼                      │
+     │                  Outbox relay  (python -m basis.relay)
+     │                         │ "decide" updates     │
+     ▼                         ▼                      │
+  Temporal  (StudyWorkflow, task queue basis-studies) │
+     │                                                │
+     ▼                                                │
+  Worker  (python -m basis.worker): workflow + activities
+     ├──► PostgreSQL (rows, idempotency keys, chunk store) ─┘
+     ├──► Azure Document Intelligence (prebuilt-layout)
+     ├──► OpenAI / Azure OpenAI (primary/secondary provider pool)
+     └──► Google Cloud Storage (read uploads, write raw analyses and exports)
 ```
 
-This architecture is **domain-agnostic**. The current implementation targets cost segregation (IRS tax documents), but the same pipeline handles any document corpus with structured codes and unstructured context.
+- **The database is the source of truth for data.** Temporal holds workflow progress only. Payloads carry ids and storage URIs, never document contents ([`basis/workflow/contracts.py`](backEnd/basis/workflow/contracts.py)).
+- **The API never sends decisions to Temporal.** It writes the review, the corrections, the stage transition and an outbox row in one transaction and answers 202. The relay delivers the decision later. Decisions keep working while Temporal is down ([`basis/temporal/service.py`](backEnd/basis/temporal/service.py)).
+- **Uploads never pass through the API.** The browser PUTs to a signed URL and the API checks size, content type and sha256 afterwards ([`basis/api/routes/documents.py`](backEnd/basis/api/routes/documents.py)).
+
+The target cloud topology is in [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture).
 
 ---
 
-## Architecture Deep Dive
+## Backend packages
 
-### 1) Offline Pipeline — PDF Ingestion
+Everything lives in one Python 3.12 package, `basis`, managed with `uv` ([`backEnd/pyproject.toml`](backEnd/pyproject.toml), [`backEnd/uv.lock`](backEnd/uv.lock)). Module docstrings explain each design choice in detail; this is a map.
 
-**Location:** `backEnd/evidence_layer/`
+| Package | What it does | Key modules |
+|---|---|---|
+| [`api/`](backEnd/basis/api/) | FastAPI app under `/v1`. Firebase ID-token auth; studies belong to orgs (`viewer` < `engineer` < `owner`; a study you cannot see is 404). `Idempotency-Key` required on `POST`/`DELETE`, replayed for 24 h, stored in Postgres. Per-user sliding-window rate limits with separate read and mutation budgets. 1 MiB body limit. Every error is RFC 9457 `application/problem+json` with a `request_id`. Started with `uv run uvicorn basis.api.main:app --port 8000`. | `app.py`, `auth.py`, `users.py`, `idempotency.py`, `idempotency_pg.py`, `ratelimit.py`, `errors.py`, `health.py`, `routes/` |
+| [`auth/`](backEnd/basis/auth/) | Firebase ID-token verification. Revocation is checked only in `prod`. The auth emulator is refused in `staging` and `prod`. | `firebase.py` |
+| [`db/`](backEnd/basis/db/) | SQLAlchemy 2.0 async models over asyncpg, a bounded pool, a 30 s `statement_timeout`, one transaction per request. Alembic migrations: `0001` schema, enums and triggers (reviews and corrections are append-only); `0002` outbox delivery status; `0003` HNSW index on chunk embeddings and immutable published corpus versions. Repositories never commit. | `models.py`, `engine.py`, `session.py`, `repositories/`, `alembic/versions/` |
+| [`workflow/`](backEnd/basis/workflow/) | The deterministic Temporal `StudyWorkflow`, its wire contracts, and the timeout and retry policy of every activity. | `study_workflow.py`, `contracts.py`, `activity_options.py` |
+| [`activities/`](backEnd/basis/activities/) | One module per activity: `record_run_start`, `transition`, `list_photos`, `ingest_appraisal`, `extract_fields`, `analyze_photo`, `apply_corrections`, `process_assets`, `export_report`, `notify_review_pending`, `mark_stalled`, `record_run_end`. Dependencies are bound once through `Deps`. | `_support.py` (idempotency runner), `deps.py`, one file per activity |
+| [`worker/`](backEnd/basis/worker/) | The worker process (`python -m basis.worker`): registers the workflow and activities, Prometheus metrics on `:9464`, `/health` on `:8080`, optional worker versioning, an 8 s drain on SIGTERM. | `main.py`, `health.py`, `interceptors.py`, `search_attributes.py` |
+| [`relay/`](backEnd/basis/relay/) | The outbox relay (`python -m basis.relay`): claims due rows with `FOR UPDATE SKIP LOCKED`, delivers each decision as a Temporal update, retries with backoff, parks rows as `dead` after too many attempts. `/health` on `:8081`. | `delivery.py`, `main.py` |
+| [`temporal/`](backEnd/basis/temporal/) | Temporal client construction (API key + TLS for Temporal Cloud, none for the dev server), the names the API and relay use, and the API's narrow `WorkflowService`. | `client.py`, `names.py`, `service.py` |
+| [`retrieval/`](backEnd/basis/retrieval/) | PDF parsing, whole tables, chunking, IRS-aware BM25, MiniLM embeddings in pgvector, fusion, citation checks, ingest CLI. See [Retrieval and citations](#retrieval-and-citations). | `parse.py`, `tables.py`, `chunk.py`, `tokenizer.py`, `bm25.py`, `embed.py`, `store.py`, `hybrid.py`, `verify.py`, `ingest.py`, `metrics.py` |
+| [`extraction/`](backEnd/basis/extraction/) | Appraisal field extraction: Azure Document Intelligence plus the PDF text layer, cleaners, validation, a single-shot LLM fallback, a review gate. | `pipeline.py`, `azure_di.py`, `regex_fields.py`, `sections.py`, `cleaners.py`, `validation.py`, `fallback.py`, `confidence.py`, `field_mappings.py` |
+| [`vision/`](backEnd/basis/vision/) | One structured vision-model call per photo returning the room type and components. | `prep.py`, `analyze.py`, `rooms.py`, `schemas.py` |
+| [`llm/`](backEnd/basis/llm/) | The single model-call path. One `ChatProvider` contract; OpenAI and Azure OpenAI providers in a primary/secondary pool; a price table; a per-study budget; one `llm_calls` row per call; versioned prompts. | `provider.py`, `providers.py`, `pool.py`, `call.py`, `cost.py`, `recorder.py`, `prompts.py` |
+| [`prompts/`](backEnd/basis/prompts/) | Prompt files `<name>/<version>.md` (`photo_analysis`, `appraisal_field_fallback`, `classify`), each pinned by sha256 in `manifest.json`. An edited prompt fails to load. | `manifest.json` |
+| [`domain/`](backEnd/basis/domain/) | Pure functions over tables: the IRS rules table with `(doc_id, page, excerpt)` citations, room guidance, takeoff formulas, RSMeans-style unit costs, classification validators, cross-validation. No I/O, no model calls. | `rules.py`, `rooms.py`, `takeoffs.py`, `costs.py`, `validators.py`, `cross_validation.py` |
+| [`classify/`](backEnd/basis/classify/) | Component classification: rules, then the engineer-approved cache, then a bounded residual model loop with study-scoped tools. Citations are verified on every path. | `router.py`, `residual.py`, `tools.py`, `verify.py`, `cache.py`, `schemas.py` |
+| [`evidence/`](backEnd/basis/evidence/) | The evidence pack of one revision (every asset with its numbers and cited passages) and its deterministic JSON and CSV export. | `pack.py`, `export.py` |
+| [`storage/`](backEnd/basis/storage/) | GCS with V4 signed `PUT` URLs; a filesystem backend with the same `gs://` addressing for tests and local runs. | `gcs.py`, `local.py`, `base.py` |
+| [`obs/`](backEnd/basis/obs/) | JSON logs for Cloud Logging with request, study, run and activity context and key-name redaction. | `logging.py` |
+| [`config.py`](backEnd/basis/config.py) | Settings from the environment. `BASIS_ENV` (`dev`, `test`, `staging`, `prod`) is required; `.env` is read only in `dev`. | |
 
-Transforms raw PDFs into retrieval-ready indexes through a 5-stage pipeline:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PDF INGESTION PIPELINE                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌────────┐ │
-│  │  STAGE 1 │───►│  STAGE 2 │───►│  STAGE 3 │───►│  STAGE 4 │───►│STAGE 5 │ │
-│  │  Parse   │    │  Extract │    │  Chunk   │    │  Build   │    │ Build  │ │
-│  │  Layout  │    │  Tables  │    │  Text    │    │  BM25    │    │ FAISS  │ │
-│  └──────────┘    └──────────┘    └──────────┘    └──────────┘    └────────┘ │
-│       │               │               │               │              │      │
-│       ▼               ▼               ▼               ▼              ▼      │
-│   layout/        structured/      retrieval/      indexes/       indexes/   │
-│   elements.json  tables.json      chunks.json     bm25.pkl       faiss.idx  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-#### Stage 1: Layout-Aware PDF Parsing
-
-**File:** [`parse_pdf.py`](backEnd/evidence_layer/src/parse_pdf.py)
-
-Extracts text with positional metadata using pdfplumber + PyMuPDF.
-
-```
-Raw PDF
-   │
-   ▼
-┌─────────────────────────────────────┐
-│  For each page:                     │
-│  • Extract text with bbox coords    │
-│  • Detect font size + boldness      │
-│  • Classify element type            │
-│  • Preserve reading order           │
-└─────────────────────────────────────┘
-   │
-   ▼
-Layout Elements (with position + type)
-```
-
-**Element Classification:**
-
-| Type | Detection Method | Example |
-|------|------------------|---------|
-| `title` | Large font + bold | "Chapter 4: MACRS" |
-| `heading` | Medium font + bold | "Section 1245 Property" |
-| `paragraph` | Regular text blocks | Narrative content |
-| `list_item` | Numbered/bulleted | "1. Tangible property..." |
-| `table` | Grid structure detected | *Routed to Stage 2* |
-
-**Output:** `layout/elements.json` — every text block with page, bbox, font, type.
+The committed OpenAPI document is [`docs/api/openapi.json`](docs/api/openapi.json). A test fails when it is stale; regenerate it with `uv run python -m basis.api.openapi --write`.
 
 ---
 
-#### Stage 2: Table Extraction (Tables Stay Intact)
+## Workflow lifecycle
 
-**File:** [`extract_tables.py`](backEnd/evidence_layer/src/extract_tables.py)
-
-**Critical design decision:** Tables are NEVER chunked. They're stored as structured JSON and fetched whole.
+One `StudyWorkflow` per study, with workflow id `study-{study_id}` ([`basis/workflow/study_workflow.py`](backEnd/basis/workflow/study_workflow.py)):
 
 ```
-Layout Elements
-   │
-   ├── Table detected? ──YES──► Extract as structured JSON
-   │                            Store in structured/tables.json
-   │                            Create surrogate chunk for search
-   │
-   └── Not a table ──────────► Pass to Stage 3
+record_run_start
+transition -> extracting
+in parallel:  ingest_appraisal -> extract_fields   |   analyze_photo x N (at most photo_concurrency at once)
+gate appraisal_review    reject: apply_corrections, extract_fields again, revision + 1
+gate rooms_review        reject: apply_corrections, re-analyze only the flagged photos
+transition -> assets_processing ; process_assets
+gate assets_review       reject: apply_corrections, process_assets again
+transition -> exporting ; export_report ; transition -> completed ; record_run_end
 ```
 
-**Why tables stay intact:**
-- Chunking tables destroys row/column relationships
-- LLMs hallucinate when given partial table data
-- Agents fetch full table by `table_id` when surrogate matches
+**Decisions.** `POST /v1/studies/{id}/decisions` takes `approve` or `reject` for the stage and revision the study is at. A stale stage or revision is 409. A correction whose type the stage does not accept, or whose target is not in that revision, is 422. One transaction records the review (append-only), the corrections (append-only), the stage move and an outbox row. The relay delivers the decision as the `decide` update (update id `decision-{review_id}`). The workflow's update validator refuses a decision for a gate it is not waiting at, a stale revision, a gate that already has a decision, or a correction type the gate does not accept. Refused updates are not written to history. A redelivered decision is answered "already applied" and changes nothing.
 
-**Table Storage Format:**
+| Gate | Approve moves to | Reject moves to (revision + 1) | Correction types |
+|---|---|---|---|
+| `appraisal_review` | `rooms_review` | `extracting` | `extraction_field` |
+| `rooms_review` | `assets_processing` | `extracting` | `room`, `component`, `photo` |
+| `assets_review` | `exporting` | `assets_processing` | `asset` |
 
-```json
-{
-  "table_id": "DOC_2024_table_3",
-  "page": 15,
-  "caption": "Table B-1. Asset Classes",
-  "headers": ["Asset Class", "Description", "Recovery Period"],
-  "rows": [
-    ["57.0", "Distributive Trades", "5 years"],
-    ["00.11", "Office Furniture", "7 years"]
-  ],
-  "markdown": "| Asset Class | Description | Recovery Period |\n|---|---|---|\n| 57.0 | ..."
-}
-```
+**Rejection with corrections.** `apply_corrections` copies the outputs the rejected stage does not recompute into the new revision and applies the corrections to the copies. The rejected revision's rows are never changed, so it stays as history ([`basis/activities/apply_corrections.py`](backEnd/basis/activities/apply_corrections.py)).
 
-**Surrogate Chunk (for search):**
-```json
-{
-  "chunk_id": "DOC_2024_table_3_surrogate",
-  "type": "table_surrogate",
-  "text": "Table B-1. Asset Classes: 57.0 Distributive Trades 5 years, 00.11 Office Furniture 7 years...",
-  "table_id": "DOC_2024_table_3"
-}
-```
+**Idempotency.** Every activity claims the key `{workflow_id}:{run_id}:{activity_id}` in `activity_results` and writes its rows and its completion in one transaction. A retried or replayed activity returns the stored output ([`basis/activities/_support.py`](backEnd/basis/activities/_support.py)). Activities that touch only the database retry up to 5 times; activities that call providers retry up to 3 times. `ValidationError` and `BudgetExceededError` never retry ([`basis/workflow/activity_options.py`](backEnd/basis/workflow/activity_options.py)).
 
-When search hits the surrogate → agent calls `get_table(table_id)` → returns full structured table.
+**Budget.** Each study has an LLM budget (`STUDY_BUDGET_USD`, default 25.0). Every model call reserves its worst-case cost before it is sent, records an `llm_calls` row, then charges the actual cost ([`basis/llm/call.py`](backEnd/basis/llm/call.py)). A photo the budget cannot cover is flagged and the study continues. `process_assets` checks the worst case for all residual components up front and writes nothing if it does not fit.
 
-**URAR Appraisal Mapping:**
+**Timers and cancel.** A gate sends a reminder every `review_reminder_days` (default 7) and marks the study `stalled` after `review_deadline_days` (default 30); the workflow keeps waiting. `POST /v1/studies/{id}/cancel` (owner) sends the `cancel_study` signal.
 
-For appraisal documents, extracted tables are additionally mapped to URAR (Uniform Residential Appraisal Report) sections:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              APPRAISAL TABLE → SECTION MAPPING                   │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Extracted Tables (.tables.jsonl)                                │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌─────────────────────────────────────┐                         │
-│  │  map_appraisal_sections.py          │                         │
-│  │                                     │                         │
-│  │  1. Identify section by keywords    │                         │
-│  │     + page position (URAR layout)   │                         │
-│  │                                     │                         │
-│  │  2. Map table rows → section fields │                         │
-│  │     (subject, neighborhood, etc.)   │                         │
-│  │                                     │                         │
-│  │  3. Fallback to regex extraction    │                         │
-│  │     for missing values              │                         │
-│  └─────────────────────────────────────┘                         │
-│         │                                                        │
-│         ▼                                                        │
-│  Frontend-ready sections:                                        │
-│  • subject (address, borrower, lender)                           │
-│  • listing_and_contract (price, DOM, sale type)                  │
-│  • neighborhood (location, growth, values)                       │
-│  • site (dimensions, zoning, utilities)                          │
-│  • improvements (foundation, rooms, year built)                  │
-│  • sales_comparison (comps grid)                                 │
-│  • cost_approach (site value, depreciation)                      │
-│  • reconciliation (final value opinion)                          │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-This mapping uses the same table extraction from ingestion—no additional parsing or GPT calls required. On the live path it is the fallback when Azure Document Intelligence is unavailable or returns low confidence (see [Appraisal Extraction](#4-appraisal-extraction--azure-document-intelligence--regex)).
-
-**Tiered Extraction (implemented, not on the live path)**
-
-`backEnd/evidence_layer/src/tiered_extraction/` contains a `TieredExtractor` with a multi-tier approach and confidence scoring. The workflow does not call it; it calls only the Azure DI extractor from this package.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    TIERED EXTRACTION                             │
-├─────────────────────────────────────────────────────────────────┤
-│  Tier 1: MISMO XML Parser (confidence: 1.0)                    │
-│     ↓ (if unavailable)                                          │
-│  Tier 2: Azure Document Intelligence (confidence: 0.7-0.95)     │
-│     ↓ (for fields with confidence < 0.85)                       │
-│  Tier 3: GPT-4o Vision Fallback (confidence: 0.6-0.9)          │
-│     ↓ (for any remaining empty fields)                          │
-│  Tier 4: Regex Fallback (confidence: 0.5-0.8)                  │
-│     ↓                                                           │
-│  Tier 5: Validation & Confidence Aggregation                    │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Design:**
-- **Field-level confidence scoring** — Each field tracks confidence + source
-- **Critical field validation** — `CRITICAL_FIELDS` lists `property_address`, `year_built`, `gross_living_area`, `appraised_value`, `contract_price`, `effective_date` at >= 0.90 confidence. Known bug: the mapping tables now emit `gla_sqft`, `effective_date_of_appraisal`, and `final_market_value`, so three critical fields always read as missing and `needs_review` is always true (regression test: `test_legacy_critical_fields_mapping.py`)
-- **Automatic review flagging** — `needs_review: true` when confidence thresholds not met
-- **Fallback chain** — Falls back through tiers if services are unavailable
+**Starting.** `POST /v1/studies/{id}/start` (engineer) needs a confirmed appraisal upload. It moves the study to `extracting`, commits, then starts the workflow with conflict policy `USE_EXISTING`, so repeats return the same execution.
 
 ---
 
-#### Stage 3: Semantic Chunking with Overlap
+## Retrieval and citations
 
-**File:** [`chunk_text.py`](backEnd/evidence_layer/src/chunk_text.py)
+Retrieval runs entirely on PostgreSQL. There are no pickles, FAISS files or index downloads ([`basis/retrieval/`](backEnd/basis/retrieval/)).
 
-Splits narrative text into retrieval units with semantic overlap.
+- **Parsing** (`parse.py`): pdfplumber words to lines, paragraphs, headings and list items. Ruled tables are found first and kept out of the text. Repeating headers and footers are dropped. A page without a text layer is retried with PyMuPDF; a page that is only images is reported as scanned (no OCR here).
+- **Tables** (`tables.py`): stored whole in `evidence_tables` and fetched by id. Search sees surrogate chunks that cover every row and point at the table.
+- **Chunks** (`chunk.py`): tiktoken `cl100k_base`, 400-token windows with 80 tokens of overlap. Chunks never cross a page, so every citation names one page. Each chunk is an exact substring of the parsed page text.
+- **BM25** (`bm25.py`, `tokenizer.py`): `rank_bm25` scoring (k1 = 1.5, b = 0.75) over an IRS-aware tokenizer that keeps codes such as `§1245`, `168(e)(3)(B)`, `57.0` and `87-56` whole. It uses the Lucene IDF, which stays positive in a small study corpus. The index is built in process from the chunk rows and cached per corpus version.
+- **Embeddings** (`embed.py`, `store.py`): `sentence-transformers/all-MiniLM-L6-v2`, 384 dimensions, normalized, stored in `chunks.embedding` with an HNSW cosine index. Tests use a deterministic hash embedder, which the settings refuse outside `dev` and `test`.
+- **Fusion** (`hybrid.py`): weighted score fusion or reciprocal rank fusion (k = 60), deterministic tie-breaking. Not yet used by the classifier (see [Status](#status-october-2026)).
+- **Corpus versions** (`ingest.py`): every ingest creates a new `corpus_versions` row. Once published, a version's chunks and tables cannot change (database triggers from migration `0003`), so a stored chunk id always means the same text. The reference corpus is ingested with the CLI; each study's appraisal becomes a study corpus in the `ingest_appraisal` activity.
+- **Citation verification** (`verify.py`, `basis/classify/verify.py`): a citation is a `(chunk_id, excerpt)` pair. It stands only if the chunk belongs to a corpus version the classification may cite, the normalized excerpt (NFKC, case folded, quotes and dashes unified, whitespace collapsed) is a substring of the normalized chunk text, and, on the model path, the chunk was actually returned by a tool during that classification. Excerpts shorter than 12 characters are rejected.
 
-```
-Non-Table Elements
-   │
-   ▼
-┌─────────────────────────────────────┐
-│  Chunking Parameters:               │
-│  • Target: 400 tokens               │
-│  • Overlap: 80 tokens               │
-│  • Hard max: 700 tokens             │
-│  • Tokenizer: cl100k_base (GPT-4)   │
-└─────────────────────────────────────┘
-   │
-   ▼
-Chunks with provenance metadata
-```
-
-**Why 80-token overlap?**
-
-```
-Without overlap:
-┌──────────────────┐ ┌──────────────────┐
-│ Chunk 1          │ │ Chunk 2          │
-│ "...property     │ │ includes assets  │
-│ under Section"   │ │ classified as... │
-└──────────────────┘ └──────────────────┘
-        ▲                    ▲
-        └── Boundary loss ───┘
-            "Section 1245 property includes..."
-            is split and context is lost
-
-With 80-token overlap:
-┌──────────────────────────┐
-│ Chunk 1                  │
-│ "...property under       │
-│ Section 1245 includes    │◄── Overlap
-│ assets classified..."    │
-└──────────────────────────┘
-              ┌──────────────────────────┐
-              │ Chunk 2                  │
-     Overlap ►│ "Section 1245 includes   │
-              │ assets classified as     │
-              │ tangible personal..."    │
-              └──────────────────────────┘
-
-Both chunks contain the full context.
-```
-
-**Chunk Output:**
-
-```json
-{
-  "chunk_id": "DOC_2024_chunk_15",
-  "type": "text",
-  "text": "Section 1245 property includes tangible personal property...",
-  "page_span": [12, 12],
-  "element_ids": ["DOC_2024_p12_e3", "DOC_2024_p12_e4"],
-  "section_path": ["How To Depreciate Property", "Section 1245"],
-  "token_count": 387
-}
+```bash
+cd backEnd
+uv run python -m basis.retrieval.ingest --corpus reference --pdf PATH --doc-id ID [--pdf PATH2 --doc-id ID2 ...]
+uv run python -m basis.retrieval.ingest --list-versions
 ```
 
 ---
 
-#### Stage 4: BM25 Index (Lexical Search)
+## Extraction and vision
 
-**File:** [`build_bm25.py`](backEnd/evidence_layer/src/build_bm25.py)
+**Appraisal extraction** ([`basis/extraction/pipeline.py`](backEnd/basis/extraction/pipeline.py)), one run per appraisal revision:
 
-Builds lexical index with **custom tokenization** for exact code matching.
+1. Read the PDF text layer and ruled tables with pdfplumber. Malformed input fails as a non-retryable error.
+2. Run Azure Document Intelligence `prebuilt-layout` with key-value pairs when it is configured. An earlier revision's analysis of the same document is reused, not paid for again. Without Azure DI the text layer alone is used and the result says so.
+3. Merge: Azure DI first; the caption-based text reader and tables only fill gaps. Disagreement on a critical field is an issue. Every field has one key (`section.field`) in a single catalogue (`field_mappings.py`).
+4. Clean each value by type (`cleaners.py`: unparseable numbers are `None`, never `0`; money is `Decimal`) and validate (`validation.py`: types, ranges, cross-field rules).
+5. One structured LLM call for critical fields that are missing or failed a rule (`fallback.py`). A returned value must appear in the page text that was sent, and its confidence is capped at 0.6, so it is always a suggestion for the reviewer.
+6. Review gate (`confidence.py`): `needs_review` when a critical field is missing, below the threshold (default 0.90), or has any validation issue.
 
-```
-Chunks
-   │
-   ▼
-┌─────────────────────────────────────┐
-│  Custom Tokenizer (not whitespace!) │
-│                                     │
-│  "§1245 property"                   │
-│       ▼                             │
-│  ["§1245", "1245", "property"]      │
-└─────────────────────────────────────┘
-   │
-   ▼
-BM25Okapi Index (bm25.pkl)
-```
+**Photo analysis** ([`basis/vision/`](backEnd/basis/vision/)): each photo is resized to at most 1024 px on its longest side, its EXIF (including GPS) is stripped, and it is sent in one strict JSON-schema call that returns a room type and components from fixed vocabularies. An unusable answer is retried once and then becomes an `ambiguous` analysis with `needs_review`, never a guess. Photos with the same `(room_type, floor, ordinal)` in a revision share one room row.
 
-**Why custom tokenization matters:**
-
-Standard tokenizers break regulatory codes:
-
-| Standard Tokenizer | Custom Tokenizer |
-|--------------------|------------------|
-| `["§", "1245"]` ❌ | `["§1245", "1245"]` ✓ |
-| `["168", "(", "e", ")"]` ❌ | `["168(e)(3)", "168"]` ✓ |
-| `["57", ".", "0"]` ❌ | `["57.0", "57"]` ✓ |
-
-**Tokenizer patterns** ([`tokenizers.py`](backEnd/evidence_layer/src/tokenizers.py)):
-
-| Pattern | Example | Tokens Generated |
-|---------|---------|------------------|
-| Section symbols | `§1245` | `["§1245", "1245"]` |
-| Parenthetical refs | `168(e)(3)(B)` | `["168(e)(3)(b)", "168"]` |
-| Decimal codes | `57.0`, `00.11` | `["57.0", "57"]` |
-| Mixed references | `Section 179(d)` | `["section", "179(d)", "179"]` |
-
-```python
->>> irs_tokenize("§1245 property depreciation")
-['§1245', '1245', 'property', 'depreciation']
-
->>> irs_tokenize("Asset class 57.0 under Section 168(e)(3)")
-['asset', 'class', '57.0', '57', 'section', '168(e)(3)', '168']
-```
-
-This ensures queries for `"1245"` match documents containing `"§1245"` or `"Section 1245"`. The same pattern applies to any domain with structured identifiers (hazard IDs, ASIL levels, requirement codes).
+**Model providers** ([`basis/llm/`](backEnd/basis/llm/)): every call goes through `call_model` (reserve, call, record, charge). OpenAI and Azure OpenAI sit behind one `ChatProvider` contract. Each call tries the primary first and moves to the secondary only after a 429 or 5xx. Prices come from one table in `cost.py`; an unknown model is priced at the most expensive row. Tests and behavioral evals use `ScriptedProvider` and make no network calls.
 
 ---
 
-#### Stage 5: FAISS Index (Semantic Search)
+## Classification, takeoffs and costs
 
-**File:** [`build_faiss.py`](backEnd/evidence_layer/src/build_faiss.py)
+`process_assets` handles every component of a revision ([`basis/activities/process_assets.py`](backEnd/basis/activities/process_assets.py)):
 
-Builds vector index for semantic similarity.
+1. **Classify** ([`basis/classify/router.py`](backEnd/basis/classify/router.py)):
+   - **Rules table** (`basis/domain/rules.py`): no model call. The rule's `(doc_id, page, excerpt)` citations are resolved against the reference corpus. Rows whose treatment conflicts with Treas. Reg. §1.48-1(e)(2) carry a `contested` note and go to review.
+   - **Approved cache** (`classification_cache`): engineer-approved answers keyed by label, material, attachment, property class and rules version; citations re-verified. Empty until Stage 4 writes to it.
+   - **Residual model** (`residual.py`): at most 3 tool calls and 4 model calls (one retry on invalid JSON), 60 s for the whole loop. The tools (`search_reference`, `search_study`, `get_chunk`, `get_table`) are bound to one study's corpus versions; the model can only pass a query or an id, never a study or corpus. The answer schema has no field that can move a study.
+   - **Review policy**: an unverified citation, no verified citation on the model path, an answer without a search, a contested rule, a loop failure or a validator warning sets `needs_review`. A model answer without a search or without a verified citation has its confidence capped at 0.3. When the model gives no usable answer, the asset gets the building's recovery period (no acceleration claimed) and confidence 0.
+2. **Measure** ([`basis/domain/takeoffs.py`](backEnd/basis/domain/takeoffs.py)): formulas that store their text and inputs so a reviewer can recompute the number. Room area is the room type's typical area until rooms carry a measured area.
+3. **Price** ([`basis/domain/costs.py`](backEnd/basis/domain/costs.py)): unit cost x quantity x year factor x location factor, in `Decimal`. The unit costs are placeholder "typical RSMeans" values from the legacy code until the engineer's cost source is loaded. A missing cost row is recorded with no amounts, not as zero.
+4. **Cross-validate** ([`basis/domain/cross_validation.py`](backEnd/basis/domain/cross_validation.py)) classification, takeoff and cost per asset.
+5. **Write** assets, takeoffs, cost estimates, verified citations and `llm_calls` rows in one transaction.
 
-```
-Chunks
-   │
-   ▼
-┌─────────────────────────────────────┐
-│  Sentence Transformer               │
-│  Model: all-MiniLM-L6-v2            │
-│  Dimensions: 384                    │
-└─────────────────────────────────────┘
-   │
-   ▼
-┌─────────────────────────────────────┐
-│  FAISS Index (IndexFlatIP)          │
-│  • Cosine via normalized vectors    │
-│  • Metadata mapping (chunk_id)      │
-└─────────────────────────────────────┘
-   │
-   ▼
-faiss.idx + metadata.json
-```
-
-**When to use semantic search:**
-- Conceptual queries: "What qualifies for accelerated depreciation?"
-- Paraphrased questions: "equipment that wears out quickly"
-- Related concepts: "tangible personal property" → finds "Section 1245"
+`export_report` writes the approved revision to `studies/<study_id>/exports/rev-<n>.json` and `rev-<n>.assets.csv`. Both are canonical (sorted keys, fixed row order, no timestamps), so exporting the same revision twice gives byte-identical files ([`basis/evidence/export.py`](backEnd/basis/evidence/export.py)).
 
 ---
 
-#### Pipeline Output Summary
+## Evaluation and test evidence
 
-After ingestion, each document produces:
+**Evaluation harness** ([`backEnd/evals/`](backEnd/evals/), [README](backEnd/evals/README.md)). Five datasets: appraisal fields, photo rooms, photo components, assets and retrieval qrels. Metrics are small owned functions with hand-checked tests: field accuracy (exact and normalized, with tolerances), per-class precision/recall/F1 and macro-F1, accuracy with Wilson intervals, abstention scored as abstention, nDCG@10, recall@k and MRR (trec_eval conventions), citation support rate, standard errors clustered by document, and pass^k over repeats.
 
+```bash
+cd backEnd
+uv run python -m evals.run --dry-run --report /tmp/eval.md                       # synthetic fixtures
+BASIS_EVAL_DATA_DIR=/path/to/package uv run python -m evals.run --split dev --repeats 5
+uv run python -m evals.run --split dev --predictions out/                        # score saved outputs
 ```
-data/{corpus}/{doc_id}/
-├── layout/
-│   └── elements.json      # Raw parsed elements with position
-├── structured/
-│   └── tables.json        # Complete tables (never chunked)
-├── retrieval/
-│   └── chunks.json        # Text chunks with overlap + provenance
-└── indexes/
-    ├── bm25/
-    │   └── index.pkl      # Lexical search index
-    └── vector/
-        ├── faiss.idx      # Semantic search index
-        └── metadata.json  # Chunk ID mapping
-```
+
+The real datasets come from a **private** client package under `BASIS_EVAL_DATA_DIR`. It is never in the repository or in CI. Without saved predictions the harness scores deterministic baselines (printed text, file names, the rules table, BM25 over pages). Model-backed systems are scored through `--predictions`.
+
+**Test evidence.** Each captured version gets a folder under [`docs/test-evidence/`](docs/test-evidence/), written by [`tooling/evidence/capture.py`](tooling/evidence/capture.py): `manifest.json` and `README.md` (git sha, toolchain, package versions, prompt and rules versions, the exact commands), `tests_collected.txt`, `gates.log` (ruff, mypy, OpenAPI check, pytest output), `junit.xml`, `summary.json`, and, where captured, CI run metadata and a screenshot. Folders in this tree: [`v0.3.0`](docs/test-evidence/v0.3.0/) (the Stage 2 release: 1582 tests passed, with the CI run's metadata, job logs and a screenshot of all seven jobs green) and the two Stage 2 preliminaries, [`stage2-a474e4d`](docs/test-evidence/stage2-a474e4d/) and [`stage2-prelim`](docs/test-evidence/stage2-prelim/). Each release adds its own folder; `v0.4.0` is the Stage 3 release.
 
 ---
 
-### 2) Evidence Layer (Hybrid RAG)
+## Running locally
 
-**Location:** `backEnd/evidence_layer/src/retrieval.py`
+Two options. Both need settings in the environment; `BASIS_ENV=dev` also reads `backEnd/.env`. Values you may set: `DATABASE_URL`, `TEMPORAL_ADDRESS`, `GCS_BUCKET` (otherwise files go to a local temp directory), `FIREBASE_PROJECT_ID`, `OPENAI_API_KEY` and/or `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` (+ deployment names), `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_KEY`, `EMBEDDING_MODEL`, `STUDY_BUDGET_USD`. The full list is in [`basis/config.py`](backEnd/basis/config.py). Without model providers the worker still runs: photo analysis fails as flagged, extraction uses the text layer only, and residual components are written `classifier_unavailable`.
 
-Combines lexical and semantic search with score normalization.
+**Option 1: Docker Compose** ([`docker-compose.yml`](docker-compose.yml): Postgres with pgvector, the Temporal dev server, the API and one worker; development only).
 
-**Retrieval Flow:**
-
-```
-Query
-  │
-  ├──► BM25 Search ──► Normalized Scores ──┐
-  │    (exact codes)                       │
-  │                                        ├──► Score Fusion ──► Deduplicate ──► Results
-  │                                        │
-  └──► Vector Search ─► Normalized Scores ─┘
-       (semantic)
+```bash
+docker compose up --build
+docker compose exec api alembic upgrade head
 ```
 
-**API:**
+The API is on `localhost:8000` and the Temporal UI on `localhost:8233`. The compose file does **not** run the outbox relay; without it, decisions are recorded but never reach the workflow. Run it as in option 2.
 
-```python
-# BM25 for exact codes/IDs
-results = bm25_search("IRS_PUB946_2024", "1245", top_k=5)
+**Option 2: uv, the Temporal CLI and Postgres**, one terminal per process ([S2_RUNBOOK.md](docs/review_2026-10-15/S2_RUNBOOK.md) walks through a full study):
 
-# Vector for semantic queries
-results = vector_search("IRS_PUB946_2024", "equipment depreciation", top_k=5)
+```bash
+docker run -d --name basis-pg -e POSTGRES_USER=basis -e POSTGRES_PASSWORD=basis \
+  -e POSTGRES_DB=basis -p 5544:5432 pgvector/pgvector:pg16
+temporal server start-dev --db-filename ~/.basis-temporal.db
 
-# Hybrid (recommended) - configurable BM25 weight
-results = hybrid_search("IRS_PUB946_2024", "tangible personal property", top_k=5, bm25_weight=0.5)
+cd backEnd
+uv sync
+export BASIS_ENV=dev
+export DATABASE_URL=postgresql://basis:basis@localhost:5544/basis  # pragma: allowlist secret
+uv run alembic upgrade head
+uv run python -m basis.worker
+uv run python -m basis.relay
+uv run uvicorn basis.api.main:app --port 8000
 ```
 
-**Key Features:**
-- Automatic score normalization before fusion
-- Deduplication of overlapping results
-- Table expansion: when surrogate chunks match, full table returned
-- Supports both "reference" corpus (shared docs) and "study" corpus (per-case docs)
+Load the reference corpus with the ingest CLI ([Retrieval and citations](#retrieval-and-citations)). The image is built from [`backEnd/Dockerfile`](backEnd/Dockerfile) with uv from the lockfile; the API is its default command and the worker runs from the same image with `python -m basis.worker`.
 
 ---
 
-### 3) Agent Loop and Workflow (as implemented)
+## Testing
 
-**Location:** `backEnd/agentic/`
+From `backEnd/`. About 2273 tests are collected (`BASIS_ENV=test uv run --no-sync pytest --collect-only -q`).
 
-**The agent loop.** Each stage agent extends `BaseStageAgent` (`agents/base_agent.py`). Its `run()` is a plain tool-calling loop: call the model with the evidence tools bound, execute any requested tool calls in-process, append the results, and stop when the model answers without tool calls or after `agent_max_iterations` (5). It does not use LangGraph's `create_react_agent`. The tools are LangChain `@tool` wrappers over the evidence layer, called in the same process (see [Evidence Tools](#6-evidence-tools-in-process-langchain-tools)).
-
-**What is static.** Room enrichment, object enrichment, takeoffs, and cost estimates run with `use_static=True`: dictionary lookups and formulas, no LLM. IRS classification checks static rules first, then a cache of engineer-approved results, and calls the LLM loop only for the remainder. LLM calls are made for photo analysis, residual classification, and classification verification.
-
-**Reproduced defects** (details in [REVIEW_AND_PLAN.md A.3](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a3-workflow-and-agent-correctness-topic-3)):
-- Only `load_study` → `resource_extraction` (or `error_handler`) is reachable from START; `analyze_rooms`, `reviewing_rooms`, `process_assets`, and `complete` have no incoming path.
-- Every "pause" is a graph `END`, not an interrupt. `resume_workflow` re-invokes the graph, which starts again from START and runs `load_study` → `resource_extraction` whatever the stage.
-- `resume_workflow(..., engineer_approved=False)` at the appraisal checkpoint writes `appraisalApproved: True`.
-- `_extract_citations_from_messages` drops every tool result, so LLM-path classifications have no citations, confidence 0.3, and `needs_review: true`.
-
-#### Design intent: selective retrieval
-
-The retrieval design targets **context window saturation**: when documents are large or interrelated, naive RAG retrieves too much context. The intended pattern is that the agent plans what evidence it needs, retrieves selectively, and checks sufficiency before answering. In the current code this pattern exists only inside the residual classification loop, which the live workflow never reaches.
-
-<img src="docs/technique_rag.svg" alt="Original design: classification agent calling evidence tools backed by hybrid BM25 + FAISS retrieval" width="900"/>
-
-*Original design diagram. The hybrid retrieval, custom tokenizer, and whole-table store match the code. The "MCP Evidence Server" box does not: agents call the same functions as in-process LangChain tools. The "Citation Gate" does not work on the LLM path today (see above).*
-
+```bash
+uv run pytest -q                          # everything (needs Docker and the Temporal test server)
+uv run pytest -q -m "not integration"     # no containers
+uv run pytest -q -m integration           # Postgres container (testcontainers), Temporal
+uv run pytest -q tests/lifecycle          # workflow lifecycle on the time-skipping server
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                  NAIVE RAG vs SELECTIVE RETRIEVAL (design)                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  NAIVE RAG:                          SELECTIVE RETRIEVAL:                   │
-│  Query → retrieve top-k → generate   Query → plan evidence needed           │
-│                                            → choose BM25 / vector / table   │
-│  ❌ may retrieve too much or the            → retrieve only what is needed   │
-│     wrong documents                        → check sufficiency              │
-│                                            → answer with citations          │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+
+| Suite | Covers |
+|---|---|
+| `tests/unit/` | Pure logic: config, logging, errors, idempotency, rate limits, storage, workflow validator and contracts, retrieval, extraction, vision, LLM providers, domain tables, classification, evidence, metrics |
+| `tests/api/` | The API through httpx with auth faked: auth, studies, uploads, decisions, workflow routes, idempotency, rate limits, the OpenAPI contract |
+| `tests/integration/` | Real Postgres (pgvector) in a container: migrations, constraints, concurrency, repositories, outbox, relay, retrieval store and ingest CLI, extraction persistence, worker process |
+| `tests/lifecycle/` | The real workflow and activities on Temporal's time-skipping server: happy path, reject paths, stale and duplicate and concurrent decisions, restart recovery, budget, timeouts, cancel, parallel photos, history size, versioning (replay of recorded histories) |
+| `tests/node/` | `process_assets` and `export_report` with a scripted model |
+| `tests/failure/` | Database outage, Temporal unavailable, worker killed mid-activity |
+| `tests/evals/behavior/` | Behavioral evals with a scripted model: missing evidence, fabricated citation, tool scope, review bypass, prompt injection in a document, loop caps |
+| `tests/regression/` | Home of the reproduced legacy defects; all have been fixed and replaced (see the ledger) |
+
+Every test file, the invariant it protects and the release that introduced it are listed in [`backEnd/tests/LEDGER.md`](backEnd/tests/LEDGER.md). Unit and node tests use synthetic fixtures under `backEnd/tests/fixtures/synthetic/`, generated by [`tooling/fixtures/`](tooling/fixtures/); no client file is used.
 
 ---
 
-#### Workflow: intended design vs as built
+## CI
 
-The legacy LangGraph workflow was designed around **3 engineer checkpoints** matching the frontend UI. As built, the graph does not connect them:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. Every job always runs and skips its own steps when its area did not change, so required checks never stay pending. Actions are pinned to commit SHAs.
 
-```
-INTENDED (legacy design)                         AS BUILT (graph edges at HEAD)
-─────────────────────────────────────────        ─────────────────────────────────
-load_study                                       START → load_study
-  ├─ resource_extraction                                  ├─ error_handler → END
-  │    → PAUSE 1: engineer reviews appraisal              └─ resource_extraction → END
-  └─ analyze_rooms (background job)
-PAUSE 2: engineer reviews rooms                  No path from START to:
-  → reviewing_rooms → process_assets               analyze_rooms, reviewing_rooms,
-  → PAUSE 3: engineer reviews assets               process_assets, complete
-  → complete
-```
+- **backend-lint**: `ruff check`, `ruff format --check`, `mypy`.
+- **backend-test**: the full pytest suite including integration tests (testcontainers starts the pgvector image; the Temporal SDK starts its test servers), with a JUnit report uploaded. The OpenAPI document is checked by a test in this suite.
+- **frontend**: `npm ci`, `npm run lint`, and `tsc --noEmit` (reported, not blocking until Stage 4).
+- **secrets-scan**: gitleaks.
+- **client-data-guard**: tests and runs [`tooling/check_no_client_data.py`](tooling/check_no_client_data.py) over every tracked file.
+- **docker-build**: builds the backend image and imports `basis` in it (non-blocking until Stage 5).
 
-`analyze_rooms` still runs: `load_study` enqueues it as a job and the job worker calls the node directly. `process_assets` has a job handler, but nothing enqueues it, so takeoffs, classification, costs, and the evidence pack do not run on the backend. The frontend's engineering-takeoff page runs on client-side demo models, and the browser writes `workflowStatus` to Firestore directly.
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml) runs ruff, detect-secrets, private-key detection and the client-data guard on developer machines. It is not a CI job.
 
-<img src="docs/technique_stategraph.svg" alt="Original design: LangGraph workflow with three engineer pause points" width="900"/>
+---
 
-*Original design diagram of the legacy LangGraph workflow. It shows the intended three-pause flow, not the graph that compiles today.*
+## Security and data handling
 
-**Frontend WorkflowStatus values:**
+- **The repository is public.** Client files never enter it or CI. [`tooling/check_no_client_data.py`](tooling/check_no_client_data.py) blocks files by sha256 ([`tooling/blocked_file_hashes.txt`](tooling/blocked_file_hashes.txt), known client evaluation files), by location, by data extension, by size (over 5 MiB) and by credential-like paths. It runs as a pre-commit hook and in CI. gitleaks and detect-secrets scan for secrets.
+- **Settings come from the environment.** `BASIS_ENV` is required and never inferred. `.env` is read only in `dev`. `staging` and `prod` refuse to start without required values. Secrets are `SecretStr`, and the database URL is excluded from `repr` ([`basis/config.py`](backEnd/basis/config.py)).
+- **Logs redact** any field whose name looks like a key, token, secret, password or authorization header ([`basis/obs/logging.py`](backEnd/basis/obs/logging.py)).
+- **Tenancy is enforced in the database.** Every study-scoped row carries `study_id` with a composite foreign key to its parent, so a row cannot reference another study's data. The API answers 404 for studies the user cannot see.
+- **The model cannot reach another study.** Classifier tools are bound to one study's corpus versions and refuse ids from any other version. Document text is passed to models as data, and extraction fallback values must appear in that text.
+- **Photos lose their metadata** (EXIF, GPS, ICC) before any provider call.
+- **Providers.** Model calls go to OpenAI or Azure OpenAI and document analysis to Azure Document Intelligence.
+
+---
+
+## Frontend (legacy, unchanged)
+
+[`frontend/`](frontend/) is a Next.js 14 (App Router) TypeScript app with TailwindCSS and Firebase (Auth with Google sign-in, Firestore, Storage). See [`frontend/README.md`](frontend/README.md). It has not changed in this rebuild:
+
+- **It does not use the new API.** It calls the legacy `/workflow/start`, `/workflow/resume` and `/workflow/{id}/status` endpoints ([`src/api/backend/workflow.api.ts`](frontend/src/api/backend/workflow.api.ts)), which were deleted with the legacy backend.
+- **It writes to Firestore directly**, including `workflowStatus`, rooms and assets. Firestore security rules are owner-only on `studies`, so the browser can write any field of its own study ([REVIEW_AND_PLAN A.4](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a4-persistence-queue-and-data-ownership)).
+- **The asset stages** on the engineering-takeoff page run on client-side demo models.
+
+**Firestore data model as the frontend uses it.** One `studies` collection; each document is owned by `userId` and holds `propertyName`, `status`, `workflowStatus`, `currentStep`, `visitedSteps`, `uploadedFiles`, `appraisalResources`, `rooms`, `takeoffs`, `assets`, `photoAnnotations`, `resourceChecklist` and `engineeringTakeoffState` ([`src/types/study.types.ts`](frontend/src/types/study.types.ts)). Files are in Firebase Storage. `workflowStatus` moves through:
+
 ```
 uploading_documents → analyzing_rooms → resource_extraction → reviewing_rooms → engineering_takeoff → completed
 ```
 
-**Planned (see [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture)).** One Temporal `StudyWorkflow` per study. It runs appraisal ingestion and field extraction, fans out photo analysis per photo, then waits for `appraisal_decision`, `rooms_decision`, and `assets_decision` signals from the API. A rejection with corrections re-runs the affected activities and waits again. Each approval references the exact revision it approved. Activities are idempotent, keyed by `(study_id, input_revision, activity)`, and write to PostgreSQL.
-
----
-
-#### Residual classification loop (AssetAgent)
-
-The AssetAgent system prompt (`agents/asset_agent.py`) tells the model to search IRS guidance, choose a section (1245/1250) and MACRS bucket, verify the pair with `validate_section_bucket_tool`, check consistency with `check_component_context_tool`, and call `reconsider_classification` if validation fails. These steps are prompted, not enforced by code. The output schema includes `citation_refs`.
-
-#### Agents and how they run today
-
-| Agent | Purpose | How it runs today |
-|-------|---------|-------------------|
-| **VisionAgent** | Room type and objects per photo | gpt-4o-mini, one call per photo, 2 concurrent; run by the job worker |
-| **RoomAgent** | Room enrichment | Static lookup (`use_static=True`) |
-| **ObjectAgent** | Component enrichment | Static lookup (`use_static=True`) |
-| **TakeoffAgent** | Quantity estimation | Static formulas (`use_static=True`) |
-| **AssetAgent** | MACRS classification | Static rules → engineer-approved cache → LLM loop with evidence tools |
-| **ClassificationVerifier** | IRS defensibility checks | LLM |
-| **CostAgent** | RSMeans cost estimates | Static calculation (`use_static=True`) |
-
-Every agent after VisionAgent is called from `process_assets`, which the live workflow does not reach.
-
----
-
-#### Evidence requirement: "no evidence, no claim" (being built)
-
-Today nothing enforces this. On the LLM path citations are always empty, for three independent reasons in `agents/base_agent.py`: the `ToolMessage` built in `run()` has no `name`, which the citation filter requires; the registered tool names end in `_tool`, which the filter does not accept; and tool results are serialized with `str()`, which `json.loads` cannot parse. Static-rule classifications carry their own pre-populated IRS citations and are unaffected.
-
-"No evidence, no claim" is the invariant being built and tested in the rebuild ([BUILD_PLAN §6.6](docs/review_2026-10-15/BUILD_PLAN.md#66-behavioral-evals-scripted-model-pr-gate)): no search means `needs_review` with confidence ≤ 0.3, a nonexistent chunk id is rejected, and a model cannot request another study's corpus.
-
----
-
-#### Agent Output Schema
-
-`AgentOutput` (`agents/base_agent.py`) carries the structured result, `citations`, `confidence`, `needs_review`, and `review_reason`. The intended shape of an asset classification, as an example:
-
-```json
-{
-  "asset_classification": {
-    "bucket": "5-year",
-    "life_years": 5,
-    "section": "1245",
-    "asset_class": "57.0",
-    "macrs_system": "GDS",
-    "irs_note": "Carpeting in residential rental property is Section 1245 property..."
-  },
-  "citations": [
-    {"chunk_id": "IRS_PUB946_2024_chunk_42", "page": 15, "text": "Section 1245 property includes..."},
-    {"chunk_id": "IRS_ATG_2024_chunk_88", "page": 34, "text": "Floor coverings are typically..."}
-  ],
-  "confidence": 0.92,
-  "needs_review": false,
-  "reasoning": "Found explicit IRS guidance classifying floor coverings as 1245 property..."
-}
-```
-
-On the LLM path today, `citations` is empty and `confidence` is 0.3.
-
----
-
-#### Checkpointing & Observability
-
-**Checkpointing:**
-- `create_workflow()` uses `FirestoreCheckpointer` (`agentic/firestore/checkpointer.py`) when `GCS_BUCKET_NAME` is set, and otherwise creates a new in-memory `MemorySaver` on every call, so in development nothing persists between start and resume.
-- Resume does not read the checkpoint. `resume_workflow` reads `workflowStatus` from the study document and re-invokes the graph from START.
-- `FirestoreCheckpointer` stores only the latest checkpoint per thread and does not return pending writes or parent configs.
-
-**LangSmith:**
-- The API process calls `configure_langsmith()` at startup, which covers graph runs started by `/workflow/start` and `/workflow/resume` (these run inside the HTTP request).
-- The job worker does not configure LangSmith, so photo analysis run by the worker is not traced.
-
-**LangSmith Dashboard:**
-
-![LangSmith Trace View](https://github.com/user-attachments/assets/75340053-603c-4ad2-9c40-c28c62ad703e)
-
----
-
-### 4) Appraisal Extraction — Azure Document Intelligence + Regex
-
-**Location:** `resource_extraction_node` in `backEnd/agentic/graph/nodes.py`, using `backEnd/evidence_layer/`
-
-This is the extraction path the workflow runs today:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     APPRAISAL EXTRACTION (live path)                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Appraisal PDF (downloaded from its storage URL)                            │
-│     │                                                                       │
-│     ├── Phase 1, in parallel                                                │
-│     │     • ingest_document: parse → tables → chunks → BM25 + FAISS         │
-│     │     • AzureDocumentExtractor: Azure DI key-value pairs + tables       │
-│     │                                                                       │
-│     ├── Phase 2, after ingest (pdfplumber is not thread-safe)               │
-│     │     • extract_appraisal_fields: regex over the PDF text               │
-│     │                                                                       │
-│     └── Merge                                                               │
-│           Azure DI confidence > 0.3 → Azure DI sections, cleaned by         │
-│                                       azure_di_cleaner; regex fills gaps    │
-│           else, tables exist        → URAR table → section mapping,         │
-│                                       regex fallback                        │
-│           else                      → regex fields only                     │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-The result is written to the study as `appraisalResources`, with an extraction audit recording the method used, the Azure DI confidence, and phase timings.
-
-**Not used: multi-agent extraction loop.** `backEnd/agentic/agents/appraisal/` contains an Extractor → Verifier → Corrector LangGraph `StateGraph` (bounded correction iterations) with tools for MISMO XML, Azure DI, GPT-4o vision, validation, and vision re-checks. The workflow does not import it.
-
-<img src="docs/agent_loop.svg" alt="Design of the unused Extractor, Verifier, Corrector loop" width="900"/>
-
-*Design of the multi-agent loop in `agents/appraisal/`. This code is not called by the workflow; live extraction is the Azure DI + regex path above.*
-
-**Planned (see BUILD_PLAN).** `ingest_appraisal` and `extract_fields` become Temporal activities: deterministic Azure DI + regex + validation rules, with a single targeted LLM call only for fields that fail validation ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)).
-
----
-
-### 5) Vision — Per-Photo Classification
-
-**Location:** `backEnd/agentic/agents/vision_agent.py` (live), `backEnd/vision_layer/` (implemented, not wired)
-
-**Live path.** `load_study` enqueues an `analyze_rooms` job; the job worker runs `analyze_rooms_node`, which calls `analyze_study_images` with 2 concurrent workers. Each photo is sent whole to gpt-4o-mini (Azure OpenAI, with an OpenAI fallback after a rate-limit error). The model returns a room type and detected objects as structured JSON, and the node writes the resulting rooms to the study.
-
-**`vision_layer/` (implemented, not wired).** This package implements a detection-first pipeline intended to reduce VLM hallucinations by classifying cropped regions instead of whole images. No module in `agentic/` imports it. It has its own unit tests.
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│               vision_layer/ PIPELINE — DETECTION FIRST (not wired)           │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌─────────┐ │
-│  │  STAGE 1 │───►│  STAGE 2 │───►│  STAGE 3 │───►│  STAGE 4 │───►│STAGE 5  │ │
-│  │  Detect  │    │  Segment │    │   Crop   │    │ Classify │    │ Verify  │ │
-│  │  Objects │    │  Regions │    │  Regions │    │   VLM    │    │Grounding│ │
-│  └──────────┘    └──────────┘    └──────────┘    └──────────┘    └─────────┘ │
-│       │               │               │               │              │       │
-│       ▼               ▼               ▼               ▼              ▼       │
-│  Grounding       SAM 2           Cropped         Material      Validated     │
-│  DINO 1.5        Masks           Images          Attrs         Artifacts     │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-| Stage | File | What it does |
-|-------|------|--------------|
-| Detect | [`api_clients/grounding_dino.py`](backEnd/vision_layer/src/api_clients/grounding_dino.py) | Open-vocabulary detection via Replicate; default box threshold 0.3 |
-| Segment | [`api_clients/sam2.py`](backEnd/vision_layer/src/api_clients/sam2.py) | SAM 2 masks from detection boxes (optional) |
-| Crop | [`pipeline/cropper.py`](backEnd/vision_layer/src/pipeline/cropper.py) | Crops each detection with 20% padding |
-| Classify | [`api_clients/vlm.py`](backEnd/vision_layer/src/api_clients/vlm.py) | VLM classification of each crop (component type, material, condition, installation type) |
-| Orchestrate | [`pipeline/ingest.py`](backEnd/vision_layer/src/pipeline/ingest.py) | Runs the stages per image with a concurrency semaphore |
-
-**Planned.** BUILD_PLAN keeps one structured-output VLM call per photo as the `analyze_photo` activity. Re-wiring detection-first is optional ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)).
-
----
-
-### 6) Evidence Tools (in-process LangChain tools)
-
-Agents reach the evidence layer through LangChain `@tool` functions in `backEnd/agentic/mcp_server/tools/`, bound to the model and executed in the agent's own process:
-
-| Registered tool | Purpose |
-|-----------------|---------|
-| `bm25_search_tool` | Exact token matching (codes, IDs, standard references) |
-| `vector_search_tool` | Semantic similarity for conceptual queries |
-| `hybrid_search_tool` | Combined search with score fusion |
-| `get_chunk_tool` | Fetch chunk by ID with full provenance |
-| `get_table_tool` | Fetch structured table (never chunked) |
-
-`backEnd/agentic/mcp_server/server.py` also exposes the same five functions as an MCP server over stdio (`bm25_search`, `vector_search`, `hybrid_search`, `get_table`, `get_chunk`). Nothing in the application launches that server or connects to it.
-
-**Tool signature (from `mcp_server/tools/search_tools.py`):**
-
-```python
-@tool
-def hybrid_search_tool(
-    doc_id: str,
-    query: str,
-    top_k: int = 10,
-    corpus: str = "reference",
-    study_id: Optional[str] = None,
-    bm25_weight: float = 0.5,
-) -> list[dict]:
-    """Combined BM25 + vector search with score fusion.
-    Automatically expands table surrogate hits to include full table data."""
-```
-
-`corpus` and `study_id` are arguments the model supplies. Binding them to the current study on the server side is part of the rebuild (BUILD_PLAN §6.6, tool scope test).
-
----
-
-## Tech Stack
-
-### Backend
-
-| Component | Technology |
-|-----------|------------|
-| **Framework** | FastAPI |
-| **Workflow Orchestration** | Temporal (in progress; LangGraph being removed) |
-| **LLM** | Azure OpenAI (gpt-4o-mini for vision, GPT-5-nano for text), OpenAI as rate-limit fallback |
-| **Document Intelligence** | Azure Document Intelligence (appraisal extraction) |
-| **PDF Parsing** | pdfplumber, PyMuPDF |
-| **Vector Store** | FAISS (moving to PostgreSQL + pgvector) |
-| **Lexical Search** | rank-bm25 |
-| **Embeddings** | sentence-transformers (`all-MiniLM-L6-v2`) |
-| **Observability** | LangSmith (API process only) |
-| **Database** | Firestore (migrating to PostgreSQL) |
-| **Storage** | Firebase Storage, GCS |
-
-### Frontend
-
-| Component | Technology |
-|-----------|------------|
-| **Framework** | Next.js 14 (App Router) |
-| **Language** | TypeScript |
-| **Styling** | TailwindCSS |
-| **Auth/DB** | Firebase |
-
-### Infrastructure
-
-- **Containers:** `backEnd/Dockerfile` and a development `docker-compose.yml` (API + job worker)
-- **Workflow state today:** study document fields in Firestore; the LangGraph checkpointer is not used on resume
-- **Target:** Cloud Run (API + worker), Cloud SQL PostgreSQL, Temporal, GCS — see [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture)
+Stage 4 moves the frontend to the API (no Firestore writes from the browser, a reject and correction UI, zero type errors, Next.js 15). Stage 6 migrates existing Firestore data into PostgreSQL.
 
 ---
 
 ## Deployment status
 
-Facts as verified on 2026-10-15 ([REVIEW_AND_PLAN.md A.7](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a7-build-and-deploy-configuration-verified)):
+Facts verified on 2026-10-15 ([REVIEW_AND_PLAN.md A.7](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a7-build-and-deploy-configuration-verified), [INFRA_NOTES.md](docs/review_2026-10-15/INFRA_NOTES.md)):
 
 - **Backend: not deployed.** No Cloud Run service or job exists in the `cost-seg-basis` project.
-- **Frontend: Firebase App Hosting backend bound to an older repository.** The App Hosting backend `basisbackend` is connected to a different repository and was last updated before this repository's first substantive commit, so it does not serve this code.
-- **`docker-compose.yml` is a development setup.** It bind-mounts the source and runs uvicorn with `--reload`, plus a separate job-worker container (`agentic.workers.job_worker`). It is not a production topology.
-- **No deployment pipeline yet.** CI for lint and tests is being added in Stage 0 of the rebuild; there is no Cloud Build config, deploy workflow, or infrastructure-as-code.
-- **Target topology:** API and worker on Cloud Run, PostgreSQL on Cloud SQL, Temporal for workflow progress, GCS for files, separate staging, GitHub Actions with OIDC. See [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture) and [§7](docs/review_2026-10-15/BUILD_PLAN.md#7-cicd-pipeline).
+- **Frontend:** the Firebase App Hosting backend `basisbackend` is connected to a different, older repository, so it does not serve this code.
+- **`docker-compose.yml` is for development only.**
+- **No deploy pipeline yet.** CI builds and tests; there is no deploy workflow or infrastructure-as-code. Stage 5 adds them.
 
 ---
 
-## Engineer-in-the-Loop Workflow
+## Roadmap
 
-Every module follows the same contract:
+From [BUILD_PLAN §10](docs/review_2026-10-15/BUILD_PLAN.md#10-stages-order-exit-criteria):
 
-1. **Frontend triggers module** with `{ studyId }`
-2. **Backend fetches** the required data from Firestore/Storage
-3. **Backend runs AI/ML**
-4. **Backend writes results** back to Firestore
-5. **Frontend renders results**
-6. **Engineer reviews + corrects**
-7. **Engineer manually advances** to the next stage
+| Stage | Scope |
+|---|---|
+| S0 to S3 (done) | Tooling and CI; PostgreSQL, auth and API; Temporal workflow and outbox; pipeline parity and deletion of the legacy packages |
+| S4 Frontend | API-only data layer, reject and correction UI, zero type errors, Playwright journeys, Next.js 15 |
+| S5 Deploy | Cloud Run API and worker, Cloud SQL, Temporal Cloud or self-hosted, Secret Manager, Workload Identity Federation, staging, alerts, promote and rollback drills |
+| S6 Data migration | Firestore export into PostgreSQL, verification, cutover, rollback window |
+| S7 Quality and load | Real-data evals, nightly runs, k6 load tests, failure drills, cost report |
 
-This is the core design principle that keeps deliverables defensible. Today the contract holds for appraisal extraction and photo analysis. The asset stages on the engineering-takeoff page run on client-side demo models, and the browser writes stage status to Firestore directly; in the rebuild, the API is the only writer and stage moves happen only through recorded engineer decisions ([BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture)).
-
----
-
-## User Workflow (High Level)
-
-This is the product flow as presented in the UI. Steps 5–8 currently run on client-side demo models in the frontend, not on the backend (see [Status](#status-october-2026)).
-
-1. 📝 **Create New Study**
-
-   * Engineer enters property name
-   * Selects files to upload (photos, PDFs, appraisals)
-   * Clicks **Start Analysis**
-
-2. ⬆️ **Upload Documents**
-
-   * Files upload to Firebase Storage
-   * Progress tracked in UI
-
-3. 📄 **Appraisal Processing**
-
-   * Ingest PDF using same pipeline as IRS docs (parse → chunk → index)
-   * Extract tables with structure preserved (headers, rows, page)
-   * **Field extraction:** Azure Document Intelligence in parallel with ingestion, then regex extraction; Azure DI values are cleaned and regex values fill gaps
-   * If Azure DI is unavailable or low-confidence: map URAR tables to frontend sections (subject, neighborhood, site, improvements, etc.), with regex fallback
-   * Store the extraction method and Azure DI confidence with the results
-   * ⏸️ **Engineer reviews + corrects**
-
-4. 🏠 **Room Classification**
-
-   * Scene + material + object context
-   * Groups photos into predicted rooms
-   * ⏸️ **Engineer reviews + corrects**
-
-5. 🔍 **Object Classification**
-
-   * Detects components from photos
-   * Enriches with room context + metadata
-   * ⏸️ **Engineer reviews + corrects**
-
-6. 📐 **Engineering Takeoffs**
-
-   * Calculates measurements
-   * ⏸️ **Engineer reviews + corrects**
-
-7. 💰 **Asset Classification**
-
-   * IRS-grounded classification
-   * ⏸️ **Engineer reviews + corrects**
-
-8. 🧾 **Cost Classification**
-
-   * Maps components to integrated cost databases
-   * ⏸️ **Engineer reviews + corrects**
-
-9. ✅ **Complete Study**
-
-   * Export package generated for firm templates
+**Deliberately deferred until measured:** Redis, Kubernetes, and LangGraph at the top level. BUILD_PLAN lists them after S7 with a measurement precondition. LangGraph may come back later inside a single activity if a step needs it.
 
 ---
 
-## Current Application: Cost Segregation
+## History: the legacy design
 
-The architecture currently targets **cost segregation**—accelerating tax depreciation analysis for commercial real estate.
+Until Stage 3 the backend was three packages, all deleted on this branch:
 
-**Domain-Specific Implementation:**
+- `backEnd/agentic/`: a LangGraph workflow with nine "agents", a Firestore checkpointer, a Firestore job queue and worker, and an MCP server that nothing launched.
+- `backEnd/evidence_layer/`: PDF parsing, pickled BM25 and FAISS indexes, regex and Azure DI extraction.
+- `backEnd/vision_layer/`: a Grounding DINO + SAM2 detection pipeline that was never wired in.
 
-- **Reference Corpus:** IRS Pub 946, Pub 527, Cost Seg ATG, Rev Proc 87-56, RSMeans databases
-- **Exact-Match Queries:** Asset class codes (e.g., `"57.0"`), IRS sections (e.g., `"§1245"`)
-- **Semantic Queries:** "What property qualifies for 5-year depreciation?"
-- **Traceability:** Static-rule classifications carry IRS citations; citations on the LLM path are broken today and are a tested invariant in the rebuild
-- **Vision Processing:** One vision-language model call per property photo (see [Vision](#5-vision--per-photo-classification))
+The review found the four defects in the [Status](#status-october-2026) table: an unreachable graph, resumes that restarted, rejections recorded as approvals, and citations that were always empty. Those, plus state split between Firestore fields and an unused checkpointer, are why the workflow moved to Temporal and the data to PostgreSQL ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)). The useful parts were migrated module by module into `basis/`, and each module docstring says what was kept and what changed. The legacy design diagrams remain for reference: [architecture](docs/architecture.svg), [LangGraph workflow](docs/technique_stategraph.svg), [retrieval agent](docs/technique_rag.svg), [appraisal agent loop](docs/agent_loop.svg). They do not describe the current code.
 
 ---
 
-## Traction & Validation
+## Other document domains
 
-Basis has been used in paid pilots with design partners. The backend is being rebuilt before wider deployment (see [Status](#status-october-2026)).
+The retrieval design targets documents with "standardized headers, messy context": exact codes and tables inside narrative text. Cost segregation uses IRS publications. The same pattern fits, for example, ISO 26262 functional-safety documents (HARA baselines, safety goals, TSRs, FMEA tables):
 
-**Customers:**
-- **CSSI** (top-5 cost segregation firm) — paying user
-- **CBIZ** — paying user
-- Design partners at multiple top-5 firms have validated **50%+ time savings** on analysis workflows
+| Basis today | Safety-document equivalent |
+|---|---|
+| Tokenizer keeps `§1245`, `168(e)(3)`, `57.0`, `87-56` whole | Add patterns for `HAZ-001`, `TSR-042`, `ASIL-D`, `ISO 26262-6:2018 §7.4.3` |
+| Tables stored whole, surrogate chunks cover every row | FMEA tables, DFA and traceability matrices stay intact |
+| Chunks never cross a page; citations name document and page | Every claim traces to a clause on a page |
+| Citations verified by chunk id + excerpt substring | "No evidence, no claim" for safety arguments |
+| Engineer review gates | Engineer sign-off before a safety decision is final |
 
-**Awards:**
+What would change: tokenizer patterns, the reference corpus, the prompts and the rules table. Parsing, chunking, storage, BM25, embeddings and citation verification carry over.
 
-### LavaLab Fall 2025 — Best Traction
+---
+
+## Traction
+
+Basis has been used in paid pilots on the legacy system:
+
+- **CSSI** (top-5 cost segregation firm), paying user
+- **CBIZ**, paying user
+- Design partners at multiple top-5 firms reported **50%+ time savings** on analysis.
+
+**LavaLab Fall 2025: Best Traction**
 
 ![Basis Team Holding Check](https://github.com/user-attachments/assets/a48693f1-f7cb-4832-a8ca-f7ed817b2f7f)
 
 ---
 
-## NVIDIA Applicability: Automotive Functional Safety Project
+## Planning documents
 
-The Basis architecture directly addresses the document intelligence challenges in ISO 26262 workflows.
-
-**The Problem:**
-
-Functional safety teams work with large document sets—HARA baselines, safety goals, TSRs, verification evidence—that share a common structure:
-- **Standardized headers** (hazard IDs, ASIL classifications, requirement codes)
-- **Messy context sections** (rationale, assumptions, linked evidence)
-- **Strict traceability requirements** (every claim must cite source documents)
-
-Querying these documents with traditional RAG fails: vector search hallucinates on exact IDs, keyword search misses semantic relationships, and LLMs can't process hundreds of pages in context.
-
-**Architecture Mapping:**
-
-| Basis Component | Functional Safety Application |
-|-----------------|-------------------------------|
-| **Custom BM25 Tokenization** | Preserve `HAZ-001`, `TSR-042`, `ASIL-D`, `ISO 26262-6:2018 §7.4.3` as atomic tokens |
-| **Tables Never Chunked** | FMEA tables, DFA matrices, traceability matrices stay intact |
-| **80-Token Overlap** | Safety goal rationale spanning paragraphs isn't split |
-| **Hybrid Search** | Exact ID lookup + semantic "what evidence supports this safety goal?" |
-| **Surrogate → Full Table** | Search hits "FMEA row for HAZ-001" → returns complete FMEA with all columns |
-| **Citation Requirement** | "No evidence, no claim" — the invariant being built and tested in the rebuild (BUILD_PLAN §6.6) |
-| **Human-in-the-Loop** | Engineer reviews before any safety decision is finalized |
-
-**Example Queries This Architecture Handles:**
-
-```
-Exact ID lookup (BM25):
-  "TSR-042" → finds all chunks referencing TSR-042
-
-Semantic search (FAISS):
-  "verification evidence for braking system hazards" → finds related test reports
-
-Hybrid (recommended):
-  "ASIL-D requirements for sensor fusion" → exact ASIL match + semantic relevance
-
-Table fetch:
-  Search hits FMEA surrogate → get_table() returns full FMEA with hazard, severity, exposure, controllability
-```
-
-**Tokenizer Adaptation:**
-
-The custom tokenizer pattern extends directly to safety document codes:
-
-| IRS Pattern | Safety Pattern | Tokenizer Handles |
-|-------------|----------------|-------------------|
-| `§1245` | `HAZ-001` | Prefix + number preserved |
-| `168(e)(3)` | `ISO 26262-6:2018 §7.4.3` | Nested references preserved |
-| `57.0` | `ASIL-D` | Alphanumeric codes preserved |
-| `Rev Proc 87-56` | `TSR-042-REV-A` | Multi-part identifiers preserved |
-
-**What Would Change for Safety Documents:**
-
-1. **Tokenizer regex** — add patterns for `HAZ-\d+`, `TSR-\d+`, `ASIL-[A-D]`, ISO clause refs
-2. **Reference corpus** — ingest ISO 26262 parts, internal HARA baselines, verification templates
-3. **Agent prompts** — swap IRS classification logic for safety goal verification logic
-4. **Structured store** — FMEA tables, DFA matrices instead of depreciation tables
-
-The ingestion pipeline and hybrid retrieval would carry over unchanged.
-
----
-
-## Accuracy, Safety & Defensibility
-
-Basis is designed for **engineering-grade output**, not generic AI chat.
-
-What is in place today:
-
-* **Retrieval over the actual IRS documents** — hybrid BM25 + vector search over ingested IRS publications, with tables kept whole
-* **Deterministic rules first** — static rules classify, enrich, measure, and cost known components and carry their own IRS citations (unit-tested; see [Status](#status-october-2026) for which of them run today)
-* **Human-in-the-loop checkpoints** — the UI gates appraisal, room, and asset review; a reject path is not implemented yet
-* **Confidence scoring + needs_review flags** — low-confidence outputs are flagged; on the LLM classification path every result is flagged today because citations are lost (see [section 3](#3-agent-loop-and-workflow-as-implemented))
-
-What the rebuild adds, each as a test in [BUILD_PLAN §6](docs/review_2026-10-15/BUILD_PLAN.md#6-the-full-test-inventory):
-
-* **"No evidence, no claim"** — the invariant being built and tested ([BUILD_PLAN §6.6](docs/review_2026-10-15/BUILD_PLAN.md#66-behavioral-evals-scripted-model-pr-gate)): no search means `needs_review` with confidence ≤ 0.3, and a citation must resolve to a real chunk
-* **Rejection never records approval**, and approvals bind to the exact revision reviewed
-* **Tool scope** — a model cannot request another study's documents
-
----
-
-## Data Handling
-
-* Customer artifacts are stored in **Firebase Storage**, which encrypts data at rest.
-* Study data is stored in **Firestore** with owner-only security rules.
-* LLM and document calls go to Azure OpenAI and Azure Document Intelligence, with the OpenAI API as a rate-limit fallback; none of these train on API data by default.
-* No known client file is tracked in this public repository. `docs/review_2026-10-15/blocked_file_hashes.txt` lists SHA-256 hashes of known client files so they can be blocked from commits.
-
----
-
-## Why Not Just Use ChatGPT?
-
-Cost segregation is not a single "upload a PDF" problem.
-
-Engineers often work with **hundreds of photos and mixed documents** per study, with strict IRS expectations for classification and auditability.
-
-Basis is a **three-layer system** that:
-
-* **Uses actual IRS documents** — Hybrid BM25 + vector retrieval over ingested IRS publications, not model knowledge cutoff
-* **Keeps tables whole** — depreciation tables are stored intact and fetched by id instead of chunked
-* **Extracts appraisals with a document model** — Azure Document Intelligence plus regex, not a chat prompt
-* **Prefers rules to the model** — known components are handled by deterministic rules; the LLM handles only the residual cases
-* **Stage-gates the work** — Engineers review appraisal data, rooms, and assets in the UI before the study moves on
-* **Is being rebuilt to enforce citations** — "no evidence, no claim" and rejection handling are tested invariants in the [build plan](docs/review_2026-10-15/BUILD_PLAN.md)
-
-
----
-
-## System Architecture (Full, as built)
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                         ENGINEER UI                              │
-│  • Review screens for appraisal, rooms, and assets               │
-│  • Engineer edits values in place (no reject path yet)           │
-└────────────────────────────────┬─────────────────────────────────┘
-                                 │
-┌────────────────────────────────▼─────────────────────────────────┐
-│                      NEXT.JS FRONTEND                            │
-│  • Firebase Auth (Google sign-in), ID token sent to the API      │
-│  • Firestore listeners; writes workflowStatus directly           │
-│  • Asset stages run on client-side demo models                   │
-└────────────────────────────────┬─────────────────────────────────┘
-                                 │
-┌────────────────────────────────▼─────────────────────────────────┐
-│               FASTAPI BACKEND + JOB WORKER (not deployed)        │
-│                                                                  │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
-│  │  VISION         │  │ EVIDENCE LAYER  │  │  WORKFLOW       │   │
-│  ├─────────────────┤  ├─────────────────┤  ├─────────────────┤   │
-│  │ gpt-4o-mini,    │  │ PDF Parsing     │  │ LangGraph graph │   │
-│  │ one call per    │  │ Table Extract   │  │ (2 of 7 nodes   │   │
-│  │ photo (worker)  │  │ Text Chunking   │  │  reachable)     │   │
-│  │                 │  │ BM25 Index      │  │ Azure DI + regex│   │
-│  │ vision_layer/   │  │ FAISS Index     │  │ extraction      │   │
-│  │ DINO + SAM2:    │  │ Hybrid Search   │  │ Static rules +  │   │
-│  │ not wired       │  │                 │  │ residual LLM    │   │
-│  └─────────────────┘  └────────┬────────┘  └────────┬────────┘   │
-│                                │                    │            │
-│                    ┌───────────▼────────────────────▼──────┐     │
-│                    │   IN-PROCESS LANGCHAIN TOOLS          │     │
-│                    │  • bm25_search_tool                   │     │
-│                    │  • vector_search_tool                 │     │
-│                    │  • hybrid_search_tool                 │     │
-│                    │  • get_table_tool • get_chunk_tool    │     │
-│                    └───────────────────────────────────────┘     │
-│                                                                  │
-└────────────────────────────────┬─────────────────────────────────┘
-                                 │
-┌────────────────────────────────▼─────────────────────────────────┐
-│                     FIREBASE DATA LAYER                          │
-│  • Storage: documents, images                                    │
-│  • Firestore: studies, job_queue, workflow_checkpoints           │
-│  • Security rules: owner-only access to studies                  │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-The target architecture (Temporal, PostgreSQL, Cloud Run, API as the only writer) is in [BUILD_PLAN §1](docs/review_2026-10-15/BUILD_PLAN.md#1-target-architecture).
-
----
-
-## About
-
-Basis demonstrates that **document intelligence problems share common architectural requirements**:
-
-1. **Hybrid retrieval** for documents with both exact codes and narrative context
-2. **Custom tokenization** that preserves domain-specific identifiers (not naive whitespace splitting)
-3. **Agentic orchestration** for multi-step reasoning with tool routing
-4. **Human-in-the-loop checkpoints** for auditability and defensibility
-5. **Citation-first outputs** linking every claim to source evidence
-
-The same pipeline that queries IRS depreciation tables can query HARA baselines, safety goals, TSRs, or verification evidence—because the architectural pattern is the same:
-
-| IRS Domain | Safety Domain |
-|------------|---------------|
-| `§1245`, `168(e)(3)` | `HAZ-001`, `TSR-042` |
-| Asset class `57.0` | ASIL-B, ASIL-D |
-| IRS Pub 946 citations | ISO 26262 clause refs |
-| Depreciation tables | FMEA tables, DFA matrices |
-
-**Standardized headers, messy context, need for traceability.**
-
----
+- [REVIEW_AND_PLAN.md](docs/review_2026-10-15/REVIEW_AND_PLAN.md): verified review of the legacy system and the decision record.
+- [BUILD_PLAN.md](docs/review_2026-10-15/BUILD_PLAN.md): build contract, test inventory, stages.
+- Stage specs: [S1_SPEC.md](docs/review_2026-10-15/S1_SPEC.md), [S2_SPEC.md](docs/review_2026-10-15/S2_SPEC.md), [S3_SPEC.md](docs/review_2026-10-15/S3_SPEC.md).
+- [S2_RUNBOOK.md](docs/review_2026-10-15/S2_RUNBOOK.md): run a study locally end to end.
+- [INFRA_NOTES.md](docs/review_2026-10-15/INFRA_NOTES.md): what exists in the cloud project.
+- [docs/api/openapi.json](docs/api/openapi.json): the API contract.
+- [backEnd/tests/LEDGER.md](backEnd/tests/LEDGER.md): every test file and the invariant it protects.

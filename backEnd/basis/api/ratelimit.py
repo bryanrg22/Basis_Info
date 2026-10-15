@@ -1,4 +1,4 @@
-"""Per-caller rate limits (S1_SPEC section 5): 60 reads and 10 mutations per minute.
+"""Per-caller rate limits (S1_SPEC section 5): by default 240 reads and 60 mutations per minute.
 
 Algorithm: sliding-window log. Each key keeps the timestamps of its accepted requests
 in the last window; a request is accepted when fewer than ``limit`` remain. Chosen over
@@ -9,7 +9,7 @@ the alternatives because:
   admits a full burst and then a steady refill, also above the stated "per minute";
 * ``Retry-After`` is exact: the moment the oldest logged request leaves the window;
 * the cost (one timestamp per accepted request, at most ``limit`` per key) is trivial at
-  10 and 60 per minute. At limits in the thousands a GCRA or sliding-window counter
+  60 and 240 per minute. At limits in the thousands a GCRA or sliding-window counter
   (O(1) per key) would be the better trade.
 
 Rejected requests are not logged, so a client that keeps hammering is not locked out
