@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
 
 import pytest
-from classifytest_support import REF_VERSION, reference_chunks
-from lifecycletest_support import SeededStudy, make_deps, seed_run, seed_study
+from classifytest_support import reference_chunks
+from lifecycletest_support import (
+    SeededStudy,
+    make_deps,
+    seed_reference_corpus,
+    seed_run,
+    seed_study,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from unit.activities.conftest import (  # noqa: F401  (fixtures re-exported for this dir)
     Env,
@@ -28,41 +33,11 @@ from unit.activities.conftest import (  # noqa: F401  (fixtures re-exported for 
 from basis.activities import Deps
 from basis.classify.store_protocol import InMemoryChunkStore
 from basis.config import Settings
-from basis.db.enums import Corpus
-from basis.db.models import Chunk, CorpusVersion, Room
+from basis.db.models import Room
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm.provider import ScriptedProvider, ScriptedTurn
 from basis.storage import LocalStorage
-
-
-async def seed_reference_corpus(sm: async_sessionmaker[AsyncSession]) -> InMemoryChunkStore:
-    chunks = reference_chunks()
-    async with session_scope(sm) as session:
-        session.add(
-            CorpusVersion(
-                id=REF_VERSION,
-                corpus=Corpus.REFERENCE.value,
-                study_id=None,
-                version=1,
-                embedding_model="test",
-                published_at=datetime.now(UTC),
-            )
-        )
-        await session.flush()
-        for c in chunks:
-            session.add(
-                Chunk(
-                    id=c.id,
-                    corpus_version_id=c.corpus_version_id,
-                    doc_id=c.doc_id,
-                    chunk_key=c.chunk_key,
-                    page_start=c.page_start,
-                    page_end=c.page_end,
-                    text=c.text,
-                )
-            )
-    return InMemoryChunkStore.of(chunks)
 
 
 def node_deps(
@@ -114,4 +89,4 @@ async def study(sessionmaker: async_sessionmaker[AsyncSession]) -> SeededStudy: 
 async def reference_store(
     sessionmaker: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> InMemoryChunkStore:
-    return await seed_reference_corpus(sessionmaker)
+    return await seed_reference_corpus(sessionmaker, reference_chunks())

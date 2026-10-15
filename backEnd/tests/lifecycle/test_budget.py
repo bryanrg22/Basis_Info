@@ -16,14 +16,17 @@ from basis.db.session import session_scope
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
-PHOTOS = ["kitchen_1.jpg", "kitchen_2.jpg", "bathroom_1.jpg"]
+# Every photo here carries an unlisted item ("other") that no rule classifies, so whichever
+# two photos the budget covers, process_assets must reserve model budget for a residual
+# component (4 iterations x $0.002 = $0.008). Photo order is not guaranteed.
+PHOTOS = ["living_1.jpg", "bedroom_1.jpg", "living_2.jpg"]
 
 
 async def test_budget_exceeded_flags_items_and_the_study_still_completes(
     harness: Harness,
 ) -> None:
     # 0.025 covers two photos (0.01 each); the third gets 0.005 and the activity refuses it.
-    # Assets then need 4 components x 0.002 = 0.008 > 0.005 and are refused too.
+    # Assets then need up to 0.008 for the one residual component > 0.005: refused too.
     study = await harness.seed(photos=PHOTOS)
     async with harness.worker():
         started = await harness.start(study, budget_usd=0.025, photo_concurrency=1)

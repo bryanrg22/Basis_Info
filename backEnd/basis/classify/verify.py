@@ -6,16 +6,15 @@ substring of that chunk's text, and on the model path the chunk must have been r
 a tool during this classification (``retrieved``). A citation failing any check is
 dropped with a reason; the caller flags the asset ``citation_unverified``.
 
-``normalize_text`` is local on purpose (S3-A owns ``basis.retrieval.verify``; the
-orchestrator reconciles the two at merge). It folds Unicode compatibility forms, case,
-curly quotes, the dash family and runs of whitespace, so an excerpt copied from a PDF
+Text normalization and the minimum excerpt length are those of
+:mod:`basis.retrieval.verify` (one implementation for retrieval and classification): NFKC
+folding, case folding, typographic quotes and the dash family to ASCII, soft hyphens and
+zero-width characters removed, whitespace runs collapsed, so an excerpt copied from a PDF
 with typographic punctuation still matches the stored text.
 """
 
 from __future__ import annotations
 
-import re
-import unicodedata
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -23,34 +22,9 @@ from typing import Final, Literal
 
 from basis.classify.schemas import CitationClaim
 from basis.classify.store_protocol import ChunkStore
+from basis.retrieval.verify import MIN_EXCERPT_CHARS, normalize_text
 
-# Below this many normalized characters an excerpt says nothing ("the", "1245").
-MIN_EXCERPT_CHARS: Final = 12
 MAX_EXCERPT_CHARS: Final = 1000
-
-_QUOTES: Final = str.maketrans(
-    {
-        "‘": "'",
-        "’": "'",
-        "‚": "'",
-        "‛": "'",
-        "′": "'",
-        "“": '"',
-        "”": '"',
-        "„": '"',
-        "‟": '"',
-        "″": '"',
-        "‐": "-",
-        "‑": "-",
-        "‒": "-",
-        "–": "-",
-        "—": "-",
-        "―": "-",
-        "−": "-",
-        "­": "",  # soft hyphen
-    }
-)
-_WHITESPACE: Final = re.compile(r"\s+")
 
 DropReason = Literal[
     "malformed_id",
@@ -61,11 +35,6 @@ DropReason = Literal[
     "excerpt_mismatch",
     "duplicate",
 ]
-
-
-def normalize_text(text: str) -> str:
-    folded = unicodedata.normalize("NFKC", text).translate(_QUOTES).lower()
-    return _WHITESPACE.sub(" ", folded).strip()
 
 
 def excerpt_supported(excerpt: str, chunk_text: str) -> bool:

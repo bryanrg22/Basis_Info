@@ -43,6 +43,8 @@ from basis.db.models import (
     Takeoff,
 )
 from basis.db.session import session_scope
+from basis.llm.cost import cost_usd
+from basis.llm.provider import Usage
 from basis.storage import LocalStorage
 from basis.workflow.contracts import ProcessAssetsInput
 
@@ -156,7 +158,11 @@ async def test_rule_model_and_fabricated_paths(
         ).one()
     assert len(calls) == 4 and {c.prompt_version for c in calls} == {"classify/v1"}
     assert all(c.run_id is not None and c.activity == "process_assets" for c in calls)
-    assert output.cost_usd == pytest.approx(4 * (100 * 0.15 + 50 * 0.60) / 1_000_000)
+    # Charged from the cost table for the model the provider reports it ran; the scripted
+    # provider's name has no price row, so the conservative unknown-model row applies.
+    assert output.cost_usd == pytest.approx(
+        4 * cost_usd("scripted-model", Usage(input_tokens=100, output_tokens=50))
+    )
     # Bedroom: 150 SF typical -> 150 / 9 x 1.10 = 18.33 SY; 61.20/SY x 1.22 = 74.66.
     assert (carpet_takeoff.quantity, carpet_takeoff.unit) == (Decimal("18.33"), "SY")
     assert carpet_takeoff.inputs["room_area_source"] == "typical_for_room_type"

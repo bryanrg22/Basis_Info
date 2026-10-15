@@ -21,21 +21,23 @@ import secrets
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from functools import cache
 from typing import Final
 
+from classifytest_support import REF_VERSION, lifecycle_reference_chunks
 from dbtest_support import Factory
 from fixtures import fixture_path
 from llm_fakes import FixtureAzureDi, FixtureVisionProvider, fixture_bytes_for
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.activities import Deps
 from basis.classify.schemas import Classification
-from basis.classify.store_protocol import ChunkStore, InMemoryChunkStore
+from basis.classify.store_protocol import ChunkStore, InMemoryChunkStore, StoredChunk
 from basis.config import Settings
-from basis.db.enums import DocumentKind, Stage
-from basis.db.models import ActivityResult, Base, Run
+from basis.db.enums import Corpus, DocumentKind, Stage
+from basis.db.models import ActivityResult, Base, Chunk, CorpusVersion, Run
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
@@ -186,6 +188,50 @@ def scripted_classifier(turns: int = SCRIPTED_CLASSIFIER_TURNS) -> ScriptedProvi
         reason="scripted test answer",
     )
     return ScriptedProvider([ScriptedTurn(parsed=answer) for _ in range(turns)])
+
+
+async def seed_reference_corpus(
+    sessionmaker: async_sessionmaker[AsyncSession], chunks: Sequence[StoredChunk] | None = None
+) -> InMemoryChunkStore:
+    """A published reference corpus (version 1, ``REF_VERSION``) in Postgres, mirrored
+    with the same chunk ids into an in-memory store for the activities.
+
+    Default chunks: :func:`classifytest_support.lifecycle_reference_chunks`, so every
+    rules-table citation resolves and rule assets get verified citations as in production.
+    The chunks are inserted before the version is published: a published version's chunks
+    are immutable (migration 0003).
+    """
+    rows = list(lifecycle_reference_chunks() if chunks is None else chunks)
+    async with session_scope(sessionmaker) as session:
+        session.add(
+            CorpusVersion(
+                id=REF_VERSION,
+                corpus=Corpus.REFERENCE.value,
+                study_id=None,
+                version=1,
+                embedding_model="test",
+            )
+        )
+        await session.flush()
+        session.add_all(
+            Chunk(
+                id=c.id,
+                corpus_version_id=c.corpus_version_id,
+                doc_id=c.doc_id,
+                chunk_key=c.chunk_key,
+                page_start=c.page_start,
+                page_end=c.page_end,
+                text=c.text,
+            )
+            for c in rows
+        )
+        await session.flush()
+        await session.execute(
+            update(CorpusVersion)
+            .where(CorpusVersion.id == REF_VERSION)
+            .values(published_at=datetime.now(UTC))
+        )
+    return InMemoryChunkStore.of(rows)
 
 
 _DEFAULT: Final = object()

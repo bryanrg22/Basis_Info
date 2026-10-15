@@ -6,6 +6,11 @@
         "sha256": "154b990666a0d1bd21f690961f0070c5314fc07ee2ab67eacb3a88419fb74f6b"
       }
     },
+    "classify": {
+      "v1": {
+        "sha256": "842119edbd8d7e1bf3eebe0540c2615fc81ef20592776a94cafba2d298c1792b"
+      }
+    },
     "photo_analysis": {
       "v1": {
         "sha256": "17433a44357fe203bb84fb31dafba0f5bbceac9ad3fce84acff5e56da6f6844d"

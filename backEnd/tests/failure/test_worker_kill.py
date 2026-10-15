@@ -1,6 +1,7 @@
 """The worker process dies or is stopped while an activity is mid-flight (S2_SPEC 9).
 
-Real processes, as in production: ``python -m basis.worker`` subprocesses (the pattern of
+Real processes, as in production: worker subprocesses running ``basis.worker.main`` with
+the offline providers composed in (``kill_worker.py``; the pattern of
 ``tests/integration/worker/test_worker_process.py``) against a Temporal dev server
 (``WorkflowEnvironment.start_local`` with the installed ``temporal`` CLI) and the
 session's Postgres container. A synthetic study is started whose first photo's
@@ -45,7 +46,7 @@ import pytest
 import pytest_asyncio
 from dbtest_support import BACKEND_ROOT, db_settings, truncate_all
 from faulttest_support import no_open_transactions, wait_for_writing_transaction
-from lifecycletest_support import seed_study
+from lifecycletest_support import seed_reference_corpus, seed_study
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from temporalio.client import WorkflowHandle
@@ -75,6 +76,8 @@ pytestmark = [
 ]
 
 TASK_QUEUE = "basis-studies-kill-test"
+# The production worker with the offline providers composed in (see its docstring).
+KILL_WORKER = Path(__file__).with_name("kill_worker.py")
 PHOTOS = ("kitchen_1.jpg", "bathroom_1.jpg", "kitchen_2.jpg")
 # The slowed photo is the only one of its room, so its transaction inserts the room row
 # (it has written when the worker dies) and the room's advisory lock it holds while
@@ -163,8 +166,7 @@ class Rig:
             process = subprocess.Popen(
                 [
                     sys.executable,
-                    "-m",
-                    "basis.worker",
+                    str(KILL_WORKER),
                     "--health-port",
                     str(health_port),
                     "--metrics-port",
@@ -208,7 +210,9 @@ async def rig(database_url: str, tmp_path: Path) -> AsyncIterator[Rig]:
 
 
 async def start_study(rig: Rig, sleep_seconds: float) -> tuple[Any, str, WorkflowHandle[Any, Any]]:
-    study = await seed_study(rig.sessionmaker, photos=PHOTOS)
+    await seed_reference_corpus(rig.sessionmaker)  # resolved by the worker's Postgres store
+    # Real files in the worker process's storage: ingest_appraisal and analyze_photo read them.
+    study = await seed_study(rig.sessionmaker, photos=PHOTOS, storage=rig.storage)
     slow = str(study.photo_ids[PHOTOS.index(SLOW_PHOTO)])
     handle = await rig.server.client.start_workflow(
         StudyWorkflow.run,

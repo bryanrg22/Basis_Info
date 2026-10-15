@@ -99,10 +99,24 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         assets = (await session.scalars(select(Asset).where(Asset.study_id == sid))).all()
         assert len(assets) == 6
         citations = (await session.scalars(select(Citation).where(Citation.study_id == sid))).all()
-        # The harness has no reference corpus and a scripted classifier without
-        # citations: nothing verifiable to cite (S3), so every asset needs review.
-        assert citations == []
-        assert all(a.needs_review for a in assets)
+        # Every asset here is a rules-table hit whose citation resolved against the
+        # seeded reference corpus (one verified citation each, none unverified). Review is
+        # asked only for the contested plumbing rows (Treas. Reg. 1.48-1(e)(2)) and for
+        # the countertops, which only cross-validation flags (a synthetic takeoff too large
+        # for section 1245, and no cost row).
+        labels = {c.id: c.label for c in components}
+        assert {c.asset_id for c in citations} == {a.id for a in assets}
+        assert all(c.verified_at is not None for c in citations)
+        assert not any("citation_unverified" in (a.review_reason or "") for a in assets)
+        flagged = sorted(
+            (labels[a.component_id], a.review_reason or "") for a in assets if a.needs_review
+        )
+        assert [label for label, _ in flagged] == ["bathtub", "countertop", "countertop", "toilet"]
+        assert flagged[0][1].startswith("rule_contested:bathtub")
+        assert flagged[3][1].startswith("rule_contested:toilet")
+        assert all(
+            reason.startswith("cross:") for label, reason in flagged if label == "countertop"
+        )
 
     exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))
     assert exported["revision"] == 1 and len(exported["assets"]) == 6

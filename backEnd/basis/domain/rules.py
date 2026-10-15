@@ -25,7 +25,9 @@ Changes from the legacy table, each deliberate:
 of the cache key because the building buckets differ (27.5 vs 39 years); no current row
 differs by class, which ``tests/unit/domain/test_rules_table.py`` pins.
 
-The citations are ``(doc_id, page, excerpt)`` claims copied from the legacy table. They
+The citations are ``(doc_id, page, excerpt)`` claims copied from the legacy table (two
+excerpts, ``Countertops`` and ``Appliances``, were lengthened: an excerpt shorter than
+``basis.classify.verify.MIN_EXCERPT_CHARS`` can never verify). They
 are verified at classification time against the reference corpus
 (:func:`basis.classify.router.resolve_rule_citations`); a claim that does not resolve to a
 chunk whose text contains the excerpt is dropped and the asset is flagged
@@ -177,13 +179,13 @@ _RULES: Final[tuple[Rule, ...]] = (
         "countertop",
         "Countertops",
         "Countertops (non-structural) are Section 1245 personal property",
-        _c(ATG, 412, "Countertops"),
+        _c(ATG, 412, "Countertops (non-structural)"),
     ),
     _p5(
         "appliance",
         "Appliances",
         "Kitchen appliances are Section 1245 personal property",
-        _c(PUB946, 42, "Appliances"),
+        _c(PUB946, 42, "Appliances - residential rental"),
     ),
     _p5(
         "refrigerator",

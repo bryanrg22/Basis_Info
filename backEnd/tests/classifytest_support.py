@@ -14,6 +14,8 @@ from typing import Any, Final
 from basis.classify.router import ClassifyContext
 from basis.classify.schemas import CitationClaim, Classification, ComponentView
 from basis.classify.store_protocol import InMemoryChunkStore, StoredChunk, StoredTable
+from basis.classify.verify import excerpt_supported
+from basis.domain.rules import RULES
 from basis.llm.provider import Budget, ScriptedProvider, ScriptedTurn, ToolCall
 
 REF_VERSION: Final = uuid.UUID("00000000-0000-4000-8000-0000000000a1")
@@ -68,6 +70,46 @@ def reference_chunks() -> list[StoredChunk]:
             text=STRUCTURAL_TEXT,
         ),
     ]
+
+
+RULES_CHUNK_NS: Final = uuid.UUID("00000000-0000-4000-8000-00000000c0de")
+
+
+def rules_reference_chunks() -> list[StoredChunk]:
+    """One reference chunk per ``(doc_id, page)`` the rules table cites, holding every
+    excerpt cited on that page, so each rule citation resolves in tests the way it must
+    against the real corpus. Excerpts the hand-written chunks above already support are
+    left to them (a page with such a chunk gets a second chunk only for the rest)."""
+    hand = {(c.doc_id, c.page_start): c.text for c in reference_chunks()}
+    excerpts: dict[tuple[str, int], list[str]] = {}
+    for rule in RULES.values():
+        for claim in rule.citations:
+            key = (claim.doc_id, claim.page)
+            if key in hand and excerpt_supported(claim.excerpt, hand[key]):
+                continue
+            page = excerpts.setdefault(key, [])
+            if claim.excerpt not in page:
+                page.append(claim.excerpt)
+    chunks: list[StoredChunk] = []
+    for (doc_id, page_no), texts in sorted(excerpts.items()):
+        chunk_key = f"{doc_id}:{page_no}:{1 if (doc_id, page_no) in hand else 0}"
+        chunks.append(
+            StoredChunk(
+                id=uuid.uuid5(RULES_CHUNK_NS, chunk_key),
+                corpus_version_id=REF_VERSION,
+                doc_id=doc_id,
+                page_start=page_no,
+                page_end=page_no,
+                chunk_key=chunk_key,
+                text=". ".join(texts) + ".",
+            )
+        )
+    return chunks
+
+
+def lifecycle_reference_chunks() -> list[StoredChunk]:
+    """The hand-written chunks plus one per rules-table citation page (lifecycle tests)."""
+    return [*reference_chunks(), *rules_reference_chunks()]
 
 
 def study_chunks() -> list[StoredChunk]:

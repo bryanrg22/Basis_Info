@@ -51,7 +51,7 @@ from apitest_support import (
 from dbtest_support import db_settings, execute_admin, truncate_all
 from faulttest_support import no_open_transactions, writing_transactions
 from lifecycle_support import Harness
-from lifecycletest_support import make_deps
+from lifecycletest_support import make_deps, seed_reference_corpus
 from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
@@ -419,7 +419,8 @@ async def outage(
         await truncate_all(direct)
         settings = db_settings(database_url)
         storage = LocalStorage(tmp_path / "storage")
-        deps = make_deps(create_sessionmaker(proxied_engine), storage, settings)
+        store = await seed_reference_corpus(create_sessionmaker(direct))
+        deps = make_deps(create_sessionmaker(proxied_engine), storage, settings, chunk_store=store)
         harness = Harness(
             env=env, sessionmaker=create_sessionmaker(direct), deps=deps, settings=settings
         )

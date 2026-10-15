@@ -152,7 +152,10 @@ async def test_rooms_reject_renames_rooms_and_reanalyzes_only_flagged_photos(
 
 async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harness) -> None:
     async with harness.worker():
-        started = await harness.start()
+        # The living room's unlisted item is a residual: the scripted model calls it a
+        # building component (y27_5), the guess the engineer corrects below.
+        study = await harness.seed(photos=("kitchen_1.jpg", "living_1.jpg", "bathroom_1.jpg"))
+        started = await harness.start(study)
         handle, sid = started.handle, started.study_id
         await harness.approve(handle, "appraisal_review")
         await harness.approve(handle, "rooms_review")
@@ -175,7 +178,7 @@ async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harn
         assert "process_assets:r2" in ids
 
         assets_r2 = await rows(harness, Asset, sid, revision=2)
-        assert len(assets_r2) == len(assets_r1) == 6
+        assert len(assets_r2) == len(assets_r1) == 7
         manual = [a for a in assets_r2 if a.method is ClassificationMethod.MANUAL]
         assert len(manual) == 1
         assert (manual[0].bucket, str(manual[0].recovery_period)) == (Bucket.Y5, "5.0")

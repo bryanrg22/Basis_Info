@@ -69,8 +69,9 @@ def test_excerpts_that_change_meaning_or_prove_nothing_fail(excerpt: str) -> Non
 
 
 def test_minimum_length_is_configurable() -> None:
-    assert len(normalize_text("57.0 cov")) == MIN_EXCERPT_CHARS
-    assert verify_excerpt(CHUNK_TEXT, "57.0 cov")
+    assert len(normalize_text("class 57.0 c")) == MIN_EXCERPT_CHARS
+    assert verify_excerpt(CHUNK_TEXT, "class 57.0 c")
+    assert not verify_excerpt(CHUNK_TEXT, "57.0 cover")  # 10 characters: too short
     assert verify_excerpt(CHUNK_TEXT, "57.0", min_chars=1)
 
 

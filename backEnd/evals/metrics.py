@@ -4,16 +4,15 @@
   normalization, integers +/-1, currency +/-0.5% by default).
 * Per-class precision/recall/F1, macro-F1, accuracy with a Wilson interval, and an
   explicit abstention label scored as abstention (coverage and selective accuracy).
-* IR: nDCG@k with linear gains and log2 discounts (trec_eval's ``ndcg_cut``, what
-  ``pytrec_eval`` reports), recall@k and reciprocal rank; graded qrels at doc+page.
+* IR: nDCG@k, recall@k and reciprocal rank are :mod:`basis.retrieval.metrics` (linear
+  gains, log2 discounts as trec_eval's ``ndcg_cut``); graded qrels at doc+page. A query
+  with no relevant judgment is excluded from the means, as trec_eval does.
 * Citation support rate (verified / claimed).
 * Standard error of a mean clustered by document (CR1: ``G/(G-1)`` small-sample factor),
   because photos and fields from one property are not independent.
 * pass^k (all of k repeats succeed), with the unbiased estimator
   ``C(c, k) / C(n, k)`` per item when n repeats ran.
 
-S3-A's ``basis/retrieval/metrics.py`` implements IR metrics too; the orchestrator
-reconciles the two at merge (they must agree on the shared hand-computed cases).
 """
 
 from __future__ import annotations
@@ -27,6 +26,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final, Literal
+
+from basis.retrieval.metrics import ndcg_at_k, recall_at_k, reciprocal_rank
 
 FieldType = Literal["text", "int", "float", "currency", "percent", "date", "bool"]
 
@@ -263,35 +264,12 @@ def classification_metrics(
 # --------------------------------------------------------------------------- IR
 
 
-def dcg(gains: Sequence[float]) -> float:
-    return sum(g / math.log2(rank + 1) for rank, g in enumerate(gains, start=1))
-
-
-def ndcg_at_k(ranking: Sequence[str], qrels: Mapping[str, int], k: int = 10) -> float:
-    """nDCG@k with linear gains (``grade``) and ``log2(rank + 1)`` discounts."""
-    ideal = dcg(sorted((g for g in qrels.values() if g > 0), reverse=True)[:k])
-    if ideal == 0:
-        return 0.0
-    return dcg([float(max(qrels.get(doc, 0), 0)) for doc in ranking[:k]]) / ideal
-
-
-def recall_at_k(ranking: Sequence[str], qrels: Mapping[str, int], k: int) -> float:
-    relevant = {d for d, g in qrels.items() if g > 0}
-    if not relevant:
-        return 0.0
-    return len(relevant & set(ranking[:k])) / len(relevant)
-
-
-def reciprocal_rank(ranking: Sequence[str], qrels: Mapping[str, int]) -> float:
-    for rank, doc in enumerate(ranking, start=1):
-        if qrels.get(doc, 0) > 0:
-            return 1.0 / rank
-    return 0.0
-
-
 @dataclass(frozen=True)
 class IrMetrics:
     n: int
+    # Queries with no relevant judgment: no defined nDCG, recall or reciprocal rank,
+    # so they are left out of the means (as trec_eval does) and counted here.
+    excluded: tuple[str, ...]
     ndcg_10: float
     recall_5: float
     recall_10: float
@@ -302,11 +280,16 @@ class IrMetrics:
 def ir_metrics(
     run: Mapping[str, Sequence[str]], qrels: Mapping[str, Mapping[str, int]]
 ) -> IrMetrics:
-    """Means over the queries in ``qrels``; a query missing from ``run`` scores 0."""
+    """Means over the judged queries; a query missing from ``run`` scores 0, a query
+    with no relevant judgment is excluded (``excluded``) rather than averaged as 0."""
     per_query: dict[str, dict[str, float]] = {}
+    excluded: list[str] = []
     for qid in sorted(qrels):
         ranking = list(run.get(qid, []))
         judged = qrels[qid]
+        if not any(grade > 0 for grade in judged.values()):
+            excluded.append(qid)
+            continue
         per_query[qid] = {
             "ndcg_10": ndcg_at_k(ranking, judged, 10),
             "recall_5": recall_at_k(ranking, judged, 5),
@@ -319,7 +302,13 @@ def ir_metrics(
         return sum(q[key] for q in per_query.values()) / n if n else math.nan
 
     return IrMetrics(
-        n, mean("ndcg_10"), mean("recall_5"), mean("recall_10"), mean("mrr"), per_query
+        n,
+        tuple(excluded),
+        mean("ndcg_10"),
+        mean("recall_5"),
+        mean("recall_10"),
+        mean("mrr"),
+        per_query,
     )
 
 

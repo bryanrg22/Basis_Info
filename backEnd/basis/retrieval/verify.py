@@ -26,7 +26,9 @@ from typing import Final, Literal, Protocol
 
 from basis.retrieval.types import Chunk
 
-MIN_EXCERPT_CHARS: Final = 8
+# Below this many normalized characters an excerpt says nothing ("the", "1245"). One
+# threshold for retrieval and classification citations (basis.classify.verify imports it).
+MIN_EXCERPT_CHARS: Final = 12
 
 _QUOTES: Final = str.maketrans(
     {

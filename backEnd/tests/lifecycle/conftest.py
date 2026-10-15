@@ -7,9 +7,12 @@
   (``pytestmark = pytest.mark.asyncio(loop_scope="session")``).
 * ``lifecycle_engine``: one engine on the session's Postgres container (shared with the
   other suites through ``database_url``), pool large enough for parallel photo activities.
-* ``harness``: per test; truncates every table first, builds the real activities bound to
-  a :class:`~basis.activities.deps.Deps` with a temporary ``LocalStorage``, gives the test
-  its own task queue, and terminates its workflows afterwards.
+* ``harness``: per test; truncates every table first, seeds the published test reference
+  corpus (``seed_reference_corpus``: one chunk per rules-table citation page, so rule
+  assets get verified citations as in production), builds the real activities bound to
+  a :class:`~basis.activities.deps.Deps` with a temporary ``LocalStorage`` and the
+  mirrored in-memory chunk store, gives the test its own task queue, and terminates its
+  workflows afterwards.
 * ``isolated_harness``: the same on a time-skipping server of its own, for tests that move
   the clock with ``env.sleep``. Observed: after a test stops its worker while a workflow
   is mid-activity, the shared test server stops skipping time and ``env.sleep`` times out
@@ -25,7 +28,7 @@ from pathlib import Path
 import pytest_asyncio
 from dbtest_support import db_settings, truncate_all
 from lifecycle_support import Harness
-from lifecycletest_support import make_deps
+from lifecycletest_support import make_deps, seed_reference_corpus
 from sqlalchemy.ext.asyncio import AsyncEngine
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
@@ -67,7 +70,8 @@ async def make_harness(
     await truncate_all(engine)
     sessionmaker = create_sessionmaker(engine)
     settings = db_settings(database_url)
-    deps = make_deps(sessionmaker, LocalStorage(tmp_path / "storage"), settings)
+    store = await seed_reference_corpus(sessionmaker)
+    deps = make_deps(sessionmaker, LocalStorage(tmp_path / "storage"), settings, chunk_store=store)
     harness = Harness(env=env, sessionmaker=sessionmaker, deps=deps, settings=settings)
     try:
         yield harness

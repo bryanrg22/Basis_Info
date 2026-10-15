@@ -53,7 +53,7 @@ recommended). Retrying with the same key and body replays the stored response wi
 `Idempotent-Replayed: true` for 24 hours; the same key with a different body is 422; a
 retry while the first request is still running is 409. Keys are scoped per user.
 
-**Rate limits.** Per user, by default 60 reads and 10 mutations per minute; 429 with
+**Rate limits.** Per user, by default 240 reads and 60 mutations per minute; 429 with
 `Retry-After`.
 
 **Errors.** Every 4xx/5xx is `application/problem+json` (RFC 9457): `type`, `title`,

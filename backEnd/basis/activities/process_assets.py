@@ -74,6 +74,7 @@ from basis.domain.rooms import guidance_for, typical_area_sf
 from basis.domain.rules import RECOVERY_YEARS, lookup
 from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
+from basis.llm.cost import cost_usd
 from basis.llm.provider import Budget
 from basis.workflow.contracts import CorrectionInput, ProcessAssetsInput, ProcessAssetsOutput
 
@@ -151,6 +152,7 @@ async def _process(
         provider=deps.chat_provider,
         cache=await cache_repo.get_many(misses),
         model=settings.classify_model,
+        price=cost_usd,
     )
     residual = [v for v in views.values() if route(v, ctx)[0] == "llm"]
     if residual and deps.chat_provider is not None:

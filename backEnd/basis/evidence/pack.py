@@ -33,7 +33,6 @@ from typing import Any, Final
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from basis.classify.verify import normalize_text
 from basis.db.models import (
     Asset,
     Chunk,
@@ -46,6 +45,7 @@ from basis.db.models import (
 )
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.room import RoomRepository
+from basis.retrieval.verify import normalize_text
 
 EVIDENCE_STAGE: Final = "assets_review"
 PERCENT: Final = Decimal("0.01")

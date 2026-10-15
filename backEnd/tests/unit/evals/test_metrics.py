@@ -132,7 +132,8 @@ def test_ndcg_by_hand() -> None:
     assert ndcg_at_k(["b", "x", "a"], qrels, 10) == pytest.approx(0.7601875, abs=1e-7)
     assert ndcg_at_k(["a", "b"], qrels, 10) == pytest.approx(1.0)
     assert ndcg_at_k(["b", "x", "a"], qrels, 2) == pytest.approx(1 / 2.6309298, abs=1e-7)
-    assert ndcg_at_k(["x"], {"a": 0}, 10) == 0.0
+    with pytest.raises(ValueError):  # no relevant item: undefined, the caller excludes it
+        ndcg_at_k(["x"], {"a": 0}, 10)
 
 
 def test_recall_and_reciprocal_rank() -> None:
@@ -144,11 +145,13 @@ def test_recall_and_reciprocal_rank() -> None:
 
 
 def test_ir_metrics_means_and_missing_queries() -> None:
-    qrels = {"q1": {"a": 1}, "q2": {"b": 1}}
-    metrics = ir_metrics({"q1": ["a"], "q3": ["b"]}, qrels)
-    assert metrics.n == 2
+    qrels = {"q1": {"a": 1}, "q2": {"b": 1}, "q4": {"c": 0}}
+    metrics = ir_metrics({"q1": ["a"], "q3": ["b"], "q4": ["c"]}, qrels)
+    assert metrics.n == 2  # q2 is missing from the run (scores 0); q4 has nothing relevant
+    assert metrics.excluded == ("q4",)
     assert (metrics.mrr, metrics.ndcg_10, metrics.recall_5) == (0.5, 0.5, 0.5)
     assert metrics.per_query["q2"]["mrr"] == 0.0
+    assert "q4" not in metrics.per_query
 
 
 # --------------------------------------------------------------------------- citations

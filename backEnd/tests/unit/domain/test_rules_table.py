@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 
+from basis.classify.verify import MIN_EXCERPT_CHARS, normalize_text
 from basis.db.enums import Bucket
 from basis.domain.rules import (
     ALIASES,
@@ -201,6 +202,16 @@ def test_every_row_has_section_bucket_life_and_a_citation() -> None:
             assert citation.doc_id.startswith("IRS_")
             assert citation.page >= 1
             assert citation.excerpt.strip()
+
+
+def test_every_citation_excerpt_is_long_enough_to_verify() -> None:
+    # resolve_rule_citations verifies an excerpt as a normalized substring of a chunk and
+    # refuses anything shorter than MIN_EXCERPT_CHARS, so a shorter excerpt can never cite.
+    for key, rule in RULES.items():
+        for citation in rule.citations:
+            assert len(normalize_text(citation.excerpt)) >= MIN_EXCERPT_CHARS, (
+                f"{key}: {citation.excerpt!r}"
+            )
 
 
 def test_section_and_bucket_are_consistent_for_every_row() -> None:
