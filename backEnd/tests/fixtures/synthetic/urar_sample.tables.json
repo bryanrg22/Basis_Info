@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "document": "urar_sample.pdf",
+  "doc_id": "SYN_URAR_0001",
+  "tables": [
+    {
+      "id": "sales_comparison_grid",
+      "section": "sales_comparison",
+      "title": "Sales Comparison Approach grid",
+      "page": 4,
+      "headers": [
+        "Feature",
+        "Subject",
+        "Comparable Sale 1",
+        "Comparable Sale 2",
+        "Comparable Sale 3"
+      ],
+      "rows": [
+        [
+          "Address",
+          "1290 Example Way",
+          "1302 Example Way",
+          "88 Sample Court",
+          "455 Test Avenue"
+        ],
+        [
+          "Proximity to Subject",
+          "-",
+          "0.10 miles N",
+          "0.45 miles E",
+          "0.80 miles SW"
+        ],
+        [
+          "Sale Price",
+          "$412,000",
+          "$405,000",
+          "$418,500",
+          "$399,900"
+        ],
+        [
+          "Sale Price/Gross Liv. Area",
+          "$222.70",
+          "$225.00",
+          "$217.97",
+          "$227.22"
+        ],
+        [
+          "Data Source(s)",
+          "SYN-MLS-0000",
+          "SYN-MLS-0001",
+          "SYN-MLS-0002",
+          "SYN-MLS-0003"
+        ],
+        [
+          "Date of Sale",
+          "-",
+          "07/15/2026",
+          "06/02/2026",
+          "08/20/2026"
+        ],
+        [
+          "Location",
+          "Suburban",
+          "Suburban",
+          "Suburban",
+          "Suburban"
+        ],
+        [
+          "Site",
+          "10,000 sf",
+          "9,600 sf",
+          "10,400 sf",
+          "9,800 sf"
+        ],
+        [
+          "Design (Style)",
+          "Colonial",
+          "Colonial",
+          "Colonial",
+          "Colonial"
+        ],
+        [
+          "Quality of Construction",
+          "Q4",
+          "Q4",
+          "Q4",
+          "Q4"
+        ],
+        [
+          "Actual Age",
+          "39",
+          "36",
+          "41",
+          "38"
+        ],
+        [
+          "Condition",
+          "C3",
+          "C3",
+          "C3",
+          "C3"
+        ],
+        [
+          "Rooms / Bedrooms / Baths",
+          "7 / 3 / 2.1",
+          "7 / 3 / 2.0",
+          "8 / 4 / 2.1",
+          "7 / 3 / 2.0"
+        ],
+        [
+          "Gross Living Area",
+          "1,850 sq ft",
+          "1,800 sq ft",
+          "1,920 sq ft",
+          "1,760 sq ft"
+        ],
+        [
+          "Basement",
+          "900 sf, 50% fin.",
+          "900 sf, 40% fin.",
+          "950 sf, 60% fin.",
+          "850 sf, 50% fin."
+        ],
+        [
+          "Garage/Carport",
+          "2-car attached",
+          "2-car attached",
+          "2-car attached",
+          "1-car attached"
+        ],
+        [
+          "Net Adjustment (Total)",
+          "-",
+          "+$5,000",
+          "-$7,500",
+          "+$9,100"
+        ],
+        [
+          "Adjusted Sale Price",
+          "-",
+          "$410,000",
+          "$411,000",
+          "$409,000"
+        ]
+      ],
+      "n_rows": 18,
+      "n_cols": 5
+    },
+    {
+      "id": "cost_approach",
+      "section": "cost_approach",
+      "title": "Cost Approach",
+      "page": 6,
+      "headers": [
+        "Item",
+        "Area",
+        "Cost per Sq Ft",
+        "Amount"
+      ],
+      "rows": [
+        [
+          "Opinion of Site Value",
+          "",
+          "",
+          "$95,000"
+        ],
+        [
+          "Dwelling",
+          "1,850 sq ft",
+          "$165.00",
+          "$305,250"
+        ],
+        [
+          "Basement",
+          "900 sq ft",
+          "$40.00",
+          "$36,000"
+        ],
+        [
+          "Garage/Carport",
+          "480 sq ft",
+          "$45.00",
+          "$21,600"
+        ],
+        [
+          "Total Estimate of Cost-New",
+          "",
+          "",
+          "$362,850"
+        ],
+        [
+          "Less Physical Depreciation",
+          "",
+          "",
+          "$50,000"
+        ],
+        [
+          "Less Functional Depreciation",
+          "",
+          "",
+          "$0"
+        ],
+        [
+          "Less External Depreciation",
+          "",
+          "",
+          "$0"
+        ],
+        [
+          "Total Depreciation",
+          "",
+          "",
+          "$50,000"
+        ],
+        [
+          "Depreciated Cost of Improvements",
+          "",
+          "",
+          "$312,850"
+        ],
+        [
+          "\"As-is\" Value of Site Improvements",
+          "",
+          "",
+          "$12,000"
+        ],
+        [
+          "Indicated Value by Cost Approach",
+          "",
+          "",
+          "$419,850"
+        ]
+      ],
+      "n_rows": 12,
+      "n_cols": 4
+    }
+  ]
+}

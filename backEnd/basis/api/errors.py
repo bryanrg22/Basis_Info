@@ -17,9 +17,12 @@ Shape (``application/problem+json``)::
 Repository exceptions (``basis.db.errors``) are mapped here, once, by
 :func:`as_api_error`: ``NotVisibleError`` -> 404, ``ConflictError`` and its subclasses ->
 409, ``InvalidCursorError`` -> 422; a pool checkout timeout (``sqlalchemy.exc.TimeoutError``)
--> 503 with ``Retry-After``. Routes raise the repository errors as they are; the same
-mapping is used by the exception handlers and by ``IdempotentRoute`` (so a mapped 4xx is
-stored and replayed like any other deliberate 4xx).
+-> 503 with ``Retry-After``; an unreachable database (``DatabaseUnavailableError``, which
+the engine raises only while establishing a connection) -> 503 with ``Retry-After``. Errors
+on an established connection (a failing query) are not mapped and stay a 500. Routes raise
+the repository errors as they are; the same mapping is used by the exception handlers and
+by ``IdempotentRoute`` (so a mapped 4xx is stored and replayed like any other deliberate
+4xx).
 
 Unexpected exceptions never reach the client: :class:`UnhandledErrorMiddleware` logs
 them with ``stack_trace`` and the request id, and answers a generic 500.
@@ -44,6 +47,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from basis.db.errors import (
     ConflictError,
+    DatabaseUnavailableError,
     DuplicateDocumentError,
     DuplicateKeyError,
     InvalidCursorError,
@@ -64,6 +68,8 @@ INTERNAL_ERROR_DETAIL: Final = (
 )
 DB_BUSY_DETAIL: Final = "The database is busy; retry shortly."
 DB_BUSY_RETRY_AFTER_S: Final = 2
+DB_UNAVAILABLE_DETAIL: Final = "The database is unavailable; retry shortly."
+DB_UNAVAILABLE_RETRY_AFTER_S: Final = 5
 
 logger = logging.getLogger(__name__)
 
@@ -334,6 +340,13 @@ def as_api_error(exc: BaseException) -> ApiError | None:
     if isinstance(exc, PoolTimeoutError):
         logger.warning("database pool checkout timed out")
         return ServiceUnavailable(DB_BUSY_DETAIL, retry_after=DB_BUSY_RETRY_AFTER_S)
+    if isinstance(exc, DatabaseUnavailableError):
+        cause = exc.__cause__
+        logger.warning(
+            "database unreachable",
+            extra={"exception_type": type(cause or exc).__name__},
+        )
+        return ServiceUnavailable(DB_UNAVAILABLE_DETAIL, retry_after=DB_UNAVAILABLE_RETRY_AFTER_S)
     return None
 
 
@@ -465,6 +478,7 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApiError, _handle_api_error)
     app.add_exception_handler(RepositoryError, _handle_mapped_error)
     app.add_exception_handler(PoolTimeoutError, _handle_mapped_error)
+    app.add_exception_handler(DatabaseUnavailableError, _handle_mapped_error)
     app.add_exception_handler(RequestValidationError, _handle_validation_error)
     app.add_exception_handler(StarletteHTTPException, _handle_http_exception)
     app.add_middleware(UnhandledErrorMiddleware)

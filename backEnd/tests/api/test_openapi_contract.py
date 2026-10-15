@@ -23,6 +23,11 @@ Schemathesis setup, and why:
 * ``cursor`` is dropped from valid-data cases: it is an opaque token the server issues;
   no schema can describe which strings decode, and an undecodable one is (correctly) 422.
   Cursor behavior is tested in ``test_studies.py``.
+* ``corrections`` is emptied in valid-data cases (S2-C): a correction must name an
+  existing row of the decided revision, of a type the decided stage accepts, which the
+  schema cannot describe (existence is state; the type depends on ``stage``), so a
+  generated correction is (correctly) 422. Correction targets are tested in
+  ``test_decisions.py``.
 * The engine uses ``NullPool``: Schemathesis's ASGI client runs the app on its own event
   loop, and pooled asyncpg connections cannot move between loops.
 
@@ -51,6 +56,7 @@ from hypothesis import HealthCheck
 from hypothesis import settings as hypothesis_settings
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
+from workflowtest_support import FakeWorkflowService
 
 from basis.api.app import create_app
 from basis.api.errors import PROBLEM_JSON
@@ -148,6 +154,8 @@ def contract_app(database_url: str, tmp_path_factory: pytest.TempPathFactory) ->
         sessionmaker,
         LocalStorage(tmp_path_factory.mktemp("contract-objects")),
         FakeVerifier(),
+        # S2: an in-memory Temporal, so the workflow routes run instead of answering 503.
+        FakeWorkflowService(),
     )
     app.state.contract_study_ids = study_ids
     try:
@@ -186,6 +194,8 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         case.headers[IDEMPOTENCY_HEADER] = str(uuid.uuid4())
     if case.query and "cursor" in case.query:
         del case.query["cursor"]
+    if isinstance(case.body, dict) and case.body.get("corrections"):
+        case.body["corrections"] = []
 
 
 @pytest.mark.integration

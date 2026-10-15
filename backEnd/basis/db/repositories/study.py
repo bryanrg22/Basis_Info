@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import OrgRole, Stage, StudyStatus, status_for_stage
 from basis.db.errors import InvalidCursorError, NotVisibleError, StaleStateError
-from basis.db.models import OrgMember, Study
+from basis.db.models import OrgMember, Run, Study
 
 MAX_PAGE_SIZE: Final = 100
 
@@ -174,6 +174,38 @@ class StudyRepository:
             f"study {study_id} is at {stage.value} revision {revision} ({status.value}); "
             f"expected {from_stage.value} revision {expected_revision}"
         )
+
+    async def mark_started(
+        self, study_id: uuid.UUID, workflow_id: str, expected_revision: int
+    ) -> Study:
+        """``uploading -> extracting`` and record the study's workflow id, at most once.
+
+        The compare-and-set is :meth:`transition` (same row lock and re-check), followed
+        by setting ``workflow_id`` in the same transaction. When the transition loses to
+        a concurrent start that recorded this same ``workflow_id``, the study as that
+        start left it is returned, so concurrent starts converge instead of one failing.
+        Any other stale state raises ``StaleStateError``.
+        """
+        try:
+            await self.transition(study_id, Stage.UPLOADING, Stage.EXTRACTING, expected_revision)
+        except StaleStateError:
+            current = await self._session.get(Study, study_id, populate_existing=True)
+            if current is not None and current.workflow_id == workflow_id:
+                return current
+            raise
+        stmt = (
+            update(Study)
+            .where(Study.id == study_id)
+            .values(workflow_id=workflow_id)
+            .returning(Study)
+            .execution_options(synchronize_session=False, populate_existing=True)
+        )
+        return (await self._session.scalars(stmt)).one()
+
+    async def runs(self, study_id: uuid.UUID) -> list[Run]:
+        """The study's workflow runs (``runs`` rows), oldest first."""
+        stmt = select(Run).where(Run.study_id == study_id).order_by(Run.started_at, Run.id)
+        return list((await self._session.scalars(stmt)).all())
 
     async def archive(self, study_id: uuid.UUID) -> Study:
         """Soft delete. Idempotent: archiving an archived study returns it unchanged."""

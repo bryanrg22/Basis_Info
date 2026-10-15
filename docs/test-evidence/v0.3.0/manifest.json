@@ -1,0 +1,69 @@
+{
+  "label": "v0.3.0",
+  "captured_at": "2026-10-15T15:51:33+00:00",
+  "git": {
+    "sha": "53757b0dfb41f83f1405081c2eff53925512211b",
+    "short": "53757b0",
+    "branch": "rebuild/stage-2",
+    "describe": "v0.2.0-31-g53757b0",
+    "dirty": false,
+    "uv_lock_sha256": "83f3018b2e0f26db4102892a1ed5f587acc0920639847f6f3522a9732a018657"
+  },
+  "toolchain": {
+    "python": "3.12.15",
+    "python_pinned": "3.12",
+    "uv": "uv 0.13.1 (Homebrew 2026-10-14 aarch64-apple-darwin)",
+    "temporal_cli": "temporal version 1.9.1 (Server 1.32.0, UI 2.54.1)",
+    "docker": "Docker version 29.1.5, build 0e6fee6",
+    "platform": "macOS-26.6-arm64-arm-64bit",
+    "machine": "arm64"
+  },
+  "packages": {
+    "alembic": "1.20.0",
+    "asyncpg": "0.32.0",
+    "azure-ai-documentintelligence": "1.0.2",
+    "fastapi": "0.143.1",
+    "firebase-admin": "7.7.0",
+    "google-cloud-storage": "3.17.0",
+    "mypy": "2.4.0",
+    "openai": "3.31.0",
+    "pdfplumber": "0.11.10",
+    "pgvector": "0.5.1",
+    "pydantic": "2.14.1",
+    "pymupdf": "1.28.2",
+    "pytest": "9.1.1",
+    "rank-bm25": "0.2.2",
+    "ruff": "0.17.0",
+    "schemathesis": "4.31.1",
+    "sentence-transformers": "6.1.0",
+    "sqlalchemy": "2.1.4",
+    "temporalio": "1.34.0",
+    "testcontainers": "4.15.0",
+    "tiktoken": "0.14.0"
+  },
+  "code_artefacts": {
+    "prompts": {},
+    "rules_version": null,
+    "postgres_test_image": "pgvector/pgvector:pg16",
+    "embedding_model_default": null,
+    "alembic_head": "0002_outbox_status",
+    "workflow_version_source": "settings.git_sha (the commit the worker image is built from)"
+  },
+  "commands": {
+    "collect": "uv run --no-sync pytest --collect-only -q -p no:cacheprovider",
+    "ruff_check": "uv run --no-sync ruff check basis tests",
+    "ruff_format": "uv run --no-sync ruff format --check basis tests",
+    "mypy": "uv run --no-sync mypy",
+    "openapi": "uv run --no-sync python -m basis.api.openapi --check",
+    "pytest": "uv run --no-sync pytest -q -p no:cacheprovider --timeout=600 -rfEsx --junitxml=/Users/bryanramirez-gonzalez/dev/GitHub/Basis_Info/docs/test-evidence/v0.3.0/junit.xml"
+  },
+  "exit_codes": {
+    "collect": 0,
+    "ruff_check": 0,
+    "ruff_format": 0,
+    "mypy": 0,
+    "openapi": 0,
+    "pytest": 0
+  },
+  "notes": "Secrets are never recorded. Real-provider evaluations are reported separately in EVAL_REPORT.md."
+}

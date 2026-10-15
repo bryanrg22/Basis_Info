@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 os.environ.setdefault("BASIS_ENV", "test")
-os.environ.setdefault("GIT_SHA", "test-sha")
+os.environ["GIT_SHA"] = "test-sha"  # tests are hermetic: CI exports the real sha for the job
 
 from basis.config import Settings, get_settings, reset_settings  # noqa: E402
 from basis.obs.logging import clear_context  # noqa: E402

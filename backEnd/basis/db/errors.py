@@ -41,6 +41,18 @@ class DuplicateKeyError(ConflictError):
     """An idempotency key was already used for a different write."""
 
 
+class DatabaseUnavailableError(Exception):
+    """A new database connection could not be established (the server is unreachable).
+
+    Raised by the engine (``basis.db.engine``) only while opening a connection, for
+    network failures and the server's own "cannot accept connections now" answers;
+    ``__cause__`` is the driver's error. Errors on an established connection (a failed
+    query, a connection dropped mid-transaction) are never translated. Not a
+    ``RepositoryError``: repositories do not raise it on purpose. The API answers 503.
+    The message never contains the database URL or credentials.
+    """
+
+
 class InvalidCursorError(RepositoryError, ValueError):
     """A pagination cursor could not be decoded."""
 

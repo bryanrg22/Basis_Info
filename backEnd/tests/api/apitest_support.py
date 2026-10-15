@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -29,11 +30,28 @@ from basis.api.errors import Unauthorized
 from basis.api.idempotency import IDEMPOTENCY_HEADER
 from basis.auth.firebase import DETAIL_EXPIRED, DETAIL_INVALID, DETAIL_REVOKED, Principal
 from basis.config import Settings
-from basis.db.enums import OrgRole, Stage, status_for_stage
-from basis.db.models import Org, Study, User
-from basis.db.repositories import UserRepository
+from basis.db.enums import (
+    Bucket,
+    ClassificationMethod,
+    DocumentKind,
+    OrgRole,
+    Stage,
+    status_for_stage,
+)
+from basis.db.models import (
+    Asset,
+    Component,
+    Extraction,
+    ExtractionField,
+    Org,
+    Room,
+    Study,
+    User,
+)
+from basis.db.repositories import DocumentRepository, UserRepository
 from basis.db.session import session_scope
 from basis.storage import LocalStorage
+from basis.temporal.service import WorkflowService
 
 TOKEN_PREFIX = "uid:"
 # Nothing listens on port 1: connecting fails at once with "connection refused".
@@ -65,9 +83,11 @@ def build_api_app(
     sessionmaker: async_sessionmaker[AsyncSession],
     storage: LocalStorage,
     verifier: FakeVerifier,
+    workflows: WorkflowService | None = None,
 ) -> FastAPI:
-    """The real app with the database and storage injected and Firebase faked."""
-    app = create_app(settings, db_sessionmaker=sessionmaker, storage=storage)
+    """The real app with the database, storage (and optionally Temporal) injected and
+    Firebase faked."""
+    app = create_app(settings, db_sessionmaker=sessionmaker, storage=storage, workflows=workflows)
     app.dependency_overrides[get_token_verifier] = lambda: verifier
     return app
 
@@ -174,6 +194,81 @@ class Seed:
         user = await self.user(uid)
         async with session_scope(self.sessionmaker) as session:
             await UserRepository(session).add_membership(org_id, user.id, role)
+
+    async def outputs(self, study_id: str | uuid.UUID, revision: int = 1) -> dict[str, str]:
+        """One correction target of every type for ``revision`` of the study.
+
+        Synthetic rows only: an appraisal and a photo document (random sha256, URIs that
+        point at nothing), an extraction with one field, a room, a component of the photo
+        in that room, and an asset of the component. Returns ``{entity_type: id}`` for
+        ``extraction_field``, ``room``, ``component``, ``asset`` and ``photo``.
+        """
+        sid = uuid.UUID(str(study_id))
+        async with session_scope(self.sessionmaker) as session:
+            documents = DocumentRepository(session)
+            ids: dict[str, uuid.UUID] = {}
+            for kind in (DocumentKind.APPRAISAL, DocumentKind.PHOTO):
+                document_id = uuid.uuid4()
+                await documents.create(
+                    study_id=sid,
+                    kind=kind,
+                    filename=f"{kind.value}-r{revision}-{document_id.hex[:6]}.bin",
+                    content_type="application/octet-stream",
+                    size_bytes=10,
+                    sha256=uuid.uuid4().hex * 2,
+                    gcs_uri=f"gs://basis-local/studies/{sid}/{document_id}/file",
+                    uploaded_by=None,
+                    document_id=document_id,
+                )
+                ids[kind.value] = document_id
+            extraction = Extraction(
+                study_id=sid,
+                document_id=ids["appraisal"],
+                revision=revision,
+                method="stub",
+                overall_confidence=None,
+                raw={},
+            )
+            room = Room(
+                study_id=sid, revision=revision, name="Kitchen", room_type="kitchen", source="stub"
+            )
+            session.add_all([extraction, room])
+            await session.flush()
+            field = ExtractionField(
+                extraction_id=extraction.id,
+                study_id=sid,
+                section="subject",
+                field="year_built",
+                value_text="1989",
+                source="stub",
+            )
+            component = Component(
+                study_id=sid,
+                revision=revision,
+                document_id=ids["photo"],
+                room_id=room.id,
+                label="cabinet",
+            )
+            session.add_all([field, component])
+            await session.flush()
+            asset = Asset(
+                study_id=sid,
+                revision=revision,
+                component_id=component.id,
+                category="cabinetry",
+                bucket=Bucket.Y5,
+                recovery_period=Decimal("5"),
+                method=ClassificationMethod.RULE,
+            )
+            session.add(asset)
+            await session.flush()
+            return {
+                "extraction_field": str(field.id),
+                "room": str(room.id),
+                "component": str(component.id),
+                "asset": str(asset.id),
+                "photo": str(ids["photo"]),
+            }
 
     async def stage(self, study_id: str | uuid.UUID, stage: Stage, revision: int = 1) -> None:
         async with session_scope(self.sessionmaker) as session:

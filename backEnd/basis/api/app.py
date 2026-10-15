@@ -12,6 +12,12 @@ Wiring (all on ``app.state``):
 * ``storage`` and ``storage_bucket``: :class:`~basis.storage.GcsStorage` when
   ``GCS_BUCKET`` is set; otherwise :class:`~basis.storage.LocalStorage` under the system
   temp directory with the placeholder bucket :data:`LOCAL_BUCKET` (tests and local runs).
+* ``temporal`` (a ``temporalio`` client) and ``workflows`` (the
+  :class:`~basis.temporal.service.WorkflowService` the workflow routes use): created at
+  startup when ``TEMPORAL_ADDRESS`` is non-empty. The client is lazy, so startup makes no
+  network call and the API starts (and accepts decisions, which go through the outbox)
+  while Temporal is down; only the workflow routes answer 503 then. Tests pass a fake
+  ``workflows`` to :func:`create_app` instead; ``temporal`` then stays ``None``.
 
 Middleware, innermost first: the 1 MiB body limit for ``/v1/``, the 500 handler, request
 ids. The OpenAPI document is built by :func:`basis.api.openapi.build_openapi`.
@@ -44,6 +50,8 @@ from basis.config import Settings
 from basis.db.engine import create_engine
 from basis.db.session import SESSIONMAKER_STATE_ATTR, create_sessionmaker
 from basis.storage import GcsStorage, LocalStorage, Storage
+from basis.temporal.client import connect, temporal_configured
+from basis.temporal.service import TemporalWorkflowService, WorkflowService
 
 SERVICE_NAME: Final = health.SERVICE_NAME
 DOCS_URL: Final = "/docs"
@@ -74,11 +82,12 @@ def create_app(
     *,
     db_sessionmaker: async_sessionmaker[AsyncSession] | None = None,
     storage: Storage | None = None,
+    workflows: WorkflowService | None = None,
 ) -> FastAPI:
     """Build the API. ``settings`` is passed in so tests control every value.
 
-    ``db_sessionmaker`` and ``storage`` override what settings would select; they exist
-    for tests and are not used by :mod:`basis.api.main`.
+    ``db_sessionmaker``, ``storage`` and ``workflows`` override what settings would
+    select; they exist for tests and are not used by :mod:`basis.api.main`.
     """
 
     @asynccontextmanager
@@ -87,9 +96,20 @@ def create_app(
         if getattr(app.state, SESSIONMAKER_STATE_ATTR) is None and database_configured(settings):
             owned = create_engine(settings)
             install_database(app, create_sessionmaker(owned))
+        owns_temporal = app.state.workflows is None and temporal_configured(settings)
+        if owns_temporal:
+            client = await connect(settings, lazy=True)
+            app.state.temporal = client
+            app.state.workflows = TemporalWorkflowService(
+                client, task_queue=settings.temporal_task_queue
+            )
         try:
             yield
         finally:
+            if owns_temporal:
+                # A temporalio client holds no resources that need closing.
+                app.state.temporal = None
+                app.state.workflows = None
             if owned is not None:
                 await owned.dispose()
                 setattr(app.state, SESSIONMAKER_STATE_ATTR, None)
@@ -110,6 +130,8 @@ def create_app(
     app.state.idempotency_store = InMemoryIdempotencyStore()
     if db_sessionmaker is not None:
         install_database(app, db_sessionmaker)
+    app.state.temporal = None
+    app.state.workflows = workflows
     if storage is None:
         app.state.storage, app.state.storage_bucket = default_storage(settings)
     else:

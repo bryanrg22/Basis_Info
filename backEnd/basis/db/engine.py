@@ -12,16 +12,35 @@
   hanging.
 * ``statement_timeout`` is a server setting applied to every connection at connect time
   (30 s), so a runaway query is cancelled by PostgreSQL even if the client is gone.
+* Connection establishment failures become :class:`~basis.db.errors.DatabaseUnavailableError`
+  (:func:`connect_or_unavailable`, :data:`CONNECT_ERRORS`): the network errors
+  ``asyncpg.connect`` raises (refused, unreachable, DNS, connect timeout: all
+  ``OSError``) and the server's "not now" answers (SQLSTATE class 08, ``57P03`` starting
+  up or shutting down, ``53300`` too many connections). Authentication and
+  unknown-database errors are configuration faults and pass through unchanged, as does
+  every error on an established connection. The API maps the translated error to 503;
+  anywhere else it is an ordinary retryable exception.
+
+  How: SQLAlchemy's asyncpg adapter opens a connection by awaiting
+  ``async_creator_fn(*cargs, **cparams)`` (default ``asyncpg.connect``) with the URL's and
+  ``connect_args``' parameters; ``connect_args`` sets it to the wrapper. The wrapper is
+  therefore the last step, after every ``do_connect`` listener (which can still read or
+  change the parameters), and it sees asyncpg's own exceptions before SQLAlchemy adapts
+  them. ``async_creator_fn`` is the hook SQLAlchemy's public ``async_creator`` uses
+  internally; were it ever renamed, asyncpg would reject the unknown keyword on every
+  connect, so the change could not go unnoticed.
 """
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
+import asyncpg
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from basis.config import ConfigError, Settings
+from basis.db.errors import DatabaseUnavailableError
 
 ASYNC_DRIVER: Final = "postgresql+asyncpg"
 STATEMENT_TIMEOUT_MS: Final = 30_000
@@ -29,6 +48,30 @@ POOL_TIMEOUT_S: Final = 10.0
 APPLICATION_NAME: Final = "basis"
 
 _SYNC_POSTGRES_DRIVERS: Final = frozenset({"postgres", "postgresql"})
+
+# Raised by asyncpg.connect when the server cannot be reached or will not take a
+# connection right now. OSError covers ConnectionRefusedError, socket.gaierror and
+# TimeoutError (asyncio's connect timeout is the builtin TimeoutError since 3.11).
+CONNECT_ERRORS: Final[tuple[type[Exception], ...]] = (
+    OSError,
+    asyncpg.PostgresConnectionError,  # SQLSTATE class 08
+    asyncpg.CannotConnectNowError,  # 57P03: starting up, shutting down, recovering
+    asyncpg.TooManyConnectionsError,  # 53300: max_connections or the role's limit
+)
+
+
+async def connect_or_unavailable(*args: Any, **kwargs: Any) -> Any:
+    """``asyncpg.connect`` with :data:`CONNECT_ERRORS` raised as ``DatabaseUnavailableError``.
+
+    The driver's message can name the host and port, so only the exception type goes into
+    the message; the original is the cause.
+    """
+    try:
+        return await asyncpg.connect(*args, **kwargs)
+    except CONNECT_ERRORS as exc:
+        raise DatabaseUnavailableError(
+            f"could not connect to the database ({type(exc).__name__})"
+        ) from exc
 
 
 def async_database_url(raw: str) -> URL:
@@ -87,6 +130,7 @@ def create_engine(
             "server_settings": {
                 "statement_timeout": str(statement_timeout_ms),
                 "application_name": APPLICATION_NAME,
-            }
+            },
+            "async_creator_fn": connect_or_unavailable,
         },
     )

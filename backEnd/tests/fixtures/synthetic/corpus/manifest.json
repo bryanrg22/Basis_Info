@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "seed": 20261015,
+  "synthetic": true,
+  "documents": [
+    {
+      "doc_id": "SYN_PUB_A",
+      "file": "corpus/SYN_PUB_A.pdf",
+      "title": "Synthetic Publication A: Recovery Periods for Business Property",
+      "pages": 4,
+      "sections": [
+        {
+          "number": 1,
+          "title": "Purpose",
+          "page": 1
+        },
+        {
+          "number": 2,
+          "title": "Recovery classes",
+          "page": 1
+        },
+        {
+          "number": 3,
+          "title": "General and alternative systems",
+          "page": 1
+        },
+        {
+          "number": 4,
+          "title": "Asset class 57.0, distributive trades and services",
+          "page": 2
+        },
+        {
+          "number": 5,
+          "title": "Asset class 00.11, office furniture",
+          "page": 2
+        },
+        {
+          "number": 6,
+          "title": "Asset class 00.3, land improvements",
+          "page": 2
+        },
+        {
+          "number": 7,
+          "title": "Using Table A-1",
+          "page": 3
+        },
+        {
+          "number": 8,
+          "title": "Buildings",
+          "page": 4
+        },
+        {
+          "number": 9,
+          "title": "Conventions",
+          "page": 4
+        }
+      ],
+      "tables": [
+        {
+          "id": "A-1",
+          "title": "Table A-1. Selected asset classes",
+          "page": 3,
+          "headers": [
+            "Asset class",
+            "Description",
+            "Class life",
+            "GDS period",
+            "ADS period"
+          ],
+          "rows": [
+            [
+              "00.11",
+              "Office furniture, fixtures, equipment",
+              "10",
+              "7",
+              "10"
+            ],
+            [
+              "00.12",
+              "Information systems",
+              "6",
+              "5",
+              "5"
+            ],
+            [
+              "00.3",
+              "Land improvements",
+              "20",
+              "15",
+              "20"
+            ],
+            [
+              "57.0",
+              "Distributive trades and services",
+              "9",
+              "5",
+              "9"
+            ],
+            [
+              "57.1",
+              "Distributive trades: land improvements",
+              "20",
+              "15",
+              "20"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "doc_id": "SYN_PUB_B",
+      "file": "corpus/SYN_PUB_B.pdf",
+      "title": "Synthetic Publication B: Section 1245 and Section 1250 Property",
+      "pages": 3,
+      "sections": [
+        {
+          "number": 1,
+          "title": "Overview",
+          "page": 1
+        },
+        {
+          "number": 2,
+          "title": "Section 1245 property",
+          "page": 1
+        },
+        {
+          "number": 3,
+          "title": "Section 1250 property",
+          "page": 2
+        },
+        {
+          "number": 4,
+          "title": "Structural components",
+          "page": 2
+        },
+        {
+          "number": 5,
+          "title": "Recapture",
+          "page": 3
+        }
+      ],
+      "tables": [
+        {
+          "id": "B-1",
+          "title": "Table B-1. Illustrative component treatment",
+          "page": 3,
+          "headers": [
+            "Component",
+            "Property type",
+            "Reason"
+          ],
+          "rows": [
+            [
+              "Tack-down carpet",
+              "1245",
+              "removable floor covering"
+            ],
+            [
+              "Kitchen cabinets (freestanding)",
+              "1245",
+              "removable fixture"
+            ],
+            [
+              "Bathtub",
+              "1250",
+              "plumbing fixture"
+            ],
+            [
+              "Toilet",
+              "1250",
+              "plumbing fixture"
+            ],
+            [
+              "Central AC condenser",
+              "1250",
+              "building HVAC system"
+            ],
+            [
+              "Garage door",
+              "1250",
+              "structural component"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "doc_id": "SYN_PUB_C",
+      "file": "corpus/SYN_PUB_C.pdf",
+      "title": "Synthetic Publication C: Cost Segregation Practice Notes",
+      "pages": 3,
+      "sections": [
+        {
+          "number": 1,
+          "title": "Purpose",
+          "page": 1
+        },
+        {
+          "number": 2,
+          "title": "What a study does",
+          "page": 1
+        },
+        {
+          "number": 3,
+          "title": "Retail and service assets",
+          "page": 2
+        },
+        {
+          "number": 4,
+          "title": "Site work",
+          "page": 2
+        },
+        {
+          "number": 5,
+          "title": "Personal property inside a building",
+          "page": 2
+        },
+        {
+          "number": 6,
+          "title": "Office furnishings",
+          "page": 3
+        },
+        {
+          "number": 7,
+          "title": "Buildings",
+          "page": 3
+        },
+        {
+          "number": 8,
+          "title": "Documentation",
+          "page": 3
+        }
+      ],
+      "tables": [
+        {
+          "id": "C-1",
+          "title": "Table C-1. Building systems and typical treatment",
+          "page": 3,
+          "headers": [
+            "Building system",
+            "Example components",
+            "Typical treatment"
+          ],
+          "rows": [
+            [
+              "Interior finishes",
+              "carpet, vinyl flooring",
+              "5-year personal"
+            ],
+            [
+              "Plumbing",
+              "bathtubs, toilets",
+              "building"
+            ],
+            [
+              "HVAC",
+              "condensers, ductwork",
+              "building"
+            ],
+            [
+              "Site improvements",
+              "paving, fencing",
+              "15-year land improvement"
+            ],
+            [
+              "Specialty electrical",
+              "dedicated equipment circuits",
+              "5-year"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "paraphrase_pairs": [
+    {
+      "id": "P1",
+      "exact": {
+        "doc_id": "SYN_PUB_A",
+        "page": 2,
+        "text": "Assets in class 57.0 have a class life of 9 years and a GDS recovery period of 5 years."
+      },
+      "paraphrase": {
+        "doc_id": "SYN_PUB_C",
+        "page": 2,
+        "text": "Equipment and fixtures used by a business that sells goods to customers or provides personal services are generally depreciated over five years."
+      }
+    },
+    {
+      "id": "P2",
+      "exact": {
+        "doc_id": "SYN_PUB_A",
+        "page": 2,
+        "text": "Asset class 00.3 covers land improvements such as sidewalks, fences and parking areas, with a 15-year GDS recovery period."
+      },
+      "paraphrase": {
+        "doc_id": "SYN_PUB_C",
+        "page": 2,
+        "text": "Paving, walkways, fencing and outdoor lighting placed on the land generally recover over fifteen years."
+      }
+    },
+    {
+      "id": "P3",
+      "exact": {
+        "doc_id": "SYN_PUB_A",
+        "page": 2,
+        "text": "Asset class 00.11 covers office furniture, fixtures and equipment such as desks, files and safes. It has a class life of 10 years and a GDS recovery period of 7 years."
+      },
+      "paraphrase": {
+        "doc_id": "SYN_PUB_C",
+        "page": 3,
+        "text": "Desks, filing cabinets and other furniture used in an office are generally depreciated over seven years."
+      }
+    },
+    {
+      "id": "P4",
+      "exact": {
+        "doc_id": "SYN_PUB_B",
+        "page": 1,
+        "text": "Section 1245 property generally means depreciable personal property, including machinery, equipment and certain fixtures that are not structural components of a building."
+      },
+      "paraphrase": {
+        "doc_id": "SYN_PUB_C",
+        "page": 2,
+        "text": "Items that can be removed without damaging the building, such as tack-down carpet, are usually treated as personal property rather than as part of the structure."
+      }
+    },
+    {
+      "id": "P5",
+      "exact": {
+        "doc_id": "SYN_PUB_A",
+        "page": 4,
+        "text": "Residential rental property is recovered over 27.5 years and nonresidential real property over 39 years, using the straight line method."
+      },
+      "paraphrase": {
+        "doc_id": "SYN_PUB_C",
+        "page": 3,
+        "text": "Apartment buildings are written off over twenty-seven and a half years, while offices and stores take thirty-nine years."
+      }
+    }
+  ]
+}

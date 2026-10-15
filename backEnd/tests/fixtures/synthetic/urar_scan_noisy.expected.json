@@ -1,0 +1,1362 @@
+{
+  "schema_version": 1,
+  "document": "urar_scan_noisy.pdf",
+  "doc_id": "SYN_URAR_0001",
+  "page_count": 7,
+  "scan": true,
+  "seed": 20261015,
+  "synthetic": true,
+  "critical_fields": [
+    "subject.property_address",
+    "listing_and_contract.contract_price",
+    "improvements.year_built",
+    "improvements.gla_sqft",
+    "reconciliation.final_market_value",
+    "reconciliation.effective_date_of_appraisal"
+  ],
+  "sections": [
+    {
+      "name": "subject",
+      "title": "Subject",
+      "pages": [
+        1
+      ]
+    },
+    {
+      "name": "listing_and_contract",
+      "title": "Contract",
+      "pages": [
+        1
+      ]
+    },
+    {
+      "name": "neighborhood",
+      "title": "Neighborhood",
+      "pages": [
+        2
+      ]
+    },
+    {
+      "name": "site",
+      "title": "Site",
+      "pages": [
+        2
+      ]
+    },
+    {
+      "name": "improvements",
+      "title": "Improvements",
+      "pages": [
+        3
+      ]
+    },
+    {
+      "name": "sales_comparison",
+      "title": "Sales Comparison Approach",
+      "pages": [
+        4,
+        5
+      ]
+    },
+    {
+      "name": "reconciliation",
+      "title": "Reconciliation",
+      "pages": [
+        5
+      ]
+    },
+    {
+      "name": "additional_comments",
+      "title": "Additional Comments",
+      "pages": [
+        6
+      ]
+    },
+    {
+      "name": "cost_approach",
+      "title": "Cost Approach",
+      "pages": [
+        6
+      ]
+    },
+    {
+      "name": "income_approach",
+      "title": "Income Approach",
+      "pages": [
+        6
+      ]
+    },
+    {
+      "name": "appraiser",
+      "title": "Appraiser Certification and Signature",
+      "pages": [
+        7
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "id": "sales_comparison_grid",
+      "page": 4,
+      "file": "urar_sample.tables.json"
+    },
+    {
+      "id": "cost_approach",
+      "page": 6,
+      "file": "urar_sample.tables.json"
+    }
+  ],
+  "fields": [
+    {
+      "key": "subject.property_address",
+      "section": "subject",
+      "label": "Property Address",
+      "text": "1290 Example Way",
+      "value": "1290 Example Way",
+      "type": "text",
+      "page": 1,
+      "critical": true,
+      "source": "kv"
+    },
+    {
+      "key": "subject.city",
+      "section": "subject",
+      "label": "City",
+      "text": "Springfield",
+      "value": "Springfield",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.state",
+      "section": "subject",
+      "label": "State",
+      "text": "XX",
+      "value": "XX",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.zip",
+      "section": "subject",
+      "label": "Zip Code",
+      "text": "00000",
+      "value": "00000",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.borrower",
+      "section": "subject",
+      "label": "Borrower",
+      "text": "Sample Borrower",
+      "value": "Sample Borrower",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.owner_of_public_record",
+      "section": "subject",
+      "label": "Owner of Public Record",
+      "text": "Sample Owner",
+      "value": "Sample Owner",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.county",
+      "section": "subject",
+      "label": "County",
+      "text": "Example County",
+      "value": "Example County",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.legal_description",
+      "section": "subject",
+      "label": "Legal Description",
+      "text": "Lot 7, Block 3, Example Addition",
+      "value": "Lot 7, Block 3, Example Addition",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.assessors_parcel",
+      "section": "subject",
+      "label": "Assessor's Parcel #",
+      "text": "000-000-0000",
+      "value": "000-000-0000",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.tax_year",
+      "section": "subject",
+      "label": "Tax Year",
+      "text": "2026",
+      "value": 2026,
+      "type": "int",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.real_estate_taxes",
+      "section": "subject",
+      "label": "R.E. Taxes",
+      "text": "$4,321",
+      "value": 4321,
+      "type": "currency",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.neighborhood_name",
+      "section": "subject",
+      "label": "Neighborhood Name",
+      "text": "Example Heights",
+      "value": "Example Heights",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.map_reference",
+      "section": "subject",
+      "label": "Map Reference",
+      "text": "MAP-00",
+      "value": "MAP-00",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.census_tract",
+      "section": "subject",
+      "label": "Census Tract",
+      "text": "0000.00",
+      "value": "0000.00",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.occupant",
+      "section": "subject",
+      "label": "Occupant",
+      "text": "Owner",
+      "value": "Owner",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.special_assessments",
+      "section": "subject",
+      "label": "Special Assessments",
+      "text": "$0",
+      "value": 0,
+      "type": "currency",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.hoa_dues",
+      "section": "subject",
+      "label": "HOA Dues",
+      "text": "$0",
+      "value": 0,
+      "type": "currency",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.property_rights_appraised",
+      "section": "subject",
+      "label": "Property Rights Appraised",
+      "text": "Fee Simple",
+      "value": "Fee Simple",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.assignment_type",
+      "section": "subject",
+      "label": "Assignment Type",
+      "text": "Purchase Transaction",
+      "value": "Purchase Transaction",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "subject.lender_client",
+      "section": "subject",
+      "label": "Lender/Client",
+      "text": "Example Lending Co.",
+      "value": "Example Lending Co.",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.contract_price",
+      "section": "listing_and_contract",
+      "label": "Contract Price",
+      "text": "$412,000",
+      "value": 412000,
+      "type": "currency",
+      "page": 1,
+      "critical": true,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.contract_date",
+      "section": "listing_and_contract",
+      "label": "Date of Contract",
+      "text": "09/01/2026",
+      "value": "2026-09-01",
+      "type": "date",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.offering_price",
+      "section": "listing_and_contract",
+      "label": "Offering Price",
+      "text": "$415,000",
+      "value": 415000,
+      "type": "currency",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.listing_date",
+      "section": "listing_and_contract",
+      "label": "Listing Date",
+      "text": "08/01/2026",
+      "value": "2026-08-01",
+      "type": "date",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.days_on_market",
+      "section": "listing_and_contract",
+      "label": "DOM",
+      "text": "21",
+      "value": 21,
+      "type": "int",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.sale_type",
+      "section": "listing_and_contract",
+      "label": "Sale Type",
+      "text": "Arms Length",
+      "value": "Arms Length",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.seller_concessions",
+      "section": "listing_and_contract",
+      "label": "Financial Assistance (Concessions)",
+      "text": "$0",
+      "value": 0,
+      "type": "currency",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "listing_and_contract.data_source",
+      "section": "listing_and_contract",
+      "label": "Data Source(s)",
+      "text": "SYN-MLS-0000",
+      "value": "SYN-MLS-0000",
+      "type": "text",
+      "page": 1,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.location",
+      "section": "neighborhood",
+      "label": "Location",
+      "text": "Suburban",
+      "value": "Suburban",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.built_up",
+      "section": "neighborhood",
+      "label": "Built-Up",
+      "text": "25-75%",
+      "value": "25-75%",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.growth",
+      "section": "neighborhood",
+      "label": "Growth",
+      "text": "Stable",
+      "value": "Stable",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.property_values",
+      "section": "neighborhood",
+      "label": "Property Values",
+      "text": "Stable",
+      "value": "Stable",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.demand_supply",
+      "section": "neighborhood",
+      "label": "Demand/Supply",
+      "text": "In Balance",
+      "value": "In Balance",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.marketing_time",
+      "section": "neighborhood",
+      "label": "Marketing Time",
+      "text": "3-6 mths",
+      "value": "3-6 mths",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.present_land_use_one_unit",
+      "section": "neighborhood",
+      "label": "One-Unit",
+      "text": "80%",
+      "value": 80,
+      "type": "percent",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.present_land_use_two_to_four",
+      "section": "neighborhood",
+      "label": "2-4 Unit",
+      "text": "5%",
+      "value": 5,
+      "type": "percent",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.present_land_use_multi_family",
+      "section": "neighborhood",
+      "label": "Multi-Family",
+      "text": "5%",
+      "value": 5,
+      "type": "percent",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.present_land_use_commercial",
+      "section": "neighborhood",
+      "label": "Commercial",
+      "text": "5%",
+      "value": 5,
+      "type": "percent",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.present_land_use_other",
+      "section": "neighborhood",
+      "label": "Other Land Use",
+      "text": "5%",
+      "value": 5,
+      "type": "percent",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "neighborhood.neighborhood_boundaries",
+      "section": "neighborhood",
+      "label": "Neighborhood Boundaries",
+      "text": "North: Sample Road; South: Test Creek; East: Example Parkway; West: Fixture Lane",
+      "value": "North: Sample Road; South: Test Creek; East: Example Parkway; West: Fixture Lane",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.dimensions",
+      "section": "site",
+      "label": "Dimensions",
+      "text": "80 x 125",
+      "value": "80 x 125",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.area_sqft",
+      "section": "site",
+      "label": "Site Area",
+      "text": "10,000 sf",
+      "value": 10000,
+      "type": "int",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.shape",
+      "section": "site",
+      "label": "Shape",
+      "text": "Rectangular",
+      "value": "Rectangular",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.view",
+      "section": "site",
+      "label": "View",
+      "text": "Residential",
+      "value": "Residential",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.zoning_classification",
+      "section": "site",
+      "label": "Zoning Classification",
+      "text": "R-1",
+      "value": "R-1",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.zoning_description",
+      "section": "site",
+      "label": "Zoning Description",
+      "text": "Single Family Residential",
+      "value": "Single Family Residential",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.zoning_compliance",
+      "section": "site",
+      "label": "Zoning Compliance",
+      "text": "Legal",
+      "value": "Legal",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.highest_and_best_use",
+      "section": "site",
+      "label": "Highest and Best Use",
+      "text": "Present Use",
+      "value": "Present Use",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.utilities_electric",
+      "section": "site",
+      "label": "Electricity",
+      "text": "Public",
+      "value": "Public",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.utilities_gas",
+      "section": "site",
+      "label": "Gas",
+      "text": "Public",
+      "value": "Public",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.utilities_water",
+      "section": "site",
+      "label": "Water",
+      "text": "Public",
+      "value": "Public",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.utilities_sewer",
+      "section": "site",
+      "label": "Sanitary Sewer",
+      "text": "Public",
+      "value": "Public",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.off_site_improvements_street",
+      "section": "site",
+      "label": "Street",
+      "text": "Asphalt",
+      "value": "Asphalt",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.off_site_improvements_alley",
+      "section": "site",
+      "label": "Alley",
+      "text": "None",
+      "value": "None",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.special_flood_hazard",
+      "section": "site",
+      "label": "FEMA Special Flood Hazard Area",
+      "text": "No",
+      "value": false,
+      "type": "bool",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.flood_zone",
+      "section": "site",
+      "label": "FEMA Flood Zone",
+      "text": "X",
+      "value": "X",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.fema_map_number",
+      "section": "site",
+      "label": "FEMA Map #",
+      "text": "00000C0000Z",
+      "value": "00000C0000Z",
+      "type": "text",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "site.fema_map_date",
+      "section": "site",
+      "label": "FEMA Map Date",
+      "text": "01/01/2020",
+      "value": "2020-01-01",
+      "type": "date",
+      "page": 2,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.units",
+      "section": "improvements",
+      "label": "Units",
+      "text": "One",
+      "value": "One",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.stories",
+      "section": "improvements",
+      "label": "Stories",
+      "text": "2",
+      "value": 2,
+      "type": "int",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.type",
+      "section": "improvements",
+      "label": "Type",
+      "text": "Detached",
+      "value": "Detached",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.design_style",
+      "section": "improvements",
+      "label": "Design (Style)",
+      "text": "Colonial",
+      "value": "Colonial",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.year_built",
+      "section": "improvements",
+      "label": "Year Built",
+      "text": "1987",
+      "value": 1987,
+      "type": "int",
+      "page": 3,
+      "critical": true,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.effective_age_years",
+      "section": "improvements",
+      "label": "Effective Age",
+      "text": "12",
+      "value": 12,
+      "type": "int",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.foundation_type",
+      "section": "improvements",
+      "label": "Foundation",
+      "text": "Full Basement",
+      "value": "Full Basement",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.basement_area_sqft",
+      "section": "improvements",
+      "label": "Basement Area",
+      "text": "900 sq ft",
+      "value": 900,
+      "type": "int",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.basement_finish_percent",
+      "section": "improvements",
+      "label": "Basement Finish",
+      "text": "50%",
+      "value": 50,
+      "type": "percent",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.exterior_walls",
+      "section": "improvements",
+      "label": "Exterior Walls",
+      "text": "Vinyl Siding",
+      "value": "Vinyl Siding",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.roof_surface",
+      "section": "improvements",
+      "label": "Roof Surface",
+      "text": "Asphalt Shingle",
+      "value": "Asphalt Shingle",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.gutters_downspouts",
+      "section": "improvements",
+      "label": "Gutters and Downspouts",
+      "text": "Aluminum",
+      "value": "Aluminum",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.window_type",
+      "section": "improvements",
+      "label": "Window Type",
+      "text": "Double Hung",
+      "value": "Double Hung",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.heating_type",
+      "section": "improvements",
+      "label": "Heating",
+      "text": "FWA",
+      "value": "FWA",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.heating_fuel",
+      "section": "improvements",
+      "label": "Fuel",
+      "text": "Gas",
+      "value": "Gas",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.cooling",
+      "section": "improvements",
+      "label": "Cooling",
+      "text": "Central Air Conditioning",
+      "value": "Central Air Conditioning",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.fireplaces",
+      "section": "improvements",
+      "label": "Fireplaces",
+      "text": "1",
+      "value": 1,
+      "type": "int",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.patio_deck",
+      "section": "improvements",
+      "label": "Patio/Deck",
+      "text": "Deck",
+      "value": "Deck",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.car_storage",
+      "section": "improvements",
+      "label": "Car Storage",
+      "text": "Garage, Attached",
+      "value": "Garage, Attached",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.garage_cars",
+      "section": "improvements",
+      "label": "Garage Cars",
+      "text": "2",
+      "value": 2,
+      "type": "int",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.total_rooms",
+      "section": "improvements",
+      "label": "Rooms",
+      "text": "7",
+      "value": 7,
+      "type": "int",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.bedrooms",
+      "section": "improvements",
+      "label": "Bedrooms",
+      "text": "3",
+      "value": 3,
+      "type": "int",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.bathrooms",
+      "section": "improvements",
+      "label": "Bath(s)",
+      "text": "2.1",
+      "value": 2.1,
+      "type": "float",
+      "page": 3,
+      "critical": false,
+      "source": "kv",
+      "note": "URAR full.half notation: 2 full baths and 1 half bath"
+    },
+    {
+      "key": "improvements.gla_sqft",
+      "section": "improvements",
+      "label": "Gross Living Area",
+      "text": "1,850 sq ft",
+      "value": 1850,
+      "type": "int",
+      "page": 3,
+      "critical": true,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.quality",
+      "section": "improvements",
+      "label": "Quality of Construction",
+      "text": "Q4",
+      "value": "Q4",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.condition",
+      "section": "improvements",
+      "label": "Condition",
+      "text": "C3",
+      "value": "C3",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.appliances",
+      "section": "improvements",
+      "label": "Appliances",
+      "text": "Range/Oven, Dishwasher, Refrigerator, Microwave, Washer/Dryer",
+      "value": "Range/Oven, Dishwasher, Refrigerator, Microwave, Washer/Dryer",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "improvements.additional_features",
+      "section": "improvements",
+      "label": "Additional Features",
+      "text": "Rear deck, fireplace, ceiling fans",
+      "value": "Rear deck, fireplace, ceiling fans",
+      "type": "text",
+      "page": 3,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "sales_comparison.indicated_value",
+      "section": "sales_comparison",
+      "label": "Indicated Value by Sales Comparison Approach",
+      "text": "$410,000",
+      "value": 410000,
+      "type": "currency",
+      "page": 5,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "reconciliation.indicated_value_sales_comparison",
+      "section": "reconciliation",
+      "label": "Indicated Value by Sales Comparison",
+      "text": "$410,000",
+      "value": 410000,
+      "type": "currency",
+      "page": 5,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "reconciliation.indicated_value_cost_approach",
+      "section": "reconciliation",
+      "label": "Indicated Value by Cost Approach",
+      "text": "$419,850",
+      "value": 419850,
+      "type": "currency",
+      "page": 5,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "reconciliation.indicated_value_income_approach",
+      "section": "reconciliation",
+      "label": "Indicated Value by Income Approach",
+      "text": "Not Developed",
+      "value": "Not Developed",
+      "type": "text",
+      "page": 5,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "reconciliation.appraisal_made",
+      "section": "reconciliation",
+      "label": "This Appraisal Is Made",
+      "text": "As Is",
+      "value": "As Is",
+      "type": "text",
+      "page": 5,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "reconciliation.final_market_value",
+      "section": "reconciliation",
+      "label": "Final Opinion of Market Value",
+      "text": "$410,000",
+      "value": 410000,
+      "type": "currency",
+      "page": 5,
+      "critical": true,
+      "source": "kv"
+    },
+    {
+      "key": "reconciliation.effective_date_of_appraisal",
+      "section": "reconciliation",
+      "label": "Effective Date",
+      "text": "10/01/2026",
+      "value": "2026-10-01",
+      "type": "date",
+      "page": 5,
+      "critical": true,
+      "source": "kv"
+    },
+    {
+      "key": "cost_approach.site_value",
+      "section": "cost_approach",
+      "label": "Opinion of Site Value",
+      "text": "$95,000",
+      "value": 95000,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 0,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.dwelling_cost",
+      "section": "cost_approach",
+      "label": "Dwelling",
+      "text": "$305,250",
+      "value": 305250,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 1,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.total_cost_new",
+      "section": "cost_approach",
+      "label": "Total Estimate of Cost-New",
+      "text": "$362,850",
+      "value": 362850,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 4,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.depreciation_physical",
+      "section": "cost_approach",
+      "label": "Less Physical Depreciation",
+      "text": "$50,000",
+      "value": 50000,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 5,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.depreciation",
+      "section": "cost_approach",
+      "label": "Total Depreciation",
+      "text": "$50,000",
+      "value": 50000,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 8,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.depreciated_cost_improvements",
+      "section": "cost_approach",
+      "label": "Depreciated Cost of Improvements",
+      "text": "$312,850",
+      "value": 312850,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 9,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.site_improvements_value",
+      "section": "cost_approach",
+      "label": "\"As-is\" Value of Site Improvements",
+      "text": "$12,000",
+      "value": 12000,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 10,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.indicated_value",
+      "section": "cost_approach",
+      "label": "Indicated Value by Cost Approach",
+      "text": "$419,850",
+      "value": 419850,
+      "type": "currency",
+      "page": 6,
+      "critical": false,
+      "source": "table",
+      "table_id": "cost_approach",
+      "row": 11,
+      "col": 3
+    },
+    {
+      "key": "cost_approach.remaining_economic_life",
+      "section": "cost_approach",
+      "label": "Remaining Economic Life",
+      "text": "48 years",
+      "value": 48,
+      "type": "int",
+      "page": 6,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "cost_approach.cost_data_source",
+      "section": "cost_approach",
+      "label": "Source of Cost Data",
+      "text": "SYN-COST-2026",
+      "value": "SYN-COST-2026",
+      "type": "text",
+      "page": 6,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "appraiser.name",
+      "section": "appraiser",
+      "label": "Appraiser",
+      "text": "Sample Appraiser",
+      "value": "Sample Appraiser",
+      "type": "text",
+      "page": 7,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "appraiser.company",
+      "section": "appraiser",
+      "label": "Company Name",
+      "text": "Example Appraisal Group",
+      "value": "Example Appraisal Group",
+      "type": "text",
+      "page": 7,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "appraiser.license_number",
+      "section": "appraiser",
+      "label": "State Certification #",
+      "text": "SYN-000000",
+      "value": "SYN-000000",
+      "type": "text",
+      "page": 7,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "appraiser.license_state",
+      "section": "appraiser",
+      "label": "License State",
+      "text": "XX",
+      "value": "XX",
+      "type": "text",
+      "page": 7,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "appraiser.signature_date",
+      "section": "appraiser",
+      "label": "Date of Signature and Report",
+      "text": "10/05/2026",
+      "value": "2026-10-05",
+      "type": "date",
+      "page": 7,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "appraiser.effective_date",
+      "section": "appraiser",
+      "label": "Effective Date of Appraisal",
+      "text": "10/01/2026",
+      "value": "2026-10-01",
+      "type": "date",
+      "page": 7,
+      "critical": false,
+      "source": "kv"
+    },
+    {
+      "key": "appraiser.appraised_value",
+      "section": "appraiser",
+      "label": "Appraised Value of Subject Property",
+      "text": "$410,000",
+      "value": 410000,
+      "type": "currency",
+      "page": 7,
+      "critical": false,
+      "source": "kv"
+    }
+  ],
+  "source_document": "urar_sample.pdf",
+  "scan_params": {
+    "dpi": 150,
+    "jpeg_quality": 55,
+    "rotation_degrees": [
+      0.81,
+      -0.94,
+      0.85,
+      0.38,
+      0.5,
+      0.25,
+      -0.06
+    ],
+    "noise": "sparse dark specks (~0.4% of pixels) + grain, 3x3 binomial blur",
+    "text_layer": false
+  }
+}
