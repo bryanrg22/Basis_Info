@@ -86,6 +86,10 @@ async def _document(
     document_id = uuid.uuid4()
     uri = f"gs://{TEST_BUCKET}/studies/{study_id}/{document_id}/{name}"
     is_appraisal = kind is DocumentKind.APPRAISAL
+    # Explicit content (the appraisal) is hashed for real; fixture bytes written for the
+    # photos share images between files, so their rows keep a random sha256 (the
+    # documents table is unique on (study_id, sha256)).
+    explicit = content is not None
     if storage is not None and content is None:
         content = fixture_bytes_for(name, appraisal=is_appraisal)
     if storage is not None and content is not None:
@@ -96,7 +100,9 @@ async def _document(
         filename=name,
         content_type="application/pdf" if kind is DocumentKind.APPRAISAL else "image/jpeg",
         size_bytes=1024 if content is None else len(content),
-        sha256=secrets.token_hex(32) if content is None else hashlib.sha256(content).hexdigest(),
+        sha256=hashlib.sha256(content).hexdigest()
+        if explicit and content
+        else secrets.token_hex(32),
         gcs_uri=uri,
         uploaded_by=owner_id,
         document_id=document_id,

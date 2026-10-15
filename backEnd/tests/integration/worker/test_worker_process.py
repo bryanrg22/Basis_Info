@@ -104,7 +104,6 @@ def worker_process(
         # download in the worker process. TMPDIR as in this process, so the worker's
         # LocalStorage directory (and tiktoken's cache) are the ones this test uses.
         "EMBEDDING_MODEL": "hash",
-        "TMPDIR": tempfile.gettempdir(),
     }
     log = tmp_path / "worker.log"
     with log.open("w") as out:

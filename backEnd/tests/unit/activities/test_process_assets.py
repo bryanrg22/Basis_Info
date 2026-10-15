@@ -21,6 +21,7 @@ from basis.activities import Deps
 from basis.activities.apply_corrections import ApplyCorrections
 from basis.activities.ingest_appraisal import IngestAppraisal
 from basis.activities.process_assets import ProcessAssets
+from basis.activities.stub_rules import components_for, room_for_filename
 from basis.db.enums import Bucket, ClassificationMethod
 from basis.db.models import (
     Asset,
@@ -30,6 +31,7 @@ from basis.db.models import (
     LlmCall,
     Takeoff,
 )
+from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm.provider import ScriptedProvider

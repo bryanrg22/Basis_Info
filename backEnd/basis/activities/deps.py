@@ -17,9 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.classify.store_protocol import ChunkStore
 from basis.config import Settings
-from basis.retrieval import Retrieval, default_retrieval
 from basis.extraction.azure_di import AzureDiClient
 from basis.llm.provider import ChatProvider
+from basis.retrieval import Retrieval, default_retrieval
 from basis.storage import Storage
 
 
