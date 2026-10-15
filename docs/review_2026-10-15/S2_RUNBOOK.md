@@ -8,7 +8,7 @@ Verified on 2026-10-15 (Apple Silicon, Docker Desktop, `temporal` 1.9.1 / Server
 Python 3.12 via `uv`), from a clean container: every step below, including the scripted
 study of section 7 through the API (create, three uploads, start, three decisions,
 export), the Temporal searches of section 8, and SIGTERM on all three processes. The
-outputs quoted are from that run (ids differ on every run).
+outputs quoted are from that run (ids differ on every run; sha256 values are shortened).
 
 | Process | Command | Ports |
 |---|---|---|
@@ -356,7 +356,7 @@ workflow study-970dfb38-83ba-44aa-aa9d-cab641c1294b run 01a1401f-26df-7caa-9ab3-
 execution COMPLETED stage completed decisions applied 3
 runs [('completed', 1)]
 export /private/var/folders/.../T/basis-local-storage/basis-local/studies/970dfb38-83ba-44aa-aa9d-cab641c1294b/exports/rev-1.json
-  sha256 2755ef336e9c757d872a61753fb59643dc4af83a166a3b7d0496b22f8f808d1f
+  sha256 2755ef336e9c...
   sections ['assets', 'checksums', 'components', 'extraction', 'format', 'photos', 'property_name', 'revision', 'rooms', 'study_id']
 ```
 
@@ -432,7 +432,7 @@ $ temporal workflow query --workflow-id study-970dfb38-83ba-44aa-aa9d-cab641c129
   QueryResult  {"awaiting":null,"budget_remaining_usd":24.971999999999998,"completed_photos":2,"decisions_applied":["9101f10a-...","68a04105-...","a653eb31-..."],"flagged_photos":null,"needs_review_stages":null,"pending_photos":0,"revision":1,"stage":"completed","stalled":false,"waiting_since":null}
 $ temporal workflow describe --workflow-id study-970dfb38-83ba-44aa-aa9d-cab641c1294b
   Status          COMPLETED
-  Result          {"cancel_reason":null,"export_sha256":"2755ef336e9c757d872a61753fb59643dc4af83a166a3b7d0496b22f8f808d1f","export_uri":"gs://basis-local/studies/970dfb38-83ba-44aa-aa9d-cab641c1294b/exports/rev-1.json","flagged_photos":null,"outcome":"completed","revision":1,"stage":"completed"}
+  Result          {"cancel_reason":null,"export_sha256":"2755ef336e9c...","export_uri":"gs://basis-local/studies/970dfb38-83ba-44aa-aa9d-cab641c1294b/exports/rev-1.json","flagged_photos":null,"outcome":"completed","revision":1,"stage":"completed"}
 ```
 
 In the workflow's page: the Event History shows every activity with its id
@@ -496,7 +496,7 @@ started study-579d45ac-8d7e-45e7-84c4-a83e281d034f
 appraisal_review accepted=True applied_revision=1 reason=None
 rooms_review accepted=True applied_revision=1 reason=None
 assets_review accepted=True applied_revision=1 reason=None
-result outcome='completed' stage='completed' revision=1 export_uri='gs://basis-local/studies/579d45ac-8d7e-45e7-84c4-a83e281d034f/exports/rev-1.json' export_sha256='7e0f5a2e3791177638a464bb2023592c0d76d1705db41002686ba89b27334df1' flagged_photos=() cancel_reason=None
+result outcome='completed' stage='completed' revision=1 export_uri='gs://basis-local/studies/579d45ac-8d7e-45e7-84c4-a83e281d034f/exports/rev-1.json' export_sha256='7e0f5a2e3791...' flagged_photos=() cancel_reason=None
 ```
 
 ## 10. Tests
