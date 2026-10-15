@@ -867,6 +867,7 @@
           "reviews"
         ],
         "summary": "Approve or reject the current review stage",
+        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409. Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field; rooms_review: room, component, photo; assets_review: asset) and its `entity_id` must exist in the study at the decided revision (a photo: a photo document of the study); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\"]`.",
         "operationId": "record_decision_v1_studies__study_id__decisions_post",
         "security": [
           {

@@ -19,9 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from basis.api.errors import PROBLEM_JSON
 from basis.api.idempotency import IDEMPOTENCY_HEADER, REPLAYED_HEADER
 from basis.api.schemas.common import MAX_REVISION
-from basis.db.enums import Decision, OrgRole, Stage
-from basis.db.models import Correction, OutboxMessage, Review, Study
+from basis.db.enums import Decision, DocumentKind, OrgRole, Stage
+from basis.db.models import Correction, Document, OutboxMessage, Review, Study
 from basis.db.repositories import DECISION_TRANSITIONS, WORKFLOW_SIGNAL, scoped_key
+from basis.db.repositories.review import CORRECTION_TARGET_TYPES
+from basis.workflow.contracts import CORRECTION_TYPES
 
 pytestmark = pytest.mark.integration
 
@@ -210,10 +212,11 @@ async def test_corrections_are_recorded(
     api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
     sid = await study_at(api, seed, Stage.ROOMS_REVIEW, revision=2)
-    field_id, room_id = uuid.uuid4(), uuid.uuid4()
+    targets = await seed.outputs(sid, revision=2)  # corrections must name real rows (S2-C)
+    field_id, room_id = uuid.UUID(targets["component"]), uuid.UUID(targets["room"])
     corrections = [
         {
-            "entity_type": "extraction_field",
+            "entity_type": "component",
             "entity_id": str(field_id),
             "before": {"year_built": 1989},
             "after": {"year_built": 1998},
@@ -239,7 +242,7 @@ async def test_corrections_are_recorded(
     async with sessionmaker() as session:
         rows = (await session.scalars(select(Correction).order_by(Correction.entity_type))).all()
     by_type = {row.entity_type: row for row in rows}
-    field, room = by_type["extraction_field"], by_type["room"]
+    field, room = by_type["component"], by_type["room"]
     assert (field.entity_id, field.before, field.after, field.reason) == (
         field_id,
         {"year_built": 1989},
@@ -380,3 +383,237 @@ async def test_missing_idempotency_key_is_400(api: Api, seed: Seed) -> None:
     )
     assert response.status_code == 400
     assert response.json()["type"].endswith("/idempotency-key-missing")
+
+
+# --------------------------------------------------------------------------- S2-C
+# Correction targets: the API refuses what the workflow's validator or apply_corrections
+# would refuse, naming the offending index (``basis.api.routes.decisions``).
+
+STAGE_TYPES = sorted(
+    (stage, entity_type) for stage, types in CORRECTION_TYPES.items() for entity_type in types
+)
+
+
+def correction(entity_type: str, entity_id: str) -> dict[str, Any]:
+    return {"entity_type": entity_type, "entity_id": entity_id, "after": {"name": "Kitchen"}}
+
+
+async def assert_nothing_written(
+    sessionmaker: async_sessionmaker[AsyncSession], sid: str, stage: Stage, revision: int
+) -> None:
+    assert await counts(sessionmaker) == (0, 0, 0)
+    async with sessionmaker() as session:
+        study = await session.get(Study, uuid.UUID(sid))
+    assert study is not None and (study.current_stage, study.revision) == (stage, revision)
+
+
+def test_target_types_cover_the_contract() -> None:
+    every_type: set[str] = set().union(*CORRECTION_TYPES.values())
+    assert every_type == CORRECTION_TARGET_TYPES
+
+
+@pytest.mark.parametrize(("stage", "entity_type"), STAGE_TYPES)
+async def test_a_real_target_of_an_accepted_type_is_202(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    stage: str,
+    entity_type: str,
+) -> None:
+    sid = await study_at(api, seed, Stage(stage), revision=2)
+    targets = await seed.outputs(sid, revision=2)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(stage, 2, "reject", corrections=[correction(entity_type, targets[entity_type])]),
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["corrections_recorded"] == 1
+    async with sessionmaker() as session:
+        (row,) = (await session.scalars(select(Correction))).all()
+    assert (row.entity_type, str(row.entity_id), row.revision) == (
+        entity_type,
+        targets[entity_type],
+        2,
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "entity_type"),
+    [
+        (stage, entity_type)
+        for stage, allowed in sorted(CORRECTION_TYPES.items())
+        for entity_type in [*sorted(CORRECTION_TARGET_TYPES - allowed), "widget"]
+    ],
+)
+async def test_a_type_the_stage_does_not_accept_is_422_with_its_index(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    stage: str,
+    entity_type: str,
+) -> None:
+    sid = await study_at(api, seed, Stage(stage))
+    targets = await seed.outputs(sid)
+    good_type = sorted(CORRECTION_TYPES[stage])[0]
+    good = correction(good_type, targets[good_type])
+    bad = correction(entity_type, targets.get(entity_type, str(uuid.uuid4())))
+
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(stage, 1, "reject", corrections=[good, bad, good]),
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.headers["content-type"] == PROBLEM_JSON
+    body = response.json()
+    assert body["type"].endswith("/validation")
+    assert [e["loc"] for e in body["errors"]] == [["body", "corrections", 1, "entity_type"]]
+    assert body["errors"][0]["type"] == "correction_type"
+    assert stage in body["errors"][0]["detail"] and entity_type in body["errors"][0]["detail"]
+    await assert_nothing_written(sessionmaker, sid, Stage(stage), 1)
+
+
+async def test_unknown_targets_are_422_naming_every_offending_index(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW)
+    targets = await seed.outputs(sid)
+    unknown = str(uuid.uuid4())
+    corrections = [
+        correction("room", targets["room"]),
+        correction("component", unknown),
+        correction("photo", targets["photo"]),
+        correction("room", unknown),
+    ]
+
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 1, "reject", corrections=corrections),
+    )
+
+    assert response.status_code == 422, response.text
+    errors = response.json()["errors"]
+    assert [e["loc"] for e in errors] == [
+        ["body", "corrections", 1, "entity_id"],
+        ["body", "corrections", 3, "entity_id"],
+    ]
+    assert {e["type"] for e in errors} == {"correction_target"}
+    assert unknown in errors[0]["detail"] and "revision 1" in errors[0]["detail"]
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 1)
+
+
+@pytest.mark.parametrize(("stage", "entity_type"), STAGE_TYPES)
+async def test_a_target_of_another_study_is_422(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    stage: str,
+    entity_type: str,
+) -> None:
+    sid = await study_at(api, seed, Stage(stage))
+    other = await study_at(api, seed, Stage(stage))
+    await seed.outputs(sid)
+    theirs = await seed.outputs(other)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(stage, 1, "reject", corrections=[correction(entity_type, theirs[entity_type])]),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["errors"][0]["loc"] == ["body", "corrections", 0, "entity_id"]
+    await assert_nothing_written(sessionmaker, sid, Stage(stage), 1)
+
+
+@pytest.mark.parametrize("entity_type", ["extraction_field", "room", "component", "asset"])
+async def test_a_target_of_an_earlier_revision_is_422(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    entity_type: str,
+) -> None:
+    """Revisioned outputs must belong to the decided revision, as apply_corrections checks."""
+    stage = next(s for s, types in CORRECTION_TYPES.items() if entity_type in types)
+    sid = await study_at(api, seed, Stage(stage), revision=2)
+    old = await seed.outputs(sid, revision=1)
+    await seed.outputs(sid, revision=2)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(stage, 2, "reject", corrections=[correction(entity_type, old[entity_type])]),
+    )
+    assert response.status_code == 422, response.text
+    await assert_nothing_written(sessionmaker, sid, Stage(stage), 2)
+
+
+async def test_a_photo_correction_must_name_a_photo(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW)
+    await seed.outputs(sid)
+    async with sessionmaker() as session:
+        (appraisal,) = (
+            await session.scalars(
+                select(Document.id).where(
+                    Document.study_id == uuid.UUID(sid), Document.kind == DocumentKind.APPRAISAL
+                )
+            )
+        ).all()
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 1, "reject", corrections=[correction("photo", str(appraisal))]),
+    )
+    assert response.status_code == 422, response.text
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 1)
+
+
+async def test_a_stale_decision_with_unknown_targets_is_still_409(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The compare-and-set runs before the existence check: stale wins over invalid."""
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, revision=2)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 1, "reject", corrections=[correction("room", str(uuid.uuid4()))]),
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["type"].endswith("/stale-state")
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 2)
+
+
+async def test_a_refused_correction_does_not_consume_the_idempotency_key(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Validation failures are not stored: the same key with a fixed body is accepted."""
+    sid = await study_at(api, seed, Stage.APPRAISAL_REVIEW)
+    targets = await seed.outputs(sid)
+    path, key = f"/v1/studies/{sid}/decisions", str(uuid.uuid4())
+    wrong_type = decision(
+        "appraisal_review", 1, "reject", corrections=[correction("room", targets["room"])]
+    )
+    missing = decision(
+        "appraisal_review",
+        1,
+        "reject",
+        corrections=[correction("extraction_field", str(uuid.uuid4()))],
+    )
+    fixed = decision(
+        "appraisal_review",
+        1,
+        "reject",
+        corrections=[correction("extraction_field", targets["extraction_field"])],
+    )
+
+    assert (await api.post("alice", path, wrong_type, key=key)).status_code == 422
+    assert (await api.post("alice", path, missing, key=key)).status_code == 422
+    accepted = await api.post("alice", path, fixed, key=key)
+
+    assert accepted.status_code == 202, accepted.text
+    assert REPLAYED_HEADER not in accepted.headers
+    assert await counts(sessionmaker) == (1, 1, 1)
+    replay = await api.post("alice", path, fixed, key=key)
+    assert replay.status_code == 202 and replay.headers[REPLAYED_HEADER] == "true"

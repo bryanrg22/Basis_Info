@@ -68,7 +68,8 @@ async def test_start_decide_relay_cancel(
 
     # The real workflow's transition activity would move the row; the fake does not.
     await Seed(sm).stage(sid, Stage.APPRAISAL_REVIEW)
-    entity = str(uuid.uuid4())
+    # A correction must name a row of the decided revision (the API checks it).
+    entity = (await Seed(sm).outputs(sid, revision=1))["extraction_field"]
     decision = await api.post(
         "alice",
         f"/v1/studies/{sid}/decisions",
