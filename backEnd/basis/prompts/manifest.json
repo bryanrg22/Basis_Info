@@ -15,6 +15,11 @@
       "v1": {
         "sha256": "17433a44357fe203bb84fb31dafba0f5bbceac9ad3fce84acff5e56da6f6844d"
       }
+    },
+    "room_inventory": {
+      "v1": {
+        "sha256": "36c0487fa5dcf3fd8f49309d17d4fc3043931d247e14c21f2c8de273597ffbf1"
+      }
     }
   }
 }

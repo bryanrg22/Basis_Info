@@ -37,6 +37,7 @@ def test_released_prompts_are_unchanged(name: str, version: str) -> None:
 def test_the_prompts_this_stage_uses_exist() -> None:
     assert latest("photo_analysis").version_id == "photo_analysis/v1"
     assert latest("appraisal_field_fallback").version_id == "appraisal_field_fallback/v1"
+    assert latest("room_inventory").version_id == "room_inventory/v1"
 
 
 def test_latest_is_the_highest_version(monkeypatch: pytest.MonkeyPatch) -> None:
