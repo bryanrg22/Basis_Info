@@ -36,7 +36,10 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 OPENAPI_PATH: Final = REPO_ROOT / "docs" / "api" / "openapi.json"
 # Visible ASCII without the double quote: the documented form of the key. The server also
 # accepts the structured-field form "..." (draft-ietf-httpapi-idempotency-key-header).
-IDEMPOTENCY_KEY_PATTERN: Final = rf"^[!#-~]{{1,{MAX_KEY_LENGTH}}}$"
+# Bare or enclosed in double quotes (draft-ietf-httpapi-idempotency-key-header); the
+# character class is basis.api.idempotency._KEY_PATTERN, so the contract test's
+# negative cases (keys the document calls invalid) are refused by the parser too.
+IDEMPOTENCY_KEY_PATTERN: Final = rf'^("[!#-~]{{1,{MAX_KEY_LENGTH}}}"|[!#-~]{{1,{MAX_KEY_LENGTH}}})$'
 
 DESCRIPTION: Final = """\
 Basis cost segregation API.
@@ -87,7 +90,7 @@ def _require_idempotency_key(schema: dict[str, Any]) -> None:
                     parameter["schema"] = {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": MAX_KEY_LENGTH,
+                        "maxLength": MAX_KEY_LENGTH + 2,  # the quoted form
                         "pattern": IDEMPOTENCY_KEY_PATTERN,
                         "title": IDEMPOTENCY_HEADER,
                     }

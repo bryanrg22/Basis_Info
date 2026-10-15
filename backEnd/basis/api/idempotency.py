@@ -72,14 +72,18 @@ MAX_KEY_LENGTH: Final = 128
 ENFORCED_METHODS: Final = frozenset({"POST", "DELETE"})
 STATE_ATTR: Final = "idempotency"
 
-_KEY_PATTERN: Final = re.compile(rf"[\x21-\x7e]{{1,{MAX_KEY_LENGTH}}}")
+# Visible ASCII except the double quote, which delimits the optional quoted form
+# (draft-ietf-httpapi-idempotency-key-header: the value is a quoted-string). This is
+# exactly the pattern the OpenAPI document publishes (basis.api.openapi), so a key the
+# document calls invalid is refused and a key it calls valid is accepted.
+_KEY_PATTERN: Final = re.compile(rf"[\x21\x23-\x7e]{{1,{MAX_KEY_LENGTH}}}")
 # Response headers that belong to one specific response and are regenerated on replay.
 _NOT_REPLAYED: Final = frozenset({"content-length", "x-request-id", "date", "server"})
 
 DETAIL_MISSING: Final = f"The {IDEMPOTENCY_HEADER} header is required for this request."
 DETAIL_INVALID: Final = (
-    f"{IDEMPOTENCY_HEADER} must be 1 to {MAX_KEY_LENGTH} visible ASCII characters; "
-    "a UUID is recommended."
+    f"{IDEMPOTENCY_HEADER} must be 1 to {MAX_KEY_LENGTH} visible ASCII characters "
+    "(no double quotes; the whole key may be enclosed in them); a UUID is recommended."
 )
 DETAIL_REUSED: Final = f"This {IDEMPOTENCY_HEADER} was already used with a different request."
 DETAIL_IN_FLIGHT: Final = (
@@ -231,7 +235,7 @@ class InMemoryIdempotencyStore:
 def parse_idempotency_key(raw: str | None) -> str:
     if raw is None:
         raise BadRequest(DETAIL_MISSING, type_suffix="idempotency-key-missing")
-    value = raw.strip()
+    value = raw
     if len(value) >= 2 and value[0] == value[-1] == '"':
         value = value[1:-1]
     if not _KEY_PATTERN.fullmatch(value):
