@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from evals import datasets as ds
 from basis.vision.reconcile import heuristic_merge
 from basis.vision.schemas import Component, PhotoAnalysis, RoomType
+from evals import datasets as ds
 from evals.run import (
     evaluate,
     main,
