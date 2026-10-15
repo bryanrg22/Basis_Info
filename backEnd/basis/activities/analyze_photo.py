@@ -54,13 +54,17 @@ from basis.db.enums import DocumentKind
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
-from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderError
 from basis.llm.provider import Budget, BudgetExceededError
 from basis.llm.recorder import LlmCallRecorder
 from basis.storage import ObjectNotFound
-from basis.vision.analyze import PROMPT_NAME, PhotoResult, VisionContext, analyze_photo_detailed
+from basis.vision.analyze import (
+    PhotoResult,
+    VisionContext,
+    analyze_photo_detailed,
+    released_prompt,
+)
 from basis.vision.prep import ImageRejected
 from basis.vision.rooms import assign_room, write_photo
 from basis.workflow.contracts import AnalyzePhotoInput, AnalyzePhotoOutput, SimulateFault
@@ -152,7 +156,7 @@ class AnalyzePhoto:
                     "floor": analysis.floor,
                     "model": result.model,
                     "provider": result.provider,
-                    "prompt_version": prompts.latest(PROMPT_NAME).version_id,
+                    "prompt_version": released_prompt().version_id,
                 },
             )
             heartbeat("written")
@@ -201,7 +205,7 @@ class AnalyzePhoto:
                 recorder=LlmCallRecorder(self._deps.sessionmaker),
             ),
             provider=self._deps.llm,
-            prompt=prompts.latest(PROMPT_NAME),
+            prompt=released_prompt(),
             model=settings.vision_model,
             max_tokens=settings.vision_max_tokens,
             heartbeat=heartbeat,

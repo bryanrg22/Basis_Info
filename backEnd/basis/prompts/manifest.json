@@ -14,6 +14,9 @@
     "photo_analysis": {
       "v1": {
         "sha256": "17433a44357fe203bb84fb31dafba0f5bbceac9ad3fce84acff5e56da6f6844d"
+      },
+      "v2": {
+        "sha256": "5bd652a01d6aac0e8551e38e75727e9caf711df89d3e970c3acf8fb51c00a35e"
       }
     },
     "room_inventory": {

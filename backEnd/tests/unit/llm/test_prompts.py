@@ -9,6 +9,7 @@ import pytest
 
 from basis.llm import prompts
 from basis.llm.prompts import Prompt, PromptError, latest, load, version_number, versions
+from basis.vision.analyze import PROMPT_VERSION, released_prompt
 
 PROMPTS_DIR = Path(prompts.__file__).resolve().parents[1] / "prompts"
 
@@ -35,7 +36,10 @@ def test_released_prompts_are_unchanged(name: str, version: str) -> None:
 
 
 def test_the_prompts_this_stage_uses_exist() -> None:
-    assert latest("photo_analysis").version_id == "photo_analysis/v1"
+    # v2 is released for evaluation (evals.predict_photos --prompt v2); the pipeline stays
+    # pinned to PROMPT_VERSION until a version wins (basis.vision.analyze.released_prompt).
+    assert latest("photo_analysis").version_id == "photo_analysis/v2"
+    assert released_prompt().version_id == f"photo_analysis/{PROMPT_VERSION}"
     assert latest("appraisal_field_fallback").version_id == "appraisal_field_fallback/v1"
     assert latest("room_inventory").version_id == "room_inventory/v1"
 

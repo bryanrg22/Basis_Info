@@ -54,7 +54,7 @@ from basis.llm.call import CallContext
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.llm.recorder import MemoryRecorder
-from basis.vision.analyze import VisionContext, analyze_photo_detailed
+from basis.vision.analyze import VisionContext, analyze_photo_detailed, released_prompt
 from basis.vision.prep import ImageRejected, PreparedImage, prepare_image
 from basis.vision.reconcile import (
     InventoryObject,
@@ -220,7 +220,7 @@ async def run(args: argparse.Namespace) -> int:
         vision = VisionContext(
             call=call_context("evals.predict_rooms.photo"),
             provider=pool,
-            prompt=prompts.latest("photo_analysis"),
+            prompt=released_prompt(),
             model=settings.vision_model,
         )
 
@@ -330,9 +330,7 @@ async def run(args: argparse.Namespace) -> int:
             "models_reported": models,
             "spent_usd": round(budget.spent_usd, 6),
             "prompts": {
-                "photo_analysis": None
-                if args.per_photo
-                else prompts.latest("photo_analysis").version_id,
+                "photo_analysis": None if args.per_photo else released_prompt().version_id,
                 "room_inventory": rooms_prompt.version_id,
             },
         },

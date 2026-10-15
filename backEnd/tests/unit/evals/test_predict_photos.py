@@ -102,3 +102,23 @@ async def test_no_provider_is_an_error(
         )
         == 2
     )
+
+
+async def test_prompt_and_model_options_reach_the_request(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FixtureVisionProvider()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    out = tmp_path / "out"
+    code = await predict_photos.run(
+        predict_photos.parse_args(
+            ["--photos", str(photo_dir), "--out", str(out), "--prompt", "v2", "--model", "gpt-4.1"]
+        )
+    )
+    assert code == 0
+    assert {r.prompt_version for r in provider.requests} == {"photo_analysis/v2"}
+    assert {r.model for r in provider.requests} == {"gpt-4.1"}
+    run = json.loads((out / "run.json").read_text())
+    assert (run["prompt"], run["model_requested"]) == ("photo_analysis/v2", "gpt-4.1")

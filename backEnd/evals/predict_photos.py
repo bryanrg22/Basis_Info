@@ -38,7 +38,12 @@ from basis.llm.call import CallContext
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.llm.recorder import MemoryRecorder
-from basis.vision.analyze import PhotoResult, VisionContext, analyze_photo_detailed
+from basis.vision.analyze import (
+    PhotoResult,
+    VisionContext,
+    analyze_photo_detailed,
+    released_prompt,
+)
 from basis.vision.prep import ImageRejected
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
@@ -55,6 +60,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--budget-usd", type=float, default=10.0, help="stop when exceeded")
+    parser.add_argument(
+        "--prompt", default=None, help="released photo_analysis version, e.g. v2 (default: latest)"
+    )
+    parser.add_argument("--model", default=None, help="model name (default: VISION_MODEL)")
     return parser.parse_args(argv)
 
 
@@ -99,8 +108,8 @@ async def run(args: argparse.Namespace) -> int:
             recorder=recorder,
         ),
         provider=pool,
-        prompt=prompts.latest("photo_analysis"),
-        model=settings.vision_model,
+        prompt=(prompts.load("photo_analysis", args.prompt) if args.prompt else released_prompt()),
+        model=args.model or settings.vision_model,
     )
     semaphore = asyncio.Semaphore(args.concurrency)
     raw_path = args.out / "photo_raw.jsonl"
@@ -150,9 +159,10 @@ async def run(args: argparse.Namespace) -> int:
                 "photos": len(files),
                 "repeats": args.repeats,
                 "vision_model_setting": settings.vision_model,
+                "model_requested": args.model or settings.vision_model,
                 "models_reported": models,
                 "spent_usd": round(budget.spent_usd, 6),
-                "prompt": prompts.latest("photo_analysis").version_id,
+                "prompt": ctx.prompt.version_id,
             },
             indent=1,
         )
