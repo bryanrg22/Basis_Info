@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from lifecycle_support import Harness
+from lifecycletest_support import sample_appraisal_chunks
 from sqlalchemy import func, select
 from temporalio import activity
 from temporalio.client import WorkflowHandle
@@ -130,7 +131,11 @@ async def test_worker_stopped_between_activities(harness: Harness) -> None:
     assert counts["extract_fields:r1"] == 1  # resumed at the next step, not re-ingested
     await assert_no_duplicates(harness, started.handle)
     outputs = await output_counts(harness, study.study_id)
-    assert (outputs["extractions"], outputs["photo_rooms"], outputs["chunks"]) == (1, 1, 3)
+    assert (outputs["extractions"], outputs["photo_rooms"], outputs["chunks"]) == (
+        1,
+        1,
+        sample_appraisal_chunks(),  # S3: one real ingestion of the sample (S2 stub: 3)
+    )
 
 
 async def test_worker_stopped_in_the_middle_of_an_activity(harness: Harness) -> None:

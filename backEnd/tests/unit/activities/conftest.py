@@ -58,8 +58,10 @@ def deps(
 
 
 @pytest.fixture
-async def seeded(sessionmaker: async_sessionmaker[AsyncSession]) -> SeededStudy:
-    study = await seed_study(sessionmaker)
+async def seeded(
+    sessionmaker: async_sessionmaker[AsyncSession], storage: LocalStorage
+) -> SeededStudy:
+    study = await seed_study(sessionmaker, storage=storage)
     await seed_run(sessionmaker, study.study_id)
     return study
 

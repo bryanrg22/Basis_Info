@@ -19,6 +19,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
@@ -33,10 +34,12 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
 
+from basis.api.app import LOCAL_STORAGE_DIR
 from basis.db.engine import create_engine
 from basis.db.enums import Stage, StudyStatus
 from basis.db.models import Study
 from basis.db.session import create_sessionmaker, session_scope
+from basis.storage import LocalStorage
 from basis.workflow.contracts import Decision, StudyWorkflowInput, StudyWorkflowResult
 from basis.workflow.study_workflow import StudyWorkflow, workflow_id_for
 
@@ -94,6 +97,11 @@ def worker_process(
         "TEMPORAL_TASK_QUEUE": TASK_QUEUE,
         "GIT_SHA": "process-test",
         "LOG_LEVEL": "INFO",
+        # S3: the real ingest_appraisal embeds chunks; the hash embedder avoids a model
+        # download in the worker process. TMPDIR as in this process, so the worker's
+        # LocalStorage directory (and tiktoken's cache) are the ones this test uses.
+        "EMBEDDING_MODEL": "hash",
+        "TMPDIR": tempfile.gettempdir(),
     }
     log = tmp_path / "worker.log"
     with log.open("w") as out:
@@ -155,7 +163,13 @@ async def test_worker_process_runs_a_study_and_drains_on_sigterm(
     try:
         await truncate_all(engine)
         sessionmaker = create_sessionmaker(engine)
-        study = await seed_study(sessionmaker, photos=("kitchen_1.jpg", "bathroom_1.jpg"))
+        # The worker has no GCS bucket configured, so it reads LocalStorage at the API's
+        # local directory: put the appraisal PDF there for the real ingest_appraisal.
+        study = await seed_study(
+            sessionmaker,
+            photos=("kitchen_1.jpg", "bathroom_1.jpg"),
+            storage=LocalStorage(LOCAL_STORAGE_DIR),
+        )
         client = dev_server.client
         handle = await client.start_workflow(
             StudyWorkflow.run,

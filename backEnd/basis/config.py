@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     firebase_project_id: str | None = None
     rate_limit_reads_per_min: int = Field(default=240, gt=0)
     rate_limit_mutations_per_min: int = Field(default=60, gt=0)
+    # Sentence-embedding model for the evidence corpora (recorded per corpus version).
+    # "hash" selects the deterministic test embedder and is refused outside dev and test.
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -102,6 +105,8 @@ class Settings(BaseSettings):
         if missing:
             names = ", ".join(name.upper() for name in missing)
             raise ConfigError(f"{ENV_VAR}={self.env} requires these settings to be set: {names}")
+        if self.embedding_model == "hash" and self.env not in ("dev", "test"):
+            raise ConfigError(f"EMBEDDING_MODEL=hash is for tests only, not {ENV_VAR}={self.env}")
         return self
 
 
