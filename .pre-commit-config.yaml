@@ -1,0 +1,65 @@
+# Pre-commit hooks (BUILD_PLAN section 0, rule 1: the repository is public).
+#
+# Setup once per clone:
+#   uv tool install pre-commit      # or: pipx install pre-commit
+#   pre-commit install
+# Run everything manually:
+#   pre-commit run --all-files
+#
+# Hook repos are pinned to commit SHAs (`# frozen:` is the tag), the same
+# supply-chain rule as the GitHub Actions; update with
+# `pre-commit autoupdate --freeze`.
+#
+# Whitespace/EOF fixers are scoped to code written for the rebuild. The legacy
+# tree (about 120 files) is not reformatted here, so that rebuild diffs stay
+# reviewable; legacy code is deleted or replaced stage by stage instead.
+
+default_install_hook_types: [pre-commit]
+
+repos:
+  # Ruff lint + format for the new backend package and its tests. Ruff reads
+  # its settings from backEnd/pyproject.toml. Keep this rev equal to the ruff
+  # version locked in backEnd/uv.lock so pre-commit and CI agree.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 44b5042edab9382aba712eed4f9c7bab7a3d6a3e # frozen: v0.17.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^backEnd/(basis|tests)/
+      - id: ruff-format
+        files: ^backEnd/(basis|tests)/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+        files: ^(backEnd/(basis|tests)/|tooling/|\.github/|docs/review_2026-10-15/)
+      - id: trailing-whitespace
+        files: ^(backEnd/(basis|tests)/|tooling/|\.github/|docs/review_2026-10-15/)
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Secret patterns. Known false positives (test placeholders) are recorded in
+  # .secrets.baseline; only new findings fail. The baseline also stores one
+  # --exclude-lines filter that matches only the SHA-pinned `rev: ... # frozen:`
+  # lines in this file (40-hex commit ids are not secrets). Refresh after review:
+  #   detect-secrets scan --baseline .secrets.baseline
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458 # frozen: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+
+  # Client data, credentials, and large binaries (tooling/check_no_client_data.py).
+  # Reads staged content from the git index, so it ignores pre-commit's file
+  # list and always runs.
+  - repo: local
+    hooks:
+      - id: client-data-guard
+        name: client-data-guard
+        entry: python3 tooling/check_no_client_data.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true

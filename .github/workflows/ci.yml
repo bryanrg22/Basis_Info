@@ -1,0 +1,334 @@
+# Pull-request and main-branch CI (BUILD_PLAN section 7).
+#
+# One workflow on purpose. GitHub leaves a required check "Pending" forever when
+# a whole workflow is skipped by `paths:` / `branches:` filters, which blocks
+# merging. So this workflow always runs, every job always runs, and the
+# backend/frontend jobs skip their own steps when nothing relevant changed. A
+# job whose steps were skipped still finishes green, so its check can safely be
+# marked required in branch protection.
+#
+# Every third-party action is pinned to a full commit SHA (tag in the comment);
+# Dependabot (.github/dependabot.yml) proposes updates.
+#
+# The repository is public: no cloud credentials, no client data, and nothing
+# from .env files may appear here, in logs, or in uploaded artifacts.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter lists PR files through the REST API
+    outputs:
+      # On push to main everything runs: main must always be fully validated,
+      # and caches written on the default branch are the ones PRs can restore.
+      backend: ${{ github.event_name != 'pull_request' || steps.filter.outputs.backend == 'true' }}
+      frontend: ${{ github.event_name != 'pull_request' || steps.filter.outputs.frontend == 'true' }}
+    steps:
+      - name: Detect changed areas
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            backend:
+              - 'backEnd/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  backend-lint:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
+    defaults:
+      run:
+        working-directory: backEnd
+    steps:
+      - name: Skip (no backend changes)
+        if: env.BACKEND_CHANGED != 'true'
+        working-directory: ${{ github.workspace }}
+        run: echo "No changes under backEnd/; backend lint skipped."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.BACKEND_CHANGED == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        if: env.BACKEND_CHANGED == 'true'
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backEnd/uv.lock"
+
+      - name: Install Python (backEnd/.python-version)
+        if: env.BACKEND_CHANGED == 'true'
+        run: uv python install
+
+      - name: Sync locked environment
+        if: env.BACKEND_CHANGED == 'true'
+        run: uv sync --locked --group dev
+
+      # --no-sync: use exactly the environment synced above; never re-resolve.
+      - name: ruff check
+        if: env.BACKEND_CHANGED == 'true'
+        run: uv run --no-sync ruff check basis tests
+
+      - name: ruff format --check
+        if: env.BACKEND_CHANGED == 'true'
+        run: uv run --no-sync ruff format --check basis tests
+
+      - name: mypy
+        if: env.BACKEND_CHANGED == 'true'
+        run: uv run --no-sync mypy
+
+  backend-test:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
+      BASIS_ENV: test
+      GIT_SHA: ${{ github.sha }}
+    defaults:
+      run:
+        working-directory: backEnd
+    steps:
+      - name: Skip (no backend changes)
+        if: env.BACKEND_CHANGED != 'true'
+        working-directory: ${{ github.workspace }}
+        run: echo "No changes under backEnd/; backend tests skipped."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.BACKEND_CHANGED == 'true'
+        with:
+          persist-credentials: false
+
+      # The legacy group pulls torch (via sentence-transformers); the uv cache
+      # keyed on uv.lock keeps repeat installs fast. If Linux resolution needs
+      # the CPU-only torch index, that belongs in backEnd/pyproject.toml
+      # ([tool.uv.sources] / [[tool.uv.index]]), not in this workflow.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        if: env.BACKEND_CHANGED == 'true'
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backEnd/uv.lock"
+
+      - name: Install Python (backEnd/.python-version)
+        if: env.BACKEND_CHANGED == 'true'
+        run: uv python install
+
+      - name: Sync locked environment
+        if: env.BACKEND_CHANGED == 'true'
+        run: uv sync --locked --group dev --group legacy
+
+      - name: pytest (unit, excluding integration and slow)
+        if: env.BACKEND_CHANGED == 'true'
+        run: |
+          # Tests must import the installed project, never a path hack.
+          unset PYTHONPATH
+          uv run --no-sync pytest -q \
+            -m "not integration and not slow" \
+            --timeout=300 \
+            --junitxml=../reports/backend.xml \
+            -p no:cacheprovider
+
+      - name: Upload JUnit report
+        if: ${{ !cancelled() && env.BACKEND_CHANGED == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-junit
+          path: reports/backend.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  frontend:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FRONTEND_CHANGED: ${{ needs.changes.outputs.frontend }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Skip (no frontend changes)
+        if: env.FRONTEND_CHANGED != 'true'
+        working-directory: ${{ github.workspace }}
+        run: echo "No changes under frontend/; frontend checks skipped."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.FRONTEND_CHANGED == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.FRONTEND_CHANGED == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        if: env.FRONTEND_CHANGED == 'true'
+        run: npm ci --no-audit --no-fund
+
+      - name: npm run lint
+        if: env.FRONTEND_CHANGED == 'true'
+        run: npm run lint
+
+      # Non-blocking until Stage 4 fixes the existing errors. The step is
+      # marked failed when tsc fails, but the job stays green.
+      - name: tsc --noEmit (tracked, non-blocking)
+        if: env.FRONTEND_CHANGED == 'true'
+        continue-on-error: true
+        run: |
+          set +e
+          npx --no-install tsc --noEmit --pretty false > "$RUNNER_TEMP/tsc.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/tsc.log"
+          count=$(grep -cE 'error TS[0-9]+:' "$RUNNER_TEMP/tsc.log" || true)
+          {
+            echo "### Frontend type check"
+            echo ""
+            echo "\`tsc --noEmit\`: **${count} error(s)** (exit code ${status})."
+            echo ""
+            echo "Type errors are tracked and will become blocking in Stage 4 (BUILD_PLAN §10)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  # Independent of the change filter on purpose: secret and client-data checks
+  # must run on every change, even if the `changes` job fails.
+  secrets-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # gitleaks-action lists the PR's commits through the API
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No GITLEAKS_LICENSE: the action README states a license is required for
+      # organization-owned repos only, not personal accounts (bryanrg22).
+      # Findings are redacted by the action (--redact). PR comments need
+      # pull-requests: write, so they are off; the SARIF artifact is off so no
+      # finding detail is published from this public repo.
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  client-data-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: false
+
+      # The guard also runs as a pre-commit hook on developer machines, where
+      # python3 may be as old as 3.9, so its tests run on 3.9 and on 3.12.
+      - name: Test the guard
+        run: |
+          uvx --python 3.9 --from 'pytest==8.4.2' pytest tooling -q -p no:cacheprovider
+          uvx --python 3.12 --from 'pytest==8.4.2' pytest tooling -q -p no:cacheprovider
+
+      - name: Check every tracked file
+        if: ${{ !cancelled() }}
+        run: python3 tooling/check_no_client_data.py --ci
+
+  # Placeholder image smoke. The current backEnd/Dockerfile installs the legacy
+  # `agentic` package, not `basis`, so the smoke import is expected to fail
+  # until the Dockerfile is rewritten in Stage 5. Build and smoke steps are
+  # continue-on-error so Stage 0 CI stays green; the summary reports outcomes.
+  docker-build:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
+      IMAGE: basis-backend:ci-${{ github.sha }}
+    steps:
+      - name: Skip (no backend changes)
+        if: env.BACKEND_CHANGED != 'true'
+        run: echo "No changes under backEnd/; image build skipped."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.BACKEND_CHANGED == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Look for backEnd/Dockerfile
+        id: dockerfile
+        if: env.BACKEND_CHANGED == 'true'
+        run: |
+          if [ -f backEnd/Dockerfile ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "backEnd/Dockerfile not found; image build skipped."
+          fi
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.dockerfile.outputs.present == 'true'
+
+      - name: Build backend image
+        id: build
+        if: steps.dockerfile.outputs.present == 'true'
+        continue-on-error: true
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: backEnd
+          file: backEnd/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+
+      - name: Smoke-test image (import basis)
+        id: smoke
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: docker run --rm "$IMAGE" python -c "import basis; print(basis.__version__)"
+
+      - name: Summary
+        if: ${{ !cancelled() && steps.dockerfile.outputs.present == 'true' }}
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome || 'skipped' }}
+        run: |
+          {
+            echo "### Backend image (placeholder)"
+            echo ""
+            echo "- build: ${BUILD_OUTCOME}"
+            echo "- smoke (\`import basis\`): ${SMOKE_OUTCOME}"
+            echo ""
+            echo "Dockerfile is rewritten in Stage 5"
+          } >> "$GITHUB_STEP_SUMMARY"

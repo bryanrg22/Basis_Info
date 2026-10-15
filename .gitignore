@@ -94,3 +94,36 @@ data_flow.txt
 
 .claude
 CLAUDE.md
+
+# --- Rebuild (Stage 0) -------------------------------------------------------
+# uv virtual environments (the root `.venv/` rule above already covers any
+# depth; listed explicitly for the backend project).
+backEnd/.venv/
+.venv/
+
+# Client study data derived by the evidence layer (also covered by
+# backEnd/evidence_layer/data/ above; kept explicit because it is client data).
+backEnd/evidence_layer/data/studies/
+
+# Playwright auth state (contains session tokens) and reports.
+playwright/.auth/
+frontend/playwright/.auth/
+frontend/playwright-report/
+frontend/test-results/
+
+# Temporal dev server local databases.
+temporal.db
+*.temporal.db
+
+# CI and local test reports (junit XML, coverage), repo root only so a source
+# package named `reports` is never ignored.
+/reports/
+
+# Must stay tracked, never ignored:
+#   backEnd/.python-version  (uv's interpreter pin)
+#   backEnd/uv.lock          (locked dependency set)
+#   .secrets.baseline        (detect-secrets baseline)
+# Re-include them in case a broader pattern above ever matches.
+!backEnd/.python-version
+!backEnd/uv.lock
+!.secrets.baseline

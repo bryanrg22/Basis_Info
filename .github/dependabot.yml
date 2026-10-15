@@ -1,0 +1,55 @@
+# Dependabot version updates (BUILD_PLAN section 13.3, "Packaging").
+#
+# Weekly, with minor and patch updates grouped into one PR per ecosystem so
+# routine bumps do not flood review; major updates still arrive one per PR.
+# A 7-day cooldown skips releases younger than a week, which avoids picking up
+# a compromised or quickly-yanked release. Security updates ignore cooldown.
+
+version: 2
+
+updates:
+  - package-ecosystem: "uv"
+    directory: "/backEnd"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      backend-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      frontend-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Keeps the backend base image (and, after Stage 5, its pinned digest) fresh.
+  - package-ecosystem: "docker"
+    directory: "/backEnd"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      docker-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Updates the SHA-pinned actions in .github/workflows and their version comments.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
