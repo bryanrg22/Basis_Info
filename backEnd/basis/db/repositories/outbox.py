@@ -10,7 +10,7 @@ or ``dead``. Delivery is at-least-once; consumers must be idempotent.
 Status (migration ``0002_outbox_status``): only ``pending`` rows are claimed;
 ``delivered_at`` is set exactly when a row becomes ``delivered`` (a database check
 enforces it). A ``dead`` row is never polled again until an operator requeues it
-(``docs/review_2026-10-15/S2_RUNBOOK_relay.md``).
+(``docs/review_2026-10-15/S2_RUNBOOK.md``, section 5).
 """
 
 from __future__ import annotations
