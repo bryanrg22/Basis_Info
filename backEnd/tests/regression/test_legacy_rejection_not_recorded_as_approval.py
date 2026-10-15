@@ -37,10 +37,6 @@ def test_rejection_does_not_write_appraisal_approved(
     approval_writes = [
         data
         for op, data in fake_firestore.writes
-        if op == "update_study"
-        and isinstance(data, dict)
-        and data.get("appraisalApproved") is True
+        if op == "update_study" and isinstance(data, dict) and data.get("appraisalApproved") is True
     ]
-    assert not approval_writes, (
-        f"rejection recorded as approval: {fake_firestore.writes}"
-    )
+    assert not approval_writes, f"rejection recorded as approval: {fake_firestore.writes}"

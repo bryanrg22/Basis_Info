@@ -24,9 +24,10 @@ repos:
     rev: 44b5042edab9382aba712eed4f9c7bab7a3d6a3e # frozen: v0.17.0
     hooks:
       - id: ruff-check
-        args: [--fix]
+        args: [--fix, --config, backEnd/pyproject.toml]
         files: ^backEnd/(basis|tests)/
       - id: ruff-format
+        args: [--config, backEnd/pyproject.toml]
         files: ^backEnd/(basis|tests)/
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

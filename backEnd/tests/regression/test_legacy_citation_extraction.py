@@ -52,9 +52,7 @@ def agent():
     return _Agent("asset")
 
 
-def _tool_message_as_built_by_run(
-    tool_result, tool_call_id: str = "call_1"
-) -> ToolMessage:
+def _tool_message_as_built_by_run(tool_result, tool_call_id: str = "call_1") -> ToolMessage:
     """Same construction as BaseStageAgent.run() (agentic/agents/base_agent.py)."""
     return ToolMessage(
         content=str(tool_result) if not isinstance(tool_result, str) else tool_result,
