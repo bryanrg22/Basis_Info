@@ -348,13 +348,17 @@ def test_model_dump_json_masks_secret(clean_env: pytest.MonkeyPatch) -> None:
     assert "temporal-secret-xyz" not in load_settings().model_dump_json()
 
 
+# The vufinder/sam3 model version on Replicate (a public id, not a secret).
+SAM3_VERSION = (
+    "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # pragma: allowlist secret
+)
+
+
 def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("BASIS_ENV", "test")
     settings = load_settings()
     assert settings.replicate_api_token is None
-    assert settings.sam3_replicate_version == (
-        "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # noqa: E501  pragma: allowlist secret
-    )
+    assert settings.sam3_replicate_version == SAM3_VERSION
     assert settings.localizer_concurrency == 4
     clean_env.setenv("REPLICATE_API_TOKEN", "r8_replicate-secret-xyz")
     clean_env.setenv("SAM3_REPLICATE_VERSION", "abc123")

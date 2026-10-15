@@ -160,9 +160,7 @@ class Settings(BaseSettings):
     # (production self-hosts it; VISION_DETECTION_RESEARCH.md section 4). The community
     # model is addressed by version id: it is not served at /v1/models/<owner>/<name>.
     replicate_api_token: SecretStr | None = None
-    sam3_replicate_version: str = (
-        "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # noqa: E501  pragma: allowlist secret
-    )
+    sam3_replicate_version: str = "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # pragma: allowlist secret  # noqa: E501
     # Concurrent SAM 3 predictions per process (the localizer's semaphore).
     localizer_concurrency: int = Field(default=4, ge=1, le=32)
 

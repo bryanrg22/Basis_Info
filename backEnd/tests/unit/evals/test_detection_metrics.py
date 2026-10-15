@@ -121,6 +121,7 @@ def test_detection_metrics_by_hand() -> None:
     # SE^2 = 2 * (1^2 + (-1)^2) / 3^2.
     assert metrics.count_bias_se == pytest.approx(math.sqrt(2 * 2 / 9))
     assert (metrics.precision, metrics.recall) == pytest.approx((2 / 4, 2 / 4))
+    assert (metrics.predictions_at_threshold, metrics.positives_at_threshold) == (4, 4)
 
 
 def test_unverified_classes_and_group_counts_are_not_scored() -> None:

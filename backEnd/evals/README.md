@@ -13,7 +13,7 @@ uv run python -m evals.run --split dev --predictions out/            # score sav
 
 Client data never enters the repository. Real datasets live under `BASIS_EVAL_DATA_DIR`
 (mirrored to the private bucket); only the orchestrator runs them. `--dry-run` builds
-the same six datasets from `tests/fixtures/synthetic/` (for `room_inventory`, every fixture
+the first six datasets from `tests/fixtures/synthetic/` (for `room_inventory`, every fixture
 photo is its own room, so the dry-run baseline scores perfectly: it exercises the path,
 not the method).
 
@@ -129,6 +129,61 @@ over repeats for the exact inventory. Predictions come from `python -m evals.pre
 per-photo-plus-merge baseline on the model's own per-photo output, scored by copying it to
 `room_inventory.json` in another predictions directory).
 
+### `detection_boxes_v1.json`
+
+```json
+{"schema_version": 1, "images": [{
+  "file": "IMAGE_ID.jpg", "width": 1024, "height": 683,
+  "document": "IMAGE_ID", "split": "dev",
+  "verified": ["door", "electrical_outlet", "window"],
+  "boxes": [
+    {"label": "window", "x1": 0.71, "y1": 0.01, "x2": 0.80, "y2": 0.18, "group_of": false},
+    {"label": "door", "x1": 0.60, "y1": 0.34, "x2": 0.81, "y2": 0.89, "group_of": false}]}]}
+```
+
+One box per component instance, normalized to the image. `label` is a component label
+or `door` (Open Images does not split interior and exterior doors; `door` is scored
+against the union of `interior_door` and `exterior_door` predictions). `group_of` marks a
+box around several instances (Open Images `IsGroupOf`): the highest-scoring prediction
+lying mostly inside it (intersection over the prediction >= 0.5) is one true positive,
+the others are ignored, and an unhit group box is not a miss. `verified` lists the labels
+exhaustively annotated in the image (boxed, or verified absent); `null` means every label
+is. Predictions of an unverified label are ignored, as in the Open Images protocol.
+There is no deterministic baseline and no synthetic copy (the dry run reports it
+missing). Predictions: `{"<file>": [{"label": "window", "score": 0.91, "x1": 0.70,
+"y1": 0.01, "x2": 0.80, "y2": 0.18}]}`.
+
+Metrics: per-class AP@0.5 (VOC all-point interpolation; in score order a prediction
+takes the gold box of highest IoU if it is still free, a duplicate is a false positive)
+and mAP over classes with a positive; at `--detection-threshold` (default 0.5): precision
+and recall, and per (image, class) over the union of gold and predicted classes (classes
+with a group box in the image skipped, their count is unknown) count MAE and signed bias
+(predicted - gold) with SE clustered by document, overall and per class; with repeats,
+pass^k of the exact count.
+
+Building it and producing predictions (from `backEnd/`):
+
+```bash
+# Open Images V7 validation subset: CSVs cached, 25 images per label, images downloaded
+uv run python -m evals.openimages --out ~/basis-eval-data/openimages --per-label 25
+# SAM 3 on Replicate (REPLICATE_API_TOKEN), low threshold so AP sees the whole curve
+BASIS_ENV=dev uv run python -m evals.predict_boxes --dataset ~/basis-eval-data/openimages \
+    --out out/sam3_oi --threshold 0.1 --tiling off
+uv run python -m evals.run --data-dir ~/basis-eval-data/openimages \
+    --predictions out/sam3_oi --detection-threshold 0.5 --no-db --report out/sam3_oi/eval.md
+uv run python -m evals.render_masks --raw out/sam3_oi/instances_raw.jsonl \
+    --photos ~/basis-eval-data/openimages/images --out out/sam3_oi/render
+```
+
+`evals.openimages` keeps every Open Images class whose display name is mapped
+(`OI_LABELS`), skips rotated images, selects deterministically (ascending image id per
+label until `--per-label` images contain it) and writes `MANIFEST.json` (sources, sha256
+of every CSV and image, per-image author and licence for the CC BY 2.0 attribution).
+`evals.predict_boxes` also runs on any photo directory (`--photos`), with the labels the
+per-photo model named (`--phrases-from vlm --photo-raw <predict_photos>/photo_raw.jsonl`)
+plus the always-prompted countable set; `--tiling on` adds 2 x 2 tiles for the countable
+phrases, merged by mask NMS (`--merge-metric iou` or `ios`).
+
 For any predictions file, a value may instead be `{"repeats": [v1, v2, ...]}` with one
 value per repeat; pass^k is computed over them.
 
@@ -140,5 +195,7 @@ precision/recall/F1 with macro-F1, accuracy with a 95% Wilson interval, coverage
 selective accuracy under abstention, room-inventory count MAE / exact-count rate /
 signed bias and per-room exact inventory and label-set P/R/F1, nDCG@10 (linear gains, log2 discount, as
 `pytrec_eval`'s `ndcg_cut_10`), recall@5/10, MRR, the judged-hole rate, citation support
-rate, the standard error of a mean clustered by document (CR1), and pass^k
-(`C(c, k) / C(n, k)` per item).
+rate, the standard error of a mean clustered by document (CR1), pass^k
+(`C(c, k) / C(n, k)` per item), and detection AP@0.5 / mAP with the Open Images group-of
+and verified-label rules, counts at a threshold and pass^k of counts
+(`tests/unit/evals/test_detection_metrics.py`).

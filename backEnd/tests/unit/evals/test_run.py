@@ -284,6 +284,7 @@ def test_detection_boxes_are_scored_from_saved_predictions_with_repeats() -> Non
     assert rows["count_mae:window"].value == 1.0 and rows["count_mae:door"].value == 0.0
     assert rows["precision_at_threshold"].value == 1.0
     assert rows["recall_at_threshold"].value == pytest.approx(2 / 3)
+    assert (rows["precision_at_threshold"].n, rows["recall_at_threshold"].n) == (2, 3)
     # Repeat 2 gets a.jpg right and predicts no door: pass^2 = 0 for both pairs.
     assert rows["count_pass^2"].value == 0.0 and rows["count_pass^1"].value == pytest.approx(0.5)
 

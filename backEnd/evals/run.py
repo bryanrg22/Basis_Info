@@ -671,8 +671,8 @@ def score_detection_boxes(
             metrics.count_bias_se,
             details={"by_class": by_class},
         ),
-        MetricRow("precision_at_threshold", metrics.precision, metrics.count_pairs),
-        MetricRow("recall_at_threshold", metrics.recall, metrics.count_pairs),
+        MetricRow("precision_at_threshold", metrics.precision, metrics.predictions_at_threshold),
+        MetricRow("recall_at_threshold", metrics.recall, metrics.positives_at_threshold),
     ]
     for label, value in metrics.classes.items():
         result.rows.append(MetricRow(f"count_mae:{label}", value.count_mae, value.count_pairs))

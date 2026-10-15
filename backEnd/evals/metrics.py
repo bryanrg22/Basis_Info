@@ -667,6 +667,8 @@ class DetectionMetrics:
     count_bias: float
     count_bias_se: float
     pairs: tuple[CountPair, ...] = ()
+    predictions_at_threshold: int = 0
+    positives_at_threshold: int = 0
 
 
 def detection_classes(images: Sequence[DetectionImage]) -> list[str]:
@@ -761,6 +763,8 @@ def detection_metrics(
         count_bias=mean(signed),
         count_bias_se=clustered_standard_error(signed, clusters) if signed else math.nan,
         pairs=tuple(pairs),
+        predictions_at_threshold=total_pred,
+        positives_at_threshold=total_pos,
     )
 
 
