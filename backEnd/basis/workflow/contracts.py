@@ -43,6 +43,9 @@ class StudyWorkflowInput(_Frozen):
     photo_concurrency: int = Field(default=5, ge=1, le=32)
     review_reminder_days: int = Field(default=7, ge=1)
     review_deadline_days: int = Field(default=30, ge=1)
+    # Test-only fault injection per photo document id. The API never sets it, and the
+    # analyze_photo activity honours it only when BASIS_ENV is dev or test.
+    simulate_photos: dict[str, SimulateFault] = Field(default_factory=dict)
 
 
 class CorrectionInput(_Frozen):
@@ -64,6 +67,16 @@ class Decision(_Frozen):
     submitted_at: datetime
 
 
+# Which correction targets a decision at each review stage may carry. The update
+# validator rejects any other entity_type, so a malformed correction is refused before it
+# is written to history.
+CORRECTION_TYPES: dict[str, frozenset[str]] = {
+    "appraisal_review": frozenset({"extraction_field"}),
+    "rooms_review": frozenset({"room", "component", "photo"}),
+    "assets_review": frozenset({"asset"}),
+}
+
+
 class DecisionAck(_Frozen):
     accepted: bool
     applied_revision: int
@@ -79,17 +92,48 @@ class StudyStatusView(_Frozen):
     decisions_applied: tuple[str, ...] = ()
     stalled: bool = False
     budget_remaining_usd: float = 0.0
+    # The review gate the workflow is waiting at, if any (decisions are accepted only here).
+    awaiting: ReviewStage | None = None
+    # Photo document ids whose analysis failed permanently, hit the budget, or was flagged.
+    flagged_photos: tuple[str, ...] = ()
+    # Stages whose output needs an engineer's attention because the budget ran out.
+    needs_review_stages: tuple[str, ...] = ()
+
+
+class StudyWorkflowResult(_Frozen):
+    outcome: Literal["completed", "cancelled"]
+    stage: StageName
+    revision: int
+    export_uri: str | None = None
+    export_sha256: str | None = None
+    flagged_photos: tuple[str, ...] = ()
+    cancel_reason: str | None = None
 
 
 # --------------------------------------------------------------------------- activities
 
 
 class TransitionInput(_Frozen):
+    """Move the study from ``(from_stage, from_revision)`` to ``(to_stage, revision)``.
+
+    ``from_revision`` defaults to ``revision``; it differs only for a rejection, which
+    starts a new revision.
+    """
+
     study_id: str
     org_id: str
     from_stage: StageName
     to_stage: StageName
     revision: int
+    from_revision: int | None = None
+
+
+class ListPhotosInput(_Frozen):
+    study_id: str
+
+
+class ListPhotosOutput(_Frozen):
+    document_ids: tuple[str, ...] = ()
 
 
 class RunStartInput(_Frozen):
@@ -206,3 +250,6 @@ class ApplyCorrectionsInput(_Frozen):
 
 class ApplyCorrectionsOutput(_Frozen):
     applied: int = 0
+
+
+StudyWorkflowInput.model_rebuild()

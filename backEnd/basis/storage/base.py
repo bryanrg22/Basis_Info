@@ -81,6 +81,13 @@ class Storage(Protocol):
         """Delete the object; deleting a missing object is not an error."""
         ...
 
+    async def put(self, uri: str, data: bytes, content_type: str) -> None:
+        """Write ``data`` to ``uri`` from the server side (the worker's exports).
+
+        Overwrites an existing object, so writing the same bytes twice is idempotent.
+        """
+        ...
+
 
 def validate_bucket(bucket: str) -> str:
     if not _BUCKET.fullmatch(bucket) or ".." in bucket:

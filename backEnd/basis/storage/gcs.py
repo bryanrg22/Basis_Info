@@ -157,3 +157,9 @@ class GcsStorage:
 
     async def delete(self, uri: str) -> None:
         await _in_thread(self._delete, uri)
+
+    def _put(self, uri: str, data: bytes, content_type: str) -> None:
+        self._blob(uri).upload_from_string(data, content_type=content_type)
+
+    async def put(self, uri: str, data: bytes, content_type: str) -> None:
+        await _in_thread(self._put, uri, data, content_type)

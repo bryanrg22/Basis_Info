@@ -12,6 +12,7 @@ from typing import Any
 
 from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.runtime import Runtime
 
 from basis.config import Settings
 
@@ -51,6 +52,10 @@ def build_id(settings: Settings) -> str:
     return settings.temporal_build_id or settings.git_sha
 
 
-async def connect(settings: Settings) -> Client:
+async def connect(settings: Settings, *, runtime: Runtime | None = None) -> Client:
+    """Connect to Temporal; ``runtime`` carries telemetry (the worker's Prometheus endpoint)."""
     config = client_connect_config(settings)
-    return await Client.connect(config.target_host, **config.connect_kwargs())
+    kwargs = config.connect_kwargs()
+    if runtime is not None:
+        kwargs["runtime"] = runtime
+    return await Client.connect(config.target_host, **kwargs)
