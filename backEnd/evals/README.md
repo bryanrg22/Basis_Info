@@ -81,7 +81,12 @@ combined with `python -m evals.merge_photo_runs --runs <countables> <surfaces> -
 by `--room-from N`, default the first) and
 the merged directory scores like any single run (EVAL_REPORT section 11). After a
 `--model` run, check `run.json` `models_reported`: the provider pool falls back to the
-secondary provider per call, so a rate-limited primary silently mixes models into a run.
+secondary provider per call, so a rate-limited primary silently mixes models into a run
+(only within a model family: a `claude-*` model is served by the Anthropic provider alone,
+with `ANTHROPIC_API_KEY` set, and never falls back to OpenAI; EVAL_REPORT section 12).
+`--reasoning-effort` sets the OpenAI reasoning models' `reasoning_effort` and Claude's
+`output_config.effort` (`low`..`max`; without it Claude runs at `ANTHROPIC_EFFORT`, default
+`low`); `run.json` `reasoning_effort` records what ran.
 
 ### `assets_v1.json`
 
