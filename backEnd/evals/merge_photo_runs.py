@@ -12,7 +12,9 @@ scores a single run:
 * ``photo_components.json``: per photo the union of the runs' label sets, per repeat.
 * ``photo_raw.jsonl``: one merged record per (photo, repeat): components are the union by
   label with the largest count, material and attachment from the run that listed the label
-  first; ``model`` and ``prompt`` name every source; ``seconds`` and the cost add up.
+  first (:func:`basis.vision.merge.merge_components`, the same code the pipeline's
+  decomposed step runs); ``model`` and ``prompt`` name every source; ``seconds`` and the
+  cost add up.
 * ``run.json``: the sources, their prompts and the summed spend.
 
 Usage (from ``backEnd/``)::
@@ -28,6 +30,10 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+from basis.vision.merge import merge_components
+
+__all__ = ["main", "merge_components", "merge_records", "merge_runs", "parse_args", "read_raw"]
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -59,27 +65,6 @@ def read_raw(run: Path) -> dict[tuple[str, int], dict[str, Any]]:
         if "analysis" in record:
             records[(record["file"], int(record["repeat"]))] = record
     return records
-
-
-def merge_components(parts: Sequence[list[dict[str, Any]]]) -> list[dict[str, Any]]:
-    """Union by label; the first run that lists a label gives its material and attachment,
-    the count is the largest; ``other`` entries are kept from every run (they are distinct
-    unlisted items, excluded from scoring anyway)."""
-    merged: dict[str, dict[str, Any]] = {}
-    others: list[dict[str, Any]] = []
-    for components in parts:
-        for component in components:
-            label = component["label"]
-            if label == "other":
-                others.append(component)
-            elif label in merged:
-                merged[label]["count"] = max(int(merged[label]["count"]), int(component["count"]))
-                merged[label]["confidence"] = max(
-                    float(merged[label]["confidence"]), float(component["confidence"])
-                )
-            else:
-                merged[label] = dict(component)
-    return [*merged.values(), *others]
 
 
 def merge_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:

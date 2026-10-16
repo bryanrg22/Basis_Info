@@ -6,15 +6,18 @@ Temporal and in Postgres, the export in storage, and one idempotency row per act
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import uuid
 from collections import Counter
 
 import pytest
 from lifecycle_support import Harness
+from lifecycletest_support import make_deps
 from sqlalchemy import select
 
 from basis.db.enums import Stage, StudyStatus
-from basis.db.models import Asset, Citation, Component, Extraction, PhotoRoom, Room
+from basis.db.models import Asset, Citation, Component, Extraction, LlmCall, PhotoRoom, Room
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.session import session_scope
 from basis.workflow.study_workflow import workflow_id_for
@@ -160,3 +163,72 @@ async def test_starting_twice_returns_the_same_execution(harness: Harness) -> No
         first_run = (await first.handle.describe()).run_id
         assert (await second.handle.describe()).run_id == first_run
         await harness.wait_awaiting(first.handle, "appraisal_review", 1)
+
+
+async def test_the_decomposed_photo_step_runs_through_the_workflow(harness: Harness) -> None:
+    """``VISION_PHOTO_MODE=decomposed`` in the worker's settings: every photo makes two
+    recorded calls, the workflow's budget is charged for both, and the study completes
+    with the same rooms and components as the single-call step."""
+    settings = harness.settings.model_copy(update={"vision_photo_mode": "decomposed"})
+    decomposed = dataclasses.replace(
+        harness,
+        deps=make_deps(
+            harness.sessionmaker,
+            harness.deps.storage,
+            settings,
+            chunk_store=harness.deps.chunk_store,
+        ),
+        settings=settings,
+        task_queue=f"lifecycle-decomposed-{uuid.uuid4().hex[:12]}",
+        handles=[],
+    )
+    try:
+        async with decomposed.worker():
+            started = await decomposed.start(budget_usd=25.0)
+            handle = started.handle
+            status = await decomposed.wait_awaiting(handle, "appraisal_review", 1)
+            assert status.completed_photos == 3 and status.flagged_photos == ()
+            # 3 photos x 2 calls x $0.01, summed into the workflow's budget.
+            assert status.budget_remaining_usd == pytest.approx(25.0 - 6 * 0.01)
+            await decomposed.approve_all(handle)
+            result = await decomposed.result(handle)
+        assert result.outcome == "completed"
+        sequence = await decomposed.activity_sequence(handle)
+        assert Counter(sequence)["analyze_photo"] == 3  # still one activity per photo
+    finally:
+        await decomposed.cleanup()
+
+    async with session_scope(harness.sessionmaker) as session:
+        calls = list(
+            (
+                await session.scalars(
+                    select(LlmCall).where(
+                        LlmCall.study_id == started.study_id, LlmCall.activity == "analyze_photo"
+                    )
+                )
+            ).all()
+        )
+        rooms = list(
+            (await session.scalars(select(Room).where(Room.study_id == started.study_id))).all()
+        )
+        components = list(
+            (
+                await session.scalars(
+                    select(Component).where(Component.study_id == started.study_id)
+                )
+            ).all()
+        )
+    assert Counter(c.prompt_version for c in calls) == {
+        "photo_countables/v2": 3,
+        "photo_surfaces/v1": 3,
+    }
+    assert sorted(r.name for r in rooms) == ["Bathroom", "Kitchen"]
+    assert Counter(c.label for c in components) == {
+        "kitchen_cabinet": 2,
+        "countertop": 2,
+        "bathtub": 1,
+        "toilet": 1,
+    }
+    assert {c.raw["prompt_version"] for c in components} == {
+        "photo_countables/v2+photo_surfaces/v1"
+    }

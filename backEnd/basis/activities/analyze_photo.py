@@ -1,11 +1,15 @@
 """``analyze_photo``: one photo -> its room and components (S3 body).
 
-Downloads the photo, prepares it (resize, EXIF strip, re-encode), makes one structured
-vision call through the provider pool (:func:`basis.vision.analyze.analyze_photo_detailed`)
-charged to the remaining budget the workflow passes in, stores the raw analysis next to
-the photo in storage, and writes the room (shared by every photo with the same identity
-in the revision), the ``photo_rooms`` assignment and one ``components`` row per component
-kind (:mod:`basis.vision.rooms`).
+Downloads the photo, prepares it (resize, EXIF strip, re-encode), makes the structured
+vision call(s) through the provider pool (:func:`basis.vision.analyze.analyze_photo_in_mode`:
+one ``photo_analysis`` call when ``Settings.vision_photo_mode`` is ``single``, the
+``photo_countables`` + ``photo_surfaces`` pair merged into one analysis when it is
+``decomposed``) charged to the remaining budget the workflow passes in, stores the raw
+analysis next to the photo in storage, and writes the room (shared by every photo with the
+same identity in the revision), the ``photo_rooms`` assignment and one ``components`` row
+per component kind (:mod:`basis.vision.rooms`). Each component row's ``raw.prompt_version``
+names every prompt that produced the analysis (``+``-joined in the decomposed mode); each
+call has its own ``llm_calls`` row and the activity's cost is their sum.
 
 Order of work: a read-only check first (an assignment already written for this photo and
 revision is returned as is, with cost 0: carried over by a rejection, or an earlier
@@ -62,7 +66,7 @@ from basis.storage import ObjectNotFound
 from basis.vision.analyze import (
     PhotoResult,
     VisionContext,
-    analyze_photo_detailed,
+    analyze_photo_in_mode,
     released_prompt,
 )
 from basis.vision.prep import ImageRejected
@@ -156,7 +160,7 @@ class AnalyzePhoto:
                     "floor": analysis.floor,
                     "model": result.model,
                     "provider": result.provider,
-                    "prompt_version": released_prompt().version_id,
+                    "prompt_version": "+".join(result.prompt_versions),
                 },
             )
             heartbeat("written")
@@ -212,7 +216,7 @@ class AnalyzePhoto:
         )
         try:
             async with heartbeating("analyzing"):
-                result = await analyze_photo_detailed(image_bytes, ctx)
+                result = await analyze_photo_in_mode(image_bytes, ctx, settings.vision_photo_mode)
         except ImageRejected as exc:
             raise validation_error(f"photo {document_id} cannot be analyzed: {exc}") from exc
         except BudgetExceededError as exc:
@@ -240,4 +244,21 @@ def _raw_json(result: PhotoResult, uri: str) -> bytes:
         },
         "responses": result.raw,
     }
+    if result.mode != "single":
+        # The single-call record is unchanged; a multi-call one says which prompts ran and
+        # how each call went (its responses are the next ``responses`` entries, in order).
+        payload["mode"] = result.mode
+        payload["prompt_versions"] = list(result.prompt_versions)
+        payload["calls"] = [
+            {
+                "prompt_version": call.prompt_version,
+                "usable": call.parsed is not None,
+                "attempts": call.attempts,
+                "provider": call.provider,
+                "model": call.model,
+                "errors": call.errors,
+                "responses": len(call.raw),
+            }
+            for call in result.calls
+        ]
     return json.dumps(payload, sort_keys=True, default=str).encode("utf-8")

@@ -144,6 +144,10 @@ class ComponentLabel(StrEnum):
 
 COMPONENT_LABELS: Final = tuple(c.value for c in ComponentLabel)
 
+# Caps on one analysis (the JSON schema the model fills and the merged decomposed answer).
+MAX_COMPONENTS: Final = 60
+MAX_DESCRIPTION_CHARS: Final = 500
+
 
 class Material(StrEnum):
     WOOD = "wood"
@@ -232,8 +236,8 @@ class PhotoAnalysis(BaseModel):
         description="Which room of this type on this floor, only when the photo shows it "
         "(for example a door sign 'Bedroom 2'); otherwise 1",
     )
-    components: list[Component] = Field(default_factory=list, max_length=60)
-    description: str = Field(default="", max_length=500)
+    components: list[Component] = Field(default_factory=list, max_length=MAX_COMPONENTS)
+    description: str = Field(default="", max_length=MAX_DESCRIPTION_CHARS)
     # Set by basis.vision.analyze, never by the model: the analysis could not be trusted.
     needs_review: bool = False
     review_reason: str | None = None
@@ -250,8 +254,8 @@ class ModelPhotoAnalysis(BaseModel):
     room_confidence: float = Field(ge=0.0, le=1.0)
     floor: int | None = Field(ge=-3, le=200)
     room_ordinal: int = Field(ge=1, le=50)
-    components: list[Component] = Field(max_length=60)
-    description: str = Field(max_length=500)
+    components: list[Component] = Field(max_length=MAX_COMPONENTS)
+    description: str = Field(max_length=MAX_DESCRIPTION_CHARS)
 
     _room = field_validator("room_type", mode="before")(_room_type_before)
 

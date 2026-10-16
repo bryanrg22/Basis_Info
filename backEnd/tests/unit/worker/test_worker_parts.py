@@ -1,4 +1,5 @@
-"""Worker pieces: ``/health``, worker versioning config, the activity logging context."""
+"""Worker pieces: ``/health``, worker versioning config, the activity logging context, the
+composition root's check of the per-photo vision prompts."""
 
 from __future__ import annotations
 
@@ -6,17 +7,22 @@ import asyncio
 from datetime import timedelta
 from typing import Any
 
+import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
 from temporalio.common import VersioningBehavior
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 
 from basis.config import Settings
+from basis.db.engine import create_engine
+from basis.llm.prompts import PromptError
 from basis.obs.logging import get_context
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
 from basis.worker.main import (
     MAX_HEARTBEAT_THROTTLE,
     SHUTDOWN_GRACE,
+    build_deps,
     deployment_config,
     parse_args,
 )
@@ -119,3 +125,48 @@ async def test_a_garbage_request_line_is_a_404() -> None:
         assert status == 404
     finally:
         await server.stop()
+
+
+# --------------------------------------------------------------------------- build_deps
+
+
+def offline_engine(settings: Settings) -> AsyncEngine:
+    """An engine that never connects (SQLAlchemy connects lazily); enough for build_deps."""
+    return create_engine(
+        settings.model_copy(update={"database_url": "postgresql+asyncpg://u:p@127.0.0.1:1/x"})
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "prompts"),
+    [
+        ("single", "photo_analysis/v1"),
+        ("decomposed", "photo_countables/v2, photo_surfaces/v1"),
+    ],
+)
+async def test_build_deps_resolves_the_vision_prompts_for_the_mode(
+    settings: Settings, caplog: pytest.LogCaptureFixture, mode: str, prompts: str
+) -> None:
+    chosen = settings.model_copy(update={"vision_photo_mode": mode})
+    engine = offline_engine(chosen)
+    try:
+        with caplog.at_level("INFO", logger="basis.worker"):
+            deps = build_deps(chosen, engine)
+    finally:
+        await engine.dispose()
+    assert deps.settings.vision_photo_mode == mode  # the activity reads the mode from here
+    assert deps.llm is None  # no provider configured in the test environment
+    assert f"photo analysis mode {mode}: {prompts}" in caplog.text
+
+
+async def test_build_deps_fails_at_startup_when_a_pinned_prompt_is_not_released(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("basis.vision.analyze.SURFACES_PROMPT_VERSION", "v99")
+    chosen = settings.model_copy(update={"vision_photo_mode": "decomposed"})
+    engine = offline_engine(chosen)
+    try:
+        with pytest.raises(PromptError, match="photo_surfaces/v99"):
+            build_deps(chosen, engine)
+    finally:
+        await engine.dispose()
