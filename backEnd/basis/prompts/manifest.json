@@ -25,6 +25,9 @@
       },
       "v2": {
         "sha256": "bbd3f81342cf4b2d2481a00805a3205f6b9351b8c95d55c199e60692da1c93d0"
+      },
+      "v3": {
+        "sha256": "858a2493980dcc75995c62f24728f98264810fed0848d644c804002f17a6d58a"
       }
     },
     "photo_overlap": {
@@ -35,6 +38,9 @@
     "photo_surfaces": {
       "v1": {
         "sha256": "344617b4b1dba18735f840cb3e8b42aa4eb86b11ad75ed335b1e2383043d6f10"
+      },
+      "v2": {
+        "sha256": "aa9ec0cff40f138599e48f8470e703f9a2e78aba71add07dcf258c8adf4bfcc9"
       }
     },
     "room_inventory": {

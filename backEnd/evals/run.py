@@ -98,6 +98,11 @@ from evals.metrics import (
 ABSTAIN: Final = "abstain"
 CORPUS_VERSION: Final = uuid.UUID(int=1)
 _WORD: Final = re.compile(r"[a-z]+")
+# Loose furniture (the FF&E row): listed so the engineer can price it (LABEL_GUIDE section 4,
+# EVAL_REPORT section 19) but not a building component, so, like ``other``, it is kept out
+# of the recognition and count scores (photo_components, room_inventory). report_rows reads
+# it: it is the FF&E row's evidence.
+UNSCORED_LABELS: Final = frozenset({"other", "furniture", "chair", "desk", "filing_cabinet"})
 
 
 @dataclass
@@ -459,10 +464,10 @@ def score_photo_components(
     tp = fp = fn = 0
     per_photo: list[bool] = []
     for photo in photos:
-        truth = {c.label for c in photo.components if c.label != "other"}
+        truth = {c.label for c in photo.components if c.label not in UNSCORED_LABELS}
         if saved is not None:
             raw = _repeats(saved.get(photo.file), repeats)[0] or []
-            predicted = {normalize_label(str(x)) for x in raw} - {"other"}
+            predicted = {normalize_label(str(x)) for x in raw} - UNSCORED_LABELS
         else:
             predicted = filename_components(photo.file, vocabulary)
         tp += len(truth & predicted)
@@ -481,7 +486,10 @@ def score_photo_components(
             "photo_exact_set", exact["value"], exact["n"], exact["stderr"], tuple(exact["interval"])
         ),
     ]
-    result.notes.append("'other' labels are excluded; sets of labels per photo are compared")
+    result.notes.append(
+        "'other' and loose furniture (furniture, chair, desk, filing_cabinet) are excluded; "
+        "sets of labels per photo are compared"
+    )
     return result
 
 
@@ -773,6 +781,11 @@ def _inventory(value: Any) -> dict[str, int]:
     return counts
 
 
+def _scored(counts: Mapping[str, int]) -> dict[str, int]:
+    """``counts`` without the labels the count scores leave out (:data:`UNSCORED_LABELS`)."""
+    return {label: n for label, n in counts.items() if label not in UNSCORED_LABELS}
+
+
 def score_room_inventory(
     data: ds.RoomInventorySet,
     split: str,
@@ -791,12 +804,12 @@ def score_room_inventory(
         result.skipped = True
         result.notes.append("no saved predictions and no photo_components labels for the baseline")
         return result
-    gold = {r.room_id: r.counts() for r in rooms}
+    gold = {r.room_id: _scored(r.counts()) for r in rooms}
     runs: list[dict[str, dict[str, int]]] = [{} for _ in range(repeats)]
     if saved is not None:
         for room in rooms:
             for r, value in enumerate(_repeats(saved.get(room.room_id), repeats)):
-                runs[r][room.room_id] = _inventory(value)
+                runs[r][room.room_id] = _scored(_inventory(value))
         extra = sorted(set(saved) - set(gold))
         if extra:
             result.notes.append(f"predicted rooms not in the {split} labels (ignored): {extra}")
@@ -807,7 +820,7 @@ def score_room_inventory(
             merged, absent = per_photo_max(room, index)
             missing += absent
             for r in range(repeats):
-                runs[r][room.room_id] = _inventory(merged)
+                runs[r][room.room_id] = _scored(_inventory(merged))
         if missing:
             result.notes.append(f"{len(missing)} room photos have no photo_components labels")
     metrics = inventory_metrics(gold, runs[0])
@@ -868,8 +881,8 @@ def score_room_inventory(
         repeats,
     )
     result.notes.append(
-        "'other' labels are excluded; count metrics are over (room, label) pairs in the "
-        "union of gold and predicted labels (missing = 0), SE clustered by room; room "
+        "'other' and loose furniture are excluded; count metrics are over (room, label) "
+        "pairs in the union of gold and predicted labels (missing = 0), SE clustered by room; room "
         "metrics are over rooms, SE clustered by document; signed bias > 0 is over-counting"
     )
     return result

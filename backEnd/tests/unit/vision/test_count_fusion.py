@@ -213,7 +213,7 @@ async def test_three_calls_and_counts_per_class() -> None:
     assert len(chat.requests) == 3
     second = [r for r in chat.requests if r.model == SECOND]
     assert len(second) == 1
-    assert second[0].prompt_version == "photo_countables/v2"
+    assert second[0].prompt_version == "photo_countables/v3"
     assert (second[0].reasoning_effort, second[0].max_tokens) == ("medium", 1200)
     base = [r for r in chat.requests if r.model == BASE]
     assert {r.reasoning_effort for r in base} == {"low"} and {r.max_tokens for r in base} == {6000}
@@ -231,7 +231,7 @@ async def test_three_calls_and_counts_per_class() -> None:
     }
     assert result.fusion.classes["electrical_outlet"]["model"] == BASE
     assert result.model == f"{SECOND}+{BASE}"
-    assert result.prompt_versions == ("photo_countables/v2", "photo_surfaces/v1")
+    assert result.prompt_versions == ("photo_countables/v3", "photo_surfaces/v2")
     assert len(result.calls) == 3 and result.attempts == 3
 
 
@@ -358,7 +358,7 @@ async def test_an_unusable_base_answer_is_not_fused() -> None:
     chat = provider([turn(SECOND_COUNTABLES)], surfaces=[bad(), bad()])
     result = await analyze_photo_decomposed(KITCHEN, context(chat))
     assert result.analysis.room_type is RoomType.AMBIGUOUS
-    assert result.analysis.review_reason == "invalid_model_output:photo_surfaces/v1"
+    assert result.analysis.review_reason == "invalid_model_output:photo_surfaces/v2"
     assert result.fusion is not None and result.fusion.status == "not_applied"
 
 

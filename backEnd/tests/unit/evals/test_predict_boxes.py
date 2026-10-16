@@ -115,7 +115,8 @@ async def test_dataset_run_writes_predictions_the_harness_scores(
     dataset_dir: Path, tmp_path: Path, fake: FakeLocalizer
 ) -> None:
     out = tmp_path / "out"
-    assert await run(["--dataset", str(dataset_dir), "--out", str(out)]) == 0
+    # the fake is scripted with v1 phrase texts ("window", "interior door")
+    assert await run(["--dataset", str(dataset_dir), "--out", str(out), "--phrase-set", "v1"]) == 0
     predictions = json.loads((out / "detection_boxes.json").read_text())
     assert set(predictions) == {"a1.jpg", "b2.jpg"}  # the held_out image is not run
     assert predictions["a1.jpg"][0] == {
@@ -131,7 +132,8 @@ async def test_dataset_run_writes_predictions_the_harness_scores(
     assert all(set(texts) == expected for _, texts, _ in fake.calls)
     assert {threshold for _, _, threshold in fake.calls} == {0.1}
     counts = json.loads((out / "photo_counts.json").read_text())
-    assert counts["a1.jpg"] == {"interior_door": 1, "window": 1}  # 0.3 is below 0.5
+    # per-class v1 thresholds (window 0.6, door 0.5): the 0.3 window is not counted
+    assert counts["a1.jpg"] == {"interior_door": 1, "window": 1}
     raw = [json.loads(line) for line in (out / "instances_raw.jsonl").read_text().splitlines()]
     assert len(raw) == 2
     first = raw[0]
@@ -142,6 +144,7 @@ async def test_dataset_run_writes_predictions_the_harness_scores(
     summary = json.loads((out / "run.json").read_text())
     assert (summary["calls"], summary["phrases_from"], summary["tiling"]) == (2, "dataset", False)
     assert summary["model"] == "vufinder/sam3" and summary["errors"] == []
+    assert (summary["phrase_set"], summary["count_threshold"]) == ("v1", "per_class")
 
     data = DetectionBoxes.model_validate_json((dataset_dir / "detection_boxes_v1.json").read_text())
     rows = {r.metric: r for r in score_detection_boxes(data, "dev", 1, predictions).rows}
@@ -183,7 +186,7 @@ async def test_photo_directory_with_vlm_labels(tmp_path: Path, fake: FakeLocaliz
     )
     out = tmp_path / "out"
     args = ["--photos", str(photos), "--out", str(out), "--phrases-from", "vlm"]
-    assert await run([*args, "--photo-raw", str(raw)]) == 0
+    assert await run([*args, "--photo-raw", str(raw), "--phrase-set", "v1"]) == 0
     by_image = {sha: set(texts) for sha, texts, _ in fake.calls}
     assert len(by_image) == 2
     countable = {t for label in COUNTABLE for t in PHRASES[label]}
@@ -248,3 +251,72 @@ def test_make_localizer_needs_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REPLICATE_API_TOKEN", "r8_dummy-test-value")  # pragma: allowlist secret
     localizer = predict_boxes.make_localizer(load_settings(), Budget(remaining_usd=1))
     assert localizer is not None and getattr(localizer, "version", None)
+
+
+async def test_phrase_pool_without_dedupe_keeps_every_phrase_instance(
+    dataset_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The phrase-pool experiment (EVAL_REPORT section 19): every pool phrase is prompted and
+    two phrases of one label finding the same window both keep their instance, each under
+    its own phrase, so any per-class subset can be scored offline."""
+    same = (0, 0, 40, 30)
+    localizer = FakeLocalizer(
+        {
+            "window": full_only(inst(L.WINDOW, 0.9, same)),
+            "house window": full_only(inst(L.WINDOW, 0.7, same)),
+        }
+    )
+    monkeypatch.setattr(predict_boxes, "make_localizer", lambda settings, budget: localizer)
+    out = tmp_path / "pool"
+    args = ["--dataset", str(dataset_dir), "--out", str(out), "--phrase-set", "pool"]
+    assert await run([*args, "--phrase-dedupe", "off"]) == 0
+    records = [json.loads(line) for line in (out / "instances_raw.jsonl").read_text().splitlines()]
+    a1 = next(r for r in records if r["file"] == "a1.jpg")
+    assert sorted((i["phrase"], i["score"]) for i in a1["instances"]) == [
+        ("house window", 0.7),
+        ("window", 0.9),
+    ]
+    prompted = set(localizer.calls[0][1])
+    assert {"house window", "glass window", "entry door", "cabinet door", "porch light"} <= prompted
+    run_json = json.loads((out / "run.json").read_text())
+    assert (run_json["phrase_set"], run_json["phrase_dedupe"]) == ("pool", "off")
+    # with the pipeline's dedupe the duplicate is kept once, at the higher score
+    assert await run([*args, "--out", str(tmp_path / "dedupe")]) == 0
+    raw = (tmp_path / "dedupe" / "instances_raw.jsonl").read_text().splitlines()
+    kept = next(json.loads(r) for r in raw if json.loads(r)["file"] == "a1.jpg")["instances"]
+    assert [(i["phrase"], i["score"]) for i in kept] == [("window", 0.9)]
+
+
+def test_phrase_dedupe_off_is_full_frame_only() -> None:
+    with pytest.raises(SystemExit):
+        predict_boxes.parse_args(
+            ["--photos", "p", "--out", "o", "--tiling", "on", "--phrase-dedupe", "off"]
+        )
+    assert predict_boxes.parse_args(["--photos", "p", "--out", "o"]).phrase_dedupe == "on"
+
+
+async def test_the_default_phrase_set_is_v3_and_counts_use_its_thresholds(
+    dataset_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    localizer = FakeLocalizer(
+        {
+            # v3 window threshold 0.65 (EVAL_REPORT 19): 0.7 counts, 0.62 does not
+            "house window": full_only(
+                inst(L.WINDOW, 0.7, (0, 0, 40, 30)), inst(L.WINDOW, 0.62, (100, 90, 120, 110))
+            ),
+            "window": full_only(inst(L.WINDOW, 0.99, (50, 50, 60, 60))),  # v1 text: not prompted
+        }
+    )
+    monkeypatch.setattr(predict_boxes, "make_localizer", lambda settings, budget: localizer)
+    out = tmp_path / "out"
+    assert await run(["--dataset", str(dataset_dir), "--out", str(out)]) == 0
+    prompted = set(localizer.calls[0][1])
+    assert "house window" in prompted and "window" not in prompted
+    counts = json.loads((out / "photo_counts.json").read_text())
+    assert counts["a1.jpg"] == {"window": 1}
+    assert (
+        await run(["--dataset", str(dataset_dir), "--out", str(out), "--count-threshold", "0.6"])
+        == 0
+    )
+    assert json.loads((out / "photo_counts.json").read_text())["a1.jpg"] == {"window": 2}
+    assert json.loads((out / "run.json").read_text())["count_threshold"] == 0.6

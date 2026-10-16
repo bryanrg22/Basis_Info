@@ -141,7 +141,7 @@ def offline_engine(settings: Settings) -> AsyncEngine:
     ("mode", "prompts"),
     [
         ("single", "photo_analysis/v1"),
-        ("decomposed", "photo_countables/v2, photo_surfaces/v1"),
+        ("decomposed", "photo_countables/v3, photo_surfaces/v2"),
     ],
 )
 async def test_build_deps_resolves_the_vision_prompts_for_the_mode(

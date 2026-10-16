@@ -11,7 +11,7 @@ in, every matching instance out, each with a mask, a box and a score) and counts
   JSON for ten instances on an 800 x 600 image), converted on arrival. Row-major, unlike
   pycocotools' column-major order, so ``counts`` read in the order the rows are drawn.
 * :class:`Box` is normalized to the image (0-1, ``x1 < x2``, ``y1 < y2``).
-* :data:`PHRASES` maps each of the 71 component labels to one to three short noun phrases
+* :data:`PHRASES` maps each of the 77 component labels to one to three short noun phrases
   (SAM 3 is prompted with simple noun phrases); ``other`` has none and is never prompted.
   No phrase is shared between two labels. :data:`COUNTABLE` labels are prompted on every
   photo, whatever the VLM said, because counting them is where the VLM fails (EVAL_REPORT
@@ -48,7 +48,10 @@ in, every matching instance out, each with a mask, a box and a score) and counts
   labels (:func:`object_labels`: everything but :data:`SURFACE_LABELS`) with the countable
   set, on the full frame only (EVAL_REPORT 10.3: tiling hurt), at
   :data:`CANDIDATE_THRESHOLD`, and counts an instance when its score clears its class's
-  threshold (:func:`count_threshold`, EVAL_REPORT 10.2: window 0.6, every other class 0.5).
+  threshold (:func:`count_threshold`). Both come from :data:`DEFAULT_PHRASE_SET`, ``v3``
+  (EVAL_REPORT section 19): per class, the phrases and threshold chosen on the verified
+  boxes by leaving one photo out (out of sample against the v1 table at its 10.2
+  thresholds: mAP@0.5 0.65 to 0.76, count MAE 1.39 to 0.79).
 
 Tap-to-add (:meth:`Localizer.segment_prompt`) uses SAM 3's point and box prompts. In SAM
 3's concept mode a box or point is an *exemplar* (the model may return every similar
@@ -325,6 +328,8 @@ PHRASES: Final[dict[ComponentLabel, tuple[str, ...]]] = {
     L.BASEBOARD: ("baseboard",),
     L.CROWN_MOLDING: ("crown molding",),
     L.WAINSCOTING: ("wainscoting",),
+    L.CONCRETE_FLOOR: ("concrete floor",),
+    L.HALF_WALL: ("half wall",),
     L.INTERIOR_DOOR: ("interior door",),
     L.EXTERIOR_DOOR: ("front door", "exterior door"),
     L.WINDOW: ("window",),
@@ -353,6 +358,7 @@ PHRASES: Final[dict[ComponentLabel, tuple[str, ...]]] = {
     L.TOILET: ("toilet",),
     L.BATHTUB: ("bathtub",),
     L.SHOWER: ("shower",),
+    L.BATHROOM_ACCESSORY: ("towel bar", "toilet paper holder"),
     L.LIGHT_FIXTURE: ("light fixture", "ceiling light"),
     L.CEILING_FAN: ("ceiling fan",),
     L.OUTDOOR_LIGHTING: ("outdoor light", "wall lantern"),
@@ -367,6 +373,7 @@ PHRASES: Final[dict[ComponentLabel, tuple[str, ...]]] = {
     L.SPRINKLER_SYSTEM: ("fire sprinkler",),
     L.SECURITY_SYSTEM: ("security camera", "alarm keypad"),
     L.DOORBELL: ("doorbell",),
+    L.WINDOW_GUARD: ("window bars", "security grille"),
     L.FURNITURE: ("sofa", "table", "bed"),
     L.DESK: ("desk",),
     L.CHAIR: ("chair",),
@@ -386,6 +393,8 @@ PHRASES: Final[dict[ComponentLabel, tuple[str, ...]]] = {
     L.PARKING_LOT: ("parking lot",),
     L.LANDSCAPING: ("shrub", "lawn"),
     L.SIGNAGE: ("sign",),
+    L.SHED: ("shed",),
+    L.CONCRETE_PAD: ("concrete pad",),
 }
 COUNTABLE: Final[frozenset[ComponentLabel]] = frozenset(
     {
@@ -399,8 +408,8 @@ COUNTABLE: Final[frozenset[ComponentLabel]] = frozenset(
     }
 )
 _LABEL_ORDER: Final = {label: i for i, label in enumerate(ComponentLabel)}
-# Surfaces and areas, not objects: the photo_surfaces/v1 prompt's list. A mask of a wall or
-# a driveway is not something to count, so the product step does not prompt them.
+# Surfaces and areas, not objects: the released photo_surfaces prompt's list. A mask of a
+# wall or a driveway is not something to count, so the product step does not prompt them.
 SURFACE_LABELS: Final[frozenset[ComponentLabel]] = frozenset(
     {
         L.CARPET,
@@ -413,6 +422,8 @@ SURFACE_LABELS: Final[frozenset[ComponentLabel]] = frozenset(
         L.BASEBOARD,
         L.CROWN_MOLDING,
         L.WAINSCOTING,
+        L.CONCRETE_FLOOR,
+        L.HALF_WALL,
         L.SIDING,
         L.ROOF,
         L.GUTTER,
@@ -429,14 +440,29 @@ SURFACE_LABELS: Final[frozenset[ComponentLabel]] = frozenset(
         L.RETAINING_WALL,
     }
 )
-# Count thresholds per class, from the verified boxes of EVAL_REPORT section 10.2 (single
-# full-frame pass): the window threshold 0.6 is where its precision and count error were
-# best; every other class was measured at 0.5.
+# Count thresholds per class, one table per phrase set (a threshold belongs to the phrases
+# whose scores it cuts). "v1": EVAL_REPORT section 10.2, window 0.6 where its precision and
+# count error were best, every other class measured at 0.5. "v3": section 19, chosen per
+# class on the verified boxes as the grid value (0.30 to 0.90) with the least count error,
+# by leaving one photo out (each choice stable in 50 to 52 of 52 folds; light fixture 44).
+# A label without an entry is counted at COUNT_THRESHOLD_DEFAULT.
 COUNT_THRESHOLD_DEFAULT: Final = 0.5
-COUNT_THRESHOLDS: Final[Mapping[ComponentLabel, float]] = {L.WINDOW: 0.6}
+COUNT_THRESHOLD_SETS: Final[dict[str, Mapping[ComponentLabel, float]]] = {
+    "v1": {L.WINDOW: 0.6},
+    "v3": {
+        L.WINDOW: 0.65,
+        L.INTERIOR_DOOR: 0.5,
+        L.EXTERIOR_DOOR: 0.85,
+        L.LIGHT_FIXTURE: 0.7,
+        L.OUTDOOR_LIGHTING: 0.3,
+        L.ELECTRICAL_OUTLET: 0.55,
+        L.KITCHEN_CABINET: 0.7,
+    },
+}
 # Sent to the model in the product step: instances between this and the count threshold
 # are stored as uncounted candidates, so a tap can select an object the model scored low.
-CANDIDATE_THRESHOLD: Final = 0.3
+# Below every count threshold (v3's lowest is 0.3), so every counted instance is returned.
+CANDIDATE_THRESHOLD: Final = 0.25
 
 
 # Alternative phrase tables for experiments (EVAL_REPORT section 10): "v1" is PHRASES; "v2"
@@ -458,7 +484,60 @@ PHRASE_SETS: Final[dict[str, Mapping[ComponentLabel, tuple[str, ...]]]] = {
         L.KITCHEN_CABINET: ("cabinet door",),
         L.INTERIOR_DOOR: ("interior door", "door"),
     },
+    # Section 19: per class, the pool subset with the best AP@0.5 on the verified boxes,
+    # chosen by leaving one photo out (each choice stable in 44 to 52 of 52 folds). Only
+    # the countable classes change; every other label keeps its v1 phrases.
+    "v3": {
+        **PHRASES,
+        L.WINDOW: ("house window",),
+        L.INTERIOR_DOOR: ("room door",),
+        L.EXTERIOR_DOOR: ("front door",),
+        L.LIGHT_FIXTURE: ("recessed light", "ceiling lamp"),
+        L.OUTDOOR_LIGHTING: ("porch light", "outdoor wall light"),
+        L.ELECTRICAL_OUTLET: ("wall outlet", "power outlet"),
+        L.KITCHEN_CABINET: ("kitchen cabinet", "cabinet door"),
+    },
+    # Not a deployable table: every candidate phrase for the countable classes (v1, v2 and
+    # the ones the rejection reasons of EVAL_REPORT 10.2 suggest), prompted once each with
+    # no dedupe so any per-class subset can be scored offline (EVAL_REPORT section 19).
+    "pool": {
+        **PHRASES,
+        L.WINDOW: ("window", "house window", "glass window"),
+        L.INTERIOR_DOOR: ("interior door", "door", "room door", "bedroom door", "wooden door"),
+        L.EXTERIOR_DOOR: ("front door", "exterior door", "entry door", "entrance door"),
+        L.LIGHT_FIXTURE: (
+            "light fixture",
+            "ceiling light",
+            "recessed light",
+            "pendant light",
+            "chandelier",
+            "wall sconce",
+            "ceiling lamp",
+            "flush mount light",
+        ),
+        L.OUTDOOR_LIGHTING: (
+            "outdoor light",
+            "wall lantern",
+            "porch light",
+            "outdoor light fixture",
+            "exterior light",
+            "porch lantern",
+            "hanging lantern",
+            "outdoor wall light",
+        ),
+        L.ELECTRICAL_OUTLET: ("electrical outlet", "wall outlet", "power outlet", "outlet"),
+        L.KITCHEN_CABINET: (
+            "kitchen cabinet",
+            "cabinet door",
+            "cabinet",
+            "cabinet drawer",
+            "drawer",
+        ),
+    },
 }
+# The phrase set (and its count thresholds) the pipeline and the harness use by default.
+DEFAULT_PHRASE_SET: Final = "v3"
+COUNT_THRESHOLDS: Final[Mapping[ComponentLabel, float]] = COUNT_THRESHOLD_SETS[DEFAULT_PHRASE_SET]
 
 
 def prompt_labels(labels: Sequence[ComponentLabel | str]) -> list[ComponentLabel]:
@@ -488,15 +567,30 @@ def object_labels(labels: Sequence[ComponentLabel | str]) -> list[ComponentLabel
     return prompt_labels(objects)
 
 
-def count_threshold(label: ComponentLabel | str) -> float:
-    """The score at which an instance of ``label`` is counted (EVAL_REPORT 10.2)."""
+def count_threshold(label: ComponentLabel | str, phrase_set: str = DEFAULT_PHRASE_SET) -> float:
+    """The score at which an instance of ``label`` found with ``phrase_set``'s phrases is
+    counted (EVAL_REPORT 10.2 for v1, 19 for v3; a set without a table: the default)."""
+    table = COUNT_THRESHOLD_SETS.get(phrase_set, {})
     try:
-        return COUNT_THRESHOLDS.get(ComponentLabel(label), COUNT_THRESHOLD_DEFAULT)
+        return table.get(ComponentLabel(label), COUNT_THRESHOLD_DEFAULT)
     except ValueError:
         return COUNT_THRESHOLD_DEFAULT
 
 
-def phrases_for(labels: Sequence[ComponentLabel], phrase_set: str = "v1") -> list[Phrase]:
+def class_counts(
+    localization: Localization, phrase_set: str = DEFAULT_PHRASE_SET
+) -> dict[str, int]:
+    """``{label: instances}`` counted at each label's threshold (:func:`count_threshold`)."""
+    totals: dict[str, int] = {}
+    for instance in localization.instances:
+        if instance.score >= count_threshold(instance.label, phrase_set):
+            totals[instance.label.value] = totals.get(instance.label.value, 0) + 1
+    return dict(sorted(totals.items()))
+
+
+def phrases_for(
+    labels: Sequence[ComponentLabel], phrase_set: str = DEFAULT_PHRASE_SET
+) -> list[Phrase]:
     table = PHRASE_SETS[phrase_set]
     return [Phrase(label=label, text=text) for label in labels for text in table.get(label, ())]
 
@@ -563,7 +657,12 @@ class Point(_Model):
 @runtime_checkable
 class Localizer(Protocol):
     async def localize(
-        self, image: PreparedImage, phrases: Sequence[Phrase], *, threshold: float
+        self,
+        image: PreparedImage,
+        phrases: Sequence[Phrase],
+        *,
+        threshold: float,
+        dedupe: bool = True,
     ) -> Localization: ...
 
     async def segment_prompt(
@@ -834,8 +933,16 @@ class ReplicateSam3Localizer:
         return f"data:image/jpeg;base64,{image.base64}"
 
     async def localize(
-        self, image: PreparedImage, phrases: Sequence[Phrase], *, threshold: float
+        self,
+        image: PreparedImage,
+        phrases: Sequence[Phrase],
+        *,
+        threshold: float,
+        dedupe: bool = True,
     ) -> Localization:
+        """Every phrase in one prediction; with ``dedupe`` (the pipeline) same-label
+        instances found by two phrases are kept once, without it every phrase's instances
+        are kept as returned (the phrase-pool experiment, EVAL_REPORT section 19)."""
         if not phrases:
             return Localization(image_sha256=image.sha256, width=image.width, height=image.height)
         prompts = tuple(json.dumps({"text": p.text}) for p in phrases)
@@ -857,7 +964,7 @@ class ReplicateSam3Localizer:
             image_sha256=image.sha256,
             width=image.width,
             height=image.height,
-            instances=tuple(suppress(found, PHRASE_DEDUPE_IOU)),
+            instances=tuple(suppress(found, PHRASE_DEDUPE_IOU) if dedupe else found),
             calls=(call,),
         )
 
@@ -942,7 +1049,12 @@ class FakeLocalizer:
         return list(entry(image) if callable(entry) else entry)
 
     async def localize(
-        self, image: PreparedImage, phrases: Sequence[Phrase], *, threshold: float
+        self,
+        image: PreparedImage,
+        phrases: Sequence[Phrase],
+        *,
+        threshold: float,
+        dedupe: bool = True,
     ) -> Localization:
         texts = tuple(p.text for p in phrases)
         self.calls.append((image.sha256, texts, threshold))
@@ -962,7 +1074,7 @@ class FakeLocalizer:
             image_sha256=image.sha256,
             width=image.width,
             height=image.height,
-            instances=tuple(suppress(found, PHRASE_DEDUPE_IOU)),
+            instances=tuple(suppress(found, PHRASE_DEDUPE_IOU) if dedupe else found),
             calls=(call,) if phrases else (),
         )
 
@@ -1137,13 +1249,19 @@ async def localize_photo(
     grid: int = 2,
     overlap: float = 0.2,
     merge_metric: MergeMetric = "iou",
-    phrase_set: str = "v1",
+    phrase_set: str = DEFAULT_PHRASE_SET,
+    dedupe: bool = True,
 ) -> Localization:
     """Prompt (VLM labels | COUNTABLE) on the full image and, with ``tiling``, the
-    countable phrases on ``grid x grid`` tiles too; merged into one localization."""
+    countable phrases on ``grid x grid`` tiles too; merged into one localization.
+    ``dedupe=False`` (full frame only) keeps every phrase's instances as returned."""
     phrases = phrases_for(prompt_labels(labels_from_vlm), phrase_set)
     if not tiling:
+        if not dedupe:
+            return await localizer.localize(image, phrases, threshold=threshold, dedupe=False)
         return await localizer.localize(image, phrases, threshold=threshold)
+    if not dedupe:
+        raise ValueError("dedupe=False is for the full-frame phrase experiment, not tiling")
     countable = [p for p in phrases if p.label in COUNTABLE]
     pieces = tiles(image, grid, overlap)
     full, *per_tile = await asyncio.gather(
@@ -1157,9 +1275,11 @@ __all__ = [
     "CANDIDATE_THRESHOLD",
     "COUNTABLE",
     "COUNT_THRESHOLDS",
+    "COUNT_THRESHOLD_SETS",
     "COUNT_THRESHOLD_DEFAULT",
     "SURFACE_LABELS",
     "PHRASES",
+    "DEFAULT_PHRASE_SET",
     "PHRASE_SETS",
     "Box",
     "FakeLocalizer",
@@ -1176,6 +1296,7 @@ __all__ = [
     "Rle",
     "Tile",
     "box_iou",
+    "class_counts",
     "count_threshold",
     "counts",
     "localize_photo",
