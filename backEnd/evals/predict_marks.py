@@ -258,9 +258,7 @@ async def prompt_sam(
     from basis.vision.localize import build_replicate_localizer
 
     token = os.environ.get("REPLICATE_API_TOKEN", "")
-    version = os.environ.get(
-        "SAM3_VERSION", "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"
-    )
+    version = load_settings().sam3_replicate_version
     localizer = build_replicate_localizer(token, version, concurrency=2)
     budget = Budget(remaining_usd=2.0)
     localizer.budget = budget

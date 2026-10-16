@@ -74,7 +74,10 @@ from evals.predict_tiles import ask_structured
 
 PROMPT: Final = "photo_points"
 USER_TEXT: Final = "Point at every countable object in this photo, then count them."
-MOLMO_VERSION: Final = "76ebd700864218a4ca97ac1ccff068be7222272859f9ea2ae1dd4ac073fa8de8"
+# zsxkib/molmo-7b (allenai/Molmo-7B-D-0924) as measured in EVAL_REPORT section 21.
+MOLMO_VERSION: Final = (
+    "76ebd700864218a4ca97ac1ccff068be7222272859f9ea2ae1dd4ac073fa8de8"  # pragma: allowlist secret  # noqa: E501
+)
 # (label, query); "light" becomes light_fixture or outdoor_lighting by the photo's room type.
 MOLMO_QUERIES: Final[tuple[tuple[str, str], ...]] = (
     ("window", "Point to every window."),

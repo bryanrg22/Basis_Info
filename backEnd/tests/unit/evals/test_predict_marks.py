@@ -184,11 +184,9 @@ def test_from_raw_needs_loop() -> None:
 
 
 def test_merge_with_base_keeps_missing_repeats_out() -> None:
-    out = Path("unused")
     counts, components, rooms = predict_marks.merge_with_base({"a": [{"window": 1}, None]}, None)
     assert counts == {"a": {"repeats": [{"window": 1}, None]}}
     assert components is None and rooms is None
-    del out
 
 
 ANSWER = mk.PointAnswer(
