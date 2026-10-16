@@ -423,7 +423,7 @@ async def test_not_a_photo_of_this_study_is_not_retried(
 
 # --------------------------------------------------------------------------- decomposed mode
 
-DECOMPOSED_PROMPTS = ["photo_countables/v2", "photo_surfaces/v1"]
+DECOMPOSED_PROMPTS = ["photo_countables/v3", "photo_surfaces/v2"]
 
 
 async def test_the_default_mode_is_single(deps: Deps) -> None:
@@ -450,7 +450,7 @@ async def test_decomposed_makes_two_recorded_calls_and_writes_one_merged_analysi
     components = {c.label: c for c in await rows(deps, Component, study_id=seeded.study_id)}
     assert set(components) == {"carpet", "other"}
     assert {c.raw["prompt_version"] for c in components.values()} == {
-        "photo_countables/v2+photo_surfaces/v1"
+        "photo_countables/v3+photo_surfaces/v2"
     }
     calls = await rows(deps, LlmCall, study_id=seeded.study_id)
     assert sorted(c.prompt_version for c in calls) == DECOMPOSED_PROMPTS
@@ -462,8 +462,8 @@ async def test_decomposed_makes_two_recorded_calls_and_writes_one_merged_analysi
     )
     assert (stored["mode"], stored["prompt_versions"]) == ("decomposed", DECOMPOSED_PROMPTS)
     assert [(c["prompt_version"], c["usable"], c["attempts"]) for c in stored["calls"]] == [
-        ("photo_countables/v2", True, 1),
-        ("photo_surfaces/v1", True, 1),
+        ("photo_countables/v3", True, 1),
+        ("photo_surfaces/v2", True, 1),
     ]
     assert len(stored["responses"]) == 2 and stored["attempts"] == 2
     assert {c["label"] for c in stored["analysis"]["components"]} == {"carpet", "other"}
@@ -547,7 +547,7 @@ async def test_decomposed_one_call_unusable_twice_is_ambiguous_with_the_call_nam
     stored = json.loads(
         await deps.storage.read(analysis_uri(deps.bucket, seeded.study_id, seeded.photo_ids[0], 1))
     )
-    assert stored["analysis"]["review_reason"] == "invalid_model_output:photo_surfaces/v1"
+    assert stored["analysis"]["review_reason"] == "invalid_model_output:photo_surfaces/v2"
     assert [c["usable"] for c in stored["calls"]] == [True, False]
     assert await count_rows(deps.sessionmaker, LlmCall) == 3  # every attempt cost money
     assert output.cost_usd == pytest.approx(3 * (1000 * 0.15 + 200 * 0.60) / 1e6)

@@ -5,12 +5,13 @@ it). What it does, following EVAL_REPORT section 10:
 
 * Labels: the photo's component labels at this revision without the surfaces
   (:func:`basis.vision.localize.object_labels`), always with the countable set; phrases
-  from the v1 phrase table (:func:`~basis.vision.localize.phrases_for`).
+  from the default phrase table (:data:`~basis.vision.localize.DEFAULT_PHRASE_SET`, ``v3``
+  since EVAL_REPORT section 19; :func:`~basis.vision.localize.phrases_for`).
 * One full-frame SAM 3 prediction (no tiling: 10.3 measured it hurting on these photos)
   at :data:`~basis.vision.localize.CANDIDATE_THRESHOLD`, same-label duplicates found by two
   phrases suppressed by the localizer as in the harness. Every instance is stored; it is
-  ``counted`` when its score clears its class's threshold (10.2: window 0.6, others 0.5),
-  so the counted set is exactly what the harness scored and the rest are candidates an
+  ``counted`` when its score clears its class's threshold (the phrase set's table, section
+  19 for v3), so the counted set is exactly what the harness scored and the rest are candidates an
   engineer's tap can select (``POST /v1/studies/{id}/photos/{document_id}/objects``).
 * The photo is prepared exactly as for the vision call (:func:`~basis.vision.prep.prepare_image`),
   so boxes are normalized to the same image and masks are at its resolution.
@@ -57,6 +58,7 @@ from basis.vision.localize import (
     CANDIDATE_THRESHOLD,
     COUNT_THRESHOLD_DEFAULT,
     COUNT_THRESHOLDS,
+    DEFAULT_PHRASE_SET,
     Instance,
     Localization,
     LocalizerError,
@@ -71,7 +73,7 @@ from basis.workflow.contracts import LocalizePhotoInput, LocalizePhotoOutput
 
 ACTIVITY: Final = "localize_photo"
 LOCALIZER_UNAVAILABLE: Final = "LocalizerUnavailable"
-PHRASE_SET: Final = "v1"
+PHRASE_SET: Final = DEFAULT_PHRASE_SET
 NO_LOCALIZER: Final = "no localizer configured (REPLICATE_API_TOKEN)"
 NO_BUDGET: Final = "the study budget is exhausted"
 MAX_REASON: Final = 500

@@ -25,8 +25,18 @@ Changes from the legacy table, each deliberate:
   (``cabinetry``, ``tile_flooring``, ``decorative_lighting``, ``ceiling_fans``).
 
 ``property_class`` (``residential_rental`` or ``nonresidential``) is part of the lookup and
-of the cache key because the building buckets differ (27.5 vs 39 years); no current row
-differs by class, which ``tests/unit/domain/test_rules_table.py`` pins.
+of the cache key because the building buckets differ (27.5 vs 39 years): only the building
+rows (``Rule.building``, section 1250 components such as bathroom accessories or a concrete
+floor) differ by class, 27.5 years residential and 39 nonresidential, which
+``tests/unit/domain/test_rules_table.py`` pins.
+
+Rows added 2026-10-16 (``RULES_VERSION`` ``2026-10-16.1``, EVAL_REPORT section 19) for the
+report rows that had no vocabulary label: ``bathroom_accessory`` and ``concrete_floor``
+(building, supported by ATG Exhibit A), ``half_wall`` and ``window_guard`` (building,
+contested: studies treat them as 5-year), ``shed`` (section 1245,
+7-year, contested: no passage fixes its period) and ``concrete_pad`` (15-year land
+improvement, contested: no passage names equipment pads). Each new excerpt was checked as in
+``RULES_RECITATION.md`` (verbatim on the page and inside one production chunk).
 
 The citations are ``(doc_id, page, excerpt)`` claims re-cited on 2026-10-15 against the
 reference PDFs (they replace the legacy claims, which cited ATG pages 412-420 that do not
@@ -54,7 +64,7 @@ from basis.db.enums import Bucket
 
 # Bump when any row, alias or matching rule changes: it is part of the cache key, so a
 # cached classification made under older rules is never served.
-RULES_VERSION: Final = "2026-10-15.2"
+RULES_VERSION: Final = "2026-10-16.1"
 
 PropertyClass = Literal["residential_rental", "nonresidential"]
 PROPERTY_CLASSES: Final[tuple[str, ...]] = get_args(PropertyClass)
@@ -63,6 +73,7 @@ MatchKind = Literal["direct", "alias", "material"]
 
 ATG: Final = "IRS_IRS_COST_SEG_ATG__2024"
 REV_PROC: Final = "IRS_REV_PROC_87_56"
+PUB_946: Final = "IRS_IRS_PUB_946__2024"
 
 RECOVERY_YEARS: Final[dict[Bucket, Decimal]] = {
     Bucket.Y5: Decimal("5"),
@@ -163,6 +174,37 @@ _RESIDENTIAL_FURNITURE: Final = (
     "tables) are asset class 57.0, 5 years (ATG Exhibit A p.308; Pub 527 p.13), so a "
     "residential piece needs engineer confirmation"
 )
+# Rows added 2026-10-16 for report rows that had no label (EVAL_REPORT sections 13 and 19).
+# Where a cost segregation study's treatment (the report rows of section 13) and the documents
+# disagree, the row follows the documents (or, where no passage fixes the period, the study)
+# and is contested, so a hit goes to the engineer.
+_HALF_WALL: Final = (
+    "ATG Exhibit A (p.321) puts non-load bearing interior partitions 'regardless of height' "
+    "under Walls - Interior, section 1250, 27.5 years (39 nonresidential), and only "
+    "partitions that can be readily removed or are intended to be moved under section "
+    "1245, 5 years; studies that put interior half walls in 5-year rely on that, which "
+    "holds only for a removable partition, so a half wall needs engineer confirmation"
+)
+_WINDOW_GUARD: Final = (
+    "No document names window guards or bars; ATG Exhibit A lists steel grills and gates "
+    "under Doors (p.300) and window and door locks under Security Systems - Building "
+    "(p.318), both section 1250, 27.5 years; studies also treat door and window guards as "
+    "5-year property, so the bucket needs engineer confirmation"
+)
+_SHED: Final = (
+    "Storage sheds are section 1245 in the ATG's case table (p.102), with no recovery "
+    "period; the 7-year treatment is property with no class life (Pub 946 p.29), while "
+    "ATG p.297 says asset class 57.0, 5 years, applies to most "
+    "section 1245 property used with residential rental property, and a shed on a permanent "
+    "foundation may be a building; needs engineer confirmation"
+)
+_CONCRETE_PAD: Final = (
+    "No document names exterior equipment pads; ATG Exhibit A puts foundations for land "
+    "improvements (p.299) and a trash enclosure's concrete pad (p.320) in asset class 00.3, "
+    "15 years, but equipment foundations within the "
+    "building footprint in section 1250 (p.299), and a pad under building HVAC equipment is "
+    "not addressed; needs engineer confirmation"
+)
 _ATTACHED_DECK: Final = (
     "ATG Exhibit A (p.300) lists only freestanding decks as asset class 00.3, 15 years; a "
     "deck attached to the residence is section 1250, 27.5 years, so the bucket needs "
@@ -187,10 +229,20 @@ class Rule:
     irs_note: str
     citations: tuple[RuleCitation, ...]
     contested: str | None = None
+    # A building component (section 1250, residential rental 27.5 / nonresidential 39 years):
+    # ``bucket`` is the residential one and :func:`lookup` returns 39 years for a
+    # nonresidential property (ATG Exhibit A gives both: "RRP - 27.5 Years NRRP - 39 Years").
+    building: bool = False
 
     @property
     def recovery_period(self) -> Decimal:
         return RECOVERY_YEARS[self.bucket]
+
+    def bucket_for(self, property_class: PropertyClass) -> Bucket:
+        """The bucket for ``property_class``: only building rows differ (27.5 vs 39)."""
+        if self.building and property_class == "nonresidential":
+            return Bucket.Y39
+        return self.bucket
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +289,12 @@ def _l15(
     key: str, category: str, note: str, *cites: RuleCitation, contested: str | None = None
 ) -> Rule:
     return Rule(key, category, "1250", Bucket.Y15, "00.3", note, cites, contested)
+
+
+def _bldg(
+    key: str, category: str, note: str, *cites: RuleCitation, contested: str | None = None
+) -> Rule:
+    return Rule(key, category, "1250", Bucket.Y27_5, None, note, cites, contested, building=True)
 
 
 # Citations shared by several rows (each verified verbatim on its page).
@@ -680,6 +738,102 @@ _RULES: Final[tuple[Rule, ...]] = (
         "Irrigation/sprinkler systems are Section 1250 land improvements",
         _c(ATG, 305, "holding, settling, or detention ponds; and irrigation systems"),
     ),
+    _l15(
+        "concrete_pad",
+        "Exterior equipment concrete pad",
+        "Exterior concrete pads are Section 1250 land improvements, 15-year (00.3)",
+        _c(
+            ATG,
+            299,
+            "Foundations and footings for signs, light poles, and other land improvements "
+            "(except buildings).",
+        ),
+        _c(
+            ATG,
+            320,
+            "Enclosures for waste receptacles, typically constructed on a concrete pad with its "
+            "posts set in the concrete.",
+        ),
+        contested=_CONCRETE_PAD,
+    ),
+    # ------------------------------------------- section 1245, no class life, 7-year
+    Rule(
+        "shed",
+        "Movable shed",
+        "1245",
+        Bucket.Y7,
+        None,
+        "A movable storage shed is Section 1245 property; with no class life it is 7-year",
+        (
+            _c(ATG, 102, "Storage sheds (§ 1245)"),
+            _c(PUB_946, 29, "does not have a class life and has not been designated by law"),
+        ),
+        _SHED,
+    ),
+    # ------------------------- building components, section 1250, 27.5 / 39 years
+    _bldg(
+        "bathroom_accessory",
+        "Bathroom accessories",
+        "Restroom accessories (towel bars, paper holders, grab bars) are Section 1250 building "
+        "components",
+        _c(
+            ATG,
+            316,
+            "Also, includes paper towel dispensers, electric hand dryers, towel racks or "
+            "holders, cup dispensers, purse shelves, toilet paper holders",
+        ),
+        _c(
+            ATG,
+            317,
+            "Cabinet, counter, sink, faucet, mirror attached with permanent adhesive, toilet, "
+            "towel rack, toilet paper holder, flush mounted medicine cabinet, tub, shower, vent "
+            "fan, etc.",
+        ),
+    ),
+    _bldg(
+        "concrete_floor",
+        "Concrete floor (sealed)",
+        "Concrete floors, with treatments made a permanent part of them, are Section 1250 "
+        "building components",
+        _c(ATG, 307, "Includes concrete slabs and other floor systems."),
+        _c(
+            ATG,
+            307,
+            "Floors include special treatments applied to, or otherwise made a permanent part, "
+            "of the floor.",
+        ),
+    ),
+    _bldg(
+        "half_wall",
+        "Interior half wall",
+        "Non-load bearing interior partitions of any height are Section 1250 building components",
+        _c(
+            ATG,
+            321,
+            "partitions regardless of height (typically constructed of studs and sheetrock or "
+            "other materials) that divide or create rooms or provide traffic control.",
+        ),
+        _c(
+            ATG,
+            321,
+            "Interior walls where the partition can be 1) readily removed and remain in "
+            "substantially the same condition after removal as before",
+        ),
+        contested=_HALF_WALL,
+    ),
+    _bldg(
+        "window_guard",
+        "Door and window guards",
+        "Security grilles and guards on doors and windows are Section 1250 building components",
+        _c(ATG, 300, "roll-up or sliding wire mesh or steel grills and gates"),
+        _c(
+            ATG,
+            318,
+            "Examples include window and door locks; card key access systems; keyless entry "
+            "systems",
+        ),
+        contested=_WINDOW_GUARD,
+    ),
 )
 
 RULES: Final[dict[str, Rule]] = {rule.key: rule for rule in _RULES}
@@ -803,6 +957,26 @@ ALIASES: Final[dict[str, str]] = {
     "shelf": "closet_shelving",
     "shelves": "closet_shelving",
     "storage_shelf": "closet_shelving",
+    # labels added 2026-10-16 (EVAL_REPORT section 19)
+    "bath_accessory": "bathroom_accessory",
+    "restroom_accessory": "bathroom_accessory",
+    "towel_bar": "bathroom_accessory",
+    "towel_ring": "bathroom_accessory",
+    "toilet_paper_holder": "bathroom_accessory",
+    "grab_bar": "bathroom_accessory",
+    "shower_curtain_rod": "bathroom_accessory",
+    "storage_shed": "shed",
+    "garden_shed": "shed",
+    "equipment_pad": "concrete_pad",
+    "condenser_pad": "concrete_pad",
+    "sealed_concrete_floor": "concrete_floor",
+    "garage_floor": "concrete_floor",
+    "pony_wall": "half_wall",
+    "knee_wall": "half_wall",
+    "window_bars": "window_guard",
+    "security_bars": "window_guard",
+    "security_grille": "window_guard",
+    "door_guard": "window_guard",
 }
 
 # Generic labels that say "this is a floor covering" without saying which one.
@@ -820,6 +994,8 @@ MATERIAL_RULES: Final[dict[str, str]] = {
     "porcelain": "tile",
     "hardwood": "hardwood_floor",
     "wood": "hardwood_floor",
+    "concrete": "concrete_floor",
+    "sealed_concrete": "concrete_floor",
 }
 
 # An attachment that says the component is part of the building's structure; it
@@ -905,8 +1081,8 @@ def lookup(
         key=rule.key,
         category=rule.category,
         section=rule.section,
-        bucket=rule.bucket,
-        recovery_period=rule.recovery_period,
+        bucket=rule.bucket_for(pclass),
+        recovery_period=RECOVERY_YEARS[rule.bucket_for(pclass)],
         asset_class=rule.asset_class,
         irs_note=rule.irs_note,
         citations=rule.citations,

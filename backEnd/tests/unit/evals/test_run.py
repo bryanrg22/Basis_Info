@@ -18,6 +18,7 @@ from evals.run import (
     score_detection_boxes,
     score_photo_components,
     score_photo_counts,
+    score_report_rows,
     score_room_inventory,
     score_rule_citations,
     write_results,
@@ -192,6 +193,56 @@ def test_room_inventory_predictions_with_repeats() -> None:
     assert rows["pass^3"] == pytest.approx(0.5)
     assert rows["pass^1"] == pytest.approx((2 / 3 + 1) / 2)
     assert any("x_ghost" in n for n in result.notes)
+
+
+def test_loose_furniture_is_kept_out_of_the_recognition_and_count_scores() -> None:
+    """The FF&E convention (EVAL_REPORT section 19): loose furniture is listed as
+    ``furniture`` with a count so the engineer can price the FF&E row, but like ``other``
+    it never counts for or against recognition or counts; report_rows still reads it."""
+    data = ds.PhotoComponentsSet.model_validate(
+        {"photos": [{"file": "a.jpg", "components": [{"label": "sink"}, {"label": "furniture"}]}]}
+    )
+    rows = {
+        r.metric: r.value
+        for r in score_photo_components(data, "dev", 1, {"a.jpg": ["sink", "chair", "desk"]}).rows
+    }
+    assert (rows["precision"], rows["recall"]) == (1.0, 1.0)
+    rooms, _ = two_photo_room()
+    rooms = rooms.model_copy(
+        update={
+            "rooms": [
+                r.model_copy(
+                    update={
+                        "objects": [
+                            *r.objects,
+                            ds.InventoryObjectLabel(label="furniture", count=4),
+                        ]
+                    }
+                )
+                for r in rooms.rooms
+            ]
+        }
+    )
+    saved = {"1_kitchen": {"sink": 2, "countertop": 1, "furniture": 9}, "b_bath": {"toilet": 1}}
+    scored = {r.metric: r.value for r in score_room_inventory(rooms, "dev", 1, saved, None).rows}
+    assert scored["count_mae"] == 0.0 and scored["label_f1"] == 1.0
+    ffe = ds.ReportRows.model_validate(
+        {
+            "rows": [
+                {
+                    "id": "ffe",
+                    "system": "FF&E",
+                    "bucket": "y5",
+                    "cost_share": 1.0,
+                    "kind": "A",
+                    "labels": ["furniture"],
+                    "count_required": True,
+                }
+            ]
+        }
+    )
+    coverage = score_report_rows(ffe, "dev", 1, saved, rooms).rows[0]
+    assert coverage.metric == "row_coverage" and coverage.value == 1.0
 
 
 def test_room_inventory_needs_predictions_or_photo_labels() -> None:

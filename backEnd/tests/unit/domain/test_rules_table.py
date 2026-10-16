@@ -125,7 +125,7 @@ def test_generic_floor_label_resolves_by_material(material: str, key: str) -> No
     assert (hit.key, hit.via, hit.confidence) == (key, "material", 0.9)
 
 
-@pytest.mark.parametrize("material", [None, "", "concrete", "unknown"])
+@pytest.mark.parametrize("material", [None, "", "stone", "unknown"])
 def test_generic_floor_label_without_known_material_is_a_miss(material: str | None) -> None:
     """Legacy aliased ``flooring`` to ``carpet``; a guess is not a classification."""
     assert lookup("flooring", material=material) is None
@@ -179,6 +179,12 @@ def test_uncontested_rows_have_no_note() -> None:
         "furniture",
         "chair",
         "deck",
+        # rows added 2026-10-16 where the documents and the engineer's report disagree, or
+        # no passage names the item (EVAL_REPORT section 19)
+        "half_wall",
+        "window_guard",
+        "shed",
+        "concrete_pad",
     }
 
 
@@ -216,7 +222,11 @@ def test_contested_rows_still_carry_a_citation() -> None:
 
 def test_citations_name_real_pages() -> None:
     # The legacy table cited ATG pages 412-420; the ATG PDF (Pub 5653) has 348 pages.
-    pages = {"IRS_IRS_COST_SEG_ATG__2024": 348, "IRS_REV_PROC_87_56": 42}
+    pages = {
+        "IRS_IRS_COST_SEG_ATG__2024": 348,
+        "IRS_REV_PROC_87_56": 42,
+        "IRS_IRS_PUB_946__2024": 112,
+    }
     for key, rule in RULES.items():
         for citation in rule.citations:
             assert citation.doc_id in pages, (key, citation.doc_id)
@@ -226,16 +236,112 @@ def test_citations_name_real_pages() -> None:
 # ----------------------------------------------------------------- property class
 
 
-def test_no_current_row_differs_by_property_class() -> None:
-    for key in RULES:
+def test_only_building_rows_differ_by_property_class() -> None:
+    """A building row (section 1250 component) is 27.5 years for residential rental and 39
+    for nonresidential (ATG Exhibit A gives both); every other row is the same for both."""
+    for key, rule in RULES.items():
         residential = lookup(key, property_class="residential_rental")
         nonresidential = lookup(key, property_class="nonresidential")
         assert residential is not None and nonresidential is not None
-        assert (residential.bucket, residential.section) == (
-            nonresidential.bucket,
-            nonresidential.section,
-        )
+        assert residential.section == nonresidential.section == rule.section
         assert nonresidential.property_class == "nonresidential"
+        if rule.building:
+            assert rule.section == "1250" and rule.asset_class is None
+            assert (residential.bucket, residential.recovery_period) == (
+                Bucket.Y27_5,
+                Decimal("27.5"),
+            )
+            assert (nonresidential.bucket, nonresidential.recovery_period) == (
+                Bucket.Y39,
+                Decimal("39"),
+            )
+        else:
+            assert residential.bucket == nonresidential.bucket == rule.bucket
+            assert residential.recovery_period == nonresidential.recovery_period
+    assert {k for k, r in RULES.items() if r.building} == {
+        "bathroom_accessory",
+        "concrete_floor",
+        "half_wall",
+        "window_guard",
+    }
+
+
+# ------------------------------------------------- rows added 2026-10-16 (EVAL_REPORT 19)
+
+
+@pytest.mark.parametrize(
+    ("label", "section", "bucket", "contested"),
+    [
+        ("bathroom_accessory", "1250", Bucket.Y27_5, False),
+        ("concrete_floor", "1250", Bucket.Y27_5, False),
+        ("half_wall", "1250", Bucket.Y27_5, True),
+        ("window_guard", "1250", Bucket.Y27_5, True),
+        ("shed", "1245", Bucket.Y7, True),
+        ("concrete_pad", "1250", Bucket.Y15, True),
+    ],
+)
+def test_the_new_vocabulary_labels_have_rows(
+    label: str, section: str, bucket: Bucket, contested: bool
+) -> None:
+    hit = lookup(label)
+    assert hit is not None and hit.via == "direct"
+    assert (hit.section, hit.bucket) == (section, bucket)
+    assert (hit.contested is not None) is contested
+    assert len(hit.citations) == 2
+    # the client engineer's report treats every contested one differently or the documents
+    # do not name the item; the note says what the documents say instead
+    if contested:
+        assert "needs engineer confirmation" in (hit.contested or "")
+
+
+def test_the_new_rows_match_the_engineers_buckets_for_a_nonresidential_property() -> None:
+    """The report's buckets (a nonresidential property): Bathroom Accessories and Sealed
+    Concrete 39, Movable Shed 7, Equipment Pads 15 agree; Half Walls and Guards (5 in the
+    report) are where the documents disagree, so those rows are contested."""
+    expected = {
+        "bathroom_accessory": Bucket.Y39,
+        "concrete_floor": Bucket.Y39,
+        "shed": Bucket.Y7,
+        "concrete_pad": Bucket.Y15,
+        "half_wall": Bucket.Y39,
+        "window_guard": Bucket.Y39,
+    }
+    for label, bucket in expected.items():
+        hit = lookup(label, property_class="nonresidential")
+        assert hit is not None and hit.bucket == bucket, label
+
+
+@pytest.mark.parametrize(
+    ("label", "key"),
+    [
+        ("towel bar", "bathroom_accessory"),
+        ("Toilet-Paper Holder", "bathroom_accessory"),
+        ("grab_bars", "bathroom_accessory"),
+        ("storage shed", "shed"),
+        ("equipment pad", "concrete_pad"),
+        ("pony wall", "half_wall"),
+        ("security bars", "window_guard"),
+        ("garage floor", "concrete_floor"),
+    ],
+)
+def test_the_new_rows_aliases(label: str, key: str) -> None:
+    hit = lookup(label)
+    assert hit is not None and hit.key == key and hit.via == "alias"
+
+
+def test_a_generic_concrete_floor_resolves_by_material() -> None:
+    hit = lookup("flooring", material="sealed concrete")
+    assert hit is not None and hit.key == "concrete_floor" and hit.via == "material"
+    assert lookup("floor", material="concrete", property_class="nonresidential").bucket == (  # type: ignore[union-attr]
+        Bucket.Y39
+    )
+
+
+def test_a_structural_attachment_does_not_block_a_building_row() -> None:
+    # "structural" contradicts a section 1245 row; a building row is section 1250 already
+    hit = lookup("concrete_floor", attachment="structural")
+    assert hit is not None and hit.section == "1250"
+    assert lookup("shed", attachment="structural") is None
 
 
 def test_unknown_property_class_is_refused() -> None:
@@ -279,9 +385,10 @@ def test_section_and_bucket_are_consistent_for_every_row() -> None:
 
 
 def test_recovery_period_matches_bucket() -> None:
-    expected = {Bucket.Y5: 5, Bucket.Y7: 7, Bucket.Y15: 15}
+    expected = {Bucket.Y5: 5, Bucket.Y7: 7, Bucket.Y15: 15, Bucket.Y27_5: Decimal("27.5")}
     for rule in RULES.values():
         assert rule.recovery_period == Decimal(expected[rule.bucket])
+        assert rule.bucket is not Bucket.Y27_5 or rule.building  # 27.5 only as a building row
 
 
 def test_every_alias_points_to_a_row_and_never_shadows_one() -> None:

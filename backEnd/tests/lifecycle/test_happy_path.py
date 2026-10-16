@@ -221,8 +221,8 @@ async def test_the_decomposed_photo_step_runs_through_the_workflow(harness: Harn
             ).all()
         )
     assert Counter(c.prompt_version for c in calls) == {
-        "photo_countables/v2": 3,
-        "photo_surfaces/v1": 3,
+        "photo_countables/v3": 3,
+        "photo_surfaces/v2": 3,
     }
     assert sorted(r.name for r in rooms) == ["Bathroom", "Kitchen"]
     assert Counter(c.label for c in components) == {
@@ -232,5 +232,5 @@ async def test_the_decomposed_photo_step_runs_through_the_workflow(harness: Harn
         "toilet": 1,
     }
     assert {c.raw["prompt_version"] for c in components} == {
-        "photo_countables/v2+photo_surfaces/v1"
+        "photo_countables/v3+photo_surfaces/v2"
     }
