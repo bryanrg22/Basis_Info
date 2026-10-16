@@ -15,6 +15,7 @@ from evals.metrics import (
     field_matches,
     ir_metrics,
     ndcg_at_k,
+    page_citation_status,
     pass_hat_k,
     recall_at_k,
     reciprocal_rank,
@@ -163,6 +164,38 @@ def test_citation_support_rate() -> None:
     assert math.isnan(rate) and claimed == 0
     with pytest.raises(ValueError):
         citation_support_rate([(1, 2)])
+
+
+PAGES = ["Cover page.", "Carpeting will be treated as not permanently attached.", "Third."]
+
+
+@pytest.mark.parametrize(
+    ("excerpt", "page", "pages", "status"),
+    [
+        ("carpeting will be treated as not permanently attached", 2, PAGES, "resolved"),
+        # typographic dash, case and line break fold away (basis.retrieval.verify)
+        ("CARPETING  will be\ntreated", 2, PAGES, "resolved"),
+        ("Carpeting will be treated", 1, PAGES, "excerpt_not_on_page"),  # wrong page
+        ("Carpeting will be treated", 3, PAGES, "excerpt_not_on_page"),
+        ("Carpeting will be treated", 4, PAGES, "page_out_of_range"),  # 3-page document
+        ("Carpeting will be treated", 0, PAGES, "page_out_of_range"),
+        ("Carpeting will be treated", 415, PAGES, "page_out_of_range"),  # legacy ATG pages
+        ("Carpeting will be treated", 2, None, "document_missing"),
+        ("Carpeting", 2, PAGES, "excerpt_too_short"),  # 9 < MIN_EXCERPT_CHARS (12)
+        ("Carpeting - 5-year recovery", 2, PAGES, "excerpt_not_on_page"),  # a paraphrase
+    ],
+)
+def test_page_citation_status(
+    excerpt: str, page: int, pages: list[str] | None, status: str
+) -> None:
+    assert page_citation_status(excerpt, page, pages) == status
+
+
+def test_page_citation_status_folds_typographic_punctuation() -> None:
+    pages = ["Asset Class 57.0 \u2013 Distributive Trades applies to \u201cmost\u201d property."]
+    assert page_citation_status('Class 57.0 - Distributive Trades applies to "most"', 1, pages) == (
+        "resolved"
+    )
 
 
 # --------------------------------------------------------------------------- variance

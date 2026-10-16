@@ -16,7 +16,13 @@ deterministic baseline runs where one exists:
   against the label vocabulary) -- a floor, not a model;
 * ``assets``: ``rules_table`` (:func:`basis.domain.rules.lookup`; a miss abstains);
 * ``retrieval_qrels``: ``bm25_pages`` (BM25 over one chunk per PDF page of the corpus in
-  ``<data dir>/corpus/``, or the synthetic corpus on a dry run).
+  ``<data dir>/corpus/``, or the synthetic corpus on a dry run);
+* ``rule_citations``: ``page_text`` (every rules-table citation checked against the page
+  text of ``<data dir>/corpus/<doc_id>.pdf``: page in range and
+  :func:`basis.classify.verify.excerpt_supported`, as
+  :func:`basis.classify.router.resolve_rule_citations` checks a chunk). Derived from the
+  code, so it has no dataset file and is scored whole on every split. On a dry run the
+  synthetic corpus holds none of the cited documents, so nothing resolves (0 of n).
 
 Model-backed systems (extraction, vision, the residual classifier) are run by the
 orchestrator and scored through ``--predictions``. Every metric is reported with ``n``, a
@@ -58,6 +64,7 @@ from evals.metrics import (
     field_matches,
     ir_metrics,
     mean,
+    page_citation_status,
     pass_hat_k,
     summarize_proportion,
 )
@@ -124,24 +131,29 @@ def filename_components(file: str, vocabulary: Sequence[str]) -> set[str]:
     return {label for label in vocabulary if label != "other" and set(label.split("_")) <= words}
 
 
-def pdf_page_store(pdfs: dict[str, Path]) -> InMemoryChunkStore:
+def pdf_page_texts(path: Path) -> list[str]:
+    """The text of every page of a PDF (index 0 is page 1), as pymupdf extracts it."""
     import pymupdf  # dev/eval dependency; imported only when a corpus is scored
 
+    with pymupdf.open(path) as document:  # type: ignore[no-untyped-call]
+        return [page.get_text() for page in document]
+
+
+def pdf_page_store(pdfs: dict[str, Path]) -> InMemoryChunkStore:
     store = InMemoryChunkStore()
     for doc_id, path in pdfs.items():
-        with pymupdf.open(path) as document:  # type: ignore[no-untyped-call]
-            for number, page in enumerate(document, start=1):
-                store.add(
-                    StoredChunk(
-                        id=uuid.uuid5(CORPUS_VERSION, f"{doc_id}:{number}"),
-                        corpus_version_id=CORPUS_VERSION,
-                        doc_id=doc_id,
-                        page_start=number,
-                        page_end=number,
-                        chunk_key=f"{doc_id}:{number:04d}",
-                        text=page.get_text(),
-                    )
+        for number, text in enumerate(pdf_page_texts(path), start=1):
+            store.add(
+                StoredChunk(
+                    id=uuid.uuid5(CORPUS_VERSION, f"{doc_id}:{number}"),
+                    corpus_version_id=CORPUS_VERSION,
+                    doc_id=doc_id,
+                    page_start=number,
+                    page_end=number,
+                    chunk_key=f"{doc_id}:{number:04d}",
+                    text=text,
                 )
+            )
     return store
 
 
@@ -410,6 +422,80 @@ def score_retrieval(
     return result
 
 
+def score_rule_citations(
+    data: ds.RuleCitations,
+    corpus_dir: Path | None,
+    page_texts: Callable[[Path], list[str]] = pdf_page_texts,
+) -> TaskResult:
+    """Resolve every rules-table citation against the corpus page text.
+
+    ``resolved_fraction`` is over citations (SE clustered by rule, since one rule's
+    citations are not independent); ``rules_resolved`` is the share of rules whose every
+    citation resolves (a rule with any unresolved citation is flagged
+    ``citation_unverified`` in production).
+    """
+    result = TaskResult("rule_citations", "page_text")
+    if not data.citations:
+        result.skipped = True
+        result.notes.append("the rules table has no citations")
+        return result
+    pdfs = ds.corpus_pdfs(corpus_dir) if corpus_dir is not None and corpus_dir.is_dir() else {}
+    if not pdfs:
+        result.skipped = True
+        result.notes.append("no corpus PDFs to check the citations against")
+        return result
+    cited = {c.doc_id for c in data.citations}
+    pages = {doc_id: page_texts(path) for doc_id, path in pdfs.items() if doc_id in cited}
+    statuses = [
+        page_citation_status(c.excerpt, c.page, pages.get(c.doc_id)) for c in data.citations
+    ]
+    hits = [s == "resolved" for s in statuses]
+    summary = summarize_proportion(hits, [c.rule for c in data.citations])
+    unresolved = [
+        {"rule": c.rule, "doc_id": c.doc_id, "page": c.page, "status": s}
+        for c, s in zip(data.citations, statuses, strict=True)
+        if s != "resolved"
+    ]
+    by_status: dict[str, int] = {}
+    for status in statuses:
+        by_status[status] = by_status.get(status, 0) + 1
+    result.rows.append(
+        MetricRow(
+            "resolved_fraction",
+            summary["value"],
+            summary["n"],
+            summary["stderr"],
+            tuple(summary["interval"]),
+            {"by_status": by_status, "unresolved": unresolved},
+        )
+    )
+    rules = list(dict.fromkeys(c.rule for c in data.citations))
+    failed = {u["rule"] for u in unresolved}
+    per_rule = summarize_proportion([r not in failed for r in rules])
+    result.rows.append(
+        MetricRow(
+            "rules_resolved",
+            per_rule["value"],
+            per_rule["n"],
+            interval=tuple(per_rule["interval"]),
+            details={"unresolved_rules": [r for r in rules if r in failed]},
+        )
+    )
+    contested = sorted({c.rule for c in data.citations if c.contested})
+    result.notes.append(
+        f"rules version {data.rules_version}; {len(pages)} of {len(cited)} cited documents in "
+        f"the corpus; status counts: " + ", ".join(f"{k} {v}" for k, v in sorted(by_status.items()))
+    )
+    result.notes.append(
+        "unresolved rules: " + (", ".join(r for r in rules if r in failed) or "none")
+    )
+    result.notes.append(
+        f"{len(contested)} contested rules (a hit goes to review whatever its citations "
+        "say): " + (", ".join(contested) or "none")
+    )
+    return result
+
+
 def _transpose(rows: list[list[bool]]) -> list[list[bool]]:
     return [list(col) for col in zip(*rows, strict=True)] if rows else []
 
@@ -559,8 +645,7 @@ def evaluate(
     corpus_dir: Path | None,
 ) -> list[TaskResult]:
     results: list[TaskResult] = []
-    order = ("appraisal_fields", "photo_rooms", "photo_components", "assets", "retrieval_qrels")
-    for name in order:
+    for name in ds.DATASETS:
         dataset = data.get(name)
         if dataset is None:
             results.append(TaskResult(name, "-", notes=["dataset file not found"], skipped=True))
@@ -576,6 +661,8 @@ def evaluate(
             results.append(score_assets(dataset, split, repeats, saved))
         elif isinstance(dataset, ds.RetrievalQrels):
             results.append(score_retrieval(dataset, split, repeats, saved, corpus_dir))
+        elif isinstance(dataset, ds.RuleCitations):
+            results.append(score_rule_citations(dataset, corpus_dir))
     return results
 
 
@@ -605,7 +692,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         root = ds.data_dir(args.data_dir)
         data = ds.load_available(root)
         corpus_dir = root / "corpus"
-        source = f"{ds.ENV_VAR} ({len(data)} dataset files)"
+        files = sum(1 for name in data if name in ds.DATASET_FILES)
+        source = f"{ds.ENV_VAR} ({files} dataset files; derived: {', '.join(ds.DERIVED_DATASETS)})"
         report_dir = root / "reports"
     sha = git_sha()
     results = evaluate(

@@ -13,7 +13,8 @@ uv run python -m evals.run --split dev --predictions out/            # score sav
 
 Client data never enters the repository. Real datasets live under `BASIS_EVAL_DATA_DIR`
 (mirrored to the private bucket); only the orchestrator runs them. `--dry-run` builds
-the same five datasets from `tests/fixtures/synthetic/`.
+the same five datasets from `tests/fixtures/synthetic/`. A sixth, `rule_citations`, has
+no file (see below).
 
 ## Systems
 
@@ -21,8 +22,9 @@ Each dataset is scored by saved predictions (`--predictions DIR/<dataset>.json`)
 present, otherwise by a deterministic baseline: `printed_text` (fields as printed),
 `filename` (photo rooms and components from file-name words), `rules_table`
 (`basis.domain.rules.lookup`, a miss abstains) and `bm25_pages` (BM25 over one chunk per
-page of `<data dir>/corpus/*.pdf`, doc id = file stem). Model-backed systems are run by
-the orchestrator and scored through `--predictions`.
+page of `<data dir>/corpus/*.pdf`, doc id = file stem) and `page_text` (rules-table
+citations checked against corpus page text). Model-backed systems are run by the
+orchestrator and scored through `--predictions`.
 
 ## Dataset files
 
@@ -92,6 +94,29 @@ Labeled at document + page (not chunk id), so re-chunking does not invalidate la
 Grades: 2 exact match, 1 paraphrase, 0 judged not relevant. Predictions:
 `{"<query id>": ["DOC_ID:page", ...]}` in rank order.
 
+### `rule_citations` (derived, no file)
+
+Every `(doc_id, page, excerpt)` citation of the rules table (`basis.domain.rules.RULES`),
+built from the code by `evals.datasets.rule_citations()`, so it is always present and is
+scored whole on every split (it is a property of the table, not a sample). System
+`page_text`: each citation is checked against the pymupdf text of page `page` of
+`<data dir>/corpus/<doc_id>.pdf`, the checks `resolve_rule_citations` applies to the
+chunk it finds: the document is in the corpus, the page exists, and
+`basis.classify.verify.excerpt_supported` accepts the excerpt on that page (normalized
+substring of at least 12 normalized characters). Reported: `resolved_fraction` over
+citations (Wilson interval; SE clustered by rule), `rules_resolved` (rules whose every
+citation resolves; any other rule is flagged `citation_unverified` in production), the
+count per status (`resolved`, `excerpt_too_short`, `document_missing`,
+`page_out_of_range`, `excerpt_not_on_page`), the unresolved rules, and the contested
+rules (their hits go to review regardless). Skipped when the corpus directory holds no
+PDFs. On `--dry-run` the synthetic corpus (`SYN_PUB_A..C`) holds none of the cited IRS
+documents, so every citation is `document_missing` and the fraction is 0 by design: the
+dry run exercises the path, the real corpus measures the table. Page-level checking is
+a necessary condition for production, not a sufficient one: production also needs the
+excerpt inside one stored chunk and that chunk in the top 10 of the BM25 search for the
+excerpt (`docs/review_2026-10-15/RULES_RECITATION.md` records that check for the
+current table).
+
 For any predictions file, a value may instead be `{"repeats": [v1, v2, ...]}` with one
 value per repeat; pass^k is computed over them.
 
@@ -102,5 +127,6 @@ value per repeat; pass^k is computed over them.
 precision/recall/F1 with macro-F1, accuracy with a 95% Wilson interval, coverage and
 selective accuracy under abstention, nDCG@10 (linear gains, log2 discount, as
 `pytrec_eval`'s `ndcg_cut_10`), recall@5/10, MRR, the judged-hole rate, citation support
-rate, the standard error of a mean clustered by document (CR1), and pass^k
+rate, the status of a page citation (`page_citation_status`), the standard error of a
+mean clustered by document (CR1), and pass^k
 (`C(c, k) / C(n, k)` per item).
