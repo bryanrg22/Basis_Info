@@ -130,6 +130,26 @@ async def test_start_of_a_closed_workflow_returns_it() -> None:
     assert (ref.workflow_id, ref.run_id) == ("study-s1", "run-1")
 
 
+@pytest.mark.parametrize(
+    "status",
+    [
+        WorkflowExecutionStatus.FAILED,
+        WorkflowExecutionStatus.TERMINATED,
+        WorkflowExecutionStatus.TIMED_OUT,
+        WorkflowExecutionStatus.CANCELED,
+    ],
+)
+async def test_start_of_a_workflow_that_ended_unsuccessfully_is_not_running(
+    status: WorkflowExecutionStatus,
+) -> None:
+    """REJECT_DUPLICATE keeps a failed study from being re-run; answering with its run as
+    if it had started told the client a dead study was processing (EVAL_REPORT 19)."""
+    client = StubClient(start=WorkflowAlreadyStartedError("study-s1", "StudyWorkflow"))
+    client.status = status
+    with pytest.raises(WorkflowNotRunningError, match=f"ended {status.name.lower()}"):
+        await service(client).start_study(INPUT)
+
+
 @pytest.mark.parametrize("error", [UNAVAILABLE, RuntimeError("Failed client connect"), NOT_FOUND])
 async def test_start_errors_are_unavailable(error: BaseException) -> None:
     with pytest.raises(WorkflowUnavailableError, match="unavailable"):

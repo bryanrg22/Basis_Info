@@ -32,6 +32,9 @@ from basis.temporal.names import CANCEL_SIGNAL, STATUS_QUERY, STUDY_WORKFLOW, st
 from basis.workflow.contracts import StudyStatusView, StudyWorkflowInput
 
 DEFAULT_CALL_TIMEOUT_S: Final = 5.0
+# Closed executions that did not complete. REJECT_DUPLICATE never re-runs them, so a start
+# must not answer with one as if the study were running (EVAL_REPORT section 19).
+ENDED_UNSUCCESSFULLY: Final = frozenset({"FAILED", "TERMINATED", "TIMED_OUT", "CANCELED"})
 
 
 class WorkflowServiceError(Exception):
@@ -63,9 +66,20 @@ class WorkflowDescription:
     status: str  # RUNNING, COMPLETED, FAILED, CANCELED, TERMINATED, CONTINUED_AS_NEW, TIMED_OUT
 
 
+def ensure_not_ended_unsuccessfully(described: WorkflowDescription) -> None:
+    """Raise :class:`WorkflowNotRunningError` when ``described`` closed without completing:
+    starting the study again would otherwise answer 202 with an execution that is over."""
+    if described.status in ENDED_UNSUCCESSFULLY:
+        raise WorkflowNotRunningError(
+            f"Workflow {described.workflow_id} ended {described.status.lower()} and is not "
+            "started again; its run is kept for investigation."
+        )
+
+
 class WorkflowService(Protocol):
     async def start_study(self, workflow_input: StudyWorkflowInput) -> WorkflowRef:
-        """Start ``study-{id}``; if it already exists (running or closed), return it."""
+        """Start ``study-{id}``; if it already exists (running or completed), return it;
+        ``WorkflowNotRunningError`` if it ended any other way (failed, terminated, ...)."""
         ...
 
     async def describe(self, workflow_id: str) -> WorkflowDescription: ...
@@ -114,8 +128,9 @@ class TemporalWorkflowService:
                 )
         except WorkflowAlreadyStartedError:
             # REJECT_DUPLICATE: the study's workflow has already closed. Starting is
-            # idempotent, so answer with the execution that exists.
+            # idempotent, so answer with the execution that exists if it completed.
             described = await self.describe(workflow_id)
+            ensure_not_ended_unsuccessfully(described)
             return WorkflowRef(workflow_id=workflow_id, run_id=described.run_id)
         except Exception as exc:
             raise _unavailable(exc) from exc

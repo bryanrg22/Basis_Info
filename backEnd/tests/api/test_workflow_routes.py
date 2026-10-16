@@ -254,6 +254,24 @@ async def test_start_past_the_first_stage_never_starts_again(
     assert len(workflows.start_calls) == 1
 
 
+@pytest.mark.parametrize("stage", [Stage.EXTRACTING, Stage.ROOMS_REVIEW])
+async def test_start_of_a_failed_workflow_is_409_not_202(
+    api: Api, seed: Seed, storage: LocalStorage, workflows: FakeWorkflowService, stage: Stage
+) -> None:
+    """A study whose workflow failed is not running: start must not answer 202 with the
+    dead run (the live run of EVAL_REPORT section 19 got 202 and stayed "processing")."""
+    sid = await ready_study(api, storage)
+    assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
+    await seed.stage(sid, stage)
+    workflows.executions[f"study-{sid}"].status = "FAILED"
+
+    body = problem(await api.post("alice", f"/v1/studies/{sid}/start"), 409, "workflow-closed")
+    assert "ended failed" in body["detail"]
+
+    workflows.executions[f"study-{sid}"].status = "COMPLETED"  # a completed one stays 202
+    assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
+
+
 async def test_unknown_study_is_404(api: Api) -> None:
     problem(await api.post("alice", f"/v1/studies/{uuid.uuid4()}/start"), 404)
 

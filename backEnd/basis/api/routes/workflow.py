@@ -60,6 +60,7 @@ from basis.temporal.service import (
     WorkflowService,
     WorkflowServiceError,
     WorkflowUnavailableError,
+    ensure_not_ended_unsuccessfully,
 )
 from basis.workflow.contracts import StudyWorkflowInput
 
@@ -105,6 +106,7 @@ async def existing_workflow(workflows: WorkflowService, workflow_id: str) -> Wor
             "past its first stage; it is not started again automatically.",
             type_suffix="workflow-missing",
         ) from exc
+    ensure_not_ended_unsuccessfully(described)
     return WorkflowRef(workflow_id=workflow_id, run_id=described.run_id)
 
 

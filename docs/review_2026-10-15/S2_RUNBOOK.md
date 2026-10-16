@@ -211,7 +211,7 @@ Every `/v1` call needs `Authorization: Bearer <Firebase ID token>`; every POST n
 
 | Route | Role | Answers |
 |---|---|---|
-| `POST /v1/studies/{id}/start` | engineer | 202; 409 `appraisal-required` (no confirmed appraisal), `study-archived`, `stale-state` (past `uploading` without a workflow), `workflow-missing` (past `extracting` but Temporal has no record: investigate, it is never restarted automatically); 503 when Temporal is unreachable, with the study already `extracting`: repeat the request (any key) and it converges |
+| `POST /v1/studies/{id}/start` | engineer | 202; 409 `appraisal-required` (no confirmed appraisal), `study-archived`, `stale-state` (past `uploading` without a workflow), `workflow-missing` (past `extracting` but Temporal has no record: investigate, it is never restarted automatically); `workflow-closed` (the study's workflow ended failed, terminated, timed out or cancelled: it is not started again); 503 when Temporal is unreachable, with the study already `extracting`: repeat the request (any key) and it converges |
 | `GET /v1/studies/{id}/workflow` | viewer | 200 (`status` is null when no worker answers the query); 404 before `start`; 503 |
 | `POST /v1/studies/{id}/decisions` | engineer | 202 (queued for the relay); 409 stale stage or revision; 422 invalid body, or a correction whose `entity_type` the stage does not accept or whose `entity_id` is not in the study at that revision (`errors[].loc` names the correction's index) |
 | `POST /v1/studies/{id}/cancel` | owner | 202; 404 before `start`; 409 `workflow-closed`; 503 |
