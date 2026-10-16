@@ -51,6 +51,7 @@ from typing import Any
 from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
+from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.llm.recorder import MemoryRecorder
@@ -67,7 +68,7 @@ from basis.vision.reconcile import (
 )
 from basis.vision.rooms import AliasCycleError, PhotoInput, RoomGroup, group_photos
 from basis.vision.schemas import PhotoAnalysis
-from evals.predict_photos import photo_files
+from evals.predict_photos import RETRY_DELAYS_S, photo_files
 
 
 class InputError(ValueError):
@@ -171,6 +172,27 @@ def room_record(group: RoomGroup, repeat: int, result: RoomResult) -> dict[str, 
 
 def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+
+
+async def reconcile_with_retries(
+    room_id: str,
+    photos: list[RoomPhoto],
+    ctx: ReconcileContext,
+    delays: Sequence[float] | None = None,
+) -> RoomResult:
+    """``reconcile_room`` with the photo runner's bounded retry on rate limits and outages
+    (``evals.predict_photos.RETRY_DELAYS_S``): one provider timeout or 5xx on one room must
+    not abort a whole run."""
+    for delay in RETRY_DELAYS_S if delays is None else delays:
+        try:
+            return await reconcile_room(room_id, photos, ctx)
+        except (ProviderRateLimited, ProviderUnavailable) as exc:
+            print(
+                f"transient provider error on room {room_id}, retrying in {delay:g}s: {exc}",
+                file=sys.stderr,
+            )
+            await asyncio.sleep(delay)
+    return await reconcile_room(room_id, photos, ctx)
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -285,7 +307,7 @@ async def run(args: argparse.Namespace) -> int:
     async def reconcile(group: RoomGroup, repeat: int) -> dict[str, Any]:
         async with semaphore:
             photos = [RoomPhoto(p.file, images[p.file], p.analysis) for p in group.photos]
-            result = await reconcile_room(group.room_id, photos, reconcile_ctx)
+            result = await reconcile_with_retries(group.room_id, photos, reconcile_ctx)
             return room_record(group, repeat, result)
 
     inventories: dict[str, list[dict[str, int]]] = {g.room_id: [] for g in groups}
