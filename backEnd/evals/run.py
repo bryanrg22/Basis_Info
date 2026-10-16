@@ -30,6 +30,14 @@ deterministic baseline runs where one exists:
 * ``detection_boxes``: none. It is scored only from saved predictions
   (``python -m evals.predict_boxes``): per-class AP@0.5, mAP, and counts, precision and
   recall at ``--detection-threshold``.
+* ``report_rows``: ``gold_inventory`` (the human room inventory of ``room_inventory``
+  read as if the pipeline had produced it: the ceiling the vocabulary and the labelling
+  conventions allow). Saved predictions are the room inventory of the predictions
+  directory (``--inventory-file``, default ``room_inventory.json``, the same file
+  ``room_inventory`` scores), with materials from ``room_raw.jsonl`` (or ``rooms.json``
+  for the heuristic merge) when present. Per report row: evidenced, missed, vocabulary
+  gap or not photo-derivable; coverage over photo-derivable rows, by cost share and per
+  bucket.
 
 Model-backed systems (extraction, vision, the residual classifier) are run by the
 orchestrator and scored through ``--predictions``. Every metric is reported with ``n``, a
@@ -106,6 +114,8 @@ class TaskResult:
     rows: list[MetricRow] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     skipped: bool = False
+    # Extra Markdown tables for the report: (title, headers, rows).
+    tables: list[tuple[str, list[str], list[list[str]]]] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- systems
@@ -779,6 +789,369 @@ def score_detection_boxes(
     return result
 
 
+# --------------------------------------------------------------------------- report rows
+
+INVENTORY_FILE: Final = "room_inventory.json"
+HEURISTIC_INVENTORY_FILE: Final = "room_inventory.heuristic.json"
+NO_MATERIAL: Final = frozenset({"", "unknown", "none", "null"})
+Outcome = str  # evidenced | missed | vocabulary_gap | not_photo_derivable
+RoomMaterials = Mapping[str, Mapping[str, Sequence[str]]]  # room_id -> label -> materials
+# One map for every repeat, or one map per repeat (cycled like a saved prediction's repeats).
+MaterialsInput = RoomMaterials | Sequence[RoomMaterials | None] | None
+
+
+@dataclass(frozen=True)
+class Evidence:
+    room: str
+    label: str
+    count: int
+    materials: tuple[str, ...]  # as reported; () when no material source
+
+
+@dataclass
+class RowOutcome:
+    row: ds.ReportRow
+    outcome: Outcome
+    evidence: list[Evidence] = field(default_factory=list)
+
+    @property
+    def evidenced(self) -> bool:
+        return self.outcome == "evidenced"
+
+    @property
+    def count_present(self) -> bool:
+        return any(e.count >= 1 for e in self.evidence)
+
+    @property
+    def material_present(self) -> bool:
+        return any(m for e in self.evidence for m in e.materials if m not in NO_MATERIAL)
+
+
+def load_room_materials(predictions: Path | None, inventory_file: str) -> MaterialsInput:
+    """Materials per (room, label) for the inventory being scored, from the files
+    :mod:`evals.predict_rooms` writes next to it: for ``room_inventory.json`` one map per
+    repeat of the reconciliation call from ``room_raw.jsonl`` (a list, in repeat order);
+    for ``room_inventory.heuristic.json`` one map from the heuristic objects of
+    ``rooms.json``; ``None`` when neither applies."""
+    if predictions is None:
+        return None
+
+    def add(target: dict[str, dict[str, list[str]]], room: str, objects: Any) -> None:
+        for obj in objects or []:
+            label = normalize_label(str(obj.get("label", "")))
+            material = obj.get("material")
+            if label and label != "other":
+                target.setdefault(room, {}).setdefault(label, []).append(
+                    str(material).lower() if material else "unknown"
+                )
+
+    if inventory_file == HEURISTIC_INVENTORY_FILE and (predictions / "rooms.json").is_file():
+        found: dict[str, dict[str, list[str]]] = {}
+        for room in json.loads((predictions / "rooms.json").read_text(encoding="utf-8")):
+            add(found, str(room["room_id"]), room.get("heuristic_objects"))
+        return found
+    if inventory_file == INVENTORY_FILE and (predictions / "room_raw.jsonl").is_file():
+        by_repeat: dict[int, dict[str, dict[str, list[str]]]] = {}
+        for line in (predictions / "room_raw.jsonl").read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                record = json.loads(line)
+                repeat = int(record.get("repeat", 1))
+                add(by_repeat.setdefault(repeat, {}), str(record["room_id"]), record.get("objects"))
+        return [by_repeat[r] for r in sorted(by_repeat)]
+    return None
+
+
+def materials_for_repeats(materials: MaterialsInput, repeats: int) -> list[RoomMaterials | None]:
+    """One material map per repeat: a single map is shared, a list is cycled."""
+    if materials is None:
+        return [None] * repeats
+    if isinstance(materials, Mapping):
+        return [materials] * repeats
+    maps = list(materials)
+    return (maps * repeats)[:repeats] if maps else [None] * repeats
+
+
+def gold_materials(
+    inventory: ds.RoomInventorySet, components: ds.PhotoComponentsSet | None
+) -> RoomMaterials | None:
+    """Materials for the ``gold_inventory`` baseline: the labelled per-photo components
+    (``photo_components``) of each room's photos, by label."""
+    if components is None:
+        return None
+    index = _photo_index(components)
+    found: dict[str, dict[str, list[str]]] = {}
+    for room in inventory.rooms:
+        for file in room.photos:
+            photo = index.get(file) or index.get(Path(file).name)
+            for c in photo.components if photo is not None else []:
+                if c.label != "other":
+                    found.setdefault(room.room_id, {}).setdefault(c.label, []).append(
+                        c.material or "unknown"
+                    )
+    return found
+
+
+def row_outcome(
+    row: ds.ReportRow,
+    inventory: Mapping[str, Mapping[str, int]],
+    room_types: Mapping[str, str] | None,
+    materials: RoomMaterials | None,
+) -> RowOutcome:
+    """Apply one row's evidence rule to one room inventory ``{room_id: {label: count}}``."""
+    if not row.photo_derivable:
+        return RowOutcome(row, "not_photo_derivable")
+    if row.vocabulary_gap:
+        return RowOutcome(row, "vocabulary_gap")
+    evidence: list[Evidence] = []
+    for room_id, counts in sorted(inventory.items()):
+        room_type = room_types.get(room_id) if room_types is not None else None
+        if not row.room_allowed(room_type):
+            continue
+        for label in row.labels:
+            count = counts.get(label, 0)
+            if count < 1:
+                continue
+            reported = tuple((materials or {}).get(room_id, {}).get(label, ()))
+            if not row.material_allowed(label, reported):
+                continue
+            evidence.append(Evidence(room_id, label, count, reported))
+    return RowOutcome(row, "evidenced" if evidence else "missed", evidence)
+
+
+def _share(outcomes: Sequence[RowOutcome]) -> float:
+    return sum(o.row.cost_share for o in outcomes)
+
+
+def score_report_rows(
+    data: ds.ReportRows,
+    split: str,
+    repeats: int,
+    saved: dict[str, Any] | None,
+    inventory: ds.RoomInventorySet | None,
+    materials: MaterialsInput = None,
+) -> TaskResult:
+    """Did the pipeline produce the evidence each report row needs?
+
+    ``saved`` is a room inventory prediction (``{room_id: {label: count} | {"repeats":
+    [...]}}``); without one the human inventory of the ``room_inventory`` dataset is
+    scored as the ``gold_inventory`` ceiling. Room types for the rows' room filters come
+    from the ``room_inventory`` labels when given; ``materials`` is one map for every
+    repeat or one per repeat (:func:`load_room_materials`). Coverage is over the photo-derivable
+    rows (kinds A and B, vocabulary gaps included: the product number); the
+    in-vocabulary variant leaves the gaps out (the model number). Kind C rows are never
+    a miss. With repeats, pass^k over the photo-derivable rows is "stable coverage".
+    """
+    system = "predictions" if saved is not None else "gold_inventory"
+    result = TaskResult("report_rows", system)
+    rows = [r for r in data.rows if r.split == split]
+    if not rows:
+        result.skipped = True
+        result.notes.append(f"no {split} items")
+        return result
+    if saved is None and inventory is None:
+        result.skipped = True
+        result.notes.append("no saved room inventory and no room_inventory labels for the baseline")
+        return result
+    room_types: dict[str, str] | None = None
+    if inventory is not None:
+        room_types = {r.room_id: r.room_type for r in inventory.rooms}
+    runs: list[dict[str, dict[str, int]]] = []
+    if saved is not None:
+        for r in range(repeats):
+            runs.append(
+                {room: _inventory(_repeats(value, repeats)[r]) for room, value in saved.items()}
+            )
+    else:
+        assert inventory is not None
+        gold = {r.room_id: r.counts() for r in inventory.rooms if r.split == split}
+        runs = [gold for _ in range(repeats)]
+    per_repeat = [
+        [row_outcome(row, run, room_types, repeat_materials) for row in rows]
+        for run, repeat_materials in zip(
+            runs, materials_for_repeats(materials, repeats), strict=True
+        )
+    ]
+    outcomes = per_repeat[0]
+    # how many repeats evidence each row (repeat 1 decides the outcome; the rest, stability)
+    stable = [sum(rep[i].evidenced for rep in per_repeat) for i in range(len(rows))]
+    derivable = [o for o in outcomes if o.row.photo_derivable]
+    in_vocabulary = [o for o in derivable if not o.row.vocabulary_gap]
+    evidenced = [o for o in derivable if o.evidenced]
+    missed = [o for o in derivable if o.outcome == "missed"]
+    gaps = [o for o in derivable if o.outcome == "vocabulary_gap"]
+    not_derivable = [o for o in outcomes if not o.row.photo_derivable]
+
+    def proportion(metric: str, hits: Sequence[bool], items: Sequence[RowOutcome]) -> MetricRow:
+        summary = summarize_proportion(list(hits), [o.row.document for o in items])
+        return MetricRow(
+            metric, summary["value"], summary["n"], summary["stderr"], tuple(summary["interval"])
+        )
+
+    def ratio(numerator: float, denominator: float) -> float:
+        return numerator / denominator if denominator else math.nan
+
+    total_share = _share(outcomes)
+    coverage = proportion("row_coverage", [o.evidenced for o in derivable], derivable)
+    coverage.details = {
+        "rows": [
+            {
+                "id": o.row.id,
+                "system": o.row.system,
+                "bucket": o.row.bucket,
+                "kind": o.row.kind,
+                "outcome": o.outcome,
+                "cost_share": o.row.cost_share,
+                "count_present": o.count_present if o.row.count_required else None,
+                "material_present": o.material_present if o.row.material_required else None,
+                "missing_label": o.row.missing_label,
+                "repeats_evidenced": stable[i] if o.row.labels else None,
+                "evidence": [
+                    {
+                        "room": e.room,
+                        "label": e.label,
+                        "count": e.count,
+                        "materials": list(e.materials),
+                    }
+                    for e in o.evidence
+                ],
+            }
+            for i, o in enumerate(outcomes)
+        ]
+    }
+    result.rows.append(coverage)
+    result.rows.append(
+        proportion(
+            "row_coverage_in_vocabulary", [o.evidenced for o in in_vocabulary], in_vocabulary
+        )
+    )
+    result.rows.append(
+        MetricRow(
+            "cost_coverage",
+            ratio(_share(evidenced), _share(derivable)),
+            len(derivable),
+            details={
+                "evidenced_share": _share(evidenced),
+                "missed_share": _share(missed),
+                "vocabulary_gap_share": _share(gaps),
+                "not_photo_derivable_share": _share(not_derivable),
+                "photo_derivable_share": _share(derivable),
+            },
+        )
+    )
+    result.rows.append(
+        MetricRow("cost_coverage_of_study", ratio(_share(evidenced), total_share), len(outcomes))
+    )
+    for bucket in ("y5", "y7", "y15", "y27_5", "y39"):
+        in_bucket = [o for o in derivable if o.row.bucket == bucket]
+        if not in_bucket:
+            continue
+        hit = [o for o in in_bucket if o.evidenced]
+        row = proportion(f"coverage:{bucket}", [o.evidenced for o in in_bucket], in_bucket)
+        row.details = {
+            "cost_coverage": ratio(_share(hit), _share(in_bucket)),
+            "rows_not_photo_derivable": sum(1 for o in not_derivable if o.row.bucket == bucket),
+        }
+        result.rows.append(row)
+        result.rows.append(
+            MetricRow(
+                f"cost_coverage:{bucket}", ratio(_share(hit), _share(in_bucket)), len(in_bucket)
+            )
+        )
+    need_count = [o for o in derivable if o.row.count_required]
+    need_material = [o for o in derivable if o.row.material_required]
+    result.rows.append(
+        proportion(
+            "count_present_rate", [o.evidenced and o.count_present for o in need_count], need_count
+        )
+    )
+    result.rows.append(
+        proportion(
+            "material_present_rate",
+            [o.evidenced and o.material_present for o in need_material],
+            need_material,
+        )
+    )
+    result.rows.append(
+        MetricRow("vocabulary_gap_rate", ratio(len(gaps), len(derivable)), len(derivable))
+    )
+    result.rows.append(
+        MetricRow(
+            "not_photo_derivable_rate", ratio(len(not_derivable), len(outcomes)), len(outcomes)
+        )
+    )
+    _add_pass_k(
+        result,
+        [[o.evidenced for o in rep if o.row.photo_derivable] for rep in per_repeat],
+        repeats,
+    )
+
+    def names(items: Sequence[RowOutcome]) -> str:
+        return ", ".join(o.row.system for o in items) or "none"
+
+    result.notes.append(
+        f"{len(outcomes)} rows: {len(evidenced)} evidenced, {len(missed)} missed, "
+        f"{len(gaps)} vocabulary gaps, {len(not_derivable)} not photo-derivable"
+    )
+    result.notes.append(f"missed rows: {names(missed)}")
+    result.notes.append(
+        "vocabulary gaps (label needed): "
+        + (", ".join(f"{o.row.system} ({o.row.missing_label})" for o in gaps) or "none")
+    )
+    result.notes.append(f"not photo-derivable: {names(not_derivable)}")
+    if repeats >= 2:
+        unstable = [
+            f"{o.row.system} ({stable[i]}/{repeats})"
+            for i, o in enumerate(outcomes)
+            if o.row.photo_derivable and 0 < stable[i] < repeats
+        ]
+        result.notes.append(f"rows evidenced in some repeats only: {', '.join(unstable) or 'none'}")
+    if room_types is None:
+        filtered = sum(
+            1 for o in derivable if o.row.room_types is not None or o.row.exclude_room_types
+        )
+        result.notes.append(
+            f"no room types available: {filtered} rows with a room-type filter cannot be evidenced"
+        )
+    result.notes.append(
+        "materials from "
+        + ("the per-room records" if materials is not None else "nowhere: material_present is 0")
+        + "; coverage is over photo-derivable rows (kinds A and B, vocabulary gaps included), "
+        "SE clustered by document; cost coverage weights rows by their share of the study's "
+        "cost; pass^k over repeats is coverage stable across repeats"
+    )
+    result.tables.append(
+        (
+            "Rows",
+            [
+                "row",
+                "bucket",
+                "kind",
+                "outcome",
+                "count",
+                "material",
+                "repeats",
+                "evidence (room: label x n)",
+            ],
+            [
+                [
+                    o.row.system,
+                    o.row.bucket,
+                    o.row.kind,
+                    o.outcome
+                    + (f" (needs `{o.row.missing_label}`)" if o.row.vocabulary_gap else ""),
+                    ("yes" if o.count_present else "no") if o.row.count_required else "",
+                    ("yes" if o.material_present else "no") if o.row.material_required else "",
+                    f"{stable[i]}/{repeats}" if o.row.labels and repeats >= 2 else "",
+                    "; ".join(f"{e.room}: {e.label} x{e.count}" for e in o.evidence[:6])
+                    + (f"; +{len(o.evidence) - 6} more" if len(o.evidence) > 6 else ""),
+                ]
+                for i, o in enumerate(outcomes)
+            ],
+        )
+    )
+    return result
+
+
 def _transpose(rows: list[list[bool]]) -> list[list[bool]]:
     return [list(col) for col in zip(*rows, strict=True)] if rows else []
 
@@ -830,6 +1203,10 @@ def render_report(
             )
         for note in task.notes:
             lines.append(f"\nNote: {note}")
+        for title, headers, body in task.tables:
+            lines += ["", f"### {title}", "", "| " + " | ".join(headers) + " |"]
+            lines.append("|" + "---|" * len(headers))
+            lines += ["| " + " | ".join(cell.replace("|", "/") for cell in r) + " |" for r in body]
     return "\n".join(lines) + "\n"
 
 
@@ -927,14 +1304,20 @@ def evaluate(
     predictions: Path | None,
     corpus_dir: Path | None,
     detection_threshold: float = 0.5,
+    inventory_file: str = INVENTORY_FILE,
 ) -> list[TaskResult]:
     results: list[TaskResult] = []
+    rooms = data.get("room_inventory")
+    room_labels = rooms if isinstance(rooms, ds.RoomInventorySet) else None
     for name in ds.DATASETS:  # the dataset files in order, then the derived rule_citations
         dataset = data.get(name)
         if dataset is None:
             results.append(TaskResult(name, "-", notes=["dataset file not found"], skipped=True))
             continue
-        saved = _load_predictions(predictions, name)
+        if name in ("room_inventory", "report_rows"):
+            saved = _load_predictions(predictions, Path(inventory_file).stem)
+        else:
+            saved = _load_predictions(predictions, name)
         if isinstance(dataset, ds.AppraisalFields):
             results.append(score_fields(dataset, split, repeats, saved))
         elif isinstance(dataset, ds.PhotoRooms):
@@ -962,6 +1345,19 @@ def evaluate(
             results.append(
                 score_detection_boxes(dataset, split, repeats, saved, detection_threshold)
             )
+        elif isinstance(dataset, ds.ReportRows):
+            if saved is not None:
+                materials = load_room_materials(predictions, inventory_file)
+            elif room_labels is not None:
+                labels = data.get("photo_components")
+                materials = gold_materials(
+                    room_labels, labels if isinstance(labels, ds.PhotoComponentsSet) else None
+                )
+            else:
+                materials = None
+            results.append(
+                score_report_rows(dataset, split, repeats, saved, room_labels, materials)
+            )
     return results
 
 
@@ -980,9 +1376,19 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=0.5,
         help="score at or above which a detection counts (counts, precision, recall)",
     )
+    parser.add_argument(
+        "--inventory-file",
+        default=INVENTORY_FILE,
+        help="the room inventory file in --predictions to score (room_inventory and "
+        f"report_rows); {HEURISTIC_INVENTORY_FILE} is the heuristic merge",
+    )
     args = parser.parse_args(argv)
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
+    if Path(args.inventory_file).name != args.inventory_file or not args.inventory_file.endswith(
+        ".json"
+    ):
+        parser.error("--inventory-file must be a .json file name, not a path")
     if not 0.0 <= args.detection_threshold <= 1.0:
         parser.error("--detection-threshold must be in [0, 1]")
     return args
@@ -1010,6 +1416,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         predictions=args.predictions,
         corpus_dir=corpus_dir,
         detection_threshold=args.detection_threshold,
+        inventory_file=args.inventory_file,
     )
     report = render_report(
         results, split=args.split, repeats=args.repeats, source=source, git_sha=sha

@@ -469,7 +469,7 @@ async def test_results_are_written_to_eval_tables(database_url: str) -> None:
         ids = await write_results(sm, results, split="dev", git_sha="abc123")
         # The six file datasets the dry run builds plus the derived rule_citations;
         # detection_boxes has no synthetic file and is reported missing, not written.
-        assert len(ids) == len(ds.DATASETS) - 1 == 7
+        assert len(ids) == len(ds.DATASETS) - 1 == 8  # detection_boxes is skipped
         async with session_scope(sm) as session:
             runs = (await session.scalars(select(EvalRun))).all()
             rows = (await session.scalars(select(EvalResult))).all()
