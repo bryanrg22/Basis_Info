@@ -441,6 +441,34 @@ light", "wall lantern" for exterior lights; "cabinet door" for cabinets); a visi
 check of each box's crop for the door and neighbour-building confusions; tiling for the
 exterior windows. (Harness runs with tiling on and off follow in 10.3.)
 
+### 10.3 Tiling: 2 x 2 tiles plus the full frame, masks merged by IoU
+
+Harness runs (`evals.predict_boxes`, `detection_boxes` dataset, the verified boxes of 10.2),
+same phrases and model, one pass each. The tiled run makes five SAM 3 calls per photo (260
+calls, $0.50, three and a half hours under the Replicate throttle with 711 rate-limit
+retries, no lost photos) against one call per photo for the single pass (52 calls, $0.16).
+Tile masks are pasted back into frame coordinates and merged with the full-frame masks by
+mask NMS (IoU 0.5).
+
+| Run | threshold | mAP@0.5 | window | interior door | exterior door | light fixture | outdoor lighting | outlet | cabinet | precision / recall at threshold | count MAE / signed bias per photo-class |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| single pass | 0.5 | 0.653 | 0.84 | 0.85 | 0.18 | 0.61 | 0.67 | 0.88 | 0.55 | 0.46 / 0.80 | 1.50 / +1.09 |
+| single pass | 0.6 | 0.653 | | | | | | | | 0.53 / 0.71 | 1.23 / +0.54 |
+| 2 x 2 tiles + full, IoU merge | 0.5 | 0.577 | 0.71 | 0.61 | 0.15 | 0.54 | 0.59 | 0.88 | 0.56 | 0.32 / 0.83 | 2.45 / +2.22 |
+| 2 x 2 tiles + full, IoU merge | 0.6 | 0.577 | | | | | | | | 0.39 / 0.74 | 1.82 / +1.39 |
+
+Tiling hurts on these photos. Recall rises three points and everything else falls: the
+objects our photos miss are not small (the facade windows the single pass finds are already
+at 0.84), while tile edges cut doors, windows and fixtures into fragments whose IoU with the
+full-frame mask is too low for NMS to remove, so the fragments survive as extra detections
+(interior door 0.85 to 0.61, over-count doubled). Outlets and cabinets, the small-object
+classes tiling was meant to help, do not move. The research note's premise (tiling for small
+objects in drone imagery) does not transfer to interior photos taken at room scale. Pending
+from the same batch, blocked on the Replicate throttle: the same tiling with containment
+(IoS) merging, which should remove the fragments, and the v2 phrase set; if IoS tiling is not
+better than the single pass, tiling is dropped and the per-class thresholds and the
+vision-model crop check become the next adjustments.
+
 ## 11. Task decomposition: one call per task instead of one call for everything (2026-10-16)
 
 Question (Bryan's): does the per-photo model do better when the same photo is sent several
