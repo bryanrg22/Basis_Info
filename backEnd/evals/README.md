@@ -26,8 +26,11 @@ present, otherwise by a deterministic baseline: `printed_text` (fields as printe
 page of `<data dir>/corpus/*.pdf`, doc id = file stem), `per_photo_max` (room
 inventories: the labelled per-photo components of `photo_components_v1.json` merged per
 room by label, count = the largest per-photo count; the "no reconciliation" floor) and
-`page_text` (rules-table citations checked against corpus page text). Model-backed systems
-are run by the orchestrator and scored through `--predictions`.
+`page_text` (rules-table citations checked against corpus page text) and `gold_inventory`
+(`report_rows`: the human room inventory scored as if the pipeline had produced it, with
+materials from the per-photo labels; the ceiling the vocabulary and the labelling
+conventions allow). Model-backed systems are run by the orchestrator and scored through
+`--predictions`.
 
 ## Dataset files
 
@@ -79,7 +82,10 @@ Predictions come from `python -m evals.predict_photos` (one call per photo with
 combined with `python -m evals.merge_photo_runs --runs <countables> <surfaces> --out <dir>`
 (label sets unioned per photo, the largest count per label, the room type of the run named
 by `--room-from N`, default the first) and
-the merged directory scores like any single run (EVAL_REPORT section 11). After a
+the merged directory scores like any single run (EVAL_REPORT section 11). The component
+merge is `basis.vision.merge.merge_components`, the same function the pipeline's
+`VISION_PHOTO_MODE=decomposed` step runs, so a merged run scores the step as shipped.
+After a
 `--model` run, check `run.json` `models_reported`: the provider pool falls back to the
 secondary provider per call, so a rate-limited primary silently mixes models into a run
 (only within a model family: a `claude-*` model is served by the Anthropic provider alone,
@@ -200,6 +206,58 @@ per-photo model named (`--phrases-from vlm --photo-raw <predict_photos>/photo_ra
 plus the always-prompted countable set; `--tiling on` adds 2 x 2 tiles for the countable
 phrases, merged by mask NMS (`--merge-metric iou` or `ios`).
 
+### `report_rows_v1.json`
+
+```json
+{"schema_version": 1, "rows": [
+  {"id": "report-45", "system": "Ceramic Tile Flooring", "bucket": "y39", "cost_share": 0.012,
+   "kind": "B", "labels": ["tile"], "materials": {"tile": ["ceramic", "porcelain", "stone"]},
+   "material_required": true, "document": "package", "split": "dev"},
+  {"id": "report-46", "system": "Cabinets / Millwork - Restrooms", "bucket": "y39",
+   "cost_share": 0.003, "kind": "A",
+   "labels": ["bathroom_vanity", "kitchen_cabinet", "built_in_shelving"],
+   "room_types": ["bathroom"], "count_required": true},
+  {"id": "report-19", "system": "Movable Shed", "bucket": "y7", "cost_share": 0.005,
+   "kind": "A", "missing_label": "shed"},
+  {"id": "report-27", "system": "Foundations", "bucket": "y39", "cost_share": 0.080, "kind": "C"}]}
+```
+
+The product-level checklist (COMPONENT_TAXONOMY.md section 1): one row per line of the
+engineer's asset schedule, with the `assets` row's id and bucket, its share of the study's
+cost (`cost_share`; the shares sum to 1) and the evidence rule the photo pipeline must
+satisfy. `kind` A (countable objects) and B (surfaces: the material is the question) rows
+are photo-derivable; `kind` C rows (foundations, framing, utilities, fire and data systems)
+are not and are never a miss. A photo-derivable row is evidenced by any of `labels` in a
+room of a type in `room_types` (null: any) and not in `exclude_room_types`, with, for a
+label in `materials`, a reported material among the allowed ones (a constrained label with
+no reported material does not evidence the row). `count_required` / `material_required`
+say what the engineer needs beyond presence. A photo-derivable row with no label in the
+vocabulary yet names the label it needs in `missing_label` and scores as a *vocabulary
+gap*, never as a miss. Room types come from the `room_inventory` labels (the known room
+identity), not from the model. Built from `assets_v1.json` and the taxonomy by the private
+`work/build_report_rows.py`.
+
+Predictions are a room inventory: `--predictions DIR` scores `DIR/room_inventory.json`
+(the file `room_inventory` scores; `--inventory-file room_inventory.heuristic.json` scores
+the heuristic merge instead, for both datasets), with materials per (room, label) read
+from `DIR/room_raw.jsonl` (repeat 1 of the reconciliation call) or, for the heuristic file,
+`DIR/rooms.json`; without either, no row gets a material.
+
+Metrics: `row_coverage`, the share of photo-derivable rows evidenced (Wilson interval;
+vocabulary gaps count as not evidenced: the product number) and
+`row_coverage_in_vocabulary` (gaps left out: the model number); `cost_coverage`, the same
+weighted by cost share over the photo-derivable rows, and `cost_coverage_of_study` over
+all rows (the details carry the evidenced, missed, vocabulary-gap and not-photo-derivable
+shares); `coverage:<bucket>` and `cost_coverage:<bucket>` per recovery bucket;
+`count_present_rate` and `material_present_rate` over the rows that require one; the
+vocabulary-gap and not-photo-derivable rates; and, with repeats, pass^k over the
+photo-derivable rows (coverage stable across repeats). The notes list the missed rows,
+the vocabulary gaps with the label each needs, and the rows photos cannot establish; the
+report adds a per-row table with the rooms and labels that evidence each row. Checklist
+scoring as in ExpertLongBench / CheckEval (one binary judgment per required item,
+aggregated as recall, not-applicable items kept out of the denominator); the cost
+weighting mirrors the IRS Cost Segregation ATG's requirement that a study's asset list
+tie out to its total cost.
 ### `photo_counts` (derived from `detection_boxes`, no file)
 
 Per photo, the true count of every verified class: the non-group boxes of that label,
@@ -243,6 +301,13 @@ current table).
 
 For any predictions file, a value may instead be `{"repeats": [v1, v2, ...]}` with one
 value per repeat; pass^k is computed over them.
+
+```bash
+# the engineer's report rows against a saved room inventory and its heuristic merge
+uv run python -m evals.run --predictions ~/basis-eval-data/predictions/rooms_x --repeats 3 --no-db
+uv run python -m evals.run --predictions ~/basis-eval-data/predictions/rooms_x \
+    --inventory-file room_inventory.heuristic.json --no-db
+```
 
 ## Metrics
 

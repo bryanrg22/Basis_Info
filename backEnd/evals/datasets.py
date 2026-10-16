@@ -9,7 +9,9 @@ component instance, built from Open Images by :mod:`evals.openimages`) has no sy
 counterpart: the dry run reports it as missing. One more dataset, ``rule_citations``, has
 no file: it is every ``(doc_id, page, excerpt)`` claim of the rules table
 (:mod:`basis.domain.rules`), built from the code (:func:`rule_citations`) and checked
-against the corpus PDFs.
+against the corpus PDFs. ``report_rows`` is the product-level checklist: one item per row
+of the engineer's asset schedule with the evidence rule the photo pipeline must satisfy
+(COMPONENT_TAXONOMY.md section 1); the synthetic copy is built from the synthetic assets.
 
 Every item has a ``split`` (``dev``, ``regression``, ``held_out``) and a ``document``, the
 cluster used for clustered standard errors (photos and fields from one property are not
@@ -20,6 +22,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -27,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from basis.domain.rules import RULES, RULES_VERSION
 from basis.vision.rooms import display_name, name_hint
-from basis.vision.schemas import COMPONENT_LABELS
+from basis.vision.schemas import COMPONENT_LABELS, ROOM_TYPES, Material
 from evals.metrics import FieldType
 
 Split = Literal["dev", "regression", "held_out"]
@@ -40,6 +44,7 @@ DATASET_FILES: Final[dict[str, str]] = {
     "retrieval_qrels": "retrieval_qrels_v1.json",
     "room_inventory": "room_inventory_v1.json",
     "detection_boxes": "detection_boxes_v1.json",
+    "report_rows": "report_rows_v1.json",
 }
 # Gold labels a detection dataset may use besides the component vocabulary: Open Images'
 # Door does not say interior or exterior (scored against both, evals.metrics.CLASS_UNION).
@@ -288,6 +293,134 @@ class DetectionBoxes(_Model):
         return self
 
 
+Bucket = Literal["y5", "y7", "y15", "y27_5", "y39"]
+RowKind = Literal["A", "B", "C"]
+MATERIAL_VALUES: Final = frozenset(m.value for m in Material)
+_MATERIAL_TOKEN: Final = re.compile(r"^[a-z][a-z0-9]*$")
+
+
+def _component_label(value: str) -> str:
+    if value == "other" or value not in COMPONENT_LABELS:
+        raise ValueError(f"{value!r} is not a component label (or is 'other')")
+    return value
+
+
+class ReportRow(_Model):
+    """One row of the engineer's asset schedule and the evidence rule the photo pipeline
+    must satisfy for it (COMPONENT_TAXONOMY.md section 1).
+
+    ``kind`` A (countable objects) or B (surfaces: the material is the question) rows are
+    photo-derivable; a kind C row is not (appraisal, plans, walk-through) and is never a
+    miss. A photo-derivable row is evidenced by any of ``labels`` in a room that passes the
+    room-type filters, with a material in ``materials[label]`` where that label is
+    constrained. A photo-derivable row with no label in the vocabulary yet names the
+    label it needs in ``missing_label`` and scores as a vocabulary gap, not a miss.
+    """
+
+    id: str
+    system: str  # the row's name in the report
+    bucket: Bucket
+    cost_share: float = Field(ge=0.0, le=1.0)  # of the study's total cost
+    kind: RowKind
+    labels: list[str] = Field(default_factory=list)  # any-of
+    room_types: list[str] | None = None  # only rooms of these types count (None: any)
+    exclude_room_types: list[str] = Field(default_factory=list)
+    # label -> material tokens that evidence the row (any one of them among the tokens of a
+    # reported material: "ceramic" matches the model's "ceramic" and a label's "ceramic_tile")
+    materials: dict[str, list[str]] = Field(default_factory=dict)
+    count_required: bool = False
+    material_required: bool = False
+    missing_label: str | None = None  # the vocabulary label this row needs, when none exists
+    note: str | None = None
+    document: str = "package"
+    split: Split = "dev"
+
+    @field_validator("labels")
+    @classmethod
+    def _labels_in_vocabulary(cls, value: list[str]) -> list[str]:
+        for label in value:
+            _component_label(label)
+        if len(set(value)) != len(value):
+            raise ValueError("labels repeat")
+        return value
+
+    @field_validator("room_types", "exclude_room_types")
+    @classmethod
+    def _room_types_known(cls, value: list[str] | None) -> list[str] | None:
+        for room_type in value or []:
+            if room_type not in ROOM_TYPES:
+                raise ValueError(f"{room_type!r} is not a room type")
+        return value
+
+    @model_validator(mode="after")
+    def _rule_is_consistent(self) -> ReportRow:
+        if self.kind == "C":
+            if self.labels or self.missing_label or self.count_required or self.material_required:
+                raise ValueError(f"row {self.id}: a kind C row has no evidence rule")
+            return self
+        if bool(self.labels) == bool(self.missing_label):
+            raise ValueError(
+                f"row {self.id}: a kind {self.kind} row needs labels or a missing_label, not both"
+            )
+        unknown = sorted(set(self.materials) - set(self.labels))
+        if unknown:
+            raise ValueError(f"row {self.id}: materials for labels not in the rule: {unknown}")
+        for label, allowed in self.materials.items():
+            bad = sorted(t for t in allowed if not _MATERIAL_TOKEN.match(t))
+            if bad or not allowed:
+                raise ValueError(f"row {self.id}: bad material tokens for {label}: {bad}")
+        if self.room_types is not None and not self.room_types:
+            raise ValueError(f"row {self.id}: room_types must be null or non-empty")
+        if set(self.room_types or []) & set(self.exclude_room_types):
+            raise ValueError(f"row {self.id}: a room type is both required and excluded")
+        return self
+
+    @property
+    def photo_derivable(self) -> bool:
+        return self.kind != "C"
+
+    def material_allowed(self, label: str, reported: Sequence[str]) -> bool:
+        """Whether the materials reported for ``label`` satisfy the rule: no constraint on
+        the label, or an allowed token among the tokens of any reported material."""
+        allowed = self.materials.get(label)
+        if allowed is None:
+            return True
+        tokens = {t for m in reported for t in re.split(r"[^a-z0-9]+", m.lower()) if t}
+        return bool(tokens & set(allowed))
+
+    @property
+    def vocabulary_gap(self) -> bool:
+        return self.photo_derivable and not self.labels
+
+    def room_allowed(self, room_type: str | None) -> bool:
+        """Whether a room of ``room_type`` can evidence this row (unknown type: only when
+        the rule has no room filter)."""
+        if self.room_types is None and not self.exclude_room_types:
+            return True
+        if room_type is None:
+            return False
+        if self.room_types is not None and room_type not in self.room_types:
+            return False
+        return room_type not in self.exclude_room_types
+
+
+class ReportRows(_Model):
+    schema_version: int = 1
+    rows: list[ReportRow]
+
+    @model_validator(mode="after")
+    def _ids_unique_and_shares_sum_to_one(self) -> ReportRows:
+        seen: set[str] = set()
+        for row in self.rows:
+            if row.id in seen:
+                raise ValueError(f"row id {row.id!r} appears twice")
+            seen.add(row.id)
+        total = sum(r.cost_share for r in self.rows)
+        if self.rows and abs(total - 1.0) > 0.01:
+            raise ValueError(f"cost shares sum to {total:.4f}, not 1")
+        return self
+
+
 class PhotoCountLabel(_Model):
     """True object counts of one photo, per class, from its verified boxes."""
 
@@ -348,6 +481,7 @@ Dataset = (
     | RetrievalQrels
     | RoomInventorySet
     | DetectionBoxes
+    | ReportRows
     | RuleCitations
     | PhotoCounts
 )
@@ -359,6 +493,7 @@ MODELS: Final[dict[str, type[BaseModel]]] = {
     "retrieval_qrels": RetrievalQrels,
     "room_inventory": RoomInventorySet,
     "detection_boxes": DetectionBoxes,
+    "report_rows": ReportRows,
 }
 
 
@@ -504,6 +639,7 @@ def synthetic_smoke(fixtures: Path = SYNTHETIC_DIR) -> dict[str, BaseModel]:
         "assets": assets,
         "retrieval_qrels": qrels,
         "room_inventory": synthetic_room_inventory(labels),
+        "report_rows": synthetic_report_rows(assets),
         "rule_citations": rule_citations(),
     }
 
@@ -530,6 +666,47 @@ def synthetic_room_inventory(labels: dict[str, Any]) -> RoomInventorySet:
             for p in labels["photos"]
         ]
     )
+
+
+def synthetic_report_rows(assets: Assets) -> ReportRows:
+    """A report checklist for the synthetic study: one kind A row per synthetic asset
+    (evidenced by its own label; section 1245 rows are 5-year, 1250 rows 27.5-year
+    residential), one vocabulary-gap row and one row photos cannot establish, with equal
+    cost shares."""
+    rows = [
+        ReportRow(
+            id=a.id,
+            system=a.component.replace("_", " ").capitalize(),
+            bucket="y5" if a.section == "1245" else "y27_5",
+            cost_share=0.0,
+            kind="A",
+            labels=[a.component],
+            count_required=True,
+            document=a.document,
+        )
+        for a in assets.assets
+    ]
+    rows += [
+        ReportRow(
+            id="B-1:shed",
+            system="Movable shed",
+            bucket="y7",
+            cost_share=0.0,
+            kind="A",
+            missing_label="shed",
+            document="SYN_PUB_B",
+        ),
+        ReportRow(
+            id="B-1:foundation",
+            system="Foundations",
+            bucket="y39",
+            cost_share=0.0,
+            kind="C",
+            document="SYN_PUB_B",
+        ),
+    ]
+    share = 1.0 / len(rows)
+    return ReportRows(rows=[r.model_copy(update={"cost_share": share}) for r in rows])
 
 
 def corpus_pdfs(directory: Path) -> dict[str, Path]:

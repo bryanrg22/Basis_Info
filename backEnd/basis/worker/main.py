@@ -48,6 +48,7 @@ from basis.obs.logging import configure_logging
 from basis.retrieval import default_retrieval
 from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
 from basis.temporal.client import build_id, connect
+from basis.vision.analyze import prompts_for_mode
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
 from basis.worker.search_attributes import ensure_search_attributes
@@ -74,8 +75,17 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     process BM25 registry with retrieval. A missing provider is logged, not fatal: photo
     analysis then fails non-retryably (flagged), extraction uses the text layer only and
     residual components are written ``classifier_unavailable``. The embedding model is
-    loaded on first use, not here.
+    loaded on first use, not here. The per-photo vision step's prompts
+    (``VISION_PHOTO_MODE``: one ``photo_analysis`` call, or the ``photo_countables`` +
+    ``photo_surfaces`` pair) are loaded and checked against the manifest here, so a bad
+    release fails at startup rather than on the first photo.
     """
+    vision_prompts = prompts_for_mode(settings.vision_photo_mode)
+    logger.info(
+        "photo analysis mode %s: %s",
+        settings.vision_photo_mode,
+        ", ".join(p.version_id for p in vision_prompts),
+    )
     storage, bucket = default_storage(settings)
     sessionmaker = create_sessionmaker(engine)
     retrieval = default_retrieval(settings)
@@ -199,6 +209,7 @@ async def run_worker(
                 "metrics_port": metrics_port,
                 "health_port": health.port,
                 "llm_providers": deps.llm.name if deps.llm is not None else None,
+                "vision_photo_mode": settings.vision_photo_mode,
                 "azure_di": deps.azure_di is not None,
                 "chunk_store": type(deps.chunk_store).__name__,
             },
