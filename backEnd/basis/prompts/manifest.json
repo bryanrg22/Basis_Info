@@ -84,6 +84,16 @@
       "v1": {
         "sha256": "6055e8ba3803fd133cf28bd8cc0ae6f47c995e8e6e72aa44ba24973dba3bab54"
       }
+    },
+    "photo_marks": {
+      "v1": {
+        "sha256": "07141f9b7f5570308b81e5cdc505a471af51411831d6cafeb26a9df8e0a14cb9"
+      }
+    },
+    "photo_points": {
+      "v1": {
+        "sha256": "649d436e7db540026b79bfdefce8633b5070076bdbb22d1490feeaaf2f5be541"
+      }
     }
   }
 }

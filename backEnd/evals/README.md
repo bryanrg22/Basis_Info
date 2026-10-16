@@ -352,6 +352,20 @@ predictions directory `evals.run --predictions` scores:
 - `evals.verify_boxes`: a vision model names what each SAM 3 detection contains
   (`photo_verify_box/v1`); the confirmed detections are the counts.
 
+Detector and model orderings (EVAL_REPORT section 21; shared rules in `basis.vision.marks`):
+
+- `evals.predict_marks`: SAM 3 first. Saved detections become numbered marks (boxes or mask
+  outlines, with or without the unmarked photo); the model keeps, relabels or rejects each
+  and adds misses with a point (`photo_marks/v1`). `--loop` gives the added points SAM 3
+  masks (saved candidates, or `--prompt-sam` point prompts) and removes duplicates by mask
+  overlap (`loop_masked/`, `loop_all/`); `--from-raw` redoes that step without model calls.
+- `evals.predict_points`: the model first. One point per object (`photo_points/v1`, any chat
+  model, or Molmo-7B on Replicate with `--pointer molmo`), then SAM 3 masks per point; counts
+  from the points, the stated counts (`stated/`), the masks (`masked/`, `masked_all/`).
+- `evals.compare_counts --baseline DIR --system NAME=DIR ...`: the count metrics of each
+  system and the paired bootstrap over photos of its per-photo count error against the
+  baseline's.
+
 ### `rule_citations` (derived, no file)
 
 Every `(doc_id, page, excerpt)` citation of the rules table (`basis.domain.rules.RULES`),
