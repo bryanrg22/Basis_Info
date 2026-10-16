@@ -276,6 +276,21 @@ counts pooled over pairs), and the same per class (`count_mae:window`, ...). Thi
 number the engineer prices; the label-set metrics of `photo_components` say whether a
 thing was listed at all.
 
+Tools that produce or combine count predictions (EVAL_REPORT section 15); each writes a
+predictions directory `evals.run --predictions` scores:
+
+- `evals.predict_tiles --mode separate|joint`: the countables prompt on enlarged 2 x 2
+  parts of each photo, summed with a center-ownership rule at the cuts (`separate`,
+  `photo_countables_tile/v1`), or the whole photo and its parts in one call (`joint`,
+  `photo_countables_joint/v1`).
+- `evals.aggregate_runs --rule median|vote|max [--by-repeat]`: self-consistency over the
+  repeats of one or more runs (pooled, or repeat i of every run together).
+- `evals.fuse_counts --vlm NAME=DIR ... [--sam3 DIR] [--counts NAME=DIR]`: per count class,
+  the source or rule (`max`, `min`, `median`) with the lowest error
+  (`basis.vision.fusion`), scored leave-one-photo-out (`--cv loo`, the default).
+- `evals.verify_boxes`: a vision model names what each SAM 3 detection contains
+  (`photo_verify_box/v1`); the confirmed detections are the counts.
+
 ### `rule_citations` (derived, no file)
 
 Every `(doc_id, page, excerpt)` citation of the rules table (`basis.domain.rules.RULES`),

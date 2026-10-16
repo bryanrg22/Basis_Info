@@ -27,9 +27,29 @@
         "sha256": "bbd3f81342cf4b2d2481a00805a3205f6b9351b8c95d55c199e60692da1c93d0"
       }
     },
+    "photo_countables_joint": {
+      "v1": {
+        "sha256": "65fae5f9b741b0e8b1d614b614d0c00bdc5eb280a28de923a780c7655a66754b"
+      }
+    },
+    "photo_countables_tile": {
+      "v1": {
+        "sha256": "56c771f6012ec220c6895dca0c13c751d391ce722144d2cc29e903efb216971f"
+      }
+    },
+    "photo_lighting_electrical": {
+      "v1": {
+        "sha256": "c773ccfb3ce3127bcbb620dba4e8ddf6a303ef5992f7d3fcdb0e84ebcecab8ff"
+      }
+    },
     "photo_surfaces": {
       "v1": {
         "sha256": "344617b4b1dba18735f840cb3e8b42aa4eb86b11ad75ed335b1e2383043d6f10"
+      }
+    },
+    "photo_verify_box": {
+      "v1": {
+        "sha256": "6055e8ba3803fd133cf28bd8cc0ae6f47c995e8e6e72aa44ba24973dba3bab54"
       }
     },
     "room_inventory": {
