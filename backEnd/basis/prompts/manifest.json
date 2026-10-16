@@ -58,6 +58,26 @@
       "v3": {
         "sha256": "599877410cd7c1cfb048fe60ff8fb4c5f07377381da71005704f334435d53400"
       }
+    },
+    "photo_countables_joint": {
+      "v1": {
+        "sha256": "65fae5f9b741b0e8b1d614b614d0c00bdc5eb280a28de923a780c7655a66754b"
+      }
+    },
+    "photo_countables_tile": {
+      "v1": {
+        "sha256": "56c771f6012ec220c6895dca0c13c751d391ce722144d2cc29e903efb216971f"
+      }
+    },
+    "photo_lighting_electrical": {
+      "v1": {
+        "sha256": "c773ccfb3ce3127bcbb620dba4e8ddf6a303ef5992f7d3fcdb0e84ebcecab8ff"
+      }
+    },
+    "photo_verify_box": {
+      "v1": {
+        "sha256": "6055e8ba3803fd133cf28bd8cc0ae6f47c995e8e6e72aa44ba24973dba3bab54"
+      }
     }
   }
 }

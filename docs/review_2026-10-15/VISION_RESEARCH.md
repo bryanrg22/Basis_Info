@@ -10,7 +10,7 @@ were not confirmed. Companion to EVAL_REPORT.md, which holds the measured number
 
 The evidence supports your order (measure, then group by room, then one multi-image call per room, then boxes), with one change to step 3.
 
-1. **Measure the current per-photo model first.** Nothing below can be judged without a baseline. *Done (EVAL_REPORT sections 6, 8, 11).* The baseline is one `photo_analysis/v1` call per photo. Section 11 found that sending each photo twice, each call with one narrow job (`photo_countables/v2`: find and count the countable objects; `photo_surfaces/v1`: name the surfaces and materials), counts repeated small objects better (count MAE 0.36 to 0.29 against the verified boxes) at the same label-set quality, for twice the per-photo cost and no more wall time when the calls run in parallel. That two-call step is wired into the pipeline behind `VISION_PHOTO_MODE` (`basis/vision/analyze.py`: `single`, the default, keeps the one call; `decomposed` runs the pair concurrently and merges them with `basis/vision/merge.py`, the harness's own merge rule, taking the room type from the surfaces call). Each call is its own `llm_calls` row; if either call fails the photo fails, never a half result.
+1. **Measure the current per-photo model first.** Nothing below can be judged without a baseline. *Done (EVAL_REPORT sections 6, 8, 11).* The baseline is one `photo_analysis/v1` call per photo. Section 11 found that sending each photo twice, each call with one narrow job (`photo_countables/v2`: find and count the countable objects; `photo_surfaces/v1`: name the surfaces and materials), counts repeated small objects better (count MAE 0.36 to 0.29 against the verified boxes) at the same label-set quality, for twice the per-photo cost and no more wall time when the calls run in parallel. That two-call step is wired into the pipeline behind `VISION_PHOTO_MODE` (`basis/vision/analyze.py`: `single` keeps the one call; `decomposed`, the default since EVAL_REPORT section 12.1, runs the pair concurrently and merges them with `basis/vision/merge.py`, the harness's own merge rule, taking the room type from the surfaces call). Each call is its own `llm_calls` row; if either call fails the photo fails, never a half result.
 2. **Group photos by room** using file names plus the model's room type. This is cheap. Engineers should confirm the grouping at a review gate because every later step depends on it.
 3. **Change: do not let the per-room call replace the per-photo calls.** Use it as a reconciliation pass over the per-photo outputs. It should return distinct objects, and each object should list the photo indices where it appears, so the engineer can check every merge against the photos. Every frontier vendor documents counting as approximate [3,5]. Multi-view benchmarks show models fail to match the same object across views, especially under occlusion [20], and hallucination rises with the number of images [21]. A single opaque count per room cannot be defended. A count tied to the photos it came from can.
 4. **Boxes last.** Boxes are for the interface, not for deduplication. A purpose-built open-vocabulary detector produces better boxes than the vision-language models do [18].
@@ -101,6 +101,47 @@ Statistical treatment:
 - **Repeated runs:** run each configuration 3 to 5 times to measure nondeterminism [23]. Report the mean and the run-to-run standard deviation.
 - **Comparing approaches:** compare per-photo-plus-merge against the multi-image call as paired differences on the same rooms [23].
 - **Limits of one property:** results from one property are a sanity check, not evidence that the method generalizes.
+
+## Product path (2026-10-16)
+
+What the measured configuration became in the pipeline (backend only; the frontend does not
+use these routes yet).
+
+- **Per-photo step.** EVAL_REPORT section 12.1's decision is the default: `VISION_MODEL=gpt-6.1-sol`,
+  `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, an output budget of 6000 per
+  call (`VISION_MAX_TOKENS`, which defaults to 6000 on an OpenAI reasoning model and 1200 on
+  anything else, so a deployment that sets `VISION_MODEL=gpt-4o-mini` keeps its old budget).
+  Claude Opus 5.5 decomposed stays the fallback by setting `VISION_MODEL=claude-opus-5-5`.
+- **Localization.** A `localize_photo` activity runs after each photo's analysis succeeds.
+  It follows section 10: one full-frame SAM 3 pass (tiling hurt in 10.3), the v1 phrase table
+  (`phrases_for`), the analysis's object labels plus the countable set (`prompt_labels`; the
+  surfaces the `photo_surfaces/v1` prompt owns are not prompted: a wall or a driveway mask is
+  not a count), same-label duplicates suppressed as in the harness, and the per-class count
+  thresholds of 10.2 (window 0.6, every other class 0.5). The prediction is sent at 0.3 and
+  the instances between 0.3 and the count threshold are stored as uncounted candidates, so the
+  counted set is exactly the one the harness scored and an engineer's tap can still select an
+  object the model scored low. Storage: `photo_objects` (normalized box in four checked
+  columns, run-length mask as JSONB, score, `counted`, `source` model or manual, who added or
+  deleted it) and `photo_localizations` (`done`, `failed`, `skipped`, what was prompted, cost).
+  The Replicate throttle (6 creates per minute under $5 of credit) is absorbed by the
+  localizer's backoff, then by Temporal's retries with heartbeats; on the last attempt the
+  failure is recorded and the photo and the study carry on.
+- **Engineer's selection.** At `rooms_review` a tap or a drawn box with a label is resolved
+  with `pick_prompted` against the stored candidates of that label: the instance under the tap
+  (mask first, highest score wins), or the one a box overlaps at IoU >= 0.5 (the PASCAL VOC /
+  COCO match criterion; any overlap would swallow a box drawn beside an existing object). A
+  counted instance is returned unchanged; a candidate becomes a manual instance with its mask;
+  a box over nothing is stored as a manual box; a tap over nothing is refused (draw a box).
+  No live SAM 3 call is made from the API; live point prompts (`segment_prompt`) are a
+  possible next step once a self-hosted model makes them fast.
+- **Evidence.** `GET /v1/studies/{id}/evidence` returns per asset its room, the photos that
+  show it (the component's own photo and the room's others), the localized instances of its
+  label in them, and its rule citations with the cited passage and verification status.
+
+Still manual or open: the counts are not yet fed into takeoffs (the component count still comes
+from the vision call); the phrase table is v1 for every class although 10.3 found v2 better for
+fixtures and cabinets (a per-class table is the next measured change); no vision-model check of
+the weak classes' boxes; the thresholds come from one property's 52 photos.
 
 ## How products in adjacent markets handle this
 

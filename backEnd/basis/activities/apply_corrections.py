@@ -9,13 +9,18 @@ never changed, so the decided revision stays as history.
 ==================  =========================================  ======================
 rejected stage      copied to the new revision                 recomputed by
 ==================  =========================================  ======================
-appraisal_review    rooms, photo assignments, components       extract_fields
-rooms_review        extraction + fields; rooms, assignments    analyze_photo (only the
-                    and components of photos not flagged       photos flagged by a
-                    (room/component corrections applied)       ``photo`` correction)
+appraisal_review    rooms, photo assignments, components,      extract_fields
+                    localized objects
+rooms_review        extraction + fields; rooms, assignments,   analyze_photo and
+                    components and localized objects of        localize_photo (only
+                    photos not flagged (room/component         the photos flagged by
+                    corrections applied)                       a ``photo`` correction)
 assets_review       extraction + fields; rooms, assignments,   process_assets
-                    components
+                    components, localized objects
 ==================  =========================================  ======================
+
+Localized objects are the ``photo_localizations`` and active ``photo_objects`` rows of a
+photo (an engineer's manual selections included, deleted rows left behind).
 
 ``extraction_field`` and ``asset`` corrections are applied by the activity that
 recomputes those rows (they receive the corrections in their input), so ``applied``
@@ -55,6 +60,7 @@ from basis.db.models import Component, Extraction, Room
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
+from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
 from basis.workflow.contracts import (
     CORRECTION_TYPES,
@@ -216,6 +222,10 @@ async def _carry_rooms(
             continue
         heartbeat("component")
         await _copy_component(repo, component, to_revision, new_room_ids, component_after)
+    heartbeat("objects")
+    await PhotoObjectRepository(session).carry(
+        study_id, from_revision, to_revision, skip_photos=skip_photos
+    )
     return len(room_after) + len(component_after)
 
 

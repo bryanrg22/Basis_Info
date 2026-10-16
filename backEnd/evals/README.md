@@ -55,6 +55,15 @@ text exact after case/whitespace folding, `int` +/-1, `float` +/-0.01, `currency
 others exact; override with `absolute` / `relative`. Predictions:
 `{"<document>": {"<field>": value}}`.
 
+Metrics: exact and normalized accuracy over fields (repeat 1), `critical_accuracy` over the
+fields labelled `critical` (the misses named in the details), and with repeats `pass^k` /
+`pass^1` (the mean over repeats) for all fields and `critical_pass^k` / `critical_pass^1`.
+Predictions come from `python -m evals.predict_fields --out DIR --model M
+[--reasoning-effort low] [--repeats 3]`: every labelled field in one call with the released
+`appraisal_field_fallback` prompt and the production request format, the whole document
+(`read_pdf` page text) as context, the production verbatim guard applied
+(`appraisal_fields.unguarded.json` keeps the answers before it).
+
 ### `photo_rooms_v1.json`
 
 ```json
@@ -104,7 +113,22 @@ with `ANTHROPIC_API_KEY` set, and never falls back to OpenAI; EVAL_REPORT sectio
 ```
 
 `section` and `bucket` may each be null (not labeled). Predictions:
-`{"<id>": {"section": "1245", "bucket": "y5"}}`.
+`{"<id>": {"section": "1245", "bucket": "y5"}}`, optionally with
+`"citations": {"claimed": n, "verified": m}`.
+
+Metrics: section and bucket accuracy, macro-F1 and coverage (repeat 1; a missing answer
+abstains), with repeats `bucket_pass^k` / `bucket_pass^1`, and when the predictions carry
+citation counts `citation_validity` (verified over claimed citations, Wilson interval) and
+`rows_with_verified_citation`. Predictions come from `python -m evals.predict_assets --out
+DIR --model M [--reasoning-effort none] [--max-tokens 6000] [--repeats 3]`: every row through
+the production model path (`basis.classify.router.classify_with_model`: the residual tool
+loop with the released `classify` prompt, citation verification, the review policy; the
+rules table and the cache are skipped), against a BM25 store of the IRS PDFs in
+`<data dir>/corpus` (`--corpus-glob`, default `IRS_*.pdf`) cut into the ingest's 400-token
+windows. A failed loop is scored as what production writes (1250, the building bucket);
+`run.json` keeps the provider errors. OpenAI reasoning models accept function tools on
+Chat Completions only at `reasoning_effort` `none` (gpt-6.1-sol not at all), EVAL_REPORT
+section 17.
 
 ### `retrieval_qrels_v1.json`
 
@@ -283,6 +307,21 @@ rate, signed bias (> 0 over-counting), count precision and recall (min / over / 
 counts pooled over pairs), and the same per class (`count_mae:window`, ...). This is the
 number the engineer prices; the label-set metrics of `photo_components` say whether a
 thing was listed at all.
+
+Tools that produce or combine count predictions (EVAL_REPORT section 15); each writes a
+predictions directory `evals.run --predictions` scores:
+
+- `evals.predict_tiles --mode separate|joint`: the countables prompt on enlarged 2 x 2
+  parts of each photo, summed with a center-ownership rule at the cuts (`separate`,
+  `photo_countables_tile/v1`), or the whole photo and its parts in one call (`joint`,
+  `photo_countables_joint/v1`).
+- `evals.aggregate_runs --rule median|vote|max [--by-repeat]`: self-consistency over the
+  repeats of one or more runs (pooled, or repeat i of every run together).
+- `evals.fuse_counts --vlm NAME=DIR ... [--sam3 DIR] [--counts NAME=DIR]`: per count class,
+  the source or rule (`max`, `min`, `median`) with the lowest error
+  (`basis.vision.fusion`), scored leave-one-photo-out (`--cv loo`, the default).
+- `evals.verify_boxes`: a vision model names what each SAM 3 detection contains
+  (`photo_verify_box/v1`); the confirmed detections are the counts.
 
 ### `rule_citations` (derived, no file)
 

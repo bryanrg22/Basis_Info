@@ -18,6 +18,8 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+# The names-only template is committed (no values).
+!backEnd/.env.example
 
 # Service Account & Firebase credentials (never commit these!)
 *-firebase-adminsdk-*.json

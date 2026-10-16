@@ -32,6 +32,9 @@ PROVIDER_VARS = (
     "EXTRACTION_REVIEW_THRESHOLD",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_EFFORT",
+    "VISION_PHOTO_MODE",
+    "VISION_REASONING_EFFORT",
+    "VISION_MAX_TOKENS",
 )
 
 # pragma: allowlist nextline secret
@@ -66,13 +69,60 @@ def test_defaults_without_credentials(clean: pytest.MonkeyPatch) -> None:
     clean.setenv("BASIS_ENV", "test")
     settings = load_settings()
     assert settings.openai_api_key is None and settings.azure_openai_endpoint is None
-    assert (settings.text_model, settings.vision_model) == ("gpt-4o-mini", "gpt-4o-mini")
+    assert (settings.text_model, settings.vision_model) == ("gpt-4o-mini", "gpt-6.1-sol")
     assert settings.llm_request_timeout_seconds == 60
     assert settings.extraction_review_threshold == 0.90
     assert settings.azure_openai_api_version == "2024-10-21"
     assert settings.llm_primary == "azure"
     assert settings.anthropic_api_key is None and settings.anthropic_effort == "low"
-    assert settings.vision_photo_mode == "single"  # one call per photo until flipped
+    # EVAL_REPORT section 12.1: gpt-6.1-sol, decomposed, effort low, output budget 6000.
+    assert settings.vision_photo_mode == "decomposed"
+    assert settings.vision_reasoning_effort == "low"
+    assert settings.vision_max_tokens is None
+    assert settings.vision_output_budget == 6000
+
+
+@pytest.mark.parametrize(
+    ("model", "budget"),
+    [
+        ("gpt-6.1-sol", 6000),
+        ("gpt-5-mini", 6000),
+        ("o4-mini", 6000),
+        ("gpt-4.1", 1200),
+        ("gpt-4o-mini", 1200),
+        ("claude-opus-5-5", 1200),  # the Anthropic provider adds its own thinking headroom
+    ],
+)
+def test_the_output_budget_default_follows_the_model_family(
+    clean: pytest.MonkeyPatch, model: str, budget: int
+) -> None:
+    clean.setenv("BASIS_ENV", "test")
+    clean.setenv("VISION_MODEL", model)
+    assert load_settings().vision_output_budget == budget
+
+
+def test_vision_overrides_are_read(clean: pytest.MonkeyPatch) -> None:
+    clean.setenv("BASIS_ENV", "test")
+    clean.setenv("VISION_MODEL", "claude-opus-5-5")
+    clean.setenv("VISION_REASONING_EFFORT", "medium")
+    clean.setenv("VISION_MAX_TOKENS", "3000")
+    settings = load_settings()
+    assert settings.vision_reasoning_effort == "medium"
+    assert (settings.vision_max_tokens, settings.vision_output_budget) == (3000, 3000)
+
+
+def test_explicit_legacy_vision_values_still_work(clean: pytest.MonkeyPatch) -> None:
+    """A deployment that pinned the pre-12.1 configuration keeps it exactly."""
+    clean.setenv("BASIS_ENV", "test")
+    clean.setenv("VISION_MODEL", "gpt-4o-mini")
+    clean.setenv("VISION_PHOTO_MODE", "single")
+    clean.setenv("VISION_MAX_TOKENS", "1200")
+    settings = load_settings()
+    assert (settings.vision_model, settings.vision_photo_mode) == ("gpt-4o-mini", "single")
+    assert settings.vision_output_budget == 1200
+    # An explicit budget wins over the family default, also on a reasoning model.
+    clean.setenv("VISION_MODEL", "gpt-6.1-sol")
+    assert load_settings().vision_output_budget == 1200
 
 
 def test_anthropic_settings_are_read(clean: pytest.MonkeyPatch) -> None:
@@ -128,6 +178,10 @@ def test_new_names_are_accepted_too(clean: pytest.MonkeyPatch) -> None:
         ("LLM_REQUEST_TIMEOUT_SECONDS", "0"),
         ("LLM_PRIMARY", "gemini"),  # anthropic is a valid primary now
         ("ANTHROPIC_EFFORT", "extreme"),
+        ("VISION_REASONING_EFFORT", "extreme"),
+        ("VISION_MAX_TOKENS", "10"),
+        ("VISION_MAX_TOKENS", "100000"),
+        ("VISION_PHOTO_MODE", "triple"),
         ("VISION_PHOTO_MODE", "both"),
     ],
 )

@@ -202,6 +202,28 @@ class AnalyzePhotoOutput(_Frozen):
     needs_review: bool = False
 
 
+LocalizationStatus = Literal["done", "failed", "skipped"]
+
+
+class LocalizePhotoInput(_Frozen):
+    """Localize the objects of a photo whose analysis at ``revision`` succeeded."""
+
+    study_id: str
+    document_id: str
+    revision: int
+    idempotency_key: str
+    budget_remaining_usd: float
+
+
+class LocalizePhotoOutput(_Frozen):
+    document_id: str
+    status: LocalizationStatus
+    instances: int = 0
+    counted: int = 0
+    cost_usd: float = 0.0
+    reason: str | None = None
+
+
 class ProcessAssetsInput(_Frozen):
     study_id: str
     revision: int

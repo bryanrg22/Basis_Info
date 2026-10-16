@@ -11,8 +11,12 @@ Every way the loop can fail ends in an outcome with ``classification=None`` and 
 ``needs_review``; nothing is retried behind its back and nothing raises.
 
 Tool results go back as ``Message(role="tool", name=<tool>, tool_call_id=<id>)`` with the
-JSON payload as content. The assistant's tool-call turn is sent as an assistant message
-whose content is ``{"tool_calls": [...]}`` JSON; providers map it to their native shape.
+JSON payload as content. The assistant's tool-call turn is replayed as an assistant
+message carrying the calls in ``Message.tool_calls``, which each provider maps to its
+native shape (OpenAI ``tool_calls``, Anthropic ``tool_use`` blocks). Until 2026-10-16 the
+turn was sent as ``{"tool_calls": [...]}`` JSON text, which no API accepts before a tool
+message (OpenAI: 400 "messages with role 'tool' must be a response to a preceeding
+message with 'tool_calls'"), so every loop that searched ended in a provider error.
 
 The trace (every tool call with its arguments, whether it was refused, and the chunks it
 returned) and one record per model call (tokens, cost, latency) are returned so the
@@ -170,6 +174,7 @@ async def run_residual(
     price: PriceFn = default_price,
     reserve_usd_per_call: float = RESERVE_USD_PER_CALL,
     activity: str = ACTIVITY,
+    reasoning_effort: str | None = None,
 ) -> ResidualOutcome:
     """Run the bounded loop for ``component``; never raises for model or tool failures."""
     offered = {t.name: t for t in tools if t.name in allowlist}
@@ -195,6 +200,7 @@ async def run_residual(
                     tools=tools_now,
                     max_tokens=limits.max_tokens,
                     temperature=0.0,
+                    reasoning_effort=reasoning_effort,
                     prompt_version=prompt_version,
                     study_id=study_id,
                     activity=activity,
@@ -219,20 +225,11 @@ async def run_residual(
                 if not tools_now:
                     outcome.reason = "tool_cap_exceeded"
                     return
+                # The calls go back as the assistant turn's native ``tool_calls`` (each
+                # provider maps them to its own shape); a tool message that answers a
+                # call the previous turn did not make is a 400 on both APIs.
                 messages.append(
-                    Message(
-                        role="assistant",
-                        content=json.dumps(
-                            {
-                                "tool_calls": [
-                                    {"id": c.id, "name": c.name, "arguments": c.arguments}
-                                    for c in response.tool_calls
-                                ]
-                            },
-                            sort_keys=True,
-                            default=str,
-                        ),
-                    )
+                    Message(role="assistant", content=response.text, tool_calls=response.tool_calls)
                 )
                 for call in response.tool_calls:
                     if tool_calls_used >= limits.max_tool_calls:

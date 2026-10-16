@@ -90,6 +90,7 @@ from evals.metrics import (
     pass_hat_k,
     room_inventory_score,
     summarize_proportion,
+    wilson_interval,
 )
 
 ABSTAIN: Final = "abstain"
@@ -293,9 +294,11 @@ def score_fields(
     system = "predictions" if saved is not None else "printed_text"
     result = TaskResult("appraisal_fields", system)
     per_repeat: list[list[FieldScore]] = [[] for _ in range(repeats)]
+    critical: list[bool] = []  # per scored field, in the order of every repeat's list
     for doc in (d for d in data.documents if d.split == split):
         doc_predictions = (saved or {}).get(doc.document, {})
         for label in doc.fields:
+            critical.append(label.critical)
             values = (
                 _repeats(doc_predictions.get(label.field), repeats)
                 if saved is not None
@@ -334,7 +337,28 @@ def score_fields(
                 else {},
             )
         )
+    if any(critical):
+        # The fields marked critical in the labels (the ones a study cannot proceed without).
+        crit = [s for s, c in zip(first, critical, strict=True) if c]
+        summary = summarize_proportion([s.normalized for s in crit], [s.cluster for s in crit])
+        result.rows.append(
+            MetricRow(
+                "critical_accuracy",
+                summary["value"],
+                summary["n"],
+                summary["stderr"],
+                tuple(summary["interval"]),
+                {"missed": sorted(s.field for s in crit if not s.normalized)},
+            )
+        )
     _add_pass_k(result, [[s.normalized for s in rep] for rep in per_repeat], repeats)
+    if any(critical):
+        _add_pass_k(
+            result,
+            [[s.normalized for s, c in zip(rep, critical, strict=True) if c] for rep in per_repeat],
+            repeats,
+            prefix="critical_",
+        )
     return result
 
 
@@ -445,15 +469,25 @@ def score_assets(
     buckets_true: list[str] = []
     buckets_pred: list[str] = []
     clusters: list[str] = []
+    bucket_runs: list[list[bool]] = []  # per bucket-labelled asset, one outcome per repeat
+    claimed = verified = 0
+    cited_rows: list[bool] = []
     for asset in items:
         if saved is not None:
-            guess = _repeats(saved.get(asset.id), repeats)[0] or {}
+            runs = [r or {} for r in _repeats(saved.get(asset.id), repeats)]
+            guess = runs[0]
             section = guess.get("section") or ABSTAIN
             bucket = guess.get("bucket") or ABSTAIN
+            citations = guess.get("citations")
+            if isinstance(citations, dict):
+                claimed += int(citations.get("claimed", 0))
+                verified += int(citations.get("verified", 0))
+                cited_rows.append(int(citations.get("verified", 0)) > 0)
         else:
             hit = lookup(asset.component, asset.material, asset.attachment, asset.property_class)
             section = hit.section if hit else ABSTAIN
             bucket = hit.bucket.value if hit else ABSTAIN
+            runs = [{"bucket": bucket}] * repeats
         if asset.section is not None:
             sections_true.append(asset.section)
             sections_pred.append(str(section))
@@ -461,6 +495,7 @@ def score_assets(
         if asset.bucket is not None:
             buckets_true.append(asset.bucket)
             buckets_pred.append(str(bucket))
+            bucket_runs.append([r.get("bucket") == asset.bucket for r in runs])
     for name, truth, predicted in (
         ("section", sections_true, sections_pred),
         ("bucket", buckets_true, buckets_pred),
@@ -490,6 +525,27 @@ def score_assets(
                 metrics.coverage,
                 metrics.n,
                 details={"selective_accuracy": metrics.selective_accuracy},
+            ),
+        ]
+    _add_pass_k(result, _transpose(bucket_runs), repeats, prefix="bucket_")
+    if cited_rows:
+        # Repeat 1, from the predictions' citation counts (evals.predict_assets): the share
+        # of claimed citations that passed the production check (resolved, retrieved in the
+        # loop, excerpt on the chunk), and the share of rows with at least one that did.
+        low, high = wilson_interval(verified, claimed) if claimed else (math.nan, math.nan)
+        result.rows += [
+            MetricRow(
+                "citation_validity",
+                verified / claimed if claimed else math.nan,
+                claimed,
+                interval=(low, high),
+                details={"claimed": claimed, "verified": verified},
+            ),
+            MetricRow(
+                "rows_with_verified_citation",
+                sum(cited_rows) / len(cited_rows),
+                len(cited_rows),
+                interval=wilson_interval(sum(cited_rows), len(cited_rows)),
             ),
         ]
     return result
@@ -1258,12 +1314,17 @@ def _transpose(rows: list[list[bool]]) -> list[list[bool]]:
     return [list(col) for col in zip(*rows, strict=True)] if rows else []
 
 
-def _add_pass_k(result: TaskResult, per_repeat: list[list[bool]], repeats: int) -> None:
+def _add_pass_k(
+    result: TaskResult, per_repeat: list[list[bool]], repeats: int, prefix: str = ""
+) -> None:
+    """``pass^k`` (every repeat right) and ``pass^1`` (the mean over repeats) per item."""
     if repeats < 2 or not per_repeat or not per_repeat[0]:
         return
     per_item = [list(col) for col in zip(*per_repeat, strict=True)]
-    result.rows.append(MetricRow(f"pass^{repeats}", pass_hat_k(per_item, repeats), len(per_item)))
-    result.rows.append(MetricRow("pass^1", pass_hat_k(per_item, 1), len(per_item)))
+    result.rows.append(
+        MetricRow(f"{prefix}pass^{repeats}", pass_hat_k(per_item, repeats), len(per_item))
+    )
+    result.rows.append(MetricRow(f"{prefix}pass^1", pass_hat_k(per_item, 1), len(per_item)))
 
 
 # --------------------------------------------------------------------------- report
