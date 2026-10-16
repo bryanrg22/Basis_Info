@@ -179,12 +179,18 @@ class Attachment(StrEnum):
     UNKNOWN = "unknown"
 
 
+NOTE_MAX_CHARS: Final = 200
+DESCRIPTION_MAX_CHARS: Final = 500
+
+
 class Component(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     label: ComponentLabel
     note: str | None = Field(
-        default=None, description="Free text; required when label is 'other'", max_length=200
+        default=None,
+        description="Free text; required when label is 'other'",
+        max_length=NOTE_MAX_CHARS,
     )
     count: int = Field(ge=1, le=500, description="How many of this item are visible")
     material: Material
@@ -194,7 +200,9 @@ class Component(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _unknown_label_is_other(cls, data: Any) -> Any:
-        """An out-of-vocabulary label becomes ``other`` and keeps the text as the note."""
+        """An out-of-vocabulary label becomes ``other`` and keeps the text as the note; an
+        over-long note is cut to the limit (strict JSON schemas cannot carry ``maxLength``,
+        so a talkative model must not fail the whole photo over a note)."""
         if isinstance(data, dict):
             label = data.get("label")
             if isinstance(label, str) and label not in COMPONENT_LABELS:
@@ -205,6 +213,10 @@ class Component(BaseModel):
                 else:
                     data["label"] = ComponentLabel.OTHER.value
                     data["note"] = data.get("note") or label[:200]
+            note = data.get("note")
+            if isinstance(note, str) and len(note) > NOTE_MAX_CHARS:
+                data = dict(data)
+                data["note"] = note[: NOTE_MAX_CHARS - 1] + "…"
         return data
 
 
@@ -251,9 +263,17 @@ class ModelPhotoAnalysis(BaseModel):
     floor: int | None = Field(ge=-3, le=200)
     room_ordinal: int = Field(ge=1, le=50)
     components: list[Component] = Field(max_length=60)
-    description: str = Field(max_length=500)
+    description: str = Field(max_length=DESCRIPTION_MAX_CHARS)
 
     _room = field_validator("room_type", mode="before")(_room_type_before)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _cut_description(cls, value: Any) -> Any:
+        """Same reason as the component note: an over-long description is cut, not fatal."""
+        if isinstance(value, str) and len(value) > DESCRIPTION_MAX_CHARS:
+            return value[: DESCRIPTION_MAX_CHARS - 1] + "…"
+        return value
 
     def to_analysis(self) -> PhotoAnalysis:
         return PhotoAnalysis(**self.model_dump())
