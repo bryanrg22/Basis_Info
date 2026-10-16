@@ -1020,7 +1020,7 @@
         "tags": [
           "evidence"
         ],
-        "summary": "Citations supporting an asset's classification (empty until S3)",
+        "summary": "What supports each asset: room, photos, localized instances, citations",
         "operationId": "list_evidence_v1_studies__study_id__evidence_get",
         "security": [
           {
@@ -1043,14 +1043,55 @@
           {
             "name": "asset_id",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
-              "description": "Asset id.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this asset.",
               "title": "Asset Id"
             },
-            "description": "Asset id."
+            "description": "Only this asset."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Assets per page.",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Assets per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` from the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` from the previous page."
           }
         ],
         "responses": {
@@ -1059,11 +1100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CitationOut"
-                  },
-                  "title": "Response List Evidence V1 Studies  Study Id  Evidence Get"
+                  "$ref": "#/components/schemas/EvidencePageOut"
                 }
               }
             }
@@ -1100,6 +1137,478 @@
           },
           "503": {
             "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/photos/{document_id}/objects": {
+      "get": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "A photo's localized objects and counts",
+        "operationId": "list_objects_v1_studies__study_id__photos__document_id__objects_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Photo document id.",
+              "title": "Document Id"
+            },
+            "description": "Photo document id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2147483646,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Revision; default the study's current one.",
+              "title": "Revision"
+            },
+            "description": "Revision; default the study's current one."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoObjectsOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "Add an engineer's selection (a tap or a box) at rooms_review",
+        "description": "Resolved against the photo's stored instances of the label: the instance under the tap, or the one the box overlaps at IoU >= 0.5. A counted instance is returned as is (200, `created: false`); an uncounted candidate becomes a manual instance with its mask (201); a box that resolves to nothing is stored as a manual box (201); a tap that resolves to nothing is 422. Only while the study waits at `rooms_review`, on its current revision (409 otherwise).",
+        "operationId": "add_object_v1_studies__study_id__photos__document_id__objects_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Photo document id.",
+              "title": "Document Id"
+            },
+            "description": "Photo document id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PointSelection"
+                  },
+                  {
+                    "$ref": "#/components/schemas/BoxSelection"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "point": "#/components/schemas/PointSelection",
+                    "box": "#/components/schemas/BoxSelection"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualSelectionOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Resolved to an instance already counted; nothing added."
+          },
+          "403": {
+            "description": "The study is visible but your role is too low for this action.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/photos/{document_id}/objects/{object_id}": {
+      "delete": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "Delete a manual instance at rooms_review",
+        "description": "Soft delete: the row keeps who deleted it and when. Only manual instances (409 for a model instance), only while the study waits at `rooms_review`, on its current revision.",
+        "operationId": "delete_object_v1_studies__study_id__photos__document_id__objects__object_id__delete",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Photo document id.",
+              "title": "Document Id"
+            },
+            "description": "Photo document id."
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Object id.",
+              "title": "Object Id"
+            },
+            "description": "Object id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoObjectOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The study is visible but your role is too low for this action.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1573,6 +2082,200 @@
           }
         ]
       },
+      "AssetEvidenceOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "recovery_period": {
+            "type": "string",
+            "title": "Recovery Period"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "title": "Needs Review"
+          },
+          "component_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Id"
+          },
+          "component_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Label"
+          },
+          "room": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoomRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "photos": {
+            "items": {
+              "$ref": "#/components/schemas/EvidencePhotoOut"
+            },
+            "type": "array",
+            "title": "Photos"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationEvidenceOut"
+            },
+            "type": "array",
+            "title": "Citations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id",
+          "category",
+          "bucket",
+          "recovery_period",
+          "method",
+          "needs_review",
+          "component_id",
+          "component_label",
+          "room",
+          "photos",
+          "citations"
+        ],
+        "title": "AssetEvidenceOut"
+      },
+      "BoxIn": {
+        "properties": {
+          "x1": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X1"
+          },
+          "y1": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y1"
+          },
+          "x2": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X2"
+          },
+          "y2": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y2"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "title": "BoxIn"
+      },
+      "BoxOut": {
+        "properties": {
+          "x1": {
+            "type": "number",
+            "title": "X1",
+            "description": "Left edge, 0 to 1 of the image width."
+          },
+          "y1": {
+            "type": "number",
+            "title": "Y1",
+            "description": "Top edge, 0 to 1 of the image height."
+          },
+          "x2": {
+            "type": "number",
+            "title": "X2",
+            "description": "Right edge (x1 <= x2)."
+          },
+          "y2": {
+            "type": "number",
+            "title": "Y2",
+            "description": "Bottom edge (y1 <= y2)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "title": "BoxOut"
+      },
+      "BoxSelection": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "box",
+            "title": "Kind"
+          },
+          "label": {
+            "$ref": "#/components/schemas/ComponentLabel"
+          },
+          "box": {
+            "$ref": "#/components/schemas/BoxIn"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "box"
+        ],
+        "title": "BoxSelection"
+      },
+      "Bucket": {
+        "type": "string",
+        "enum": [
+          "y5",
+          "y7",
+          "y15",
+          "y27_5",
+          "y39",
+          "land"
+        ],
+        "title": "Bucket"
+      },
       "CancelIn": {
         "properties": {
           "reason": {
@@ -1626,7 +2329,7 @@
         ],
         "title": "CheckResult"
       },
-      "CitationOut": {
+      "CitationEvidenceOut": {
         "properties": {
           "id": {
             "type": "string",
@@ -1669,6 +2372,14 @@
               }
             ],
             "title": "Verification Method"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified",
+            "description": "The excerpt was verified against the cited passage."
+          },
+          "source": {
+            "$ref": "#/components/schemas/CitedChunkOut"
           }
         },
         "type": "object",
@@ -1678,9 +2389,139 @@
           "chunk_id",
           "excerpt",
           "verified_at",
-          "verification_method"
+          "verification_method",
+          "verified",
+          "source"
         ],
-        "title": "CitationOut"
+        "title": "CitationEvidenceOut"
+      },
+      "CitedChunkOut": {
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id",
+            "description": "The reference document the passage is from."
+          },
+          "page_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Start"
+          },
+          "page_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page End"
+          },
+          "section_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_id",
+          "page_start",
+          "page_end",
+          "section_path"
+        ],
+        "title": "CitedChunkOut"
+      },
+      "ComponentLabel": {
+        "type": "string",
+        "enum": [
+          "carpet",
+          "hardwood_floor",
+          "vinyl_flooring",
+          "laminate_flooring",
+          "tile",
+          "wall_finish",
+          "ceiling_finish",
+          "baseboard",
+          "crown_molding",
+          "wainscoting",
+          "interior_door",
+          "exterior_door",
+          "window",
+          "blinds",
+          "window_treatment",
+          "stairs",
+          "railing",
+          "fireplace",
+          "closet_shelving",
+          "built_in_shelving",
+          "mirror",
+          "kitchen_cabinet",
+          "countertop",
+          "sink",
+          "appliance",
+          "refrigerator",
+          "dishwasher",
+          "stove",
+          "oven",
+          "microwave",
+          "range_hood",
+          "garbage_disposal",
+          "washer",
+          "dryer",
+          "bathroom_vanity",
+          "toilet",
+          "bathtub",
+          "shower",
+          "light_fixture",
+          "ceiling_fan",
+          "outdoor_lighting",
+          "electrical_panel",
+          "electrical_outlet",
+          "hvac_unit",
+          "ac_condenser",
+          "hvac_vent",
+          "thermostat",
+          "water_heater",
+          "smoke_detector",
+          "sprinkler_system",
+          "security_system",
+          "doorbell",
+          "furniture",
+          "desk",
+          "chair",
+          "filing_cabinet",
+          "garage_door",
+          "roof",
+          "siding",
+          "gutter",
+          "deck",
+          "patio",
+          "porch",
+          "pool",
+          "fence",
+          "retaining_wall",
+          "driveway",
+          "sidewalk",
+          "parking_lot",
+          "landscaping",
+          "signage",
+          "other"
+        ],
+        "title": "ComponentLabel"
       },
       "CorrectionIn": {
         "properties": {
@@ -2022,6 +2863,97 @@
         ],
         "title": "DocumentOut"
       },
+      "EvidencePageOut": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "The revision these assets belong to."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssetEvidenceOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` to get the next page (same revision); null on the last."
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "items",
+          "next_cursor"
+        ],
+        "title": "EvidencePageOut"
+      },
+      "EvidencePhotoOut": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "source",
+              "room"
+            ],
+            "title": "Role",
+            "description": "`source`: the photo the component was found in; `room`: another photo of the same room."
+          },
+          "localization_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "failed",
+                  "skipped"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Localization Status",
+            "description": "The photo's localization outcome at this revision, if it ran."
+          },
+          "instances": {
+            "items": {
+              "$ref": "#/components/schemas/PhotoObjectOut"
+            },
+            "type": "array",
+            "title": "Instances",
+            "description": "Active localized instances of the component's label in this photo."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "filename",
+          "role",
+          "localization_status",
+          "instances"
+        ],
+        "title": "EvidencePhotoOut"
+      },
       "Health": {
         "properties": {
           "status": {
@@ -2095,6 +3027,116 @@
         "type": "object",
         "title": "HealthChecks"
       },
+      "LocalizationOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "instances": {
+            "type": "integer",
+            "title": "Instances"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "carried_from_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carried From Revision"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "reason",
+          "instances",
+          "model_version",
+          "carried_from_revision",
+          "created_at"
+        ],
+        "title": "LocalizationOut"
+      },
+      "ManualSelectionOut": {
+        "properties": {
+          "object": {
+            "$ref": "#/components/schemas/PhotoObjectOut"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created",
+            "description": "False when the selection resolved to an instance already counted (nothing was added)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "object",
+          "created"
+        ],
+        "title": "ManualSelectionOut"
+      },
+      "MaskOut": {
+        "properties": {
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "counts": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Counts",
+            "description": "Run lengths over the row-major flattened mask, zeros first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "height",
+          "width",
+          "counts"
+        ],
+        "title": "MaskOut"
+      },
       "OtherUpload": {
         "properties": {
           "filename": {
@@ -2163,6 +3205,205 @@
         ],
         "title": "OtherUpload"
       },
+      "PhotoObjectOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "phrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phrase",
+            "description": "The phrase SAM 3 was prompted with (model rows)."
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score",
+            "description": "SAM 3's score; null for a manual box."
+          },
+          "box": {
+            "$ref": "#/components/schemas/BoxOut"
+          },
+          "mask": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaskOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "area": {
+            "type": "number",
+            "title": "Area",
+            "description": "Share of the image the instance covers."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "model",
+              "manual"
+            ],
+            "title": "Source"
+          },
+          "counted": {
+            "type": "boolean",
+            "title": "Counted",
+            "description": "Counted in `counts`: a model instance whose score clears its class's threshold, or any manual instance. Uncounted model instances are candidates."
+          },
+          "derived_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived From",
+            "description": "For a manual instance: the candidate the tap or box resolved to."
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By",
+            "description": "Who added a manual instance."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "deleted_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "document_id",
+          "revision",
+          "label",
+          "phrase",
+          "score",
+          "box",
+          "mask",
+          "area",
+          "source",
+          "counted",
+          "derived_from",
+          "created_by",
+          "created_at"
+        ],
+        "title": "PhotoObjectOut"
+      },
+      "PhotoObjectsOut": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "localization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocalizationOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The localization outcome; null when the photo has not been localized at this revision (not analyzed yet, or analyzed before localization existed)."
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts",
+            "description": "Counted instances per label."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PhotoObjectOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Active instances by label, highest score first, manual boxes last."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "revision",
+          "localization",
+          "counts",
+          "items"
+        ],
+        "title": "PhotoObjectsOut"
+      },
       "PhotoUpload": {
         "properties": {
           "filename": {
@@ -2215,6 +3456,52 @@
           "content_type"
         ],
         "title": "PhotoUpload"
+      },
+      "PointIn": {
+        "properties": {
+          "x": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X"
+          },
+          "y": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "PointIn"
+      },
+      "PointSelection": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "point",
+            "title": "Kind"
+          },
+          "label": {
+            "$ref": "#/components/schemas/ComponentLabel"
+          },
+          "point": {
+            "$ref": "#/components/schemas/PointIn"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "point"
+        ],
+        "title": "PointSelection"
       },
       "ReviewOut": {
         "properties": {
@@ -2272,6 +3559,42 @@
           "created_at"
         ],
         "title": "ReviewOut"
+      },
+      "RoomRefOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "room_type": {
+            "type": "string",
+            "title": "Room Type"
+          },
+          "floor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "room_type",
+          "floor"
+        ],
+        "title": "RoomRefOut"
       },
       "SignedUploadOut": {
         "properties": {

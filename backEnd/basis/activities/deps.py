@@ -21,6 +21,7 @@ from basis.extraction.azure_di import AzureDiClient
 from basis.llm.provider import ChatProvider
 from basis.retrieval import Retrieval, default_retrieval
 from basis.storage import Storage
+from basis.vision.localize import Localizer
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +50,11 @@ class Deps:
     # pass ScriptedProvider and InMemoryChunkStore; the worker wires the real ones.
     chat_provider: ChatProvider | None = None
     chunk_store: ChunkStore | None = None
+
+    # SAM 3 object localization (``localize_photo``). ``None`` means not configured
+    # (no ``REPLICATE_API_TOKEN``): every photo's localization is recorded ``skipped``.
+    # Tests pass a ``FakeLocalizer``.
+    localizer: Localizer | None = None
 
     @property
     def faults_enabled(self) -> bool:

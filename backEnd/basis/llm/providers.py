@@ -52,22 +52,18 @@ from basis.llm.errors import (
     ProviderUnavailable,
     is_retryable_status,
 )
+from basis.llm.families import is_reasoning_model as is_reasoning_model  # re-exported
 from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse, Message, ToolCall, Usage
 
 logger = logging.getLogger("basis.llm.providers")
 
 MIN_AZURE_API_VERSION: Final = date(2024, 8, 1)
 RETRY_AFTER_CAP_S: Final = 10.0
-_REASONING_MODEL = re.compile(r"^(o\d|gpt-[5-9])", re.IGNORECASE)
 MALFORMED_ARGUMENTS: Final = "_malformed_arguments"
 # Dropped from strict schemas (pydantic still enforces them when the reply is validated).
 UNSUPPORTED_KEYWORDS: Final = ("default", "minLength", "maxLength", "uniqueItems")
 
 Sleep = Callable[[float], Awaitable[None]]
-
-
-def is_reasoning_model(model: str) -> bool:
-    return bool(_REASONING_MODEL.match(model.strip()))
 
 
 def default_jitter() -> float:

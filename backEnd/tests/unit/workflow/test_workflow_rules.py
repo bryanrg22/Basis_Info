@@ -33,10 +33,17 @@ PROVIDER_ACTIVITIES = {
     "ingest_appraisal",
     "extract_fields",
     "analyze_photo",
+    "localize_photo",
     "process_assets",
     "export_report",
 }
-LOOPING_ACTIVITIES = {"ingest_appraisal", "extract_fields", "analyze_photo", "process_assets"}
+LOOPING_ACTIVITIES = {
+    "ingest_appraisal",
+    "extract_fields",
+    "analyze_photo",
+    "localize_photo",
+    "process_assets",
+}
 
 
 def scheduled_activity_names() -> set[str]:

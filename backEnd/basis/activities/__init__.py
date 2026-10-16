@@ -24,6 +24,7 @@ from basis.activities.export_report import ExportReport
 from basis.activities.extract_fields import ExtractFields
 from basis.activities.ingest_appraisal import IngestAppraisal
 from basis.activities.list_photos import ListPhotos
+from basis.activities.localize_photo import LocalizePhoto
 from basis.activities.mark_stalled import MarkStalled
 from basis.activities.notify_review_pending import NotifyReviewPending
 from basis.activities.process_assets import ProcessAssets
@@ -41,6 +42,7 @@ ACTIVITY_CLASSES: Final[dict[str, type[Any]]] = {
     "ingest_appraisal": IngestAppraisal,
     "extract_fields": ExtractFields,
     "analyze_photo": AnalyzePhoto,
+    "localize_photo": LocalizePhoto,
     "apply_corrections": ApplyCorrections,
     "process_assets": ProcessAssets,
     "export_report": ExportReport,

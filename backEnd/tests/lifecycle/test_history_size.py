@@ -1,8 +1,9 @@
 """A 300-photo study stays far below Temporal's history limits without continue-as-new.
 
 S2_SPEC section 3: continue-as-new is not needed at this size; this test pins it (fewer
-than 10,000 events; Temporal warns at 10,240 and terminates at 51,200). Photo analysis and
-the photo listing are mocked so the test measures the workflow, not the database.
+than 10,000 events; Temporal warns at 10,240 and terminates at 51,200). Photo analysis,
+localization and the photo listing are mocked so the test measures the workflow, not the
+database.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from basis.workflow.contracts import (
     AnalyzePhotoOutput,
     ListPhotosInput,
     ListPhotosOutput,
+    LocalizePhotoInput,
+    LocalizePhotoOutput,
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session"), pytest.mark.slow]
@@ -38,8 +41,18 @@ async def instant_photo(input: AnalyzePhotoInput) -> AnalyzePhotoOutput:
     )
 
 
+@activity.defn(name="localize_photo")
+async def instant_localization(input: LocalizePhotoInput) -> LocalizePhotoOutput:
+    return LocalizePhotoOutput(document_id=input.document_id, status="done", instances=3)
+
+
 async def test_three_hundred_photos_fit_in_one_history(harness: Harness) -> None:
-    async with harness.worker(list_photos=many_photos, analyze_photo=instant_photo):
+    """v0.6: each photo is two activities now (analysis, then localization)."""
+    async with harness.worker(
+        list_photos=many_photos,
+        analyze_photo=instant_photo,
+        localize_photo=instant_localization,
+    ):
         started = await harness.start(budget_usd=25.0)
         status = await harness.wait_awaiting(started.handle, "appraisal_review", 1)
         assert status.completed_photos == PHOTOS and status.flagged_photos == ()
@@ -53,4 +66,4 @@ async def test_three_hundred_photos_fit_in_one_history(harness: Harness) -> None
     assert events < MAX_EVENTS, events
     # Roughly three events per activity plus workflow tasks; a regression to a per-photo
     # loop of timers or signals would show up here long before the hard limit.
-    assert events > 3 * PHOTOS
+    assert events > 6 * PHOTOS

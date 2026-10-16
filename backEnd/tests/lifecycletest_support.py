@@ -49,6 +49,7 @@ from basis.retrieval.chunk import chunk_document
 from basis.retrieval.embed import HashEmbedder
 from basis.retrieval.parse import parse_pdf
 from basis.storage import Storage
+from basis.vision.localize import Localizer
 
 TEST_BUCKET: Final = "basis-test"
 DEFAULT_PHOTOS: Final = ("kitchen_1.jpg", "kitchen_2.jpg", "bathroom_1.jpg")
@@ -246,9 +247,11 @@ def make_deps(
     azure_di: AzureDiClient | None | object = _DEFAULT,
     chat_provider: ChatProvider | None | object = _DEFAULT,
     chunk_store: ChunkStore | None | object = _DEFAULT,
+    localizer: Localizer | None = None,
 ) -> Deps:
     """Deps for tests: hash embedder + fresh BM25 registry, the offline vision/Azure DI
-    fixtures, a scripted classifier and an empty in-memory store by default."""
+    fixtures, a scripted classifier and an empty in-memory store by default. No localizer
+    unless given (photos are then localized ``skipped``, as without REPLICATE_API_TOKEN)."""
     provider = scripted_classifier() if chat_provider is _DEFAULT else chat_provider
     store = InMemoryChunkStore() if chunk_store is _DEFAULT else chunk_store
     return Deps(
@@ -261,6 +264,7 @@ def make_deps(
         azure_di=FixtureAzureDi() if azure_di is _DEFAULT else azure_di,  # type: ignore[arg-type]
         chat_provider=provider,  # type: ignore[arg-type]
         chunk_store=store,  # type: ignore[arg-type]
+        localizer=localizer,
     )
 
 
