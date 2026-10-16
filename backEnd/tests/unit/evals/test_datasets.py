@@ -16,8 +16,9 @@ BOX = {"label": "window", "x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.3}
 
 def test_synthetic_smoke_builds_all_six_datasets_from_the_fixtures() -> None:
     data = ds.synthetic_smoke()
-    # detection_boxes comes from Open Images (evals.openimages); there is no synthetic one.
-    assert set(data) == set(ds.DATASETS) - {"detection_boxes"}
+    # detection_boxes comes from Open Images (evals.openimages); there is no synthetic one,
+    # so neither is the photo_counts dataset derived from it.
+    assert set(data) == set(ds.DATASETS) - {"detection_boxes", "photo_counts"}
     fields = data["appraisal_fields"]
     assert isinstance(fields, ds.AppraisalFields)
     [doc] = fields.documents
@@ -262,3 +263,38 @@ def test_detection_boxes_load_with_component_labels_and_door(tmp_path: Path) -> 
 def test_corpus_pdfs_are_keyed_by_file_stem() -> None:
     pdfs = ds.corpus_pdfs(ds.SYNTHETIC_DIR / "corpus")
     assert list(pdfs) == ["SYN_PUB_A", "SYN_PUB_B", "SYN_PUB_C"]
+
+
+def test_photo_counts_derive_from_verified_non_group_boxes() -> None:
+    boxes = ds.DetectionBoxes.model_validate(
+        {
+            "images": [
+                {
+                    "file": "a.jpg",
+                    "width": 10,
+                    "height": 10,
+                    "verified": ["window", "interior_door", "exterior_door", "electrical_outlet"],
+                    "boxes": [
+                        {"label": "window", "x1": 0, "y1": 0, "x2": 0.5, "y2": 0.5},
+                        {"label": "window", "x1": 0.5, "y1": 0, "x2": 1, "y2": 0.5},
+                        {"label": "window", "x1": 0, "y1": 0, "x2": 1, "y2": 1, "group_of": True},
+                        {"label": "interior_door", "x1": 0, "y1": 0.5, "x2": 0.5, "y2": 1},
+                        {"label": "exterior_door", "x1": 0.5, "y1": 0.5, "x2": 1, "y2": 1},
+                        {"label": "sink", "x1": 0, "y1": 0.5, "x2": 0.5, "y2": 1},
+                    ],
+                },
+                {
+                    "file": "b.jpg",
+                    "width": 10,
+                    "height": 10,
+                    "boxes": [{"label": "toilet", "x1": 0, "y1": 0, "x2": 1, "y2": 1}],
+                },
+            ]
+        }
+    )
+    by_file = {p.file: p.counts for p in ds.photo_counts(boxes).photos}
+    # group boxes are not counted; an unverified label (sink) is not a class of the photo;
+    # the two door labels pool into one "door" class; verified-absent classes are zero
+    assert by_file["a.jpg"] == {"window": 2, "door": 2, "electrical_outlet": 0}
+    assert by_file["b.jpg"] == {"toilet": 1}  # no verified list: every boxed label
+    assert "photo_counts" in ds.DERIVED_DATASETS

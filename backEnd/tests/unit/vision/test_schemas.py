@@ -141,3 +141,30 @@ def test_the_model_schema_is_strict_and_hides_review_fields() -> None:
     assert set(component_def["required"]) == set(component_def["properties"])
     label = schema["$defs"]["ComponentLabel"]
     assert label["enum"] == list(COMPONENT_LABELS)
+
+
+def test_over_long_note_and_description_are_cut_not_fatal() -> None:
+    """Strict JSON schemas drop maxLength, so a talkative model's 250-character note must
+    not fail the photo (28% of one gpt-6.1-sol countables run was lost this way)."""
+    item = Component.model_validate(
+        {
+            "label": "other",
+            "note": "x" * 250,
+            "count": 2,
+            "material": "unknown",
+            "attachment": "freestanding",
+            "confidence": 0.5,
+        }
+    )
+    assert len(item.note or "") == 200 and item.note.endswith("…")
+    analysis = ModelPhotoAnalysis.model_validate(
+        {
+            "room_type": "kitchen",
+            "room_confidence": 0.9,
+            "floor": 1,
+            "room_ordinal": 1,
+            "components": [],
+            "description": "y" * 700,
+        }
+    )
+    assert len(analysis.description) == 500

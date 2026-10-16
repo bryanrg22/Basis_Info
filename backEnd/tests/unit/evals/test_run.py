@@ -17,6 +17,7 @@ from evals.run import (
     render_report,
     score_detection_boxes,
     score_photo_components,
+    score_photo_counts,
     score_room_inventory,
     score_rule_citations,
     write_results,
@@ -468,12 +469,13 @@ async def test_results_are_written_to_eval_tables(database_url: str) -> None:
         )
         ids = await write_results(sm, results, split="dev", git_sha="abc123")
         # The six file datasets the dry run builds plus the derived rule_citations;
-        # detection_boxes has no synthetic file and is reported missing, not written.
-        assert len(ids) == len(ds.DATASETS) - 1 == 8  # detection_boxes is skipped
+        # detection_boxes has no synthetic file (so no derived photo_counts either): both
+        # are reported missing, not written; the other seven files plus rule_citations are.
+        assert len(ids) == len(ds.DATASETS) - 2 == 8
         async with session_scope(sm) as session:
             runs = (await session.scalars(select(EvalRun))).all()
             rows = (await session.scalars(select(EvalResult))).all()
-        assert {r.dataset for r in runs} == set(ds.DATASETS) - {"detection_boxes"}
+        assert {r.dataset for r in runs} == set(ds.DATASETS) - {"detection_boxes", "photo_counts"}
         assert {(r.split, r.git_sha) for r in runs} == {("dev", "abc123")}
         ndcg = next(r for r in rows if r.metric == "ndcg_10")
         assert ndcg.n == 20 and ndcg.value is not None and ndcg.stderr is not None
@@ -482,3 +484,68 @@ async def test_results_are_written_to_eval_tables(database_url: str) -> None:
         assert accuracy.details["system"] == "rules_table"
     finally:
         await engine.dispose()
+
+
+def _counts_dataset() -> ds.PhotoCounts:
+    return ds.PhotoCounts(
+        photos=[
+            ds.PhotoCountLabel(file="a.jpg", counts={"window": 2, "door": 1}),
+            ds.PhotoCountLabel(file="b.jpg", counts={"window": 0, "door": 2}, document="d2"),
+        ]
+    )
+
+
+def test_photo_counts_are_scored_per_class_with_door_as_a_union() -> None:
+    saved = {
+        "a.jpg": {
+            "repeats": [{"Window": 2, "interior_door": 1}, {"window": 3, "exterior_door": 1}]
+        },
+        "b.jpg": {"door": 1},  # one value for every repeat; windows absent = 0
+    }
+    rows = {r.metric: r for r in score_photo_counts(_counts_dataset(), "dev", 2, saved).rows}
+    # pairs: a r1 (2,2) (1,1); a r2 (3,2) (1,1); b r1 (0,0) (1,2); b r2 (0,0) (1,2)
+    assert rows["count_mae"].n == 8 and rows["count_mae"].value == pytest.approx(3 / 8)
+    assert rows["exact_count_rate"].value == pytest.approx(5 / 8)
+    assert rows["count_signed_bias"].value == pytest.approx(-1 / 8)
+    assert rows["count_mae:window"].value == pytest.approx(1 / 4)
+    assert rows["count_recall:door"].value == pytest.approx(4 / 6)
+    assert rows["count_precision:window"].value == pytest.approx(4 / 5)
+
+
+def test_photo_counts_fall_back_to_the_raw_records(tmp_path: Path) -> None:
+    predictions = tmp_path / "pred"
+    predictions.mkdir()
+    records = [
+        {
+            "file": "a.jpg",
+            "repeat": 2,
+            "analysis": {"components": [{"label": "window", "count": 1}]},
+        },
+        {
+            "file": "a.jpg",
+            "repeat": 1,
+            "analysis": {
+                "components": [
+                    {"label": "window", "count": 1},
+                    {"label": "window", "count": 2},
+                    {"label": "door"},
+                ]
+            },
+        },
+        {"file": "b.jpg", "repeat": 1, "error": "timed out"},
+    ]
+    (predictions / "photo_raw.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n")
+    from evals.run import _counts_from_raw
+
+    counts = _counts_from_raw(predictions)
+    assert counts == {"a.jpg": {"repeats": [{"window": 3, "door": 1}, {"window": 1}]}}
+    assert _counts_from_raw(tmp_path) is None
+    result = score_photo_counts(_counts_dataset(), "dev", 2, counts)
+    rows = {r.metric: r for r in result.rows}
+    assert rows["count_mae"].n == 4  # b.jpg has no prediction
+    assert any("2 (photo, repeat) pairs have no saved prediction" in n for n in result.notes)
+
+
+def test_photo_counts_without_predictions_are_skipped() -> None:
+    result = score_photo_counts(_counts_dataset(), "dev", 1, None)
+    assert result.skipped and "no saved predictions" in result.notes[0]

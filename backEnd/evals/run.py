@@ -139,6 +139,108 @@ def _load_predictions(directory: Path | None, name: str) -> dict[str, Any] | Non
     return data
 
 
+def _counts_from_raw(directory: Path | None) -> dict[str, Any] | None:
+    """``photo_counts`` predictions rebuilt from ``photo_raw.jsonl`` (runs made before the
+    runners wrote ``photo_counts.json``): ``{file: {"repeats": [{label: count}, ...]}}``."""
+    if directory is None or not (directory / "photo_raw.jsonl").exists():
+        return None
+    per_file: dict[str, list[tuple[int, dict[str, int]]]] = {}
+    for line in (directory / "photo_raw.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        analysis = record.get("analysis")
+        if analysis is None:
+            continue
+        counts: dict[str, int] = {}
+        for component in analysis["components"]:
+            label = str(component["label"])
+            counts[label] = counts.get(label, 0) + int(component.get("count", 1))
+        per_file.setdefault(record["file"], []).append((int(record.get("repeat", 1)), counts))
+    return {
+        file: {"repeats": [counts for _, counts in sorted(runs, key=lambda r: r[0])]}
+        for file, runs in per_file.items()
+    }
+
+
+def predicted_count(counts: Mapping[str, Any], label: str) -> int:
+    """The predicted count of ``label``; ``door`` is interior + exterior (+ a literal door)."""
+    normalized = {normalize_label(str(k)): int(v) for k, v in counts.items()}
+    if label == "door":
+        return sum(normalized.get(k, 0) for k in ("door", "interior_door", "exterior_door"))
+    return normalized.get(label, 0)
+
+
+def score_photo_counts(
+    data: ds.PhotoCounts, split: str, repeats: int, saved: dict[str, Any] | None
+) -> TaskResult:
+    result = TaskResult("photo_counts", "predictions" if saved is not None else "-")
+    photos = [p for p in data.photos if p.split == split]
+    if not photos:
+        result.skipped = True
+        result.notes.append(f"no {split} items")
+        return result
+    if saved is None:
+        result.skipped = True
+        result.notes.append(
+            "no saved predictions (python -m evals.predict_photos); there is no baseline"
+        )
+        return result
+    pairs: list[tuple[int, int]] = []
+    clusters: list[str] = []
+    per_class: dict[str, list[tuple[int, int]]] = {}
+    missing = 0
+    for photo in photos:
+        for counts in _repeats(saved.get(photo.file), repeats):
+            if counts is None:
+                missing += 1
+                continue
+            for label, true in photo.counts.items():
+                predicted = predicted_count(counts, label)
+                pairs.append((predicted, true))
+                clusters.append(photo.document)
+                per_class.setdefault(label, []).append((predicted, true))
+
+    def rows(name: str, values: list[tuple[int, int]], suffix: str = "") -> list[MetricRow]:
+        errors = [float(abs(p - t)) for p, t in values]
+        signed = [float(p - t) for p, t in values]
+        tp = sum(min(p, t) for p, t in values)
+        fp = sum(max(0, p - t) for p, t in values)
+        fn = sum(max(0, t - p) for p, t in values)
+        n = len(values)
+        out = [
+            MetricRow(f"count_mae{suffix}", mean(errors), n),
+            MetricRow(f"exact_count_rate{suffix}", sum(1 for e in errors if e == 0) / n, n),
+            MetricRow(f"count_signed_bias{suffix}", mean(signed), n),
+            MetricRow(f"count_precision{suffix}", tp / (tp + fp) if tp + fp else 0.0, tp + fp),
+            MetricRow(f"count_recall{suffix}", tp / (tp + fn) if tp + fn else 0.0, tp + fn),
+        ]
+        return out
+
+    if not pairs:
+        result.skipped = True
+        result.notes.append("no photo of the dataset has a saved prediction")
+        return result
+    overall = rows("overall", pairs)
+    overall[0] = MetricRow(
+        "count_mae",
+        overall[0].value,
+        overall[0].n,
+        clustered_standard_error([float(abs(p - t)) for p, t in pairs], clusters),
+    )
+    result.rows += overall
+    for label in sorted(per_class):
+        result.rows += rows(label, per_class[label], f":{label}")
+    result.notes.append(
+        "per (photo, class, repeat) over the verified classes of each photo (missing = 0); "
+        "count precision/recall pool min/over/under-counts over pairs; 'door' is scored "
+        "against interior_door + exterior_door; SE clustered by document"
+    )
+    if missing:
+        result.notes.append(f"{missing} (photo, repeat) pairs have no saved prediction")
+    return result
+
+
 def _filename_words(file: str) -> set[str]:
     return set(_WORD.findall(Path(file).stem.lower()))
 
@@ -1358,6 +1460,9 @@ def evaluate(
             results.append(
                 score_report_rows(dataset, split, repeats, saved, room_labels, materials)
             )
+        elif isinstance(dataset, ds.PhotoCounts):
+            counts = saved if saved is not None else _counts_from_raw(predictions)
+            results.append(score_photo_counts(dataset, split, repeats, counts))
     return results
 
 

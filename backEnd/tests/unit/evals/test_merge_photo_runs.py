@@ -107,6 +107,10 @@ def test_merge_runs_writes_the_harness_files(tmp_path: Path) -> None:
         "sink": 1,
         "tile": 1,
     }
+    counts = json.loads((out / "photo_counts.json").read_text())
+    assert counts["1.jpg"] == {
+        "repeats": [{"window": 2, "sink": 1, "tile": 1}, {"window": 3, "tile": 1}]
+    }
     assert summary["spent_usd"] == 0.55 and summary["missing_in_some_run"] == ["2.jpg#2"]
     assert [s["prompt"] for s in summary["merged_from"]] == [
         "photo_countables/v1",

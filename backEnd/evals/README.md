@@ -82,7 +82,10 @@ Predictions come from `python -m evals.predict_photos` (one call per photo with
 combined with `python -m evals.merge_photo_runs --runs <countables> <surfaces> --out <dir>`
 (label sets unioned per photo, the largest count per label, the room type of the run named
 by `--room-from N`, default the first) and
-the merged directory scores like any single run (EVAL_REPORT section 11). After a
+the merged directory scores like any single run (EVAL_REPORT section 11). The component
+merge is `basis.vision.merge.merge_components`, the same function the pipeline's
+`VISION_PHOTO_MODE=decomposed` step runs, so a merged run scores the step as shipped.
+After a
 `--model` run, check `run.json` `models_reported`: the provider pool falls back to the
 secondary provider per call, so a rate-limited primary silently mixes models into a run.
 
@@ -250,6 +253,23 @@ scoring as in ExpertLongBench / CheckEval (one binary judgment per required item
 aggregated as recall, not-applicable items kept out of the denominator); the cost
 weighting mirrors the IRS Cost Segregation ATG's requirement that a study's asset list
 tie out to its total cost.
+### `photo_counts` (derived from `detection_boxes`, no file)
+
+Per photo, the true count of every verified class: the non-group boxes of that label,
+zero when the class is verified absent. The door labels pool into one `door` class
+(`door`, `interior_door`, `exterior_door` boxes; predictions of the three are summed),
+because the count, not the interior/exterior split, is what the yardstick measures. On our
+own photos every image carries the six verified classes, so every (photo, class) pair
+counts, zeros included; Open Images images without a `verified` list contribute one class
+per boxed label and no zeros. Predictions: `photo_counts.json` from `evals.predict_photos`
+or `evals.merge_photo_runs` (`{"<file>": {"label": count} | {"repeats": [...]}}`); a
+predictions directory without it is read from its `photo_raw.jsonl`.
+
+Metrics, per (photo, class, repeat): count MAE (SE clustered by document), exact-count
+rate, signed bias (> 0 over-counting), count precision and recall (min / over / under
+counts pooled over pairs), and the same per class (`count_mae:window`, ...). This is the
+number the engineer prices; the label-set metrics of `photo_components` say whether a
+thing was listed at all.
 
 ### `rule_citations` (derived, no file)
 

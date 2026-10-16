@@ -171,6 +171,16 @@ async def test_reasoning_models_use_max_completion_tokens_and_no_temperature() -
     body = server.body()
     assert body["max_completion_tokens"] == 300
     assert "max_tokens" not in body and "temperature" not in body
+    assert "reasoning_effort" not in body
+
+
+async def test_reasoning_effort_is_sent_only_to_reasoning_models() -> None:
+    server = Server(ok())
+    await provider(server).complete(request(model="gpt-6.1-sol", reasoning_effort="low"))
+    assert server.body()["reasoning_effort"] == "low"
+    server = Server(ok())
+    await provider(server).complete(request(model="gpt-4.1", reasoning_effort="low"))
+    assert "reasoning_effort" not in server.body()
 
 
 @pytest.mark.parametrize(
@@ -179,6 +189,8 @@ async def test_reasoning_models_use_max_completion_tokens_and_no_temperature() -
         ("gpt-5", True),
         ("gpt-5-nano", True),
         ("o3-mini", True),
+        ("gpt-6.1-sol", True),
+        ("gpt-6-astra", True),
         ("gpt-4o", False),
         ("gpt-4.1", False),
     ],

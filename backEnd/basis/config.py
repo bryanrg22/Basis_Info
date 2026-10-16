@@ -140,6 +140,11 @@ class Settings(BaseSettings):
     # Concurrent model calls per worker process (the provider pool's semaphore).
     llm_concurrency: int = Field(default=4, ge=1, le=64)
     vision_max_tokens: int = Field(default=1200, ge=64, le=16384)
+    # The per-photo vision step (basis.vision.analyze): "single" sends one photo_analysis
+    # call per photo; "decomposed" sends two narrow calls (photo_countables and
+    # photo_surfaces) and merges them (EVAL_REPORT section 11). Default single until the
+    # decomposed step is switched on deliberately.
+    vision_photo_mode: Literal["single", "decomposed"] = "single"
     extraction_fallback_max_tokens: int = Field(default=800, ge=64, le=16384)
     azure_document_intelligence_endpoint: str | None = None
     azure_document_intelligence_key: SecretStr | None = None

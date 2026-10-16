@@ -51,7 +51,7 @@ DATASET_FILES: Final[dict[str, str]] = {
 DETECTION_EXTRA_LABELS: Final = frozenset({"door"})
 
 # Datasets built from code rather than read from a file (always available).
-DERIVED_DATASETS: Final[tuple[str, ...]] = ("rule_citations",)
+DERIVED_DATASETS: Final[tuple[str, ...]] = ("rule_citations", "photo_counts")
 DATASETS: Final[tuple[str, ...]] = (*DATASET_FILES, *DERIVED_DATASETS)
 SYNTHETIC_DIR: Final = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "synthetic"
 
@@ -421,6 +421,58 @@ class ReportRows(_Model):
         return self
 
 
+class PhotoCountLabel(_Model):
+    """True object counts of one photo, per class, from its verified boxes."""
+
+    file: str
+    document: str = "package"
+    split: Split = "dev"
+    counts: dict[str, int]
+
+
+class PhotoCounts(_Model):
+    """Derived from ``detection_boxes``: per photo, the number of non-group boxes of every
+    verified class (zero when verified absent; a photo without a ``verified`` list has one
+    class per boxed label and no zeros). Door classes are pooled: ``door``,
+    ``interior_door`` and ``exterior_door`` become one ``door`` class counting all three,
+    scored against the same union of predictions (the model's interior/exterior split is
+    not what the count measures). Scores a per-photo model's counts
+    (``evals.predict_photos``) against the same yardstick as the detector."""
+
+    schema_version: int = 1
+    photos: list[PhotoCountLabel]
+
+
+DOORS: Final = frozenset({"door", "interior_door", "exterior_door"})
+
+
+def photo_counts(boxes: DetectionBoxes) -> PhotoCounts:
+    photos = []
+    for image in boxes.images:
+        labels = (
+            list(image.verified)
+            if image.verified is not None
+            else sorted({b.label for b in image.boxes})
+        )
+        # One "door" class: the verified list names the box labels (interior_door,
+        # exterior_door) so the detection scorer keeps them, while the count is pooled.
+        classes = sorted({"door" if label in DOORS else label for label in labels})
+        counts = {
+            label: sum(
+                1
+                for b in image.boxes
+                if not b.group_of and (b.label == label or (label == "door" and b.label in DOORS))
+            )
+            for label in classes
+        }
+        photos.append(
+            PhotoCountLabel(
+                file=image.file, document=image.document, split=image.split, counts=counts
+            )
+        )
+    return PhotoCounts(photos=photos)
+
+
 Dataset = (
     AppraisalFields
     | PhotoRooms
@@ -431,6 +483,7 @@ Dataset = (
     | DetectionBoxes
     | ReportRows
     | RuleCitations
+    | PhotoCounts
 )
 MODELS: Final[dict[str, type[BaseModel]]] = {
     "appraisal_fields": AppraisalFields,
@@ -482,6 +535,8 @@ def load_available(directory: str | Path | None = None) -> dict[str, BaseModel]:
         if (root / filename).exists()
     }
     found["rule_citations"] = rule_citations()
+    if "detection_boxes" in found:
+        found["photo_counts"] = photo_counts(found["detection_boxes"])  # type: ignore[arg-type]
     return found
 
 
