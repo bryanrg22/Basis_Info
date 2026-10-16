@@ -65,6 +65,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--prompt", default=None, help="released photo_analysis version, e.g. v2 (default: latest)"
     )
     parser.add_argument("--model", default=None, help="model name (default: VISION_MODEL)")
+    parser.add_argument(
+        "--prompt-name",
+        default="photo_analysis",
+        help="prompt family: photo_analysis (default), photo_countables or photo_surfaces",
+    )
     return parser.parse_args(argv)
 
 
@@ -129,7 +134,11 @@ async def run(args: argparse.Namespace) -> int:
             recorder=recorder,
         ),
         provider=pool,
-        prompt=(prompts.load("photo_analysis", args.prompt) if args.prompt else released_prompt()),
+        prompt=(
+            prompts.load(args.prompt_name, args.prompt or prompts.versions(args.prompt_name)[-1])
+            if args.prompt or args.prompt_name != "photo_analysis"
+            else released_prompt()
+        ),
         model=args.model or settings.vision_model,
     )
     semaphore = asyncio.Semaphore(args.concurrency)

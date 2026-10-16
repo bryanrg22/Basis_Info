@@ -181,3 +181,21 @@ async def test_transient_provider_errors_are_retried_then_recorded(
     assert [e["file"] for e in run["errors"]] == ["01_kitchen.jpg", "02_bathroom.jpg"]
     assert json.loads((out2 / "photo_rooms.json").read_text()) == {}
     assert hopeless.calls == 2 * (len(predict_photos.RETRY_DELAYS_S) + 1)
+
+
+async def test_prompt_family_option_selects_a_decomposed_prompt(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FixtureVisionProvider()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    out = tmp_path / "out"
+    code = await predict_photos.run(
+        predict_photos.parse_args(
+            ["--photos", str(photo_dir), "--out", str(out), "--prompt-name", "photo_countables"]
+        )
+    )
+    assert code == 0
+    assert {r.prompt_version for r in provider.requests} == {"photo_countables/v1"}
+    assert json.loads((out / "run.json").read_text())["prompt"] == "photo_countables/v1"
