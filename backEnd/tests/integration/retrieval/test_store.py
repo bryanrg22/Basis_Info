@@ -141,6 +141,21 @@ async def test_vector_search_prefers_lexical_neighbours(
     assert await store.search_vector(version, query, 0) == []
 
 
+async def test_vector_search_ef_search_widens_the_candidate_list(
+    reference_corpus: Corpus, store: PostgresChunkStore, embedder: HashEmbedder
+) -> None:
+    version = reference_corpus.result.corpus_version_id
+    [query] = embedder.embed(["half-year convention and mid-month convention"])
+    default = await store.search_vector(version, query, 5)
+    widened = await store.search_vector(version, query, 5, ef_search=1000)
+    # On a corpus this small the index is exact either way; the option must not change the
+    # answer, and out-of-range values are refused before any query.
+    assert [h.chunk_id for h in widened] == [h.chunk_id for h in default]
+    for bad in (0, 1001):
+        with pytest.raises(ValueError):
+            await store.search_vector(version, query, 5, ef_search=bad)
+
+
 # --------------------------------------------------------------------------- tables
 
 
