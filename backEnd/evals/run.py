@@ -26,7 +26,10 @@ deterministic baseline runs where one exists:
 * ``room_inventory``: ``per_photo_max`` (the labelled per-photo components of
   ``photo_components`` merged per room by label, count = the largest per-photo count:
   what the inventory is with no cross-photo reconciliation, the floor the per-room call
-  has to beat).
+  has to beat);
+* ``detection_boxes``: none. It is scored only from saved predictions
+  (``python -m evals.predict_boxes``): per-class AP@0.5, mAP, and counts, precision and
+  recall at ``--detection-threshold``.
 
 Model-backed systems (extraction, vision, the residual classifier) are run by the
 orchestrator and scored through ``--predictions``. Every metric is reported with ``n``, a
@@ -62,9 +65,14 @@ from basis.classify.store_protocol import InMemoryChunkStore, StoredChunk
 from basis.domain.rules import lookup, normalize_label
 from evals import datasets as ds
 from evals.metrics import (
+    DetectionImage,
     FieldScore,
+    GoldBox,
+    PredictedBox,
     classification_metrics,
     clustered_standard_error,
+    count_pass_hat_k,
+    detection_metrics,
     field_accuracy,
     field_matches,
     inventory_metrics,
@@ -661,6 +669,116 @@ def score_room_inventory(
     return result
 
 
+def _predicted_boxes(value: Any) -> list[PredictedBox]:
+    """A saved detection prediction: ``[{"label", "score", "x1", "y1", "x2", "y2"}]``."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"a detection prediction must be a list of boxes, got {value!r}")
+    return [
+        PredictedBox(
+            label=normalize_label(str(box["label"])),
+            score=float(box["score"]),
+            x1=float(box["x1"]),
+            y1=float(box["y1"]),
+            x2=float(box["x2"]),
+            y2=float(box["y2"]),
+        )
+        for box in value
+    ]
+
+
+def score_detection_boxes(
+    data: ds.DetectionBoxes,
+    split: str,
+    repeats: int,
+    saved: dict[str, Any] | None,
+    threshold: float = 0.5,
+) -> TaskResult:
+    result = TaskResult("detection_boxes", "predictions" if saved is not None else "-")
+    images = [i for i in data.images if i.split == split]
+    if not images:
+        result.skipped = True
+        result.notes.append(f"no {split} items")
+        return result
+    if saved is None:
+        result.skipped = True
+        result.notes.append(
+            "no saved predictions (python -m evals.predict_boxes); there is no baseline"
+        )
+        return result
+    gold = [
+        DetectionImage(
+            file=i.file,
+            document=i.document,
+            boxes=tuple(GoldBox(b.label, b.x1, b.y1, b.x2, b.y2, b.group_of) for b in i.boxes),
+            verified=frozenset(i.verified) if i.verified is not None else None,
+        )
+        for i in images
+    ]
+    runs: list[dict[str, list[PredictedBox]]] = [{} for _ in range(repeats)]
+    for image in images:
+        for r, value in enumerate(_repeats(saved.get(image.file), repeats)):
+            runs[r][image.file] = _predicted_boxes(value)
+    missing = sorted(i.file for i in images if i.file not in saved)
+    if missing:
+        result.notes.append(f"{len(missing)} images have no predictions (scored as empty)")
+    metrics = detection_metrics(gold, runs[0], threshold=threshold)
+    scored_classes = {c: v for c, v in metrics.classes.items() if v.positives > 0}
+    result.rows.append(
+        MetricRow(
+            "map_50",
+            metrics.map,
+            len(scored_classes),
+            details={
+                c: {"ap": v.ap, "positives": v.positives, "predictions": v.predictions}
+                for c, v in metrics.classes.items()
+            },
+        )
+    )
+    for label, value in metrics.classes.items():
+        result.rows.append(MetricRow(f"ap_50:{label}", value.ap, value.positives))
+    by_class = {
+        c: {
+            "pairs": v.count_pairs,
+            "count_mae": v.count_mae,
+            "count_bias": v.count_bias,
+            "precision": v.precision,
+            "recall": v.recall,
+        }
+        for c, v in metrics.classes.items()
+    }
+    result.rows += [
+        MetricRow("count_mae", metrics.count_mae, metrics.count_pairs, metrics.count_mae_se),
+        MetricRow(
+            "count_signed_bias",
+            metrics.count_bias,
+            metrics.count_pairs,
+            metrics.count_bias_se,
+            details={"by_class": by_class},
+        ),
+        MetricRow("precision_at_threshold", metrics.precision, metrics.predictions_at_threshold),
+        MetricRow("recall_at_threshold", metrics.recall, metrics.positives_at_threshold),
+    ]
+    for label, value in metrics.classes.items():
+        result.rows.append(MetricRow(f"count_mae:{label}", value.count_mae, value.count_pairs))
+        result.rows.append(
+            MetricRow(f"count_signed_bias:{label}", value.count_bias, value.count_pairs)
+        )
+    if repeats >= 2:
+        for k in (repeats, 1):
+            value_k, n = count_pass_hat_k(gold, runs, threshold, k)
+            result.rows.append(MetricRow(f"count_pass^{k}", value_k, n))
+    result.notes.append(
+        f"AP at IoU 0.5 (VOC all-point; Open Images group-of and verified-label rules); "
+        f"counts, precision and recall at score >= {threshold:g}; count pairs are (image, "
+        "class) over the union of gold and predicted classes, skipping classes with a "
+        "group box, SE clustered by document; 'door' is scored against interior_door + "
+        "exterior_door predictions"
+    )
+    return result
+
+
 def _transpose(rows: list[list[bool]]) -> list[list[bool]]:
     return [list(col) for col in zip(*rows, strict=True)] if rows else []
 
@@ -808,6 +926,7 @@ def evaluate(
     repeats: int,
     predictions: Path | None,
     corpus_dir: Path | None,
+    detection_threshold: float = 0.5,
 ) -> list[TaskResult]:
     results: list[TaskResult] = []
     for name in ds.DATASETS:  # the dataset files in order, then the derived rule_citations
@@ -839,6 +958,10 @@ def evaluate(
                     labels if isinstance(labels, ds.PhotoComponentsSet) else None,
                 )
             )
+        elif isinstance(dataset, ds.DetectionBoxes):
+            results.append(
+                score_detection_boxes(dataset, split, repeats, saved, detection_threshold)
+            )
     return results
 
 
@@ -851,9 +974,17 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--predictions", type=Path, default=None)
     parser.add_argument("--report", type=Path, default=None)
     parser.add_argument("--no-db", action="store_true", help="do not write eval_runs rows")
+    parser.add_argument(
+        "--detection-threshold",
+        type=float,
+        default=0.5,
+        help="score at or above which a detection counts (counts, precision, recall)",
+    )
     args = parser.parse_args(argv)
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
+    if not 0.0 <= args.detection_threshold <= 1.0:
+        parser.error("--detection-threshold must be in [0, 1]")
     return args
 
 
@@ -878,6 +1009,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         repeats=args.repeats,
         predictions=args.predictions,
         corpus_dir=corpus_dir,
+        detection_threshold=args.detection_threshold,
     )
     report = render_report(
         results, split=args.split, repeats=args.repeats, source=source, git_sha=sha

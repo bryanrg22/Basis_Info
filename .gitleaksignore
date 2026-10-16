@@ -1,0 +1,4 @@
+# gitleaks fingerprints (commit:file:rule:line) of findings that are fake test values.
+# gitleaks scans the pull request's commit history, where a later edit does not remove
+# the line, so the historical fingerprint is listed here.
+e7efbb2bc628904fdf6665fb66c578747f875122:backEnd/tests/unit/config/test_settings.py:generic-api-key:359
