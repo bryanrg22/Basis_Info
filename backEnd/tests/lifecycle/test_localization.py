@@ -44,14 +44,17 @@ from basis.workflow.contracts import CorrectionInput
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
-def instance(label: str, score: float) -> Instance:
+def instance(label: str, score: float, at: int = 0) -> Instance:
+    """``at`` places the instance (its own mask and box): two instances of one label with
+    the same mask would be suppressed as one object by the localizer's dedupe."""
     mask = np.zeros((8, 8), dtype=bool)
-    mask[1:4, 1:4] = True
+    mask[1:4, 1 + 4 * at : 4 + 4 * at] = True
+    x1 = 0.1 + 0.5 * at
     return Instance(
         label=ComponentLabel(label),
         phrase=label,
         score=score,
-        box=Box(x1=0.1, y1=0.1, x2=0.5, y2=0.5),
+        box=Box(x1=x1, y1=0.1, x2=x1 + 0.3, y2=0.5),
         mask=Rle.encode(mask),
         area=0.14,
     )
@@ -59,7 +62,7 @@ def instance(label: str, score: float) -> Instance:
 
 SCRIPT = {
     "window": [instance("window", 0.9)],
-    "kitchen cabinet": [instance("kitchen_cabinet", 0.8), instance("kitchen_cabinet", 0.4)],
+    "kitchen cabinet": [instance("kitchen_cabinet", 0.8), instance("kitchen_cabinet", 0.4, at=1)],
     "toilet": [instance("toilet", 0.95)],
 }
 
@@ -124,9 +127,10 @@ async def test_every_analyzed_photo_is_localized_before_the_first_gate(harness: 
         await run.cleanup()
 
     objects = await rows(run, PhotoObject, sid, revision=1)
-    # Two kitchen photos: window + 2 cabinets each; the bathroom: window + toilet.
-    assert Counter(o.label for o in objects) == {"window": 3, "kitchen_cabinet": 4, "toilet": 1}
-    assert Counter(o.counted for o in objects) == {True: 6, False: 2}  # the 0.4 cabinets
+    # Every photo is prompted with the countable set (window, cabinet, ...): a window and two
+    # cabinets each; the bathroom also gets its toilet.
+    assert Counter(o.label for o in objects) == {"window": 3, "kitchen_cabinet": 6, "toilet": 1}
+    assert Counter(o.counted for o in objects) == {True: 7, False: 3}  # the 0.4 cabinets
     assert {o.source for o in objects} == {"model"}
 
 
@@ -204,7 +208,7 @@ async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(harness: Harne
 
     r1 = await rows(run, PhotoObject, sid, revision=1)
     r2 = await rows(run, PhotoObject, sid, revision=2)
-    assert len(r1) == 9  # 8 model rows + the manual one, unchanged
+    assert len(r1) == 11  # 10 model rows + the manual one, unchanged
     assert len(r2) == len(r1)
     carried = [o for o in r2 if o.document_id != flagged]
     assert all(o.carried_from is not None for o in carried)

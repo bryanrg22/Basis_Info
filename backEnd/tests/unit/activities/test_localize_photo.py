@@ -48,8 +48,11 @@ pytestmark = pytest.mark.integration
 
 
 def instance(label: str, score: float, x1: float = 0.1, with_mask: bool = True) -> Instance:
+    # Each instance its own mask (where its box is): identical masks of one label would be
+    # suppressed as one object by the localizer's same-label dedupe.
     mask = np.zeros((10, 20), dtype=bool)
-    mask[2:5, 3:9] = True
+    left = int(x1 * 20)
+    mask[2:5, left : left + 6] = True
     return Instance(
         label=ComponentLabel(label),
         phrase=label,
