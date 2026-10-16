@@ -154,6 +154,7 @@ def test_rows_that_conflict_with_the_regulation_are_contested(key: str) -> None:
 def test_uncontested_rows_have_no_note() -> None:
     contested = {k for k, r in RULES.items() if r.contested}
     assert contested == {
+        # Treas. Reg. 1.48-1(e)(2) rows (contested since the migration)
         "toilet",
         "sink",
         "bathtub",
@@ -161,7 +162,65 @@ def test_uncontested_rows_have_no_note() -> None:
         "light_fixture",
         "tile",
         "hardwood_floor",
+        # no supporting text in the reference documents (re-citation, 2026-10-15)
+        "kitchen_cabinet",
+        "countertop",
+        "garbage_disposal",
+        "ceiling_fan",
+        "bathroom_vanity",
+        "mirror",
+        "smoke_detector",
+        "thermostat",
+        "doorbell",
+        "laminate_flooring",
+        "closet_shelving",
+        "water_heater",
+        # supported only for office furniture / freestanding decks
+        "furniture",
+        "chair",
+        "deck",
     }
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "kitchen_cabinet",
+        "countertop",
+        "garbage_disposal",
+        "ceiling_fan",
+        "bathroom_vanity",
+        "mirror",
+        "smoke_detector",
+        "thermostat",
+        "doorbell",
+        "laminate_flooring",
+        "closet_shelving",
+        "water_heater",
+    ],
+)
+def test_rows_without_supporting_text_say_so_and_keep_their_legacy_bucket(key: str) -> None:
+    hit = lookup(key)
+    assert hit is not None and hit.contested is not None
+    assert hit.contested.startswith("No supporting text was found")
+    assert (hit.section, hit.bucket) == ("1245", Bucket.Y5)
+
+
+def test_contested_rows_still_carry_a_citation() -> None:
+    # A contested row cites the closest relevant page; resolve_rule_citations still
+    # verifies it, and the contested note is what sends the asset to review.
+    for key, rule in RULES.items():
+        if rule.contested:
+            assert rule.citations, key
+
+
+def test_citations_name_real_pages() -> None:
+    # The legacy table cited ATG pages 412-420; the ATG PDF (Pub 5653) has 348 pages.
+    pages = {"IRS_IRS_COST_SEG_ATG__2024": 348, "IRS_REV_PROC_87_56": 42}
+    for key, rule in RULES.items():
+        for citation in rule.citations:
+            assert citation.doc_id in pages, (key, citation.doc_id)
+            assert 1 <= citation.page <= pages[citation.doc_id], (key, citation.page)
 
 
 # ----------------------------------------------------------------- property class

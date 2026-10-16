@@ -47,7 +47,8 @@ async def test_rule_hit_makes_no_model_call_and_resolves_its_citations() -> None
 
 
 async def test_rule_citation_that_does_not_resolve_flags_the_asset() -> None:
-    result = await classify(component("refrigerator"), make_ctx(ScriptedProvider([])))
+    # The test reference corpus has no chunk for parking_lot's citation (ATG p.314).
+    result = await classify(component("parking_lot"), make_ctx(ScriptedProvider([])))
     assert result.method == "rule"
     assert result.citations == ()
     assert [d.reason for d in result.dropped] == ["not_found"]

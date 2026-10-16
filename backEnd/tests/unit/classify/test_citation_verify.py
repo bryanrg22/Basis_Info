@@ -58,7 +58,7 @@ async def test_a_valid_citation_is_verified() -> None:
     assert (citation.chunk_id, citation.doc_id, citation.page_start) == (
         CARPET_CHUNK,
         "IRS_IRS_COST_SEG_ATG__2024",
-        415,
+        307,
     )
 
 

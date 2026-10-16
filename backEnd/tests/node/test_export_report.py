@@ -72,14 +72,19 @@ async def test_same_revision_exports_byte_identical_files_with_resolved_evidence
         "1368.52",
     )
     references = sorted(c["reference"] for c in carpet["citations"])
-    assert references == ["IRS_IRS_COST_SEG_ATG__2024, p.415", "IRS_REV_PROC_87_56, p.12"]
+    assert references == [
+        "IRS_IRS_COST_SEG_ATG__2024, p.297",
+        "IRS_IRS_COST_SEG_ATG__2024, p.307",
+    ]
     assert {c["corpus"] for c in carpet["citations"]} == {"reference"}
     door = assets["garage_door"]
     assert [c["chunk_id"] for c in door["citations"]] == [str(STRUCTURAL_CHUNK)]
     assert assets["flooring"]["citations"] == []
 
     summary = document["summary"]
-    assert (summary["assets"], summary["needs_review"], summary["total_citations"]) == (4, 3, 3)
+    # carpet's two citations, the garage door's one, and the refrigerator's 57.0 citation
+    # (ATG p.297, shared with carpet); its kitchen-appliance citation has no test chunk.
+    assert (summary["assets"], summary["needs_review"], summary["total_citations"]) == (4, 3, 4)
     assert summary["by_method"] == {"llm": 2, "rule": 2}
     assert document["files"]["assets_csv"]["sha256"] == hashlib.sha256(csv_bytes).hexdigest()
     every_entry = {c["id"] for a in document["assets"] for c in a["citations"]}

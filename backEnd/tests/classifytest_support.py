@@ -44,21 +44,24 @@ def reference_chunks() -> list[StoredChunk]:
             id=CARPET_CHUNK,
             corpus_version_id=REF_VERSION,
             doc_id="IRS_IRS_COST_SEG_ATG__2024",
-            page_start=415,
-            page_end=415,
-            chunk_key="IRS_IRS_COST_SEG_ATG__2024:415:0",
+            page_start=307,
+            page_end=307,
+            chunk_key="IRS_IRS_COST_SEG_ATG__2024:307:0",
             text="Floor coverings. Carpeting - 5-year recovery when it is tacked down "
-            "and removable without damage.",
+            "and removable without damage. All vinyl composition tile (VCT), sheet vinyl, "
+            "and carpeting will be treated as not permanently attached and not intended to "
+            "be permanent.",
         ),
         StoredChunk(
             id=ASSET_CLASS_CHUNK,
             corpus_version_id=REF_VERSION,
-            doc_id="IRS_REV_PROC_87_56",
-            page_start=12,
-            page_end=12,
-            chunk_key="IRS_REV_PROC_87_56:12:0",
-            text="Distributive trades and services. Asset class 57.0 includes carpeting "
-            "and other furnishings used in the business.",
+            doc_id="IRS_IRS_COST_SEG_ATG__2024",
+            page_start=297,
+            page_end=297,
+            chunk_key="IRS_IRS_COST_SEG_ATG__2024:297:0",
+            text="Distributive trades and services. Asset Class 57.0 - Distributive Trades "
+            "and Services applies to most of the § 1245 property used with RRP, which is "
+            "recovered over 5 years.",
         ),
         StoredChunk(
             id=STRUCTURAL_CHUNK,
