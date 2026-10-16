@@ -47,9 +47,11 @@ async def test_create_returns_201_with_the_study(api: Api, seed: Seed) -> None:
         "status",
         "current_stage",
         "revision",
+        "room_aliases",
         "created_at",
         "updated_at",
     }
+    assert body["room_aliases"] == {}
 
 
 async def test_create_persists_the_row(
@@ -74,6 +76,14 @@ async def test_create_persists_the_row(
         {"property_name": 12},
         {"property_name": "ok", "unexpected": True},
         {"property_name": "ok", "org_id": "not-a-uuid"},
+        # Room aliases: file-name room ids only, no loop, no self-alias.
+        {"property_name": "ok", "room_aliases": {"Kitchen": "1_kitchen"}},
+        {"property_name": "ok", "room_aliases": {"1_nook": "kitchen"}},
+        {"property_name": "ok", "room_aliases": {"1_nook": 3}},
+        {"property_name": "ok", "room_aliases": {"1_a": "1_b", "1_b": "1_a"}},
+        {"property_name": "ok", "room_aliases": {"1_a": "1_a"}},
+        {"property_name": "ok", "room_aliases": ["1_a"]},
+        {"property_name": "ok", "room_aliases": {f"x_r{i}": "x_k" for i in range(501)}},
     ],
 )
 async def test_create_rejects_invalid_bodies(api: Api, payload: dict[str, Any]) -> None:
@@ -81,6 +91,23 @@ async def test_create_rejects_invalid_bodies(api: Api, payload: dict[str, Any]) 
     assert response.status_code == 422
     assert response.headers["content-type"] == PROBLEM_JSON
     assert response.json()["errors"]
+
+
+async def test_create_stores_room_aliases(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    aliases = {"1_breakfast_nook": "1_kitchen", "2_bed_3_shower": "2_bed_3_bath", "b_x": "x_y"}
+    response = await api.post(
+        "alice", "/v1/studies", {"property_name": "Harbor", "room_aliases": aliases}
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["room_aliases"] == aliases
+    async with sessionmaker() as session:
+        study = await session.get(Study, uuid.UUID(body["id"]))
+    assert study is not None and study.room_aliases == aliases
+    detail = await api.get("alice", f"/v1/studies/{body['id']}")
+    assert detail.json()["room_aliases"] == aliases
 
 
 async def test_create_in_another_org_as_engineer(api: Api, seed: Seed) -> None:

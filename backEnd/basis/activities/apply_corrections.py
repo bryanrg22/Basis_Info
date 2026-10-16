@@ -27,6 +27,15 @@ after a rooms rejection for a room that held a flagged photo: that room's photos
 to change, so ``reconcile_rooms`` rebuilds its inventory in the new revision (a correction
 of one of those rows is not carried; it would describe photos that are re-analyzed).
 
+Merging rooms (EVAL_REPORT section 25): a ``room`` correction ``{"merge_into": <room id>}``
+moves the room's photos and per-photo rows into the target room of the new revision (chains
+followed; a loop, a self-merge, an unknown target or extra fields are refused). Neither
+room's inventory is carried, so ``reconcile_rooms`` rebuilds the merged room. A merge of
+two file-name rooms is recorded in ``studies.room_aliases``
+(:func:`basis.vision.rooms.merge_alias`); a target keyed by the model's identity adopts the
+merged room's file-name key instead. Either way a photo of the merged room re-analyzed
+later joins the target.
+
 ``extraction_field`` and ``asset`` corrections are applied by the activity that
 recomputes those rows (they receive the corrections in their input), so ``applied``
 counts only the room and component corrections applied here. Every correction is
@@ -53,6 +62,7 @@ from basis.activities._support import (
 )
 from basis.activities.corrections import (
     COMPONENT_FIELDS,
+    MERGE_INTO,
     PHOTO_FIELDS,
     ROOM_FIELDS,
     check_asset,
@@ -61,13 +71,13 @@ from basis.activities.corrections import (
 )
 from basis.activities.deps import Deps
 from basis.db.enums import DocumentKind
-from basis.db.models import Component, Extraction, Room
+from basis.db.models import Component, Extraction, Room, Study
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
-from basis.vision.rooms import is_room_inventory
+from basis.vision.rooms import is_room_inventory, merge_alias
 from basis.workflow.contracts import (
     CORRECTION_TYPES,
     ApplyCorrectionsInput,
@@ -205,15 +215,26 @@ async def _carry_rooms(
     old_components = {c.id: c for c in await repo.components(study_id, from_revision)}
     room_after = _targets(room_corrections, old_rooms, ROOM_FIELDS, "room")
     component_after = _targets(component_corrections, old_components, COMPONENT_FIELDS, "component")
+    merges = _merges(room_after, old_rooms)
+    for source in merges:
+        del room_after[source]
 
     all_assignments = await repo.photo_rooms(study_id, from_revision)
     assignments = [pr for pr in all_assignments if pr.document_id not in skip_photos]
     rebuilt_rooms = {pr.room_id for pr in all_assignments if pr.document_id in skip_photos}
-    keep_rooms = {pr.room_id for pr in assignments} | set(room_after)
+    rebuilt_rooms |= set(merges) | set(merges.values())
+    keep_rooms = {pr.room_id for pr in assignments} | set(room_after) | set(merges.values())
+    keep_rooms -= set(merges)
     new_room_ids: dict[uuid.UUID, uuid.UUID] = {}
+    adopted = _adopted_keys(merges, old_rooms)
     for room_id in sorted(keep_rooms):
         heartbeat("room")
-        new_room_ids[room_id] = await _copy_room(repo, old_rooms[room_id], to_revision, room_after)
+        new_room_ids[room_id] = await _copy_room(
+            repo, old_rooms[room_id], to_revision, room_after, adopted.get(room_id)
+        )
+    for source, target in merges.items():
+        new_room_ids[source] = new_room_ids[target]
+    await _record_merges(session, study_id, merges, old_rooms)
     for assignment in assignments:
         await repo.assign_photo(
             study_id=study_id,
@@ -234,7 +255,77 @@ async def _carry_rooms(
     await PhotoObjectRepository(session).carry(
         study_id, from_revision, to_revision, skip_photos=skip_photos
     )
-    return len(room_after) + len(component_after)
+    return len(room_after) + len(merges) + len(component_after)
+
+
+def _merges(
+    room_after: dict[uuid.UUID, dict[str, Any]], old_rooms: dict[uuid.UUID, Room]
+) -> dict[uuid.UUID, uuid.UUID]:
+    """``{merged room: room it ends in}`` from the ``merge_into`` corrections, chains
+    followed (``a -> b -> c`` ends ``a`` and ``b`` in ``c``). A merge with other fields,
+    into an unknown room, into itself, or in a loop is a ``ValidationError``."""
+    direct: dict[uuid.UUID, uuid.UUID] = {}
+    for room_id, after in room_after.items():
+        if MERGE_INTO not in after:
+            continue
+        if len(after) > 1:
+            raise validation_error(f"room {room_id}: merge_into takes no other field")
+        target = parse_uuid(str(after[MERGE_INTO]), "merge_into")
+        if target not in old_rooms:
+            raise validation_error(f"room {target} (merge_into) is not in the rejected revision")
+        if target == room_id:
+            raise validation_error(f"room {room_id} cannot be merged into itself")
+        direct[room_id] = target
+    final: dict[uuid.UUID, uuid.UUID] = {}
+    for start in direct:
+        seen = [start]
+        current = direct[start]
+        while current in direct:
+            if current in seen:
+                raise validation_error("room merges loop: " + " -> ".join(map(str, seen)))
+            seen.append(current)
+            current = direct[current]
+        final[start] = current
+    return final
+
+
+def _adopted_keys(
+    merges: dict[uuid.UUID, uuid.UUID], old_rooms: dict[uuid.UUID, Room]
+) -> dict[uuid.UUID, str]:
+    """A target room with no file-name key takes the key of the first file-name room merged
+    into it (in room id order), so a photo of that room re-analyzed later joins it."""
+    adopted: dict[uuid.UUID, str] = {}
+    for source in sorted(merges):
+        target = merges[source]
+        key = old_rooms[source].group_key
+        if old_rooms[target].group_key is None and key is not None:
+            adopted.setdefault(target, key)
+    return adopted
+
+
+async def _record_merges(
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    merges: dict[uuid.UUID, uuid.UUID],
+    old_rooms: dict[uuid.UUID, Room],
+) -> None:
+    """Record each merge of two file-name rooms as a study room alias (``merge_alias``)."""
+    pairs = [
+        (old_rooms[s].group_key, old_rooms[t].group_key)
+        for s, t in sorted(merges.items())
+        if old_rooms[s].group_key is not None and old_rooms[t].group_key is not None
+    ]
+    if not pairs:
+        return
+    study = await session.get(Study, study_id)
+    if study is None:  # pragma: no cover - the rooms exist, so the study does
+        raise validation_error(f"study {study_id} not found")
+    aliases = dict(study.room_aliases or {})
+    for source, target in pairs:
+        assert source is not None and target is not None
+        if source != target:
+            aliases = merge_alias(aliases, source, target)
+    study.room_aliases = aliases
 
 
 def _targets(
@@ -258,6 +349,7 @@ async def _copy_room(
     old: Room,
     to_revision: int,
     room_after: dict[uuid.UUID, dict[str, Any]],
+    adopted_key: str | None = None,
 ) -> uuid.UUID:
     changes = room_after.get(old.id, {})
     new = await repo.create(
@@ -267,6 +359,7 @@ async def _copy_room(
         room_type=str(changes.get("room_type", old.room_type)),
         floor=changes.get("floor", old.floor),
         source="manual" if changes else old.source,
+        group_key=old.group_key if old.group_key is not None else adopted_key,
     )
     return new.id
 

@@ -12,6 +12,8 @@
 * ``0004_photo_objects`` adds ``photo_localizations`` and ``photo_objects`` with their
   checks (normalized ordered box, known source and status, no author on model rows,
   deletion recorded with who) and tenancy key, and downgrades back to ``0003``;
+* ``0005_room_grouping`` adds ``rooms.group_key`` (NULL for existing rooms) and
+  ``studies.room_aliases`` (``{}`` for existing studies), and downgrades back to ``0004``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -44,8 +46,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0004"
-HISTORY = ["0004", "0003", "0002", "0001"]
+HEAD = "0005"
+HISTORY = ["0005", "0004", "0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -468,3 +470,59 @@ async def test_0004_downgrade_restores_0003(empty_database_url: str) -> None:
     assert {"photo_localizations", "photo_objects"} <= after["tables"]  # type: ignore[operator]
     await downgrade(empty_database_url, "0003")
     assert await snapshot(empty_database_url) == at_0003
+
+
+# --------------------------------------------------------------------------- 0005
+
+
+async def test_0005_room_grouping_columns_default_for_existing_rows(
+    empty_database_url: str,
+) -> None:
+    await upgrade(empty_database_url, "0004")
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        study, _, _ = await _photo(connection)
+        room = await connection.fetchval(
+            "INSERT INTO rooms (study_id, revision, name, room_type, source) "
+            "VALUES ($1, 1, 'Kitchen', 'kitchen', 'vision') RETURNING id",
+            study,
+        )
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        assert await connection.fetchval("SELECT group_key FROM rooms WHERE id = $1", room) is None
+        aliases = await connection.fetchval("SELECT room_aliases FROM studies WHERE id = $1", study)
+        assert aliases == "{}"
+        with pytest.raises(asyncpg.NotNullViolationError):
+            await connection.execute("UPDATE studies SET room_aliases = NULL WHERE id = $1", study)
+    finally:
+        await connection.close()
+
+
+async def test_0005_downgrade_restores_0004(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0004")
+    at_0004 = await snapshot(empty_database_url)
+    await upgrade(empty_database_url)
+    assert await _columns(empty_database_url) == {
+        ("rooms", "group_key"),
+        ("studies", "room_aliases"),
+    }
+    await downgrade(empty_database_url, "0004")
+    assert await snapshot(empty_database_url) == at_0004
+    assert await _columns(empty_database_url) == set()
+
+
+async def _columns(url: str) -> set[tuple[str, str]]:
+    """Which of 0005's columns exist (the snapshot lists tables, not columns)."""
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        rows = await connection.fetch(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE (table_name, column_name) IN (('rooms', 'group_key'), "
+            "('studies', 'room_aliases'))"
+        )
+    finally:
+        await connection.close()
+    return {(r["table_name"], r["column_name"]) for r in rows}

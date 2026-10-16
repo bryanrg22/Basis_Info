@@ -38,8 +38,9 @@ SPEC_TABLES = {
     "orgs": "id name created_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
     "org_members": "org_id user_id role",
+    # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 25).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
-    "created_at updated_at",
+    "room_aliases created_at updated_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",
@@ -47,7 +48,7 @@ SPEC_TABLES = {
     "raw audit created_at",
     "extraction_fields": "id extraction_id study_id section field value_text value_num "
     "value_date confidence source page",
-    "rooms": "id study_id revision name room_type floor source created_at",
+    "rooms": "id study_id revision name room_type floor source group_key created_at",
     "photo_rooms": "study_id document_id room_id revision",
     "components": "id study_id revision document_id room_id label material attachment "
     "confidence bbox raw",
@@ -463,7 +464,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
         for c in t.columns
         if isinstance(c.type, JSONB)
     ]
-    assert len(jsonb) == 15  # v0.6: photo_localizations.params, photo_objects.mask
+    # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases
+    assert len(jsonb) == 16
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

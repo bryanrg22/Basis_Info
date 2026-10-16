@@ -12,8 +12,13 @@ from basis.api.schemas.common import LINE_PATTERN, RequestModel, ResponseModel
 from basis.api.schemas.documents import DocumentOut
 from basis.api.schemas.reviews import ReviewOut
 from basis.db.enums import Stage, StudyStatus
+from basis.vision.rooms import AliasCycleError, resolve_aliases
 
 MAX_PROPERTY_NAME: Final = 200
+MAX_ROOM_ALIASES: Final = 500
+# A file-name room id (basis.vision.rooms.name_hint): floor token, then the slug.
+ROOM_ID_PATTERN: Final = r"^(?:b|x|[0-9]+)_[a-z0-9]+(?:_[a-z0-9]+)*$"
+RoomId = Annotated[str, Field(max_length=200, pattern=ROOM_ID_PATTERN)]
 
 
 class StudyCreate(RequestModel):
@@ -36,10 +41,32 @@ class StudyCreate(RequestModel):
         "create studies (engineer or owner) in exactly one organization.",
     )
 
+    room_aliases: dict[RoomId, RoomId] = Field(
+        default_factory=dict,
+        max_length=MAX_ROOM_ALIASES,
+        description="Rooms to merge when photos are grouped by file name: `{room id: room "
+        "id}`, where a room id is the photo file name's room (`1_kitchen` for "
+        '"21_1st Floor Kitchen photo 1.JPG", `b_bath` for "Basement Bath.JPG", '
+        '`x_mechanicals` for "Mechanicals.JPG"). `{"1_breakfast_nook": "1_kitchen"}` puts '
+        "the breakfast nook's photos in the kitchen. Chains are followed; a loop is refused. "
+        "Rooms can also be merged at the rooms review (a `room` correction with "
+        "`merge_into`).",
+        json_schema_extra={"propertyNames": {"pattern": ROOM_ID_PATTERN}},
+    )
+
     @field_validator("property_name")
     @classmethod
     def _trim(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("room_aliases")
+    @classmethod
+    def _no_loop(cls, value: dict[str, str]) -> dict[str, str]:
+        try:
+            resolve_aliases(value)
+        except AliasCycleError as exc:
+            raise ValueError(str(exc)) from None
+        return value
 
 
 class StudyOut(ResponseModel):
@@ -55,6 +82,7 @@ class StudyOut(ResponseModel):
                     "status": "draft",
                     "current_stage": "uploading",
                     "revision": 1,
+                    "room_aliases": {},
                     "created_at": "2026-10-15T17:02:11.204000Z",
                     "updated_at": "2026-10-15T17:02:11.204000Z",
                 }
@@ -69,6 +97,11 @@ class StudyOut(ResponseModel):
     status: StudyStatus
     current_stage: Stage
     revision: int
+    room_aliases: dict[str, str] = Field(
+        default_factory=dict,
+        description="The study's room aliases (`{room id: room id}`): those given at creation "
+        "and the merges made at the rooms review.",
+    )
     created_at: datetime
     updated_at: datetime
 

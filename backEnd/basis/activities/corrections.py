@@ -21,7 +21,10 @@ from basis.domain.validators import (
 )
 
 EXTRACTION_FIELD_VALUES: Final = frozenset({"value_text", "value_num", "value_date"})
-ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor"})
+ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor", "merge_into"})
+# A ``room`` correction ``{"merge_into": "<room id>"}`` merges the room into another room of
+# the same revision (its photos and per-photo rows move there); it takes no other field.
+MERGE_INTO: Final = "merge_into"
 COMPONENT_FIELDS: Final = frozenset({"label", "material", "attachment"})
 ASSET_FIELDS: Final = frozenset({"category", "bucket", "recovery_period", "irs_section"})
 PHOTO_FIELDS: Final = frozenset[str]()

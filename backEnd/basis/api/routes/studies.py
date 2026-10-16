@@ -75,7 +75,9 @@ async def create_study(
     body: StudyCreate, user: CurrentUserDep, session: SessionDep, response: Response
 ) -> StudyOut:
     org_id = await choose_org(session, user, body.org_id)
-    study = await StudyRepository(session).create(org_id, user.id, body.property_name)
+    study = await StudyRepository(session).create(
+        org_id, user.id, body.property_name, body.room_aliases
+    )
     response.headers["Location"] = f"/v1/studies/{study.id}"
     return StudyOut.model_validate(study)
 

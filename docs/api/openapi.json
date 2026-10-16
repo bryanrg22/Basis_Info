@@ -3671,6 +3671,22 @@
             ],
             "title": "Org Id",
             "description": "Organization that will own the study. Optional when the caller can create studies (engineer or owner) in exactly one organization."
+          },
+          "room_aliases": {
+            "patternProperties": {
+              "^(?:b|x|[0-9]+)_[a-z0-9]+(?:_[a-z0-9]+)*$": {
+                "type": "string",
+                "maxLength": 200,
+                "pattern": "^(?:b|x|[0-9]+)_[a-z0-9]+(?:_[a-z0-9]+)*$"
+              }
+            },
+            "propertyNames": {
+              "pattern": "^(?:b|x|[0-9]+)_[a-z0-9]+(?:_[a-z0-9]+)*$"
+            },
+            "type": "object",
+            "maxProperties": 500,
+            "title": "Room Aliases",
+            "description": "Rooms to merge when photos are grouped by file name: `{room id: room id}`, where a room id is the photo file name's room (`1_kitchen` for \"21_1st Floor Kitchen photo 1.JPG\", `b_bath` for \"Basement Bath.JPG\", `x_mechanicals` for \"Mechanicals.JPG\"). `{\"1_breakfast_nook\": \"1_kitchen\"}` puts the breakfast nook's photos in the kitchen. Chains are followed; a loop is refused. Rooms can also be merged at the rooms review (a `room` correction with `merge_into`)."
           }
         },
         "additionalProperties": false,
@@ -3715,6 +3731,14 @@
           "revision": {
             "type": "integer",
             "title": "Revision"
+          },
+          "room_aliases": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Room Aliases",
+            "description": "The study's room aliases (`{room id: room id}`): those given at creation and the merges made at the rooms review."
           },
           "created_at": {
             "type": "string",
@@ -3767,6 +3791,7 @@
             "org_id": "0b8f0f5e-8d3f-4d64-9a4b-7f3a2c1d9e01",
             "property_name": "1200 Harbor Blvd, Oxnard CA",
             "revision": 1,
+            "room_aliases": {},
             "status": "draft",
             "updated_at": "2026-10-15T17:02:11.204000Z"
           }
@@ -3832,6 +3857,14 @@
             "type": "integer",
             "title": "Revision"
           },
+          "room_aliases": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Room Aliases",
+            "description": "The study's room aliases (`{room id: room id}`): those given at creation and the merges made at the rooms review."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3865,6 +3898,7 @@
             "org_id": "0b8f0f5e-8d3f-4d64-9a4b-7f3a2c1d9e01",
             "property_name": "1200 Harbor Blvd, Oxnard CA",
             "revision": 1,
+            "room_aliases": {},
             "status": "draft",
             "updated_at": "2026-10-15T17:02:11.204000Z"
           }

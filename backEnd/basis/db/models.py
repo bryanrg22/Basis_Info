@@ -232,6 +232,11 @@ class Study(Base):
     # study). transition() compares it so a decision on a stale revision cannot apply.
     revision: Mapped[int] = mapped_column(server_default=text("1"))
     workflow_id: Mapped[str | None] = mapped_column(unique=True)
+    # The engineer's room aliases: ``{file-name room id: room id}`` (``basis.vision.rooms``).
+    # Set at creation and extended by a rooms-review merge; read by ``analyze_photo``.
+    room_aliases: Mapped[dict[str, str]] = mapped_column(
+        JSON_DOC, server_default=text("'{}'::jsonb"), default=dict
+    )
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -331,6 +336,9 @@ class Room(Base):
     room_type: Mapped[str]
     floor: Mapped[str | None]
     source: Mapped[str]
+    # The canonical file-name room id the room groups (``basis.vision.rooms.name_hint``
+    # after the study's aliases); ``None`` for a room keyed by the model's room identity.
+    group_key: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
 
 

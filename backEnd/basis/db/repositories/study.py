@@ -55,8 +55,19 @@ class StudyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, org_id: uuid.UUID, created_by: uuid.UUID, property_name: str) -> Study:
-        study = Study(org_id=org_id, created_by=created_by, property_name=property_name)
+    async def create(
+        self,
+        org_id: uuid.UUID,
+        created_by: uuid.UUID,
+        property_name: str,
+        room_aliases: dict[str, str] | None = None,
+    ) -> Study:
+        study = Study(
+            org_id=org_id,
+            created_by=created_by,
+            property_name=property_name,
+            room_aliases=dict(room_aliases or {}),
+        )
         self._session.add(study)
         await self._session.flush()
         await self._session.refresh(study)

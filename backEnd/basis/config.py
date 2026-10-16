@@ -226,6 +226,11 @@ class Settings(BaseSettings):
     room_reasoning_effort: Effort = "low"
     room_single_photo: Literal["per_photo", "reconcile"] = "per_photo"
     room_materials: Literal["none", "disagree", "sensitive"] = "sensitive"
+    # How analyze_photo puts a photo in a room (EVAL_REPORT 23.3 and 25): "filename" groups
+    # by the file name's room (basis.vision.rooms.group_photos, after the study's
+    # room_aliases) and uses the model's room identity only for a name that says nothing
+    # (IMG_1234.JPG); "model" always uses the model's room identity (before section 25).
+    room_grouping: Literal["filename", "model"] = "filename"
 
     # Classification and pricing (process_assets, S3_SPEC section 5). The residual
     # classifier is a tool loop: EVAL_REPORT section 17.2/17.3 chose claude-sonnet-5-5 at

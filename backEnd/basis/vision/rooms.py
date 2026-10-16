@@ -25,6 +25,17 @@ dataset, so the rule must not drift), and :func:`group_photos` groups by that ro
 after the engineer's aliases, with the room type voted by the per-photo model. It is
 deterministic and makes no model call; the per-room reconciliation call
 (:mod:`basis.vision.reconcile`) runs on its groups.
+
+Production grouping (EVAL_REPORT sections 23.3 and 25): with ``ROOM_GROUPING=filename``
+(the default) ``analyze_photo`` puts a photo whose file name names a room
+(:func:`is_room_hint`) in the room :func:`group_photos` gives it among the study's photos,
+after the study's ``room_aliases`` (:func:`assign_room_by_name`; the room's ``group_key``
+is the canonical file-name room id); a photo whose name says nothing (``IMG_1234.JPG``)
+falls back to the model's room identity (:func:`assign_room`). ``reconcile_rooms`` then
+re-votes each file-name room's type and floor from its photos (:func:`vote_identity`), so
+the rooms are :func:`group_photos`'s. Merging rooms at the rooms review (a ``room``
+correction with ``merge_into``) records the merge as an alias (:func:`merge_alias`), so a
+photo re-analyzed later joins the merged room.
 """
 
 from __future__ import annotations
@@ -269,19 +280,24 @@ def _vote_room_type(photos: Sequence[PhotoInput]) -> RoomType:
     ``ambiguous`` is an abstention, not a vote: it wins only when nothing else was
     answered. No analyses at all -> ``other``.
     """
-    answers = [p.analysis.room_type for p in photos if p.analysis is not None]
+    return _vote_types([p.analysis.room_type for p in photos if p.analysis is not None])
+
+
+def _vote_types(answers: Sequence[RoomType]) -> RoomType:
     if not answers:
         return RoomType.OTHER
-    votes = [a for a in answers if a is not RoomType.AMBIGUOUS] or answers
+    votes: list[RoomType] = [a for a in answers if a is not RoomType.AMBIGUOUS] or list(answers)
     counts = Counter(votes)
     best = max(counts.values())
     return next(a for a in votes if counts[a] == best)
 
 
 def _model_floor(photos: Sequence[PhotoInput]) -> int | None:
-    floors = [
-        p.analysis.floor for p in photos if p.analysis is not None and p.analysis.floor is not None
-    ]
+    return _vote_floor([p.analysis.floor for p in photos if p.analysis is not None])
+
+
+def _vote_floor(answers: Sequence[int | None]) -> int | None:
+    floors = [f for f in answers if f is not None]
     if not floors:
         return None
     counts = Counter(floors)
@@ -334,3 +350,119 @@ def group_photos(
         return _token_order(token), slug
 
     return sorted(groups, key=order)
+
+
+# --------------------------------------------------------------------------- production grouping
+
+# Words cameras, phones and messaging apps put in file names. A name made only of these,
+# digits and hex says nothing about the room ("IMG_1234.JPG", "PXL_20250101_120000.jpg",
+# "WhatsApp Image 2025-01-29 at 10.02.11.jpeg", a UUID).
+CAMERA_WORDS: Final = frozenset(
+    {
+        "img", "image", "images", "dsc", "dscn", "dscf", "dcim", "pxl", "mvimg", "vid", "photo",
+        "photos", "pic", "picture", "screenshot", "screen", "shot", "whatsapp", "signal",
+        "telegram", "snapchat", "edited", "edit", "copy", "final", "scan", "scanned", "jpeg",
+        "jpg", "heic", "heif", "png", "raw", "burst", "cover", "portrait", "pano", "panorama",
+        "at", "am", "pm", "file", "upload", "unnamed", "untitled", "new", "and",
+    }
+)  # fmt: skip
+_WORDS: Final = re.compile(r"[a-z]+")
+_HEX_RUN: Final = re.compile(r"^[0-9a-f]{6,}$")
+
+
+def is_room_hint(filename: str) -> bool:
+    """Whether a file name names a room, so :func:`name_hint` may group by it.
+
+    True when the name, after :func:`_remainder` (no directory, extension, ``NN_`` index or
+    ``photo N``), holds a word of three or more letters that is not a camera or app word
+    (:data:`CAMERA_WORDS`) and not a run of hex digits (a UUID part). ``"21_1st Floor
+    Kitchen photo 1.JPG"`` and ``"49_Mechanicals.JPG"`` are hints; ``"IMG_1234.JPG"``,
+    ``"PXL_20250101_120000.jpg"`` and a UUID are not, and fall back to the model's room
+    identity (:func:`assign_room`).
+    """
+    rest = _remainder(filename).lower()
+    for token in re.split(r"[^a-z0-9]+", rest):
+        if not token or _HEX_RUN.match(token):
+            continue
+        for word in _WORDS.findall(token):
+            if len(word) >= 3 and word not in CAMERA_WORDS:
+                return True
+    return False
+
+
+def name_group(
+    filename: str, photo_files: Sequence[str], aliases: Mapping[str, str] | None = None
+) -> RoomGroup:
+    """The room :func:`group_photos` puts ``filename`` in, among the study's ``photo_files``.
+
+    The group is computed from the file names alone (no analyses), so its ``room_id``,
+    ``name`` and file-name ``floor`` are exactly :func:`group_photos`'s; the room type and
+    a floor no file name gives are voted later from the photos' analyses
+    (:func:`vote_identity`). ``filename`` is added to ``photo_files`` if missing.
+    """
+    files = list(photo_files)
+    if filename not in files:
+        files.append(filename)
+    inputs = [PhotoInput(file=f) for f in sorted(files)]
+    room_id = name_hint(filename).room_id
+    canonical = resolve_aliases(aliases or {}).get(room_id, room_id)
+    for group in group_photos(inputs, aliases):
+        if group.room_id == canonical:
+            return group
+    raise AssertionError(f"{filename} is in no group")  # pragma: no cover - by construction
+
+
+def vote_identity(
+    room_types: Sequence[str], floors: Sequence[int | None]
+) -> tuple[RoomType, int | None]:
+    """A file-name room's type and model floor from its photos' stored answers (in photo
+    order), by :func:`group_photos`'s rules; an unknown type string votes ``other``."""
+    types = []
+    for room_type in room_types:
+        try:
+            types.append(RoomType(room_type))
+        except ValueError:
+            types.append(RoomType.OTHER)
+    return _vote_types(types), _vote_floor(floors)
+
+
+async def assign_room_by_name(
+    session: AsyncSession,
+    *,
+    study_id: uuid.UUID,
+    revision: int,
+    filename: str,
+    photo_files: Sequence[str],
+    aliases: Mapping[str, str],
+    analysis: PhotoAnalysis,
+) -> tuple[uuid.UUID, bool]:
+    """The room of the revision whose ``group_key`` is the photo's file-name room id after
+    the study's aliases, created if missing (named and floored as :func:`group_photos`
+    would; typed by this photo's answer until :func:`vote_identity` re-votes it)."""
+    group = name_group(filename, photo_files, aliases)
+    floor = group.floor if group.floor is not None else analysis.floor
+    room, created = await RoomRepository(session).get_or_create_by_group(
+        study_id=study_id,
+        revision=revision,
+        group_key=group.room_id,
+        name=group.name,
+        room_type=analysis.room_type.value,
+        floor=None if floor is None else str(floor),
+        source=SOURCE,
+    )
+    return room.id, created
+
+
+def merge_alias(aliases: Mapping[str, str], source: str, target: str) -> dict[str, str]:
+    """``aliases`` with the room ``source`` merged into ``target`` (both canonical ids).
+
+    ``target`` becomes canonical (an alias that maps it elsewhere is dropped) and
+    ``source`` maps to it; aliases that pointed at ``source`` now resolve through it to
+    ``target``. The result never loops: ``target`` has no outgoing alias.
+    """
+    if source == target:
+        raise AliasCycleError(f"room {source} cannot be merged into itself")
+    merged = {k: v for k, v in aliases.items() if k != target}
+    merged[source] = target
+    resolve_aliases(merged)
+    return merged

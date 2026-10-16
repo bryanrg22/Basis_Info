@@ -112,6 +112,48 @@ class RoomRepository:
             True,
         )
 
+    async def get_or_create_by_group(
+        self,
+        *,
+        study_id: uuid.UUID,
+        revision: int,
+        group_key: str,
+        name: str,
+        room_type: str,
+        floor: str | None,
+        source: str,
+    ) -> tuple[Room, bool]:
+        """The room of the revision that groups file-name room ``group_key``, created if
+        missing. Serialized per ``(study, revision, group_key)`` with a transaction-scoped
+        advisory lock, so concurrent photos of one room share a row; a room a reviewer
+        renamed keeps its key and is found by it."""
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": f"room-group:{study_id}:{revision}:{group_key}"},
+        )
+        stmt = (
+            select(Room)
+            .where(
+                Room.study_id == study_id,
+                Room.revision == revision,
+                Room.group_key == group_key,
+            )
+            .order_by(Room.created_at, Room.id)
+        )
+        existing = (await self._session.scalars(stmt)).first()
+        if existing is not None:
+            return existing, False
+        room = await self.create(
+            study_id=study_id,
+            revision=revision,
+            name=name,
+            room_type=room_type,
+            source=source,
+            floor=floor,
+            group_key=group_key,
+        )
+        return room, True
+
     async def create(
         self,
         *,
@@ -121,6 +163,7 @@ class RoomRepository:
         room_type: str,
         source: str,
         floor: str | None = None,
+        group_key: str | None = None,
     ) -> Room:
         room = Room(
             study_id=study_id,
@@ -129,6 +172,7 @@ class RoomRepository:
             room_type=room_type,
             floor=floor,
             source=source,
+            group_key=group_key,
         )
         self._session.add(room)
         await self._session.flush()
