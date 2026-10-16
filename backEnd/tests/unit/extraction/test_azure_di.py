@@ -207,6 +207,20 @@ async def test_analyze_maps_service_errors(fake_sdk: type[FakeClient]) -> None:
         await client.analyze(b"%PDF-")
 
 
+async def test_the_real_async_client_builds_its_transport() -> None:
+    """The SDK's async client needs an async HTTP transport (aiohttp, azure-core's ``aio``
+    extra) when it is constructed. The fakes above replace the client, so without this test
+    a missing transport only shows on a live run: every extraction failed with
+    ``ModuleNotFoundError: No module named 'aiohttp'`` (EVAL_REPORT section 23)."""
+    from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
+    from azure.core.credentials import AzureKeyCredential
+
+    async with DocumentIntelligenceClient(
+        endpoint="https://example.invalid", credential=AzureKeyCredential("k")
+    ):
+        pass  # construction and close only: no request is sent
+
+
 def test_from_settings_needs_endpoint_and_key() -> None:
     unconfigured = Settings(  # type: ignore[call-arg]
         _env_file=None,

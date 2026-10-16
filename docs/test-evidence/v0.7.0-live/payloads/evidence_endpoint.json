@@ -1,0 +1,135 @@
+{
+ "pages": 3,
+ "items": 203,
+ "by_bucket": {
+  "y39": 107,
+  "y5": 75,
+  "y7": 8,
+  "y15": 13
+ },
+ "by_method": {
+  "llm": 123,
+  "rule": 80
+ },
+ "needs_review": 186,
+ "with_room": 203,
+ "citations": 261,
+ "citations_verified": 261,
+ "photos_with_localized_instances": 186,
+ "sample_items": [
+  {
+   "asset_id": "02e60e5d-6967-4302-a8ab-fdbe6956c90a",
+   "category": "Interior ceiling finish (wood)",
+   "bucket": "y39",
+   "recovery_period": "39.0",
+   "method": "llm",
+   "needs_review": true,
+   "component_id": "5381c725-48ff-4a67-a090-86918ae0e426",
+   "component_label": "ceiling_finish",
+   "room": {
+    "id": "b3c155b7-a002-462d-9c64-804f489434d7",
+    "name": "Kitchen",
+    "room_type": "kitchen",
+    "floor": "1"
+   },
+   "photos": [
+    {
+     "document_id": "f0a06461-ba4d-4abb-8fff-778d958aead3",
+     "filename": "photo-21.jpg",
+     "role": "room",
+     "localization_status": "done",
+     "instances": []
+    }
+   ],
+   "citations": [
+    {
+     "id": "beb46a1d-f424-4a8d-a916-e4cb9211cce8",
+     "asset_id": "02e60e5d-6967-4302-a8ab-fdbe6956c90a",
+     "chunk_id": "dd5cafdc-4742-4f73-8786-cdebadc05afb",
+     "excerpt": "It is important to note that a building or its structural components is specifically excluded from the definition of \u00a7 1245 property.",
+     "verified_at": "2026-10-16T17:34:33.171599Z",
+     "verification_method": "llm:resolved+retrieved+normalized_substring",
+     "verified": true,
+     "source": {
+      "doc_id": "IRS_IRS_COST_SEG_ATG__2024",
+      "page_start": 88,
+      "page_end": 88,
+      "section_path": "VI. Chapter 6 - Special Topics"
+     }
+    },
+    {
+     "id": "ef6f6a39-581c-438a-a46e-ca18a8ace385",
+     "asset_id": "02e60e5d-6967-4302-a8ab-fdbe6956c90a",
+     "chunk_id": "15498c68-3440-49ea-870b-9664f89feeb4",
+     "excerpt": "Includes all interior ceilings in a residence regardless of finish or d\u00e9cor",
+     "verified_at": "2026-10-16T17:34:33.170801Z",
+     "verification_method": "llm:resolved+retrieved+normalized_substring",
+     "verified": true,
+     "source": {
+      "doc_id": "IRS_IRS_COST_SEG_ATG__2024",
+      "page_start": 298,
+      "page_end": 298,
+      "section_path": "VII. Chapter 7 - Industry Specific Guidance"
+     }
+    }
+   ]
+  },
+  {
+   "asset_id": "02e60e5d-6967-4302-a8ab-fdbe6956c90a",
+   "category": "Interior ceiling finish (wood)",
+   "bucket": "y39",
+   "recovery_period": "39.0",
+   "method": "llm",
+   "needs_review": true,
+   "component_id": "5381c725-48ff-4a67-a090-86918ae0e426",
+   "component_label": "ceiling_finish",
+   "room": {
+    "id": "b3c155b7-a002-462d-9c64-804f489434d7",
+    "name": "Kitchen",
+    "room_type": "kitchen",
+    "floor": "1"
+   },
+   "photos": [
+    {
+     "document_id": "f0a06461-ba4d-4abb-8fff-778d958aead3",
+     "filename": "photo-21.jpg",
+     "role": "room",
+     "localization_status": "done",
+     "instances": []
+    }
+   ],
+   "citations": [
+    {
+     "id": "beb46a1d-f424-4a8d-a916-e4cb9211cce8",
+     "asset_id": "02e60e5d-6967-4302-a8ab-fdbe6956c90a",
+     "chunk_id": "dd5cafdc-4742-4f73-8786-cdebadc05afb",
+     "excerpt": "It is important to note that a building or its structural components is specifically excluded from the definition of \u00a7 1245 property.",
+     "verified_at": "2026-10-16T17:34:33.171599Z",
+     "verification_method": "llm:resolved+retrieved+normalized_substring",
+     "verified": true,
+     "source": {
+      "doc_id": "IRS_IRS_COST_SEG_ATG__2024",
+      "page_start": 88,
+      "page_end": 88,
+      "section_path": "VI. Chapter 6 - Special Topics"
+     }
+    },
+    {
+     "id": "ef6f6a39-581c-438a-a46e-ca18a8ace385",
+     "asset_id": "02e60e5d-6967-4302-a8ab-fdbe6956c90a",
+     "chunk_id": "15498c68-3440-49ea-870b-9664f89feeb4",
+     "excerpt": "Includes all interior ceilings in a residence regardless of finish or d\u00e9cor",
+     "verified_at": "2026-10-16T17:34:33.170801Z",
+     "verification_method": "llm:resolved+retrieved+normalized_substring",
+     "verified": true,
+     "source": {
+      "doc_id": "IRS_IRS_COST_SEG_ATG__2024",
+      "page_start": 298,
+      "page_end": 298,
+      "section_path": "VII. Chapter 7 - Industry Specific Guidance"
+     }
+    }
+   ]
+  }
+ ]
+}

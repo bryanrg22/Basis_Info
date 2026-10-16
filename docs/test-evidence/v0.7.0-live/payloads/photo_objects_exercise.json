@@ -1,0 +1,113 @@
+{
+ "photo": "a3bc7964-e1ea-4877-aa07-1ff800b89336",
+ "before": {
+  "localization": {
+   "status": "done",
+   "reason": null,
+   "instances": 23,
+   "model_version": "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650",
+   "carried_from_revision": null,
+   "created_at": "2026-10-16T17:20:13.055828Z"
+  },
+  "counts": {
+   "exterior_door": 2,
+   "signage": 1,
+   "window": 9
+  },
+  "items": 23,
+  "manual_items": 0
+ },
+ "post_body": {
+  "kind": "point",
+  "label": "exterior_door",
+  "point": {
+   "x": 0.666546516418457,
+   "y": 0.42960810343424477
+  }
+ },
+ "post_status": 201,
+ "post": {
+  "object": {
+   "id": "3594b90c-583d-4a00-ba0a-edb88cdc8bd7",
+   "document_id": "a3bc7964-e1ea-4877-aa07-1ff800b89336",
+   "revision": 1,
+   "label": "exterior_door",
+   "phrase": "exterior door",
+   "score": 0.458984375,
+   "box": {
+    "x1": 0.6406389617919922,
+    "y1": 0.3985049438476562,
+    "x2": 0.6924540710449218,
+    "y2": 0.4607112630208333
+   },
+   "area": 0.0028291665948927402,
+   "source": "manual",
+   "counted": true,
+   "derived_from": "27965edd-af24-49bf-b6c1-cdbd93a942fb",
+   "created_by": "9d265879-241c-43e9-b7f2-dd5b62bebe55",
+   "created_at": "2026-10-16T17:31:44.986591Z",
+   "deleted_at": null,
+   "deleted_by": null
+  },
+  "created": true
+ },
+ "after_post": {
+  "localization": {
+   "status": "done",
+   "reason": null,
+   "instances": 23,
+   "model_version": "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650",
+   "carried_from_revision": null,
+   "created_at": "2026-10-16T17:20:13.055828Z"
+  },
+  "counts": {
+   "exterior_door": 3,
+   "signage": 1,
+   "window": 9
+  },
+  "items": 24,
+  "manual_items": 1
+ },
+ "delete": {
+  "status": 200,
+  "body": {
+   "id": "3594b90c-583d-4a00-ba0a-edb88cdc8bd7",
+   "document_id": "a3bc7964-e1ea-4877-aa07-1ff800b89336",
+   "revision": 1,
+   "label": "exterior_door",
+   "phrase": "exterior door",
+   "score": 0.458984375,
+   "box": {
+    "x1": 0.6406389617919922,
+    "y1": 0.3985049438476562,
+    "x2": 0.6924540710449218,
+    "y2": 0.4607112630208333
+   },
+   "area": 0.0028291665948927402,
+   "source": "manual",
+   "counted": true,
+   "derived_from": "27965edd-af24-49bf-b6c1-cdbd93a942fb",
+   "created_by": "9d265879-241c-43e9-b7f2-dd5b62bebe55",
+   "created_at": "2026-10-16T17:31:44.986591Z",
+   "deleted_at": "2026-10-16T17:31:45.023702Z",
+   "deleted_by": "9d265879-241c-43e9-b7f2-dd5b62bebe55"
+  }
+ },
+ "after_delete": {
+  "localization": {
+   "status": "done",
+   "reason": null,
+   "instances": 23,
+   "model_version": "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650",
+   "carried_from_revision": null,
+   "created_at": "2026-10-16T17:20:13.055828Z"
+  },
+  "counts": {
+   "exterior_door": 2,
+   "signage": 1,
+   "window": 9
+  },
+  "items": 23,
+  "manual_items": 0
+ }
+}

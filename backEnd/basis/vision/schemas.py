@@ -284,6 +284,20 @@ class ModelPhotoAnalysis(BaseModel):
 
     _room = field_validator("room_type", mode="before")(_room_type_before)
 
+    @field_validator("components", mode="before")
+    @classmethod
+    def _drop_zero_counts(cls, value: Any) -> Any:
+        """An item counted 0 ("none visible") is dropped, which is what leaving it out
+        says; strict JSON schemas cannot carry ``minimum``, and one such item failed a
+        whole answer in the live run. Any other count below 1 still fails."""
+        if isinstance(value, list):
+            return [
+                item
+                for item in value
+                if not (isinstance(item, dict) and item.get("count") in (0, "0"))
+            ]
+        return value
+
     @field_validator("description", mode="before")
     @classmethod
     def _cut_description(cls, value: Any) -> Any:

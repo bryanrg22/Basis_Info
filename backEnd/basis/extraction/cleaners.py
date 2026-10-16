@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final
 
@@ -44,6 +44,11 @@ _TRUE_WORDS: Final = frozenset({"yes", "y", "true", "x"})
 _FALSE_WORDS: Final = frozenset({"no", "n", "false"})
 _DATE_MDY = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+# M/D/YY, as URAR forms often print dates; tried after the four-digit form.
+_DATE_MDY_SHORT = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2})\b")
+# A site area printed in acres ("1.39 ac", "0.25 acre"); one acre is 43,560 square feet.
+_ACRES = re.compile(r"\b(?:ac|acres?)\b\.?", re.IGNORECASE)
+SQUARE_FEET_PER_ACRE: Final = Decimal(43560)
 _NOT_A_VALUE: Final = frozenset({"", "-", "--", "n/a", "na", "not applicable"})
 
 
@@ -170,6 +175,16 @@ def clean_address(value: Any) -> str:
     return match.group(1).strip() if match else text
 
 
+def full_year(two_digits: int, today: date | None = None) -> int:
+    """The four-digit year of a two-digit one: this century unless that would put it more
+    than a year after ``today`` (default: today in UTC), then the last. An appraisal's dates
+    (effective, contract, comparable and prior sales) are past or near; a fixed pivot such
+    as ``strptime``'s (69 -> 1969, 68 -> 2068) would read old sale dates as future ones."""
+    reference = today or datetime.now(UTC).date()
+    year = reference.year // 100 * 100 + two_digits
+    return year if year <= reference.year + 1 else year - 100
+
+
 def clean_date(value: Any) -> str:
     """A date as ``MM/DD/YYYY`` text (legacy format); the input unchanged when no date."""
     if value is None:
@@ -183,20 +198,30 @@ def clean_date(value: Any) -> str:
     match = _DATE_ISO.search(text)
     if match:
         return f"{match.group(2)}/{match.group(3)}/{match.group(1)}"
+    match = _DATE_MDY_SHORT.search(text)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}/{full_year(int(match.group(3)))}"
     return text
 
 
-def parse_date(value: Any) -> date | None:
-    """A real date from ``MM/DD/YYYY`` or ``YYYY-MM-DD`` text; ``None`` when invalid."""
+def parse_date(value: Any, *, today: date | None = None) -> date | None:
+    """A real date from ``MM/DD/YYYY``, ``YYYY-MM-DD`` or ``M/D/YY`` text (the century by
+    :func:`full_year`); ``None`` when invalid."""
     if isinstance(value, date):
         return value
     if value is None:
         return None
     text = str(value)
-    for pattern, order in ((_DATE_MDY, (3, 1, 2)), (_DATE_ISO, (1, 2, 3))):
+    for pattern, order in (
+        (_DATE_MDY, (3, 1, 2)),
+        (_DATE_ISO, (1, 2, 3)),
+        (_DATE_MDY_SHORT, (3, 1, 2)),
+    ):
         match = pattern.search(text)
         if match:
             year, month, day = (int(match.group(i)) for i in order)
+            if pattern is _DATE_MDY_SHORT:
+                year = full_year(year, today)
             try:
                 return date(year, month, day)
             except ValueError:
@@ -286,11 +311,26 @@ def clean_value(kind: FieldType, raw: Any) -> CleanValue:
     return CleanValue(text=text, num=amount, error=None if amount is not None else "not a number")
 
 
+def clean_site_area(raw: Any) -> CleanValue:
+    """``site.area_sqft`` in square feet: a value printed in acres is converted (the URAR
+    box holds either unit), anything else is read as square feet."""
+    value = clean_value("int", raw)
+    if value.text is None or not _ACRES.search(value.text):
+        return value
+    acres = clean_number(value.text)
+    if acres is None:
+        return value
+    whole = int((acres * SQUARE_FEET_PER_ACRE).to_integral_value())
+    return CleanValue(text=value.text, num=Decimal(whole))
+
+
 def clean_field(key: str, raw: Any) -> CleanValue:
     """Clean ``raw`` as the catalogue field ``key`` (unknown keys are cleaned as text)."""
     spec = FIELD_BY_KEY.get(key)
     if spec is not None and spec.key == "subject.property_address":
         return clean_value("text", clean_address(raw))
+    if spec is not None and spec.key == "site.area_sqft":
+        return clean_site_area(raw)
     return clean_value(spec.type if spec is not None else "text", raw)
 
 
