@@ -17,6 +17,8 @@ class StudyStatus(StrEnum):
     STALLED = "stalled"
     COMPLETED = "completed"
     ARCHIVED = "archived"
+    # v0.9 (EVAL_REPORT 25): a stage failed; the workflow waits for POST .../retry.
+    FAILED = "failed"
 
 
 class Stage(StrEnum):
@@ -98,7 +100,8 @@ REVIEW_STAGES: frozenset[Stage] = frozenset(
 def status_for_stage(stage: Stage) -> StudyStatus:
     """The ``study_status`` a study has while it sits at ``stage``.
 
-    ``stalled`` and ``archived`` are never derived from a stage; they are set explicitly.
+    ``stalled``, ``failed`` and ``archived`` are never derived from a stage; they are set
+    explicitly.
     """
     if stage is Stage.UPLOADING:
         return StudyStatus.DRAFT

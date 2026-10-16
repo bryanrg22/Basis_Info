@@ -1933,6 +1933,149 @@
         }
       }
     },
+    "/v1/studies/{study_id}/retry": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "Run a failed stage of the study's workflow again (engineer)",
+        "operationId": "retry_study_v1_studies__study_id__retry_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryRequested"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The study is visible but your role is too low for this action.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies/{study_id}/workflow": {
       "get": {
         "tags": [
@@ -3509,6 +3652,36 @@
         ],
         "title": "PointSelection"
       },
+      "RetryRequested": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/Stage",
+            "description": "The stage that runs again."
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "already_requested": {
+            "type": "boolean",
+            "title": "Already Requested",
+            "description": "A retry was already accepted and the stage has not restarted yet."
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "stage",
+          "revision",
+          "already_requested"
+        ],
+        "title": "RetryRequested",
+        "description": "202: the workflow accepted the retry and runs the failed stage again."
+      },
       "ReviewOut": {
         "properties": {
           "id": {
@@ -3740,6 +3913,18 @@
             "title": "Room Aliases",
             "description": "The study's room aliases (`{room id: room id}`): those given at creation and the merges made at the rooms review."
           },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason",
+            "description": "Why the current stage failed, while `status` is `failed` (retry with `POST /v1/studies/{id}/retry`)."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3865,6 +4050,18 @@
             "title": "Room Aliases",
             "description": "The study's room aliases (`{room id: room id}`): those given at creation and the merges made at the rooms review."
           },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason",
+            "description": "Why the current stage failed, while `status` is `failed` (retry with `POST /v1/studies/{id}/retry`)."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3912,7 +4109,8 @@
           "waiting_review",
           "stalled",
           "completed",
-          "archived"
+          "archived",
+          "failed"
         ],
         "title": "StudyStatus"
       },
@@ -4056,6 +4254,29 @@
             "type": "array",
             "title": "Needs Review Stages",
             "description": "Stages whose output needs an engineer's attention because the budget ran out."
+          },
+          "failed_stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stage that failed, while the workflow waits for `POST /v1/studies/{id}/retry`; null otherwise."
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure",
+            "description": "Why that stage failed."
           }
         },
         "type": "object",

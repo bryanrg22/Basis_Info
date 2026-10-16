@@ -78,6 +78,7 @@ OPTIONS: Final[dict[str, ActivityOptions]] = {
     "list_photos": _DB_30S,
     "notify_review_pending": _DB_30S,
     "mark_stalled": _DB_30S,
+    "record_failure": _DB_30S,
     "apply_corrections": ActivityOptions(timedelta(minutes=1), DB_ATTEMPTS),
     "ingest_appraisal": ActivityOptions(
         timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)

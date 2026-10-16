@@ -47,6 +47,8 @@ from basis.db.repositories import (
 from basis.db.session import create_sessionmaker, session_scope
 from basis.temporal.names import STUDY_WORKFLOW, study_workflow_id
 from basis.temporal.service import (
+    RetryAccepted,
+    RetryRefusedError,
     WorkflowDescription,
     WorkflowNotFoundError,
     WorkflowNotRunningError,
@@ -263,6 +265,7 @@ class FakeExecution:
     status: str = "RUNNING"
     view: StudyStatusView | None = None
     cancel_reasons: list[str] = field(default_factory=list)
+    retries: int = 0
 
 
 class FakeWorkflowService:
@@ -322,6 +325,25 @@ class FakeWorkflowService:
                 f"Workflow {workflow_id} is {execution.status.lower()}, not running."
             )
         execution.cancel_reasons.append(reason)
+
+    async def retry(self, workflow_id: str) -> RetryAccepted:
+        """As the workflow's ``retry`` validator: accepted only while ``view`` names a
+        failed stage; the second request before the stage restarts is ``already``."""
+        self._check()
+        execution = self._get(workflow_id)
+        if execution.status != "RUNNING":
+            raise WorkflowNotRunningError(
+                f"Workflow {workflow_id} is {execution.status.lower()}, not running."
+            )
+        view = execution.view
+        if view is None or view.failed_stage is None:
+            raise RetryRefusedError("The study cannot be retried: no stage has failed.")
+        execution.retries += 1
+        return RetryAccepted(
+            stage=view.failed_stage,
+            revision=view.revision,
+            already_requested=execution.retries > 1,
+        )
 
     async def check(self) -> None:
         self._check()

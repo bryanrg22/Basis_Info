@@ -83,6 +83,7 @@ class StudyOut(ResponseModel):
                     "current_stage": "uploading",
                     "revision": 1,
                     "room_aliases": {},
+                    "failure_reason": None,
                     "created_at": "2026-10-15T17:02:11.204000Z",
                     "updated_at": "2026-10-15T17:02:11.204000Z",
                 }
@@ -101,6 +102,11 @@ class StudyOut(ResponseModel):
         default_factory=dict,
         description="The study's room aliases (`{room id: room id}`): those given at creation "
         "and the merges made at the rooms review.",
+    )
+    failure_reason: str | None = Field(
+        default=None,
+        description="Why the current stage failed, while `status` is `failed` (retry with "
+        "`POST /v1/studies/{id}/retry`).",
     )
     created_at: datetime
     updated_at: datetime

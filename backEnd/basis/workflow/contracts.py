@@ -98,6 +98,10 @@ class StudyStatusView(_Frozen):
     flagged_photos: tuple[str, ...] = ()
     # Stages whose output needs an engineer's attention because the budget ran out.
     needs_review_stages: tuple[str, ...] = ()
+    # v0.9 (EVAL_REPORT 25): the stage that failed and why, while the workflow waits for
+    # a retry (the ``retry`` update); null otherwise.
+    failed_stage: StageName | None = None
+    failure: str | None = None
 
 
 class StudyWorkflowResult(_Frozen):
@@ -273,6 +277,23 @@ class NotifyInput(_Frozen):
     stage: ReviewStage
     revision: int
     waiting_days: int
+
+
+class RecordFailureInput(_Frozen):
+    """Record that ``stage`` failed (``reason``), or clear the failure (``reason=None``)."""
+
+    study_id: str
+    stage: StageName
+    revision: int
+    reason: str | None = None
+
+
+class RetryAck(_Frozen):
+    """The answer to the ``retry`` update: the stage that runs again."""
+
+    stage: StageName
+    revision: int
+    already_requested: bool = False
 
 
 class MarkStalledInput(_Frozen):

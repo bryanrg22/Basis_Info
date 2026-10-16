@@ -68,6 +68,8 @@ def fields(model: type[BaseModel]) -> list[str]:
                 "awaiting",
                 "flagged_photos",
                 "needs_review_stages",
+                "failed_stage",  # v0.9 (EVAL_REPORT 25): additive, default None
+                "failure",
             ],
         ),
         (

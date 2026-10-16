@@ -333,6 +333,8 @@ async def test_status_after_start(
         "awaiting": None,
         "flagged_photos": [],
         "needs_review_stages": [],
+        "failed_stage": None,
+        "failure": None,
     }
     (run,) = body["runs"]
     assert (run["run_id"], run["workflow_version"], run["input_revision"]) == (
@@ -413,6 +415,80 @@ async def test_cancel_errors(
     assert "completed" in body["detail"]
     workflows.unavailable = True
     problem(await api.post("alice", f"/v1/studies/{sid}/cancel"), 503, "service-unavailable")
+
+
+# --------------------------------------------------------------------------- retry (EVAL_REPORT 25)
+
+
+def failed_view(stage: str = "extracting") -> StudyStatusView:
+    return StudyStatusView(
+        stage=stage,  # type: ignore[arg-type]
+        revision=1,
+        failed_stage=stage,  # type: ignore[arg-type]
+        failure="extract_fields: ProviderUnavailable: no module named aiohttp",
+    )
+
+
+async def test_retry_runs_the_failed_stage_again(
+    api: Api, seed: Seed, storage: LocalStorage, workflows: FakeWorkflowService
+) -> None:
+    sid = await ready_study(api, storage)
+    org = (await api.get("alice", f"/v1/studies/{sid}")).json()["org_id"]
+    await seed.member(uuid.UUID(org), "erin", OrgRole.ENGINEER)
+    assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
+    workflows.executions[f"study-{sid}"].view = failed_view()
+
+    first = await api.post("erin", f"/v1/studies/{sid}/retry")  # an engineer may retry
+    again = await api.post("alice", f"/v1/studies/{sid}/retry")
+
+    assert first.status_code == again.status_code == 202, first.text
+    assert first.json() == {
+        "workflow_id": f"study-{sid}",
+        "stage": "extracting",
+        "revision": 1,
+        "already_requested": False,
+    }
+    assert again.json()["already_requested"] is True
+    status = (await api.get("alice", f"/v1/studies/{sid}/workflow")).json()["status"]
+    assert status["failed_stage"] == "extracting"
+    assert status["failure"].startswith("extract_fields:")
+
+
+async def test_retry_errors(
+    api: Api, seed: Seed, storage: LocalStorage, workflows: FakeWorkflowService
+) -> None:
+    sid = await ready_study(api, storage)
+    org = (await api.get("alice", f"/v1/studies/{sid}")).json()["org_id"]
+    await seed.member(uuid.UUID(org), "vera", OrgRole.VIEWER)
+
+    problem(await api.post("alice", f"/v1/studies/{sid}/retry"), 404, "not-found")  # not started
+    assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
+    body = problem(await api.post("alice", f"/v1/studies/{sid}/retry"), 409, "study-not-failed")
+    assert "no stage has failed" in body["detail"]
+    workflows.executions[f"study-{sid}"].view = failed_view()
+    problem(await api.post("vera", f"/v1/studies/{sid}/retry"), 403, "forbidden")
+    problem(await api.post("mallory", f"/v1/studies/{sid}/retry"), 404)
+    workflows.executions[f"study-{sid}"].status = "FAILED"  # an execution that ended
+    problem(await api.post("alice", f"/v1/studies/{sid}/retry"), 409, "workflow-closed")
+    workflows.unavailable = True
+    problem(await api.post("alice", f"/v1/studies/{sid}/retry"), 503, "service-unavailable")
+
+
+async def test_a_failed_study_shows_its_status_and_reason(
+    api: Api, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await ready_study(api, storage)
+    assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
+    async with session_scope(sessionmaker) as session:
+        study = await session.get(Study, uuid.UUID(sid))
+        assert study is not None
+        study.status, study.failure_reason = StudyStatus.FAILED, "extract_fields: boom"
+    body = (await api.get("alice", f"/v1/studies/{sid}")).json()
+    assert (body["status"], body["current_stage"], body["failure_reason"]) == (
+        "failed",
+        "extracting",
+        "extract_fields: boom",
+    )
 
 
 # --------------------------------------------------------------------------- wiring

@@ -14,6 +14,8 @@
   deletion recorded with who) and tenancy key, and downgrades back to ``0003``;
 * ``0005_room_grouping`` adds ``rooms.group_key`` (NULL for existing rooms) and
   ``studies.room_aliases`` (``{}`` for existing studies), and downgrades back to ``0004``;
+* ``0006_study_failed`` adds ``failed`` to ``study_status`` and ``studies.failure_reason``;
+  its downgrade turns failed studies back into ``processing`` and recreates the enum;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -46,8 +48,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0005"
-HISTORY = ["0005", "0004", "0003", "0002", "0001"]
+HEAD = "0006"
+HISTORY = ["0006", "0005", "0004", "0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -526,3 +528,51 @@ async def _columns(url: str) -> set[tuple[str, str]]:
     finally:
         await connection.close()
     return {(r["table_name"], r["column_name"]) for r in rows}
+
+
+# --------------------------------------------------------------------------- 0006
+
+
+async def _labels(url: str) -> list[str]:
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        rows = await connection.fetch(
+            "SELECT enumlabel FROM pg_enum JOIN pg_type t ON t.oid = enumtypid "
+            "WHERE t.typname = 'study_status' ORDER BY enumsortorder"
+        )
+    finally:
+        await connection.close()
+    return [r["enumlabel"] for r in rows]
+
+
+async def test_0006_failed_status_and_downgrade(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0005")
+    before = await _labels(empty_database_url)
+    await upgrade(empty_database_url)
+    assert await _labels(empty_database_url) == [*before, "failed"]
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        study, _, _ = await _photo(connection)
+        await connection.execute(
+            "UPDATE studies SET status = 'failed', failure_reason = 'boom' WHERE id = $1", study
+        )
+    finally:
+        await connection.close()
+    await downgrade(empty_database_url, "0005")
+    assert await _labels(empty_database_url) == before
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        status = await connection.fetchval("SELECT status::text FROM studies WHERE id = $1", study)
+        default = await connection.fetchval(
+            "SELECT column_default FROM information_schema.columns "
+            "WHERE table_name = 'studies' AND column_name = 'status'"
+        )
+        column = await connection.fetchval(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = 'studies' AND column_name = 'failure_reason'"
+        )
+    finally:
+        await connection.close()
+    assert status == "processing" and "draft" in default and column == 0
+    await upgrade(empty_database_url)  # and back up again
+    assert await _labels(empty_database_url) == [*before, "failed"]

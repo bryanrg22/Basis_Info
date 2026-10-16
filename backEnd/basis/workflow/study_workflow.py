@@ -56,12 +56,22 @@ Patches in this file:
   it is logged and flags the rooms review; the study continues on the per-photo rows.
   The activity itself is a no-op when ``ROOM_RECONCILE`` is off, so the command sequence
   does not depend on settings.
+* ``stage-failure-retry-v1`` (EVAL_REPORT section 25, item 3): the photo stage runs in the
+  background while the appraisal is ingested and extracted, and an extraction that fails
+  is noticed at once: the photo work in flight is cancelled (photos already analyzed keep
+  their rows and are reused), ``record_failure`` sets the study ``failed`` with the reason,
+  and the workflow waits for the ``retry`` update (``POST /v1/studies/{id}/retry``); then
+  it clears the failure and runs the stage again (activity ids get a ``:retry<n>`` suffix,
+  so their idempotency keys are fresh). ``process_assets`` (other than an exhausted budget)
+  and ``export_report`` failures are held the same way instead of failing the execution.
+  Before the patch an extraction failure surfaced only after the photo stage and failed
+  the whole execution, which could not be restarted.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime, timedelta
 from typing import Any, Final, Literal, TypeVar, cast, overload
 
@@ -103,6 +113,8 @@ with workflow.unsafe.imports_passed_through():
         ProcessAssetsOutput,
         ReconcileRoomsInput,
         ReconcileRoomsOutput,
+        RecordFailureInput,
+        RetryAck,
         ReviewStage,
         RunEndInput,
         RunStartInput,
@@ -115,6 +127,8 @@ with workflow.unsafe.imports_passed_through():
 
 WORKFLOW_NAME: Final = "StudyWorkflow"
 DECIDE_UPDATE: Final = "decide"
+RETRY_UPDATE: Final = "retry"
+INVALID_RETRY: Final = "InvalidRetry"
 STATUS_QUERY: Final = "status"
 CANCEL_SIGNAL: Final = "cancel_study"
 INVALID_DECISION: Final = "InvalidDecision"
@@ -127,6 +141,8 @@ SEARCH_ATTRIBUTE_KEYS: Final = (STUDY_ID_ATTR, STAGE_ATTR, ORG_ID_ATTR)
 ALREADY_APPLIED: Final = "already applied"
 LOCALIZE_PATCH: Final = "localize-photos-v1"
 RECONCILE_ROOMS_PATCH: Final = "reconcile-rooms-v1"
+STAGE_RETRY_PATCH: Final = "stage-failure-retry-v1"
+MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
 _T = TypeVar("_T")
@@ -171,6 +187,15 @@ class StudyWorkflow:
         # Set when the lifecycle is being stopped (cancel). An activity that finishes
         # normally despite the cancel request must not let the lifecycle schedule more.
         self._stopping = False
+        # Patch stage-failure-retry-v1: the failed stage, why, and the retry request.
+        self._stage_retry = False
+        self._failed_stage: StageName | None = None
+        self._failure: str | None = None
+        self._retry_requested = False
+        self._failures = 0
+        # Set while the photo stage is being stopped after a failed extraction: a photo
+        # whose analysis completes despite the cancel request schedules nothing more.
+        self._photos_stopping = False
 
     # ------------------------------------------------------------------ handlers
 
@@ -188,7 +213,31 @@ class StudyWorkflow:
             awaiting=self._awaiting,
             flagged_photos=tuple(self._flagged),
             needs_review_stages=tuple(self._needs_review_stages),
+            failed_stage=self._failed_stage,
+            failure=self._failure,
         )
+
+    @workflow.update(name=RETRY_UPDATE)
+    def retry(self) -> RetryAck:
+        """Run the failed stage again (``POST /v1/studies/{id}/retry``). Idempotent: a
+        second request before the stage restarts answers ``already_requested``."""
+        assert self._failed_stage is not None  # the validator
+        already = self._retry_requested
+        self._retry_requested = True
+        return RetryAck(
+            stage=self._failed_stage, revision=self._revision, already_requested=already
+        )
+
+    @retry.validator
+    def validate_retry(self) -> None:
+        if self._cancel_reason is not None:
+            raise ApplicationError(
+                "the study was cancelled", type=INVALID_RETRY, non_retryable=True
+            )
+        if self._failed_stage is None:
+            raise ApplicationError(
+                f"no stage has failed (stage {self._stage})", type=INVALID_RETRY, non_retryable=True
+            )
 
     @workflow.update(name=DECIDE_UPDATE)
     def decide(self, decision: Decision) -> DecisionAck:
@@ -294,11 +343,15 @@ class StudyWorkflow:
         photos = await self._activity(
             "list_photos", ListPhotosInput(study_id=study_id), ListPhotosOutput, "list_photos"
         )
-        appraisal_task = self._spawn(self._ingest_and_extract())
-        photo_revision = self._revision
-        await self._analyze_photos(list(photos.document_ids), photo_revision)
-        await self._reconcile_rooms(photo_revision)
-        document_id = await appraisal_task
+        self._stage_retry = workflow.patched(STAGE_RETRY_PATCH)
+        if self._stage_retry:
+            document_id = await self._extract_with_photos(list(photos.document_ids))
+        else:
+            appraisal_task = self._spawn(self._ingest_and_extract())
+            photo_revision = self._revision
+            await self._analyze_photos(list(photos.document_ids), photo_revision)
+            await self._reconcile_rooms(photo_revision)
+            document_id = await appraisal_task
 
         # Gate 1: appraisal review.
         while True:
@@ -306,7 +359,7 @@ class StudyWorkflow:
             if decision.decision == "approve":
                 break
             new_revision, corrections = await self._reject(decision, "extracting")
-            await self._extract(document_id, new_revision, corrections)
+            await self._held("extracting", self._extractor(document_id, new_revision, corrections))
 
         # Gate 2: rooms review.
         while True:
@@ -329,34 +382,130 @@ class StudyWorkflow:
             await self._process_assets(corrections)
 
         await self._transition("exporting")
-        export = await self._activity(
-            "export_report",
-            ExportReportInput(
-                study_id=study_id,
-                revision=self._revision,
-                idempotency_key=self._key(f"export_report:r{self._revision}"),
-            ),
-            ExportReportOutput,
-            f"export_report:r{self._revision}",
-        )
+        export = await self._held("exporting", self._export)
         await self._transition("completed")
         return self._result("completed", export)
 
     # ------------------------------------------------------------------ stages
 
-    async def _ingest_and_extract(self) -> str | None:
+    async def _export(self, suffix: str = "") -> ExportReportOutput:
+        activity_id = f"export_report:r{self._revision}{suffix}"
+        return await self._activity(
+            "export_report",
+            ExportReportInput(
+                study_id=self._input.study_id,
+                revision=self._revision,
+                idempotency_key=self._key(activity_id),
+            ),
+            ExportReportOutput,
+            activity_id,
+        )
+
+    async def _extract_with_photos(self, photo_ids: list[str]) -> str | None:
+        """Patch ``stage-failure-retry-v1``: the photo stage in the background, the
+        appraisal in front; a failed extraction stops the photo work, is held for a retry
+        (:meth:`_held`), and the photo stage resumes after the retry. Returns once both
+        are done."""
+        revision = self._revision
+        photo_task = self._spawn(self._photo_stage(photo_ids, revision))
+        attempt = 0
+        while True:
+            suffix = f":retry{attempt}" if attempt else ""
+            try:
+                document_id = await self._ingest_and_extract(suffix)
+                break
+            except ActivityError as error:
+                if isinstance(error.cause, CancelledError) or self._stopping:
+                    raise
+                self._photos_stopping = True
+                await self._cancel_task(photo_task)
+                await self._hold("extracting", error)
+                attempt += 1
+                self._photos_stopping = False
+                self._pending_photos = 0
+                self._completed_photos = 0
+                photo_task = self._spawn(self._photo_stage(photo_ids, revision))
+        await photo_task
+        return document_id
+
+    async def _photo_stage(self, photo_ids: list[str], revision: int) -> None:
+        await self._analyze_photos(photo_ids, revision)
+        if self._photos_stopping:
+            raise asyncio.CancelledError("photo stage stopped")
+        await self._reconcile_rooms(revision)
+
+    async def _cancel_task(self, task: asyncio.Task[Any]) -> None:
+        """Cancel a stage's task and wait until its activities have stopped."""
+        if task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, ActivityError):
+            if self._stopping:
+                raise
+
+    async def _held(self, stage: StageName, run: Callable[[str], Awaitable[_T]]) -> _T:
+        """Run a stage; with patch ``stage-failure-retry-v1`` a failure (not a
+        cancellation) is held for a retry and the stage runs again, else it propagates."""
+        attempt = 0
+        while True:
+            try:
+                return await run(f":retry{attempt}" if attempt else "")
+            except ActivityError as error:
+                if not self._stage_retry or isinstance(error.cause, CancelledError):
+                    raise
+                if self._stopping:
+                    raise
+                await self._hold(stage, error)
+                attempt += 1
+
+    async def _hold(self, stage: StageName, error: ActivityError) -> None:
+        """Record the failure, wait for the ``retry`` update, clear the failure."""
+        self._failures += 1
+        number = self._failures
+        reason = _failure_reason(error)
+        workflow.logger.warning("stage %s failed, waiting for a retry: %s", stage, reason)
+        await self._activity(
+            "record_failure",
+            RecordFailureInput(
+                study_id=self._input.study_id, stage=stage, revision=self._revision, reason=reason
+            ),
+            None,
+            f"record_failure:{stage}:r{self._revision}:{number}",
+        )
+        # Exposed (status query, retry validator) once the study row says failed.
+        self._failed_stage, self._failure, self._retry_requested = stage, reason, False
+        await workflow.wait_condition(lambda: self._retry_requested)
+        await self._activity(
+            "record_failure",
+            RecordFailureInput(study_id=self._input.study_id, stage=stage, revision=self._revision),
+            None,
+            f"record_failure:{stage}:r{self._revision}:{number}:cleared",
+        )
+        self._failed_stage, self._failure = None, None
+
+    def _extractor(
+        self, document_id: str | None, revision: int, corrections: tuple[CorrectionInput, ...]
+    ) -> Callable[[str], Awaitable[ExtractFieldsOutput]]:
+        def run(suffix: str) -> Awaitable[ExtractFieldsOutput]:
+            return self._extract(document_id, revision, corrections, suffix)
+
+        return run
+
+    async def _ingest_and_extract(self, suffix: str = "") -> str | None:
         revision = self._revision
         ingested = await self._activity(
             "ingest_appraisal",
             IngestAppraisalInput(
                 study_id=self._input.study_id,
                 revision=revision,
-                idempotency_key=self._key(f"ingest_appraisal:r{revision}"),
+                idempotency_key=self._key(f"ingest_appraisal:r{revision}{suffix}"),
             ),
             IngestAppraisalOutput,
-            f"ingest_appraisal:r{revision}",
+            f"ingest_appraisal:r{revision}{suffix}",
         )
-        await self._extract(ingested.document_id, revision, ())
+        await self._extract(ingested.document_id, revision, (), suffix)
         return ingested.document_id
 
     async def _extract(
@@ -364,6 +513,7 @@ class StudyWorkflow:
         document_id: str | None,
         revision: int,
         corrections: tuple[CorrectionInput, ...],
+        suffix: str = "",
     ) -> ExtractFieldsOutput:
         output = await self._activity(
             "extract_fields",
@@ -371,11 +521,11 @@ class StudyWorkflow:
                 study_id=self._input.study_id,
                 document_id=document_id,
                 revision=revision,
-                idempotency_key=self._key(f"extract_fields:r{revision}"),
+                idempotency_key=self._key(f"extract_fields:r{revision}{suffix}"),
                 corrections=corrections,
             ),
             ExtractFieldsOutput,
-            f"extract_fields:r{revision}",
+            f"extract_fields:r{revision}{suffix}",
         )
         if output.needs_review:
             self._mark_needs_review("appraisal_review")
@@ -398,8 +548,22 @@ class StudyWorkflow:
             self._spawn(self._analyze_and_localize(semaphore, localizing, doc, revision))
             for doc in document_ids
         ]
-        for completed in workflow.as_completed(tasks):
-            await completed
+        try:
+            for completed in workflow.as_completed(tasks):
+                await completed
+        except asyncio.CancelledError:
+            if not self._stage_retry:
+                raise
+            # The photo stage is being stopped (patch stage-failure-retry-v1): stop every
+            # photo's task too, and wait until their activities have stopped.
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                try:
+                    await task
+                except (asyncio.CancelledError, ActivityError):
+                    pass
+            raise
 
     async def _analyze_and_localize(
         self,
@@ -409,6 +573,8 @@ class StudyWorkflow:
         rev: int,
     ) -> None:
         analyzed = await self._analyze_one(analyzing, document_id, rev)
+        if self._photos_stopping:
+            return
         if analyzed and workflow.patched(LOCALIZE_PATCH):
             await self._localize_one(localizing, document_id, rev)
 
@@ -502,28 +668,40 @@ class StudyWorkflow:
 
     async def _process_assets(self, corrections: tuple[CorrectionInput, ...]) -> None:
         revision = self._revision
-        try:
-            output = await self._activity(
-                "process_assets",
-                ProcessAssetsInput(
-                    study_id=self._input.study_id,
-                    revision=revision,
-                    idempotency_key=self._key(f"process_assets:r{revision}"),
-                    budget_remaining_usd=max(self._budget, 0.0),
-                    corrections=corrections,
-                ),
-                ProcessAssetsOutput,
-                f"process_assets:r{revision}",
-            )
-        except ActivityError as error:
-            if not is_budget_exceeded(error):
-                raise
+        output = await self._held(
+            "assets_processing",
+            lambda suffix: self._assets_once(revision, corrections, suffix),
+        )
+        if output is None:
             workflow.logger.warning("assets for revision %s exceed the budget", revision)
             self._mark_needs_review("assets_review")
             return
         self._budget -= output.cost_usd
         if output.needs_review:
             self._mark_needs_review("assets_review")
+
+    async def _assets_once(
+        self, revision: int, corrections: tuple[CorrectionInput, ...], suffix: str
+    ) -> ProcessAssetsOutput | None:
+        """One ``process_assets``; ``None`` when the budget cannot cover it."""
+        activity_id = f"process_assets:r{revision}{suffix}"
+        try:
+            return await self._activity(
+                "process_assets",
+                ProcessAssetsInput(
+                    study_id=self._input.study_id,
+                    revision=revision,
+                    idempotency_key=self._key(activity_id),
+                    budget_remaining_usd=max(self._budget, 0.0),
+                    corrections=corrections,
+                ),
+                ProcessAssetsOutput,
+                activity_id,
+            )
+        except ActivityError as error:
+            if not is_budget_exceeded(error):
+                raise
+            return None
 
     async def _reject(
         self, decision: Decision, back_to: StageName
@@ -750,6 +928,17 @@ class StudyWorkflow:
             flagged_photos=tuple(self._flagged),
             cancel_reason=self._cancel_reason,
         )
+
+
+def _failure_reason(error: ActivityError) -> str:
+    """``<activity>: <error type>: <message>`` of a failed activity, for the reviewer."""
+    cause = error.cause
+    detail = (
+        f"{cause.type}: {cause.message}"
+        if isinstance(cause, ApplicationError)
+        else str(cause or error)
+    )
+    return f"{error.activity_type}: {detail}"[:MAX_FAILURE_CHARS]
 
 
 def _invalid(message: str) -> ApplicationError:

@@ -48,9 +48,11 @@ async def test_create_returns_201_with_the_study(api: Api, seed: Seed) -> None:
         "current_stage",
         "revision",
         "room_aliases",
+        "failure_reason",
         "created_at",
         "updated_at",
     }
+    assert body["failure_reason"] is None
     assert body["room_aliases"] == {}
 
 

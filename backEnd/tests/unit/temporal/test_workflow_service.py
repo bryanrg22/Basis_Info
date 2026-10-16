@@ -14,9 +14,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from temporalio.client import Client, WorkflowExecutionStatus, WorkflowQueryFailedError
+from temporalio.client import (
+    Client,
+    WorkflowExecutionStatus,
+    WorkflowQueryFailedError,
+    WorkflowUpdateFailedError,
+)
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from basis.api.app import create_app
@@ -26,18 +31,21 @@ from basis.temporal.client import temporal_configured
 from basis.temporal.names import (
     CANCEL_SIGNAL,
     DECIDE_UPDATE,
+    RETRY_UPDATE,
     STATUS_QUERY,
     STUDY_WORKFLOW,
     decision_update_id,
     study_workflow_id,
 )
 from basis.temporal.service import (
+    RetryRefusedError,
     TemporalWorkflowService,
     WorkflowNotFoundError,
     WorkflowNotRunningError,
     WorkflowUnavailableError,
 )
-from basis.workflow.contracts import StudyStatusView, StudyWorkflowInput
+from basis.workflow import study_workflow
+from basis.workflow.contracts import RetryAck, StudyStatusView, StudyWorkflowInput
 
 INPUT = StudyWorkflowInput(
     study_id="s1", org_id="o1", input_revision=1, workflow_version="sha", budget_usd=25.0
@@ -65,6 +73,10 @@ class Handle:
     async def signal(self, name: str, arg: Any, **kwargs: Any) -> None:
         self.client.calls.append(("signal", name, arg))
         self.client.act("signal")
+
+    async def execute_update(self, name: str, **kwargs: Any) -> Any:
+        self.client.calls.append(("update", name, kwargs.get("result_type")))
+        return self.client.act("update") or RetryAck(stage="extracting", revision=2)
 
 
 class StubClient:
@@ -102,12 +114,14 @@ def service(client: StubClient, **kwargs: Any) -> TemporalWorkflowService:
 
 
 def test_names() -> None:
-    assert (STUDY_WORKFLOW, DECIDE_UPDATE, STATUS_QUERY, CANCEL_SIGNAL) == (
+    assert (STUDY_WORKFLOW, DECIDE_UPDATE, STATUS_QUERY, CANCEL_SIGNAL, RETRY_UPDATE) == (
         "StudyWorkflow",
         "decide",
         "status",
         "cancel_study",
+        "retry",
     )
+    assert RETRY_UPDATE == study_workflow.RETRY_UPDATE
     assert study_workflow_id("abc") == "study-abc"
     assert decision_update_id("r1") == "decision-r1"
 
@@ -201,6 +215,34 @@ async def test_cancel() -> None:
         await service(missing).cancel("study-s1", "x")
     with pytest.raises(WorkflowUnavailableError):
         await service(StubClient(signal=UNAVAILABLE)).cancel("study-s1", "x")
+
+
+async def test_retry() -> None:
+    """EVAL_REPORT 25: the ``retry`` update; a refusal by the validator is 409-able."""
+    client = StubClient()
+    accepted = await service(client).retry("study-s1")
+    assert client.calls[-1] == ("update", "retry", RetryAck)
+    assert (accepted.stage, accepted.revision, accepted.already_requested) == (
+        "extracting",
+        2,
+        False,
+    )
+    refused = StubClient(
+        update=WorkflowUpdateFailedError(
+            ApplicationError("no stage has failed (stage appraisal_review)", type="InvalidRetry")
+        )
+    )
+    with pytest.raises(RetryRefusedError, match="no stage has failed"):
+        await service(refused).retry("study-s1")
+    closed = StubClient(update=NOT_FOUND)
+    closed.status = WorkflowExecutionStatus.FAILED
+    with pytest.raises(WorkflowNotRunningError, match="failed, not running"):
+        await service(closed).retry("study-s1")
+    missing = StubClient(update=NOT_FOUND, describe=NOT_FOUND)
+    with pytest.raises(WorkflowNotFoundError):
+        await service(missing).retry("study-s1")
+    with pytest.raises(WorkflowUnavailableError):
+        await service(StubClient(update=UNAVAILABLE)).retry("study-s1")
 
 
 async def test_check_describes_the_namespace() -> None:

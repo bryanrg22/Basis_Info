@@ -237,6 +237,8 @@ class Study(Base):
     room_aliases: Mapped[dict[str, str]] = mapped_column(
         JSON_DOC, server_default=text("'{}'::jsonb"), default=dict
     )
+    # Why the study's current stage failed, while ``status`` is ``failed`` (record_failure).
+    failure_reason: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
