@@ -23,9 +23,11 @@ from llm_fakes import PHOTO_MODEL, PHOTO_USAGE, FixtureVisionProvider, photo_lab
 from basis.llm import ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
 from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse
+from basis.vision.overlap import ModelPairOverlap
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import ModelRoomInventory
 from basis.vision.schemas import ModelPhotoAnalysis
+from basis.vision.surface_material import ModelSurfaceMaterial
 from evals import predict_photos, predict_rooms
 
 KITCHEN = "photos/01_kitchen.jpg"
@@ -100,6 +102,40 @@ class Router:
             return await self.photos.complete(request)
         assert request.response_model is ModelRoomInventory
         return await self.rooms.complete(request)
+
+
+@dataclass
+class TypedRouter:
+    """Requests by response model: per-photo, room, overlap and material providers."""
+
+    photos: ChatProvider
+    rooms: ChatProvider | None = None
+    overlap: ChatProvider | None = None
+    materials: ChatProvider | None = None
+    name: str = "typed-router"
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        target = {
+            ModelPhotoAnalysis: self.photos,
+            ModelRoomInventory: self.rooms,
+            ModelPairOverlap: self.overlap,
+            ModelSurfaceMaterial: self.materials,
+        }[request.response_model]  # type: ignore[index]
+        assert target is not None, f"unexpected {request.response_model}"
+        return await target.complete(request)
+
+
+def pair_turn(*shared: tuple[str, int]) -> ScriptedTurn:
+    return ScriptedTurn(
+        parsed=ModelPairOverlap.model_validate(
+            {
+                "same_area": bool(shared),
+                "shared": [{"label": label, "count": count} for label, count in shared],
+                "note": None,
+            }
+        ),
+        usage=Usage(input_tokens=1000, output_tokens=100),
+    )
 
 
 @pytest.fixture
@@ -185,6 +221,8 @@ async def test_run_writes_the_heuristic_the_reconciled_inventory_and_raw_records
     assert summary["prompts"] == {
         "photo_analysis": "photo_analysis/v1",
         "room_inventory": "room_inventory/v1",
+        "photo_overlap": None,
+        "surface_material": None,
     }
     assert summary["spent_usd"] == pytest.approx(5 * 0.01)  # 3 photos + 2 rooms
     assert summary["per_photo_source"] == "computed" and summary["rejected"] == {}
@@ -421,3 +459,169 @@ def test_argument_limits() -> None:
         predict_rooms.parse_args(["--photos", "p", "--out", "o", "--repeats", "0"])
     with pytest.raises(SystemExit):
         predict_rooms.parse_args(["--photos", "p", "--out", "o", "--concurrency", "0"])
+
+
+async def test_overlap_merge_replaces_the_reconciliation_call(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The two kitchen photos share no object: their counts add (6 + 6 cabinets).
+    overlap = ScriptedProvider([pair_turn()], model="gpt-4.1-mini")
+    use(monkeypatch, TypedRouter(FixtureVisionProvider(), overlap=overlap))
+    out = tmp_path / "out"
+    assert await run("--photos", str(photo_dir), "--out", str(out), "--overlap", "merge") == 0
+    assert len(overlap.requests) == 1  # one pair; the one-photo bath has none
+    assert json.loads((out / "room_inventory.json").read_text()) == {
+        "b_bath": {"bathtub": 1, "toilet": 1},
+        "1_kitchen": {"kitchen_cabinet": 12, "countertop": 2},
+    }
+    bath, kitchen = jsonl(out / "room_raw.jsonl")
+    assert bath["overlap"] is None and bath["calls"] == []
+    [pair] = kitchen["overlap"]
+    assert (pair["a"], pair["b"]) == (
+        "21_1st Floor Kitchen photo 1.JPG",
+        "22_1st Floor Kitchen photo 2.JPG",
+    )
+    assert pair["overlap"]["shared"] == [] and kitchen["review_reason"] == "overlap_merge"
+    assert kitchen["cost_usd"] == pytest.approx(pair["cost_usd"]) and pair["cost_usd"] > 0
+    summary = json.loads((out / "run.json").read_text())
+    assert summary["prompts"]["room_inventory"] is None
+    assert summary["prompts"]["photo_overlap"] == "photo_overlap/v1"
+    assert summary["overlap"] == "merge" and summary["materials"] == "none"
+
+
+async def test_overlap_hints_prompt_v2_model_effort_and_material_second_look(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    usage = Usage(input_tokens=1000, output_tokens=100)
+
+    def answer(*objects: dict[str, Any]) -> ScriptedTurn:
+        return ScriptedTurn(
+            parsed=ModelRoomInventory.model_validate({"objects": list(objects)}), usage=usage
+        )
+
+    def entry(label: str, indices: list[int], material: str = "wood") -> dict[str, Any]:
+        return {
+            "label": label,
+            "count": 1,
+            "image_indices": indices,
+            "material": material,
+            "attachment": "permanent",
+            "confidence": 0.9,
+            "note": None,
+        }
+
+    rooms = ScriptedProvider(
+        [answer(entry("bathtub", [1])), answer(entry("wainscoting", [1, 2]))],
+        model="gpt-6.1-sol",
+    )
+    overlap = ScriptedProvider([pair_turn(("kitchen_cabinet", 6))], model="gpt-6.1-sol")
+    materials = ScriptedProvider(
+        [
+            ScriptedTurn(
+                parsed=ModelSurfaceMaterial.model_validate(
+                    {"material": "wallpaper", "confidence": 0.8, "evidence": "embossed pattern"}
+                ),
+                usage=usage,
+            )
+        ],
+        model="gpt-6.1-sol",
+    )
+    use(monkeypatch, TypedRouter(FixtureVisionProvider(), rooms, overlap, materials))
+    out = tmp_path / "out"
+    code = await run(
+        "--photos",
+        str(photo_dir),
+        "--out",
+        str(out),
+        "--concurrency",
+        "1",
+        "--room-prompt",
+        "v2",
+        "--model",
+        "gpt-6.1-sol",
+        "--reasoning-effort",
+        "low",
+        "--overlap",
+        "hint",
+        "--materials",
+        "sensitive",
+        "--max-tokens",
+        "6000",
+        "--materials-model",
+        "claude-sonnet-5-5",
+    )
+    assert code == 0
+    every = rooms.requests + overlap.requests + materials.requests
+    assert {r.max_tokens for r in every} == {6000}
+    _, kitchen_request = rooms.requests
+    assert kitchen_request.model == "gpt-6.1-sol" and kitchen_request.reasoning_effort == "low"
+    assert kitchen_request.prompt_version == "room_inventory/v2"
+    text = kitchen_request.messages[-1].content
+    assert "kitchen_cabinet: Image 1 x6" in text
+    assert "Images 1 and 2: same objects in both: kitchen_cabinet x6." in text
+    assert [r.model for r in overlap.requests] == ["gpt-6.1-sol"]
+    assert [r.model for r in materials.requests] == ["claude-sonnet-5-5"]
+    _, kitchen = jsonl(out / "room_raw.jsonl")
+    [obj] = kitchen["objects"]
+    assert (obj["label"], obj["material"], obj["note"]) == ("wainscoting", "other", "wallpaper")
+    [look] = kitchen["second_look"]
+    assert (look["before"], look["applied"]) == ("wood", True)
+    summary = json.loads((out / "run.json").read_text())
+    assert summary["prompts"] == {
+        "photo_analysis": "photo_analysis/v1",
+        "room_inventory": "room_inventory/v2",
+        "photo_overlap": "photo_overlap/v1",
+        "surface_material": "surface_material/v2",
+    }
+    assert (summary["room_model"], summary["reasoning_effort"]) == ("gpt-6.1-sol", "low")
+    assert (summary["overlap_model"], summary["materials_model"]) == (
+        "gpt-6.1-sol",
+        "claude-sonnet-5-5",
+    )
+
+
+def test_new_arguments_are_checked() -> None:
+    base = ["--photos", "p", "--out", "o"]
+    args = predict_rooms.parse_args(base)
+    assert (args.room_prompt, args.overlap, args.materials, args.model) == (
+        "v1",
+        "none",
+        "none",
+        None,
+    )
+    for bad in (["--overlap", "always"], ["--materials", "all"]):
+        with pytest.raises(SystemExit):
+            predict_rooms.parse_args(base + bad)
+
+
+async def test_an_unreleased_room_prompt_is_refused(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use(monkeypatch, TypedRouter(FixtureVisionProvider()))
+    with pytest.raises(LookupError, match="not released"):
+        await run("--photos", str(photo_dir), "--out", str(tmp_path / "o"), "--room-prompt", "v9")
+
+
+async def test_single_photo_rooms_can_skip_the_call(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rooms = FixtureRoomProvider()
+    use(monkeypatch, TypedRouter(FixtureVisionProvider(), rooms))
+    out = tmp_path / "out"
+    code = await run(
+        "--photos", str(photo_dir), "--out", str(out), "--single-photo-rooms", "per-photo"
+    )
+    assert code == 0
+    assert len(rooms.requests) == 1  # the kitchen only; the one-photo bath has no call
+    bath, kitchen = jsonl(out / "room_raw.jsonl")
+    assert (bath["source"], bath["review_reason"], bath["calls"]) == (
+        "heuristic",
+        "single_photo",
+        [],
+    )
+    assert not bath["needs_review"] and kitchen["source"] == "model"
+    assert json.loads((out / "room_inventory.json").read_text())["b_bath"] == {
+        "bathtub": 1,
+        "toilet": 1,
+    }
+    assert json.loads((out / "run.json").read_text())["single_photo_rooms"] == "per-photo"

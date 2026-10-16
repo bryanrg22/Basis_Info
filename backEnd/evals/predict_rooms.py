@@ -12,7 +12,17 @@ of photos, with the providers configured in the environment:
 3. the deterministic baseline :func:`basis.vision.reconcile.heuristic_merge` per room;
 4. the reconciliation call :func:`basis.vision.reconcile.reconcile_room` per room,
    ``--repeats N`` times (the per-photo analyses are shared by the repeats, so the
-   repeats measure the reconciliation call's own run-to-run variation).
+   repeats measure the per-room calls' own run-to-run variation), with the released
+   ``--room-prompt`` version (default ``v1``, pinned so a new release changes nothing
+   until it is asked for) on ``--model`` (default ``VISION_MODEL``);
+5. optionally (``--overlap``) the pairwise photo-overlap judgments of
+   :mod:`basis.vision.overlap` per multi-photo room and repeat, either passed to the
+   reconciliation call as hints (``hint``) or turned into the inventory by
+   :func:`basis.vision.overlap.overlap_merge` instead of the call (``merge``);
+6. optionally (``--single-photo-rooms per-photo``) no per-room call for a one-photo room:
+   its per-photo analysis is its inventory (there is nothing to de-duplicate);
+7. optionally (``--materials disagree|sensitive``) the surface material second look of
+   :mod:`basis.vision.surface_material` on the room's inventory.
 
 Output, in what ``evals.run --predictions`` scores (``room_inventory``)::
 
@@ -44,7 +54,7 @@ import json
 import sys
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +65,8 @@ from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.llm.recorder import MemoryRecorder
+from basis.vision import overlap as overlap_step
+from basis.vision import surface_material
 from basis.vision.analyze import VisionContext, analyze_photo_detailed, released_prompt
 from basis.vision.prep import ImageRejected, PreparedImage, prepare_image
 from basis.vision.reconcile import (
@@ -87,6 +99,53 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--per-photo-repeat", type=int, default=1)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--budget-usd", type=float, default=10.0, help="stop when exceeded")
+    parser.add_argument(
+        "--room-prompt", default="v1", help="released room_inventory version (default v1)"
+    )
+    parser.add_argument(
+        "--model", default=None, help="model of the per-room calls (default: VISION_MODEL)"
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        default=None,
+        help="reasoning models only: none/minimal/low/medium/high (default: the model's)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="output budget of every per-room call (default: each step's; raise it for "
+        "reasoning models)",
+    )
+    parser.add_argument(
+        "--overlap",
+        choices=("none", "hint", "merge"),
+        default="none",
+        help="pairwise photo-overlap judgments: as hints to the call, or as the merge",
+    )
+    parser.add_argument("--overlap-prompt", default="v1", help="released photo_overlap version")
+    parser.add_argument(
+        "--overlap-model", default=None, help="model of the overlap judgments (default: --model)"
+    )
+    parser.add_argument(
+        "--single-photo-rooms",
+        choices=("reconcile", "per-photo"),
+        default="reconcile",
+        help="one-photo rooms: the reconciliation call (default) or the per-photo analysis "
+        "as is (nothing to de-duplicate, no call)",
+    )
+    parser.add_argument(
+        "--materials",
+        choices=("none", "disagree", "sensitive"),
+        default="none",
+        help="surface material second look: which surfaces (basis.vision.surface_material)",
+    )
+    parser.add_argument(
+        "--materials-prompt", default="v2", help="released surface_material version"
+    )
+    parser.add_argument(
+        "--materials-model", default=None, help="model of the second look (default: --model)"
+    )
     args = parser.parse_args(argv)
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
@@ -134,7 +193,16 @@ def object_record(obj: InventoryObject, files: Sequence[str]) -> dict[str, Any]:
     return {**obj.model_dump(mode="json"), "files": [files[i - 1] for i in obj.image_indices]}
 
 
-def room_record(group: RoomGroup, repeat: int, result: RoomResult) -> dict[str, Any]:
+def room_record(
+    group: RoomGroup,
+    repeat: int,
+    result: RoomResult,
+    overlap: overlap_step.RoomOverlap | None = None,
+    looks: Sequence[surface_material.SecondLook] = (),
+) -> dict[str, Any]:
+    extra_cost = (overlap.cost_usd if overlap is not None else 0.0) + sum(
+        look.cost_usd for look in looks
+    )
     return {
         "room_id": group.room_id,
         "name": group.name,
@@ -166,7 +234,9 @@ def room_record(group: RoomGroup, repeat: int, result: RoomResult) -> dict[str, 
             }
             for number, call in enumerate(result.calls, start=1)
         ],
-        "cost_usd": round(sum(c.cost_usd for c in result.calls), 6),
+        "overlap": (None if overlap is None else [p.record(result.files) for p in overlap.pairs]),
+        "second_look": [look.record() for look in looks],
+        "cost_usd": round(sum(c.cost_usd for c in result.calls) + extra_cost, 6),
     }
 
 
@@ -174,25 +244,37 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
 
-async def reconcile_with_retries(
+async def with_retries[T](
     room_id: str,
-    photos: list[RoomPhoto],
-    ctx: ReconcileContext,
+    step: Callable[[], Awaitable[T]],
     delays: Sequence[float] | None = None,
-) -> RoomResult:
-    """``reconcile_room`` with the photo runner's bounded retry on rate limits and outages
+) -> T:
+    """One per-room step with the photo runner's bounded retry on rate limits and outages
     (``evals.predict_photos.RETRY_DELAYS_S``): one provider timeout or 5xx on one room must
     not abort a whole run."""
     for delay in RETRY_DELAYS_S if delays is None else delays:
         try:
-            return await reconcile_room(room_id, photos, ctx)
+            return await step()
         except (ProviderRateLimited, ProviderUnavailable) as exc:
             print(
                 f"transient provider error on room {room_id}, retrying in {delay:g}s: {exc}",
                 file=sys.stderr,
             )
             await asyncio.sleep(delay)
-    return await reconcile_room(room_id, photos, ctx)
+    return await step()
+
+
+async def reconcile_with_retries(
+    room_id: str,
+    photos: list[RoomPhoto],
+    ctx: ReconcileContext,
+    delays: Sequence[float] | None = None,
+    hints: Callable[[range], str | None] | None = None,
+) -> RoomResult:
+    """``reconcile_room`` under :func:`with_retries`."""
+    return await with_retries(
+        room_id, lambda: reconcile_room(room_id, photos, ctx, hints=hints), delays
+    )
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -299,19 +381,110 @@ async def run(args: argparse.Namespace) -> int:
         {room_id: inventory.counts() for room_id, inventory in heuristic.items()},
     )
 
-    rooms_prompt = prompts.latest("room_inventory")
+    model = args.model or settings.vision_model
+    rooms_prompt = prompts.load("room_inventory", args.room_prompt)
     reconcile_ctx = ReconcileContext(
         call=call_context("evals.predict_rooms.room"),
         provider=pool,
         prompt=rooms_prompt,
-        model=settings.vision_model,
+        model=model,
+        reasoning_effort=args.reasoning_effort,
+        **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
     )
+    overlap_prompt = (
+        prompts.load(overlap_step.PROMPT_NAME, args.overlap_prompt)
+        if args.overlap != "none"
+        else None
+    )
+    overlap_ctx = (
+        overlap_step.OverlapContext(
+            call=call_context("evals.predict_rooms.overlap"),
+            provider=pool,
+            prompt=overlap_prompt,
+            model=args.overlap_model or model,
+            reasoning_effort=args.reasoning_effort,
+            **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
+        )
+        if overlap_prompt is not None
+        else None
+    )
+    materials_prompt = (
+        prompts.load(surface_material.PROMPT_NAME, args.materials_prompt)
+        if args.materials != "none"
+        else None
+    )
+    materials_ctx = (
+        surface_material.MaterialContext(
+            call=call_context("evals.predict_rooms.material"),
+            provider=pool,
+            prompt=materials_prompt,
+            model=args.materials_model or model,
+            reasoning_effort=args.reasoning_effort,
+            **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
+        )
+        if materials_prompt is not None
+        else None
+    )
+
+    async def judge_with_retries(
+        photos: Sequence[RoomPhoto], a: int, b: int, ctx: overlap_step.OverlapContext
+    ) -> overlap_step.PairJudgment:
+        return await with_retries(
+            f"pair {photos[a].file} / {photos[b].file}",
+            lambda: overlap_step.judge_pair(photos, a, b, ctx),
+        )
 
     async def reconcile(group: RoomGroup, repeat: int) -> dict[str, Any]:
         async with semaphore:
             photos = [RoomPhoto(p.file, images[p.file], p.analysis) for p in group.photos]
-            result = await reconcile_with_retries(group.room_id, photos, reconcile_ctx)
-            return room_record(group, repeat, result)
+            overlap: overlap_step.RoomOverlap | None = None
+            if overlap_ctx is not None and len(photos) > 1:
+                overlap = await overlap_step.room_overlap(photos, overlap_ctx, judge_with_retries)
+            if len(photos) == 1 and args.single_photo_rooms == "per-photo":
+                result = RoomResult(
+                    room_id=group.room_id,
+                    files=[photos[0].file],
+                    inventory=RoomInventory(objects=heuristic_merge([photos[0].analysis])),
+                    source="heuristic",
+                    review_reason="single_photo",
+                )
+            elif args.overlap == "merge":
+                assert overlap is not None or len(photos) == 1
+                objects = (
+                    overlap_step.overlap_merge([p.analysis for p in photos], overlap)
+                    if overlap is not None
+                    else heuristic_merge([p.analysis for p in photos])
+                )
+                result = RoomResult(
+                    room_id=group.room_id,
+                    files=[p.file for p in photos],
+                    inventory=RoomInventory(objects=objects),
+                    source="heuristic",
+                    review_reason="overlap_merge",
+                )
+                if overlap is not None and overlap.failed:
+                    result.needs_review = True
+                    result.review_reason = f"overlap_merge:failed_pairs:{len(overlap.failed)}"
+            else:
+                current = overlap
+                hints = (
+                    (lambda indices: overlap_step.render_hints(current, indices))
+                    if current is not None
+                    else None
+                )
+                result = await reconcile_with_retries(
+                    group.room_id, photos, reconcile_ctx, hints=hints
+                )
+            looks: list[surface_material.SecondLook] = []
+            if materials_ctx is not None:
+                objects, looks = await with_retries(
+                    group.room_id,
+                    lambda: surface_material.second_look(
+                        result.inventory.objects, photos, materials_ctx, args.materials
+                    ),
+                )
+                result.inventory = RoomInventory(objects=objects)
+            return room_record(group, repeat, result, overlap, looks)
 
     inventories: dict[str, list[dict[str, int]]] = {g.room_id: [] for g in groups}
     review = 0
@@ -352,11 +525,22 @@ async def run(args: argparse.Namespace) -> int:
             "per_photo_missing": missing_per_photo,
             "room_results_needing_review": review,
             "vision_model_setting": settings.vision_model,
+            "room_model": model,
+            "overlap_model": None if overlap_ctx is None else overlap_ctx.model,
+            "materials_model": None if materials_ctx is None else materials_ctx.model,
+            "reasoning_effort": args.reasoning_effort,
+            "overlap": args.overlap,
+            "single_photo_rooms": args.single_photo_rooms,
+            "materials": args.materials,
             "models_reported": models,
             "spent_usd": round(budget.spent_usd, 6),
             "prompts": {
                 "photo_analysis": None if args.per_photo else released_prompt().version_id,
-                "room_inventory": rooms_prompt.version_id,
+                "room_inventory": None if args.overlap == "merge" else rooms_prompt.version_id,
+                "photo_overlap": None if overlap_prompt is None else overlap_prompt.version_id,
+                "surface_material": (
+                    None if materials_prompt is None else materials_prompt.version_id
+                ),
             },
         },
     )

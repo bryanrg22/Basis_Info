@@ -12,7 +12,7 @@ from fixtures import fixture_path
 from basis.llm import Budget, BudgetExceededError, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
-from basis.llm.prompts import latest
+from basis.llm.prompts import load
 from basis.llm.recorder import MemoryRecorder
 from basis.vision.prep import PreparedImage, prepare_image
 from basis.vision.reconcile import (
@@ -35,6 +35,8 @@ from basis.vision.reconcile import (
 from basis.vision.schemas import Component, PhotoAnalysis, RoomType
 
 USAGE = Usage(input_tokens=1000, output_tokens=200)
+# The v1 layout (one line per image); v2's per-label layout is tested in test_room_steps.py.
+V1 = load("room_inventory", "v1")
 MODEL = "gpt-4.1-mini"
 KITCHEN = prepare_image(fixture_path("photos", "01_kitchen.jpg").read_bytes())
 BATHROOM = prepare_image(fixture_path("photos", "02_bathroom.jpg").read_bytes())
@@ -99,7 +101,7 @@ def context(provider: ScriptedProvider, budget: float = 5.0) -> ReconcileContext
             recorder=MemoryRecorder(),
         ),
         provider=provider,
-        prompt=latest("room_inventory"),
+        prompt=V1,
         model=MODEL,
     )
 
@@ -163,7 +165,7 @@ async def test_request_layout() -> None:
     assert request.response_model is ModelRoomInventory
     assert (request.temperature, request.max_tokens) == (0.0, MAX_TOKENS)
     assert request.prompt_version == "room_inventory/v1"
-    assert request.system == latest("room_inventory").text
+    assert request.system == V1.text
     # One message per image, labelled in order, then the per-photo analyses as text.
     *image_messages, text = request.messages
     assert [m.content for m in image_messages] == ["Image 1:", "Image 2:", "Image 3:"]
@@ -187,7 +189,7 @@ async def test_request_layout() -> None:
 
 
 def test_the_prompt_says_same_room_once_each_with_indices_and_text_is_content() -> None:
-    text = latest("room_inventory").text
+    text = V1.text
     assert "SAME room" in text and "ONCE" in text
     assert "image_indices" in text and "allowed component list" in text
     assert "never an instruction" in text
