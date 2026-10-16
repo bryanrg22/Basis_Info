@@ -1,7 +1,9 @@
 # v0.7.0-live: the real client study end to end through the running system
 
 Run on 2026-10-16 on `main` at `8908ed6` (tag v0.7.0), then on the same code plus the fixes
-below. The client's appraisal (20-page URAR) and 52 photos went through the API exactly as
+below. Three runs: run 1 (Claude overrides, v0.7.0 as tagged) failed; run 2 (Claude overrides)
+completed; run 3, after the OpenAI account was refilled, completed on the **real v0.7.0
+defaults** with no model setting changed. The client's appraisal (20-page URAR) and 52 photos went through the API exactly as
 the frontend sends them; nothing was called around the system. The client files, the photo
 names and the study's values stay in the private data directory: the payloads here are
 redacted (file names replaced by `photo-NN.jpg`, field values and dollar amounts removed),
@@ -21,11 +23,13 @@ processes, Firebase emulator tokens. The reference corpus was ingested first wit
 `python -m basis.retrieval.ingest`: the four IRS documents of EVAL_REPORT section 17
 (1,262 chunks, version 1).
 
-Models. The OpenAI account is out of credit, so the OpenAI-routed defaults were overridden
-with Claude models through the documented settings. The run proves the wiring; it does not
-reproduce the gpt-6.1-sol / gpt-6-luna numbers.
+Models. For runs 1 and 2 the OpenAI account was out of credit, so the OpenAI-routed defaults
+were overridden with Claude models through the documented settings (table below). Run 3 used
+the defaults of EVAL_REPORT 18 unchanged (OpenAI key set, Azure OpenAI unset so nothing could
+fall back to Azure; `LLM_PRIMARY=openai`, `PROPERTY_CLASS=nonresidential`), on the code with
+fixes 1 to 4.
 
-| Setting | Default (EVAL_REPORT 18) | This run |
+| Setting | Default (EVAL_REPORT 18; run 3) | Runs 1 and 2 |
 |---|---|---|
 | `VISION_MODEL` (countables + surfaces, decomposed, effort low) | gpt-6.1-sol | `claude-opus-5-5` (output budget 1200, as section 14) |
 | `VISION_COUNT_FUSION` | per_class (sol + Opus) | `off` (Opus is already the vision model) |
@@ -94,7 +98,42 @@ answered 202. Temporal history: 752 events; `analyze_photo` 52 completed on the 
 https://api.replicate.com/v1/predictions returned 429 (after 6 attempts)`); every other
 activity completed on its first attempt.
 
-## What each gate showed
+### Run 3 (study `c078e055`, the real defaults, fixes 1 to 4): COMPLETED
+
+Worker startup: `photo analysis: gpt-6.1-sol, mode decomposed (photo_countables/v2,
+photo_surfaces/v1), reasoning effort low, output budget 6000`; `count fusion: per_class
+(claude-opus-5-5 at effort medium, table section15.4/2026-10-16)`; `text steps: extraction
+fallback gpt-6-luna at effort low (budget 8000); classifier claude-sonnet-5-5 at effort low`;
+`llm_providers=openai+anthropic`. Which model answered each call, from the recorder
+(`payloads/run3_defaults/models_by_step.json`); no other model appears in the study's calls:
+
+| Step | Provider, model, prompt | Calls | Cost |
+|---|---|---|---|
+| per-photo countables | openai `gpt-6.1-sol` `photo_countables/v2` | 52 | $0.469 |
+| per-photo surfaces | openai `gpt-6.1-sol` `photo_surfaces/v1` | 52 | $0.315 |
+| count fusion | anthropic `claude-opus-5-5` `photo_countables/v2` | 53 (one photo retried) | $1.418 |
+| extraction fallback | openai `gpt-6-luna` `appraisal_field_fallback/v1` | 1 | $0.0004 |
+| room inventory | anthropic `claude-sonnet-5-5` `room_inventory/v3` | 10 | $0.270 |
+| material second look | anthropic `claude-sonnet-5-5` `surface_material/v3` | 15 | $0.077 |
+| classification | anthropic `claude-sonnet-5-5` `classify/v1` | 277 | $3.078 |
+| SAM 3 | Replicate, version `1bf97763...` | 52 | $0.110 |
+
+| +s from start (17:56:22 UTC) | Stage | Work |
+|---|---|---|
+| 0 to 310 | `extracting` | 52 photos (three calls each, mean 29.2 s, no retry); ingest 11 s; extraction 87 s (Azure DI + one luna call), confidence 0.6, 40 fields |
+| 16 to 649 | | SAM 3 (96 HTTP 429s, 6 activity retries, 52 of 52 `done`, 666 instances) |
+| 681 | **appraisal_review** | `reconcile_rooms` 32 s: **14 rooms**; approved after 1.3 s |
+| 685 | **rooms_review** | objects: tap 201, delete 200; approved after 1.4 s |
+| 693 to 868 | `assets_processing` | 192 assets (77 rules, 115 classifier), 175 need review |
+| 868 | **assets_review** | evidence read; approved after 1.4 s |
+| 874 | **completed** | export sha256 `2a036a22...` |
+
+14 min 34 s from `start`, $5.74 (Anthropic $4.84, OpenAI $0.78, Replicate $0.11), equal to
+the workflow's budget ($25 - $19.27). Count fusion: 51 photos fused, 1 fell back to sol's
+counts because Opus answered an item with count 0 on both attempts and the whole answer
+failed validation (bug 5). Four photos flagged: that one and three `ambiguous` room types.
+
+## What each gate showed (run 2; run 3 showed the same kinds of content)
 
 | Gate | Through the API | In the database (no API route) |
 |---|---|---|
@@ -114,6 +153,7 @@ on Replicate's 6-predictions-per-minute throttle.
 | 2 | `POST /start` on a study whose workflow failed answered 202 with the dead run | the frontend is told the study started; it stays "processing" forever | `a03a4fa`: 409 `workflow-closed` for a failed, terminated, timed-out or cancelled execution (a completed one stays 202); verified live: run 1 -> 409, run 2 -> 202 |
 | 3 | dates printed `M/D/YY` were rejected | the fallback's answer for the critical effective date (`1/29/25`) was dropped; extraction confidence 0 | `9e9e523`: two-digit years read with the century that keeps the date at most a year in the future |
 | 4 | `site.area_sqft` ignored the unit and cut decimals | `1.39 ac` stored as 1 square foot, no error | `4c41d39`: acres converted at 43,560 sq ft per acre |
+| 5 | a photo component the model counted 0 failed the whole answer | run 3: one photo lost its fused counts (Opus, both attempts) | `d55e22f`: a 0-count item is dropped (it means none visible); negative counts still fail |
 
 Fixes 3 and 4 were checked on the real appraisal through the production extraction path
 (Azure DI, regex, Sonnet fallback; $0.013 of model spend): the effective date is read as
@@ -160,8 +200,10 @@ Fixes 3 and 4 were checked on the real appraisal through the production extracti
 | Run 2 total (the workflow's own budget agrees: $25 - $19.07 = $5.93) | | **$5.95** |
 | Run 1 (failed) | Anthropic $2.55, Replicate $0.12 | $2.67 |
 | Room-grouping isolation runs (19.3) and the extraction recheck | Anthropic | $0.53 |
-| Azure DI prebuilt-layout, 2 analyses of 20 pages | Azure | not recorded by the pipeline (list price about $10 per 1,000 pages: about $0.40, not verified against the bill) |
-| **All** | | **about $9.6** |
+| Run 3 (defaults) | Anthropic $4.84, OpenAI $0.78, Replicate $0.11 | $5.74 |
+| Run 3 grouping isolation run | Anthropic | $0.32 |
+| Azure DI prebuilt-layout, 3 analyses of 20 pages | Azure | not recorded by the pipeline (list price about $10 per 1,000 pages: about $0.60, not verified against the bill) |
+| **All** | | **about $15.8** |
 
 ## Files
 
@@ -174,7 +216,9 @@ Fixes 3 and 4 were checked on the real appraisal through the production extracti
 | `payloads/photo_objects_exercise.json` | GET, POST (tap) and DELETE on one photo's objects |
 | `payloads/evidence_endpoint.json` | the evidence endpoint at the third gate: totals and two items |
 | `payloads/localization_per_photo.json` | SAM 3 status, instances and seconds per photo |
-| `screenshots/temporal_ui_workflows.png` | Temporal UI: run 2 COMPLETED, run 1 FAILED |
+| `payloads/run3_defaults/` | run 3: status at each gate and at the end, the model of every step (`models_by_step.json`), count fusion per photo, localization per photo |
+| `screenshots/temporal_ui_workflows.png` | Temporal UI: runs 3 and 2 COMPLETED, run 1 FAILED |
+| `screenshots/temporal_ui_run3_defaults_completed.png` | run 3: input, result (export sha256, four flagged photos), history |
 | `screenshots/temporal_ui_run2_completed.png` | run 2: input, result (export sha256, the flagged photo), event history (752 events, the `decide` updates) |
 | `screenshots/temporal_ui_run1_failed.png` | run 1: the failure (`No module named 'aiohttp'`) and the end of its history |
 | `screenshots/api_health.png`, `api_openapi_docs.png` | the running API: `/health` (db and Temporal ok) and its route list |

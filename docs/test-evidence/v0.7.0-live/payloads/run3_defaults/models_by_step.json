@@ -1,0 +1,47 @@
+{
+ "note": "llm_calls rows of the study (the recorder): every call's provider and the model that answered",
+ "steps": {
+  "analyze_photo | anthropic | claude-opus-5-5 | photo_countables/v2": {
+   "calls": 53,
+   "cost_usd": 1.417548,
+   "input_tokens": 222927,
+   "output_tokens": 26292
+  },
+  "analyze_photo | openai | gpt-6.1-sol | photo_surfaces/v1": {
+   "calls": 52,
+   "cost_usd": 0.314548,
+   "input_tokens": 95084,
+   "output_tokens": 12438
+  },
+  "analyze_photo | openai | gpt-6.1-sol | photo_countables/v2": {
+   "calls": 52,
+   "cost_usd": 0.468564,
+   "input_tokens": 115572,
+   "output_tokens": 23742
+  },
+  "extract_fields | openai | gpt-6-luna | appraisal_field_fallback/v1": {
+   "calls": 1,
+   "cost_usd": 0.000393,
+   "input_tokens": 3611,
+   "output_tokens": 63
+  },
+  "reconcile_rooms | anthropic | claude-sonnet-5-5 | room_inventory/v3": {
+   "calls": 10,
+   "cost_usd": 0.26976,
+   "input_tokens": 72620,
+   "output_tokens": 12452
+  },
+  "reconcile_rooms | anthropic | claude-sonnet-5-5 | surface_material/v3": {
+   "calls": 15,
+   "cost_usd": 0.076498,
+   "input_tokens": 31944,
+   "output_tokens": 1261
+  },
+  "process_assets | anthropic | claude-sonnet-5-5 | classify/v1": {
+   "calls": 277,
+   "cost_usd": 3.078204,
+   "input_tokens": 1303067,
+   "output_tokens": 47207
+  }
+ }
+}

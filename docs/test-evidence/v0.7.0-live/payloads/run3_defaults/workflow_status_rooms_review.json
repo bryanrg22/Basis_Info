@@ -1,0 +1,38 @@
+{
+ "workflow_id": "study-c078e055-d3e9-44a5-92a5-523b86ea70b2",
+ "run_id": "01a145db-9c96-7bdb-943c-74449c90a258",
+ "execution_status": "RUNNING",
+ "status": {
+  "stage": "rooms_review",
+  "revision": 1,
+  "waiting_since": "2026-10-16T18:07:47.708731Z",
+  "pending_photos": 0,
+  "completed_photos": 52,
+  "decisions_applied": [
+   "11d0eb44-0063-4534-8cec-863e38a8ee8c"
+  ],
+  "stalled": false,
+  "budget_remaining_usd": 22.343364000000015,
+  "awaiting": "rooms_review",
+  "flagged_photos": [
+   "6283677c-3df4-4a94-865f-9f9b6de66c43",
+   "1924ddfd-82bf-4267-b2d3-1f7467835626",
+   "3d16eaef-66c0-4da6-90af-cc479e23334e",
+   "28f47a38-914d-4110-9e21-2e29f5b4f9f5"
+  ],
+  "needs_review_stages": [
+   "appraisal_review"
+  ]
+ },
+ "runs": [
+  {
+   "workflow_id": "study-c078e055-d3e9-44a5-92a5-523b86ea70b2",
+   "run_id": "01a145db-9c96-7bdb-943c-74449c90a258",
+   "workflow_version": "8908ed6",
+   "input_revision": 1,
+   "started_at": "2026-10-16T17:56:22.850624Z",
+   "ended_at": null,
+   "outcome": null
+  }
+ ]
+}

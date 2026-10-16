@@ -1696,14 +1696,20 @@ approved at the three gates through the API with no corrections. The run log, th
 payloads, the gate contents and the Temporal UI and API screenshots are in
 `docs/test-evidence/v0.7.0-live/`.
 
-Configuration: section 18 with the OpenAI-routed steps on Claude, because the OpenAI account
-is out of credit: per-photo calls on `claude-opus-5-5` (decomposed, low effort, budget 1200),
-fusion off, extraction fallback on `claude-sonnet-5-5` (low), `PROPERTY_CLASS=nonresidential`;
-room step, classifier and SAM 3 as section 18. So the reference rows below are the offline
-runs of the same models (Opus 5.5 decomposed low, section 15.1 row 1b; the room step on the
-Opus input, 16.5; Sonnet 5.5 for both text steps, 17), not the gpt-6.1-sol / gpt-6-luna
-production numbers. One live run is one repeat; the offline numbers are means over three
-repeats unless marked.
+Two configurations, `PROPERTY_CLASS=nonresidential` in both:
+
+- **Defaults** (run 3, after the OpenAI account was refilled): section 18 unchanged: gpt-6.1-sol
+  decomposed with per-class count fusion on claude-opus-5-5, gpt-6-luna extraction fallback,
+  Sonnet 5.5 room step and classifier, SAM 3. The recorder shows each step answered only by its
+  configured model (`payloads/run3_defaults/models_by_step.json`; Azure OpenAI was unset, so
+  nothing could fall back). Its references are the offline winners: 15.1 row 4c, 16.5 on the sol
+  input, 17.1 luna, 17.2 Sonnet.
+- **Claude overrides** (runs 1 and 2, while the account had no credit): per-photo calls on
+  `claude-opus-5-5` (decomposed, low, budget 1200), fusion off, extraction fallback on
+  `claude-sonnet-5-5`. Its references are the offline runs of the same models (15.1 row 1b, 16.5
+  on the Opus input, 17 Sonnet).
+
+One live run is one repeat; the offline numbers are means over three repeats unless marked.
 
 ### 19.1 What happened
 
@@ -1711,7 +1717,7 @@ The first run (v0.7.0 as tagged) **failed**: `aiohttp`, which the Azure DI async
 was not installed, so `extract_fields` failed all three attempts within 16 seconds of the start; the
 workflow carried on through the photos, SAM 3 and the room step and failed when it awaited
 the appraisal, 17 minutes and $2.67 later. `POST /start` then answered 202 for the dead study.
-With the dependency installed the second run **completed** in 15 min 57 s from `start`: photos
+With the dependency installed the second run (Claude overrides) **completed** in 15 min 57 s from `start`: photos
 in 118 s (10.9 s each, five at a time), extraction in 94 s, SAM 3 in 705 s (Replicate's
 throttle: 91 HTTP 429s, 4 activity retries, all 52 photos localized), the room step in 29 s,
 assets in 167 s, export at once; each decision reached the workflow through the relay on its
@@ -1727,6 +1733,14 @@ confidence 0); a site area printed in acres stored as square feet with the decim
 extraction path after the fix: effective date 2025-01-29, site area 60,548 sq ft, no
 validation issue, confidence 0.6.
 
+The third run, on the defaults and the fixed code, **completed** in 14 min 34 s for $5.74
+(Anthropic $4.84, OpenAI $0.78, Replicate $0.11; the budget agrees). Photos took 310 s (three
+calls each, 29 s mean), SAM 3 649 s, extraction 87 s (confidence 0.6, 40 fields, as in the
+recheck). Count fusion fused 51 photos; on one, Opus listed an item with count 0 on both
+attempts, the answer failed validation and the photo kept sol's counts (flagged
+`count_fusion_fallback`). That is the fifth bug: a 0-count item now means "not visible" and is
+dropped instead of failing the answer.
+
 ### 19.2 Live against offline
 
 Scored by `evals.run` on prediction files exported from the completed study's database rows
@@ -1735,23 +1749,42 @@ label set as it stood for sections 15 to 17. The private label files were regene
 another session during this run; the set used here was rebuilt from the label builders'
 backups and reproduces section 16.5's row exactly (0.34 / 0.72 / 0.90 / 31 of 39).
 
-| Step | Metric | Offline (same models) | Live |
+Defaults (run 3):
+
+| Step | Metric | Offline winner | Live, defaults |
+|---|---|---|---|
+| Per-photo counts (6 verified classes, 312 pairs) | count MAE / exact / bias | 0.124 / 0.899 / -0.04 (15.1 4c) | **0.135 / 0.897 / -0.02** |
+| | count precision / recall | 0.92 / 0.87 | 0.90 / 0.87 |
+| Per-photo labels / room type | label F1 / accuracy | 0.741 / 0.90 | **0.740 / 0.88** |
+| Per-photo step cost | $ per 52 photos | $2.20 | $2.20 |
+| Room inventory (33 rooms) | count MAE / exact / bias | 0.43 / 0.63 / +0.10 (16.5, sol input) | **0.60 / 0.51 / -0.23** (14 rooms) |
+| | rooms exact / label F1 | 2.7 of 33 / 0.85 | 2 of 33 / 0.69 |
+| Report rows (39 photo-derivable) | rows evidenced / material present | 32 of 39 / 9 of 9 | **32 of 39** / 9 of 9 |
+| Appraisal fields (75 labelled) | accuracy / critical | 0.924 / 12 of 12 (17.1 luna, all 75 asked) | **0.307 / 8 of 12** (23 right, 0 wrong, 52 not extracted) |
+| Asset buckets (46 schedule rows) | accuracy | 0.688 (17.2 Sonnet) | 0.500 (32 answered, 14 abstain) |
+| | on the 32 rows photos answer | 22 of 32 (17.2 repeat 1, same rows) | **23 of 32** |
+| | citations verified / needs review | 96% / 46% of rows | 263 of 263 / 175 of 192 assets |
+
+Claude overrides (run 2):
+
+| Step | Metric | Offline (same models) | Live, overrides |
 |---|---|---|---|
 | Per-photo counts (6 verified classes, 312 pairs) | count MAE / exact / bias | 0.166 / 0.876 / -0.05 (15.1 1b) | **0.157 / 0.872 / -0.02** |
 | | count precision / recall | 0.90 / 0.83 | 0.88 / 0.86 |
 | Per-photo labels | label F1 | 0.763 | **0.766** |
 | Per-photo room type | accuracy | 0.88 | **0.90** |
 | Per-photo step cost | $ per 52 photos | $2.23 | $2.22 |
-| Room inventory (33 rooms) | count MAE / exact / bias | 0.34 / 0.72 / +0.06 (16.5) | **0.68 / 0.45 / -0.09** |
+| Room inventory (33 rooms) | count MAE / exact / bias | 0.34 / 0.72 / +0.06 (16.5) | **0.68 / 0.45 / -0.09** (21 rooms) |
 | | rooms exact / label F1 | 6.7 of 33 / 0.90 | 3 of 33 / 0.68 |
 | Report rows (39 photo-derivable) | rows evidenced / material present | 31 of 39 / 9 of 9 | **32 of 39** / 9 of 9 (cost coverage 0.97) |
 | Appraisal fields (75 labelled) | accuracy / critical | 0.916 / 12 of 12 (17.1, all 75 asked of the model) | **0.307 / 8 of 12** (23 right, 0 wrong, 52 not extracted) |
 | Asset buckets (46 schedule rows) | accuracy | 0.688 (17.2; repeat 1 0.674) | 0.500 (32 answered, 14 abstain) |
 | | on the 32 rows photos answer | 22 of 32 (17.2 repeat 1, same rows) | **23 of 32** |
-| | citations verified / needs review | 96% / 46% of rows | 261 of 261 / 92% of assets |
+| | citations verified / needs review | 96% / 46% of rows | 261 of 261 / 186 of 203 assets |
 
-Per photo, the live run is the offline measurement: every difference is inside the spread of
-section 15's repeats. The pipeline's two-call step, merge and storage add nothing and lose
+Per photo, both live runs are the offline measurement: every difference is inside the spread
+of section 15's repeats (the fused counts at 0.135 against 0.124 include the one photo that
+fell back to sol's counts). The pipeline's two-call step, merge and storage add nothing and lose
 nothing. The other three rows differ, and each difference has one cause.
 
 ### 19.3 Rooms: the grouping, not the models
@@ -1770,9 +1803,16 @@ Re-running the section 16.5 room step offline on the **same live per-photo outpu
 | Model room identity (production, live) | 0.68 | 0.45 | -0.09 | 3 of 33 | 0.68 | 32 of 39 | $0.29 |
 | File name, no aliases (49 rooms, summed into the labelled 33) | 0.65 | 0.61 | +0.51 | 4 of 33 | 0.89 | 32 of 39 | $0.19 |
 | File name and the engineer's aliases (section 16) | **0.40** | 0.69 | +0.09 | 4 of 33 | 0.89 | 32 of 39 | $0.33 |
+| Defaults (run 3, sol + fusion input): model room identity, live | 0.60 | 0.51 | -0.23 | 2 of 33 | 0.69 | 32 of 39 | $0.35 |
+| Defaults: file name and aliases, same live input | **0.45** | 0.65 | +0.05 | 4 of 33 | 0.85 | 32 of 39 | $0.32 |
 
-With section 16's grouping the live per-photo outputs land at 0.40, against 0.34 offline
-(a mean of three repeats; section 16 treats single differences under about 0.1 as noise). Without the aliases the
+The first three rows are run 2's per-photo outputs (Opus); the last two run 3's (offline
+reference on the sol input: 0.43).
+
+With section 16's grouping the live per-photo outputs land at 0.40 and 0.45, against 0.34 and
+0.43 offline (means of three repeats; section 16 treats single differences under about 0.1 as
+noise). On the defaults the model's identity made only 14 rooms, so the de-duplication across
+real rooms is stronger (bias -0.23). Without the aliases the
 views of one room become separate rooms and their objects are counted twice (+0.51). So the
 room step's measured accuracy depends on a grouping production does not do, and on the
 engineer's room merges, which the product has no input for. Choosing the grouping (the
@@ -1796,8 +1836,8 @@ also lost (the fallback answered it correctly, as printed).
 ### 19.5 Assets: a different input, and the review load
 
 Section 17.2 classified the engineer's 46 schedule captions; production classifies what the
-photos produced: 203 component assets (80 by the rules table, 123 by the classifier loop, 292
-model calls, $3.27 against $1.25 for 46 rows). To score, each schedule row takes the majority
+photos produced: 203 component assets in run 2 (80 by the rules table, 123 by the classifier
+loop, 292 model calls, $3.27 against $1.25 for 46 rows; run 3: 192 assets, 277 calls, $3.08). To score, each schedule row takes the majority
 bucket of the assets whose label evidences it (`report_rows` labels and room types); 14 rows
 abstain (7 not photo-derivable, 6 vocabulary gaps, 1 not evidenced). On the 32 rows the photos
 answer the live pipeline is right on 23, the offline captions on 22: the same. Every one of
@@ -1819,12 +1859,12 @@ and ceiling finishes and most labels, so the assets review would be nearly every
   appraisal gate waits for it although it reviews only the extraction (done at +94 s). An
   extraction failure is noticed only after the photo stage and fails the whole study, which
   then cannot be restarted.
-- Not verified here: the gpt-6.1-sol and gpt-6-luna configurations (OpenAI credit), Azure DI's
-  cost (not recorded by the pipeline), a deployment on Cloud Run, and a second client package.
+- Not verified here: Azure DI's cost (not recorded by the pipeline), a deployment on Cloud Run,
+  repeats of the live run, and a second client package.
 
-Spend for this section: about $9.6 (Anthropic $8.88: run 2 $5.80, the failed run 1 $2.55, the
-grouping runs and the extraction recheck $0.53; Replicate $0.27; Azure DI about $0.40 at list
-price, not recorded).
+Spend for this section: about $15.8 (Anthropic $14.04: run 3 $4.84, run 2 $5.80, the failed
+run 1 $2.55, the grouping runs and the extraction recheck $0.85; OpenAI $0.78 (run 3);
+Replicate $0.38; Azure DI about $0.60 at list price, not recorded).
 
 Commands (from `backEnd/`; the stack and settings as in the evidence README; the predictions
 and labels are private):

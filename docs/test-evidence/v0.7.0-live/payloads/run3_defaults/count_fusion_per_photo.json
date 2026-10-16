@@ -1,0 +1,517 @@
+{
+ "0a0a0fc3-2baf-473c-af48-5bbb0aef5e33": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "0a3c8848-e9b9-4690-a2a5-0c3172783bf6": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "0a97493a-0f03-4d3c-aa31-fb375f221e08": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "1924ddfd-82bf-4267-b2d3-1f7467835626": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "19819094-a405-4d14-90d7-8f33b6072d01": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "1d94603b-582f-47c2-a48e-f68106143bd8": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "28f47a38-914d-4110-9e21-2e29f5b4f9f5": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "3027a686-fe24-4554-b970-8a73a1386c6d": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "353222ab-cb6e-46db-a55f-90705de77480": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "37af3d4d-45da-476b-b4dc-88b09988de64": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "399e6b95-1519-4a9d-9185-d4b9d18a0450": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "39aac75f-e248-4624-8780-ec26eb86df01": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "39fb0af2-48c6-4d54-abe6-b5cdc8eaf150": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "3ad978c4-fb8c-41dc-9568-5bb51be63389": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "3d16eaef-66c0-4da6-90af-cc479e23334e": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "3e1b5c1f-114e-4c2b-ba3e-c6a167feb7f6": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "3fd88842-c9a9-4a21-a1da-6349c48c08d3": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "4065ccb2-d376-431c-8f1a-fcbaa691e9fe": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "4cd893da-8b4c-4dec-a410-0ec434b57206": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "4fffa24e-2279-464b-8c3f-e4faa339f074": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "558e8fe3-6a5c-4f06-9c90-0431f94f2d99": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "6283677c-3df4-4a94-865f-9f9b6de66c43": {
+  "status": "fallback",
+  "reason": null,
+  "sources": {}
+ },
+ "6580203a-a4ae-4c1f-8f61-6670b16c68d3": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "6a638136-df2c-43bf-99e5-5c9995d4094e": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "6c17adb3-323f-4fa4-a0a1-e15277857ee7": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "6cabad33-8758-47b7-bd37-86780723fdf4": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "70418645-c0ba-4d2b-b644-48eb21e5c114": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "756f6558-4247-49d5-b33a-76be997baec1": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "7747e015-5c2b-43e4-8e42-ff3d1cdea0fc": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "78d1af77-6539-4964-8848-29f0c3d05ca0": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "7986909a-054f-4969-be7e-3923d43ec771": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "8b674c64-bd68-47bf-84d4-499d6b8440e1": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "8c2ba9ca-b53a-4d8e-a457-7160a07199cf": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "8f9b94b8-34c7-4ac4-ad5e-f530960a0cce": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "9a250ee3-50d1-4211-bc10-83535e50ba4a": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "9eff60a7-e9aa-414d-acb8-eaed3b6e1918": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "aa865d0f-18c5-4014-aca4-c9ca499e09ff": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "bae516b0-6a54-4c40-97f5-d76348021f86": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "bcd3d2e8-d706-41c6-be9a-f7b46a077c48": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "c1e5ce27-ce64-4616-82f5-f41b1bdc614b": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "c5a498e1-fcc5-46ce-a387-49374ae557ed": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "ca8a87c5-9794-4d9c-bbdd-7ee18e486fc4": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "d10ba7f3-af36-4f72-b9ee-ddb3e6e8b361": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "d2ae9575-0148-475b-a76a-6124ac47ca14": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "d724124d-3bd4-45e8-afda-be4c184c1d00": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "d771eb4b-50a7-4ad6-8554-9a49b5131313": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "dac0df8e-9bfd-4ca7-ac2a-0b14ce6d9b22": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "e5a8bd2c-9a35-4286-bf0e-4f3a6e6c8dd8": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "ebded62b-0a9e-4305-87dd-4564b8bb217c": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "ec693eb8-1e6e-477e-be15-440fa0d39104": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "f789801f-d08d-4bca-9911-3f3349b868fd": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ },
+ "feef6ff3-102d-412f-afc0-4334e477cc67": {
+  "status": "fused",
+  "reason": null,
+  "sources": {
+   "door": "claude-opus-5-5",
+   "window": "claude-opus-5-5",
+   "light_fixture": "claude-opus-5-5",
+   "kitchen_cabinet": "claude-opus-5-5"
+  }
+ }
+}
