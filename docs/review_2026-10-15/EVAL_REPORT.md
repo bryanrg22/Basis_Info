@@ -3006,11 +3006,11 @@ against 0.150 at medium, alone; no gain inside the fusion, 4d). New:
 
 - `photo_countables/v2` at **max** effort (output budget 4,000 + 4,096 thinking headroom):
   149 of 156 answers were cut off at the output limit (each attempt about 100 s of
-  thinking) and became `invalid_model_output`, so the counts score 0.583 (recall 0.05). Not a
-  measurement of max effort's accuracy, but of its fit: max does not finish a per-photo count
+  thinking) and became `invalid_model_output`, so the counts score 0.583 (recall 0.05). Max
+  effort is **untestable at the current output budget**: it does not finish a per-photo count
   inside the pipeline's budget, as Anthropic's effort documentation warns (stated there for an
-  earlier Opus) for structured output. Not re-run with a larger budget: the Anthropic account ran out of credit right after
-  (below).
+  earlier Opus) for structured output. The 0.583 is not a measurement of its accuracy, and
+  it is deliberately not re-run with a larger budget.
 - The room call at **high** effort (the experiment the survey suggests: cross-view
   de-duplication is where thinking might help): room count MAE 0.236 against 0.269 at medium
   and 0.350 for the current pipeline (-0.112 [-0.187, -0.048] against the current), label F1
@@ -3048,7 +3048,7 @@ step it replaces; seconds = wall time of one study's calls in this harness (conc
 | d5. Whole property, sol low | n/a | 0.884 | 0.451 [+0.026: -0.058, +0.118] | 34 (0.89) | 0.88 | 0.199 / 0.210 | n/a | $0.17 | 189 |
 | d6. Photos to schedule, Opus medium | n/a | n/a | n/a | 34.7 (avg) | 0.85 | 0.345 / 0.424 | n/a | $0.34 | 82 |
 | d7. Photos to schedule, sol low | n/a | n/a | n/a | 34.3 (avg) | 0.85 | 0.608 / 0.501 | n/a | $0.10 | 80 |
-| e1. Countables at max effort, Opus | 0.583 (149/156 truncated) | n/a | n/a | n/a | n/a | n/a | n/a | $0.57 recorded (see spend) | ~200 / photo |
+| e1. Countables at max effort, Opus (untestable at the current output budget) | 0.583 (149/156 truncated) | n/a | n/a | n/a | n/a | n/a | n/a | $0.57 recorded (see spend) | ~200 / photo |
 | **e2. Room call v2, Opus high** | n/a | **0.923** | **0.236 [-0.112: -0.187, -0.048]** | 36 (0.95) | 0.89 | 0.086 / 0.079 | n/a | $1.35 | 90 |
 | **f. e2 inside, current pipeline outside** (in-sample rule) | n/a | 0.898 | 0.277 [-0.067: -0.110, -0.023] | **37 (0.97)** | 0.86 | 0.090 / 0.085 | n/a | ~$1.35 + exterior per-photo | ~90 |
 
@@ -3111,7 +3111,12 @@ max-effort run recorded only $0.0055 per attempt for about 300 attempts of about
 which looks like the input cost alone; if the output tokens of truncated answers were not
 recorded, that run cost much more than recorded. The Anthropic account returned "credit
 balance is too low" right after it, so this could not be checked; the recorded total may
-understate the Anthropic spend.
+understate the Anthropic spend. The code path was checked offline: a truncated Anthropic
+response (`stop_reason` max_tokens) raises `ProviderBadResponse` carrying the message's usage,
+and `call_model` records and charges it (a simulated truncated answer with 1,400 input and
+8,096 output tokens is charged $0.168, the list price). So the runner charged whatever usage
+the API reported; whether the API reported the thinking tokens of those answers is to be
+checked with one probe call once there is credit.
 
 Prediction directories under `$BASIS_EVAL_DATA_DIR/predictions` (private): detectors
 `arch26_det_{mask2former,oneformer,owlv2,gdino,llmdet}` with `_select` (the leave-one-photo-out
