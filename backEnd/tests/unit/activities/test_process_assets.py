@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from fixtures import fixture_path
 from lifecycletest_support import SeededStudy, count_rows, make_deps, scripted_classifier
 from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
@@ -174,11 +175,11 @@ async def test_rule_and_model_values_and_takeoffs(
     cabinets = sorted(
         (takeoffs[a.id] for label, a in rows if label == "cabinetry"), key=lambda t: t.quantity
     )
-    # Both kitchen photos show the cabinets; the run is measured once for the room.
-    assert [t.quantity for t in cabinets] == [Decimal("0"), Decimal("48.99")]
-    assert cabinets[0].inputs["measured_with_asset"]
-    assert cabinets[1].inputs["room_area_source"] == "typical_for_room_type"
-    assert cabinets[1].formula == "4 x sqrt(150 SF)"
+    # v0.9 (EVAL_REPORT 25): cabinets are counted in units, per row (these stub rows carry
+    # no count, so one each). With the room step off (this suite's baseline) each photo's
+    # row counts its cabinets; the room step's one inventory per room is what dedupes.
+    assert [t.quantity for t in cabinets] == [Decimal("1"), Decimal("1")]
+    assert {(t.unit, t.formula) for t in cabinets} == {("EA", "max(count=1, min_per_room=1)")}
 
 
 async def test_unknown_label_goes_to_the_model_and_is_flagged(
@@ -200,6 +201,47 @@ async def test_unknown_label_goes_to_the_model_and_is_flagged(
     rows = await labelled(deps, analyzed.study_id, 1)
     [mystery] = [asset for label, asset in rows if label == "mystery_box"]
     assert mystery.method is ClassificationMethod.LLM and mystery.needs_review
+
+
+async def test_the_cost_table_prices_labels_the_legacy_rows_do_not(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT 25, item 6: with COST_TABLE_PATH (here the synthetic table) kitchen
+    cabinets are priced per unit; a row in another unit than the takeoff is
+    COST_NEEDS_QUANTITY, a label without a row is still COST_ROW_MISSING."""
+    settings = deps.settings.model_copy(
+        update={"cost_table_path": str(fixture_path("cost_table.json")), "cost_year": 2025}
+    )
+    priced = make_deps(deps.sessionmaker, deps.storage, settings)
+    async with session_scope(deps.sessionmaker) as session:
+        repo = RoomRepository(session)
+        for label, count in (("kitchen_cabinet", 18), ("patio", 1), ("driveway", 1)):
+            await repo.add_component(
+                study_id=analyzed.study_id,
+                revision=1,
+                document_id=None,
+                room_id=None,
+                label=label,
+                material=None,
+                attachment=None,
+                confidence=0.9,
+                raw={"source": "vision", "count": count},
+            )
+    await activity_env.run(ProcessAssets(priced).run, process(analyzed))
+    rows = dict(await labelled(deps, analyzed.study_id, 1))
+    async with session_scope(deps.sessionmaker) as session:
+        costs = {c.asset_id: c for c in (await session.scalars(select(CostEstimate))).all()}
+    cabinets = costs[rows["kitchen_cabinet"].id]
+    assert (cabinets.unit_cost, cabinets.total) == (Decimal("501.50"), Decimal("9027.00"))
+    assert cabinets.source_row is not None and cabinets.source_row.startswith(
+        "synthetic_2020[kitchen_cabinet]"
+    )
+    assert "COST_ROW_MISSING" not in (rows["kitchen_cabinet"].review_reason or "")
+    patio = rows["patio"]
+    assert patio.review_reason and "cross:COST_NEEDS_QUANTITY" in patio.review_reason
+    assert costs[patio.id].total is None
+    driveway = rows["driveway"]
+    assert driveway.review_reason and "cross:COST_ROW_MISSING" in driveway.review_reason
 
 
 async def test_budget_too_small_writes_nothing(

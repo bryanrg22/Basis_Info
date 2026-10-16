@@ -16,6 +16,13 @@ Changes from legacy, each a bug fix:
   times 9 (legacy multiplied SY by the per-SF price, a 9x undercount). Any other unit
   mismatch raises :class:`UnitMismatch`.
 * Money is ``Decimal`` rounded half-up to cents (legacy used floats).
+
+v0.9 (EVAL_REPORT section 25): a component the six legacy rows do not price is priced
+from the configured cost table (:mod:`basis.domain.cost_table`, ``COST_TABLE_PATH``: the
+engineer's licensed unit costs, by component label). A table row in another unit than the
+takeoff raises :class:`NeedsQuantity` (the component is priced per area or length that
+the takeoff does not measure), which the cross-validation reports apart from a missing
+row.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final, Literal
 
+from basis.domain.cost_table import CostTable
 from basis.domain.takeoffs import SF_PER_SY, Takeoff
 
 Tier = Literal["economy", "standard", "premium", "luxury"]
@@ -45,6 +53,14 @@ class UnknownCostYear(CostError):
 
 class UnitMismatch(CostError):
     pass
+
+
+class NeedsQuantity(UnitMismatch):
+    """The cost table prices the component per ``unit``; the takeoff is in another unit."""
+
+    def __init__(self, message: str, unit: str) -> None:
+        super().__init__(message)
+        self.unit = unit
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,30 +254,55 @@ def estimate_cost(
     location_factor: Decimal | float | str,
     *,
     tier: Tier = "standard",
+    table: CostTable | None = None,
+    label: str | None = None,
 ) -> CostEstimate:
     """Price a takeoff: ``unit_cost = base x year factor x location``; ``total = unit_cost x qty``.
 
-    Raises :class:`MissingCostRow`, :class:`UnknownCostYear` or :class:`UnitMismatch`
-    instead of guessing.
+    The row is the legacy ``TYPICAL_UNIT_COSTS[takeoff.component][tier]``, else the cost
+    table's row for ``label`` (the component's label), else its row for the takeoff
+    component. Raises :class:`MissingCostRow`, :class:`NeedsQuantity` (a table row in
+    another unit), :class:`UnknownCostYear` or :class:`UnitMismatch` instead of guessing.
     """
-    rows = TYPICAL_UNIT_COSTS.get(takeoff.component)
-    if rows is None:
-        raise MissingCostRow(f"no cost row for {takeoff.component!r}")
-    row = rows[tier]
     location = Decimal(str(location_factor))
     if not location.is_finite() or location <= 0:
         raise CostError(f"location factor must be positive, got {location_factor!r}")
+    rows = TYPICAL_UNIT_COSTS.get(takeoff.component)
+    if rows is not None:
+        row = rows[tier]
+        base = _per_takeoff_unit(row, takeoff.unit, takeoff.component)
+        source = f"TYPICAL_UNIT_COSTS[{takeoff.component}][{tier}] per {row.unit}"
+    else:
+        found = None
+        if table is not None:
+            found = table.row(label) or table.row(takeoff.component)
+        if found is None:
+            raise MissingCostRow(f"no cost row for {takeoff.component!r}")
+        if table is not None and table.base_year != BASE_YEAR:
+            raise CostError(
+                f"cost table {table.name} is based on {table.base_year}; the year factors "
+                f"are based on {BASE_YEAR}"
+            )
+        if found.unit != takeoff.unit:
+            raise NeedsQuantity(
+                f"{found.label} is priced per {found.unit}; the takeoff is "
+                f"{takeoff.quantity} {takeoff.unit}",
+                found.unit,
+            )
+        base = found.total
+        assert table is not None
+        source = f"{table.name}[{found.label}] {found.source} per {found.unit}"
+        if found.factor != 1:
+            source += f" x{found.factor} from per {found.source_unit}"
+        if found.assumption:
+            source += f"; assumes {found.assumption}"
     factor = year_factor(cost_year)
-    base = _per_takeoff_unit(row, takeoff.unit, takeoff.component)
     unit_cost = (base * factor * location).quantize(CENTS, rounding=ROUND_HALF_UP)
     total = (unit_cost * takeoff.quantity).quantize(CENTS, rounding=ROUND_HALF_UP)
     return CostEstimate(
         unit_cost=unit_cost,
         total=total,
-        source_row=(
-            f"TYPICAL_UNIT_COSTS[{takeoff.component}][{tier}] per {row.unit} "
-            f"(base {BASE_YEAR}, x{factor} for {cost_year}, x{location} location)"
-        ),
+        source_row=f"{source} (base {BASE_YEAR}, x{factor} for {cost_year}, x{location} location)",
         base_unit_cost=base.quantize(CENTS, rounding=ROUND_HALF_UP),
         year_factor=factor,
         location_factor=location,

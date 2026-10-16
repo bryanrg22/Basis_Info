@@ -201,6 +201,9 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+# One test for every operation (40 examples each): its run time grows with the API. With
+# the v0.9 routes (retry, fields, rooms, assets) it no longer fits the suite's 120 s.
+@pytest.mark.timeout(300)
 @LIVE_SCHEMA.parametrize()
 @hypothesis_settings(
     max_examples=40,

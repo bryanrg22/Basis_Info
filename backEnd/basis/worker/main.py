@@ -42,6 +42,7 @@ from basis.api.app import default_storage
 from basis.config import Settings, load_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
+from basis.domain.cost_table import cost_table_for
 from basis.extraction.azure_di import AzureDocumentIntelligence
 from basis.llm.pool import ProviderPool
 from basis.obs.logging import configure_logging
@@ -130,6 +131,14 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         settings.classify_model,
         settings.classify_reasoning_effort,
     )
+    # Load (and validate) the cost table now, so a broken file stops the worker at start.
+    table = cost_table_for(settings.cost_table_path)
+    if table is None:
+        logger.warning("COST_TABLE_PATH not set: only the six legacy cost rows price assets")
+    else:
+        logger.info(
+            "cost table: %s (%d rows, base %d)", table.name, len(table.rows), table.base_year
+        )
     storage, bucket = default_storage(settings)
     sessionmaker = create_sessionmaker(engine)
     retrieval = default_retrieval(settings)

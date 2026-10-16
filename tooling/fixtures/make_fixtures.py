@@ -38,7 +38,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pymupdf
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
@@ -82,6 +82,114 @@ def rng_for(name: str) -> random.Random:
 
 def dump_json(data: Any) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+# A unit-cost table in basis.domain.cost_table's schema (EVAL_REPORT section 25). Invented
+# numbers: the engineer's RSMeans table is licensed and never in the repository.
+COST_TABLE: Final[dict[str, Any]] = {
+    "schema_version": 1,
+    "name": "synthetic_2020",
+    "base_year": 2020,
+    "basis": "SYNTHETIC TEST FIXTURE: invented numbers, not a cost source",
+    "rows": {
+        "window": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 200,
+            "labor": 30,
+            "equipment": 0,
+            "total_incl_op": 280,
+            "source_unit": "Ea.",
+            "source": "synthetic 08-0001, p. 1",
+            "description": "a window",
+            "assumption": None,
+        },
+        "interior_door": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 100,
+            "labor": 40,
+            "equipment": 0,
+            "total_incl_op": 180,
+            "source_unit": "Ea.",
+            "source": "synthetic 08-0002, p. 1",
+            "description": "a door",
+            "assumption": None,
+        },
+        "kitchen_cabinet": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 400,
+            "labor": 25,
+            "equipment": 0,
+            "total_incl_op": 480,
+            "source_unit": "Ea.",
+            "source": "synthetic 12-0001, p. 2",
+            "description": "a 24-inch base cabinet",
+            "assumption": "one cabinet unit priced as a 24-inch base cabinet",
+        },
+        "wall_finish": {
+            "unit": "SF",
+            "factor": 1,
+            "material": 0.2,
+            "labor": 0.7,
+            "equipment": 0,
+            "total_incl_op": 1.4,
+            "source_unit": "S.F.",
+            "source": "synthetic 09-0001, p. 3",
+            "description": "painting walls",
+            "assumption": None,
+        },
+        "countertop": {
+            "unit": "SF",
+            "factor": 0.5,
+            "material": 18,
+            "labor": 10,
+            "equipment": 0,
+            "total_incl_op": 36,
+            "source_unit": "L.F.",
+            "source": "synthetic 12-0002, p. 2",
+            "description": "a 24-inch countertop",
+            "assumption": "per LF of a 24-inch-wide top: per SF is half",
+        },
+        "roof": {
+            "unit": "SF",
+            "factor": 0.01,
+            "material": 100,
+            "labor": 50,
+            "equipment": 0,
+            "total_incl_op": 200,
+            "source_unit": "Sq.",
+            "source": "synthetic 07-0001, p. 4",
+            "description": "shingles",
+            "assumption": "per square (100 SF)",
+        },
+        "light_fixture": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 1,
+            "labor": 1,
+            "equipment": 0,
+            "total_incl_op": 3,
+            "source_unit": "Ea.",
+            "source": "synthetic 26-0001, p. 5",
+            "description": "never used: the legacy row wins",
+            "assumption": None,
+        },
+        "patio": {
+            "unit": "SF",
+            "factor": 1,
+            "material": 2,
+            "labor": 1.5,
+            "equipment": 0,
+            "total_incl_op": 4.5,
+            "source_unit": "S.F.",
+            "source": "synthetic 32-0001, p. 6",
+            "description": "a concrete patio",
+            "assumption": None,
+        },
+    },
+}
 
 
 class LayoutError(RuntimeError):
@@ -2003,6 +2111,7 @@ def generate() -> dict[str, bytes]:
         }
     )
     files["adversarial/README.md"] = adversarial_readme(overlay).encode("utf-8")
+    files["cost_table.json"] = dump_json(COST_TABLE)
 
     files["malformed/empty.pdf"] = empty_pdf()
     files["malformed/not_a_pdf.pdf"] = NOT_A_PDF

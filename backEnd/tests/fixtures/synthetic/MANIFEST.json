@@ -59,6 +59,11 @@
       "bytes": 7272
     },
     {
+      "path": "cost_table.json",
+      "sha256": "2bbd6979f6d3954fa177914caf32348685ef04a35c0578d30c59c2917aa53241",
+      "bytes": 2626
+    },
+    {
       "path": "malformed/README.md",
       "sha256": "b441f861dcf0e44e1ae82e31795d1ed1b3ed1c3512a3ee87e8e668defb9546b3",
       "bytes": 1126

@@ -15,9 +15,13 @@ Changes from legacy, each a bug fix:
 * Hard floor coverings (vinyl, laminate, hardwood) had no row and became "1 EA"; they are
   measured as the floor area (no waste factor: the legacy table has none for them).
 
-Known limits, recorded in each takeoff's ``assumptions`` for the reviewer: the cabinet run
-is the legacy perimeter estimate (4 x sqrt(area)), which overstates a typical kitchen; the
-room area is the legacy typical area when nothing was measured.
+Known limits, recorded in each takeoff's ``assumptions`` for the reviewer: the room area
+is the legacy typical area when nothing was measured, and the perimeter is 4 x sqrt(area).
+
+v0.9 (EVAL_REPORT section 25): kitchen cabinets are counted in units (the photo and room
+labels count cabinet boxes since section 16.1), not as the legacy perimeter run, so they
+are priced per cabinet; wall and ceiling finishes, crown molding, wainscoting and
+concrete floors are measured from the room area instead of counted.
 """
 
 from __future__ import annotations
@@ -91,12 +95,33 @@ QUANTITY_ESTIMATES: Final[dict[str, QuantitySpec]] = {
         per_sf=COUNTERTOP_DEPTH_IN / Decimal(12),
         note="Cabinet run (perimeter estimate) x 25-inch depth",
     ),
+    # v0.9 (EVAL_REPORT section 25): the finishes the live run could not price.
+    "kitchen_cabinet": QuantitySpec(
+        "EA",
+        "count",
+        min_per_room=1,
+        note="Cabinet units (boxes) as counted in the photos (EVAL_REPORT 16.1 convention)",
+    ),
+    "wall_finish": QuantitySpec(
+        "SF",
+        "area",
+        per_sf=Decimal("3.5"),
+        note="Wall area estimate: 3.5 SF of wall per SF of floor (8 ft ceiling)",
+    ),
+    "ceiling_finish": QuantitySpec("SF", "area", note="Ceiling area = floor area"),
+    "crown_molding": QuantitySpec("LF", "perimeter", note="Perimeter estimate"),
+    "wainscoting": QuantitySpec(
+        "SF",
+        "perimeter",
+        per_sf=Decimal(3),
+        note="Perimeter estimate x 3 ft wainscot height",
+    ),
+    "concrete_floor": QuantitySpec("SF", "area", note="Floor area"),
 }
 DEFAULT_SPEC: Final = QuantitySpec("EA", "count", min_per_room=1, note="Detection count")
 
 # Rule keys (basis.domain.rules) whose takeoff row has another name.
 TAKEOFF_KEYS: Final[dict[str, str]] = {
-    "kitchen_cabinet": "cabinet",
     "vinyl_flooring": "flooring",
     "laminate_flooring": "flooring",
     "hardwood_floor": "flooring",

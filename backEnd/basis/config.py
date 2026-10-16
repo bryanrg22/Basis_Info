@@ -252,6 +252,9 @@ class Settings(BaseSettings):
     property_class: Literal["residential_rental", "nonresidential"] = "residential_rental"
     cost_year: int = Field(default=2026, ge=2020, le=2026)  # the cost table's range
     cost_location_factor: float = Field(default=1.0, gt=0, le=3)
+    # The engineer's unit-cost table (basis.domain.cost_table: JSON, licensed data, never
+    # in the repository); unset: only the six legacy rows price (EVAL_REPORT 25, item 6).
+    cost_table_path: str | None = None
 
     # Object localization (basis.vision.localize): SAM 3 on Replicate, for trials only
     # (production self-hosts it; VISION_DETECTION_RESEARCH.md section 4). The community

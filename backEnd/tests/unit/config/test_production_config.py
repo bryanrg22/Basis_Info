@@ -36,6 +36,7 @@ STEP_VARS = (
     "EXTRACTION_FALLBACK_MAX_TOKENS",
     "EXTRACTION_FALLBACK_SCOPE",
     "EXTRACTION_FALLBACK_CONTEXT_CHARS",
+    "COST_TABLE_PATH",
     "CLASSIFY_MODEL",
     "CLASSIFY_REASONING_EFFORT",
 )
@@ -82,6 +83,10 @@ def test_extraction_fallback_defaults_are_section_25(env: pytest.MonkeyPatch) ->
     settings = load_settings()
     assert settings.extraction_fallback_scope == "missing"
     assert settings.extraction_fallback_context_chars == 60_000
+    # The licensed cost table is never in the repository: unset by default.
+    assert settings.cost_table_path is None
+    env.setenv("COST_TABLE_PATH", "/secrets/unit_costs.json")
+    assert load_settings().cost_table_path == "/secrets/unit_costs.json"
 
 
 def test_text_step_defaults_are_section_17(env: pytest.MonkeyPatch) -> None:
