@@ -1,4 +1,4 @@
-"""Turn a live study's stored outputs into prediction files the harness scores (EVAL_REPORT 22).
+"""Turn a live study's stored outputs into prediction files the harness scores (EVAL_REPORT 23).
 
 Run from ``backEnd/`` (it imports the harness and the room-name rule)::
 

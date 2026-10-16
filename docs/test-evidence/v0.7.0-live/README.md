@@ -10,7 +10,7 @@ redacted (file names replaced by `photo-NN.jpg`, field values and dollar amounts
 and every score is computed by the eval harness on the private labels.
 
 The scores, the comparison with the offline evaluation and the reading are EVAL_REPORT
-section 22 (`docs/review_2026-10-15/EVAL_REPORT.md`).
+section 23 (`docs/review_2026-10-15/EVAL_REPORT.md`).
 
 ## Setup
 
@@ -166,7 +166,7 @@ Fixes 3 and 4 were checked on the real appraisal through the production extracti
    grouped by file name plus the engineer's room aliases (`group_photos`), which only the
    eval runners use. Live: 21 rooms for 33 labelled; one "Bedroom" and one "Bathroom" hold
    several real rooms. The same live per-photo outputs grouped the section 16 way score room
-   count MAE 0.40 against 0.68 as shipped (EVAL_REPORT 22.3).
+   count MAE 0.40 against 0.68 as shipped (EVAL_REPORT 23.3).
 2. **Extraction covers 39 of the 75 labelled fields.** Every extracted value was right
    (23 of 23 labelled ones), but rooms, bedrooms and bathrooms (critical in the labels) are
    never extracted, and the fallback is asked only for the six fields the catalogue marks
@@ -198,7 +198,7 @@ Fixes 3 and 4 were checked on the real appraisal through the production extracti
 | Run 2: SAM 3 (52 predictions) | Replicate | $0.148 |
 | Run 2 total (the workflow's own budget agrees: $25 - $19.07 = $5.93) | | **$5.95** |
 | Run 1 (failed) | Anthropic $2.55, Replicate $0.12 | $2.67 |
-| Room-grouping isolation runs (22.3) and the extraction recheck | Anthropic | $0.53 |
+| Room-grouping isolation runs (23.3) and the extraction recheck | Anthropic | $0.53 |
 | Run 3 (defaults) | Anthropic $4.84, OpenAI $0.78, Replicate $0.11 | $5.74 |
 | Run 3 grouping isolation run | Anthropic | $0.32 |
 | Azure DI prebuilt-layout, 3 analyses of 20 pages | Azure | not recorded by the pipeline (list price about $10 per 1,000 pages: about $0.60, not verified against the bill) |
@@ -223,4 +223,4 @@ Fixes 3 and 4 were checked on the real appraisal through the production extracti
 | `screenshots/api_health.png`, `api_openapi_docs.png` | the running API: `/health` (db and Temporal ok) and its route list |
 
 Reproduce: the client (`repro/live_client.py`), the exporter (`repro/live_export.py`) and
-the commands in EVAL_REPORT 22.
+the commands in EVAL_REPORT 23.

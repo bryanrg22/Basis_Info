@@ -143,7 +143,7 @@ async def test_start_of_a_workflow_that_ended_unsuccessfully_is_not_running(
     status: WorkflowExecutionStatus,
 ) -> None:
     """REJECT_DUPLICATE keeps a failed study from being re-run; answering with its run as
-    if it had started told the client a dead study was processing (EVAL_REPORT 22)."""
+    if it had started told the client a dead study was processing (EVAL_REPORT 23)."""
     client = StubClient(start=WorkflowAlreadyStartedError("study-s1", "StudyWorkflow"))
     client.status = status
     with pytest.raises(WorkflowNotRunningError, match=f"ended {status.name.lower()}"):

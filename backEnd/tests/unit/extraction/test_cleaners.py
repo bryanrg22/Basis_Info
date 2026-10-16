@@ -193,7 +193,7 @@ class TestCleanDate:
 
     def test_parse_date_two_digit_years(self) -> None:
         """URAR forms print M/D/YY ("Effective Date of Appraisal 1/29/25"); the live run's
-        fallback answer was dropped as "not a date" (EVAL_REPORT section 22). The century
+        fallback answer was dropped as "not a date" (EVAL_REPORT section 23). The century
         puts the date at most a year after ``today``: an appraisal's dates (effective,
         contract, comparable and prior sales) are never far in the future."""
         today = date(2026, 10, 16)
@@ -378,7 +378,7 @@ class TestCleanValueTypes:
     )
     def test_site_area_in_acres_is_converted(self, printed: str, square_feet: int) -> None:
         """The URAR site area box is printed in acres or square feet. The live run stored
-        "1.39 ac" as site.area_sqft = 1 (unit ignored, decimals cut; EVAL_REPORT 22)."""
+        "1.39 ac" as site.area_sqft = 1 (unit ignored, decimals cut; EVAL_REPORT 23)."""
         value = clean_field("site.area_sqft", printed)
         assert value.num == Decimal(square_feet) and value.text == printed and value.error is None
 
