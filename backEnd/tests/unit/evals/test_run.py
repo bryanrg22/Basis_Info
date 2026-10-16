@@ -452,22 +452,13 @@ async def test_results_are_written_to_eval_tables(database_url: str) -> None:
             corpus_dir=ds.SYNTHETIC_DIR / "corpus",
         )
         ids = await write_results(sm, results, split="dev", git_sha="abc123")
-        # detection_boxes has no synthetic dataset, so it is skipped and writes no row.
-        # Six file datasets the dry run builds + the derived rule_citations; detection_boxes
-        # has no synthetic file and is reported missing, not written.
-        assert len(ids) == 7
+        # The six file datasets the dry run builds plus the derived rule_citations;
+        # detection_boxes has no synthetic file and is reported missing, not written.
+        assert len(ids) == len(ds.DATASETS) - 1 == 7
         async with session_scope(sm) as session:
             runs = (await session.scalars(select(EvalRun))).all()
             rows = (await session.scalars(select(EvalResult))).all()
-        assert {r.dataset for r in runs} == set(ds.DATASET_FILES) - {"detection_boxes"}
-
-        assert (
-            len(ids) == len(ds.DATASET_FILES) + 1 == 7
-        )  # six files plus the derived rule_citations
-        async with session_scope(sm) as session:
-            runs = (await session.scalars(select(EvalRun))).all()
-            rows = (await session.scalars(select(EvalResult))).all()
-        assert {r.dataset for r in runs} == set(ds.DATASETS)
+        assert {r.dataset for r in runs} == set(ds.DATASETS) - {"detection_boxes"}
         assert {(r.split, r.git_sha) for r in runs} == {("dev", "abc123")}
         ndcg = next(r for r in rows if r.metric == "ndcg_10")
         assert ndcg.n == 20 and ndcg.value is not None and ndcg.stderr is not None
