@@ -37,11 +37,37 @@ def test_room_types_include_the_non_room_answers() -> None:
     assert {"ambiguous", "exterior", "mechanical", "other"} <= set(ROOM_TYPES)
 
 
-def test_vocabulary_has_about_sixty_labels_plus_other() -> None:
-    assert 55 <= len(COMPONENT_LABELS) - 1 <= 75
+def test_vocabulary_has_about_seventy_labels_plus_other() -> None:
+    assert 55 <= len(COMPONENT_LABELS) - 1 <= 85
     assert COMPONENT_LABELS[-1] == "other"
     assert len(set(COMPONENT_LABELS)) == len(COMPONENT_LABELS)
     assert all(label == label.lower() and " " not in label for label in COMPONENT_LABELS)
+
+
+def test_the_report_row_labels_of_eval_report_19_are_in_the_vocabulary() -> None:
+    """The six labels the engineer's report rows needed (EVAL_REPORT sections 13 and 19);
+    the model may answer them and they no longer fall back to ``other``."""
+    added = {
+        "concrete_floor",
+        "half_wall",
+        "bathroom_accessory",
+        "window_guard",
+        "shed",
+        "concrete_pad",
+    }
+    assert added <= set(COMPONENT_LABELS)
+    assert len(COMPONENT_LABELS) - 1 == 77
+    for label in added:
+        component = Component.model_validate(
+            {
+                "label": label.replace("_", " ").title(),
+                "count": 1,
+                "material": "concrete",
+                "attachment": "permanent",
+                "confidence": 0.9,
+            }
+        )
+        assert component.label.value == label and component.note is None
 
 
 def test_fixture_vocabulary_is_covered() -> None:
@@ -173,7 +199,7 @@ def test_over_long_note_and_description_are_cut_not_fatal() -> None:
 def test_a_component_counted_zero_is_dropped_not_fatal() -> None:
     """A count of 0 says "none visible", which is what leaving the item out says. The live
     run's fusion call (claude-opus-5-5) answered one item with count 0 on both attempts, so
-    the whole answer was rejected and the photo lost its fused counts (EVAL_REPORT 19)."""
+    the whole answer was rejected and the photo lost its fused counts (EVAL_REPORT 22)."""
     answer = {
         "room_type": "kitchen",
         "room_confidence": 0.9,

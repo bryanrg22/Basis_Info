@@ -259,7 +259,7 @@ async def test_start_of_a_failed_workflow_is_409_not_202(
     api: Api, seed: Seed, storage: LocalStorage, workflows: FakeWorkflowService, stage: Stage
 ) -> None:
     """A study whose workflow failed is not running: start must not answer 202 with the
-    dead run (the live run of EVAL_REPORT section 19 got 202 and stayed "processing")."""
+    dead run (the live run of EVAL_REPORT section 22 got 202 and stayed "processing")."""
     sid = await ready_study(api, storage)
     assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
     await seed.stage(sid, stage)

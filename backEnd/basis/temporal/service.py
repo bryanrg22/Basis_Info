@@ -33,7 +33,7 @@ from basis.workflow.contracts import StudyStatusView, StudyWorkflowInput
 
 DEFAULT_CALL_TIMEOUT_S: Final = 5.0
 # Closed executions that did not complete. REJECT_DUPLICATE never re-runs them, so a start
-# must not answer with one as if the study were running (EVAL_REPORT section 19).
+# must not answer with one as if the study were running (EVAL_REPORT section 22).
 ENDED_UNSUCCESSFULLY: Final = frozenset({"FAILED", "TERMINATED", "TIMED_OUT", "CANCELED"})
 
 

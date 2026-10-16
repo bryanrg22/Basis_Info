@@ -26,7 +26,7 @@ Two modes, chosen by the activity from ``Settings.vision_photo_mode``
   (:func:`analyze_photo_detailed`).
 * ``decomposed`` (EVAL_REPORT section 11): two calls on the same prepared image, run
   concurrently through the provider pool, each with one narrow job:
-  ``photo_countables/v2`` finds and counts the countable objects and ``photo_surfaces/v1``
+  ``photo_countables/v3`` finds and counts the countable objects and ``photo_surfaces/v2``
   names the surfaces and their materials (:func:`analyze_photo_decomposed`). The answers
   are merged by :mod:`basis.vision.merge`, the same rule the harness scored: components
   unioned by label with the largest count, the countables call's material and attachment
@@ -84,11 +84,14 @@ PROMPT_NAME: Final = "photo_analysis"
 # (evals.predict_photos --prompt vN) and promoted here only when it wins (EVAL_REPORT).
 PROMPT_VERSION: Final = "v1"
 # The decomposed step's two prompts, pinned the same way (EVAL_REPORT section 11: v2 of the
-# countables prompt won on three repeats; a v3 released for evaluation must win first).
+# countables prompt won on three repeats). Section 19: countables v3 and surfaces v2 add the
+# six report-row labels and list loose furniture as ``furniture``; on Claude Opus 5.5 they
+# kept the per-photo count error (0.157 vs 0.154 MAE, one repeat) and took the report rows
+# to the labels' ceiling (37 of 38); not re-measured on gpt-6.1-sol (no OpenAI credit).
 COUNTABLES_PROMPT_NAME: Final = "photo_countables"
-COUNTABLES_PROMPT_VERSION: Final = "v2"
+COUNTABLES_PROMPT_VERSION: Final = "v3"
 SURFACES_PROMPT_NAME: Final = "photo_surfaces"
-SURFACES_PROMPT_VERSION: Final = "v1"
+SURFACES_PROMPT_VERSION: Final = "v2"
 MAX_ATTEMPTS: Final = 2
 # Below this self-reported room confidence the photo goes to the engineer (eval-tuned later).
 ROOM_REVIEW_THRESHOLD: Final = 0.5

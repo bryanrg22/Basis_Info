@@ -1653,13 +1653,13 @@ choice should be re-measured on the held-out study before it is trusted further.
 
 | Step | Model | Prompt | Effort | Settings (default) | Section | Measured | Previous behaviour |
 |---|---|---|---|---|---|---|---|
-| Per-photo countables | gpt-6.1-sol | `photo_countables/v2` | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
-| Per-photo surfaces and room type | gpt-6.1-sol | `photo_surfaces/v1` | low | as above | 11, 12.1 | merged with the countables call (`basis/vision/merge.py`) | as above |
-| Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v2` | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
+| Per-photo countables | gpt-6.1-sol | `photo_countables/v3` (19; v2 before) | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
+| Per-photo surfaces and room type | gpt-6.1-sol | `photo_surfaces/v2` (19; v1 before) | low | as above | 11, 12.1 | merged with the countables call (`basis/vision/merge.py`) | as above |
+| Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
 | Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
 | Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 (the room model) | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive` | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
-| Object localization | SAM 3 (Replicate) | phrase prompts | - | `REPLICATE_API_TOKEN`, per-class thresholds | 10.2 | instance masks for review; counts not fused (15.3) | token unset: skipped |
+| Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
 | Extraction fallback | gpt-6-luna | `appraisal_field_fallback/v1` | low | `TEXT_MODEL`, `EXTRACTION_REASONING_EFFORT`, budget 8000 (`EXTRACTION_FALLBACK_MAX_TOKENS`) | 17.1, 17.3 | 0.924 of 75 fields, 12 of 12 critical, $0.0024 per study | `TEXT_MODEL=gpt-4o-mini` (budget 800) |
 | Asset classification (residual tool loop) | claude-sonnet-5-5 | `classify/v1` | low | `CLASSIFY_MODEL`, `CLASSIFY_REASONING_EFFORT` | 17.2, 17.3 | 0.688 bucket accuracy, 96% verified citations, $1.25 per 46 rows | `CLASSIFY_MODEL=gpt-4o-mini` |
 
@@ -1686,7 +1686,516 @@ Notes on the wiring (code, not measurement):
 - No new measurement was run for this section: the OpenAI account was out of credit, and the
   wiring is tested offline (unit, activity and workflow lifecycle tests with fake providers).
 
-## 19. Live end-to-end run (2026-10-16)
+## 19. SAM 3 per class and vocabulary completion (2026-10-16)
+
+Two open items from sections 10 and 13, each measured on the 52 client photos. Branch
+`claude/vision-leftovers-d42d59`.
+
+### 19.1 SAM 3: phrases and count thresholds chosen per class
+
+Question: section 10.3 found that phrase set v2 helps some classes and hurts others and that
+one threshold does not suit every class. Which phrases and which count threshold per class,
+chosen without selecting on the photos that score the choice?
+
+Standard followed. A detector's scores are not calibrated alike across classes, so a
+deployed detector gets one confidence cut-off per class, and an open-vocabulary one is tuned
+through its prompts as well (section 10.2 showed both effects). Choosing among many phrase
+subsets and thresholds on the same photos that score them overstates the result (Cawley and
+Talbot 2010, "On over-fitting in model selection"); the remedy is nested evaluation: every
+choice is made on 51 photos and scored on the 52nd (leave one photo out), so the reported
+numbers include the cost of choosing. One threshold for every class (10.2) is the baseline.
+
+Method.
+
+1. **Phrase pool, one call per photo.** Phrase set `pool` (`basis/vision/localize.py`): every
+   v1 and v2 phrase of the seven countable classes plus the ones the rejection reasons of
+   10.2 suggest (37 phrases: `house window`, `glass window`; `room door`, `bedroom door`,
+   `wooden door`, `door`; `entry door`, `entrance door`; `ceiling lamp`, `flush mount
+   light`; `exterior light`, `porch lantern`, `hanging lantern`, `outdoor wall light`;
+   `power outlet`, `outlet`; `cabinet`, `cabinet drawer`, `drawer`). Run once with
+   `evals.predict_boxes --phrase-set pool --phrase-dedupe off`, so every phrase keeps its own
+   instances (the pipeline's same-label dedupe would hide which phrase found what). 52
+   photos, threshold 0.1, $0.60; four photos lost to the Replicate throttle were rerun with the
+   same settings (`sam3_phrase_pool_v1_merged`).
+2. **Offline scoring of any subset** (`evals/sam3_select.py`). SAM 3 answers each phrase
+   independently (a phrase gives the same instances whatever else is prompted: `window`'s
+   instances are identical in the saved v1 and v2 runs on all 52 photos, and the pool's
+   differ from them only by the duplicates the dedupe removes), so a class's output under a phrase subset is the
+   union of those phrases' instances deduplicated exactly as the localizer does (mask IoU
+   0.8; a cached implementation checked equal to `suppress` on random cases). Check: the
+   pool reproduces section 10.3 exactly for v1 (mAP 0.653, P/R 0.46/0.80, count MAE 1.50,
+   every class AP) and for v2 (cabinet 0.74, light fixture 0.76, interior door 0.70, outdoor
+   lighting 0.48).
+3. **Rule, fixed before the results.** Phrases: the candidate subset (every subset of at most
+   three pool phrases of the class, plus the v1 and v2 tables) with the highest AP@0.5 on the
+   training photos, ties to fewer phrases. Threshold: on the training photos and those
+   phrases, the value in 0.30 to 0.90 (step 0.05; 0.30 is the lowest the product's candidate
+   floor allows) with the smallest total absolute count error, ties to the higher F1, then to
+   the value nearest 0.5. Leave one photo out over the 52 photos; the shipped table is the
+   same rule on all 52.
+
+Results. Baseline: the v1 phrases at the product's 10.2 thresholds (window 0.6, every other
+class 0.5), from the same pool. Count MAE as in 10.3 (over photo-classes where the gold or
+the predicted count is non-zero); the paired column is the absolute count error over every
+verified photo-class (52 x 7), which compares the two on the same pairs.
+
+| Run | mAP@0.5 | Precision / recall at the class thresholds | Count MAE (pairs), signed bias | Abs count error per verified photo-class |
+|---|---|---|---|---|
+| v1 phrases, 10.2 thresholds (the product until now) | 0.653 | 0.48 / 0.77 | 1.39 (127), +0.91 | 0.486 |
+| v2 phrases at 0.5 (10.3) | 0.653 | 0.47 / 0.82 | 1.41 (131), +1.08 | |
+| **per class, leave one photo out (the estimate)** | **0.763** | **0.73 / 0.77** | **0.79 (102), +0.11** | **0.223** |
+| per class, chosen on all 52 (in sample, the shipped table) | 0.778 | 0.77 / 0.77 | 0.65 (101), +0.00 | |
+| shipped v3, fresh Replicate run through the pipeline's localizer (`sam3_photos_v3_merged`, $0.19) | 0.778 | 0.77 / 0.77 | 0.65 (101), +0.00 | |
+
+The fresh run matches the offline in-sample row exactly on every class (and `evals.run` gives the
+same mAP), which confirms that scoring phrase subsets from the pool reproduces what the
+localizer returns; it is a check of the method, not a second out-of-sample estimate (same
+photos). Paired bootstrap over photos (2,000 resamples), out-of-sample v3 minus v1: mAP +0.10 [+0.02,
++0.16]; count error per photo-class -0.26 [-0.39, -0.16]; precision +0.25 [+0.17, +0.32];
+recall -0.00 [-0.07, +0.06]. Selection optimism (in sample minus out of sample) is small:
+0.015 mAP, 0.14 count MAE.
+
+Per class (out of sample; v1 baseline in brackets):
+
+| Class (true objects) | v3 phrases | Count threshold | AP@0.5 | Precision / recall | Count MAE, bias | Same choice in folds |
+|---|---|---|---|---|---|---|
+| window (68) | `house window` | 0.65 | 0.833 (0.837) | 0.70 / 0.84 (0.65 / 0.84) | 1.07, +0.45 (1.31, +0.69) | 51 of 52 |
+| interior door (25) | `room door` | 0.50 | 0.883 (0.848) | 0.95 / 0.72 (0.51 / 0.80) | 0.42, -0.32 (1.00, +0.64) | 52 |
+| exterior door (6) | `front door` | 0.85 | 0.376 (0.184) | 1.00 / 0.17 (0.12 / 0.83) | 1.00, -1.00 (1.80, +1.70) | 52 |
+| light fixture (24) | `recessed light`, `ceiling lamp` | 0.70 | 0.851 (0.614) | 0.74 / 0.71 (0.31 / 0.92) | 0.56, -0.06 (1.88, +1.88) | 44 |
+| outdoor lighting (23) | `porch light`, `outdoor wall light` | 0.30 | 0.788 (0.665) | 0.72 / 0.78 (0.61 / 0.48) | 1.00, +0.20 (1.50, -0.50) | 51 |
+| electrical outlet (21) | `wall outlet`, `power outlet` | 0.55 | 0.899 (0.881) | 0.79 / 0.90 (0.69 / 0.95) | 0.44, +0.19 (0.62, +0.50) | 50 |
+| kitchen cabinet (24 units) | `kitchen cabinet`, `cabinet door` | 0.70 | 0.713 (0.545) | 0.59 / 0.71 (0.57 / 0.50) | 1.57, +0.71 (1.80, -0.60) | 50 |
+
+Checks on the rule: allowing thresholds down to 0.15 changes nothing (outdoor lighting
+still picks 0.30, so the product's candidate floor does not bind); capping subsets at one
+phrase gives mAP 0.687, at two 0.764, at four 0.763 (three is not a tuned value).
+
+Reading.
+
+1. **The gain is precision, from phrasing.** Recall is unchanged (0.77); precision goes from
+   0.48 to 0.73, and the over-count (bias +0.91 per photo-class) almost disappears. The
+   phrase that names the object as the engineer means it filters the confusions 10.2 listed:
+   `room door` drops appliance and cabinet doors and casings (interior-door precision 0.51 to
+   0.95), `recessed light` + `ceiling lamp` drop the plug-in lamps and exterior lanterns that
+   `light fixture` caught (0.31 to 0.74), `porch light` + `outdoor wall light` find the
+   lanterns `outdoor light` missed (recall 0.48 to 0.78). Window phrasing barely matters
+   (`house window` vs `window` AP 0.833 vs 0.837); its gain is the threshold.
+2. **Exterior doors are not solved, and the rule says so.** Six true doors in five photos;
+   most high-scoring detections are the neighbours' doors and garage doors of section 10.2.
+   `front door` doubles AP (0.18 to 0.38), but no threshold separates the true doors, so the
+   count-error rule picks 0.85, where almost nothing is counted (recall 0.17, bias -1). In the
+   product that means exterior doors come from the per-photo model's count (section 15), and
+   SAM 3's exterior-door masks are stored as uncounted candidates for the engineer to tap.
+   Six objects cannot support a better choice.
+3. **Cabinet units stay the weakest count.** AP rises 0.55 to 0.71 (`cabinet door` finds units),
+   but the count error is driven by the two kitchen photos with 8 and 10 units, where one fold's
+   different threshold moves the count by several units (out-of-sample MAE 1.57 against 0.86
+   in sample). Counting cabinets stays with the per-photo model (section 15's fusion), as before.
+4. **Limits.** One property; the per-class thresholds are tuned on 191 boxes, some classes on
+   very few (exterior door 6); out-of-sample here means another photo of the same building,
+   not another building. Re-measure on the next study before trusting the thresholds further.
+
+Shipped: phrase set `v3` and its threshold table (`COUNT_THRESHOLD_SETS["v3"]`) are the
+localizer's defaults (`DEFAULT_PHRASE_SET`); `basis.activities.localize_photo` prompts them,
+records `phrase_set` and the thresholds with every localization, and stores candidates from
+`CANDIDATE_THRESHOLD` 0.25 (below every count threshold). v1 and its 10.2 table stay
+available for comparison runs (`--phrase-set v1`).
+
+### 19.2 Vocabulary completion and the two conventions
+
+Six labels join the component vocabulary (77 labels + `other`) for the report rows that had
+none (section 13): `concrete_floor`, `half_wall` (surfaces), `bathroom_accessory`,
+`window_guard`, `shed`, `concrete_pad` (objects). Each has a rules-table row with verbatim
+citations (`RULES_VERSION` `2026-10-16.1`; RULES_RECITATION.md, "Rows added 2026-10-16"; the
+`rule_citations` eval resolves 77 of 77), SAM 3 phrases, a definition in the released prompts
+`photo_countables/v3` and `photo_surfaces/v2`, and a dated label-guide entry. Three rows are
+building components (section 1250), which the table could not express before: a building
+row is 27.5 years for residential rental and 39 for nonresidential (ATG Exhibit A gives
+both). Bathroom accessories and sealed concrete floors are supported by Exhibit A as the
+engineer treated them (39-year, nonresidential); half walls and window guards are section
+1250 in Exhibit A but 5-year in the engineer's report, the shed's 7 years and the pads' 15
+years rest on passages that do not name the item, so those four rows are contested (a hit
+goes to the engineer).
+
+Two conventions, decided:
+
+- **Loose furniture (the FF&E row): listed as `furniture` with a count.** The engineer prices an
+  FF&E row (5-year, 0.46% of this study), and a count of pieces per room is what it needs;
+  filing loose furniture under `other` made even the gold inventory miss the row. It is still
+  not a building component, so the harness keeps `furniture` (and `chair`, `desk`,
+  `filing_cabinet`) out of the recognition and count scores (`photo_components`,
+  `room_inventory`, `evals.run.UNSCORED_LABELS`), as it does `other`; only `report_rows`
+  reads it. The countables prompt v3 lists it with a note naming the pieces; the room labels
+  map `loose_furniture` to it (counts unchanged).
+- **Painted drywall: not listed; Painting is not photo-derivable.** Plain painted drywall is the
+  default finish of every finished room. Listing it adds one entry to every room inventory and
+  carries no classification information: in this report Painting is 39-year, the same bucket
+  as the walls under it, and the engineer prices it from wall area (plans, takeoff), not from
+  photos. What the photo must establish is the exception (wallpaper, paneling, beadboard,
+  painted block), which the 5-year wall rows score. So the Painting row moves to kind C
+  (before: evidenced by a `wall_finish` with a drywall or paint material, which the models
+  listed against their prompt's instruction). This lowers the whole-study cost coverage by
+  Painting's 5.2% share, by convention, not by a vision change.
+
+Label changes (private, `labels/LABEL_GUIDE.md` dated 2026-10-16; harness files rebuilt with
+`work/convert_labels.py` and `work/build_report_rows.py`): bath accessories, the shed, the
+garage's concrete floor and the shed's pad (was `patio`) now carry the new labels; loose
+furniture is `furniture`; two half walls were added (photo 32, a drywall half wall with a cap;
+photo 52, a carpeted knee wall at the stair opening, flagged for Bryan to verify). No window
+guard is visible in the 52 photos.
+
+Measured. New per-photo prompts on Claude Opus 5.5 (low effort; the OpenAI account was out of
+credit, so gpt-6.1-sol, the production base model, was not re-run): one repeat of each call,
+merged as in section 11, then the room step of section 16.5 (Sonnet 5.5, three repeats).
+
+| Per-photo (one repeat, 52 photos) | countables v2 + surfaces v1 | countables v3 + surfaces v2 |
+|---|---|---|
+| Count MAE vs the verified boxes (312 photo-classes) | 0.154 | 0.157 |
+| Label precision / recall / F1 (new labels) | 0.68 / 0.84 / 0.75 | 0.70 / 0.88 / 0.78 |
+| Room type accuracy | 0.885 | 0.865 (one photo) |
+| Cost | $2.23 (section 14) | $2.33 |
+
+| Report rows (section 13's metric) | Before (39 photo-derivable rows, 6 gaps) | After (38 rows, 0 gaps) |
+|---|---|---|
+| Gold inventory (the ceiling) | 32 (0.82); missed FF&E | 37 (0.97); missed Door & Window Guards |
+| Opus 5.5 per-photo v2 prompts, room step (`rooms16_final_v2_opus55`) | 31 (0.79); missed FF&E, Retaining Walls | 30 (0.79); misses the 6 new rows, FF&E, Retaining Walls |
+| gpt-6.1-sol per-photo v2 prompts, room step (`rooms16_final_v2b_gpt61sol`) | 32 (0.82); missed FF&E | 31 (0.82); misses the 6 new rows, FF&E |
+| **Opus 5.5 per-photo v3 prompts, room step (`rooms19_v3_opus55`)** | | **37 (0.97, [0.87, 1.00]); missed Door & Window Guards; same in 3 of 3 repeats** |
+| Cost coverage of the photo-derivable rows | gold 0.968, Opus v2 run 0.967 | gold 0.997, Opus v3 run 0.997 |
+
+The six gaps became five evidenced rows and one honest miss: half walls (photos 32, 52 and
+two the labels do not have: a kitchen pony wall and a stair wall, to check), bathroom
+accessories in five bathrooms, the shed and its pad, the garage's concrete floor. Door &
+Window Guards stays missed in both the gold and the pipeline: nothing in the photos is a guard
+(the engineer's row may be the storm door, which is an `exterior_door`, or something not
+photographed). FF&E is now evidenced in 17 rooms with counts. Room counts on the new labels
+(the same labels for both runs): absolute error on the six new labels 14 to 7 in each repeat,
+on every other label 82 / 79 / 83 to 80 / 79 / 74; room count MAE 0.39 to 0.36 (paired by
+room and label, bootstrap over rooms: CI of the difference covers zero in two of three
+repeats). Under the old labels the v2 run's MAE was 0.346; the yardstick now has more labels,
+so whole-room exact matches fell (0.15 to 0.09).
+
+Shipped: `photo_countables/v3` and `photo_surfaces/v2` are the decomposed step's prompts
+(`basis/vision/analyze.py`; the fusion call uses the same countables prompt). They need a
+gpt-6.1-sol re-run when OpenAI credit returns, to confirm the base model's counts hold as
+Opus's did.
+
+Commands (from `backEnd/`; `BASIS_ENV=dev` with `REPLICATE_API_TOKEN` for the SAM 3 runs):
+
+```bash
+python -m evals.predict_boxes --dataset ~/basis-eval-data/detection --out ~/basis-eval-data/predictions/sam3_phrase_pool_v1 --phrase-set pool --phrase-dedupe off
+python -m evals.sam3_select select --pool ~/basis-eval-data/predictions/sam3_phrase_pool_v1_merged --dataset ~/basis-eval-data/detection --out ~/basis-eval-data/predictions/sam3_select_v1
+python -m evals.predict_boxes --dataset ~/basis-eval-data/detection --out ~/basis-eval-data/predictions/sam3_photos_v3
+python -m evals.sam3_select score --predictions ~/basis-eval-data/predictions/sam3_photos_v3_merged --dataset ~/basis-eval-data/detection
+BASIS_ENV=test BASIS_EVAL_DATA_DIR=~/basis-eval-data python -m evals.run --split dev --no-db --repeats 3 --predictions ~/basis-eval-data/predictions/rooms19_v3_opus55
+```
+## 20. Two-column parsing (2026-10-16)
+
+The ingestion parser (`basis/retrieval/parse.py`) grouped words into lines by height alone,
+so on IRS Pub 527 and Pub 946 (two 255 pt columns on the same baselines, an 18 pt gutter) the
+left and right columns were joined into one line per baseline ("Generally, if you can
+depreciate intangible property, you for the section 179 deduction and the special
+depreciation ..."). Every chunk of those pages mixed two texts, which breaks verbatim
+excerpts and citation checks.
+
+**Fix.** Per page, `detect_columns` looks for a vertical whitespace gutter: the x projection
+of the words (the projection-profile step of XY-cut layout analysis) and the widest run at
+the lowest coverage, with at most 20% of the rows crossing it (full-width titles, spanning
+tables, footers). The gutter is accepted only when both columns are at least 30% of the text
+width and 0.6 of each other, hold 3 or more rows, their median row fills half the column, and
+70% of their tokens are words rather than numbers. Words and ruled tables that cross the
+gutter cut the page into bands; each band between two cuts is read left column, then right
+column. Running headers and footers are found on the old full-width lines first (so a header
+split by the gutter is still one repeated key), then their words are removed. A page with no
+accepted gutter takes the old path unchanged. Pages read by column are marked
+`ParsedPage.columns == 2`.
+
+**Pages read by column** (private corpus, `~/basis-eval-data/corpus`):
+
+| Document | Pages | Two-column | Note |
+|---|---|---|---|
+| IRS Pub 527 (2024) | 37 | 30 | the rest: worksheets and the index |
+| IRS Pub 946 (2024) | 112 | 66 | pages 69-111 are the rate tables (single column) |
+| IRS Cost Segregation ATG | 348 | 0 | single column |
+| Rev. Proc. 87-56 | 42 | 0 | description \| class life \| GDS \| ADS table, kept row by row (the balance and number guards) |
+| RSMeans Building 2020 | 964 | 92 | OCR text; prose pages improve, some unit-price pages are split too (word share 0.70-0.71 against IRS's lowest 0.73) |
+| RSMeans Residential 2020 | 802 | 69 | as above; the document body size moves from 7.5 to 8.0 pt |
+| Study appraisal and engineer report (inputs) | 32 | 0 | |
+
+**Single-column output is unchanged.** On every page with `columns == 1` of the eight private
+PDFs and the synthetic fixtures, every element (type, text, box, size, weight, ordinal), table,
+body size and furniture key equals the pre-change parser's output (field by field, against
+`main` at 8908ed6). The test suite locks the fixtures with SHA-256 digests of the pre-change
+output.
+
+**Verbatim sentences.** Sentences of 40 to 200 characters from pymupdf's page text (which reads
+these PDFs column by column), checked with the production matcher
+(`basis.classify.verify.excerpt_supported`) against the parser's page text:
+
+| Document | Pages | Sentences | Before | After |
+|---|---|---|---|---|
+| Pub 527 | two-column | 941 | 0.102 | 0.914 |
+| Pub 946 | two-column | 1672 | 0.095 | 0.885 |
+| Pub 527 | all | 1071 | 0.124 | 0.838 |
+| Pub 946 | all | 2039 | 0.086 | 0.733 |
+| Cost Segregation ATG | all (single column) | 2172 | 0.594 | 0.594 |
+| Rev. Proc. 87-56 | all (single column) | 185 | 0.476 | 0.476 |
+
+The rest (about 9% on two-column pages) is not explained yet. Suspected causes: hyphenated
+line breaks, word boundaries that differ between pymupdf and pdfplumber, and sentences that
+run across a spanning band.
+
+**Retrieval and citations.** `python -m evals.run --corpus-text parser` (new option) reads
+the corpus through the production parse + chunk path instead of pymupdf. Dev split, 50 queries,
+65 rules-table citations; only `retrieval_qrels_v1.json` and the corpus were loaded, because
+the other private label files no longer validate against this branch's vocabulary:
+
+| System | ndcg_10 | recall_5 | recall_10 | mrr | resolved_fraction |
+|---|---|---|---|---|---|
+| pymupdf page text (the earlier baseline) | 0.4225 | 0.3823 | 0.5180 | 0.5567 | 1.000 (65/65) |
+| parser, before | 0.4102 | 0.3793 | 0.4953 | 0.5282 | 1.000 (65/65) |
+| parser, after | 0.4163 | 0.3833 | 0.5020 | 0.5367 | 1.000 (65/65) |
+| paired delta after - before (SE) | +0.006 (0.010) | +0.004 (0.004) | +0.007 (0.007) | +0.009 (0.021) | 0 |
+
+The retrieval change is within noise (ndcg_10: 5 queries up, 3 down, 42 the same). Page-level
+BM25 is a bag of words, so word order hardly moves it; the gain is in the text itself (the
+table above) and in what an embedding or a citation sees. `rule_citations` cannot move: all 65
+citations are in the single-column ATG (59) and Rev. Proc. 87-56 (6), so here it only confirms
+that nothing regressed. A citation to Pub 527 or Pub 946 would have failed before on most
+pages.
+
+**Ingestion.** `python -m basis.retrieval.ingest --corpus reference --fresh --max-pages 2000`
+over the six corpus PDFs into a throwaway pgvector database (not the live study's): version 1,
+7,466 chunks (Pub 527: 132 text, 8 table; Pub 946: 301 text, 141 table), MiniLM embeddings,
+179 s. The stored page 10 chunk of Pub 946 contains "Generally, if you can depreciate
+intangible property, you usually use the straight line method of depreciation." intact.
+
+**Limits.** Only two columns are recognized; a narrow heading that spans both columns without
+crossing the gutter is read as part of the left column; the pymupdf fallback (pages with no
+pdfplumber words) is unchanged.
+## 21. Detector and language model together (2026-10-16)
+
+Question (Bryan): should SAM 3 run before the language model, then the model, then SAM 3
+again? Today the vision model counts first and SAM 3 runs after it, prompted with the model's
+labels, only to draw highlight masks. This section measures the other orders and the loop
+against the current best per-photo counts (section 15.4, "4c": per class, the better of
+`gpt-6.1-sol` at low effort and `claude-opus-5-5` at medium effort on `photo_countables/v2`,
+chosen leave-one-photo-out: count MAE 0.124, exact 0.899, count precision 0.92, recall 0.87).
+Same yardstick: the 52 photos of the one study, 191 hand-verified objects in six count
+classes, `photo_counts` of `evals.run`; three repeats unless stated; "Diff" is the paired
+bootstrap over photos of section 15 (mean per-photo count error minus the baseline's, 95%
+interval, 5,000 resamples), now a module (`evals.compare_counts`).
+
+### 21.1 What the literature says, and what was tested
+
+- Set-of-Mark prompting (Yang et al. 2023, arXiv 2310.11441; github.com/roboflow/som): a
+  detector or segmenter proposes regions, each is drawn on the image with a number, and the
+  model answers by number; zero-shot GPT-4V with marks beat fine-tuned grounding models on
+  referring and grounding tasks. Tested as experiment 1 (SAM 3 first).
+- SAM 3 Agent (the SAM 3 paper, arXiv 2511.16719, and its documentation): a multimodal model
+  turns the request into noun phrases, calls SAM 3, inspects and filters the masks, and calls
+  SAM 3 again where something is missing; SAM-Veteran (ICLR 2026) trains that proposer.
+  Tested as experiment 2 (the loop: SAM 3 again for the objects the model adds).
+- Point-then-count (arXiv 2603.21746): a model that emits one point per object before it counts
+  beats direct counting, the gap growing with the count; the pointers it studies place more than
+  94% of their points on the object, Molmo strongest. "Assessing visual enumeration"
+  (arXiv 2512.15254): Claude 4.5 Sonnet and Gemini 2.5 Pro count better when asked to locate,
+  label, then count; GPT-5 does not. Tested as experiment 3 (the model points first, SAM 3
+  masks the points) and, since the same call states counts after pointing, experiment 4
+  ("locate, label, then count" without a detector).
+- Exemplar counters (CountGD, T-Rex2, GeCo) are not hosted on Replicate; self-hosting is out of
+  scope for this pass.
+- Temperature voting was not run. `gpt-6.1-sol` accepts only its default temperature and Claude
+  with thinking requires 1, and the counting literature reports that vision-language models are
+  confidently wrong on counts, so sampling more answers repeats the same error (section 15.3
+  measured it: repeat-to-repeat noise is the small part of the error; the median of three gains
+  0.010).
+- Not repeated (section 15): count fusion of raw SAM 3 and model counts, a yes/no check of each
+  SAM 3 crop, tiling, majority vote over repeats.
+
+### 21.2 How each ordering was built
+
+Code: `basis/vision/marks.py` (mark selection, drawing, the answer schemas, Molmo point
+parsing, points resolved to masks), `evals/predict_marks.py` (experiments 1 and 2),
+`evals/predict_points.py` (experiments 3 and 4), `evals/compare_counts.py` (the paired
+bootstrap), prompts `photo_marks/v1` and `photo_points/v1` (released in the manifest). The
+pipeline (`basis/vision/analyze.py`, `localize.py`) is unchanged. Every runner writes the base
+run's counts with the seven countable labels replaced (the other labels, and so label F1 and room
+type, stay the baseline's: 0.70 and 0.90 for every row; the harness's component labels were
+revised after section 15, which is why the baseline's label F1 now reads 0.70 against 0.741
+there).
+
+- Proposals: the saved SAM 3 runs of section 10 (v1 and v2 phrase sets, no new SAM 3 calls),
+  pooled; countable labels at score >= 0.3 (recall-oriented: at 0.3 the marks cover 94% of the
+  verified objects, at 0.5 only 86%); one mark per object across labels (greedy, mask IoU > 0.6:
+  "interior door" and "front door" on the same door are one mark); numbered in reading order.
+  8.9 marks per photo on average, 51 at most. The verified boxes were themselves built from SAM
+  3's boxes (section 10.2), so the coverage figures flatter SAM 3; the count scores do not
+  depend on that.
+- Experiment 1 (SAM 3 first, Set-of-Mark): the photo enlarged to 1024 px with the marks drawn
+  (variants: boxes or mask outlines; with or without the unmarked photo before it), and the list
+  "number: detector's guess". The model gives every mark a label or `duplicate`,
+  `part_or_group` or `not_countable`, and lists every object no mark covers with its label and
+  an approximate centre (x, y as fractions of the image). Count = kept + added.
+- Experiment 2 (the loop): each added point takes the highest-scoring saved SAM 3 candidate of
+  its label family under it (score >= 0.1; `pick_prompted`); a point inside a kept mark of its
+  family, or whose mask overlaps a counted mask by more than mask IoU 0.5, is a duplicate; the
+  count is the kept marks plus the masked additions ("masked"). Points with no saved candidate
+  were to get a fresh SAM 3 point prompt (`--prompt-sam`, implemented and unit-tested); the
+  Replicate account ran out of credit during experiment 3 (402 "insufficient credit"), so that
+  step was not run and the masked count leaves such points out (1.3% of counted objects for the
+  winner; the "all" variant that counts them scores 0.140, row 2c).
+- Experiment 3 (the model first, then SAM 3): one `photo_points/v1` call per photo (Opus,
+  sol), or Molmo-7B-D on Replicate (`zsxkib/molmo-7b`, one "Point to every ..." query per class,
+  greedy: temperature 0.1, top-k 1, one repeat since repeats would be identical); points resolved
+  to masks as in experiment 2. Counts three ways: the points, the masks only, masks plus
+  unmasked points.
+- Experiment 4 ("locate, label, then count", no detector): the counts the same `photo_points`
+  call states after listing its points.
+
+### 21.3 Every system against the current best
+
+Count MAE, exact rate, signed bias, count precision / recall over (photo, class, repeat), 936
+pairs. Cost is one prediction of 52 photos for the counting step only (the baseline's two
+countables calls: $0.47 sol + $1.40 Opus; the shared surfaces call, $0.33, is in neither);
+SAM 3 is the saved runs (a production call is about $0.003 and 3.2 s per photo, added to the
+SoM rows' seconds, which are sequential: SAM 3, then the model). Masks: share of counted
+objects that come with a SAM 3 mask.
+
+| System | Count MAE | Exact | Bias | Count P / R | Diff vs 4c [95% CI] | $ / 52 | s / photo | Masks |
+|---|---|---|---|---|---|---|---|---|
+| **Current best (4c)**: sol low + Opus medium per class | **0.124** | **0.899** | -0.04 | 0.92 / 0.87 | 0 | $1.87 | 11.1 | none (highlights separate) |
+| sol low alone | 0.179 | 0.865 | +0.03 | 0.84 / 0.87 | +0.056 [+0.021, +0.092] | $0.47 | 11.1 | none |
+| Opus medium alone | 0.150 | 0.889 | -0.06 | 0.92 / 0.83 | +0.026 [+0.002, +0.054] | $1.40 | 7.4 | none |
+| 1a. SoM, boxes + photo, sol | 0.179 | 0.851 | +0.08 | 0.81 / 0.92 | +0.056 [+0.011, +0.105] | $0.41 | 3.2 + 16.8 | 94% |
+| 1b. SoM, boxes + photo, Opus | 0.150 | 0.872 | +0.05 | 0.85 / 0.92 | +0.026 [-0.009, +0.059] | $1.31 | 3.2 + 10.0 | 97% |
+| 1c. SoM, outlines + photo, sol | 0.161 | 0.861 | +0.07 | 0.83 / 0.93 | +0.037 [-0.003, +0.081] | $0.42 | 3.2 + 12.7 | 89% |
+| 1d. SoM, outlines + photo, Opus | 0.140 | 0.882 | +0.03 | 0.87 / 0.91 | +0.016 [-0.011, +0.044] | $1.34 | 3.2 + 10.9 | 97% |
+| 1e. SoM, boxes, marked photo only, sol | 0.254 | 0.829 | +0.11 | 0.75 / 0.88 | +0.130 [+0.068, +0.205] | $0.38 | 3.2 + 14.2 | 92% |
+| 1f. SoM, boxes + photo, marks at >= 0.5, sol | 0.171 | 0.870 | +0.05 | 0.83 / 0.90 | +0.047 [-0.001, +0.100] | $0.37 | 3.2 + 9.5 | 83% |
+| 1g. 1d with marks at >= 0.5, Opus | 0.155 | 0.879 | +0.01 | 0.87 / 0.88 | +0.031 [-0.002, +0.069] | $1.17 | 3.2 + 7.9 | 90% |
+| 1h. 1c with marks at >= 0.5, sol | 0.179 | 0.861 | +0.04 | 0.83 / 0.88 | +0.056 [+0.010, +0.107] | $0.37 | 3.2 + 9.2 | 82% |
+| 2a. Loop on 1a (sol), masked | 0.171 | 0.857 | +0.06 | 0.83 / 0.91 | +0.047 [+0.006, +0.094] | as 1a | + 0 | 100% |
+| 2b. Loop on 1b (Opus), masked | 0.149 | 0.873 | +0.04 | 0.86 / 0.91 | +0.025 [-0.011, +0.059] | as 1b | + 0 | 100% |
+| **2c. Loop on 1d (Opus, outlines), masked** | **0.138** | **0.885** | +0.02 | 0.88 / 0.90 | **+0.014 [-0.014, +0.042]** | **$1.34** | **3.2 + 10.9** | **100%** |
+| 2d. Loop on 1c (sol, outlines), masked | 0.153 | 0.870 | +0.04 | 0.85 / 0.91 | +0.029 [-0.013, +0.073] | as 1c | + 0 | 100% |
+| 2e. Loop on 1f (sol, >= 0.5), masked | 0.151 | 0.881 | +0.00 | 0.88 / 0.88 | +0.027 [-0.010, +0.069] | as 1f | + 0 | 100% |
+| 2f. Loop on 1g (Opus, outlines, >= 0.5), masked | 0.151 | 0.880 | -0.01 | 0.88 / 0.87 | +0.027 [-0.004, +0.065] | as 1g | + 0 | 100% |
+| 3a. Opus points, count = points | 0.166 | 0.876 | -0.05 | 0.90 / 0.82 | +0.042 [+0.012, +0.076] | $0.81 | 6.5 | 70% |
+| 3b. Opus points, masks only | 0.275 | 0.834 | -0.24 | 0.95 / 0.58 | +0.151 [+0.082, +0.233] | $0.81 | 6.5 | 100% |
+| 3c. Opus points, masks + unmasked points | 0.171 | 0.875 | -0.08 | 0.91 / 0.80 | +0.047 [+0.015, +0.087] | $0.81 | 6.5 | 70% |
+| 3d. sol points, count = points | 0.186 | 0.859 | +0.04 | 0.82 / 0.88 | +0.062 [+0.019, +0.109] | $0.27 | 11.4 | 92% |
+| 3e. sol points, masks + unmasked points | 0.179 | 0.864 | +0.02 | 0.84 / 0.87 | +0.056 [+0.018, +0.100] | $0.27 | 11.4 | 92% |
+| 3f. Molmo-7B points (37 photos, 1 repeat) | 1.293 | 0.658 | +0.68 | 0.32 / 0.60 | +1.152 [+0.698, +1.701] | $0.66 | 14.5 | 54% |
+| 3g. Molmo-7B points, masks only (37 photos) | 0.545 | 0.739 | -0.18 | 0.69 / 0.53 | +0.404 [+0.248, +0.598] | $0.66 | 14.5 | 100% |
+| 4a. Opus "locate, label, then count" (stated) | 0.167 | 0.875 | -0.05 | 0.90 / 0.82 | +0.043 [+0.013, +0.077] | $0.81 | 6.5 | n/a |
+| 4b. sol "locate, label, then count" (stated) | 0.186 | 0.859 | +0.04 | 0.82 / 0.88 | +0.062 [+0.019, +0.109] | $0.27 | 11.4 | n/a |
+| 5a. Per-class fusion LOO: sol, Opus, 1b | 0.131 | 0.893 | -0.02 | 0.91 / 0.87 | +0.007 [+0.000, +0.016] | $3.18 | 13.2 | partly |
+| 5b. Per-class fusion LOO: sol, Opus, 2c | 0.139 | 0.889 | -0.02 | 0.90 / 0.87 | +0.015 [+0.001, +0.032] | $3.21 | 14.1 | partly |
+
+Against the same model alone (paired over photos): SoM changes nothing for Opus with boxes
+(1b: +0.000 [-0.048, +0.044]) and helps a little, not significantly, with outlines and the loop
+(2c: -0.012 [-0.057, +0.031]); for sol, outlines -0.018 [-0.056, +0.016], and the loop with
+marks at >= 0.5, -0.029 [-0.069, +0.010] (2e). Pointing first does not help either model (Opus points +0.016
+[-0.011, +0.043], sol +0.006 [-0.029, +0.044]). Every model run reported only the model it
+asked for (`models_reported` in each `run.json`), and no model call failed; Molmo lost 15 of 52
+photos to the Replicate credit running out, so its rows are scored on the 37 it answered.
+
+### 21.4 The best new system's per-class counts (2c)
+
+SAM 3 marks at >= 0.3, outlines, the unmarked photo first, Opus 5.5 at medium effort keeps,
+relabels or rejects each mark and adds misses; added points masked from the saved SAM 3
+candidates; the count is the masked objects.
+
+| Class | Current best (4c) MAE / exact / P / R | 2c MAE / exact / P / R | Opus alone MAE / exact / P / R |
+|---|---|---|---|
+| window | 0.24 / 0.83 / 0.91 / 0.91 | 0.24 / 0.83 / 0.89 / 0.93 | 0.24 / 0.83 / 0.91 / 0.91 |
+| door | 0.10 / 0.90 / 0.96 / 0.86 | 0.15 / 0.85 / 0.86 / 0.89 | 0.10 / 0.90 / 0.96 / 0.86 |
+| light fixture | 0.12 / 0.90 / 0.94 / 0.81 | 0.16 / 0.85 / 0.81 / 0.86 | 0.11 / 0.91 / 0.92 / 0.83 |
+| exterior light | 0.08 / 0.92 / 0.91 / 0.90 | 0.08 / 0.92 / 0.91 / 0.91 | 0.24 / 0.86 / 0.90 / 0.51 |
+| electrical outlet | 0.12 / 0.90 / 0.92 / 0.78 | 0.08 / 0.93 / 0.92 / 0.87 | 0.12 / 0.90 / 0.88 / 0.81 |
+| kitchen cabinet | 0.09 / 0.94 / 0.93 / 0.88 | 0.11 / 0.93 / 0.88 / 0.89 | 0.08 / 0.94 / 0.93 / 0.89 |
+| all six | 0.124 / 0.899 / 0.92 / 0.87 | 0.138 / 0.885 / 0.88 / 0.90 | 0.150 / 0.889 / 0.92 / 0.83 |
+
+Where the marks help: the misses section 15 left. Opus with marks finds the exterior lanterns it
+misses on its own (exterior-light recall 0.51 to 0.91, equal to sol's, so one model now covers
+what took two) and more outlets (recall 0.81 to 0.87, MAE 0.12 to 0.08). Where they hurt: precision on look-alikes. The model keeps a mark it would not
+have counted unprompted: lamps and reflections as light fixtures (0.92 to 0.81 precision),
+door-like marks (0.96 to 0.86), cabinet fragments (0.93 to 0.88). The two effects cancel on
+windows. In 2c's answers, 42% of the marks are kept, 36% rejected as `not_countable`, 17% as
+`part_or_group`, 6% as `duplicate`; 79% of the kept marks match a verified box (IoU >= 0.5,
+same class family) against 42% of all marks; the kept marks cover 79% of the verified objects.
+The model relabelled 15 interior "light fixture" proposals as exterior lights and 12 interior
+doors as exterior doors, the confusions section 10.2 found in SAM 3 alone.
+
+### 21.5 Reading: what did not work, and why
+
+- Set-of-Mark with boxes (1a, 1b) raises recall (0.87 to 0.92) and lowers precision by as much,
+  so neither model gains. The marks pull the model's attention to every proposal, and at the
+  recall-oriented threshold more than half of the proposals are wrong (42% box precision). The
+  model rejects most of them, but not enough of the plausible ones.
+- The unmarked photo must come first (1e: without it, +0.130 and significantly worse than sol
+  alone): boxes and tags cover small objects (outlets fell to 0.61 precision, windows to 0.77),
+  the occlusion the SoM authors avoid by drawing light, semi-transparent masks. Mask outlines
+  cover less of the object than boxes and help both models (1c, 1d).
+- Fewer, surer marks (>= 0.5) do not help on top of outlines (1g, 1h): exterior lights and
+  outlets are the classes SAM 3 scores low (section 10.2), and with their marks gone the model
+  goes back to missing them (Opus exterior-light recall 0.91 to 0.74).
+- The loop (experiment 2) does what it should for the highlight layer: every counted object has a
+  mask, and duplicates the model adds on top of a kept mark are caught by mask overlap. As a
+  count it changes little (Opus 0.140 to 0.138, sol up to 0.020 better), because the model adds
+  few objects (18 or 19 in 156 Opus answers) once it has the marks.
+- Pointing first (experiment 3) does not reproduce the gains reported for it. The stated counts
+  are nearly the point counts (4a 0.167 against 3a 0.166: the model counts its own points), and both are slightly worse
+  than the same model's direct counts. The pointers are poorly grounded on these photos: 64% of
+  Opus's points and 79% of sol's fall inside a verified box of their class (the paper's pointers:
+  above 94%), so turning points into SAM 3 masks loses objects (3b: Opus recall 0.58) instead of
+  confirming them.
+- Molmo-7B (3f, 3g) is far off on these photos: it points at every cabinet door and drawer front
+  (cabinet count error 4.6 a photo-class pair), misses half the windows of the exterior shots, and 30% of its
+  points fall in a verified box of their class. The prompts were one short query per class; the
+  paper's protocol is not tuned for building components, and a 7B pointer is not a substitute
+  for the frontier models here.
+- Adding the SoM counts to the per-class fusion (5a, 5b) is worse out of sample than the fusion
+  without them. Fitted on all 52 photos, 5b would take outlets as max(sol, SoM) and exterior lights
+  from SoM; held out, the rule flips on exactly the photos where SoM's advantage lies (one wide
+  exterior shot carries most of 1b's window gain), the selection optimism of section 15.3.
+
+### 21.6 Recommendation
+
+Keep the order: the model counts first, and SAM 3 runs after it for the highlight masks. No
+detector-first or loop ordering beat the current best: the closest, 2c (SAM 3 first, Opus
+reviews outlined marks and adds misses, SAM 3 masks the additions), is 0.014 behind (95% CI
+-0.014 to +0.042, not significant), and nothing here is significantly better than the model
+alone. One property and 191 objects bound this: none of the differences between 2c, 4c and Opus
+alone is resolvable on this set.
+
+What 2c is good for, and the case for adopting it later, is the highlight layer, not the count:
+with one model call instead of two ($1.34 against $1.87 per 52 photos, about 14 s per photo
+sequential against 11 s in parallel) it gives counts close to the current best together with a
+mask for every counted object, and the masks it shows are the reviewed ones (79% match a verified
+object, against 42% of SAM 3's raw proposals at the same threshold and 0.46 precision at the
+pipeline's 0.5, section 10.3). Today the highlight masks come from SAM 3 alone and need not agree with the
+count. Before wiring it: settle the window and door conventions of section 15.3 (doors and light
+fixtures are where 2c loses), re-measure on the second client package, and run the SAM 3 point
+prompt for the 1-2% of added objects without a saved candidate (implemented; not run because
+the Replicate credit ran out).
+
+Spend for this section: $21.47 (Anthropic $14.14: SoM boxes $3.94, outlines $4.02, outlines at
+0.5 $3.52, points $2.44, smoke tests $0.22; OpenAI $6.64: five SoM variants $5.83, points
+$0.81; Replicate $0.69: Molmo $0.66, smoke $0.03; no new SAM 3 calls). The Replicate account
+returned 402 "insufficient credit" during the Molmo run and needs a top-up before any further
+SAM 3 or Molmo work. Scoring note: `report_rows_v1.json` in the data directory now names labels
+that are not in the vocabulary on main (written by another session), so `evals.run` fails to load
+it; this section was scored with a data directory that links every dataset file but that one.
+Prediction directories under `$BASIS_EVAL_DATA_DIR/predictions`: `som_{box,outline}_orig_*`,
+`som_box_marked_gpt61sol_low`, `som_*_t05_*` (each with `loop_masked/` and `loop_all/`),
+`points_{opus55_med,gpt61sol_low,molmo7b}` (with `stated/`, `masked/`, `masked_all/`), the
+fusions `counts_fused_sol_opus_somopus_loo` and `counts_fused_sol_opus_somoutline_loo`, and the
+best new system `som_outline_orig_opus55_med/loop_masked` (2c, with its `eval.md`).
+
+## 22. Live end-to-end run (2026-10-16)
 
 Question: does the pipeline of section 18 work outside the test harness, and do its outputs
 score like the offline evaluation? The client study (the appraisal and 52 photos) was run
@@ -1711,7 +2220,7 @@ Two configurations, `PROPERTY_CLASS=nonresidential` in both:
 
 One live run is one repeat; the offline numbers are means over three repeats unless marked.
 
-### 19.1 What happened
+### 22.1 What happened
 
 The first run (v0.7.0 as tagged) **failed**: `aiohttp`, which the Azure DI async client needs,
 was not installed, so `extract_fields` failed all three attempts within 16 seconds of the start; the
@@ -1741,7 +2250,7 @@ attempts, the answer failed validation and the photo kept sol's counts (flagged
 `count_fusion_fallback`). That is the fifth bug: a 0-count item now means "not visible" and is
 dropped instead of failing the answer.
 
-### 19.2 Live against offline
+### 22.2 Live against offline
 
 Scored by `evals.run` on prediction files exported from the completed study's database rows
 (`docs/review_2026-10-15/repro/live_export.py`; the mapping rules are in its docstring), on the
@@ -1787,7 +2296,7 @@ of section 15's repeats (the fused counts at 0.135 against 0.124 include the one
 fell back to sol's counts). The pipeline's two-call step, merge and storage add nothing and lose
 nothing. The other three rows differ, and each difference has one cause.
 
-### 19.3 Rooms: the grouping, not the models
+### 22.3 Rooms: the grouping, not the models
 
 Production assigns a photo to a room by the vision model's room identity (type, floor,
 ordinal: `basis/vision/rooms.py` `assign_room`). Section 16 grouped photos by file name and the
@@ -1820,7 +2329,7 @@ model's identity, file names when the package has them, the engineer merging roo
 rooms_review before the inventory is built) is a product decision; it is proposed as its own
 piece of work, not changed here.
 
-### 19.4 Appraisal fields: coverage, not accuracy
+### 22.4 Appraisal fields: coverage, not accuracy
 
 Every field the pipeline extracted and the labels cover was right (23 of 23 after mapping
 five catalogue keys to the label file's names for the same boxes, `CATALOGUE_TO_LABEL` in the
@@ -1833,7 +2342,7 @@ bathroom counts, which Azure DI does not pair with their values on this form and
 catalogue does not mark critical. Before the date fix, the effective date of appraisal was
 also lost (the fallback answered it correctly, as printed).
 
-### 19.5 Assets: a different input, and the review load
+### 22.5 Assets: a different input, and the review load
 
 Section 17.2 classified the engineer's 46 schedule captions; production classifies what the
 photos produced: 203 component assets in run 2 (80 by the rules table, 123 by the classifier
@@ -1845,7 +2354,7 @@ the 261 citations verified (96% offline). But 186 of 203 assets are flagged for 
 them `COST_ROW_MISSING`: the static cost table has no row for windows, interior doors, wall
 and ceiling finishes and most labels, so the assets review would be nearly every row.
 
-### 19.6 Reading
+### 22.6 Reading
 
 - The system works end to end on real data once `aiohttp` is installed: upload, start, three
   gates, decisions through the relay, export, evidence with verified citations, objects
@@ -1853,8 +2362,8 @@ and ceiling finishes and most labels, so the assets review would be nearly every
   or the two cleaner bugs, because the tests fake Azure DI and Temporal and use synthetic dates
   and areas.
 - The per-photo step scores live as it did offline. The room step does not, because the
-  grouping differs (19.3); the text steps measure differently from their offline tasks (19.4,
-  19.5).
+  grouping differs (22.3); the text steps measure differently from their offline tasks (22.4,
+  22.5).
 - The waits are structural: SAM 3 under Replicate's throttle is 74% of the wall time, and the
   appraisal gate waits for it although it reviews only the extraction (done at +94 s). An
   extraction failure is noticed only after the photo stage and fails the whole study, which
