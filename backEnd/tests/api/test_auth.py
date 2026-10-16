@@ -51,6 +51,9 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", f"/v1/studies/{STUDY}/documents/{DOC}/complete", None),
     ("POST", f"/v1/studies/{STUDY}/decisions", {"stage": "appraisal_review"}),
     ("GET", f"/v1/studies/{STUDY}/evidence?asset_id={DOC}", None),
+    ("GET", f"/v1/studies/{STUDY}/photos/{DOC}/objects", None),
+    ("POST", f"/v1/studies/{STUDY}/photos/{DOC}/objects", {"kind": "point"}),
+    ("DELETE", f"/v1/studies/{STUDY}/photos/{DOC}/objects/{DOC}", None),
 ]
 ROUTE_IDS = [f"{method} {path.split('?')[0]}" for method, path, _ in ROUTES]
 
@@ -224,6 +227,13 @@ def study_routes(study_id: str) -> list[tuple[str, str, dict[str, Any] | None]]:
             {"stage": "appraisal_review", "revision": 1, "decision": "approve"},
         ),
         ("GET", f"/v1/studies/{study_id}/evidence?asset_id={DOC}", None),
+        ("GET", f"/v1/studies/{study_id}/photos/{DOC}/objects", None),
+        (
+            "POST",
+            f"/v1/studies/{study_id}/photos/{DOC}/objects",
+            {"kind": "point", "label": "window", "point": {"x": 0.5, "y": 0.5}},
+        ),
+        ("DELETE", f"/v1/studies/{study_id}/photos/{DOC}/objects/{DOC}", None),
     ]
 
 
@@ -277,10 +287,13 @@ async def test_adding_a_membership_makes_the_study_visible(api: Api, seed: Seed)
     [
         (OrgRole.VIEWER, "GET", "", None, True),
         (OrgRole.VIEWER, "GET", f"/evidence?asset_id={DOC}", None, True),
+        (OrgRole.VIEWER, "GET", "/evidence", None, True),
         (OrgRole.VIEWER, "POST", "/documents", "upload", False),
         (OrgRole.VIEWER, "POST", f"/documents/{DOC}/complete", None, False),
         (OrgRole.VIEWER, "POST", "/decisions", "decision", False),
         (OrgRole.VIEWER, "DELETE", "", None, False),
+        (OrgRole.VIEWER, "POST", f"/photos/{DOC}/objects", "selection", False),
+        (OrgRole.VIEWER, "DELETE", f"/photos/{DOC}/objects/{DOC}", None, False),
         (OrgRole.ENGINEER, "POST", "/documents", "upload", True),
         (OrgRole.ENGINEER, "POST", "/decisions", "decision", True),
         (OrgRole.ENGINEER, "DELETE", "", None, False),
@@ -310,6 +323,7 @@ async def test_role_requirements(
             "kind": "appraisal",
         },
         "decision": {"stage": "appraisal_review", "revision": 1, "decision": "approve"},
+        "selection": {"kind": "point", "label": "window", "point": {"x": 0.5, "y": 0.5}},
     }
 
     response = await send(
