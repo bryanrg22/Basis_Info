@@ -43,14 +43,16 @@ import openai
 from pydantic import BaseModel, ValidationError
 
 from basis.config import ConfigError, Settings
+from basis.llm.anthropic_provider import AnthropicProvider, is_anthropic_model
 from basis.llm.errors import (
     ProviderBadResponse,
     ProviderError,
     ProviderNotConfigured,
     ProviderRateLimited,
     ProviderUnavailable,
+    is_retryable_status,
 )
-from basis.llm.provider import ChatRequest, ChatResponse, Message, ToolCall, Usage
+from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse, Message, ToolCall, Usage
 
 logger = logging.getLogger("basis.llm.providers")
 
@@ -309,13 +311,6 @@ def map_error(exc: Exception, provider: str) -> ProviderError:
     return ProviderUnavailable(f"{type(exc).__name__}: {exc}", provider=provider)
 
 
-def is_retryable_status(error: ProviderError) -> bool:
-    """429 or 5xx: what the provider retries once and the pool falls back on."""
-    return isinstance(error, ProviderRateLimited) or (
-        isinstance(error, ProviderUnavailable) and error.status is not None and error.status >= 500
-    )
-
-
 # --------------------------------------------------------------------------- providers
 
 
@@ -323,6 +318,11 @@ class OpenAICompatibleProvider:
     """Shared body of the OpenAI and Azure OpenAI providers."""
 
     name = "openai"
+
+    @staticmethod
+    def accepts(model: str) -> bool:
+        """Every model name but Claude's (those belong to :class:`AnthropicProvider`)."""
+        return not is_anthropic_model(model)
 
     def __init__(
         self,
@@ -442,21 +442,25 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
         )
 
 
-def providers_from_settings(settings: Settings) -> list[OpenAICompatibleProvider]:
-    """The configured providers, ``settings.llm_primary`` first (empty when none)."""
+def providers_from_settings(settings: Settings) -> list[ChatProvider]:
+    """The configured providers, ``settings.llm_primary`` first (empty when none).
+
+    The pool routes each request to the providers that serve its model (``claude-*`` to
+    Anthropic, everything else to Azure/OpenAI), so the primary only matters among those.
+    """
     azure = AzureOpenAIProvider.from_settings(settings)
     openai_provider = OpenAIProvider.from_settings(settings)
-    configured: list[OpenAICompatibleProvider] = [p for p in (azure, openai_provider) if p]
-    if settings.llm_primary == "openai":
-        configured.sort(key=lambda p: p.name != "openai")
+    claude = AnthropicProvider.from_settings(settings)
+    configured: list[ChatProvider] = [p for p in (azure, openai_provider, claude) if p]
+    configured.sort(key=lambda p: p.name != settings.llm_primary)
     return configured
 
 
-def require_providers(settings: Settings) -> list[OpenAICompatibleProvider]:
+def require_providers(settings: Settings) -> list[ChatProvider]:
     providers = providers_from_settings(settings)
     if not providers:
         raise ProviderNotConfigured(
-            "no model provider configured: set OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT, "
-            "AZURE_OPENAI_API_KEY and a deployment name"
+            "no model provider configured: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or "
+            "AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and a deployment name"
         )
     return providers

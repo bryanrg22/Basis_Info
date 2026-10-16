@@ -1,9 +1,18 @@
 """What a model call costs: one price table, dollars per 1M tokens.
 
 Prices are OpenAI's standard tier as published at developers.openai.com/api/docs/pricing
-(checked 2026-10-15). Azure OpenAI global deployments bill the same per-token rates for
+(checked 2026-10-15) and Anthropic's base prices at
+platform.claude.com/docs/en/about-claude/pricing (checked 2026-10-15; cache and batch rates
+are not used here). Azure OpenAI global deployments bill the same per-token rates for
 these models. The legacy tracker (``agentic/observability/cost_tracker.py``) priced per 1K
 tokens and still had gpt-4o at $5/$15; those numbers are not carried over.
+
+Claude models think before answering and bill the thinking as output tokens that count
+toward ``max_tokens`` (platform.claude.com/docs/en/build-with-claude/thinking), so a request's
+``max_tokens`` (the answer budget) becomes :func:`output_ceiling` on the wire and in the
+estimate: the answer budget plus :data:`THINKING_HEADROOM_TOKENS`. Their images cost
+``ceil(w / 28) * ceil(h / 28)`` tokens, :data:`CLAUDE_IMAGE_TOKENS` for a prepared 1024 px
+image.
 
 Model names are matched by longest prefix, so a dated snapshot the API reports
 (``gpt-4o-mini-2024-07-18``) is priced as its family (``gpt-4o-mini``). A model that is not
@@ -34,6 +43,11 @@ CHARS_PER_TOKEN: Final = 4
 # Tokens one prepared image (<= 1024 px on the long side, detail "high") costs at most:
 # 85 base + 170 per 512 px tile, and a 1024 x 1024 image is four tiles = 765.
 IMAGE_TOKENS: Final = 765
+# Claude: 28 x 28 px patches, so a 1024 x 1024 image is 37 x 37 = 1369 visual tokens.
+CLAUDE_IMAGE_TOKENS: Final = 1369
+# Output tokens a Claude model may spend thinking on top of the request's answer budget
+# (``anthropic_effort`` low; a photo call at low effort stays well under this).
+THINKING_HEADROOM_TOKENS: Final = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,11 +80,35 @@ PRICES: Final[dict[str, Price]] = {
     "gpt-6-luna": _p("0.10", "0.50"),
     "gpt-6-sol": _p("2.00", "10.00"),
     "gpt-6.1-sol": _p("2.00", "10.00"),
+    # Anthropic (base input / output; Fable 5.1 cache reads $0.25, Opus 5.5 $0.20: unused)
+    "claude-fable-5-1": _p("10.00", "50.00"),
+    "claude-opus-5-5": _p("4.00", "20.00"),
+    "claude-sonnet-5-5": _p("2.00", "10.00"),
 }
 UNKNOWN_MODEL_PRICE: Final = Price(
     max(p.input_per_million for p in PRICES.values()),
     max(p.output_per_million for p in PRICES.values()),
 )
+
+
+def is_anthropic_model(model: str) -> bool:
+    """``claude-*`` names are served by the Anthropic provider and priced as thinking models."""
+    return model.strip().lower().startswith("claude")
+
+
+def output_ceiling(model: str, max_tokens: int) -> int:
+    """The wire ``max_tokens`` for an answer budget of ``max_tokens`` on ``model``.
+
+    Claude models count their thinking toward ``max_tokens``; the headroom keeps a short
+    answer from being cut off mid-thought. Other models get the budget unchanged.
+    """
+    if max_tokens < 0:
+        raise ValueError("max_tokens cannot be negative")
+    return max_tokens + THINKING_HEADROOM_TOKENS if is_anthropic_model(model) else max_tokens
+
+
+def image_tokens_for(model: str) -> int:
+    return CLAUDE_IMAGE_TOKENS if is_anthropic_model(model) else IMAGE_TOKENS
 
 
 def price_for(model: str) -> Price:
@@ -110,19 +148,18 @@ def cost_usd(model: str, usage: Usage) -> float:
     return float(cost_decimal(model, usage))
 
 
-def estimate_tokens(prompt_chars: int, images: int = 0) -> int:
+def estimate_tokens(prompt_chars: int, images: int = 0, *, per_image: int = IMAGE_TOKENS) -> int:
     if prompt_chars < 0 or images < 0:
         raise ValueError("prompt_chars and images cannot be negative")
-    return -(-prompt_chars // CHARS_PER_TOKEN) + images * IMAGE_TOKENS
+    return -(-prompt_chars // CHARS_PER_TOKEN) + images * per_image
 
 
 def estimate_usd(model: str, max_tokens: int, prompt_chars: int, images: int = 0) -> float:
     """Worst-case-ish dollars for a call, for :meth:`Budget.reserve` before calling.
 
     Input is estimated from the prompt length (4 characters per token, rounded up) plus
-    :data:`IMAGE_TOKENS` per image; output is the full ``max_tokens``, which the provider
-    never exceeds.
+    :func:`image_tokens_for` the model per image; output is :func:`output_ceiling`
+    (``max_tokens``, plus the thinking headroom on Claude), which the provider never exceeds.
     """
-    if max_tokens < 0:
-        raise ValueError("max_tokens cannot be negative")
-    return float(_usd(price_for(model), estimate_tokens(prompt_chars, images), max_tokens))
+    tokens = estimate_tokens(prompt_chars, images, per_image=image_tokens_for(model))
+    return float(_usd(price_for(model), tokens, output_ceiling(model, max_tokens)))

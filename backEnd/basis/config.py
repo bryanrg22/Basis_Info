@@ -108,6 +108,8 @@ class Settings(BaseSettings):
     #                                        -> azure_openai_text_deployment
     #   AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT / _KEY -> azure_document_intelligence_*
     #   LLM_REQUEST_TIMEOUT | LLM_REQUEST_TIMEOUT_SECONDS -> llm_request_timeout_seconds
+    #   ANTHROPIC_API_KEY                    -> anthropic_api_key (Claude models, claude-*)
+    #   ANTHROPIC_EFFORT                     -> anthropic_effort (thinking depth, default low)
     openai_api_key: SecretStr | None = None
     text_model: str = Field(
         default="gpt-4o-mini",
@@ -127,8 +129,13 @@ class Settings(BaseSettings):
             "AZURE_OPENAI_NANO_DEPLOYMENT",
         ),
     )
-    # Which configured provider is tried first; the other is the per-call fallback.
-    llm_primary: Literal["azure", "openai"] = "azure"
+    # Claude models (basis.llm.anthropic_provider). A ``claude-*`` request always goes to
+    # this provider; ``gpt-*`` and other names go to OpenAI or Azure, whatever the primary.
+    anthropic_api_key: SecretStr | None = None
+    anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    # Which configured provider is tried first among those that serve the request's model;
+    # the next one is the per-call fallback.
+    llm_primary: Literal["azure", "openai", "anthropic"] = "azure"
     llm_request_timeout_seconds: float = Field(
         default=60.0,
         gt=0,

@@ -423,6 +423,7 @@ def azure_settings(**changes: Any) -> Settings:
         "azure_openai_text_deployment": None,
         "azure_openai_api_version": "2024-10-21",
         "openai_api_key": None,
+        "anthropic_api_key": None,
         "vision_model": "gpt-4o-mini",
         "text_model": "gpt-4.1-mini",
         "llm_request_timeout_seconds": 7,
@@ -475,6 +476,11 @@ def test_primary_order_follows_settings() -> None:
     assert [p.name for p in providers_from_settings(both)] == ["azure", "openai"]
     openai_first = azure_settings(openai_api_key=SecretStr("sk-test"), llm_primary="openai")
     assert [p.name for p in providers_from_settings(openai_first)] == ["openai", "azure"]
+
+
+def test_openai_providers_do_not_serve_claude_models() -> None:
+    assert OpenAIProvider.accepts("gpt-4.1") and AzureOpenAIProvider.accepts("vision-dep")
+    assert not OpenAIProvider.accepts("claude-opus-5-5")
 
 
 def test_openai_provider_from_settings_uses_the_timeout() -> None:

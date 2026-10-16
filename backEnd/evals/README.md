@@ -87,7 +87,12 @@ merge is `basis.vision.merge.merge_components`, the same function the pipeline's
 `VISION_PHOTO_MODE=decomposed` step runs, so a merged run scores the step as shipped.
 After a
 `--model` run, check `run.json` `models_reported`: the provider pool falls back to the
-secondary provider per call, so a rate-limited primary silently mixes models into a run.
+secondary provider per call, so a rate-limited primary silently mixes models into a run
+(only within a model family: a `claude-*` model is served by the Anthropic provider alone,
+with `ANTHROPIC_API_KEY` set, and never falls back to OpenAI; EVAL_REPORT section 12).
+`--reasoning-effort` sets the OpenAI reasoning models' `reasoning_effort` and Claude's
+`output_config.effort` (`low`..`max`; without it Claude runs at `ANTHROPIC_EFFORT`, default
+`low`); `run.json` `reasoning_effort` records what ran.
 
 ### `assets_v1.json`
 

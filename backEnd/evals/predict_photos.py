@@ -36,6 +36,7 @@ from typing import Any
 from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
+from basis.llm.cost import is_anthropic_model
 from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
@@ -137,7 +138,10 @@ async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
     pool = ProviderPool.from_settings(settings)
     if pool is None:
-        print("no model provider configured (OPENAI_API_KEY or AZURE_OPENAI_*)", file=sys.stderr)
+        print(
+            "no model provider configured (OPENAI_API_KEY, ANTHROPIC_API_KEY or AZURE_OPENAI_*)",
+            file=sys.stderr,
+        )
         return 2
     files = photo_files(args.photos)
     if not files:
@@ -146,6 +150,7 @@ async def run(args: argparse.Namespace) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
     recorder = MemoryRecorder()
+    model = args.model or settings.vision_model
     ctx = VisionContext(
         call=CallContext(
             study_id=uuid.uuid4(),
@@ -160,7 +165,7 @@ async def run(args: argparse.Namespace) -> int:
             if args.prompt or args.prompt_name != "photo_analysis"
             else released_prompt()
         ),
-        model=args.model or settings.vision_model,
+        model=model,
         reasoning_effort=args.reasoning_effort,
         **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
     )
@@ -226,8 +231,11 @@ async def run(args: argparse.Namespace) -> int:
                 "photos": len(files),
                 "repeats": args.repeats,
                 "vision_model_setting": settings.vision_model,
-                "model_requested": args.model or settings.vision_model,
-                "reasoning_effort": args.reasoning_effort,
+                "model_requested": model,
+                # The effort in effect: the flag, else the Anthropic default for a Claude
+                # model (ANTHROPIC_EFFORT), else the model's own default (null).
+                "reasoning_effort": args.reasoning_effort
+                or (settings.anthropic_effort if is_anthropic_model(model) else None),
                 "max_tokens": ctx.max_tokens,
                 "models_reported": models,
                 "spent_usd": round(budget.spent_usd, 6),

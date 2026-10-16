@@ -59,3 +59,10 @@ class ProviderNotConfigured(ProviderError):
 
 
 TRANSIENT = (ProviderRateLimited, ProviderUnavailable)
+
+
+def is_retryable_status(error: ProviderError) -> bool:
+    """429 or 5xx: what a provider retries once and the pool falls back on."""
+    return isinstance(error, ProviderRateLimited) or (
+        isinstance(error, ProviderUnavailable) and error.status is not None and error.status >= 500
+    )

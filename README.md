@@ -263,7 +263,7 @@ The real datasets come from a **private** client package under `BASIS_EVAL_DATA_
 
 ## Running locally
 
-Two options. Both need settings in the environment; `BASIS_ENV=dev` also reads `backEnd/.env`. Values you may set: `DATABASE_URL`, `TEMPORAL_ADDRESS`, `GCS_BUCKET` (otherwise files go to a local temp directory), `FIREBASE_PROJECT_ID`, `OPENAI_API_KEY` and/or `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` (+ deployment names), `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_KEY`, `EMBEDDING_MODEL`, `STUDY_BUDGET_USD`. The full list is in [`basis/config.py`](backEnd/basis/config.py). Without model providers the worker still runs: photo analysis fails as flagged, extraction uses the text layer only, and residual components are written `classifier_unavailable`.
+Two options. Both need settings in the environment; `BASIS_ENV=dev` also reads `backEnd/.env`. Values you may set: `DATABASE_URL`, `TEMPORAL_ADDRESS`, `GCS_BUCKET` (otherwise files go to a local temp directory), `FIREBASE_PROJECT_ID`, `OPENAI_API_KEY` and/or `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` (+ deployment names) and/or `ANTHROPIC_API_KEY` (Claude models, `claude-*`; `ANTHROPIC_EFFORT` sets their thinking depth, default `low`), `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_KEY`, `EMBEDDING_MODEL`, `STUDY_BUDGET_USD`. The full list is in [`basis/config.py`](backEnd/basis/config.py). Without model providers the worker still runs: photo analysis fails as flagged, extraction uses the text layer only, and residual components are written `classifier_unavailable`.
 
 **Option 1: Docker Compose** ([`docker-compose.yml`](docker-compose.yml): Postgres with pgvector, the Temporal dev server, the API and one worker; development only).
 
