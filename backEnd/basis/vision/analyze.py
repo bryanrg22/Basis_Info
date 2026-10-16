@@ -66,6 +66,9 @@ class VisionContext:
     model: str
     max_tokens: int = 1200
     heartbeat: Callable[[str], None] = field(default=_no_heartbeat)
+    # Reasoning models spend ``max_tokens`` on reasoning before the answer: give them a budget
+    # that covers both and an effort level (``None`` = the provider's default).
+    reasoning_effort: str | None = None
 
 
 @dataclass
@@ -95,6 +98,7 @@ def build_request(image: PreparedImage, ctx: VisionContext) -> ChatRequest:
         response_model=ModelPhotoAnalysis,
         max_tokens=ctx.max_tokens,
         temperature=0.0,
+        reasoning_effort=ctx.reasoning_effort,
         prompt_version=ctx.prompt.version_id,
         study_id=str(ctx.call.study_id),
         activity=ctx.call.activity,

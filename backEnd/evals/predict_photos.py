@@ -66,6 +66,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--model", default=None, help="model name (default: VISION_MODEL)")
     parser.add_argument(
+        "--reasoning-effort",
+        default=None,
+        help="reasoning models only: none/minimal/low/medium/high (default: the model's)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="output budget per call (default: the pipeline's; raise it for reasoning models)",
+    )
+    parser.add_argument(
         "--prompt-name",
         default="photo_analysis",
         help="prompt family: photo_analysis (default), photo_countables or photo_surfaces",
@@ -140,6 +151,8 @@ async def run(args: argparse.Namespace) -> int:
             else released_prompt()
         ),
         model=args.model or settings.vision_model,
+        reasoning_effort=args.reasoning_effort,
+        **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
     )
     semaphore = asyncio.Semaphore(args.concurrency)
     raw_path = args.out / "photo_raw.jsonl"
@@ -199,6 +212,8 @@ async def run(args: argparse.Namespace) -> int:
                 "repeats": args.repeats,
                 "vision_model_setting": settings.vision_model,
                 "model_requested": args.model or settings.vision_model,
+                "reasoning_effort": args.reasoning_effort,
+                "max_tokens": ctx.max_tokens,
                 "models_reported": models,
                 "spent_usd": round(budget.spent_usd, 6),
                 "errors": errors_seen,

@@ -82,6 +82,9 @@ class ChatRequest(BaseModel):
     tools: tuple[ToolSpec, ...] = ()
     max_tokens: int = Field(default=2048, ge=1)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    # Reasoning models only (``none``/``minimal``/``low``/``medium``/``high``...; which values a
+    # model accepts is per model). ``None`` leaves the provider's default. Ignored elsewhere.
+    reasoning_effort: str | None = None
     prompt_version: str
     study_id: str
     activity: str

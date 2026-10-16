@@ -57,6 +57,15 @@ PRICES: Final[dict[str, Price]] = {
     "gpt-5-nano": _p("0.05", "0.40"),
     "gpt-5.1": _p("1.25", "10.00"),
     "gpt-5.2": _p("1.75", "14.00"),
+    # 2026-10-16, developers.openai.com/api/docs/pricing (standard, short context)
+    "gpt-5.4": _p("2.50", "15.00"),
+    "gpt-5.4-mini": _p("0.75", "4.50"),
+    "gpt-5.4-nano": _p("0.20", "1.25"),
+    "gpt-5.5": _p("5.00", "30.00"),
+    "gpt-6-astra": _p("10.00", "50.00"),
+    "gpt-6-luna": _p("0.10", "0.50"),
+    "gpt-6-sol": _p("2.00", "10.00"),
+    "gpt-6.1-sol": _p("2.00", "10.00"),
 }
 UNKNOWN_MODEL_PRICE: Final = Price(
     max(p.input_per_million for p in PRICES.values()),
