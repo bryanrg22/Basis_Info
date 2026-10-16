@@ -31,8 +31,11 @@ STEP_VARS = (
     "ROOM_REASONING_EFFORT",
     "ROOM_SINGLE_PHOTO",
     "ROOM_MATERIALS",
+    "ROOM_GROUPING",
     "EXTRACTION_REASONING_EFFORT",
     "EXTRACTION_FALLBACK_MAX_TOKENS",
+    "EXTRACTION_FALLBACK_SCOPE",
+    "EXTRACTION_FALLBACK_CONTEXT_CHARS",
     "CLASSIFY_MODEL",
     "CLASSIFY_REASONING_EFFORT",
 )
@@ -71,6 +74,14 @@ def test_room_step_defaults_are_section_16(env: pytest.MonkeyPatch) -> None:
     assert settings.room_reasoning_effort == "low"
     assert settings.room_single_photo == "per_photo"
     assert settings.room_materials == "sensitive"
+    # EVAL_REPORT section 25: photos are grouped by file name and the study's aliases.
+    assert settings.room_grouping == "filename"
+
+
+def test_extraction_fallback_defaults_are_section_25(env: pytest.MonkeyPatch) -> None:
+    settings = load_settings()
+    assert settings.extraction_fallback_scope == "missing"
+    assert settings.extraction_fallback_context_chars == 60_000
 
 
 def test_text_step_defaults_are_section_17(env: pytest.MonkeyPatch) -> None:
@@ -144,8 +155,37 @@ def test_text_step_overrides_are_read(env: pytest.MonkeyPatch) -> None:
 def test_the_extraction_budget_default_follows_the_model_family(
     env: pytest.MonkeyPatch, model: str, budget: int
 ) -> None:
+    """For the few critical fields (EXTRACTION_FALLBACK_SCOPE=critical)."""
     env.setenv("TEXT_MODEL", model)
+    env.setenv("EXTRACTION_FALLBACK_SCOPE", "critical")
     assert load_settings().extraction_output_budget == budget
+
+
+@pytest.mark.parametrize("model", ["gpt-6-luna", "gpt-4o-mini", "claude-opus-5-5"])
+def test_asking_for_every_missing_field_gets_section_17s_budget(
+    env: pytest.MonkeyPatch, model: str
+) -> None:
+    env.setenv("TEXT_MODEL", model)
+    assert load_settings().extraction_output_budget == 8000
+    env.setenv("EXTRACTION_FALLBACK_MAX_TOKENS", "2000")
+    assert load_settings().extraction_output_budget == 2000
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("EXTRACTION_FALLBACK_SCOPE", "all"),
+        ("EXTRACTION_FALLBACK_CONTEXT_CHARS", "100"),
+        ("EXTRACTION_FALLBACK_CONTEXT_CHARS", "1000000"),
+        ("ROOM_GROUPING", "llm"),
+    ],
+)
+def test_section_25_settings_refuse_bad_values(
+    env: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    env.setenv(name, value)
+    with pytest.raises(ValidationError):
+        load_settings()
 
 
 # --------------------------------------------------------------------------- the previous behaviour
@@ -158,10 +198,13 @@ def test_every_step_can_be_set_back_to_its_previous_configuration(
     extraction fallback on gpt-4o-mini with its 800 tokens, the classifier on gpt-4o-mini."""
     env.setenv("VISION_COUNT_FUSION", "off")
     env.setenv("ROOM_RECONCILE", "false")
+    env.setenv("ROOM_GROUPING", "model")
     env.setenv("TEXT_MODEL", "gpt-4o-mini")
+    env.setenv("EXTRACTION_FALLBACK_SCOPE", "critical")
     env.setenv("CLASSIFY_MODEL", "gpt-4o-mini")
     settings = load_settings()
     assert settings.vision_count_fusion == "off" and settings.room_reconcile is False
+    assert settings.room_grouping == "model" and settings.extraction_fallback_scope == "critical"
     assert settings.text_model == "gpt-4o-mini" and settings.extraction_output_budget == 800
     assert settings.classify_model == "gpt-4o-mini"
 

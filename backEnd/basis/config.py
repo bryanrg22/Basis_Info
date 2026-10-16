@@ -45,7 +45,9 @@ VISION_MAX_TOKENS_REASONING: Final = 6000
 VISION_MAX_TOKENS_DEFAULT: Final = 1200
 # Output budget of the extraction fallback when EXTRACTION_FALLBACK_MAX_TOKENS is unset: an
 # OpenAI reasoning model gets what EVAL_REPORT section 17.1 ran it at (it spends output on
-# reasoning first); any other model the 800 the pipeline always used.
+# reasoning first), and so does any model when the fallback asks for every missing field
+# (EXTRACTION_FALLBACK_SCOPE=missing: dozens of values, section 17.1 ran every model at
+# 8000); otherwise the 800 the pipeline always used for the few critical fields.
 EXTRACTION_MAX_TOKENS_REASONING: Final = 8000
 EXTRACTION_MAX_TOKENS_DEFAULT: Final = 800
 
@@ -205,6 +207,13 @@ class Settings(BaseSettings):
     # Unset: the family default (see ``extraction_output_budget``). Read the value in effect
     # through ``extraction_output_budget``.
     extraction_fallback_max_tokens: int | None = Field(default=None, ge=64, le=16384)
+    # Which appraisal fields the extraction fallback asks the model for (EVAL_REPORT 25):
+    # "missing" every catalogue field Azure DI and the regex pass left empty or failed,
+    # with the whole document (up to EXTRACTION_FALLBACK_CONTEXT_CHARS) as context, as
+    # section 17.1 measured; "critical" only the critical ones, with their sections' pages
+    # (before section 25).
+    extraction_fallback_scope: Literal["missing", "critical"] = "missing"
+    extraction_fallback_context_chars: int = Field(default=60_000, ge=4_000, le=400_000)
     azure_document_intelligence_endpoint: str | None = None
     azure_document_intelligence_key: SecretStr | None = None
     azure_di_timeout_seconds: float = Field(default=180.0, gt=0, le=1800)
@@ -284,7 +293,7 @@ class Settings(BaseSettings):
         set, else the default for the text model's family."""
         if self.extraction_fallback_max_tokens is not None:
             return self.extraction_fallback_max_tokens
-        if is_reasoning_model(self.text_model):
+        if is_reasoning_model(self.text_model) or self.extraction_fallback_scope == "missing":
             return EXTRACTION_MAX_TOKENS_REASONING
         return EXTRACTION_MAX_TOKENS_DEFAULT
 

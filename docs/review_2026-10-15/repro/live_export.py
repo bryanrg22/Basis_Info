@@ -50,12 +50,31 @@ from evals.predict_photos import label_counts
 BUCKETS = {5: "y5", 7: "y7", 15: "y15", 27.5: "y27_5", 39: "y39"}
 # The same URAR box under the production field catalogue's key and the label file's key
 # (basis.extraction.field_mappings against appraisal_fields_v1); nothing else is renamed.
+# The second group (EVAL_REPORT section 25) are boxes the catalogue already had under
+# another name: the URAR caption is given with each.
 CATALOGUE_TO_LABEL = {
     "subject.assessors_parcel": "subject.assessor_parcel",
     "subject.real_estate_taxes": "subject.re_taxes",
     "cost_approach.depreciated_cost_improvements": "cost_approach.depreciated_cost_of_improvements",
     "cost_approach.indicated_value": "cost_approach.indicated_value_by_cost_approach",
     "cost_approach.site_improvements_value": "cost_approach.site_improvements_as_is",
+    # Subject "Property Rights Appraised"; Contract "offering price(s)"
+    "subject.property_rights_appraised": "subject.property_rights",
+    "listing_and_contract.offering_price": "listing_and_contract.listed_price",
+    # Site "FEMA Flood Zone", utilities "Gas", "Water", "Sanitary Sewer", off-site "Street"
+    "site.flood_zone": "site.fema_flood_zone",
+    "site.utilities_gas": "site.gas",
+    "site.utilities_water": "site.water",
+    "site.utilities_sewer": "site.sanitary_sewer",
+    "site.off_site_improvements_street": "site.street",
+    # Improvements "Heating", "Fuel", and the UAD quality and condition ratings
+    "improvements.heating_type": "improvements.heating",
+    "improvements.heating_fuel": "improvements.fuel",
+    "improvements.quality": "improvements.overall_quality",
+    "improvements.condition": "improvements.overall_condition",
+    # Cost approach "Less Physical Depreciation", "Estimated Remaining Economic Life"
+    "cost_approach.depreciation_physical": "cost_approach.physical_depreciation",
+    "cost_approach.remaining_economic_life": "cost_approach.remaining_economic_life_years",
 }
 
 

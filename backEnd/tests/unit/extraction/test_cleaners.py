@@ -14,6 +14,7 @@ from decimal import Decimal
 import pytest
 
 from basis.extraction.cleaners import (
+    MATERIAL_CONDITION_FIELDS,
     CleanValue,
     clean_address,
     clean_checkbox,
@@ -23,11 +24,14 @@ from basis.extraction.cleaners import (
     clean_field,
     clean_fields,
     clean_integer,
+    clean_material,
+    clean_month,
     clean_percent,
     clean_text,
     clean_value,
     extract_selection,
     parse_date,
+    printed_in_acres,
     split_concatenated_field,
 )
 
@@ -390,3 +394,53 @@ def test_split_concatenated_field() -> None:
         "zip": "91020",
     }
     assert split_concatenated_field(None, patterns) == {}
+
+
+# --------------------------------------------------------------------------- EVAL_REPORT 25
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Concrete C3", "Concrete"),
+        ("Hwd/Vin/Tile/Crp C3", "Hwd/Vin/Tile/Crp"),
+        ("Drywall/Wood/C4", "Drywall/Wood"),
+        ("Asphalt Shingle  C1", "Asphalt Shingle"),
+        ("Vinyl; C6", "Vinyl"),
+        ("C3", "C3"),  # only a rating: kept for the reviewer
+        ("Concrete C7", "Concrete C7"),  # not a UAD rating
+        ("Case/Sliding", "Case/Sliding"),
+        ("Brick C3 veneer", "Brick C3 veneer"),  # the rating must end the value
+    ],
+)
+def test_materials_condition_boxes_drop_the_rating(raw: str, expected: str) -> None:
+    assert clean_field("improvements.exterior_walls", raw).text == expected
+    assert clean_material(raw).text == expected
+
+
+def test_only_the_materials_condition_boxes_drop_the_rating() -> None:
+    assert clean_field("improvements.condition", "C3").text == "C3"
+    assert clean_field("site.view", "Residential C3").text == "Residential C3"
+    assert MATERIAL_CONDITION_FIELDS >= {"improvements.floors", "improvements.walls"}
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("01/2025", "2025-01"),
+        ("1/2025", "2025-01"),
+        ("12/2024", "2024-12"),
+        ("13/2025", "13/2025"),
+        ("0/2025", "0/2025"),
+        ("January 2025", "January 2025"),
+        ("", None),
+    ],
+)
+def test_the_cost_data_month_is_iso(raw: str, expected: str | None) -> None:
+    assert clean_field("cost_approach.effective_date_of_cost_data", raw).text == expected
+    assert clean_month(raw).text == expected
+
+
+def test_printed_in_acres() -> None:
+    assert printed_in_acres("1.39 ac") and printed_in_acres("0.25 Acres.")
+    assert not printed_in_acres("60,548 sf") and not printed_in_acres("Lacrosse field")

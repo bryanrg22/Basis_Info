@@ -26,6 +26,11 @@ os.environ.setdefault("VISION_MODEL", "gpt-4o-mini")
 # production default, and each step has its own unit and activity tests.
 os.environ.setdefault("VISION_COUNT_FUSION", "off")
 os.environ.setdefault("ROOM_RECONCILE", "false")
+# And the extraction fallback asks only for the critical fields (S3_SPEC section 4), the
+# baseline the extraction and lifecycle tests count calls against; the "missing" scope
+# (EVAL_REPORT section 25, the production default) has its own unit tests and runs in
+# test_production_defaults.py.
+os.environ.setdefault("EXTRACTION_FALLBACK_SCOPE", "critical")
 
 from basis.config import Settings, get_settings, reset_settings  # noqa: E402
 from basis.obs.logging import clear_context  # noqa: E402

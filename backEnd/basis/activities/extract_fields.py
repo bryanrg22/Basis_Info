@@ -171,6 +171,8 @@ class ExtractFields:
             review_threshold=settings.extraction_review_threshold,
             fallback_max_tokens=settings.extraction_output_budget,
             fallback_reasoning_effort=settings.extraction_reasoning_effort,
+            fallback_scope=settings.extraction_fallback_scope,
+            fallback_context_chars=settings.extraction_fallback_context_chars,
             previous_azure=reuse,
             heartbeat=heartbeat,
         )

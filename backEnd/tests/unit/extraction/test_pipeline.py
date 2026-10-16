@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import uuid
 from decimal import Decimal
@@ -254,3 +255,56 @@ async def test_heartbeats_are_sent_at_each_stage() -> None:
     ctx.heartbeat = beats.append
     await extract_appraisal(SAMPLE, "d", ctx)
     assert beats == ["read_pdf", "azure_di", "map_fields", "fallback"]
+
+
+# ------------------------------------------------------- scope "missing" (EVAL_REPORT 25)
+
+
+async def test_the_missing_scope_asks_once_for_every_empty_field_and_fills_only_those() -> None:
+    azure = StaticAzure(edit_pair(load_azure_fixture(), "Gross Living Area", drop=True))
+    provider = ScriptedProvider(
+        [
+            ScriptedTurn(
+                parsed=FallbackAnswer(
+                    fields=[
+                        # In the text: kept. A field Azure DI read: not asked, so dropped.
+                        FallbackValue(
+                            key="improvements.gla_sqft", value="1,850 sq ft", page=3, confidence=0.9
+                        ),
+                        FallbackValue(key="subject.city", value="Nowhere", page=1, confidence=0.9),
+                    ]
+                ),
+                usage=Usage(input_tokens=9000, output_tokens=900),
+            )
+        ]
+    )
+    ctx = dataclasses.replace(context(azure, provider), fallback_scope="missing")
+    result = await extract_appraisal(SCAN, "d", ctx)
+    [request] = provider.requests
+    asked = request.messages[0].content.split("Page text")[0]
+    assert "improvements.gla_sqft" in asked and "neighborhood.price_low_thousands" in asked
+    assert "- subject.city:" not in asked  # Azure DI read it
+    assert "site.area_acres" not in asked  # derived, never asked
+    content = request.messages[0].content
+    assert content.count("<page number=") == result.page_count  # the whole document
+    assert result.fields["improvements.gla_sqft"].source == "llm"
+    assert result.fields["subject.city"].source == "azure"
+    assert result.fallback["dropped"] == {"subject.city": "not_asked"}
+    assert result.raw["fallback_scope"] == "missing"
+    assert ctx.call.budget.calls == 1
+
+
+async def test_the_site_area_is_kept_as_printed_alongside_square_feet() -> None:
+    result = await extract_appraisal(SAMPLE, "d", context(FixtureAzureDi()))
+    area, text = result.fields["site.area_sqft"], result.fields["site.area"]
+    assert (area.value_num, text.value_text, text.source) == (
+        Decimal("10000"),
+        "10,000 sf",
+        "azure",
+    )
+    assert "site.area_acres" not in result.fields  # printed in square feet
+    acres = StaticAzure(edit_pair(load_azure_fixture(), "Site Area", value="1.39 ac"))
+    result = await extract_appraisal(SAMPLE, "d", context(acres))
+    assert result.fields["site.area_sqft"].value_num == Decimal("60548")
+    assert result.fields["site.area"].value_text == "1.39 ac"
+    assert result.fields["site.area_acres"].value_num == Decimal("1.39")
