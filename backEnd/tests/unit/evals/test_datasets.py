@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from basis.domain.rules import RULES, RULES_VERSION
 from evals import datasets as ds
 
 BOX = {"label": "window", "x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.3}
@@ -16,7 +17,7 @@ BOX = {"label": "window", "x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.3}
 def test_synthetic_smoke_builds_all_six_datasets_from_the_fixtures() -> None:
     data = ds.synthetic_smoke()
     # detection_boxes comes from Open Images (evals.openimages); there is no synthetic one.
-    assert set(data) == set(ds.DATASET_FILES) - {"detection_boxes"}
+    assert set(data) == set(ds.DATASETS) - {"detection_boxes"}
     fields = data["appraisal_fields"]
     assert isinstance(fields, ds.AppraisalFields)
     [doc] = fields.documents
@@ -67,6 +68,20 @@ def test_synthetic_smoke_builds_all_six_datasets_from_the_fixtures() -> None:
     assert "other" in {o.label for o in bedroom.objects} and "other" not in bedroom.counts()
 
 
+def test_rule_citations_are_every_citation_of_the_rules_table() -> None:
+    data = ds.rule_citations()
+    assert data.rules_version == RULES_VERSION
+    expected = [
+        (rule.key, c.doc_id, c.page, c.excerpt, rule.contested is not None)
+        for rule in RULES.values()
+        for c in rule.citations
+    ]
+    assert [(c.rule, c.doc_id, c.page, c.excerpt, c.contested) for c in data.citations] == (
+        expected
+    )
+    assert {c.rule for c in data.citations} == set(RULES)  # every row has a citation
+
+
 def write(directory: Path, name: str, payload: object) -> None:
     (directory / ds.DATASET_FILES[name]).write_text(json.dumps(payload))
 
@@ -100,7 +115,7 @@ def test_loaders_read_the_data_directory(tmp_path: Path, monkeypatch: pytest.Mon
         ("package", "held_out"),
     ]
     available = ds.load_available()
-    assert set(available) == {"photo_rooms", "retrieval_qrels"}
+    assert set(available) == {"photo_rooms", "retrieval_qrels", "rule_citations"}
     qrels = available["retrieval_qrels"]
     assert isinstance(qrels, ds.RetrievalQrels)
     assert qrels.qrels("dev") == {"q1": {"D:3": 2}}

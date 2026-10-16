@@ -6,7 +6,10 @@ enters the repo); :func:`synthetic_smoke` builds the same five datasets from
 the sixth, ``room_inventory``, is built there from the fixture photos with every photo its
 own room (named by :func:`basis.vision.rooms.name_hint`). ``detection_boxes`` (boxes per
 component instance, built from Open Images by :mod:`evals.openimages`) has no synthetic
-counterpart: the dry run reports it as missing.
+counterpart: the dry run reports it as missing. One more dataset, ``rule_citations``, has
+no file: it is every ``(doc_id, page, excerpt)`` claim of the rules table
+(:mod:`basis.domain.rules`), built from the code (:func:`rule_citations`) and checked
+against the corpus PDFs.
 
 Every item has a ``split`` (``dev``, ``regression``, ``held_out``) and a ``document``, the
 cluster used for clustered standard errors (photos and fields from one property are not
@@ -22,6 +25,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from basis.domain.rules import RULES, RULES_VERSION
 from basis.vision.rooms import display_name, name_hint
 from basis.vision.schemas import COMPONENT_LABELS
 from evals.metrics import FieldType
@@ -40,6 +44,10 @@ DATASET_FILES: Final[dict[str, str]] = {
 # Gold labels a detection dataset may use besides the component vocabulary: Open Images'
 # Door does not say interior or exterior (scored against both, evals.metrics.CLASS_UNION).
 DETECTION_EXTRA_LABELS: Final = frozenset({"door"})
+
+# Datasets built from code rather than read from a file (always available).
+DERIVED_DATASETS: Final[tuple[str, ...]] = ("rule_citations",)
+DATASETS: Final[tuple[str, ...]] = (*DATASET_FILES, *DERIVED_DATASETS)
 SYNTHETIC_DIR: Final = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "synthetic"
 
 
@@ -143,6 +151,40 @@ class RetrievalQrels(_Model):
             for q in self.queries
             if split is None or q.split == split
         }
+
+
+class RuleCitationItem(_Model):
+    """One citation claim of one rules-table row."""
+
+    rule: str
+    doc_id: str
+    page: int = Field(ge=1)
+    excerpt: str
+    contested: bool = False
+
+
+class RuleCitations(_Model):
+    schema_version: int = 1
+    rules_version: str
+    citations: list[RuleCitationItem]
+
+
+def rule_citations() -> RuleCitations:
+    """Every citation of every rules-table row, in table order."""
+    return RuleCitations(
+        rules_version=RULES_VERSION,
+        citations=[
+            RuleCitationItem(
+                rule=rule.key,
+                doc_id=claim.doc_id,
+                page=claim.page,
+                excerpt=claim.excerpt,
+                contested=rule.contested is not None,
+            )
+            for rule in RULES.values()
+            for claim in rule.citations
+        ],
+    )
 
 
 class InventoryObjectLabel(_Model):
@@ -254,6 +296,7 @@ Dataset = (
     | RetrievalQrels
     | RoomInventorySet
     | DetectionBoxes
+    | RuleCitations
 )
 MODELS: Final[dict[str, type[BaseModel]]] = {
     "appraisal_fields": AppraisalFields,
@@ -295,13 +338,16 @@ def load(name: str, directory: str | Path | None = None) -> BaseModel:
 
 
 def load_available(directory: str | Path | None = None) -> dict[str, BaseModel]:
-    """Every dataset file present in the data directory (missing ones are skipped)."""
+    """Every dataset file present in the data directory (missing ones are skipped), plus
+    the derived datasets."""
     root = data_dir(directory)
-    return {
+    found: dict[str, BaseModel] = {
         name: _read(root / filename, MODELS[name])
         for name, filename in DATASET_FILES.items()
         if (root / filename).exists()
     }
+    found["rule_citations"] = rule_citations()
+    return found
 
 
 # --------------------------------------------------------------------------- synthetic
@@ -331,7 +377,8 @@ def _json(path: Path) -> Any:
 
 
 def synthetic_smoke(fixtures: Path = SYNTHETIC_DIR) -> dict[str, BaseModel]:
-    """The six datasets built from the synthetic fixtures (all ``dev``)."""
+    """The six datasets built from the synthetic fixtures (all ``dev``), plus the derived
+    ``rule_citations`` (scored against the synthetic corpus on a dry run)."""
     urar = _json(fixtures / "urar_sample.expected.json")
     fields = AppraisalFields(
         documents=[
@@ -402,6 +449,7 @@ def synthetic_smoke(fixtures: Path = SYNTHETIC_DIR) -> dict[str, BaseModel]:
         "assets": assets,
         "retrieval_qrels": qrels,
         "room_inventory": synthetic_room_inventory(labels),
+        "rule_citations": rule_citations(),
     }
 
 
