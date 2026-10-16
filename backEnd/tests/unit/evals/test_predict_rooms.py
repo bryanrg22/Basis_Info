@@ -571,7 +571,7 @@ async def test_overlap_hints_prompt_v2_model_effort_and_material_second_look(
         "photo_analysis": "photo_analysis/v1",
         "room_inventory": "room_inventory/v2",
         "photo_overlap": "photo_overlap/v1",
-        "surface_material": "surface_material/v2",
+        "surface_material": "surface_material/v3",
     }
     assert (summary["room_model"], summary["reasoning_effort"]) == ("gpt-6.1-sol", "low")
     assert (summary["overlap_model"], summary["materials_model"]) == (

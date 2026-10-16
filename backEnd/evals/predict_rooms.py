@@ -141,7 +141,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="surface material second look: which surfaces (basis.vision.surface_material)",
     )
     parser.add_argument(
-        "--materials-prompt", default="v2", help="released surface_material version"
+        "--materials-prompt", default="v3", help="released surface_material version"
     )
     parser.add_argument(
         "--materials-model", default=None, help="model of the second look (default: --model)"

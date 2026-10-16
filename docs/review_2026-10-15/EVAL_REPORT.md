@@ -976,3 +976,286 @@ it costs $2.23 per 52 photos against $0.59 and 5 s per photo against 2. Whether 
 is worth four times the per-property spend, and whether to spend a run on `medium` effort or
 a Claude-tuned prompt before deciding, is the open question; the provider and the routing are
 in place either way (`LLM_PRIMARY=anthropic`, `VISION_MODEL=claude-opus-5-5`).
+
+## 16. Per-room accuracy: duplicates, conventions, materials (2026-10-16)
+
+Question: how close can the per-room step (grouping, then one inventory per room) get to the
+hand-labelled room inventory and to the engineer's report rows, starting from the best
+per-photo outputs of sections 12 and 14? Branch `claude/room-accuracy`. (Section 15 is
+left to a parallel session.)
+
+Setup. Per-photo input: repeat 1 of the decomposed runs `vision_decomposed_v2b_gpt61sol`
+(`gpt-6.1-sol`, section 12.1) and `vision_decomposed_v2_opus55` (Opus 5.5, section 14), shared
+by every room run. Grouping by file name and the 16 aliases, as in section 7 (33 rooms, 8 with
+more than one photo, 27 photos in those 8). Every room run is `evals.predict_rooms ... --repeats
+3`; `run.json` `models_reported` was checked after every run and every row below names one model
+per step. Scored with the harness (`room_inventory`, `report_rows`) against the room labels
+after the cabinet change of 16.1; the table is `docs/review_2026-10-15/repro/room_run_table.py`
+over the run directories (`rooms16_*` under `$BASIS_EVAL_DATA_DIR/predictions`). Count MAE,
+exact-count rate, bias, rooms exact and label F1 are the mean over the three repeats (the
+harness itself prints repeat 1); "identical" is rooms whose inventory is the same on all
+repeats; report rows are repeat 1 with pass^3 (row evidenced on every repeat); cost is the run's
+`spent_usd` for all three repeats (one property, 52 photos, three times). Clustered standard
+errors of count MAE are 0.07 to 0.12 on this set (33 rooms), so single differences under about
+0.1 are not findings; paired comparisons are bootstrapped over rooms below. Identical
+configurations rerun differ by 0.01 to 0.04 MAE (the v1 baseline's counting step ran five times,
+as the baseline and inside the four materials rows: 0.68 to 0.72).
+
+### 16.1 Cabinet convention: units, and what it changes
+
+The verified boxes and `photo_countables/v2` count kitchen cabinets in units (one door or one
+drawer stack); the room labels counted a run of cabinets as one object. The engineer prices
+cabinetry by unit, so the room labels now count units too (LABEL_GUIDE section 3, dated note;
+`work/convert_labels.py` rebuilt the harness file, which changed in exactly three counts):
+
+| Room | Before | After | Basis |
+|---|---|---|---|
+| 1_kitchen | 1 (whole run) | 18 | 8 units in photo 21 and 10 in photo 22; the two photos face different walls (white refrigerator in 21, stainless in 22), so no unit is in both; the peninsula base faces away from both and is not counted |
+| 1_laundry | 2 (two cabinets) | 3 | one door left of the window, two stacked doors right |
+| b_bath | 1 (over-toilet cabinet) | 2 | two doors |
+
+Bathroom vanities stay one per vanity. Rescored, before -> after: the v1 baseline 0.73 -> 0.72
+MAE (bias +0.34 -> +0.27), the heuristic merge 0.54 -> 0.52 (+0.11 -> +0.03), the Opus-input
+heuristic 0.44 -> 0.42; exact-count rates and rooms exact move by at most 0.01. The change matters
+most to the configurations that count units across walls: the recommended room step below goes
+from 0.50 to 0.43 on the `gpt-6.1-sol` input (its kitchen count of about 21 was 20 off the old
+gold of 1) and from 0.41 to 0.34 on the Opus input. The old labels made a correct unit count look
+like the worst error in the study.
+
+### 16.2 Every variant against the baseline
+
+`gpt-6.1-sol` per-photo input unless the row says Opus input. "multi only" = no call for the 25
+one-photo rooms (`--single-photo-rooms per-photo`: their per-photo analysis is the inventory).
+The gold ceiling on report rows is 32 of 39 (the human inventory misses FF&E because the labels
+file loose furniture as `other`, LABEL_GUIDE section 4).
+
+| Variant | Count MAE | Exact-count rate | Signed bias | Rooms exact (of 33) | Label F1 | Identical across 3 repeats | Report rows (of 39), pass^3 | Material present (of 9) | Cost, 3 repeats | Rows missed |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Baseline**: reconciliation `room_inventory/v1`, Azure `gpt-4.1-mini` | 0.72 | 0.55 | +0.27 | 0.3 | 0.80 | 19 | 32, 0.82 | 8 | $0.18 | Wall Coverings |
+| Heuristic merge only (largest per-photo count, no call) | 0.52 | 0.60 | +0.03 | 2.0 | 0.84 | 33 | 31 | 8 | $0 | Wall Coverings, FF&E |
+| v1, multi only (the baseline run, one-photo rooms replaced by the heuristic) | 0.62 | 0.59 | +0.15 | 2.0 | 0.83 | 26 | 32, 0.82 | 8 | $0.07 | Wall Coverings |
+| (a) `room_inventory/v2` (per-label accounting), `gpt-4.1-mini` | 0.66 | 0.57 | +0.35 | 2.0 | 0.84 | 30 | 31, 0.79 | 8 | $0.20 | Wall Coverings, FF&E |
+| (b) overlap merge, `photo_overlap/v1` judgments by `gpt-4.1-mini` (OpenAI) | 0.51 | 0.61 | +0.05 | 2.0 | 0.84 | 32 | 31, 0.79 | 8 | $0.27 | Wall Coverings, FF&E |
+| (b) overlap merge, judgments by `gpt-6.1-sol` low | 0.52 | 0.60 | +0.28 | 2.0 | 0.84 | 31 | 31, 0.79 | 8 | $1.32 | Wall Coverings, FF&E |
+| Materials `disagree` trigger, `surface_material/v1`, `gpt-4.1-mini` (on the baseline) | 0.68 | 0.55 | +0.22 | 0.7 | 0.80 | 21 | 32, 0.82 | 8 | $0.19 | Wall Coverings |
+| Materials `sensitive`, v1, `gpt-4.1-mini` | 0.68 | 0.55 | +0.23 | 0.0 | 0.80 | 25 | 33, 0.85 (spurious, see 16.4) | 9 | $0.22 | none |
+| Materials `sensitive`, v2, Sonnet 5.5 | 0.69 | 0.55 | +0.22 | 0.0 | 0.80 | 22 | 33, 0.85 | 9 | $0.56 | none |
+| Materials `sensitive`, v3, Sonnet 5.5 | 0.72 | 0.54 | +0.25 | 0.0 | 0.80 | 19 | 33, 0.85 | 9 | $0.57 | none |
+| Reconciler v2 on Opus 5.5 low, all rooms | 0.62 | 0.58 | +0.40 | 0.3 | 0.78 | 7 | 33, 0.85 | 9 | $3.30 | none |
+| Reconciler v2 on `gpt-6.1-sol` low, all rooms (2 repeats; see below) | 0.76 | 0.49 | +0.51 | 0.0 | 0.74 | 16 | 32, 0.82 | 8 | $0.88 | Wall Coverings |
+| Reconciler `room_inventory/v3` on Opus 5.5 low, multi only | 0.44 | 0.63 | +0.15 | 2.3 | 0.84 | 27 | 31, 0.79 | 8 | $1.16 | Wall Coverings, FF&E |
+| Reconciler v3 on Sonnet 5.5 low, multi only | 0.42 | 0.64 | +0.11 | 2.7 | 0.85 | 26 | 31, 0.79 | 7 | $0.57 | Wall Coverings, FF&E |
+| v3 Sonnet multi only + overlap hints (Sonnet judgments) | 0.46 | 0.64 | +0.06 | 2.0 | 0.84 | 27 | 31, 0.79 | 8 | $2.35 | Wall Coverings, FF&E |
+| **Recommended**: v3 Sonnet multi only + materials `sensitive` v3 Sonnet | **0.43** | **0.63** | +0.10 | 2.7 | **0.85** | 28 | **32, 0.82** | **9** | $0.99 | FF&E |
+| Opus input: baseline (v1, `gpt-4.1-mini`) | 0.51 | 0.69 | +0.09 | 6.0 | 0.88 | 25 | 31, 0.79 | 8 | $0.17 | Retaining Walls, Painting |
+| Opus input: heuristic merge only | 0.42 | 0.71 | -0.01 | 7.0 | 0.89 | 33 | 30 | 8 | $0 | FF&E, Retaining Walls, Painting |
+| **Opus input: recommended** | **0.34** | **0.72** | +0.06 | 6.7 | **0.90** | 29 | 31, 0.79 | **9** | $0.94 | FF&E, Retaining Walls |
+
+On the 8 multi-photo rooms, where de-duplication can act (identical is of 8; the 25 one-photo
+rooms are deterministic in every "multi only" row, so the all-room identical counts above are at
+least 25 there):
+
+| Variant (multi-photo rooms only) | Count MAE | Exact-count rate | Signed bias | Label F1 | Identical (of 8) |
+|---|---|---|---|---|---|
+| Baseline v1 `gpt-4.1-mini` | 1.06 | 0.49 | +0.17 | 0.79 | 1 |
+| Heuristic merge | 0.79 | 0.53 | -0.18 | 0.83 | 8 |
+| (a) v2 `gpt-4.1-mini` | 1.08 | 0.43 | +0.61 | 0.83 | 6 |
+| (b) overlap merge, `gpt-4.1-mini` judgments | 0.77 | 0.54 | -0.13 | 0.83 | 7 |
+| (b) overlap merge, `gpt-6.1-sol` judgments | 0.80 | 0.50 | +0.54 | 0.83 | 6 |
+| v2 Opus 5.5 | 0.84 | 0.55 | +0.45 | 0.81 | 0 |
+| v2 `gpt-6.1-sol` (2 repeats) | 1.07 | 0.44 | +0.64 | 0.76 | 5 |
+| v3 Opus 5.5 | 0.57 | 0.59 | +0.17 | 0.85 | 2 |
+| v3 Sonnet 5.5 | 0.51 | 0.62 | +0.03 | 0.89 | 1 |
+| v3 Sonnet 5.5 + overlap hints | 0.64 | 0.62 | -0.09 | 0.84 | 2 |
+| Recommended (v3 Sonnet + materials) | 0.55 | 0.62 | +0.01 | 0.87 | 3 |
+| Opus input: heuristic merge | 0.76 | 0.60 | -0.27 | 0.87 | 8 |
+| Opus input: recommended | 0.55 | 0.62 | -0.07 | 0.89 | 4 |
+
+Paired bootstrap over rooms (5000 resamples, MAE averaged over repeats), recommended minus
+comparison: against the baseline -0.29 [95% -0.39, -0.16] on the `gpt-6.1-sol` input and -0.17
+[-0.30, -0.05] on the Opus input; against the heuristic merge -0.08 [-0.18, +0.00] and -0.07
+[-0.18, +0.02]. The gain over the baseline is real; the gain over the free heuristic comes only
+from the 8 multi-photo rooms (0.79 -> 0.55 and 0.76 -> 0.55 there) and is not resolved at
+33 rooms.
+
+### 16.3 What was tried, and how
+
+- **(a) Reconciliation prompt v2** (`room_inventory/v2`): the request regroups the per-photo
+  counts by label (`kitchen_cabinet: Image 1 x8 (wood, permanent); Image 2 x10 (...)`,
+  `reconcile.render_by_label`) and the prompt makes the model account for every count: group
+  the images that show the same objects (count = the largest single-image count, more only when
+  an image shows objects the others do not), add the groups that show different objects, one
+  entry per group; plus the counting rules of the label guide (window = framed opening, door =
+  leaf, cabinet = unit, surfaces and property-wide items once). `v3` adds one rule, copied from
+  `photo_countables/v2`: loose furniture, rugs, lamps, art and decor are one `other` entry,
+  never `furniture`/`chair`/`desk`.
+- **(b) Overlap step** (`basis.vision.overlap`, prompt `photo_overlap/v1`): one call per pair of
+  a room's photos (66 pairs for the 12-photo exterior, 75 per repeat) answering, per label, how
+  many of the listed objects are the same physical objects in both images. As a replacement for
+  the call (`--overlap merge`): per label, the sum of the per-photo counts minus the objects each
+  pair shares (inclusion-exclusion over pairs, capped at the smaller count), floored at the
+  largest single-photo count of each connected group; a failed pair counts as sharing everything
+  (the max rule). As a hint (`--overlap hint`): the judgments appended to the reconciliation
+  request, renumbered per call. Local feature matching was measured first, outside the code:
+  SIFT (4000 features, 1024 px), Lowe ratio 0.75 and a MAGSAC fundamental-matrix fit on every pair
+  of the 8 multi-photo rooms. It does not separate overlap here: kitchen 21-22, which show
+  different walls, get 37 inliers, more than the truly overlapping bedroom and bath pairs (10 and
+  14), because identical raised-panel cabinet doors and clapboard siding produce consistent false
+  correspondences, and the exterior pairs sit at 7 to 15 inliers whatever they share (one
+  close-up pair 272). Photo-level overlap is also the wrong granularity: the kitchen's photos
+  share a refrigerator wall edge and a beam but no cabinet unit. This is the "doppelganger" failure of
+  structure-from-motion: local matchers link distinct but similar surfaces, and geometric
+  verification does not reject the false pairs (Cai et al., *Doppelgangers*, ICCV 2023,
+  arXiv 2309.02420; Xiangli et al., *Doppelgangers++*, CVPR 2025, which add a learned same/different
+  pair classifier on top). LightGlue/SuperPoint was not tried (model weights and torch on the
+  worker, and the same ambiguity), which is why the pairwise judgment is object-level and made by a
+  VLM, the analogue of those pair classifiers.
+- **Materials second look** (`basis.vision.surface_material`, prompt `surface_material`): one
+  call per (room, surface) on the photo where the per-photo model was most confident of the
+  surface, for the labels whose report row depends on the material (`wainscoting`, `wall_finish`,
+  `tile`), with the materials the rules distinguish and the cues that separate the common
+  confusions (wallpaper vs wood vs painted wood; painted drywall vs plaster; tile vs vinyl). The
+  component schema's `Material` has no `wallpaper`; the answer is stored as `other` with the note
+  `wallpaper`, which the Wall Coverings rule accepts. Two triggers: `disagree` (the photos or the
+  room inventory disagree, or the material is unknown/other) and `sensitive` (every such surface).
+  An answer replaces the material at confidence >= 0.5.
+- **Reconciler model**: Azure `gpt-4.1-mini` (baseline), `gpt-6.1-sol` low effort, Opus 5.5 low,
+  Sonnet 5.5 low.
+
+### 16.4 Reading
+
+1. **On these inputs the v1 reconciliation call makes the inventory worse than not calling.**
+   With the v2 per-photo inputs (definitions in the countables prompt, loose furniture filed as
+   `other`), the plain heuristic merge beats the baseline call on both inputs (0.52 against
+   0.72; 0.42 against 0.51), on the 25 one-photo rooms (0.37 against 0.53 and 0.24 against 0.36:
+   there is nothing to merge and the call can only re-describe the photo) and on the 8
+   multi-photo rooms (0.79 against 1.06). The v1 call
+   re-adds loose furniture as `furniture` (`2_bed_2`: 10), lists finishes the labels do not, and
+   changes from run to run (19 of 33 identical). Section 7's reading ("the call removes
+   duplicates and nothing more") held for the v1 per-photo output; it does not hold for the
+   better per-photo output.
+2. **De-duplication needs a strong model and is worth it only where there are several photos.**
+   On the 8 multi-photo rooms the max rule under-counts (bias -0.18 and -0.27: the kitchen's two
+   walls of cabinets become 12, the exterior's 30 windows 10) and adding counts over-counts. The
+   accounting prompt on `gpt-4.1-mini` swings to over-counting (bias +0.61: one entry per image
+   group even for the roof and siding); on Opus 5.5 and Sonnet 5.5 it gets the structure right
+   (kitchen cabinets 19 to 23 against 18, exterior windows 20 to 24 against 30, roof 1) and v3's
+   furniture rule removes the remaining convention error (v2 Opus: 0.62 MAE overall, 0.42 with
+   the furniture labels left out; v3 Opus 0.44 as run). Sonnet 5.5 is as good as Opus 5.5 at half
+   the price (multi-room MAE 0.51 against 0.57; $0.57 against $1.16 for three repeats). On the
+   one-photo rooms a strong reconciler adds nothing (MAE 0.37 for the heuristic, v2 mini and v2
+   Opus alike, furniture aside) and costs label F1, hence "multi only".
+3. **The deterministic overlap step does not beat the max rule, with either judge.**
+   `gpt-4.1-mini` over-claims sharing (it says photos 21 and 22 share 10 cabinets; nearly every
+   exterior pair "shares" windows), so its merge stays near the max (0.77 against 0.79 on the
+   multi-photo rooms). `gpt-6.1-sol` judges the kitchen right (no shared cabinet), but then the
+   merge sums per-photo counts that are themselves high (11 + 12 = 23 against 18 units) and sums
+   property-wide items photographed from several sides (exterior doors 5 against 1, lights 16
+   against 8): bias +0.54, MAE 0.80. Given to the Sonnet reconciler as hints, the judgments make
+   it worse (multi-room MAE 0.64 against 0.51) at four times the cost. Since neither (a) on the
+   small model nor (b) helped, they were not combined; (a) on a strong model is the route kept.
+   Multi-view counting methods remove duplicates through explicit cross-view correspondence
+   (calibration-free multi-view crowd counting, Zhang and Chan, ECCV 2022, learns a matching map
+   per view pair) or through 3-D geometry (*Counting Stacked Objects*, ICCV 2025, arXiv
+   2411.19149); a few uncalibrated wide-baseline photos of a room give neither reliably, and the
+   error that is left is per-photo counting (cabinet units 11 and 12 against 8 and 10 in the boxes), which no
+   merge rule fixes.
+4. **The wainscot is a material problem with a narrow fix, and the trigger matters.** The
+   `disagree` trigger never reaches it: every per-photo and per-room call agreed on `wood`, so
+   there is no disagreement to detect. The `sensitive` trigger looks at it every time. The model
+   matters: `gpt-4.1-mini` with the surfaces-only prompt says `painted_wood` on 7 of 8 calls, while
+   Sonnet 5.5 and Opus 5.5 say `wallpaper` on every call (probe of four known surfaces, two calls
+   each: Sonnet 8 of 8). Two prompt faults were found by checking every answer against the
+   hand-labelled materials, and fixed by new releases rather than edits: v1 had no fiberglass
+   option, so moulded shower surrounds became `plastic` and evidenced Wall Coverings spuriously
+   (the v1 row's 33 rows are not a real gain); v2 had no painted-masonry option, so painted
+   basement block drifted to wallpaper or other. v3, on the 13 surfaces whose material the labels
+   record: 13 right, against 6 for the inventory without the second look (11 if "brick" is
+   accepted for painted block). With it Wall Coverings is evidenced in all three repeats by the
+   hall's wainscot itself, the material-present rate is 9 of 9, and on the Opus input it also
+   recovers Painting (painted drywall). Remaining doubtful answers: the hall's upper wall is also
+   called wallpaper (it is painted, with a stencil border), the exterior `wall_finish` vinyl, and
+   the basement bath's wall panel (tile or faux brick, open in the label guide) is unstable.
+5. **Report rows reach the gold ceiling; rooms exact stays per-photo-bound.** The recommended
+   step evidences 32 of 39 rows on every repeat on the `gpt-6.1-sol` input: the gold ceiling,
+   missing only FF&E, which the labels' furniture convention excludes (the v1 reconciler
+   "evidences" FF&E only by breaking that convention). On the Opus input it is 31: Retaining Walls
+   is missed because the Opus per-photo output never lists the retaining wall, which no room step
+   can add. Exact room inventories move from 0.3 to 2.7 of 33 (`gpt-6.1-sol`) and are 6.7 on the
+   Opus input against 7.0 for its heuristic: the remaining misses are per-photo recognition (a
+   light fixture, an outlet, a baseboard listed or not), as in section 7.
+6. **Model per dollar.** For the reconciliation call on the multi-photo rooms, MAE over all rooms
+   per three-repeat run: `gpt-4.1-mini` 0.62 ($0.07, v1) or 0.66 (v2, all rooms, $0.20);
+   `gpt-6.1-sol` 0.76 (v2, all rooms, $0.88 for two repeats); Opus 5.5 0.44 ($1.16, v3); Sonnet
+   5.5 0.42 ($0.57, v3). Sonnet 5.5 wins outright. The `gpt-6.1-sol` row is incomplete: the run
+   used `room_inventory/v2` (it lists furniture, which v3 fixes), finished two repeats and aborted
+   in the third when the OpenAI account ran out of credit (`credit_balance_exhausted`);
+   `room_inventory.json` was rebuilt from its 66 room records. A v3 `gpt-6.1-sol` run needs
+   credit on that account.
+7. **Limits.** One study, dev split, 33 rooms of which 8 have several photos: the multi-photo
+   conclusions rest on 8 rooms and about 90 (room, label) pairs. The v2/v3 room prompts and the
+   material prompt were written after looking at this study's failures (the conventions come from
+   the label guide, the material cues are generic identification cues, and the probe included
+   negatives), so they are tuned to the dev set; the held-out study must confirm them before the
+   numbers are quoted as product numbers. Repeats measure the per-room calls only (the per-photo
+   input is one fixed repeat).
+
+### 16.5 Recommended room step
+
+`evals.predict_rooms ... --room-prompt v3 --model claude-sonnet-5-5 --reasoning-effort low
+--single-photo-rooms per-photo --materials sensitive` (the material prompt defaults to
+`surface_material/v3` and the second look to the room model):
+
+1. one-photo rooms: the per-photo analysis is the inventory (no call);
+2. multi-photo rooms: one `reconcile_room` call per room (`room_inventory/v3`) on Sonnet 5.5 at
+   low effort;
+3. every `wainscoting`, `wall_finish` and `tile` in the result: one `surface_material/v3` call on
+   its best photo, Sonnet 5.5;
+4. no overlap step (kept behind `--overlap` for the next study, where rooms with more photos may
+   change the answer).
+
+Cost on this property: $0.33 per run (about $0.19 for the 8 reconciliation calls, $0.14 for the
+about 27 material looks), against $0.06 for the baseline. With the Opus 5.5 per-photo input it is the
+best configuration measured: count MAE 0.34 (baseline 0.51 on that input), exact-count rate 0.72,
+label F1 0.90, report rows 31 of 39 with material present on all 9 that need one. The
+`reconcile_room` path is evaluation code today (no activity calls it); wiring it into the
+pipeline is the follow-up, with `room_inventory/v3` pinned as `analyze.py` pins its prompts.
+
+Code (this branch): `basis/vision/reconcile.py` (v2+ per-label layout, hints per call slice,
+reasoning effort, free-text answers clipped to the schema's 200 characters instead of failing:
+before that fix a quarter of the first v2 answers and half of the first overlap judgments were
+refused for a long note, and those two runs were discarded and rerun); `basis/vision/overlap.py`;
+`basis/vision/surface_material.py`; prompts `room_inventory/v2`, `v3`, `photo_overlap/v1`,
+`surface_material/v1`, `v2`, `v3` (manifest entries; `evals.predict_rooms` still defaults to
+`room_inventory/v1`, so the release changes nothing until asked for); runner flags; 42 new unit
+tests (37 in `tests/unit/vision/test_room_steps.py`, 5 in `tests/unit/evals/test_predict_rooms.py`).
+Label change: three cabinet counts (16.1), private data only.
+
+Open: the furniture convention (FF&E needs a furniture label; the room labels and the v2/v3
+prompts file it as `other`) and the painted-drywall convention (the Painting row needs a
+`wall_finish` the labels never list) are Bryan's and the engineer's calls; add `wallpaper` and
+`painted_masonry` to the component `Material` enum so the second look need not use `other` +
+note; a v3 run on `gpt-6.1-sol` once the OpenAI account has credit; confirm on the held-out study.
+
+Spend for this section: about $15.5. Recorded in the runs' `run.json`: $14.54, of which
+Anthropic $10.10 (Opus 5.5 reconciler $4.47, Sonnet 5.5 reconciler and second looks $5.63),
+OpenAI $2.89 (`gpt-6.1-sol` overlap judgments $1.32 and the partial reconciler run $0.88,
+`gpt-4.1-mini` overlap $0.27 and its discarded first run $0.42) and Azure `gpt-4.1-mini` $1.55
+(including the discarded first v2 run, $0.24). Not recorded, about $1: two first baselines
+contaminated by Azure 429 fallbacks to OpenAI `gpt-4o-mini` (discarded and rerun with the OpenAI
+key unset), one overlap run stopped while rate-limited, the part of the aborted `gpt-6.1-sol`
+repeat 3 that ran, and the material probes ($0.15).
+
+Commands (from `backEnd/`, `BASIS_ENV=dev`, keys as in section 14; Azure-only runs with
+`OPENAI_API_KEY` unset so a 429 cannot fall back to another model):
+
+```bash
+python -m evals.predict_rooms --photos ~/basis-eval-data/inputs/photos \
+    --out ~/basis-eval-data/predictions/rooms16_final_v2_opus55 \
+    --aliases ~/basis-eval-data/labels/room_aliases_v1.json \
+    --per-photo ~/basis-eval-data/predictions/vision_decomposed_v2_opus55 --per-photo-repeat 1 \
+    --repeats 3 --concurrency 2 --room-prompt v3 --model claude-sonnet-5-5 \
+    --reasoning-effort low --single-photo-rooms per-photo --materials sensitive
+BASIS_ENV=test python ../docs/review_2026-10-15/repro/room_run_table.py \
+    ~/basis-eval-data/predictions/rooms16_*
+```

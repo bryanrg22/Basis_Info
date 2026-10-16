@@ -41,12 +41,12 @@ def test_the_prompts_this_stage_uses_exist() -> None:
     assert latest("photo_analysis").version_id == "photo_analysis/v2"
     assert released_prompt().version_id == f"photo_analysis/{PROMPT_VERSION}"
     assert latest("appraisal_field_fallback").version_id == "appraisal_field_fallback/v1"
-    # room_inventory/v2, photo_overlap/v1 and surface_material/v1-v2 are released for
+    # room_inventory/v2-v3, photo_overlap/v1 and surface_material/v1-v3 are released for
     # evaluation (EVAL_REPORT section 16); evals.predict_rooms pins --room-prompt v1 by default.
-    assert latest("room_inventory").version_id == "room_inventory/v2"
+    assert latest("room_inventory").version_id == "room_inventory/v3"
     assert load("room_inventory", "v1").version_id == "room_inventory/v1"
     assert latest("photo_overlap").version_id == "photo_overlap/v1"
-    assert latest("surface_material").version_id == "surface_material/v2"
+    assert latest("surface_material").version_id == "surface_material/v3"
 
 
 def test_latest_is_the_highest_version(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -148,8 +148,16 @@ inventory (Wilson interval), label-set precision/recall/F1 (counts ignored; noth
 predicted -> precision 0; two empty inventories agree), SE clustered by document; pass^k
 over repeats for the exact inventory. Predictions come from `python -m evals.predict_rooms`
 (`room_inventory.json`, the reconciliation call; `room_inventory.heuristic.json` is the
-per-photo-plus-merge baseline on the model's own per-photo output, scored by copying it to
-`room_inventory.json` in another predictions directory).
+per-photo-plus-merge baseline on the model's own per-photo output, scored with
+`--inventory-file room_inventory.heuristic.json`). The runner's per-room options (EVAL_REPORT
+section 16): `--room-prompt` (released `room_inventory` version, default `v1`), `--model`,
+`--reasoning-effort`, `--max-tokens`, `--single-photo-rooms per-photo` (no call for a one-photo
+room), `--overlap hint|merge` with `--overlap-model` (pairwise `photo_overlap` judgments),
+`--materials disagree|sensitive` with `--materials-model` (the `surface_material` second
+look); the recommended room step is `--room-prompt v3 --model claude-sonnet-5-5
+--reasoning-effort low --single-photo-rooms per-photo --materials sensitive`.
+`docs/review_2026-10-15/repro/room_run_table.py` prints the section 16 table rows from the
+run directories.
 
 ### `detection_boxes_v1.json`
 

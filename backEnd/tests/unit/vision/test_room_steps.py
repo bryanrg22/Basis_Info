@@ -90,6 +90,14 @@ def empty_inventory() -> ScriptedTurn:
 def test_layout_follows_the_prompt_version() -> None:
     assert layout(load("room_inventory", "v1")) == "per_image"
     assert layout(load("room_inventory", "v2")) == "per_label"
+    assert layout(load("room_inventory", "v3")) == "per_label"
+
+
+def test_v3_is_v2_plus_the_loose_furniture_rule() -> None:
+    v2, v3 = load("room_inventory", "v2").text, load("room_inventory", "v3").text
+    added = v3[v3.index("- Loose furniture") : v3.index("\n\nFor every entry")]
+    assert v3.replace("\n" + added, "") == v2
+    assert "Never label them furniture, chair, desk" in added
 
 
 def test_render_by_label_groups_counts_per_label_and_names_missing_images() -> None:
@@ -422,7 +430,7 @@ async def test_second_look_applies_a_confident_answer(
     assert (obj.material, obj.note, look.applied) == (material, note, applied)
     assert look.before == "wood" and look.file == "01.jpg" and look.cost_usd > 0
     [request] = provider.requests
-    assert request.prompt_version == "surface_material/v2"
+    assert request.prompt_version == "surface_material/v3"
     assert "Surface: wainscoting." in request.messages[-1].content
     assert sum(len(m.images) for m in request.messages) == 1
 
@@ -456,6 +464,12 @@ def test_every_surface_material_maps_and_the_prompt_names_the_cues() -> None:
     assert "wallpaper" in text and "painted_drywall" in text
     # v2: a moulded shower surround is fiberglass, not a wall covering (v1 had no option).
     assert "fiberglass" in text and "not a wall\n  covering" in text
+    # v3: painted block or brick has its own option (v2 answers drifted to wallpaper).
+    assert "painted_masonry" in text
+    assert surface_material.TO_MATERIAL[surface_material.SurfaceMaterial.PAINTED_MASONRY] == (
+        Material.CONCRETE,
+        "painted masonry",
+    )
     assert surface_material.TO_MATERIAL[surface_material.SurfaceMaterial.FIBERGLASS] == (
         Material.FIBERGLASS,
         None,

@@ -68,6 +68,7 @@ class SurfaceMaterial(StrEnum):
     PORCELAIN = "porcelain"
     STONE = "stone"
     BRICK = "brick"
+    PAINTED_MASONRY = "painted_masonry"
     CONCRETE = "concrete"
     LAMINATE = "laminate"
     PLASTIC = "plastic"
@@ -92,6 +93,7 @@ TO_MATERIAL: Final[dict[SurfaceMaterial, tuple[Material, str | None]]] = {
     SurfaceMaterial.PORCELAIN: (Material.PORCELAIN, None),
     SurfaceMaterial.STONE: (Material.STONE, None),
     SurfaceMaterial.BRICK: (Material.BRICK, None),
+    SurfaceMaterial.PAINTED_MASONRY: (Material.CONCRETE, "painted masonry"),
     SurfaceMaterial.CONCRETE: (Material.CONCRETE, None),
     SurfaceMaterial.LAMINATE: (Material.LAMINATE, None),
     SurfaceMaterial.PLASTIC: (Material.PLASTIC, None),
