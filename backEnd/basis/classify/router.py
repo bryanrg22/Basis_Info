@@ -90,6 +90,8 @@ class ClassifyContext:
     reserve_usd_per_call: float = RESERVE_USD_PER_CALL
     search: SearchFn | None = None
     prompt_version: str = PROMPT_VERSION
+    # Reasoning models only; ``None`` leaves the provider's default (ChatRequest).
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -279,6 +281,7 @@ async def _from_model(component: ComponentView, ctx: ClassifyContext) -> Classif
         limits=ctx.limits,
         price=ctx.price,
         reserve_usd_per_call=ctx.reserve_usd_per_call,
+        reasoning_effort=ctx.reasoning_effort,
     )
     answer: Classification | None = outcome.classification
     if answer is None:
@@ -324,6 +327,14 @@ async def _from_model(component: ComponentView, ctx: ClassifyContext) -> Classif
     )
 
 
+async def classify_with_model(
+    component: ComponentView, ctx: ClassifyContext
+) -> ClassificationResult:
+    """The model path alone (rules table and cache skipped): what ``evals.predict_assets``
+    scores. Same loop, citation verification and review policy as :func:`classify`."""
+    return await _from_model(component, ctx)
+
+
 def route(
     component: ComponentView, ctx: ClassifyContext
 ) -> tuple[Method, RuleHit | CachedClassification | None]:
@@ -353,6 +364,7 @@ __all__ = [
     "ClassificationResult",
     "ClassifyContext",
     "classify",
+    "classify_with_model",
     "promote_to_cache",
     "resolve_rule_citations",
     "route",
