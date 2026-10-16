@@ -80,6 +80,7 @@ from basis.db.models import (
 )
 from basis.db.repositories.activity_result import COMPLETED, RUNNING
 from basis.db.session import create_sessionmaker, session_scope
+from basis.domain.rules import lookup
 from basis.storage import LocalStorage
 from basis.worker.search_attributes import ensure_search_attributes
 from basis.workflow.activity_options import options_for
@@ -498,6 +499,19 @@ async def count(sm: async_sessionmaker[AsyncSession], model: Any, study_id: uuid
         return int(await session.scalar(stmt) or 0)
 
 
+async def rule_citation_count(sm: async_sessionmaker[AsyncSession], study_id: uuid.UUID) -> int:
+    async with session_scope(sm) as session:
+        rows = (
+            await session.scalars(select(Component).where(Component.study_id == study_id))
+        ).all()
+    total = 0
+    for component in rows:
+        hit = lookup(component.label, component.material, component.attachment)
+        assert hit is not None, component.label  # every stub component is a rules-table hit
+        total += len(hit.citations)
+    return total
+
+
 async def claims(sm: async_sessionmaker[AsyncSession], name: str) -> list[ActivityResult]:
     async with session_scope(sm) as session:
         stmt = select(ActivityResult).where(ActivityResult.activity == name)
@@ -546,8 +560,13 @@ async def test_database_unreachable_for_one_attempt(outage: Outage, name: str) -
     await assert_each_key_once_completed(harness, started.handle.id)
     components = await count(sm, Component, study.study_id)
     assert components == 4  # two photos, two stub components each
-    for model in (Asset, Takeoff, CostEstimate, Citation):
+    for model in (Asset, Takeoff, CostEstimate):
         assert await count(sm, model, study.study_id) == components, model.__name__
+    # One citation row per rule citation: the seeded reference corpus holds every page
+    # the rules table cites, so each resolves (a rule may cite more than one page).
+    assert await count(sm, Citation, study.study_id) == await rule_citation_count(
+        sm, study.study_id
+    )
     assert outage.storage.path_for(result.export_uri).exists()
 
 
