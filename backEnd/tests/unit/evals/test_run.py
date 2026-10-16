@@ -11,9 +11,13 @@ from basis.vision.reconcile import heuristic_merge
 from basis.vision.schemas import Component, PhotoAnalysis, RoomType
 from evals import datasets as ds
 from evals.run import (
+    CORPUS_TEXT,
     evaluate,
     main,
     max_merge,
+    parse_args,
+    parser_page_texts,
+    pdf_page_texts,
     render_report,
     score_detection_boxes,
     score_photo_components,
@@ -445,6 +449,45 @@ def test_rule_citations_are_scored_on_every_split(tmp_path: Path) -> None:
         [result] = [r for r in results if r.dataset == "rule_citations"]
         assert not result.skipped
         assert result.rows[0].details["by_status"] == {"document_missing": 1}
+
+
+def test_parser_page_texts_are_the_ingested_chunks_per_page() -> None:
+    from basis.retrieval.chunk import chunk_document
+    from basis.retrieval.parse import parse_pdf
+
+    path = ds.SYNTHETIC_DIR / "corpus" / "SYN_PUB_A.pdf"
+    pages = parser_page_texts(path)
+    assert len(pages) == len(pdf_page_texts(path)) == 4
+    drafts = chunk_document(parse_pdf(path.read_bytes(), "SYN_PUB_A"))
+    for draft in drafts:  # every stored chunk is on its page's text
+        assert draft.text in pages[draft.page - 1]
+    assert "Section 168(e)(3) groups property into recovery classes" in pages[0]
+
+
+def test_corpus_text_selects_the_page_text_and_names_the_system() -> None:
+    assert parse_args([]).corpus_text == "pymupdf"
+    assert parse_args(["--corpus-text", "parser"]).corpus_text == "parser"
+    with pytest.raises(SystemExit):
+        parse_args(["--corpus-text", "ocr"])
+    assert CORPUS_TEXT == {"pymupdf": pdf_page_texts, "parser": parser_page_texts}
+    by_text = {}
+    for corpus_text in CORPUS_TEXT:
+        results = evaluate(
+            ds.synthetic_smoke(),
+            split="dev",
+            repeats=1,
+            predictions=None,
+            corpus_dir=ds.SYNTHETIC_DIR / "corpus",
+            corpus_text=corpus_text,
+        )
+        by_text[corpus_text] = {r.dataset: r for r in results}
+    assert by_text["pymupdf"]["retrieval_qrels"].system == "bm25_pages"
+    assert by_text["parser"]["retrieval_qrels"].system == "bm25_pages_parser"
+    assert by_text["pymupdf"]["rule_citations"].system == "page_text"
+    assert by_text["parser"]["rule_citations"].system == "page_text_parser"
+    for result in by_text["parser"].values():
+        if result.dataset == "retrieval_qrels":
+            assert not result.skipped and {r.metric for r in result.rows} >= {"ndcg_10", "mrr"}
 
 
 @pytest.mark.integration

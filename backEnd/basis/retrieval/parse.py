@@ -27,6 +27,17 @@ Changed, each because the legacy code produced wrong output on real or synthetic
   dropped: they are not evidence and they add the same tokens to every chunk.
 * Words are assigned to a table by their center point, not by a 5 pt bbox overlap
   margin that also removed a caption line sitting just above the table.
+* Two-column pages are read column by column. Grouping words into lines by height alone
+  joined the left and right columns of IRS Pub 527 and Pub 946 into one line ("you
+  usually use ... for the section 179 deduction"), which broke sentences in every chunk.
+  :func:`detect_columns` looks for a vertical whitespace gutter (an x range almost no
+  word covers, the projection-profile test of XY-cut layout analysis, Nagy and Seth
+  1984) with a column of prose on each side; words and ruled tables that cross the
+  gutter (a full-width title, a spanning table, a footer) cut the page into bands, and
+  each band between two such cuts is read left column then right column. A page where
+  no gutter passes every check keeps the single-column lines exactly as before. Only two
+  columns are recognized; a narrow heading that spans both columns without crossing the
+  gutter is read as part of the left column.
 
 Failure modes are explicit, never an empty success: bytes that are not a PDF, a PDF that
 cannot be opened, a PDF with no pages, and a PDF over the page limit raise a
@@ -40,7 +51,7 @@ from __future__ import annotations
 import io
 import logging
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -74,6 +85,24 @@ PATTERN_HEADING_MAX_CHARS: Final = 80
 MARGIN_FRACTION: Final = 0.10
 FURNITURE_MIN_PAGES: Final = 2
 FURNITURE_PAGE_SHARE: Final = 0.5
+# Column detection (detect_columns). A gutter is at least COLUMN_MIN_GUTTER points wide
+# and covered by at most COLUMN_MAX_SPANNING_SHARE of the page's rows (spanning titles,
+# tables and footers may cross it). Each column is at least COLUMN_MIN_WIDTH_SHARE of the
+# text width and COLUMN_MIN_BALANCE of the other column's width, holds COLUMN_MIN_ROWS
+# rows, its median row fills COLUMN_MIN_FILL of the column (prose, not a label/value
+# form), and COLUMN_MIN_WORD_SHARE of its tokens are words rather than numbers (not the
+# number columns of a table). Measured on IRS Pub 527 and Pub 946: gutter 298-314 pt,
+# columns 255 pt each, rows fill about 95%; Rev. Proc. 87-56's description | class life
+# table has a 284 pt and a 142 pt side (balance 0.50) and must stay row by row. The
+# lowest word share of a column on Pub 527/946 is 0.73; RSMeans unit-price pages (OCR
+# text, description | unit costs) score 0.60-0.71, so some of them are still split.
+COLUMN_MIN_GUTTER: Final = 6.0
+COLUMN_MAX_SPANNING_SHARE: Final = 0.2
+COLUMN_MIN_WIDTH_SHARE: Final = 0.3
+COLUMN_MIN_BALANCE: Final = 0.6
+COLUMN_MIN_ROWS: Final = 3
+COLUMN_MIN_FILL: Final = 0.5
+COLUMN_MIN_WORD_SHARE: Final = 0.7
 
 _LIST_PATTERNS: Final = tuple(
     re.compile(p)
@@ -94,6 +123,7 @@ _HEADING_PATTERNS: Final = tuple(
     )
 )
 _DIGITS: Final = re.compile(r"\d+")
+_LETTER: Final = re.compile(r"[^\W\d_]")
 
 
 class PdfError(ValueError):
@@ -167,6 +197,7 @@ class ParsedPage:
     tables: tuple[ExtractedTable, ...]
     text_source: TextSource
     has_images: bool
+    columns: int = 1  # 2 when the page was read column by column (detect_columns)
 
     @property
     def scanned(self) -> bool:
@@ -252,7 +283,7 @@ def parse_pdf(data: bytes, doc_id: str, *, max_pages: int = STUDY_MAX_PAGES) -> 
 
     furniture = _furniture_keys(raw_pages)
     for raw in raw_pages:
-        raw.lines = [line for line in raw.lines if not _is_furniture(line, raw, furniture)]
+        raw.lines = _body_lines(raw, furniture)
     body_size = _body_size(line for raw in raw_pages for line in raw.lines)
 
     pages: list[ParsedPage] = []
@@ -274,7 +305,9 @@ def parse_pdf(data: bytes, doc_id: str, *, max_pages: int = STUDY_MAX_PAGES) -> 
             for ordinal, para in enumerate(paragraphs)
         )
         source: TextSource = raw.source if (raw.lines or raw.tables) else "none"
-        pages.append(ParsedPage(raw.number, elements, tuple(raw.tables), source, raw.has_images))
+        pages.append(
+            ParsedPage(raw.number, elements, tuple(raw.tables), source, raw.has_images, raw.columns)
+        )
     document = ParsedDocument(
         doc_id=doc_id,
         pages=tuple(pages),
@@ -300,6 +333,12 @@ class _RawPage:
     tables: list[ExtractedTable]
     has_images: bool
     source: TextSource = "pdfplumber"
+    width: float = 0.0
+    # The words the lines were built from and the ruled-table boxes, kept for the
+    # column pass (pdfplumber pages only; the pymupdf fallback has lines, not words).
+    words: list[dict[str, Any]] = field(default_factory=list)
+    table_boxes: list[tuple[float, float, float, float]] = field(default_factory=list)
+    columns: int = 1
 
 
 def _pages(pdf: Any) -> Iterable[tuple[int, Page]]:
@@ -309,7 +348,7 @@ def _pages(pdf: Any) -> Iterable[tuple[int, Page]]:
 def _read_page(page: Page, number: int, doc_id: str) -> _RawPage:
     found = page.find_tables()
     tables = extract_page_tables(page, found, doc_id=doc_id, page_number=number)
-    bboxes = [tuple(float(v) for v in table.bbox) for table in found]
+    bboxes = [_box(table.bbox) for table in found]
     words = page.extract_words(
         keep_blank_chars=False, x_tolerance=3, y_tolerance=3, extra_attrs=["fontname", "size"]
     )
@@ -320,7 +359,15 @@ def _read_page(page: Page, number: int, doc_id: str) -> _RawPage:
         lines=group_lines(kept),
         tables=tables,
         has_images=bool(page.images),
+        width=float(page.width),
+        words=kept,
+        table_boxes=bboxes,
     )
+
+
+def _box(raw: Sequence[Any]) -> tuple[float, float, float, float]:
+    x0, top, x1, bottom = (float(v) for v in raw)
+    return x0, top, x1, bottom
 
 
 def _center_inside(word: dict[str, Any], bbox: tuple[float, ...]) -> bool:
@@ -332,6 +379,16 @@ def _center_inside(word: dict[str, Any], bbox: tuple[float, ...]) -> bool:
 
 def group_lines(words: Sequence[dict[str, Any]]) -> list[Line]:
     """Group pdfplumber words into lines: by ``top`` within a tolerance, then by ``x0``."""
+    lines: list[Line] = []
+    for group in _word_rows(words):
+        line = _row_line(group)
+        if line is not None:
+            lines.append(line)
+    return lines
+
+
+def _word_rows(words: Sequence[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Words grouped by ``top`` within :data:`LINE_Y_TOLERANCE`, each row sorted by ``x0``."""
     ordered = sorted(words, key=lambda w: (float(w["top"]), float(w["x0"])))
     groups: list[list[dict[str, Any]]] = []
     line_top: float | None = None
@@ -342,28 +399,230 @@ def group_lines(words: Sequence[dict[str, Any]]) -> list[Line]:
             line_top = top
         else:
             groups[-1].append(word)
-    lines: list[Line] = []
     for group in groups:
         group.sort(key=lambda w: float(w["x0"]))
-        text = " ".join(str(w["text"]) for w in group).strip()
-        if not text:
-            continue
-        chars = [len(str(w["text"])) for w in group]
-        sizes = [float(w.get("size") or 0.0) for w in group]
-        total = sum(chars) or 1
-        bold_chars = sum(n for n, w in zip(chars, group, strict=True) if _is_bold(w))
-        lines.append(
-            Line(
-                text=text,
-                x0=min(float(w["x0"]) for w in group),
-                top=min(float(w["top"]) for w in group),
-                x1=max(float(w["x1"]) for w in group),
-                bottom=max(float(w["bottom"]) for w in group),
-                size=sum(s * n for s, n in zip(sizes, chars, strict=True)) / total,
-                bold=bold_chars / total >= BOLD_FRACTION,
-            )
+    return groups
+
+
+def _row_line(group: Sequence[dict[str, Any]]) -> Line | None:
+    text = " ".join(str(w["text"]) for w in group).strip()
+    if not text:
+        return None
+    chars = [len(str(w["text"])) for w in group]
+    sizes = [float(w.get("size") or 0.0) for w in group]
+    total = sum(chars) or 1
+    bold_chars = sum(n for n, w in zip(chars, group, strict=True) if _is_bold(w))
+    return Line(
+        text=text,
+        x0=min(float(w["x0"]) for w in group),
+        top=min(float(w["top"]) for w in group),
+        x1=max(float(w["x1"]) for w in group),
+        bottom=max(float(w["bottom"]) for w in group),
+        size=sum(s * n for s, n in zip(sizes, chars, strict=True)) / total,
+        bold=bold_chars / total >= BOLD_FRACTION,
+    )
+
+
+# --------------------------------------------------------------------------- columns
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnLayout:
+    """A two-column page: the whitespace gutter between the columns, in points."""
+
+    gutter_x0: float
+    gutter_x1: float
+
+    @property
+    def split(self) -> float:
+        return (self.gutter_x0 + self.gutter_x1) / 2
+
+    def crosses(self, x0: float, x1: float) -> bool:
+        return x0 < self.gutter_x1 and x1 > self.gutter_x0
+
+
+def detect_columns(
+    words: Sequence[dict[str, Any]],
+    width: float,
+    height: float,
+    table_boxes: Sequence[tuple[float, float, float, float]] = (),
+) -> ColumnLayout | None:
+    """The gutter of a two-column page, or ``None`` for any other page.
+
+    Only words inside the page box count (PDFs carry hidden text above the page). The
+    x projection is the number of words (and ruled tables) covering each point; the
+    gutter is the widest run, at the lowest coverage that has one, of at least
+    ``COLUMN_MIN_GUTTER`` points, covered by at most ``COLUMN_MAX_SPANNING_SHARE`` of the
+    rows, leaving ``COLUMN_MIN_WIDTH_SHARE`` of the text width on each side. It is accepted
+    only when the narrower column is ``COLUMN_MIN_BALANCE`` of the wider, both sides
+    hold at least ``COLUMN_MIN_ROWS`` rows, their median row fills ``COLUMN_MIN_FILL``
+    of the column and ``COLUMN_MIN_WORD_SHARE`` of their tokens are words rather than
+    numbers, so a label/value form, a narrow side note or the number columns of an
+    unruled table (Rev. Proc. 87-56's class lives) is not split.
+    """
+    on_page = [w for w in words if _on_page(w, width, height)]
+    if not on_page:
+        return None
+    rows = _word_rows(on_page)  # rows across the page (both columns share baselines)
+    if len(rows) < COLUMN_MIN_ROWS:
+        return None
+    left = min(float(w["x0"]) for w in on_page)
+    right = max(float(w["x1"]) for w in on_page)
+    span = right - left
+    if span <= 0:
+        return None
+    origin = int(left)
+    coverage = [0] * (int(right) - origin + 2)
+    boxes = [(float(w["x0"]), float(w["x1"])) for w in on_page]
+    boxes += [(box[0], box[2]) for box in table_boxes]
+    for x0, x1 in boxes:
+        start = max(0, int(x0) - origin)
+        stop = min(len(coverage), int(x1) - origin + 1)
+        for x in range(start, stop):
+            coverage[x] += 1
+    allowance = int(COLUMN_MAX_SPANNING_SHARE * len(rows))
+    lo = left + COLUMN_MIN_WIDTH_SHARE * span
+    hi = right - COLUMN_MIN_WIDTH_SHARE * span
+    # The lowest coverage that leaves a wide enough run is the gutter's: spanning items
+    # cover all of it, while a ragged column edge next to it is covered by more.
+    best = None
+    for level in range(allowance + 1):
+        best = _widest_run(coverage, origin, lo, hi, level)
+        if best is not None:
+            break
+    if best is None:
+        return None
+    layout = ColumnLayout(*best)
+    widths = (layout.gutter_x0 - left, right - layout.gutter_x1)
+    if min(widths) < COLUMN_MIN_BALANCE * max(widths):
+        return None
+    sides: tuple[list[dict[str, Any]], list[dict[str, Any]]] = ([], [])
+    for w in on_page:
+        if not layout.crosses(float(w["x0"]), float(w["x1"])):
+            sides[_center_x(w) > layout.split].append(w)
+    for side, column_width in zip(sides, widths, strict=True):
+        side_rows = _word_rows(side)
+        if len(side_rows) < COLUMN_MIN_ROWS:
+            return None
+        fills = sorted(
+            (max(float(w["x1"]) for w in row) - min(float(w["x0"]) for w in row)) / column_width
+            for row in side_rows
         )
+        if fills[len(fills) // 2] < COLUMN_MIN_FILL:
+            return None
+        if _word_share(side) < COLUMN_MIN_WORD_SHARE:
+            return None
+    return layout
+
+
+def _widest_run(
+    coverage: Sequence[int], origin: int, lo: float, hi: float, level: int
+) -> tuple[float, float] | None:
+    """The widest x range in ``[lo, hi]`` with coverage at most ``level``, if it is at
+    least :data:`COLUMN_MIN_GUTTER` wide.
+
+    A word covers every integer point from ``int(x0)`` to ``int(x1)``, so the free points
+    lie strictly outside every word: a word crosses the gutter only if it reaches into
+    it, never by touching its edge.
+    """
+    best: tuple[float, float] | None = None
+    run_start: int | None = None
+    for index, count in enumerate([*coverage, level + 1]):  # the sentinel closes a run
+        if count <= level:
+            if run_start is None:
+                run_start = index
+            continue
+        if run_start is not None:
+            g0 = max(float(origin + run_start), lo)
+            g1 = min(float(origin + index - 1), hi)
+            if g1 - g0 >= COLUMN_MIN_GUTTER and (best is None or g1 - g0 > best[1] - best[0]):
+                best = (g0, g1)
+            run_start = None
+    return best
+
+
+def column_lines(
+    words: Sequence[dict[str, Any]],
+    layout: ColumnLayout,
+    table_boxes: Sequence[tuple[float, float, float, float]] = (),
+) -> list[Line]:
+    """Lines of a two-column page in reading order.
+
+    Words and tables that cross the gutter make full-width bands; between two bands the
+    left column is read top to bottom, then the right one. A word whose vertical center
+    falls inside a band belongs to it (a spanning title and anything on its row).
+    """
+    spans = [
+        (float(w["top"]), float(w["bottom"]))
+        for w in words
+        if layout.crosses(float(w["x0"]), float(w["x1"]))
+    ]
+    spans += [(box[1], box[3]) for box in table_boxes if layout.crosses(box[0], box[2])]
+    bands: list[list[float]] = []
+    for top, bottom in sorted(spans):
+        if bands and top <= bands[-1][1] + LINE_Y_TOLERANCE:
+            bands[-1][1] = max(bands[-1][1], bottom)
+        else:
+            bands.append([top, bottom])
+    # Part 2k is section k (k bands above it), split into columns; part 2k+1 is band k.
+    parts: dict[int, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = defaultdict(
+        lambda: ([], [])
+    )
+    for w in words:
+        middle = (float(w["top"]) + float(w["bottom"])) / 2
+        index = 2 * sum(1 for _, bottom in bands if bottom < middle)
+        inside = index // 2 < len(bands) and bands[index // 2][0] <= middle
+        if inside:
+            parts[index + 1][0].append(w)
+        else:
+            parts[index][_center_x(w) > layout.split].append(w)
+    lines: list[Line] = []
+    for index in sorted(parts):
+        for side in parts[index]:
+            lines.extend(group_lines(side))
     return lines
+
+
+def _word_share(words: Sequence[dict[str, Any]]) -> float:
+    """Tokens with a letter over tokens with a letter or a digit ("$20,000" and "27.5"
+    are numbers; dot leaders and other punctuation count for neither)."""
+    texts = [str(w["text"]) for w in words]
+    lettered = sum(1 for t in texts if _LETTER.search(t))
+    numeric = sum(1 for t in texts if not _LETTER.search(t) and _DIGITS.search(t))
+    return lettered / (lettered + numeric) if lettered + numeric else 0.0
+
+
+def _center_x(word: dict[str, Any]) -> float:
+    return (float(word["x0"]) + float(word["x1"])) / 2
+
+
+def _on_page(word: dict[str, Any], width: float, height: float) -> bool:
+    return (
+        float(word["x0"]) >= 0
+        and float(word["x1"]) <= width
+        and float(word["top"]) >= 0
+        and float(word["bottom"]) <= height
+    )
+
+
+def _body_lines(page: _RawPage, furniture: set[str]) -> list[Line]:
+    """The page's lines without running headers and footers, column by column if it has
+    two columns. A page without a detected gutter returns its lines unchanged except for
+    the furniture filter (the single-column output is exactly the earlier output)."""
+    lines = [line for line in page.lines if not _is_furniture(line, page, furniture)]
+    if page.source != "pdfplumber" or not page.words or page.width <= 0:
+        return lines
+    body = [
+        w
+        for row in _word_rows(page.words)
+        if (line := _row_line(row)) is None or not _is_furniture(line, page, furniture)
+        for w in row
+    ]
+    layout = detect_columns(body, page.width, page.height, page.table_boxes)
+    if layout is None:
+        return lines
+    page.columns = 2
+    return column_lines(body, layout, page.table_boxes)
 
 
 def _is_bold(word: dict[str, Any]) -> bool:

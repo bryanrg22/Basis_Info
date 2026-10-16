@@ -1685,3 +1685,88 @@ Notes on the wiring (code, not measurement):
   43 OpenAI loop failures in 17.2).
 - No new measurement was run for this section: the OpenAI account was out of credit, and the
   wiring is tested offline (unit, activity and workflow lifecycle tests with fake providers).
+
+## 20. Two-column parsing (2026-10-16)
+
+The ingestion parser (`basis/retrieval/parse.py`) grouped words into lines by height alone,
+so on IRS Pub 527 and Pub 946 (two 255 pt columns on the same baselines, an 18 pt gutter) the
+left and right columns were joined into one line per baseline ("Generally, if you can
+depreciate intangible property, you for the section 179 deduction and the special
+depreciation ..."). Every chunk of those pages mixed two texts, which breaks verbatim
+excerpts and citation checks.
+
+**Fix.** Per page, `detect_columns` looks for a vertical whitespace gutter: the x projection
+of the words (the projection-profile step of XY-cut layout analysis) and the widest run at
+the lowest coverage, with at most 20% of the rows crossing it (full-width titles, spanning
+tables, footers). The gutter is accepted only when both columns are at least 30% of the text
+width and 0.6 of each other, hold 3 or more rows, their median row fills half the column, and
+70% of their tokens are words rather than numbers. Words and ruled tables that cross the
+gutter cut the page into bands; each band between two cuts is read left column, then right
+column. Running headers and footers are found on the old full-width lines first (so a header
+split by the gutter is still one repeated key), then their words are removed. A page with no
+accepted gutter takes the old path unchanged. Pages read by column are marked
+`ParsedPage.columns == 2`.
+
+**Pages read by column** (private corpus, `~/basis-eval-data/corpus`):
+
+| Document | Pages | Two-column | Note |
+|---|---|---|---|
+| IRS Pub 527 (2024) | 37 | 30 | the rest: worksheets and the index |
+| IRS Pub 946 (2024) | 112 | 66 | pages 69-111 are the rate tables (single column) |
+| IRS Cost Segregation ATG | 348 | 0 | single column |
+| Rev. Proc. 87-56 | 42 | 0 | description \| class life \| GDS \| ADS table, kept row by row (the balance and number guards) |
+| RSMeans Building 2020 | 964 | 92 | OCR text; prose pages improve, some unit-price pages are split too (word share 0.70-0.71 against IRS's lowest 0.73) |
+| RSMeans Residential 2020 | 802 | 69 | as above; the document body size moves from 7.5 to 8.0 pt |
+| Study appraisal and engineer report (inputs) | 32 | 0 | |
+
+**Single-column output is unchanged.** On every page with `columns == 1` of the eight private
+PDFs and the synthetic fixtures, every element (type, text, box, size, weight, ordinal), table,
+body size and furniture key equals the pre-change parser's output (field by field, against
+`main` at 8908ed6). The test suite locks the fixtures with SHA-256 digests of the pre-change
+output.
+
+**Verbatim sentences.** Sentences of 40 to 200 characters from pymupdf's page text (which reads
+these PDFs column by column), checked with the production matcher
+(`basis.classify.verify.excerpt_supported`) against the parser's page text:
+
+| Document | Pages | Sentences | Before | After |
+|---|---|---|---|---|
+| Pub 527 | two-column | 941 | 0.102 | 0.914 |
+| Pub 946 | two-column | 1672 | 0.095 | 0.885 |
+| Pub 527 | all | 1071 | 0.124 | 0.838 |
+| Pub 946 | all | 2039 | 0.086 | 0.733 |
+| Cost Segregation ATG | all (single column) | 2172 | 0.594 | 0.594 |
+| Rev. Proc. 87-56 | all (single column) | 185 | 0.476 | 0.476 |
+
+The rest (about 9% on two-column pages) is not explained yet. Suspected causes: hyphenated
+line breaks, word boundaries that differ between pymupdf and pdfplumber, and sentences that
+run across a spanning band.
+
+**Retrieval and citations.** `python -m evals.run --corpus-text parser` (new option) reads
+the corpus through the production parse + chunk path instead of pymupdf. Dev split, 50 queries,
+65 rules-table citations; only `retrieval_qrels_v1.json` and the corpus were loaded, because
+the other private label files no longer validate against this branch's vocabulary:
+
+| System | ndcg_10 | recall_5 | recall_10 | mrr | resolved_fraction |
+|---|---|---|---|---|---|
+| pymupdf page text (the earlier baseline) | 0.4225 | 0.3823 | 0.5180 | 0.5567 | 1.000 (65/65) |
+| parser, before | 0.4102 | 0.3793 | 0.4953 | 0.5282 | 1.000 (65/65) |
+| parser, after | 0.4163 | 0.3833 | 0.5020 | 0.5367 | 1.000 (65/65) |
+| paired delta after - before (SE) | +0.006 (0.010) | +0.004 (0.004) | +0.007 (0.007) | +0.009 (0.021) | 0 |
+
+The retrieval change is within noise (ndcg_10: 5 queries up, 3 down, 42 the same). Page-level
+BM25 is a bag of words, so word order hardly moves it; the gain is in the text itself (the
+table above) and in what an embedding or a citation sees. `rule_citations` cannot move: all 65
+citations are in the single-column ATG (59) and Rev. Proc. 87-56 (6), so here it only confirms
+that nothing regressed. A citation to Pub 527 or Pub 946 would have failed before on most
+pages.
+
+**Ingestion.** `python -m basis.retrieval.ingest --corpus reference --fresh --max-pages 2000`
+over the six corpus PDFs into a throwaway pgvector database (not the live study's): version 1,
+7,466 chunks (Pub 527: 132 text, 8 table; Pub 946: 301 text, 141 table), MiniLM embeddings,
+179 s. The stored page 10 chunk of Pub 946 contains "Generally, if you can depreciate
+intangible property, you usually use the straight line method of depreciation." intact.
+
+**Limits.** Only two columns are recognized; a narrow heading that spans both columns without
+crossing the gutter is read as part of the left column; the pymupdf fallback (pages with no
+pdfplumber words) is unchanged.
