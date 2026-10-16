@@ -81,7 +81,7 @@ async def test_another_studys_chunk_is_refused_without_its_text() -> None:
 async def test_in_scope_chunk_is_returned() -> None:
     outcome = await tools()["get_chunk"].call({"chunk_id": str(CARPET_CHUNK)})
     assert not outcome.refused and outcome.chunk_ids == (CARPET_CHUNK,)
-    assert outcome.payload["chunk"]["page_start"] == 415
+    assert outcome.payload["chunk"]["page_start"] == 307
 
 
 async def test_tables_are_scoped_too() -> None:

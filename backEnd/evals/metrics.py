@@ -7,7 +7,9 @@
 * IR: nDCG@k, recall@k and reciprocal rank are :mod:`basis.retrieval.metrics` (linear
   gains, log2 discounts as trec_eval's ``ndcg_cut``); graded qrels at doc+page. A query
   with no relevant judgment is excluded from the means, as trec_eval does.
-* Citation support rate (verified / claimed).
+* Citation support rate (verified / claimed), and the status of a ``(doc_id, page,
+  excerpt)`` claim against page text (the rules table's citations, as
+  :func:`basis.classify.router.resolve_rule_citations` checks them).
 * Standard error of a mean clustered by document (CR1: ``G/(G-1)`` small-sample factor),
   because photos and fields from one property are not independent.
 * pass^k (all of k repeats succeed), with the unbiased estimator
@@ -32,7 +34,10 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final, Literal
 
+from basis.classify.verify import excerpt_supported
 from basis.retrieval.metrics import ndcg_at_k, recall_at_k, reciprocal_rank
+from basis.retrieval.verify import MIN_EXCERPT_CHARS
+from basis.retrieval.verify import normalize_text as normalize_excerpt
 
 FieldType = Literal["text", "int", "float", "currency", "percent", "date", "bool"]
 
@@ -329,6 +334,31 @@ def citation_support_rate(pairs: Iterable[tuple[int, int]]) -> tuple[float, int]
         claimed += c
         verified += v
     return (verified / claimed if claimed else math.nan), claimed
+
+
+PageCitationStatus = Literal[
+    "resolved", "excerpt_too_short", "document_missing", "page_out_of_range", "excerpt_not_on_page"
+]
+
+
+def page_citation_status(
+    excerpt: str, page: int, pages: Sequence[str] | None
+) -> PageCitationStatus:
+    """Whether a ``(doc, page, excerpt)`` claim holds against the document's page texts.
+
+    ``pages`` is the document's text per page (index 0 is page 1), ``None`` when the
+    document is not in the corpus. The claim resolves when the page exists and
+    :func:`basis.classify.verify.excerpt_supported` accepts the excerpt on that page's
+    text (normalized substring, at least ``MIN_EXCERPT_CHARS`` normalized characters):
+    the checks ``resolve_rule_citations`` applies to the chunk it finds, at page level.
+    """
+    if len(normalize_excerpt(excerpt)) < MIN_EXCERPT_CHARS:
+        return "excerpt_too_short"
+    if pages is None:
+        return "document_missing"
+    if not 1 <= page <= len(pages):
+        return "page_out_of_range"
+    return "resolved" if excerpt_supported(excerpt, pages[page - 1]) else "excerpt_not_on_page"
 
 
 # --------------------------------------------------------------------------- variance
