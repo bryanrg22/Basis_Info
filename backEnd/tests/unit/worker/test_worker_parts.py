@@ -156,7 +156,7 @@ async def test_build_deps_resolves_the_vision_prompts_for_the_mode(
         await engine.dispose()
     assert deps.settings.vision_photo_mode == mode  # the activity reads the mode from here
     assert deps.llm is None  # no provider configured in the test environment
-    assert f"photo analysis mode {mode}: {prompts}" in caplog.text
+    assert f"mode {mode} ({prompts})" in caplog.text
 
 
 async def test_build_deps_fails_at_startup_when_a_pinned_prompt_is_not_released(

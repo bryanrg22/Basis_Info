@@ -7,7 +7,7 @@
 * On the dev server (no API key) the search attributes are registered at startup.
 * The StudyWorkflow and every activity on ``settings.temporal_task_queue``; activities get
   their dependencies through one :class:`~basis.activities.deps.Deps` built by
-  :func:`build_deps` (providers, Azure DI, the Postgres chunk store).
+  :func:`build_deps` (providers, Azure DI, the Postgres chunk store, the SAM 3 localizer).
 * Worker versioning (``WorkerDeploymentConfig``, auto-upgrade by default) when
   ``TEMPORAL_WORKER_VERSIONING`` is true, with deployment ``temporal_deployment_name`` and
   build id ``temporal_build_id`` (default: the git sha).
@@ -49,6 +49,7 @@ from basis.retrieval import default_retrieval
 from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
 from basis.temporal.client import build_id, connect
 from basis.vision.analyze import prompts_for_mode
+from basis.vision.localize import Localizer, build_replicate_localizer
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
 from basis.worker.search_attributes import ensure_search_attributes
@@ -82,9 +83,12 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     """
     vision_prompts = prompts_for_mode(settings.vision_photo_mode)
     logger.info(
-        "photo analysis mode %s: %s",
+        "photo analysis: %s, mode %s (%s), reasoning effort %s, output budget %d",
+        settings.vision_model,
         settings.vision_photo_mode,
         ", ".join(p.version_id for p in vision_prompts),
+        settings.vision_reasoning_effort,
+        settings.vision_output_budget,
     )
     storage, bucket = default_storage(settings)
     sessionmaker = create_sessionmaker(engine)
@@ -98,6 +102,9 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         )
     if azure_di is None:
         logger.warning("Azure DI not configured: appraisals use the text layer only")
+    localizer = build_localizer(settings)
+    if localizer is None:
+        logger.warning("REPLICATE_API_TOKEN not set: photo localization is skipped")
     return Deps(
         sessionmaker=sessionmaker,
         storage=storage,
@@ -108,6 +115,23 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         azure_di=azure_di,
         chat_provider=llm,
         chunk_store=PostgresChunkStore(sessionmaker, registry=retrieval.registry),
+        localizer=localizer,
+    )
+
+
+def build_localizer(settings: Settings) -> Localizer | None:
+    """SAM 3 on Replicate when ``REPLICATE_API_TOKEN`` is set, else None (skipped).
+
+    No budget is bound to the shared localizer: concurrent activities would share it. The
+    activity charges each prediction's cost to the study budget instead.
+    """
+    token = settings.replicate_api_token
+    if token is None or not token.get_secret_value().strip():
+        return None
+    return build_replicate_localizer(
+        token.get_secret_value(),
+        settings.sam3_replicate_version,
+        concurrency=settings.localizer_concurrency,
     )
 
 
@@ -211,6 +235,7 @@ async def run_worker(
                 "llm_providers": deps.llm.name if deps.llm is not None else None,
                 "vision_photo_mode": settings.vision_photo_mode,
                 "azure_di": deps.azure_di is not None,
+                "localizer": type(deps.localizer).__name__ if deps.localizer else None,
                 "chunk_store": type(deps.chunk_store).__name__,
             },
         )

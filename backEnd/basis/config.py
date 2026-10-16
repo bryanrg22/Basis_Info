@@ -24,12 +24,17 @@ from typing import Final, Literal, get_args
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from basis.llm.families import is_reasoning_model
+
 Env = Literal["dev", "test", "staging", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 ENV_VAR: Final = "BASIS_ENV"
 DEFAULT_DEV_ENV_FILE: Final = ".env"
 VALID_ENVS: Final[tuple[str, ...]] = get_args(Env)
+# Per-photo output budgets when VISION_MAX_TOKENS is unset (EVAL_REPORT section 12.1).
+VISION_MAX_TOKENS_REASONING: Final = 6000
+VISION_MAX_TOKENS_DEFAULT: Final = 1200
 
 _REQUIRED_IN_DEPLOYED: Final = ("database_url", "gcs_bucket", "firebase_project_id")
 _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
@@ -99,7 +104,9 @@ class Settings(BaseSettings):
     # existing .env works unchanged; the newer names are accepted too. Mapping:
     #   OPENAI_API_KEY                       -> openai_api_key
     #   OPENAI_MODEL | TEXT_MODEL            -> text_model   (OpenAI model for text calls)
-    #   VISION_MODEL                         -> vision_model (OpenAI model for photos)
+    #   VISION_MODEL                         -> vision_model (model for photos)
+    #   VISION_REASONING_EFFORT              -> vision_reasoning_effort (photos, default low)
+    #   VISION_MAX_TOKENS                    -> vision_max_tokens (photo output budget)
     #   AZURE_OPENAI_ENDPOINT / _API_KEY     -> azure_openai_endpoint / azure_openai_api_key
     #   AZURE_OPENAI_API_VERSION             -> azure_openai_api_version (>= 2024-08-01)
     #   AZURE_OPENAI_DEPLOYMENT_NAME         -> azure_openai_deployment_name (default)
@@ -115,7 +122,10 @@ class Settings(BaseSettings):
         default="gpt-4o-mini",
         validation_alias=AliasChoices("text_model", "TEXT_MODEL", "OPENAI_MODEL"),
     )
-    vision_model: str = "gpt-4o-mini"
+    # The per-photo vision step's production configuration is EVAL_REPORT section 12.1's
+    # decision: gpt-6.1-sol, two-call (decomposed) prompts, reasoning effort low, output
+    # budget 6000 (Claude Opus 5.5 decomposed is the fallback: VISION_MODEL=claude-opus-5-5).
+    vision_model: str = "gpt-6.1-sol"
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: SecretStr | None = None
     azure_openai_api_version: str = "2024-10-21"
@@ -146,12 +156,19 @@ class Settings(BaseSettings):
     )
     # Concurrent model calls per worker process (the provider pool's semaphore).
     llm_concurrency: int = Field(default=4, ge=1, le=64)
-    vision_max_tokens: int = Field(default=1200, ge=64, le=16384)
+    # Output budget of each per-photo call. Unset: VISION_MAX_TOKENS_REASONING for an OpenAI
+    # reasoning model (it spends the budget on reasoning before the answer; 12.1 ran sol
+    # at 6000), else VISION_MAX_TOKENS_DEFAULT (the budget every non-reasoning run used).
+    # Read the value in effect through ``vision_output_budget``.
+    vision_max_tokens: int | None = Field(default=None, ge=64, le=16384)
+    # Reasoning effort of the per-photo calls: OpenAI ``reasoning_effort`` on a reasoning
+    # model, the Anthropic effort on a Claude model; ignored by other models. "minimal"
+    # is OpenAI only. The study's text calls keep their own (ANTHROPIC_EFFORT, none).
+    vision_reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh", "max"] = "low"
     # The per-photo vision step (basis.vision.analyze): "single" sends one photo_analysis
     # call per photo; "decomposed" sends two narrow calls (photo_countables and
-    # photo_surfaces) and merges them (EVAL_REPORT section 11). Default single until the
-    # decomposed step is switched on deliberately.
-    vision_photo_mode: Literal["single", "decomposed"] = "single"
+    # photo_surfaces) and merges them (EVAL_REPORT sections 11 and 12.1, the default).
+    vision_photo_mode: Literal["single", "decomposed"] = "decomposed"
     extraction_fallback_max_tokens: int = Field(default=800, ge=64, le=16384)
     azure_document_intelligence_endpoint: str | None = None
     azure_document_intelligence_key: SecretStr | None = None
@@ -175,6 +192,16 @@ class Settings(BaseSettings):
     sam3_replicate_version: str = "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # pragma: allowlist secret  # noqa: E501
     # Concurrent SAM 3 predictions per process (the localizer's semaphore).
     localizer_concurrency: int = Field(default=4, ge=1, le=32)
+
+    @property
+    def vision_output_budget(self) -> int:
+        """The per-photo calls' output budget: ``VISION_MAX_TOKENS`` when set, else the
+        default for the vision model's family."""
+        if self.vision_max_tokens is not None:
+            return self.vision_max_tokens
+        if is_reasoning_model(self.vision_model):
+            return VISION_MAX_TOKENS_REASONING
+        return VISION_MAX_TOKENS_DEFAULT
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -40,6 +40,7 @@ from fixtures import fixture_path, load_fixture_json
 from basis.extraction.azure_di import AzureDiResult
 from basis.llm.cost import cost_usd
 from basis.llm.provider import ChatRequest, ChatResponse, ScriptedTurn, Usage
+from basis.vision import localize
 from basis.vision.prep import prepare_image
 from basis.vision.schemas import Component, ModelPhotoAnalysis
 
@@ -52,34 +53,7 @@ APPRAISAL_FIXTURE: Final = "urar_sample.pdf"
 ROOM_CONFIDENCE: Final = 0.9
 # The labels basis/prompts/photo_surfaces/v1.md asks for; every other label (``other``
 # included: loose furniture) belongs to the countables call.
-SURFACE_LABELS: Final = frozenset(
-    {
-        "carpet",
-        "hardwood_floor",
-        "vinyl_flooring",
-        "laminate_flooring",
-        "tile",
-        "wall_finish",
-        "ceiling_finish",
-        "baseboard",
-        "crown_molding",
-        "wainscoting",
-        "siding",
-        "roof",
-        "gutter",
-        "stairs",
-        "railing",
-        "porch",
-        "deck",
-        "patio",
-        "driveway",
-        "sidewalk",
-        "parking_lot",
-        "landscaping",
-        "pool",
-        "retaining_wall",
-    }
-)
+SURFACE_LABELS: Final = frozenset(label.value for label in localize.SURFACE_LABELS)
 
 
 @cache

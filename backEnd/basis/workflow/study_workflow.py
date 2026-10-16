@@ -4,9 +4,11 @@ Shape of a run::
 
     record_run_start
     transition -> extracting
-    in parallel: ingest_appraisal -> extract_fields ; analyze_photo x N (bounded)
+    in parallel: ingest_appraisal -> extract_fields ;
+                 analyze_photo -> localize_photo, x N (bounded)
     gate appraisal_review   (reject: apply_corrections, extract_fields again, revision + 1)
-    gate rooms_review       (reject: apply_corrections, re-analyze flagged photos only)
+    gate rooms_review       (reject: apply_corrections, re-analyze and re-localize flagged
+                             photos only)
     transition -> assets_processing ; process_assets
     gate assets_review      (reject: apply_corrections, process_assets again)
     transition -> exporting ; export_report ; transition -> completed ; record_run_end
@@ -41,7 +43,13 @@ after a rooms rejection instead of only the flagged ones::
     # Once no execution that started before the change is open, replace the branch with
     # workflow.deprecate_patch("rooms-reject-reanalyze-all-v2") and the new code only.
 
-No patch exists yet because nothing has been released.
+Patches in this file:
+
+* ``localize-photos-v1`` (v0.6): after a photo's ``analyze_photo`` returns, ``localize_photo``
+  runs for it (outside the analysis slot, at most ``photo_concurrency`` at a time) and the
+  stage waits for every localization before the next gate. A localization that fails is
+  logged and ignored; it never flags the photo. Executions recorded before the patch
+  replay without it (tests/lifecycle/histories).
 """
 
 from __future__ import annotations
@@ -81,6 +89,8 @@ with workflow.unsafe.imports_passed_through():
         IngestAppraisalOutput,
         ListPhotosInput,
         ListPhotosOutput,
+        LocalizePhotoInput,
+        LocalizePhotoOutput,
         MarkStalledInput,
         NotifyInput,
         ProcessAssetsInput,
@@ -107,6 +117,7 @@ ORG_ID_ATTR: Final = SearchAttributeKey.for_keyword("OrgId")
 SEARCH_ATTRIBUTE_KEYS: Final = (STUDY_ID_ATTR, STAGE_ATTR, ORG_ID_ATTR)
 
 ALREADY_APPLIED: Final = "already applied"
+LOCALIZE_PATCH: Final = "localize-photos-v1"
 
 _Out = TypeVar("_Out", bound=BaseModel)
 _T = TypeVar("_T")
@@ -369,17 +380,58 @@ class StudyWorkflow:
         if not document_ids:
             return
         semaphore = asyncio.Semaphore(self._input.photo_concurrency)
+        localizing = asyncio.Semaphore(self._input.photo_concurrency)
         self._pending_photos += len(document_ids)
-        tasks = [self._spawn(self._analyze_one(semaphore, doc, revision)) for doc in document_ids]
+        tasks = [
+            self._spawn(self._analyze_and_localize(semaphore, localizing, doc, revision))
+            for doc in document_ids
+        ]
         for completed in workflow.as_completed(tasks):
             await completed
 
-    async def _analyze_one(self, semaphore: asyncio.Semaphore, document_id: str, rev: int) -> None:
+    async def _analyze_and_localize(
+        self,
+        analyzing: asyncio.Semaphore,
+        localizing: asyncio.Semaphore,
+        document_id: str,
+        rev: int,
+    ) -> None:
+        analyzed = await self._analyze_one(analyzing, document_id, rev)
+        if analyzed and workflow.patched(LOCALIZE_PATCH):
+            await self._localize_one(localizing, document_id, rev)
+
+    async def _localize_one(self, semaphore: asyncio.Semaphore, document_id: str, rev: int) -> None:
+        """Localize one analyzed photo; a failure is logged, never flagged or raised."""
+        async with semaphore:
+            try:
+                output = await self._activity(
+                    "localize_photo",
+                    LocalizePhotoInput(
+                        study_id=self._input.study_id,
+                        document_id=document_id,
+                        revision=rev,
+                        idempotency_key=self._key(f"localize_photo:{document_id}:r{rev}"),
+                        budget_remaining_usd=self._budget,
+                    ),
+                    LocalizePhotoOutput,
+                    f"localize_photo:{document_id}:r{rev}",
+                )
+            except ActivityError as error:
+                if isinstance(error.cause, CancelledError):
+                    raise  # the study is being cancelled
+                workflow.logger.warning(
+                    "photo %s not localized: %s", document_id, error.cause or error
+                )
+                return
+            self._budget -= output.cost_usd
+
+    async def _analyze_one(self, semaphore: asyncio.Semaphore, document_id: str, rev: int) -> bool:
+        """Analyze one photo; True when ``analyze_photo`` returned (even ``needs_review``)."""
         async with semaphore:
             try:
                 if self._budget <= 0:
                     self._flag(document_id, budget=True)
-                    return
+                    return False
                 output = await self._activity(
                     "analyze_photo",
                     AnalyzePhotoInput(
@@ -398,13 +450,14 @@ class StudyWorkflow:
                     raise  # the study is being cancelled; not a photo failure
                 workflow.logger.warning("photo %s flagged: %s", document_id, error.cause or error)
                 self._flag(document_id, budget=is_budget_exceeded(error))
-                return
+                return False
             finally:
                 self._pending_photos -= 1
                 self._completed_photos += 1
             self._budget -= output.cost_usd
             if output.needs_review:
                 self._flag(document_id, budget=False)
+            return True
 
     async def _process_assets(self, corrections: tuple[CorrectionInput, ...]) -> None:
         revision = self._revision

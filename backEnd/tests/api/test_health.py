@@ -126,6 +126,10 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "POST /v1/studies/{study_id}/documents/{document_id}/complete",
         "POST /v1/studies/{study_id}/decisions",
         "GET /v1/studies/{study_id}/evidence",
+        # v0.6 (tests/api/test_objects.py)
+        "GET /v1/studies/{study_id}/photos/{document_id}/objects",
+        "POST /v1/studies/{study_id}/photos/{document_id}/objects",
+        "DELETE /v1/studies/{study_id}/photos/{document_id}/objects/{object_id}",
         # S2 (tests/api/test_workflow_routes.py)
         "POST /v1/studies/{study_id}/start",
         "GET /v1/studies/{study_id}/workflow",

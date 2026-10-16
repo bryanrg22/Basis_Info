@@ -9,6 +9,9 @@
   two agree, and downgrades back to the ``0001`` outbox;
 * ``0003_chunks_hnsw`` adds the HNSW cosine index on ``chunks.embedding`` and makes
   published corpus versions immutable, and downgrades back to ``0002``;
+* ``0004_photo_objects`` adds ``photo_localizations`` and ``photo_objects`` with their
+  checks (normalized ordered box, known source and status, no author on model rows,
+  deletion recorded with who) and tenancy key, and downgrades back to ``0003``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -41,8 +44,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0003"
-HISTORY = ["0003", "0002", "0001"]
+HEAD = "0004"
+HISTORY = ["0004", "0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -376,3 +379,92 @@ async def test_0003_downgrade_restores_0002(empty_database_url: str) -> None:
         )
         == []
     )
+
+
+# --------------------------------------------------------------------------- 0004
+
+
+async def _photo(connection: asyncpg.Connection) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """(study id, photo document id, user id) of a minimal study."""
+    org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('o') RETURNING id")
+    user = await connection.fetchval(
+        "INSERT INTO users (firebase_uid) VALUES ('u-0004') RETURNING id"
+    )
+    study = await connection.fetchval(
+        "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'p') RETURNING id",
+        org,
+        user,
+    )
+    document = await connection.fetchval(
+        "INSERT INTO documents (study_id, kind, filename, content_type, bytes, sha256, gcs_uri) "
+        "VALUES ($1, 'photo', 'k.jpg', 'image/jpeg', 1, $2, 'gs://b/k.jpg') RETURNING id",
+        study,
+        "a" * 64,
+    )
+    return study, document, user
+
+
+async def test_0004_photo_objects_constraints(empty_database_url: str) -> None:
+    await upgrade(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        study, document, user = await _photo(connection)
+        insert = (
+            "INSERT INTO photo_objects (study_id, document_id, revision, label, score, "
+            "x1, y1, x2, y2, area, source, created_by, deleted_at, deleted_by) "
+            "VALUES ($1, $2, 1, 'window', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
+            "RETURNING id, counted"
+        )
+        ok = (study, document, 0.9, 0.1, 0.1, 0.5, 0.5, 0.16, "model", None, None, None)
+        row = await connection.fetchrow(insert, *ok)
+        assert row["counted"] is True  # the default
+        manual = (study, document, None, 0.1, 0.1, 0.5, 0.5, 0.16, "manual", user, None, None)
+        await connection.fetchrow(insert, *manual)
+        bad = [
+            (study, document, 0.9, 0.6, 0.1, 0.5, 0.5, 0.16, "model", None, None, None),  # x1>x2
+            (study, document, 0.9, 0.1, 0.1, 1.5, 0.5, 0.16, "model", None, None, None),  # > 1
+            (study, document, 1.5, 0.1, 0.1, 0.5, 0.5, 0.16, "model", None, None, None),  # score
+            (study, document, 0.9, 0.1, 0.1, 0.5, 0.5, 1.6, "model", None, None, None),  # area
+            (study, document, 0.9, 0.1, 0.1, 0.5, 0.5, 0.16, "guess", None, None, None),
+            (study, document, 0.9, 0.1, 0.1, 0.5, 0.5, 0.16, "model", user, None, None),
+            (study, document, 0.9, 0.1, 0.1, 0.5, 0.5, 0.16, "model", None, None, user),
+        ]
+        for values in bad:
+            with pytest.raises(asyncpg.CheckViolationError):
+                await connection.fetchrow(insert, *values)
+        other_study, _, _ = await _other_study(connection, user)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):  # tenancy: the photo's study
+            await connection.fetchrow(insert, other_study, *ok[1:])
+        status = (
+            "INSERT INTO photo_localizations (study_id, document_id, revision, status) "
+            "VALUES ($1, $2, $3, $4)"
+        )
+        await connection.execute(status, study, document, 1, "done")
+        with pytest.raises(asyncpg.CheckViolationError):
+            await connection.execute(status, study, document, 2, "maybe")
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await connection.execute(status, study, document, 1, "failed")
+    finally:
+        await connection.close()
+
+
+async def _other_study(
+    connection: asyncpg.Connection, user: uuid.UUID
+) -> tuple[uuid.UUID, None, None]:
+    org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('o2') RETURNING id")
+    study = await connection.fetchval(
+        "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'q') RETURNING id",
+        org,
+        user,
+    )
+    return study, None, None
+
+
+async def test_0004_downgrade_restores_0003(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0003")
+    at_0003 = await snapshot(empty_database_url)
+    await upgrade(empty_database_url)
+    after = await snapshot(empty_database_url)
+    assert {"photo_localizations", "photo_objects"} <= after["tables"]  # type: ignore[operator]
+    await downgrade(empty_database_url, "0003")
+    assert await snapshot(empty_database_url) == at_0003

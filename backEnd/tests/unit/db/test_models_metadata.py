@@ -75,6 +75,12 @@ SPEC_TABLES = {
     "outbox": "id kind payload status attempts next_attempt_at delivered_at last_error created_at",
     "eval_runs": "id dataset split git_sha model prompt_version created_at",
     "eval_results": "id eval_run_id metric value n stderr details",
+    # v0.6: migration 0004_photo_objects (SAM 3 localization in the product path).
+    "photo_localizations": "study_id document_id revision status reason instances "
+    "model_version params image_width image_height predict_seconds cost_usd "
+    "carried_from_revision",
+    "photo_objects": "id study_id document_id revision label phrase score x1 y1 x2 y2 mask "
+    "area source counted derived_from carried_from created_by deleted_at deleted_by",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -127,6 +133,8 @@ SPEC_COMPOSITE_FKS = {
     ("components", ("study_id", "document_id"), "documents", ("study_id", "id")),
     ("extractions", ("study_id", "document_id"), "documents", ("study_id", "id")),
     ("extraction_fields", ("study_id", "extraction_id"), "extractions", ("study_id", "id")),
+    ("photo_localizations", ("study_id", "document_id"), "documents", ("study_id", "id")),
+    ("photo_objects", ("study_id", "document_id"), "documents", ("study_id", "id")),
 }
 
 SPEC_SIMPLE_FKS = {
@@ -151,6 +159,8 @@ SPEC_SIMPLE_FKS = {
     ("llm_calls", "run_id", "runs"),
     ("idempotency_keys", "user_id", "users"),
     ("eval_results", "eval_run_id", "eval_runs"),
+    ("photo_objects", "created_by", "users"),
+    ("photo_objects", "deleted_by", "users"),
 }
 
 SPEC_UNIQUES = {
@@ -170,12 +180,14 @@ SPEC_UNIQUES = {
     ("reviews", ("idempotency_key",)),
     ("runs", ("workflow_id", "run_id")),
     ("activity_results", ("idempotency_key",)),
+    ("photo_objects", ("study_id", "id")),
 }
 
 SPEC_PRIMARY_KEYS = {
     "org_members": ("org_id", "user_id"),
     "document_pages": ("document_id", "page_no"),
     "photo_rooms": ("document_id", "revision"),
+    "photo_localizations": ("document_id", "revision"),
     "classification_cache": ("key",),
     "idempotency_keys": ("key",),
 }
@@ -188,6 +200,14 @@ SPEC_CHECKS = {
     "ck_extraction_fields_confidence_range",
     "ck_components_confidence_range",
     "ck_assets_confidence_range",
+    "ck_photo_localizations_status_valid",
+    "ck_photo_localizations_instances_nonnegative",
+    "ck_photo_objects_source_valid",
+    "ck_photo_objects_box_normalized",
+    "ck_photo_objects_score_range",
+    "ck_photo_objects_area_range",
+    "ck_photo_objects_model_has_no_author",
+    "ck_photo_objects_deleted_by_whom",
 }
 
 SPEC_NOT_NULL = {
@@ -211,6 +231,8 @@ SPEC_NOT_NULL = {
     "classification_cache": "result hits source rules_version",
     "idempotency_keys": "route request_hash expires_at",
     "outbox": "kind payload status attempts next_attempt_at",
+    "photo_localizations": "status instances",
+    "photo_objects": "revision label x1 y1 x2 y2 area source counted",
 }
 
 STUDY_SCOPED = {
@@ -228,6 +250,8 @@ STUDY_SCOPED = {
     "corrections",
     "runs",
     "llm_calls",
+    "photo_localizations",
+    "photo_objects",
 }
 
 
@@ -439,7 +463,7 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
         for c in t.columns
         if isinstance(c.type, JSONB)
     ]
-    assert len(jsonb) == 13
+    assert len(jsonb) == 15  # v0.6: photo_localizations.params, photo_objects.mask
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 
@@ -461,6 +485,10 @@ def test_indexes() -> None:
         "outbox.next_attempt_at",
     ]
     assert indexes["ix_llm_calls_study_id"] == ["llm_calls.study_id"]
+    assert indexes["ix_photo_objects_document_id_revision"] == [
+        "photo_objects.document_id",
+        "photo_objects.revision",
+    ]
 
 
 def test_server_defaults() -> None:
