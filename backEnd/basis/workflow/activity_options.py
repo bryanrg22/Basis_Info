@@ -94,6 +94,11 @@ OPTIONS: Final[dict[str, ActivityOptions]] = {
     "localize_photo": ActivityOptions(
         timedelta(minutes=12), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
     ),
+    # One reconciliation call per multi-photo room (several concurrently) and a material
+    # second look per sensitive surface; the provider's timeout is 60 s per call.
+    "reconcile_rooms": ActivityOptions(
+        timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
+    ),
     "process_assets": ActivityOptions(
         timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
     ),

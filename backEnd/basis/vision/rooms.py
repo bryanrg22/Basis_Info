@@ -44,6 +44,17 @@ from basis.vision.schemas import Attachment, Material, PhotoAnalysis, RoomType
 
 SOURCE: Final = "vision"
 UNASSIGNED: Final = "Unassigned"
+# ``components.raw["source"]`` of a room's reconciled inventory (``reconcile_rooms``): rows
+# with no document, one per inventory object. When a room has them, assets are built from
+# them instead of from the room's per-photo rows (``process_assets``).
+ROOM_INVENTORY_SOURCE: Final = "room_inventory"
+
+
+def is_room_inventory(raw: Any, document_id: uuid.UUID | None) -> bool:
+    """Whether a ``components`` row is a room inventory row (by its ``raw`` and document)."""
+    return (
+        document_id is None and isinstance(raw, dict) and raw.get("source") == ROOM_INVENTORY_SOURCE
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +78,8 @@ def room_key(analysis: PhotoAnalysis) -> RoomKey:
     return RoomKey(analysis.room_type.value, floor, analysis.room_ordinal)
 
 
-def _optional(value: str) -> str | None:
+def optional_value(value: str) -> str | None:
+    """A material or attachment as stored: ``unknown`` is ``None``."""
     return None if value in (Material.UNKNOWN.value, Attachment.UNKNOWN.value) else value
 
 
@@ -120,8 +132,8 @@ async def write_photo(
             document_id=document_id,
             room_id=room_id,
             label=component.label.value,
-            material=_optional(component.material.value),
-            attachment=_optional(component.attachment.value),
+            material=optional_value(component.material.value),
+            attachment=optional_value(component.attachment.value),
             confidence=component.confidence,
             raw={
                 "source": SOURCE,

@@ -1,6 +1,9 @@
 """``process_assets``: classify, measure and price every component of a revision.
 
-For each component of the revision (S3_SPEC section 5):
+For each component of the revision (S3_SPEC section 5) that the assets are built from
+(:func:`asset_components`: a room with a reconciled inventory, written by
+``reconcile_rooms``, contributes its inventory rows and not its per-photo rows, which would
+count an object once per photo it is in; every other room its per-photo rows):
 
 1. classify it (:func:`basis.classify.router.classify`: rules table, then the approved
    cache, then the bounded residual model), with ``settings.classify_concurrency``
@@ -76,6 +79,7 @@ from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
 from basis.llm.cost import cost_usd
 from basis.llm.provider import Budget
+from basis.vision.rooms import is_room_inventory
 from basis.workflow.contracts import CorrectionInput, ProcessAssetsInput, ProcessAssetsOutput
 
 ACTIVITY: Final = "process_assets"
@@ -125,7 +129,7 @@ async def _process(
         )
     settings = deps.settings
     rooms_repo = RoomRepository(session)
-    components = await rooms_repo.components(study_id, input.revision)
+    components = asset_components(await rooms_repo.components(study_id, input.revision))
     rooms = {r.id: r for r in await rooms_repo.list_for_revision(study_id, input.revision)}
     overrides = await _overrides(assets, study_id, components, input.corrections)
     property_class = settings.property_class
@@ -153,6 +157,7 @@ async def _process(
         cache=await cache_repo.get_many(misses),
         model=settings.classify_model,
         price=cost_usd,
+        reasoning_effort=settings.classify_reasoning_effort,
     )
     residual = [v for v in views.values() if route(v, ctx)[0] == "llm"]
     if residual and deps.chat_provider is not None:
@@ -234,6 +239,26 @@ async def _process(
     return ProcessAssetsOutput(
         assets=len(components), needs_review=needs_review, cost_usd=round(budget.spent_usd, 6)
     )
+
+
+def asset_components(components: list[Component]) -> list[Component]:
+    """The rows assets are built from: a room's inventory rows when it has any, else its
+    per-photo rows (and the rows of no room). An inventory row whose room is gone (none in
+    this revision) is ignored."""
+    reconciled = {
+        c.room_id
+        for c in components
+        if c.room_id is not None and is_room_inventory(c.raw, c.document_id)
+    }
+    return [
+        c
+        for c in components
+        if (
+            c.room_id in reconciled
+            if is_room_inventory(c.raw, c.document_id)
+            else c.room_id is None or c.room_id not in reconciled
+        )
+    ]
 
 
 def component_view(component: Component, room: Room | None, property_class: str) -> ComponentView:
@@ -470,4 +495,4 @@ async def _overrides(
     return overrides
 
 
-__all__ = ["ProcessAssets", "component_view", "corpus_versions"]
+__all__ = ["ProcessAssets", "asset_components", "component_view", "corpus_versions"]

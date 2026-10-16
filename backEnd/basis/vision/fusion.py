@@ -22,6 +22,13 @@ nothing is better.
 
 Count classes are the evaluation's: ``door`` pools ``door``, ``interior_door`` and
 ``exterior_door`` (:data:`CLASS_LABELS`); every other class is its own label.
+
+The pipeline's table (:data:`PER_CLASS_SOURCE`, versioned by :data:`TABLE_VERSION`) is the
+rule section 15.4 fitted on all 52 photos of the first study (the same rule 51 or more of
+the 52 leave-one-out folds chose): the second model (Claude Opus 5.5 at medium effort) for
+windows, doors, light fixtures and kitchen cabinets, the base model (gpt-6.1-sol at low
+effort) for exterior lights and outlets. A refit (``evals.fuse_counts`` on a new study)
+changes the table and bumps the version; it is recorded on every fused photo.
 """
 
 from __future__ import annotations
@@ -40,6 +47,33 @@ CLASS_LABELS: Final[dict[str, tuple[str, ...]]] = {
 }
 
 SourceCounts = Mapping[str, Mapping[str, int]]
+
+# The sources of the pipeline's two countables calls (basis.vision.analyze).
+BASE: Final = "base"
+SECOND: Final = "second"
+# EVAL_REPORT section 15.4. Bump TABLE_VERSION with any change to PER_CLASS_SOURCE.
+TABLE_VERSION: Final = "section15.4/2026-10-16"
+PER_CLASS_SOURCE: Final[dict[str, str]] = {
+    "window": SECOND,
+    "door": SECOND,
+    "light_fixture": SECOND,
+    "kitchen_cabinet": SECOND,
+    "outdoor_lighting": BASE,
+    "electrical_outlet": BASE,
+}
+
+
+def class_of(label: str) -> str:
+    """The count class a label belongs to (``interior_door`` -> ``door``)."""
+    for count_class, labels in CLASS_LABELS.items():
+        if label in labels:
+            return count_class
+    return label
+
+
+def table_rules(table: Mapping[str, str] = PER_CLASS_SOURCE) -> dict[str, Rule]:
+    """``table`` as :class:`Rule` s (one ``pick`` per class), for :func:`fuse`."""
+    return {count_class: Rule("pick", (source,)) for count_class, source in table.items()}
 
 
 def class_count(counts: Mapping[str, int], count_class: str) -> int:
@@ -144,12 +178,18 @@ def fit(
 
 
 __all__ = [
+    "BASE",
     "CLASS_LABELS",
     "OPS",
+    "PER_CLASS_SOURCE",
+    "SECOND",
+    "TABLE_VERSION",
     "Example",
     "Rule",
     "class_count",
     "class_error",
+    "class_of",
     "fit",
     "fuse",
+    "table_rules",
 ]

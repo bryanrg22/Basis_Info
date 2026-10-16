@@ -35,6 +35,8 @@ PROVIDER_VARS = (
     "VISION_PHOTO_MODE",
     "VISION_REASONING_EFFORT",
     "VISION_MAX_TOKENS",
+    "VISION_COUNT_FUSION",
+    "ROOM_RECONCILE",
 )
 
 # pragma: allowlist nextline secret
@@ -69,7 +71,8 @@ def test_defaults_without_credentials(clean: pytest.MonkeyPatch) -> None:
     clean.setenv("BASIS_ENV", "test")
     settings = load_settings()
     assert settings.openai_api_key is None and settings.azure_openai_endpoint is None
-    assert (settings.text_model, settings.vision_model) == ("gpt-4o-mini", "gpt-6.1-sol")
+    # EVAL_REPORT section 17.3: the extraction fallback runs on gpt-6-luna.
+    assert (settings.text_model, settings.vision_model) == ("gpt-6-luna", "gpt-6.1-sol")
     assert settings.llm_request_timeout_seconds == 60
     assert settings.extraction_review_threshold == 0.90
     assert settings.azure_openai_api_version == "2024-10-21"

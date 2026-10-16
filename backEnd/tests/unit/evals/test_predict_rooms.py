@@ -563,7 +563,7 @@ async def test_overlap_hints_prompt_v2_model_effort_and_material_second_look(
     assert [r.model for r in materials.requests] == ["claude-sonnet-5-5"]
     _, kitchen = jsonl(out / "room_raw.jsonl")
     [obj] = kitchen["objects"]
-    assert (obj["label"], obj["material"], obj["note"]) == ("wainscoting", "other", "wallpaper")
+    assert (obj["label"], obj["material"], obj["note"]) == ("wainscoting", "wallpaper", None)
     [look] = kitchen["second_look"]
     assert (look["before"], look["applied"]) == ("wood", True)
     summary = json.loads((out / "run.json").read_text())

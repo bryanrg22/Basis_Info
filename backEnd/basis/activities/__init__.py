@@ -28,6 +28,7 @@ from basis.activities.localize_photo import LocalizePhoto
 from basis.activities.mark_stalled import MarkStalled
 from basis.activities.notify_review_pending import NotifyReviewPending
 from basis.activities.process_assets import ProcessAssets
+from basis.activities.reconcile_rooms import ReconcileRooms
 from basis.activities.record_run_end import RecordRunEnd
 from basis.activities.record_run_start import RecordRunStart
 from basis.activities.transition import Transition
@@ -43,6 +44,7 @@ ACTIVITY_CLASSES: Final[dict[str, type[Any]]] = {
     "extract_fields": ExtractFields,
     "analyze_photo": AnalyzePhoto,
     "localize_photo": LocalizePhoto,
+    "reconcile_rooms": ReconcileRooms,
     "apply_corrections": ApplyCorrections,
     "process_assets": ProcessAssets,
     "export_report": ExportReport,

@@ -146,6 +146,7 @@ def build_request(
     max_tokens: int,
     study_id: str,
     activity: str,
+    reasoning_effort: str | None = None,
 ) -> ChatRequest:
     content = request_content(
         [(key, FIELD_BY_KEY[key].label, FIELD_BY_KEY[key].type) for key in keys], context
@@ -157,6 +158,7 @@ def build_request(
         response_model=FallbackAnswer,
         max_tokens=max_tokens,
         temperature=0.0,
+        reasoning_effort=reasoning_effort,
         prompt_version=prompt.version_id,
         study_id=study_id,
         activity=activity,
@@ -172,6 +174,7 @@ async def fallback_fields(
     prompt: Prompt,
     model: str,
     max_tokens: int,
+    reasoning_effort: str | None = None,
 ) -> FallbackOutcome:
     """Ask the model for ``keys`` once; return the values that pass the guards."""
     if not keys:
@@ -190,6 +193,7 @@ async def fallback_fields(
         max_tokens=max_tokens,
         study_id=str(ctx.study_id),
         activity=ctx.activity,
+        reasoning_effort=reasoning_effort,
     )
     try:
         response = await call_model(provider, request, ctx)

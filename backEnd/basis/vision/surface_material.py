@@ -8,9 +8,10 @@ while doing ten other things, and on this study every one of them called a hall'
 wallpaper wainscot wood (EVAL_REPORT section 13). This step asks one narrow question per
 (room, surface) with the released prompt ``surface_material``: the single photo where the
 surface is seen best, the surface's label, and the materials the rules distinguish
-(:class:`SurfaceMaterial`, which has ``wallpaper``: the component schema's ``Material``
-does not, so a wallpaper answer is stored as ``Material.OTHER`` with the note
-``wallpaper``, which the Wall Coverings rule accepts).
+(:class:`SurfaceMaterial`). ``wallpaper`` and ``painted_masonry`` are component
+``Material`` values of their own (before section 16.5 they were stored as ``other`` with
+the note ``wallpaper`` and as ``concrete`` with the note ``painted masonry``);
+:data:`TO_MATERIAL` maps the rest onto the component vocabulary.
 
 Which surfaces are looked at (:func:`needs_second_look`):
 
@@ -82,7 +83,7 @@ class SurfaceMaterial(StrEnum):
 # SurfaceMaterial -> (component Material, note). Painted drywall and plaster are both the
 # painted-wall surface the Painting row looks for (``drywall``).
 TO_MATERIAL: Final[dict[SurfaceMaterial, tuple[Material, str | None]]] = {
-    SurfaceMaterial.WALLPAPER: (Material.OTHER, "wallpaper"),
+    SurfaceMaterial.WALLPAPER: (Material.WALLPAPER, None),
     SurfaceMaterial.FABRIC: (Material.FABRIC, None),
     SurfaceMaterial.VINYL: (Material.VINYL, None),
     SurfaceMaterial.WOOD: (Material.WOOD, None),
@@ -93,7 +94,7 @@ TO_MATERIAL: Final[dict[SurfaceMaterial, tuple[Material, str | None]]] = {
     SurfaceMaterial.PORCELAIN: (Material.PORCELAIN, None),
     SurfaceMaterial.STONE: (Material.STONE, None),
     SurfaceMaterial.BRICK: (Material.BRICK, None),
-    SurfaceMaterial.PAINTED_MASONRY: (Material.CONCRETE, "painted masonry"),
+    SurfaceMaterial.PAINTED_MASONRY: (Material.PAINTED_MASONRY, None),
     SurfaceMaterial.CONCRETE: (Material.CONCRETE, None),
     SurfaceMaterial.LAMINATE: (Material.LAMINATE, None),
     SurfaceMaterial.PLASTIC: (Material.PLASTIC, None),

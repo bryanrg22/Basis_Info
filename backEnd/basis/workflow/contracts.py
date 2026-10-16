@@ -202,6 +202,25 @@ class AnalyzePhotoOutput(_Frozen):
     needs_review: bool = False
 
 
+class ReconcileRoomsInput(_Frozen):
+    """Build the room inventories of ``revision`` (the room step, EVAL_REPORT 16.5)."""
+
+    study_id: str
+    revision: int
+    idempotency_key: str
+    budget_remaining_usd: float
+
+
+class ReconcileRoomsOutput(_Frozen):
+    # False when ROOM_RECONCILE is off: nothing was done, assets use the per-photo rows.
+    enabled: bool = True
+    rooms: int = 0  # rooms of the revision with photos (Unassigned excluded)
+    built: int = 0  # inventories written by this execution
+    current: int = 0  # inventories already up to date (carried over or written before)
+    needs_review: int = 0  # rooms whose inventory is flagged
+    cost_usd: float = 0.0
+
+
 LocalizationStatus = Literal["done", "failed", "skipped"]
 
 

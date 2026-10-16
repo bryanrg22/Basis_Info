@@ -57,6 +57,7 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
             "extract_fields": 1,
             "analyze_photo": 3,
             "localize_photo": 3,  # recorded skipped: no localizer in this harness
+            "reconcile_rooms": 1,  # a no-op here: the suite pins ROOM_RECONCILE off
             # extracting, appraisal_review, rooms_review, assets_processing, assets_review,
             # exporting, completed
             "transition": 7,

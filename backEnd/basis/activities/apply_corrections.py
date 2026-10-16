@@ -22,6 +22,11 @@ assets_review       extraction + fields; rooms, assignments,   process_assets
 Localized objects are the ``photo_localizations`` and active ``photo_objects`` rows of a
 photo (an engineer's manual selections included, deleted rows left behind).
 
+A room's inventory rows (``reconcile_rooms``; no document) are copied with the room, except
+after a rooms rejection for a room that held a flagged photo: that room's photos are about
+to change, so ``reconcile_rooms`` rebuilds its inventory in the new revision (a correction
+of one of those rows is not carried; it would describe photos that are re-analyzed).
+
 ``extraction_field`` and ``asset`` corrections are applied by the activity that
 recomputes those rows (they receive the corrections in their input), so ``applied``
 counts only the room and component corrections applied here. Every correction is
@@ -62,6 +67,7 @@ from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
+from basis.vision.rooms import is_room_inventory
 from basis.workflow.contracts import (
     CORRECTION_TYPES,
     ApplyCorrectionsInput,
@@ -200,11 +206,9 @@ async def _carry_rooms(
     room_after = _targets(room_corrections, old_rooms, ROOM_FIELDS, "room")
     component_after = _targets(component_corrections, old_components, COMPONENT_FIELDS, "component")
 
-    assignments = [
-        pr
-        for pr in await repo.photo_rooms(study_id, from_revision)
-        if pr.document_id not in skip_photos
-    ]
+    all_assignments = await repo.photo_rooms(study_id, from_revision)
+    assignments = [pr for pr in all_assignments if pr.document_id not in skip_photos]
+    rebuilt_rooms = {pr.room_id for pr in all_assignments if pr.document_id in skip_photos}
     keep_rooms = {pr.room_id for pr in assignments} | set(room_after)
     new_room_ids: dict[uuid.UUID, uuid.UUID] = {}
     for room_id in sorted(keep_rooms):
@@ -219,6 +223,10 @@ async def _carry_rooms(
         )
     for component in old_components.values():
         if component.document_id in skip_photos:
+            continue
+        if is_room_inventory(component.raw, component.document_id) and (
+            component.room_id in rebuilt_rooms or component.room_id not in new_room_ids
+        ):
             continue
         heartbeat("component")
         await _copy_component(repo, component, to_revision, new_room_ids, component_after)

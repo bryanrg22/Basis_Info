@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final
 
+from basis.llm.families import is_claude_model
 from basis.llm.provider import Usage
 
 logger = logging.getLogger("basis.llm.cost")
@@ -93,7 +94,7 @@ UNKNOWN_MODEL_PRICE: Final = Price(
 
 def is_anthropic_model(model: str) -> bool:
     """``claude-*`` names are served by the Anthropic provider and priced as thinking models."""
-    return model.strip().lower().startswith("claude")
+    return is_claude_model(model)
 
 
 def output_ceiling(model: str, max_tokens: int) -> int:

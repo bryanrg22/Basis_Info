@@ -36,6 +36,17 @@ Two modes, chosen by the activity from ``Settings.vision_photo_mode``
   result), and a transient provider error or an exhausted budget on either call cancels
   the other and propagates, so the activity fails or retries the photo as a whole.
 
+Per-class count fusion (EVAL_REPORT section 15, ``VisionContext.fusion``): the decomposed
+step also sends the countables prompt to a second model (Claude Opus 5.5 at medium effort by
+default), concurrently with the other two calls, and each count class in
+:data:`basis.vision.fusion.PER_CLASS_SOURCE` takes its components from the source the table
+names (:func:`fuse_components`); labels, materials and room type stay the base model's.
+The second call never fails the photo: a transient provider error is retried
+(:data:`FUSION_RETRY_DELAYS_S`), and if it stays unavailable or unusable (or no provider
+serves the model, or the budget cannot cover it) the photo keeps the base model's counts
+and is flagged ``needs_review`` with reason ``count_fusion_fallback:<why>``. Both raw
+answers and the chosen source per class are in :class:`FusionOutcome`.
+
 Every attempt's raw provider response is returned in :class:`PhotoResult` for storage;
 ``PhotoResult.calls`` keeps them per prompt.
 """
@@ -43,18 +54,27 @@ Every attempt's raw provider response is returned in :class:`PhotoResult` for st
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal, get_args
 
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
-from basis.llm.errors import ProviderBadResponse
+from basis.llm.errors import TRANSIENT, ProviderBadResponse, ProviderError
 from basis.llm.prompts import Prompt
-from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
-from basis.vision.merge import merge_analyses
+from basis.llm.provider import BudgetExceededError, ChatProvider, ChatRequest, ImagePart, Message
+from basis.vision import fusion
+from basis.vision.merge import merge_analyses, merge_components
 from basis.vision.prep import PreparedImage, prepare_image
-from basis.vision.schemas import ModelPhotoAnalysis, PhotoAnalysis, RoomType, ambiguous_analysis
+from basis.vision.schemas import (
+    MAX_COMPONENTS,
+    Component,
+    ComponentLabel,
+    ModelPhotoAnalysis,
+    PhotoAnalysis,
+    RoomType,
+    ambiguous_analysis,
+)
 
 PhotoMode = Literal["single", "decomposed"]
 PHOTO_MODES: Final[tuple[str, ...]] = get_args(PhotoMode)
@@ -77,6 +97,14 @@ USER_TEXT: Final = (
     "component, using only what is visible."
 )
 INVALID_OUTPUT: Final = "invalid_model_output"
+FUSION_FALLBACK: Final = "count_fusion_fallback"
+# Waits before the second and third try of the fusion call after a transient provider error
+# (the pool has already retried once and tried the fallback provider by then).
+FUSION_RETRY_DELAYS_S: tuple[float, ...] = (2.0, 8.0)
+# The fusion call's whole time, retries included: past it the photo keeps the base counts
+# (flagged) instead of running into the analyze_photo activity's 2-minute timeout, which
+# would retry or fail the whole photo.
+FUSION_DEADLINE_S: float = 80.0
 
 
 def released_prompt() -> Prompt:
@@ -109,6 +137,17 @@ def _no_heartbeat(_: str) -> None:
     return None
 
 
+@dataclass(frozen=True)
+class FusionConfig:
+    """The second countables call of per-class count fusion (``VISION_COUNT_FUSION``)."""
+
+    model: str
+    max_tokens: int
+    reasoning_effort: str | None = None
+    table: Mapping[str, str] = field(default_factory=lambda: dict(fusion.PER_CLASS_SOURCE))
+    table_version: str = fusion.TABLE_VERSION
+
+
 @dataclass
 class VisionContext:
     call: CallContext
@@ -122,6 +161,8 @@ class VisionContext:
     # Reasoning models spend ``max_tokens`` on reasoning before the answer: give them a budget
     # that covers both and an effort level (``None`` = the provider's default).
     reasoning_effort: str | None = None
+    # Per-class count fusion in the decomposed step; ``None`` = off.
+    fusion: FusionConfig | None = None
 
 
 @dataclass
@@ -135,6 +176,40 @@ class CallOutcome:
     model: str | None = None
     raw: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FusionOutcome:
+    """What the fusion call did for one photo.
+
+    ``status``: ``fused`` (counts taken per class), ``fallback`` (the second call failed:
+    the base counts stand and the photo is flagged; ``reason`` says why) or ``not_applied``
+    (the base calls gave no usable analysis, so there was nothing to fuse into).
+    ``classes``: per count class of the table, the source and model chosen and each
+    source's count (``second`` is ``None`` without a usable second answer)."""
+
+    table_version: str
+    model: str
+    status: Literal["fused", "fallback", "not_applied"]
+    call: CallOutcome
+    reason: str | None = None
+    classes: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def record(self) -> dict[str, Any]:
+        return {
+            "table_version": self.table_version,
+            "model": self.model,
+            "status": self.status,
+            "reason": self.reason,
+            "classes": self.classes,
+            "second_answer": (
+                None if self.call.parsed is None else self.call.parsed.model_dump(mode="json")
+            ),
+        }
+
+    def count_sources(self) -> dict[str, str]:
+        """``{count class: model}`` of the classes the second model counted."""
+        return {c: v["model"] for c, v in self.classes.items() if v["source"] == fusion.SECOND}
 
 
 @dataclass
@@ -152,6 +227,7 @@ class PhotoResult:
     mode: PhotoMode = "single"
     prompt_versions: tuple[str, ...] = ()
     calls: tuple[CallOutcome, ...] = ()
+    fusion: FusionOutcome | None = None
 
 
 def build_request(image: PreparedImage, ctx: VisionContext) -> ChatRequest:
@@ -293,34 +369,212 @@ async def analyze_photo_decomposed(
     countables = countables or default_countables
     surfaces = surfaces or default_surfaces
     image = prepare_image(image_bytes)
-    calls = await _all_or_none(
-        call_until_usable(image, replace(ctx, prompt=countables), label=f"{countables.name} "),
-        call_until_usable(image, replace(ctx, prompt=surfaces), label=f"{surfaces.name} "),
+    second_task = (
+        asyncio.ensure_future(_fusion_call(image, ctx, ctx.fusion, countables))
+        if ctx.fusion is not None
+        else None
     )
+    try:
+        calls = await _all_or_none(
+            call_until_usable(image, replace(ctx, prompt=countables), label=f"{countables.name} "),
+            call_until_usable(image, replace(ctx, prompt=surfaces), label=f"{surfaces.name} "),
+        )
+    except BaseException:
+        if second_task is not None:
+            second_task.cancel()
+            await asyncio.gather(second_task, return_exceptions=True)
+        raise
+    second = await second_task if second_task is not None else None
     countables_call, surfaces_call = calls
     errors = [*countables_call.errors, *surfaces_call.errors]
     unusable = [c.prompt_version for c in calls if c.parsed is None]
+    outcome: FusionOutcome | None = None
     if unusable:
         # One narrow answer alone is not an analysis of the photo: no half result.
         analysis = ambiguous_analysis(f"{INVALID_OUTPUT}:{','.join(unusable)}")
+        if second is not None:
+            assert ctx.fusion is not None
+            outcome = FusionOutcome(
+                ctx.fusion.table_version, ctx.fusion.model, "not_applied", second[0], second[1]
+            )
     else:
         assert countables_call.parsed is not None and surfaces_call.parsed is not None
         merged = merge_analyses(countables_call.parsed, surfaces_call.parsed)
         if merged.dropped:
             errors.append(f"merge: {merged.dropped} component(s) beyond the schema cap dropped")
         analysis = review(merged.analysis)
+        if second is not None:
+            assert ctx.fusion is not None
+            analysis, outcome, dropped = _apply_fusion(
+                analysis, countables_call.parsed, second, ctx.fusion, ctx.model
+            )
+            if dropped:
+                errors.append(f"fusion: {dropped} component(s) beyond the schema cap dropped")
+    all_calls = [*calls, second[0]] if second is not None else list(calls)
+    if second is not None:
+        errors += second[0].errors
     return PhotoResult(
         analysis=analysis,
         image=image,
-        attempts=sum(c.attempts for c in calls),
-        provider=_joined([c.provider for c in calls]),
-        model=_joined([c.model for c in calls]),
-        raw=[*countables_call.raw, *surfaces_call.raw],
+        attempts=sum(c.attempts for c in all_calls),
+        provider=_joined([c.provider for c in all_calls]),
+        model=_joined([c.model for c in all_calls]),
+        raw=[r for c in all_calls for r in c.raw],
         errors=errors,
         mode="decomposed",
         prompt_versions=tuple(c.prompt_version for c in calls),
-        calls=tuple(calls),
+        calls=tuple(all_calls),
+        fusion=outcome,
     )
+
+
+async def _fusion_call(
+    image: PreparedImage, ctx: VisionContext, config: FusionConfig, prompt: Prompt
+) -> tuple[CallOutcome, str | None]:
+    """The countables prompt on the fusion model: the outcome and, when it gave no usable
+    answer, why (``None`` when usable). Never raises a provider or budget error: a
+    transient one is retried after each of :data:`FUSION_RETRY_DELAYS_S`, anything else
+    ends the call, and the whole call stops at :data:`FUSION_DEADLINE_S`; the caller then
+    falls back to the base counts."""
+    errors: list[str] = []
+    try:
+        return await asyncio.wait_for(
+            _fusion_attempts(image, ctx, config, prompt, errors), FUSION_DEADLINE_S
+        )
+    except TimeoutError:
+        errors.append(f"{prompt.name}@{config.model} no answer within {FUSION_DEADLINE_S:g}s")
+        return CallOutcome(prompt.version_id, None, 1, errors=errors), "timeout"
+
+
+async def _fusion_attempts(
+    image: PreparedImage,
+    ctx: VisionContext,
+    config: FusionConfig,
+    prompt: Prompt,
+    errors: list[str],
+) -> tuple[CallOutcome, str | None]:
+    second_ctx = replace(
+        ctx,
+        prompt=prompt,
+        model=config.model,
+        max_tokens=config.max_tokens,
+        reasoning_effort=config.reasoning_effort,
+        fusion=None,
+    )
+    label = f"{prompt.name}@{config.model} "
+    attempts = 0
+    for delay in (0.0, *FUSION_RETRY_DELAYS_S):
+        if delay:
+            ctx.heartbeat(f"vision {label}waiting {delay:g}s")
+            await asyncio.sleep(delay)
+        try:
+            outcome = await call_until_usable(image, second_ctx, label=label)
+        except TRANSIENT as exc:
+            attempts += 1
+            errors.append(f"{label}{type(exc).__name__}: {exc}")
+            continue
+        except (ProviderError, BudgetExceededError) as exc:
+            errors.append(f"{label}{type(exc).__name__}: {exc}")
+            failed = CallOutcome(prompt.version_id, None, attempts + 1, errors=errors)
+            return failed, type(exc).__name__
+        outcome.attempts += attempts
+        outcome.errors[:0] = list(errors)
+        return outcome, (None if outcome.parsed is not None else INVALID_OUTPUT)
+    return CallOutcome(prompt.version_id, None, attempts, errors=errors), "provider_unavailable"
+
+
+def _label_counts(components: Sequence[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for c in components:
+        if c["label"] != ComponentLabel.OTHER.value:
+            counts[c["label"]] = counts.get(c["label"], 0) + int(c["count"])
+    return counts
+
+
+def fuse_components(
+    merged: Sequence[Component],
+    base: Sequence[Component],
+    second: Sequence[Component],
+    table: Mapping[str, str],
+) -> tuple[list[Component], dict[str, dict[str, Any]], int]:
+    """The merged components with every count class the table gives to
+    :data:`~basis.vision.fusion.SECOND` replaced by the second answer's components of that
+    class (its labels, counts, materials and attachments; the second answer is deduplicated
+    by label with :func:`~basis.vision.merge.merge_components`, as the base answer was).
+
+    Returns the components (non-``other`` first, ``other`` last, cut to the schema's cap),
+    per class ``{"source", "base", "second", "count"}`` and how many were cut. The class
+    counts equal :func:`basis.vision.fusion.fuse` on the two answers' counts (tested)."""
+    second_dicts = merge_components([[c.model_dump(mode="json") for c in second]])
+    base_counts = _label_counts(merge_components([[c.model_dump(mode="json") for c in base]]))
+    second_counts = _label_counts(second_dicts)
+    taken = {
+        label
+        for count_class, source in table.items()
+        if source == fusion.SECOND
+        for label in fusion.CLASS_LABELS.get(count_class, (count_class,))
+    }
+    kept = [c for c in merged if c.label.value not in taken]
+    added = [Component.model_validate(c) for c in second_dicts if c["label"] in taken]
+    ordered = [
+        *[c for c in kept if c.label is not ComponentLabel.OTHER],
+        *added,
+        *[c for c in kept if c.label is ComponentLabel.OTHER],
+    ]
+    components = ordered[:MAX_COMPONENTS]
+    final_counts = _label_counts([c.model_dump(mode="json") for c in components])
+    classes = {
+        count_class: {
+            "source": source,
+            "base": fusion.class_count(base_counts, count_class),
+            "second": fusion.class_count(second_counts, count_class),
+            "count": fusion.class_count(final_counts, count_class),
+        }
+        for count_class, source in table.items()
+    }
+    return components, classes, len(ordered) - len(components)
+
+
+def _apply_fusion(
+    analysis: PhotoAnalysis,
+    base: ModelPhotoAnalysis,
+    second: tuple[CallOutcome, str | None],
+    config: FusionConfig,
+    base_model: str,
+) -> tuple[PhotoAnalysis, FusionOutcome, int]:
+    call, failure = second
+    if call.parsed is None:
+        reason = f"{FUSION_FALLBACK}:{failure or INVALID_OUTPUT}"
+        existing = analysis.review_reason
+        flagged = analysis.model_copy(
+            update={
+                "needs_review": True,
+                "review_reason": f"{existing}; {reason}" if existing else reason,
+            }
+        )
+        base_counts = _label_counts([c.model_dump(mode="json") for c in analysis.components])
+        classes = {
+            count_class: {
+                "source": fusion.BASE,
+                "model": base_model,
+                "base": fusion.class_count(base_counts, count_class),
+                "second": None,
+                "count": fusion.class_count(base_counts, count_class),
+            }
+            for count_class in config.table
+        }
+        outcome = FusionOutcome(
+            config.table_version, config.model, "fallback", call, failure, classes
+        )
+        return flagged, outcome, 0
+    components, classes, dropped = fuse_components(
+        analysis.components, base.components, call.parsed.components, config.table
+    )
+    for entry in classes.values():
+        entry["model"] = config.model if entry["source"] == fusion.SECOND else base_model
+    fused = analysis.model_copy(update={"components": components})
+    outcome = FusionOutcome(config.table_version, config.model, "fused", call, None, classes)
+    return fused, outcome, dropped
 
 
 async def analyze_photo_in_mode(image_bytes: bytes, ctx: VisionContext, mode: str) -> PhotoResult:

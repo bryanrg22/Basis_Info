@@ -11,6 +11,14 @@ per component kind (:mod:`basis.vision.rooms`). Each component row's ``raw.promp
 names every prompt that produced the analysis (``+``-joined in the decomposed mode); each
 call has its own ``llm_calls`` row and the activity's cost is their sum.
 
+Per-class count fusion (``VISION_COUNT_FUSION=per_class``, the default; EVAL_REPORT section
+15) adds the countables call on ``VISION_FUSION_MODEL`` to the decomposed step. The stored
+analysis gets a ``fusion`` block (table version, status, per class the source, model and
+both counts, and the second model's raw answer; its responses are in ``responses`` and
+``calls`` like the other two), and each component row's ``raw.fusion`` names the table
+version, the status and the classes the second model counted. A second call that fails
+leaves the base counts and flags the photo (``count_fusion_fallback``); it never fails it.
+
 Order of work: a read-only check first (an assignment already written for this photo and
 revision is returned as is, with cost 0: carried over by a rejection, or an earlier
 execution), then the model call outside any transaction, then ``run_once`` writes the
@@ -54,6 +62,7 @@ from basis.activities._support import (
     validation_error,
 )
 from basis.activities.deps import Deps
+from basis.config import Settings
 from basis.db.enums import DocumentKind
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
@@ -64,6 +73,7 @@ from basis.llm.provider import Budget, BudgetExceededError
 from basis.llm.recorder import LlmCallRecorder
 from basis.storage import ObjectNotFound
 from basis.vision.analyze import (
+    FusionConfig,
     PhotoResult,
     VisionContext,
     analyze_photo_in_mode,
@@ -161,6 +171,7 @@ class AnalyzePhoto:
                     "model": result.model,
                     "provider": result.provider,
                     "prompt_version": "+".join(result.prompt_versions),
+                    **_fusion_context(result),
                 },
             )
             heartbeat("written")
@@ -214,6 +225,7 @@ class AnalyzePhoto:
             max_tokens=settings.vision_output_budget,
             heartbeat=heartbeat,
             reasoning_effort=settings.vision_reasoning_effort,
+            fusion=fusion_config(settings),
         )
         try:
             async with heartbeating("analyzing"):
@@ -225,6 +237,29 @@ class AnalyzePhoto:
         except ProviderError as exc:
             raise provider_failure(exc, f"photo {document_id}") from exc
         return result, round(budget.spent_usd, 6)
+
+
+def fusion_config(settings: Settings) -> FusionConfig | None:
+    """The fusion call ``VISION_COUNT_FUSION`` asks for, or ``None`` when it is off."""
+    if not settings.vision_count_fusion_active:
+        return None
+    return FusionConfig(
+        model=settings.vision_fusion_model,
+        max_tokens=settings.vision_fusion_output_budget,
+        reasoning_effort=settings.vision_fusion_reasoning_effort,
+    )
+
+
+def _fusion_context(result: PhotoResult) -> dict[str, Any]:
+    if result.fusion is None:
+        return {}
+    return {
+        "fusion": {
+            "table_version": result.fusion.table_version,
+            "status": result.fusion.status,
+            "count_sources": result.fusion.count_sources(),
+        }
+    }
 
 
 def _raw_json(result: PhotoResult, uri: str) -> bytes:
@@ -262,4 +297,6 @@ def _raw_json(result: PhotoResult, uri: str) -> bytes:
             }
             for call in result.calls
         ]
+    if result.fusion is not None:
+        payload["fusion"] = result.fusion.record()
     return json.dumps(payload, sort_keys=True, default=str).encode("utf-8")

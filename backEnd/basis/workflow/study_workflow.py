@@ -5,10 +5,10 @@ Shape of a run::
     record_run_start
     transition -> extracting
     in parallel: ingest_appraisal -> extract_fields ;
-                 analyze_photo -> localize_photo, x N (bounded)
+                 analyze_photo -> localize_photo, x N (bounded) ; reconcile_rooms
     gate appraisal_review   (reject: apply_corrections, extract_fields again, revision + 1)
     gate rooms_review       (reject: apply_corrections, re-analyze and re-localize flagged
-                             photos only)
+                             photos only, reconcile_rooms)
     transition -> assets_processing ; process_assets
     gate assets_review      (reject: apply_corrections, process_assets again)
     transition -> exporting ; export_report ; transition -> completed ; record_run_end
@@ -50,6 +50,12 @@ Patches in this file:
   stage waits for every localization before the next gate. A localization that fails is
   logged and ignored; it never flags the photo. Executions recorded before the patch
   replay without it (tests/lifecycle/histories).
+* ``reconcile-rooms-v1`` (EVAL_REPORT section 16.5): after a revision's photos are analyzed
+  and localized (the first photo stage, and the re-analysis after a rooms rejection),
+  ``reconcile_rooms`` builds the room inventories the assets are built from. A failure of
+  it is logged and flags the rooms review; the study continues on the per-photo rows.
+  The activity itself is a no-op when ``ROOM_RECONCILE`` is off, so the command sequence
+  does not depend on settings.
 """
 
 from __future__ import annotations
@@ -95,6 +101,8 @@ with workflow.unsafe.imports_passed_through():
         NotifyInput,
         ProcessAssetsInput,
         ProcessAssetsOutput,
+        ReconcileRoomsInput,
+        ReconcileRoomsOutput,
         ReviewStage,
         RunEndInput,
         RunStartInput,
@@ -118,6 +126,7 @@ SEARCH_ATTRIBUTE_KEYS: Final = (STUDY_ID_ATTR, STAGE_ATTR, ORG_ID_ATTR)
 
 ALREADY_APPLIED: Final = "already applied"
 LOCALIZE_PATCH: Final = "localize-photos-v1"
+RECONCILE_ROOMS_PATCH: Final = "reconcile-rooms-v1"
 
 _Out = TypeVar("_Out", bound=BaseModel)
 _T = TypeVar("_T")
@@ -286,7 +295,9 @@ class StudyWorkflow:
             "list_photos", ListPhotosInput(study_id=study_id), ListPhotosOutput, "list_photos"
         )
         appraisal_task = self._spawn(self._ingest_and_extract())
-        await self._analyze_photos(list(photos.document_ids), self._revision)
+        photo_revision = self._revision
+        await self._analyze_photos(list(photos.document_ids), photo_revision)
+        await self._reconcile_rooms(photo_revision)
         document_id = await appraisal_task
 
         # Gate 1: appraisal review.
@@ -305,6 +316,7 @@ class StudyWorkflow:
             new_revision, corrections = await self._reject(decision, "extracting")
             flagged = [c.entity_id for c in corrections if c.entity_type == "photo"]
             await self._analyze_photos(flagged, new_revision)
+            await self._reconcile_rooms(new_revision)
 
         # Assets, then gate 3: assets review.
         await self._transition("assets_processing")
@@ -458,6 +470,35 @@ class StudyWorkflow:
             if output.needs_review:
                 self._flag(document_id, budget=False)
             return True
+
+    async def _reconcile_rooms(self, revision: int) -> None:
+        """The room step for ``revision`` (patch ``reconcile-rooms-v1``); a failure flags
+        the rooms review and is otherwise ignored (the per-photo rows stand)."""
+        if not workflow.patched(RECONCILE_ROOMS_PATCH):
+            return
+        try:
+            output = await self._activity(
+                "reconcile_rooms",
+                ReconcileRoomsInput(
+                    study_id=self._input.study_id,
+                    revision=revision,
+                    idempotency_key=self._key(f"reconcile_rooms:r{revision}"),
+                    budget_remaining_usd=max(self._budget, 0.0),
+                ),
+                ReconcileRoomsOutput,
+                f"reconcile_rooms:r{revision}",
+            )
+        except ActivityError as error:
+            if isinstance(error.cause, CancelledError):
+                raise  # the study is being cancelled
+            workflow.logger.warning(
+                "rooms of revision %s not reconciled: %s", revision, error.cause or error
+            )
+            self._mark_needs_review("rooms_review")
+            return
+        self._budget -= output.cost_usd
+        if output.needs_review:
+            self._mark_needs_review("rooms_review")
 
     async def _process_assets(self, corrections: tuple[CorrectionInput, ...]) -> None:
         revision = self._revision
