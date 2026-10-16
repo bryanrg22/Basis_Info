@@ -977,6 +977,208 @@ is worth four times the per-property spend, and whether to spend a run on `mediu
 a Claude-tuned prompt before deciding, is the open question; the provider and the routing are
 in place either way (`LLM_PRIMARY=anthropic`, `VISION_MODEL=claude-opus-5-5`).
 
+## 15. Per-photo accuracy campaign: counts against the verified boxes (2026-10-16)
+
+Question: how close can the per-photo counts get to the client's verified counts? Starting
+point (section 12.1): `gpt-6.1-sol`, decomposed (`photo_countables/v2` + `photo_surfaces/v1`),
+low effort: count MAE 0.180, exact 0.865, count recall 0.874, label F1 0.741, $0.79 per 52
+photos. Every variant below ran on the same 52 photos of the one study, three repeats, scored
+by `evals.run` (`photo_counts`, `photo_components`, `photo_rooms`); every run reported only the
+model it asked for (`models_reported`), and none lost a photo.
+
+What had to be known before choosing experiments:
+
+- The photos are 800 x 600 (51) and 800 x 408 (1). The pipeline sends them as they are, so
+  a crop adds no pixels; it only enlarges what is there.
+- In a decomposed run every count comes from the countables call (the surfaces call names
+  no countable object), so a counting experiment replaces only that call; label F1 and room
+  type stay the baseline's unless the experiment changes the surfaces call.
+- Of the baseline's (photo, class) errors, most are the same in all three repeats (for
+  example the office: 4 windows every time against 2 boxed). Repeat-to-repeat noise, the
+  only thing self-consistency can remove, is the smaller part.
+- The comparison statistic: the per-photo mean absolute count error (over the six classes
+  and three repeats) minus the baseline's, averaged over photos, with a 95% interval from a
+  paired bootstrap over photos (5,000 resamples). One document, so the harness's clustered SE
+  is not available; photos are the unit.
+- Anything that chooses a rule from the labels (which source per class, which SAM 3 score
+  threshold) is scored leave-one-photo-out: each photo is predicted by the rule fitted on the
+  other 51. The in-sample number is shown next to it where it matters, because the gap is
+  large.
+
+Sources behind each experiment, read before running it:
+
+- Reasoning effort: the provider docs already cited in sections 12 and 14.
+- Image splitting: Zhang et al., "MLLMs Know Where to Look", ICLR 2025 (small details are
+  missed, an enlarged crop of the region restores them, the global view is kept alongside);
+  LVLM-Count, Qharabagh et al., TMLR 2026 (summing counts over sub-images double-counts
+  objects the cuts go through; they cut around objects); ABACUS, arXiv 2606.23835 (boundary
+  ownership); YOLO, Redmon et al., CVPR 2016 (the grid cell holding an object's center owns
+  it), which is the rule our part prompt states.
+- Self-consistency: Wang et al., arXiv 2203.11171 (plurality vote over samples); the median
+  is the common choice for numbers; we take the lower median so the answer is a count some
+  sample gave.
+- Fusion: ensemble selection by validation, Caruana et al., ICML 2004, one choice per class.
+- Crop verification: two-stage detection (R-CNN; ViLD, Gu et al. 2021, classifying detector
+  proposals with CLIP); ViLD and MarvelOVD (Wang et al. 2024) on VLMs misreading tight crops,
+  hence the whole photo with the box outlined plus the enlarged crop; POPE (Li et al., EMNLP
+  2023) on yes-bias, hence a choice among labels rather than "is this a X?".
+
+New code (all under `backEnd/evals/`, plus one module and four prompt versions, every one with
+unit tests): `evals.aggregate_runs` (median / vote / max over repeats, pooled or repeat by
+repeat), `basis/vision/fusion.py` and `evals.fuse_counts` (per-class rules over VLM, SAM 3 and
+other count sources, leave-one-photo-out), `evals.predict_tiles` (`separate`: 2 x 2 parts,
+enlarged 2x, one `photo_countables_tile/v1` call each, summed; `joint`: the photo and its
+four enlarged parts in one `photo_countables_joint/v1` call), `evals.verify_boxes` (one
+`photo_verify_box/v1` call per SAM 3 detection), and the narrow `photo_lighting_electrical/v1`.
+`photo_countables/v2` and the pipeline are unchanged.
+
+### 15.1 Every variant against the current best
+
+Count MAE, exact rate, bias, precision and recall over (photo, class, repeat), 936 pairs;
+label F1 is the harness's (repeat 1). "Diff" is the paired-bootstrap difference in count
+error against the baseline. Cost is one prediction of the 52 photos (both calls of a
+decomposed run); seconds are per photo for the counting call(s), in parallel where the
+pipeline would run them in parallel.
+
+| Variant | Count MAE | Exact | Bias | Count P / R | Diff [95% CI] | Label F1 | Room | $ / 52 | s / photo |
+|---|---|---|---|---|---|---|---|---|---|
+| **Baseline**: sol, decomposed, low | 0.180 | 0.865 | +0.03 | 0.84 / 0.87 | 0 | 0.741 | 0.90 | $0.79 | 11.1 |
+| 1a. sol, countables at medium | 0.176 | 0.865 | +0.02 | 0.85 / 0.87 | -0.003 [-0.026, +0.020] | 0.741 | 0.90 | $0.90 | 21.2 |
+| 1b. Opus 5.5 decomposed, low (sec. 14) | 0.166 | 0.876 | -0.05 | 0.90 / 0.83 | -0.014 [-0.049, +0.020] | 0.763 | 0.88 | $2.23 | 4.7 |
+| 1c. Opus 5.5, countables at medium | 0.150 | 0.889 | -0.06 | 0.92 / 0.83 | -0.030 [-0.072, +0.011] | 0.761 | 0.88 | $2.40 | 7.4 |
+| 1d. Opus 5.5, countables at high | 0.144 | 0.893 | -0.03 | 0.90 / 0.86 | -0.035 [-0.068, -0.003] | 0.764 | 0.88 | $2.54 | 9.0 |
+| 2a. 2 x 2 parts, separate calls, summed | 0.265 | 0.807 | -0.03 | 0.80 / 0.76 | +0.085 [+0.026, +0.150] | (n/a) | (n/a) | $1.82 | 13.2 |
+| 2b. photo + 4 parts in one call | 0.191 | 0.866 | +0.08 | 0.81 / 0.91 | +0.012 [-0.020, +0.052] | (n/a) | (n/a) | $1.04 | 11.1 |
+| 3a. sol, median of its 3 repeats | 0.170 | 0.872 | +0.02 | 0.85 / 0.88 | -0.010 [-0.026, +0.004] | 0.734 | 0.90 | $1.73 | 11.1 |
+| 3b. sol + Opus low, repeat by repeat (median of 2 = min) | 0.166 | 0.878 | -0.09 | 0.93 / 0.79 | -0.014 [-0.048, +0.017] | 0.766 | 0.90 | $3.02 | 11.1 |
+| 3c. sol + Opus low, median of all 6 samples | 0.147 | 0.888 | -0.05 | 0.91 / 0.84 | -0.032 [-0.061, -0.006] | 0.772 | 0.90 | $5.42 | 11.1 |
+| 4a. sol + SAM 3 per class, fitted in-sample | 0.129 | 0.903 | -0.07 | 0.94 / 0.84 | -0.050 [-0.092, -0.017] | 0.741 | 0.90 | $0.99 | 11.1 |
+| 4b. the same, leave-one-photo-out | 0.167 | 0.880 | -0.03 | 0.89 / 0.84 | -0.013 [-0.048, +0.025] | 0.741 | 0.90 | $0.99 | 11.1 |
+| **4c. sol low + Opus medium per class, leave-one-photo-out** | **0.124** | **0.899** | **-0.04** | **0.92 / 0.87** | **-0.056 [-0.093, -0.022]** | 0.741 | 0.90 | $2.20 | 11.1 |
+| 4d. the same with Opus high | 0.125 | 0.900 | -0.01 | 0.90 / 0.89 | -0.054 [-0.091, -0.022] | 0.741 | 0.90 | $2.34 | 11.1 |
+| 4e. 4c plus SAM 3 as a further source | 0.155 | 0.879 | -0.02 | 0.89 / 0.86 | -0.025 [-0.058, +0.005] | 0.741 | 0.90 | $2.40 | 11.1 |
+| 5a. SAM 3 detections confirmed by sol, alone | 0.373 | 0.798 | -0.30 | 0.89 / 0.45 | +0.193 (verified classes only) | | | $1.77 | not measured |
+| 5b. sol + confirmed detections per class | 0.184 | 0.863 | -0.01 | 0.86 / 0.84 | +0.004 [-0.027, +0.035] | 0.741 | 0.90 | $1.77 | |
+| 5c. 4c plus confirmed detections | 0.126 | 0.895 | -0.03 | 0.92 / 0.87 | -0.053 [-0.094, -0.015] | 0.741 | 0.90 | $3.18 | |
+| 6. 4c plus the lighting prompt on both models | 0.134 | 0.892 | -0.03 | 0.91 / 0.87 | -0.046 [-0.082, -0.013] | 0.741 | 0.90 | $3.61 | 11.1 |
+| 3+4. 4c on each model's median of 3 repeats | 0.103 | 0.917 | -0.04 | 0.94 / 0.89 | -0.077 [-0.116, -0.042] | 0.734 | 0.90 | $5.93 | 11.1 |
+| SAM 3 alone, v2 phrases, score 0.5 (sec. 10) | 0.587 | 0.734 | +0.45 | 0.51 / 0.89 | +0.407 | | | $0.20 | |
+
+Notes on the table. Self-consistency rows (3a, 3c, 3+4) are one aggregated answer per photo
+built from three or six calls, so they are scored as one prediction, not three independent
+repeats; their cost counts every countables call they use plus one surfaces call. The tile rows (2a, 2b) replace only the countables
+call and carry no surfaces call, so label F1 and room are not comparable; their seconds come
+from an 8-photo timing probe at concurrency 1 (the full runs' timer included queue time; fixed
+in the runner). Verification latency was not measured: the probe hit the OpenAI account's
+credit limit (below). 5a counts only the four classes it verified, so its overall row is not
+comparable; per class it is in the reading.
+
+### 15.2 The winner's per-class counts
+
+4c: per class, the counting call that is more accurate on that class, chosen leave-one-photo-
+out. The choice was the same in all 52 folds for windows, doors and exterior lights, and in 51
+of 52 for light fixtures, cabinets and outlets:
+
+| Class | Source chosen | Baseline MAE / exact / P / R | Winner MAE / exact / P / R |
+|---|---|---|---|
+| window | Opus medium | 0.40 / 0.73 / 0.82 / 0.88 | 0.24 / 0.83 / 0.91 / 0.91 |
+| door | Opus medium | 0.22 / 0.81 / 0.78 / 0.89 | 0.10 / 0.90 / 0.96 / 0.86 |
+| light fixture | Opus medium | 0.14 / 0.89 / 0.88 / 0.81 | 0.12 / 0.90 / 0.94 / 0.81 |
+| exterior light | sol low | 0.08 / 0.92 / 0.91 / 0.90 | 0.08 / 0.92 / 0.91 / 0.90 |
+| electrical outlet | sol low (51 of 52 folds) | 0.08 / 0.92 / 0.93 / 0.86 | 0.12 / 0.90 / 0.92 / 0.78 |
+| kitchen cabinet | Opus medium | 0.15 / 0.92 / 0.81 / 0.89 | 0.09 / 0.94 / 0.93 / 0.88 |
+| all six | | 0.180 / 0.865 / 0.84 / 0.87 | 0.124 / 0.899 / 0.92 / 0.87 |
+
+The outlet row is worse only because one held-out photo (the kitchen with four outlets) got
+the rule fitted without it (`min(sol, Opus)`); with the rule fitted on all 52 photos, the
+one a deployment would use, outlets equal the baseline and the overall MAE is 0.117. The 0.124
+is the number to quote.
+
+### 15.3 Reading: why each thing helped or not
+
+- Effort (1a to 1d). Medium effort does nothing for sol (0.176 against 0.180) and doubles its
+  time (21 s per photo). For Opus it moves windows (0.30 to 0.24 MAE) and doors (0.14 to 0.10),
+  the classes that need counting one by one, for 14% more per photo than low; high adds nothing
+  over medium once the models are combined (4d against 4c). Opus's weak class at every effort
+  is exterior lights (count recall 0.51 to 0.57): it misses small porch and wall lanterns sol
+  finds (sol 0.90). This is why neither model alone wins and the per-class choice does.
+- Image splitting (2a, 2b) does not help these photos. Separate parts are significantly worse
+  (door recall 0.89 to 0.57, windows 0.88 to 0.76): a door or window cut by a part's edge loses
+  the context that makes it recognizable, and there are no new pixels to gain. The ownership
+  rule in the prompt avoids double counting (bias stays near zero) but not the misses. The
+  joint call keeps the context and does raise recall (0.91, the highest of any single call),
+  but over-counts in the same proportion (precision 0.81, bias +0.08): the model counts some
+  objects in both the photo and a part despite the instruction. This matches section 10.3,
+  where tiling also hurt SAM 3. Splitting is a remedy for high-resolution photos with tiny
+  objects; ours are 800 x 600 with one to thirteen objects a class.
+- Self-consistency (3a to 3c) removes only the noise between repeats, which is the small part
+  of the error here: the median of sol's three repeats gains 0.010 (not significant). Pooling
+  two models gains more (3c, 0.147) because it mixes their different errors, but at seven
+  times the cost of the baseline, and the lower median of six samples biases low (exterior
+  lights 0.90 to 0.65 recall). On top of the per-class choice it gives the lowest error
+  measured (0.103) at 2.7 times the winner's price.
+- SAM 3 fusion (4a, 4b, 4e) is the clearest case of selection optimism in this report. Fitted
+  on all photos, "the smaller of sol and SAM 3 at a tuned score threshold" looks like a 28%
+  improvement (0.129); predicted out of sample it is 0.167 and not significant, because the
+  gain comes from a few photos whose threshold choice flips when they are held out. SAM 3 is
+  chosen only as a ceiling (`min`), never as a floor (`max`): with precision 0.51 it over-counts
+  every class, so "SAM 3 as a floor for outlets and windows" adds false positives. Added to the
+  two-model choice it makes things worse (4e).
+- Crop verification (5a to 5c) does what the literature says it should to SAM 3's output: it
+  removes most false positives (door MAE 1.31 to 0.18, exterior lights 0.42 to 0.05, light
+  fixtures 0.42 to 0.12; cabinets 0.17 to 0.18), and confirmed exterior lights have the highest
+  count recall of any source (0.96). In repeat 1 the model rejected 127 of 277 detections as `none` (74) or
+  `part_or_several` (53) and moved 19 between interior and exterior lighting. But as counts it does
+  not beat the VLMs it would replace (doors 0.18 against Opus 0.10; cabinets 0.18 against 0.09),
+  and as a fusion source it adds nothing out of sample (5c 0.126 against 0.124). Its use is
+  localization: it gives the engineer a box per counted object, which the VLM counts do not.
+- The lighting-and-outlets prompt (6) raises light-fixture count recall (0.81 to 0.88 on sol,
+  0.83 to 0.89 on Opus) but over-counts outlets (MAE 0.14 against 0.08), and as an extra
+  source it makes the out-of-sample result worse (0.134). Not adopted.
+
+What is left in the winner's errors is mostly the same answer in every repeat and from both
+models, which no aggregation fixes: the windows of the right-side exterior (13 boxed, 10
+counted), the kitchen's lights and outlets (8 lights boxed, 6 counted; 4 outlets, 2), and
+windows the models count that the boxes do not. Some of those are a labeling question, not a
+model error, for Bryan to settle in `LABEL_GUIDE.md`: in `09_AC Condenser` the boxes hold only
+the basement egress window while two windows cut off by the top of the frame are visible and
+every model counts them (3 against 1, every repeat); `25_1st Floor Office` (4 against 2) and
+`15_1st Floor Breakfast Nook` (bay or mulled units: 3 against 1) look like the same question
+of what one window is.
+
+### 15.4 Recommended configuration
+
+Counts: run the countables prompt (`photo_countables/v2`) twice per photo, in parallel, on
+`gpt-6.1-sol` at low effort and on `claude-opus-5-5` at medium effort, and take windows,
+doors, light fixtures and kitchen cabinets from Opus and exterior lights and outlets from sol
+(the rule fitted on all 52 photos, identical to the one chosen in 51 or more of 52 folds).
+Label set, materials and room type stay as today (sol's countables merged with sol's
+`photo_surfaces/v1`). Measured: count MAE 0.124 against 0.180 (difference -0.056, 95% CI
+[-0.093, -0.022]), exact counts 0.899 against 0.865, count precision 0.92 against 0.84 at the
+same recall (0.87); $2.20 per 52 photos against $0.79 (about $2.75 per property against $1),
+eleven seconds per photo with the calls in parallel. If the extra $1.40 per 52 photos is
+better spent on accuracy, three repeats of both calls with a per-class median reach 0.103 for
+$5.93.
+
+Caveats that bound this decision: one property, 52 photos, so the per-class choice is fitted
+on 312 (photo, class) pairs; the rule should be refitted (by `evals.fuse_counts`) on the second
+client package before it is promoted, and the window convention above should be settled first,
+since windows carry most of the remaining error. Wiring a third call and the per-class rule
+into `basis/vision/analyze.py` is for the session that owns the pipeline; `basis.vision.fusion`
+holds the rule.
+
+Spend for this section: $24.07 (OpenAI $11.87: sol medium $1.71, tiles $6.60, verification
+$2.35, lighting prompt $0.87, timing probe $0.33; Anthropic $12.20: Opus medium $4.21, high
+$4.64, lighting prompt $3.35). The timing probe's last call returned
+`credit_balance_exhausted`: the shared OpenAI account is out of credit and needs a top-up before
+any further gpt run (this session's or another's). Prediction directories under
+`$BASIS_EVAL_DATA_DIR/predictions`: `vision_countables_v2_gpt61sol_med`,
+`vision_decomposed_v2_gpt61sol_med`, `vision_countables_v2_opus55_{med,high}`,
+`vision_decomposed_v2_opus55_{med,high}`, `vision_tiles2x2_{separate,joint}_gpt61sol`,
+`verify_sam3v2_gpt61sol`, `vision_lighting_v1_{gpt61sol,opus55_med}`,
+`counts_sc3_median_gpt61sol`, and the winners `counts_fused_sol_low_opus55_med_loo` (4c, with
+its `eval.md` and the fold-by-fold rules in `run.json`) and
+`counts_fused_sc3_sol_low_opus55_med_loo` (3+4).
 ## 17. Text steps on current models (2026-10-16)
 
 Question: the vision step was benchmarked across models (sections 12 and 14); the two text
