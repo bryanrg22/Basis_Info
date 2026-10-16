@@ -46,6 +46,9 @@ _DATE_MDY = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 # M/D/YY, as URAR forms often print dates; tried after the four-digit form.
 _DATE_MDY_SHORT = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2})\b")
+# A site area printed in acres ("1.39 ac", "0.25 acre"); one acre is 43,560 square feet.
+_ACRES = re.compile(r"\b(?:ac|acres?)\b\.?", re.IGNORECASE)
+SQUARE_FEET_PER_ACRE: Final = Decimal(43560)
 _NOT_A_VALUE: Final = frozenset({"", "-", "--", "n/a", "na", "not applicable"})
 
 
@@ -308,11 +311,26 @@ def clean_value(kind: FieldType, raw: Any) -> CleanValue:
     return CleanValue(text=text, num=amount, error=None if amount is not None else "not a number")
 
 
+def clean_site_area(raw: Any) -> CleanValue:
+    """``site.area_sqft`` in square feet: a value printed in acres is converted (the URAR
+    box holds either unit), anything else is read as square feet."""
+    value = clean_value("int", raw)
+    if value.text is None or not _ACRES.search(value.text):
+        return value
+    acres = clean_number(value.text)
+    if acres is None:
+        return value
+    whole = int((acres * SQUARE_FEET_PER_ACRE).to_integral_value())
+    return CleanValue(text=value.text, num=Decimal(whole))
+
+
 def clean_field(key: str, raw: Any) -> CleanValue:
     """Clean ``raw`` as the catalogue field ``key`` (unknown keys are cleaned as text)."""
     spec = FIELD_BY_KEY.get(key)
     if spec is not None and spec.key == "subject.property_address":
         return clean_value("text", clean_address(raw))
+    if spec is not None and spec.key == "site.area_sqft":
+        return clean_site_area(raw)
     return clean_value(spec.type if spec is not None else "text", raw)
 
 

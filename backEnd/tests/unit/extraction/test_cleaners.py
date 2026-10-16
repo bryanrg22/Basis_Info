@@ -365,6 +365,23 @@ class TestCleanValueTypes:
     def test_unknown_key_is_text(self) -> None:
         assert clean_field("subject.not_a_field", " x  yz ").text == "x yz"
 
+    @pytest.mark.parametrize(
+        ("printed", "square_feet"),
+        [
+            ("1.39 ac", 60548),  # 1.39 x 43,560 = 60,548.4
+            ("1.39 Acres", 60548),
+            ("0.25 acre", 10890),
+            ("12,500 sf", 12500),
+            ("12500 sq ft", 12500),
+            ("9,600", 9600),
+        ],
+    )
+    def test_site_area_in_acres_is_converted(self, printed: str, square_feet: int) -> None:
+        """The URAR site area box is printed in acres or square feet. The live run stored
+        "1.39 ac" as site.area_sqft = 1 (unit ignored, decimals cut; EVAL_REPORT 19)."""
+        value = clean_field("site.area_sqft", printed)
+        assert value.num == Decimal(square_feet) and value.text == printed and value.error is None
+
 
 def test_split_concatenated_field() -> None:
     patterns = {"city": r"City\s+(\w+)", "zip": r"Zip\s+(\d{5})"}
