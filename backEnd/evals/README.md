@@ -198,6 +198,24 @@ per-photo model named (`--phrases-from vlm --photo-raw <predict_photos>/photo_ra
 plus the always-prompted countable set; `--tiling on` adds 2 x 2 tiles for the countable
 phrases, merged by mask NMS (`--merge-metric iou` or `ios`).
 
+### `photo_counts` (derived from `detection_boxes`, no file)
+
+Per photo, the true count of every verified class: the non-group boxes of that label,
+zero when the class is verified absent. The door labels pool into one `door` class
+(`door`, `interior_door`, `exterior_door` boxes; predictions of the three are summed),
+because the count, not the interior/exterior split, is what the yardstick measures. On our
+own photos every image carries the six verified classes, so every (photo, class) pair
+counts, zeros included; Open Images images without a `verified` list contribute one class
+per boxed label and no zeros. Predictions: `photo_counts.json` from `evals.predict_photos`
+or `evals.merge_photo_runs` (`{"<file>": {"label": count} | {"repeats": [...]}}`); a
+predictions directory without it is read from its `photo_raw.jsonl`.
+
+Metrics, per (photo, class, repeat): count MAE (SE clustered by document), exact-count
+rate, signed bias (> 0 over-counting), count precision and recall (min / over / under
+counts pooled over pairs), and the same per class (`count_mae:window`, ...). This is the
+number the engineer prices; the label-set metrics of `photo_components` say whether a
+thing was listed at all.
+
 ### `rule_citations` (derived, no file)
 
 Every `(doc_id, page, excerpt)` citation of the rules table (`basis.domain.rules.RULES`),

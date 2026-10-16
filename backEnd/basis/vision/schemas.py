@@ -147,6 +147,7 @@ COMPONENT_LABELS: Final = tuple(c.value for c in ComponentLabel)
 # Caps on one analysis (the JSON schema the model fills and the merged decomposed answer).
 MAX_COMPONENTS: Final = 60
 MAX_DESCRIPTION_CHARS: Final = 500
+MAX_NOTE_CHARS: Final = 200
 
 
 class Material(StrEnum):
@@ -188,7 +189,9 @@ class Component(BaseModel):
 
     label: ComponentLabel
     note: str | None = Field(
-        default=None, description="Free text; required when label is 'other'", max_length=200
+        default=None,
+        description="Free text; required when label is 'other'",
+        max_length=MAX_NOTE_CHARS,
     )
     count: int = Field(ge=1, le=500, description="How many of this item are visible")
     material: Material
@@ -198,7 +201,9 @@ class Component(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _unknown_label_is_other(cls, data: Any) -> Any:
-        """An out-of-vocabulary label becomes ``other`` and keeps the text as the note."""
+        """An out-of-vocabulary label becomes ``other`` and keeps the text as the note; an
+        over-long note is cut to the limit (strict JSON schemas cannot carry ``maxLength``,
+        so a talkative model must not fail the whole photo over a note)."""
         if isinstance(data, dict):
             label = data.get("label")
             if isinstance(label, str) and label not in COMPONENT_LABELS:
@@ -209,6 +214,10 @@ class Component(BaseModel):
                 else:
                     data["label"] = ComponentLabel.OTHER.value
                     data["note"] = data.get("note") or label[:200]
+            note = data.get("note")
+            if isinstance(note, str) and len(note) > MAX_NOTE_CHARS:
+                data = dict(data)
+                data["note"] = note[: MAX_NOTE_CHARS - 1] + "…"
         return data
 
 
@@ -258,6 +267,14 @@ class ModelPhotoAnalysis(BaseModel):
     description: str = Field(max_length=MAX_DESCRIPTION_CHARS)
 
     _room = field_validator("room_type", mode="before")(_room_type_before)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _cut_description(cls, value: Any) -> Any:
+        """Same reason as the component note: an over-long description is cut, not fatal."""
+        if isinstance(value, str) and len(value) > MAX_DESCRIPTION_CHARS:
+            return value[: MAX_DESCRIPTION_CHARS - 1] + "…"
+        return value
 
     def to_analysis(self) -> PhotoAnalysis:
         return PhotoAnalysis(**self.model_dump())

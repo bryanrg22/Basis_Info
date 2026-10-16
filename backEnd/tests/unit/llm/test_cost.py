@@ -34,6 +34,9 @@ from basis.llm.provider import Usage
         ("gpt-5-nano", "gpt-5-nano"),
         ("gpt-5.1", "gpt-5.1"),
         ("gpt-5.2-2025-12-11", "gpt-5.2"),
+        ("gpt-6.1-sol", "gpt-6.1-sol"),
+        ("gpt-6-astra-2026-09-01", "gpt-6-astra"),
+        ("gpt-6-sol", "gpt-6-sol"),
     ],
 )
 def test_longest_prefix_wins(model: str, family: str) -> None:

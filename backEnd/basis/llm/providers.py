@@ -18,7 +18,7 @@ What every call does (S3_SPEC sections 0 and 2):
 * Timeouts come from ``settings.llm_request_timeout_seconds``; latency is measured around
   the HTTP call and returned in ``ChatResponse.latency_ms``.
 
-Token limits: reasoning models (``o1``/``o3``/``o4``/``gpt-5*``) take
+Token limits: reasoning models (``o1``/``o3``/``o4``, ``gpt-5*`` and later families) take
 ``max_completion_tokens`` and only the default temperature; other models take
 ``max_tokens`` and ``temperature``. Azure OpenAI needs api-version 2024-08-01-preview or
 later for strict JSON-schema output (Microsoft's structured-outputs guide); older versions
@@ -56,7 +56,7 @@ logger = logging.getLogger("basis.llm.providers")
 
 MIN_AZURE_API_VERSION: Final = date(2024, 8, 1)
 RETRY_AFTER_CAP_S: Final = 10.0
-_REASONING_MODEL = re.compile(r"^(o\d|gpt-5)", re.IGNORECASE)
+_REASONING_MODEL = re.compile(r"^(o\d|gpt-[5-9])", re.IGNORECASE)
 MALFORMED_ARGUMENTS: Final = "_malformed_arguments"
 # Dropped from strict schemas (pydantic still enforces them when the reply is validated).
 UNSUPPORTED_KEYWORDS: Final = ("default", "minLength", "maxLength", "uniqueItems")
@@ -179,6 +179,8 @@ def build_request_body(request: ChatRequest, *, model: str | None = None) -> dic
     }
     if is_reasoning_model(request.model) or is_reasoning_model(target):
         body["max_completion_tokens"] = request.max_tokens
+        if request.reasoning_effort is not None:
+            body["reasoning_effort"] = request.reasoning_effort
     else:
         body["max_tokens"] = request.max_tokens
         body["temperature"] = request.temperature

@@ -10,6 +10,7 @@ scores a single run:
 * ``photo_rooms.json``: the room type of one run (``--room-from N``, 1-based, default the
   first; every prompt answers that question, so take it from the pass that answers it best).
 * ``photo_components.json``: per photo the union of the runs' label sets, per repeat.
+* ``photo_counts.json``: per photo the merged ``{label: count}``, per repeat.
 * ``photo_raw.jsonl``: one merged record per (photo, repeat): components are the union by
   label with the largest count, material and attachment from the run that listed the label
   first (:func:`basis.vision.merge.merge_components`, the same code the pipeline's
@@ -32,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from basis.vision.merge import merge_components
+from evals.predict_photos import label_counts
 
 __all__ = ["main", "merge_components", "merge_records", "merge_runs", "parse_args", "read_raw"]
 
@@ -92,6 +94,7 @@ def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str,
     out.mkdir(parents=True, exist_ok=True)
     rooms: dict[str, list[str]] = {}
     components: dict[str, list[list[str]]] = {}
+    counts: dict[str, list[dict[str, int]]] = {}
     with (out / "photo_raw.jsonl").open("w", encoding="utf-8") as raw_out:
         for key in keys:
             present = [raw[key] for raw in raws if key in raw]
@@ -105,6 +108,7 @@ def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str,
             components.setdefault(file, []).append(
                 sorted({c["label"] for c in merged["analysis"]["components"]})
             )
+            counts.setdefault(file, []).append(label_counts(merged["analysis"]["components"]))
 
     def fold(values: list[Any]) -> Any:
         return values[0] if len(values) == 1 else {"repeats": values}
@@ -114,6 +118,9 @@ def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str,
     )
     (out / "photo_components.json").write_text(
         json.dumps({f: fold(v) for f, v in components.items()}, indent=1, sort_keys=True)
+    )
+    (out / "photo_counts.json").write_text(
+        json.dumps({f: fold(v) for f, v in counts.items()}, indent=1, sort_keys=True)
     )
     sources = []
     spent = 0.0

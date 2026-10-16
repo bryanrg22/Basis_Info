@@ -466,11 +466,24 @@ at 0.84), while tile edges cut doors, windows and fixtures into fragments whose 
 full-frame mask is too low for NMS to remove, so the fragments survive as extra detections
 (interior door 0.85 to 0.61, over-count doubled). Outlets and cabinets, the small-object
 classes tiling was meant to help, do not move. The research note's premise (tiling for small
-objects in drone imagery) does not transfer to interior photos taken at room scale. Pending
-from the same batch, blocked on the Replicate throttle: the same tiling with containment
-(IoS) merging, which should remove the fragments, and the v2 phrase set; if IoS tiling is not
-better than the single pass, tiling is dropped and the per-class thresholds and the
-vision-model crop check become the next adjustments.
+objects in drone imagery) does not transfer to interior photos taken at room scale.
+
+Containment merging (the same tiles, a tile mask dropped when mostly inside a full-frame mask,
+IoS 0.5; 225 calls, $0.40, 7 interior photos lost to the throttle) is worse again:
+mAP@0.5 0.453, precision / recall 0.42 / 0.59 at 0.5. It removes the fragments (count bias
++2.22 to +0.59) but also removes real objects nested inside a larger mask of the same class:
+recessed lights inside a ceiling fixture's mask (light fixture AP 0.61 to 0.23), outlets
+and cabinet units inside runs (0.88 to 0.57, 0.55 to 0.30). The seven lost photos depress
+the interior classes somewhat, but not by that much. Tiling is dropped.
+
+Phrase set v2 (single pass, 52 calls, $0.20, no lost photos; "ceiling light", "recessed
+light", "chandelier" for fixtures, "porch light", "wall lantern" for exterior lights,
+"cabinet door" for cabinets): mAP@0.5 unchanged at 0.653 but the classes move in both
+directions. Cabinets 0.55 to 0.74 and light fixtures 0.61 to 0.76 improve; interior doors
+0.85 to 0.70 and outdoor lighting 0.67 to 0.48 get worse (the lantern phrases pick up
+interior sconces and the door phrase set loses cased openings). Taking the better phrase set
+per class would give mAP about 0.70, so the phrase table becomes per class; that and the
+per-class thresholds are the next single-pass adjustments.
 
 ## 11. Task decomposition: one call per task instead of one call for everything (2026-10-16)
 
@@ -627,3 +640,121 @@ per-photo counts rather than re-estimate them; a third narrow call (electrical o
 exterior only) is the next thing to test once the two-call result is confirmed; add the
 per-photo count metrics against the verified boxes to the harness. Blocked on Bryan:
 Replicate credit (the section 10.3 containment-merge and phrase runs are still throttled).
+
+## 12. Frontier OpenAI models on the per-photo step: gpt-6.1-sol and gpt-6-astra (2026-10-16)
+
+Question (Bryan's): the account exposes gpt-5.4, gpt-5.5, gpt-6-astra, gpt-6-luna, gpt-6-sol
+and gpt-6.1-sol; sections 6 to 11 used gpt-4.1 because the deployed pipeline was on
+gpt-4.1-mini and the comparison was kept in one family. Section 8 showed the model, not the
+prompt, moves the numbers, so the newer models are the obvious lever. Prices (standard,
+developers.openai.com/api/docs/pricing, 2026-10-16, per million tokens in / out): gpt-6.1-sol
+$2 / $10, gpt-6-sol $2 / $10, gpt-6-astra $10 / $50, gpt-6-luna $0.10 / $0.50, gpt-5.5 $5 / $30,
+gpt-5.4 $2.50 / $15; gpt-4.1 is $2 / $8.
+
+What had to change to run them: the gpt-6 family takes the reasoning-model request shape
+(`max_completion_tokens`, no temperature; the provider's rule now covers `gpt-[5-9]`), it
+spends the output budget on reasoning before answering (at the pipeline's 1200-token budget
+two photos in three came back truncated, 45 seconds each), and it accepts a
+`reasoning_effort`. `evals.predict_photos --reasoning-effort low --max-tokens 6000` is
+threaded through `VisionContext` and `ChatRequest`; every run below used it. The count
+yardstick is now a harness task (`photo_counts`, derived from the verified boxes, section
+10.2; the scratch scorer of section 11 reproduces exactly). Three repeats on the 52 photos,
+`photo_analysis/v1`, one call per photo.
+
+| Model, one pass, low effort | Room accuracy | Room pass^3 | Component P / R / F1 | Label set identical across 3 repeats | Count MAE, 6 classes | Exact count | Signed bias | Count recall | Cost per 52 photos | Seconds per photo |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gpt-4.1 (section 8) | 0.85 | 0.85 | 0.68 / 0.72 / 0.70 | 26 of 52 | 0.36 | 0.77 | -0.16 | 0.57 | $0.30 | 2.2 |
+| gpt-6.1-sol | 0.83 | 0.83 | 0.55 / 0.90 / 0.68 | 25 of 52 | 0.30 | 0.83 | -0.03 | 0.73 | $0.48 | 10.5 |
+| gpt-6-astra | 0.81 | 0.81 | 0.55 / 0.88 / 0.68 | 27 of 52 | 0.29 | 0.83 | -0.01 | 0.76 | $2.44 | 11.0 |
+
+Counts per class against the verified boxes (count MAE per photo / count recall):
+
+| Class | gpt-4.1 | gpt-6.1-sol | gpt-6-astra |
+|---|---|---|---|
+| window | 0.63 / 0.79 | 0.51 / 0.88 | 0.49 / 0.90 |
+| door | 0.42 / 0.38 | 0.22 / 0.82 | 0.24 / 0.81 |
+| light fixture | 0.26 / 0.86 | 0.33 / 0.90 | 0.34 / 0.94 |
+| exterior light | 0.31 / 0.30 | 0.26 / 0.48 | 0.24 / 0.55 |
+| electrical outlet | 0.34 / 0.16 | 0.10 / 0.83 | 0.08 / 0.86 |
+| kitchen cabinet | 0.22 / 0.51 | 0.37 / 0.19 | 0.37 / 0.21 |
+
+Reading:
+
+- The frontier models see what gpt-4.1 misses. Component recall 0.72 to 0.90 (misses 228 to
+  85 over the 156 records: carpets, gutters, refrigerators and window treatments that gpt-4.1
+  left out are found), door count recall 0.38 to 0.82, outlet count recall 0.16 to 0.83,
+  windows 0.79 to 0.88, and the systematic under-count of section 6 is gone (bias -0.16 to
+  -0.03). Exact counts rise from 77% to 83% of (photo, class) pairs with one prompt and no
+  decomposition.
+- Their precision drop is convention, not hallucination. The extra false positives are
+  `furniture` and `chair` (loose furniture, filed as `other` by the labels), plain painted
+  walls listed as `wall_finish` (78 against 55), baseboards in every photo that shows one,
+  and site surfaces on every exterior photo (roof, siding, landscaping, stairs, sidewalk,
+  exterior doors seen from outside). The per-photo labels list those once per room; the
+  model lists everything visible. The decomposed prompts of section 11 encode exactly these
+  conventions, which is why the decomposed run on these models is the one that matters.
+- Cabinets go the other way (count recall 0.51 to 0.19): both gpt-6 models count a run of
+  cabinetry as one unit where the verified boxes count doors and drawer stacks. The
+  countables prompt defines the unit; the one-pass prompt does not.
+- Room type is slightly worse (0.85 to 0.83 and 0.81) and the errors differ in kind: gpt-4.1
+  answered `other` for rooms it did not recognize; the gpt-6 models answer `ambiguous`
+  (abstain) for the basement bedrooms and `mechanical` for the condenser and gas-meter
+  close-ups (the label guide files them under the exterior). Abstention is what the review
+  gate wants; the exterior-equipment convention is a prompt fix.
+- gpt-6.1-sol equals gpt-6-astra on every number that matters at a fifth of the price, so
+  astra is not worth its cost for this step. Sol costs 1.6 times gpt-4.1 per pass ($0.48
+  against $0.30 per 52 photos; about $1 per property for the two-call step) and takes five
+  times longer per photo (10 seconds at low effort, which only matters for the review
+  gate's wall clock, since the calls run in parallel).
+
+### 12.1 Decomposed on gpt-6.1-sol, and every model on one yardstick
+
+The decomposed run (`photo_countables/v2` + `photo_surfaces/v1`, room type from the surfaces
+call, three repeats each, low effort) on gpt-6.1-sol. Its first attempt was invalid: the v2
+prompt asks for a note naming the loose items, sol wrote notes over 200 characters, the strict
+JSON schema cannot carry that limit, and the validator then rejected the whole photo, so 44 of
+156 records fell back to empty (the same defect had cost Opus 3 records, Fable 2, gpt-4.1 1,
+left as they are). `basis.vision.schemas` now cuts an over-long note or description instead
+of failing the photo; the rerun below is clean (156 records, 2 empty answers from the model
+itself, no errors). The Claude rows come from section 14 (same prompts, three repeats, the
+Anthropic provider) and are rescored here with `photo_counts`.
+
+| Model and prompt | Room accuracy | Component P / R / F1 | Label set identical across 3 repeats | Count MAE | Exact count | Signed bias | Count recall | window / door / light / ext. light / outlet / cabinet count recall | Cost per 52 photos | Seconds per photo |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gpt-4.1, one pass | 0.85 | 0.68 / 0.72 / 0.70 | 26 | 0.36 | 0.77 | -0.16 | 0.57 | .79 / .38 / .86 / .30 / .16 / .51 | $0.30 | 2.2 |
+| gpt-4.1, decomposed | 0.90 | 0.66 / 0.72 / 0.69 | 31 | 0.29 | 0.80 | -0.12 | 0.66 | .78 / .38 / .72 / .43 / .78 / .74 | $0.59 | 2.2 in parallel |
+| gpt-6.1-sol, one pass | 0.83 | 0.55 / 0.90 / 0.68 | 25 | 0.30 | 0.83 | -0.03 | 0.73 | .88 / .82 / .90 / .48 / .83 / .19 | $0.48 | 10.5 |
+| gpt-6.1-sol, decomposed | 0.90 | 0.66 / 0.84 / 0.74 | 23 | 0.18 | 0.87 | +0.03 | 0.87 | .88 / .89 / .81 / .90 / .86 / .89 | $0.79 | 11 in parallel |
+| gpt-6-astra, one pass | 0.81 | 0.55 / 0.88 / 0.68 | 27 | 0.29 | 0.83 | -0.01 | 0.76 | .90 / .81 / .94 / .55 / .86 / .21 | $2.44 | 11.0 |
+| Claude Opus 5.5, one pass | 0.88 | 0.59 / 0.91 / 0.72 | 19 | 0.22 | 0.84 | -0.08 | 0.75 | .94 / .76 / .75 / .42 / .79 / .51 | $1.25 | 6.2 |
+| Claude Opus 5.5, decomposed | 0.88 | 0.69 / 0.86 / 0.76 | 20 | 0.17 | 0.88 | -0.05 | 0.83 | .91 / .81 / .85 / .57 / .78 / .89 | $2.23 | 5.3 in parallel |
+| Claude Fable 5.1, one pass | 0.85 | 0.57 / 0.94 / 0.71 | 17 | 0.26 | 0.83 | -0.00 | 0.79 | .90 / .76 / .90 / .39 / .87 / .68 | $3.24 | 7.4 |
+| Claude Fable 5.1, decomposed | 0.87 | 0.72 / 0.89 / 0.79 | 25 | 0.22 | 0.86 | -0.08 | 0.76 | .79 / .80 / .81 / .42 / .81 / .83 | $5.76 | 5.8 in parallel |
+
+Reading:
+
+- Decomposition is worth more on the frontier models than it was on gpt-4.1. On sol it halves
+  the count error (0.30 to 0.18), lifts count recall 0.73 to 0.87 with the bias at zero, fixes
+  the cabinet unit (0.19 to 0.89) because the countables prompt defines it, and, most
+  notably, fixes exterior lights (0.48 to 0.90), the class every one-pass run failed. On Opus
+  it takes count error 0.22 to 0.17 and cabinets 0.51 to 0.89.
+- gpt-6.1-sol decomposed and Opus 5.5 decomposed are the two best configurations and are
+  within noise of each other on counts (0.18 against 0.17 MAE; sol has the higher count recall
+  0.87 against 0.83, Opus the better label sets 0.76 against 0.74 and room type 0.88 against
+  0.90 the other way). Sol costs a third of Opus. Fable has the best label sets of all (0.79)
+  at the highest price and no count advantage.
+- Count recall per class on the best configuration is now 0.81 to 0.90 for every class, from
+  0.16 to 0.86 at the start of this report. What is left is precision (the one-pass frontier
+  models list everything visible, including loose furniture and plain walls, which the
+  decomposed prompts suppress) and the room-type abstentions on the basement bedrooms.
+- Every number here is one property, 52 photos, so the ranking between sol and Opus is not
+  settled; the gap to gpt-4.1 is.
+
+Decision: the per-photo step runs gpt-6.1-sol with the two-call prompts at low effort
+(`VISION_MODEL=gpt-6.1-sol`, `VISION_PHOTO_MODE=decomposed`, reasoning effort low, output
+budget 6000), about $1 per property for the two calls and eleven seconds per photo in
+parallel. Opus 5.5 decomposed is the fallback provider at three times the price with the
+same counts. Next: the same table on a second client package before anything is tuned
+further; a vision-model second look at the SAM 3 boxes of the weak classes; the cabinet
+convention with the engineer.
+
