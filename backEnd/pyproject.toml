@@ -65,6 +65,7 @@ markers = [
     "regression: guards a specific bug that was fixed; never delete without a stated reason",
     "integration: needs a real external dependency such as a Postgres container",
     "slow: takes more than a few seconds",
+    "eval_data: needs the private eval data (BASIS_EVAL_DATA_DIR); skipped without it and deselected in CI",
 ]
 
 [tool.ruff]

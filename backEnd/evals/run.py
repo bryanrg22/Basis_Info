@@ -25,6 +25,10 @@ deterministic baseline runs where one exists:
   synthetic corpus holds none of the cited documents, so nothing resolves (0 of n).
   ``--corpus-text parser`` reads the corpus through the production parse + chunk path
   instead of pymupdf for both (systems ``bm25_pages_parser``, ``page_text_parser``).
+  ``--retrieval-systems`` adds the chunk-level systems of :mod:`evals.retrieval`:
+  ``bm25_chunks``, ``vector_chunks`` (MiniLM cosine) and ``hybrid`` (the production
+  fusion), with a paired bootstrap comparison between every two systems scored;
+  ``--fusion-sweep`` adds the weighted-fusion weight sweep (EVAL_REPORT section 22).
 * ``room_inventory``: ``per_photo_max`` (the labelled per-photo components of
   ``photo_components`` merged per room by label, count = the largest per-photo count:
   what the inventory is with no cross-photo reconciliation, the floor the per-room call
@@ -61,6 +65,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -73,6 +78,7 @@ from pydantic import BaseModel
 
 from basis.classify.store_protocol import InMemoryChunkStore, StoredChunk
 from basis.domain.rules import lookup, normalize_label
+from basis.retrieval.embed import Embedder
 from evals import datasets as ds
 from evals.metrics import (
     DetectionImage,
@@ -89,6 +95,7 @@ from evals.metrics import (
     ir_metrics,
     mean,
     page_citation_status,
+    paired_bootstrap,
     pass_hat_k,
     room_inventory_score,
     summarize_proportion,
@@ -96,6 +103,8 @@ from evals.metrics import (
 )
 
 ABSTAIN: Final = "abstain"
+IR_METRICS: Final = ("ndcg_10", "recall_5", "recall_10", "mrr")
+RETRIEVAL_SYSTEMS: Final = ("bm25_pages", "bm25_chunks", "vector_chunks", "hybrid")
 CORPUS_VERSION: Final = uuid.UUID(int=1)
 _WORD: Final = re.compile(r"[a-z]+")
 # Loose furniture (the FF&E row): listed so the engineer can price it (LABEL_GUIDE section 4,
@@ -595,6 +604,36 @@ def _corpus_system(name: str, corpus_text: str) -> str:
     return name if corpus_text == "pymupdf" else f"{name}_{corpus_text}"
 
 
+def _ir_rows(
+    run: Mapping[str, Sequence[str]], qrels: Mapping[str, Mapping[str, int]]
+) -> list[MetricRow]:
+    """ndcg_10, recall_5, recall_10, mrr (each with its per-query values) and the hole rate."""
+    metrics = ir_metrics(run, qrels)
+    rows: list[MetricRow] = []
+    for name in IR_METRICS:
+        values = [q[name] for q in metrics.per_query.values()]
+        rows.append(
+            MetricRow(
+                name,
+                getattr(metrics, name),
+                metrics.n,
+                clustered_standard_error(values, list(metrics.per_query)),
+                details={"per_query": {q: v[name] for q, v in metrics.per_query.items()}},
+            )
+        )
+    # A hole is a retrieved page with no judgment for that query (Buckley and Voorhees'
+    # sense). Until EVAL_REPORT section 22 a page judged for any query counted as judged,
+    # which understated the holes (bm25_pages_parser: 0.66 that way, 0.83 per query).
+    retrieved = [(qid, doc) for qid, docs in run.items() if qid in qrels for doc in docs[:10]]
+    holes = sum(1 for qid, doc in retrieved if doc not in qrels[qid])
+    rows.append(
+        MetricRow(
+            "hole_rate_at_10", holes / len(retrieved) if retrieved else math.nan, len(retrieved)
+        )
+    )
+    return rows
+
+
 def score_retrieval(
     data: ds.RetrievalQrels,
     split: str,
@@ -625,29 +664,149 @@ def score_retrieval(
             for qid, text in queries.items()
         }
         result.notes.append(f"{len(store.chunks)} page chunks from {len(pdfs)} PDFs")
-    metrics = ir_metrics(run, qrels)
-    for name in ("ndcg_10", "recall_5", "recall_10", "mrr"):
-        values = [q[name] for q in metrics.per_query.values()]
-        result.rows.append(
-            MetricRow(
-                name,
-                getattr(metrics, name),
-                metrics.n,
-                clustered_standard_error(values, list(metrics.per_query)),
-                details={"per_query": {q: v[name] for q, v in metrics.per_query.items()}}
-                if name == "ndcg_10"
-                else {},
-            )
-        )
-    judged = {doc for q in qrels.values() for doc in q}
-    retrieved = [doc for docs in run.values() for doc in docs[:10]]
-    holes = sum(1 for doc in retrieved if doc not in judged)
-    result.rows.append(
-        MetricRow(
-            "hole_rate_at_10", holes / len(retrieved) if retrieved else math.nan, len(retrieved)
+    result.rows = _ir_rows(run, qrels)
+    return result
+
+
+def _per_query(result: TaskResult, metric: str) -> dict[str, float]:
+    row = next(r for r in result.rows if r.metric == metric)
+    return dict(row.details["per_query"])
+
+
+def paired_comparison(results: Sequence[TaskResult], iterations: int = 10_000) -> TaskResult:
+    """Every pair of scored retrieval systems: mean per-query difference (later system
+    minus earlier), 95% bootstrap interval, randomization p, wins / losses / ties."""
+    result = TaskResult("retrieval_qrels", "paired_bootstrap")
+    scored = [r for r in results if not r.skipped]
+    body: list[list[str]] = []
+    for i, base in enumerate(scored):
+        for other in scored[i + 1 :]:
+            for metric in IR_METRICS:
+                a, b = _per_query(other, metric), _per_query(base, metric)
+                queries = sorted(a)
+                diff = paired_bootstrap(
+                    [a[q] for q in queries], [b[q] for q in queries], iterations=iterations
+                )
+                name = f"{metric}:{other.system}-{base.system}"
+                result.rows.append(
+                    MetricRow(
+                        name,
+                        diff.mean,
+                        diff.n,
+                        interval=(diff.low, diff.high),
+                        details={
+                            "p_value": diff.p_value,
+                            "wins": diff.wins,
+                            "losses": diff.losses,
+                            "ties": diff.ties,
+                        },
+                    )
+                )
+                body.append(
+                    [
+                        f"{other.system} - {base.system}",
+                        metric,
+                        f"{diff.mean:+.4f}",
+                        f"[{diff.low:+.4f}, {diff.high:+.4f}]",
+                        f"{diff.p_value:.4f}",
+                        f"{diff.wins}/{diff.losses}/{diff.ties}",
+                    ]
+                )
+    if not body:
+        result.skipped = True
+        result.notes.append("fewer than two scored retrieval systems")
+        return result
+    result.notes.append(
+        f"paired over the same queries; percentile bootstrap ({iterations} resamples, seed 0) "
+        "and two-sided sign-flip randomization p; wins/losses/ties per query"
+    )
+    result.tables.append(
+        (
+            "Paired differences",
+            ["systems", "metric", "mean difference", "95% bootstrap interval", "p", "w/l/t"],
+            body,
         )
     )
     return result
+
+
+def score_chunk_systems(
+    data: ds.RetrievalQrels,
+    split: str,
+    corpus_dir: Path | None,
+    systems: Sequence[str],
+    embedder: Embedder | None = None,
+    sweep: bool = False,
+) -> list[TaskResult]:
+    """``bm25_chunks``, ``vector_chunks`` and ``hybrid`` over the production chunks
+    (:mod:`evals.retrieval`), one result per system, plus the fusion sweep on request."""
+    from evals import retrieval as rt
+
+    qrels = data.qrels(split)
+    pdfs = ds.corpus_pdfs(corpus_dir) if corpus_dir is not None and corpus_dir.is_dir() else {}
+    if not qrels or not pdfs:
+        reason = f"no {split} queries" if not qrels else "no corpus PDFs to search"
+        return [
+            TaskResult("retrieval_qrels", name, notes=[reason], skipped=True) for name in systems
+        ]
+    if embedder is None:
+        from basis.config import get_settings
+        from basis.retrieval.embed import embedder_for
+
+        embedder = embedder_for(get_settings())
+    started = time.perf_counter()
+    chunks = rt.parser_chunks(pdfs)
+    parsed = time.perf_counter()
+    index = rt.ChunkIndex(chunks, embedder.embed([c.text for c in chunks]))
+    embedded = time.perf_counter()
+    queries = {q.id: q.query for q in data.queries if q.id in qrels}
+    runs = rt.run_chunk_systems(index, embedder, queries, rt.production_fusion())
+    setup = (
+        f"{len(chunks)} production chunks from {len(pdfs)} PDFs (parse + chunk "
+        f"{parsed - started:.0f} s, embed with {embedder.name} {embedded - parsed:.0f} s); "
+        f"top {rt.CHUNK_DEPTH} chunks per query read as pages"
+    )
+    results: list[TaskResult] = []
+    for name in systems:
+        run = runs.page_run(name)
+        result = TaskResult("retrieval_qrels", name, rows=_ir_rows(run, qrels), notes=[setup])
+        short = sum(1 for docs in run.values() if len(docs) < rt.PAGE_DEPTH)
+        if short:
+            result.notes.append(f"{short} queries ranked fewer than {rt.PAGE_DEPTH} pages")
+        if name == "hybrid":
+            result.notes.append(
+                f"fusion {runs.fusion.method}"
+                + (
+                    f", BM25 weight {runs.fusion.weight}"
+                    if runs.fusion.method == "weighted"
+                    else ""
+                )
+                + " (Settings.retrieval_fusion / retrieval_bm25_weight)"
+            )
+        results.append(result)
+    if sweep:
+        results[-1].tables.append(_fusion_sweep_table(runs, qrels))
+    return results
+
+
+def _fusion_sweep_table(
+    runs: Any, qrels: Mapping[str, Mapping[str, int]]
+) -> tuple[str, list[str], list[list[str]]]:
+    from evals import retrieval as rt
+
+    def ndcg(run: Mapping[str, Sequence[str]]) -> dict[str, float]:
+        return {q: v["ndcg_10"] for q, v in ir_metrics(run, qrels).per_query.items()}
+
+    rows, loo, chosen = rt.fusion_sweep(runs, ndcg)
+    body = [[row.label, f"{row.mean:.4f}"] for row in rows]
+    picks = ", ".join(f"{label} x{chosen.count(label)}" for label in dict.fromkeys(chosen))
+    body.append(
+        [
+            "leave-one-out choice",
+            f"{sum(loo.values()) / len(loo):.4f} (chosen: {picks})",
+        ]
+    )
+    return ("Fusion sweep (ndcg_10, same candidates)", ["fusion", "ndcg_10"], body)
 
 
 def score_rule_citations(
@@ -1520,7 +1679,19 @@ def evaluate(
     detection_threshold: float = 0.5,
     inventory_file: str = INVENTORY_FILE,
     corpus_text: str = "pymupdf",
+    retrieval_systems: Sequence[str] = ("bm25_pages",),
+    embedder: Embedder | None = None,
+    fusion_sweep: bool = False,
 ) -> list[TaskResult]:
+    """Score every dataset in ``data``.
+
+    ``retrieval_systems`` (``--retrieval-systems``) chooses the retrieval_qrels systems;
+    with more than one, a paired comparison follows them. ``embedder`` is the chunk
+    systems' embedder (default: the production one from settings).
+    """
+    unknown = set(retrieval_systems) - set(RETRIEVAL_SYSTEMS)
+    if unknown or not retrieval_systems:
+        raise ValueError(f"unknown retrieval systems {sorted(unknown)}; known {RETRIEVAL_SYSTEMS}")
     results: list[TaskResult] = []
     rooms = data.get("room_inventory")
     room_labels = rooms if isinstance(rooms, ds.RoomInventorySet) else None
@@ -1542,7 +1713,24 @@ def evaluate(
         elif isinstance(dataset, ds.Assets):
             results.append(score_assets(dataset, split, repeats, saved))
         elif isinstance(dataset, ds.RetrievalQrels):
-            results.append(score_retrieval(dataset, split, repeats, saved, corpus_dir, corpus_text))
+            if saved is not None or tuple(retrieval_systems) == ("bm25_pages",):
+                results.append(
+                    score_retrieval(dataset, split, repeats, saved, corpus_dir, corpus_text)
+                )
+                continue
+            scored: list[TaskResult] = []
+            if "bm25_pages" in retrieval_systems:
+                scored.append(
+                    score_retrieval(dataset, split, repeats, None, corpus_dir, corpus_text)
+                )
+            chunk_systems = [s for s in retrieval_systems if s != "bm25_pages"]
+            if chunk_systems:
+                scored += score_chunk_systems(
+                    dataset, split, corpus_dir, chunk_systems, embedder, fusion_sweep
+                )
+            results += scored
+            if sum(1 for r in scored if not r.skipped) > 1:
+                results.append(paired_comparison(scored))
         elif isinstance(dataset, ds.RuleCitations):
             results.append(
                 score_rule_citations(
@@ -1614,7 +1802,35 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="page text for retrieval_qrels and rule_citations: pymupdf (parser-independent "
         "baseline) or parser (the production parse + chunk path)",
     )
+    parser.add_argument(
+        "--retrieval-systems",
+        default="bm25_pages",
+        help="comma-separated retrieval_qrels systems: "
+        + ", ".join(RETRIEVAL_SYSTEMS)
+        + " (or 'all'); the chunk systems use the production parser, chunker, embedder "
+        "(EMBEDDING_MODEL) and fusion (RETRIEVAL_FUSION, RETRIEVAL_BM25_WEIGHT); two or "
+        "more add a paired bootstrap comparison",
+    )
+    parser.add_argument(
+        "--fusion-sweep",
+        action="store_true",
+        help="with hybrid: also score weighted fusion at BM25 weights 0.0-1.0 and RRF, "
+        "with a leave-one-out estimate of choosing the weight",
+    )
     args = parser.parse_args(argv)
+    systems = (
+        list(RETRIEVAL_SYSTEMS)
+        if args.retrieval_systems == "all"
+        else [s.strip() for s in args.retrieval_systems.split(",") if s.strip()]
+    )
+    unknown = [s for s in systems if s not in RETRIEVAL_SYSTEMS]
+    if unknown or not systems or len(set(systems)) != len(systems):
+        parser.error(
+            f"--retrieval-systems takes distinct names from {', '.join(RETRIEVAL_SYSTEMS)} or 'all'"
+        )
+    args.retrieval_systems = systems
+    if args.fusion_sweep and "hybrid" not in systems:
+        parser.error("--fusion-sweep needs hybrid in --retrieval-systems")
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
     if Path(args.inventory_file).name != args.inventory_file or not args.inventory_file.endswith(
@@ -1650,6 +1866,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         detection_threshold=args.detection_threshold,
         inventory_file=args.inventory_file,
         corpus_text=args.corpus_text,
+        retrieval_systems=args.retrieval_systems,
+        fusion_sweep=args.fusion_sweep,
     )
     report = render_report(
         results, split=args.split, repeats=args.repeats, source=source, git_sha=sha

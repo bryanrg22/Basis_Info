@@ -39,6 +39,20 @@ baseline) or `parser` (the production path: `basis.retrieval.parse.parse_pdf`, t
 citations are checked against). With `parser` the systems are named `bm25_pages_parser`
 and `page_text_parser`. Use `parser` to measure a parser change (EVAL_REPORT 20).
 
+Retrieval systems (`--retrieval-systems`, `retrieval_qrels` only; default `bm25_pages`):
+a comma-separated list of `bm25_pages`, `bm25_chunks`, `vector_chunks`, `hybrid`, or `all`.
+The chunk systems (`evals/retrieval.py`) parse and chunk the corpus with the production
+path, embed every chunk with the production embedder (`EMBEDDING_MODEL`, MiniLM by default;
+about 3 minutes on the six PDFs), rank the top 50 chunks per query and read them as
+de-duplicated `doc_id:page` keys cut at 10. `bm25_chunks` is the store's BM25 index,
+`vector_chunks` exact cosine, `hybrid` `basis.retrieval.hybrid.hybrid_search` with the
+configured fusion (`RETRIEVAL_FUSION`, `RETRIEVAL_BM25_WEIGHT`). Two or more systems add a
+`paired_bootstrap` result: per pair and metric, the mean per-query difference, a 95%
+percentile-bootstrap interval, a sign-flip randomization p and wins/losses/ties.
+`--fusion-sweep` (with `hybrid`) adds weighted fusion at BM25 weights 0.0-1.0 and RRF, and
+the leave-one-out score of choosing the weight on the other queries (EVAL_REPORT 22).
+`hole_rate_at_10` is the share of top-10 pages with no judgment for that query.
+
 ## Dataset files
 
 Every item has `split` (`dev` | `regression` | `held_out`, default `dev`) and, where it

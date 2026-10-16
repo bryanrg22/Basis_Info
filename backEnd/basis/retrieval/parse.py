@@ -73,6 +73,10 @@ MAGIC_WINDOW: Final = 1024
 # limit bounds memory and time per activity; the reference CLI raises it explicitly.
 STUDY_MAX_PAGES: Final = 150
 REFERENCE_MAX_PAGES: Final = 2000
+# Bump when a change alters what this module outputs for an existing PDF; the real-corpus
+# ingest test (tests/integration/retrieval/test_real_corpus.py) pins its chunk counts to
+# this version and asks for a re-measured baseline when it changes.
+PARSER_VERSION: Final = "2026-10-16.two-column"
 
 LINE_Y_TOLERANCE: Final = 5.0  # points; words within this of a line's top join it
 PARAGRAPH_MAX_GAP: Final = 15.0
