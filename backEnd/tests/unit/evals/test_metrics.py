@@ -13,11 +13,13 @@ from evals.metrics import (
     clustered_standard_error,
     field_accuracy,
     field_matches,
+    inventory_metrics,
     ir_metrics,
     ndcg_at_k,
     pass_hat_k,
     recall_at_k,
     reciprocal_rank,
+    room_inventory_score,
     summarize_proportion,
     wilson_interval,
 )
@@ -205,3 +207,68 @@ def test_summarize_proportion() -> None:
     assert summary["value"] == 0.75 and summary["n"] == 4
     assert summary["stderr"] == pytest.approx(0.25)
     assert summary["interval"] == list(wilson_interval(3, 4))
+
+
+# --------------------------------------------------------------------------- inventories
+
+
+def test_inventory_metrics_by_hand() -> None:
+    gold = {"r1": {"sink": 2, "countertop": 1}, "r2": {"toilet": 1}}
+    predicted = {"r1": {"sink": 3, "countertop": 1, "stove": 1}, "r2": {}, "r9": {"sink": 1}}
+    m = inventory_metrics(gold, predicted)
+    # pairs (label, gold, predicted): r1 countertop (1, 1), sink (2, 3), stove (0, 1);
+    # r2 toilet (1, 0). r9 is not a gold room and is ignored.
+    assert m.per_room["r1"].pairs == (("countertop", 1, 1), ("sink", 2, 3), ("stove", 0, 1))
+    assert (m.rooms, m.pairs) == (2, 4)
+    assert m.count_mae == pytest.approx(3 / 4)  # |0| + |1| + |1| + |-1|
+    assert m.exact_count_rate == pytest.approx(1 / 4)
+    assert m.signed_bias == pytest.approx(1 / 4)  # (0 + 1 + 1 - 1) / 4: over-counting
+    # Clustered by room. MAE values [0, 1, 1 | 1], mean 0.75: residual sums r1 -0.25,
+    # r2 0.25; var = 2/1 x (0.0625 + 0.0625) / 16 = 0.015625 -> SE 0.125.
+    assert m.count_mae_se == pytest.approx(0.125)
+    # exact [1, 0, 0 | 0], mean 0.25: sums r1 0.25, r2 -0.25 -> same SE 0.125.
+    assert m.exact_count_se == pytest.approx(0.125)
+    # signed [0, 1, 1 | -1], mean 0.25: sums r1 1.25, r2 -1.25;
+    # var = 2 x (1.5625 x 2) / 16 = 0.390625 -> SE 0.625.
+    assert m.signed_bias_se == pytest.approx(0.625)
+    assert m.room_exact_rate == 0.0
+    # r1: predicted {sink, countertop, stove} vs gold {sink, countertop}: P 2/3, R 1,
+    # F1 4/5; r2: nothing predicted: P 0, R 0, F1 0. Macro over rooms.
+    assert (m.per_room["r1"].precision, m.per_room["r1"].recall) == (pytest.approx(2 / 3), 1.0)
+    assert m.per_room["r1"].f1 == pytest.approx(0.8)
+    assert m.label_precision == pytest.approx(1 / 3)
+    assert m.label_recall == pytest.approx(1 / 2)
+    assert m.label_f1 == pytest.approx(0.4)
+
+
+def test_room_inventory_score_edges() -> None:
+    empty = room_inventory_score({}, {})
+    assert (empty.pairs, empty.exact, empty.precision, empty.recall, empty.f1) == (
+        (),
+        True,
+        1.0,
+        1.0,
+        1.0,
+    )
+    # A zero count is absence; an exact inventory scores 1 everywhere.
+    same = room_inventory_score({"sink": 1}, {"sink": 1, "stove": 0})
+    assert (same.pairs, same.exact, same.f1) == ((("sink", 1, 1),), True, 1.0)
+    # Right labels, wrong count: label sets agree, the inventory does not.
+    count = room_inventory_score({"sink": 1}, {"sink": 2})
+    assert (count.exact, count.precision, count.recall) == (False, 1.0, 1.0)
+    # Something predicted in a room with no gold objects.
+    spurious = room_inventory_score({}, {"sink": 1})
+    assert (spurious.exact, spurious.precision, spurious.recall, spurious.f1) == (
+        False,
+        0.0,
+        0.0,
+        0.0,
+    )
+    with pytest.raises(ValueError, match="negative"):
+        room_inventory_score({"sink": 1}, {"sink": -1})
+
+
+def test_inventory_metrics_with_no_pairs() -> None:
+    m = inventory_metrics({"r1": {}}, {})
+    assert m.pairs == 0 and math.isnan(m.count_mae) and math.isnan(m.count_mae_se)
+    assert m.room_exact_rate == 1.0

@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
 from basis.llm.errors import ProviderBadResponse
 from basis.llm.prompts import Prompt
@@ -36,6 +37,9 @@ from basis.vision.prep import PreparedImage, prepare_image
 from basis.vision.schemas import ModelPhotoAnalysis, PhotoAnalysis, RoomType, ambiguous_analysis
 
 PROMPT_NAME: Final = "photo_analysis"
+# The released version the pipeline runs. A newer version is released for evaluation first
+# (evals.predict_photos --prompt vN) and promoted here only when it wins (EVAL_REPORT).
+PROMPT_VERSION: Final = "v1"
 MAX_ATTEMPTS: Final = 2
 # Below this self-reported room confidence the photo goes to the engineer (eval-tuned later).
 ROOM_REVIEW_THRESHOLD: Final = 0.5
@@ -43,6 +47,11 @@ USER_TEXT: Final = (
     "Analyze this property photo. Identify the room type and every visible building "
     "component, using only what is visible."
 )
+
+
+def released_prompt() -> Prompt:
+    """The photo prompt the pipeline runs (``PROMPT_NAME``/``PROMPT_VERSION``)."""
+    return prompts.load(PROMPT_NAME, PROMPT_VERSION)
 
 
 def _no_heartbeat(_: str) -> None:

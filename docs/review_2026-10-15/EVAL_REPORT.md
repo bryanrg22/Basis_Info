@@ -143,9 +143,9 @@ converter.
 | Room accuracy (repeat 1) | 0.808 | 52 | [0.681, 0.892] | repeats 2 and 3: 0.827, 0.788 |
 | Room macro-F1 | 0.748 | 52 | | 13 room types in the labels |
 | Room pass^3 (all three repeats right) | 0.788 | 52 | | the room answer was identical across repeats for 50 of 52 photos |
-| Component set precision | 0.616 | 271 predicted | | over the three repeats: 0.644 |
-| Component set recall | 0.596 | 280 labelled | | over the three repeats: 0.595 |
-| Component set F1 | 0.606 | | | |
+| Component set precision | 0.602 | 271 predicted | | loose furniture is `other` on both sides (see the label guide) |
+| Component set recall | 0.632 | 258 labelled | | |
+| Component set F1 | 0.616 | | | |
 | Photos with the exact label set | 0.058 | 52 | [0.020, 0.156] | |
 | Component set identical across the three repeats | 16 of 52 | | | temperature 0 does not make the list stable |
 
@@ -155,9 +155,10 @@ What the errors are (all three repeats pooled):
   utility photos called `mechanical` (4); hallway, bathroom and living room sometimes
   `other`. The property's sloped upper-floor ceilings and finished-basement look explain
   the bedroom/basement confusion; the file names ("2nd Floor Bed 2") would settle it.
-- Components most often missed: furniture (54, the prompt asks for building components,
-  so this is partly by design), ceiling finish (29), electrical outlets (22), built-in
-  shelving (16), baseboards (14), gutters (13), hardwood and vinyl floors (12 each).
+- Components most often missed (before loose furniture was moved to `other`): furniture
+  (54; the prompt asks for building components, so the label guide now files loose
+  furniture as `other` and it is excluded), ceiling finish (29), electrical outlets (22),
+  built-in shelving (16), baseboards (14), gutters (13), hardwood and vinyl floors (12 each).
 - Components most often predicted but not labelled: `wall_finish` (50), `interior_door`
   (37), `light_fixture` (34), `window` (23), `exterior_door` (17). Several of these are
   convention disagreements rather than model errors: the labelling did not list plain
@@ -174,5 +175,139 @@ countertops. The next step is the design in `VISION_RESEARCH.md`: group photos i
 from file names plus the model's room type, then one reconciliation call per room over
 the per-photo results that returns each distinct object with the photos it appears in,
 scored per room against a human inventory (count error, exact-match rate, signed bias).
-That human per-room inventory does not exist yet for this package; the per-photo labels
-have to be merged by room first, which is the labelling task before that step.
+That human per-room inventory was labelled the same day (section 7).
+
+## 7. Counting once per room: heuristic merge versus the reconciliation call (2026-10-15)
+
+Labels: a per-room inventory of the package was built the same day from the photos
+(`labels/room_inventory_v1.json` in the private data directory, with `LABEL_GUIDE.md`
+fixing the conventions and `room_aliases_v1.json` naming which file names are views of the
+same room, each alias backed by an object visible in both photos). 52 photos, 33 rooms,
+16 aliases; 312 per-photo object mentions became 228 per-room objects (199 scored, 29
+`other`). Only 8 rooms have more than one photo (27 photos), so on this package the
+duplicate problem is confined to those rooms; the exterior is one room of 11 photos.
+
+Systems (room grouping by file name plus the model's room type, `basis.vision.rooms`):
+
+- `per_photo_max`: the hand per-photo labels merged by max count. Not a model; it shows
+  how far "perfect per-photo detection, no reconciliation" gets.
+- heuristic merge: the model's per-photo results (repeat 1 of section 6) merged by max
+  count per label (`basis.vision.reconcile.heuristic_merge`).
+- reconciliation call: the same per-photo results plus all of the room's photos in one
+  structured call that returns each object once with the images it appears in
+  (`basis.vision.reconcile.reconcile_room`, prompt `room_inventory/v1`), three repeats,
+  $0.15 in total, no call failed, no room was flagged.
+
+| Metric (per room-label pair unless noted) | per_photo_max | heuristic merge | reconciliation call |
+|---|---|---|---|
+| count MAE | 0.56 | 0.95 | 0.89 |
+| exact-count rate | 0.63 | 0.36 | 0.38 |
+| signed bias (over-counting is positive) | -0.23 | +0.09 | +0.03 |
+| rooms with the exact inventory (of 33) | 0.18 | 0.00 | 0.00 |
+| label precision / recall / F1 (per room) | 0.86 / 0.85 / 0.85 | 0.65 / 0.65 / 0.64 | 0.65 / 0.65 / 0.64 |
+| inventory identical across 3 repeats | n/a | deterministic | 19 of 33 rooms |
+
+On the 8 multi-photo rooms only (where reconciliation can act):
+
+| | heuristic merge | reconciliation call (repeat 1) |
+|---|---|---|
+| pairs | 93 | 94 |
+| count MAE | 1.28 | 1.17 |
+| exact-count rate | 0.32 | 0.35 |
+| signed bias | -0.03 | -0.13 |
+| over / under counted pairs | 35 / 28 | 33 / 28 |
+
+What the numbers say:
+
+- The reconciliation call does what it was built for and nothing more. Where the
+  per-photo results had duplicates it removes them: the kitchen's cabinets go from 7
+  (three photos' counts added) to 1, the exterior railing from 6 to 1, and the bias moves
+  from over-counting toward zero. It cannot add objects the per-photo step never saw, so
+  label precision and recall do not move.
+- The dominant error is per-photo recognition and counting, not duplication. The hand
+  labels merged with the crudest rule still reach 0.85 label F1 and 63% exact counts; the
+  model reaches 0.64 and 36 to 38%. The misses are repeated small objects: the exterior
+  has about 30 windows and the model reports 7, eight outdoor lights and the model reports
+  2; a kitchen with six light fixtures gets 4. Large, singular objects (sink, stove,
+  refrigerator, garage door, signage) are right.
+- Grouping by file name worked for every photo of this package (no photo unmatched, every
+  alias resolved), and the one weak alias (a mechanical close-up placed by elimination) is
+  recorded as such in the labels.
+- The reconciliation call is not deterministic: 14 of 33 rooms change between identical
+  runs. The engineer sees the per-object image indices, so a merge can be checked, but a
+  count that changes run to run cannot be presented as a measurement.
+
+What to do next, in order, each measured with this dataset:
+
+1. Keep the reconciliation call as the merge step and ship the grouping; both are cheap
+   and auditable. Expose the grouping at the rooms review gate so the engineer confirms
+   it (the aliases are exactly the corrections they would make).
+2. Attack per-photo recognition, which is where the error is: run the same per-photo
+   evaluation (section 6) with a stronger vision model and with the label guide's
+   conventions written into the prompt, and keep whichever wins on label F1.
+3. For countable repeated objects (windows, outlets, lights, cabinets) an open-vocabulary
+   detector with boxes (VISION_RESEARCH.md section 2) is the tool, because a language
+   model's count of "many identical things" is the weakest part of what was measured.
+   Boxes also give the engineer's interface what it needs to show and correct a count.
+4. Re-label the two rooms whose floors were too dark to judge once better photos exist,
+   and decide the open tub-versus-shower calls with the engineer.
+
+## 8. Per-photo model and prompt: a two-by-two on the real photos (2026-10-15)
+
+Question: does a stronger vision model, or writing the label guide's conventions into the
+prompt, move the per-photo numbers of section 6? Four runs of `evals.predict_photos`,
+three repeats each, scored with the same labels (loose furniture `other` on both sides).
+`gpt-4.1-mini` is the Azure deployment the pipeline uses today; `gpt-4.1` was called
+through OpenAI directly (`LLM_PRIMARY=openai`, `--model gpt-4.1`). Prompt `v2` is
+`photo_analysis/v2`: windows and doors always counted, finishes once and only when
+distinct, composite objects, loose furniture as `other`, careful counts of repeated
+objects. The pipeline stays pinned to `v1` (`basis.vision.analyze.PROMPT_VERSION`).
+
+| Run | Room accuracy | Room pass^3 | Component precision | Component recall | Component F1 | Label set identical across 3 repeats | Count MAE on shared labels | Exact count on shared labels | Cost per 52 photos | Seconds per photo |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gpt-4.1-mini, v1 (today) | 0.81 | 0.79 | 0.60 | 0.63 | 0.62 | 16 of 52 | 0.50 | 0.74 | $0.06 | 4.3 |
+| gpt-4.1-mini, v2 | 0.85 | 0.79 | 0.58 | 0.66 | 0.62 | 9 of 52 | 0.46 | 0.77 | $0.08 | 5.5 |
+| gpt-4.1, v1 | 0.85 | 0.85 | 0.63 | 0.72 | 0.67 | 26 of 52 | 0.44 | 0.78 | $0.30 | 2.2 |
+| gpt-4.1, v2 | 0.81 | 0.79 | 0.63 | 0.68 | 0.65 | 27 of 52 | 0.39 | 0.82 | $0.38 | 2.3 |
+
+"Shared labels" are the (photo, label) pairs both the model and the labels list; the count
+metrics there ask whether the model counts right what it did find. Per-photo count
+metrics are not yet in the harness (computed from the raw records; add them).
+
+Reading the table:
+
+- The model is the lever. `gpt-4.1` raises component recall from 0.63 to 0.72 and F1 from
+  0.62 to 0.67, gets 46 of 52 room labels right on all three repeats, returns the same
+  label set across repeats for half the photos instead of a third, and answers in half
+  the time. It costs five times more per photo, which is still under a dollar per
+  property.
+- The prompt is not. Writing the conventions in (`v2`) improves the counts of what is
+  found (exact count 0.74 to 0.77 on the small model, 0.78 to 0.82 on the large one) but
+  lowers precision or recall on label sets, and on the small model makes the output less
+  stable. Its instructions about what not to list cost more than its counting
+  instructions gain. `v2` stays released for later experiments; the pipeline keeps `v1`.
+- Repeated small objects are not solved by either change: the exterior's windows and
+  lights are still undercounted by every run. That is the detector question (section 7,
+  next steps, and the detection research).
+
+Decision: switch the pipeline's vision model to `gpt-4.1` (a settings change:
+`VISION_MODEL=gpt-4.1` with an OpenAI key, or an Azure `gpt-4.1` vision deployment);
+keep prompt `v1`; re-run section 7 with the new per-photo results (below).
+
+Section 7 re-run on the `gpt-4.1` per-photo results (repeat 1), three repeats of the
+reconciliation call:
+
+| System | count MAE | exact-count rate | signed bias | rooms exact (of 33) | label F1 | inventory identical across 3 repeats | cost |
+|---|---|---|---|---|---|---|---|
+| heuristic merge (section 7, `gpt-4.1-mini` per photo) | 0.95 | 0.36 | +0.09 | 0 | 0.64 | deterministic | |
+| reconciliation call, `gpt-4.1-mini` throughout (section 7) | 0.89 | 0.38 | +0.03 | 0 | 0.64 | 19 | $0.15 |
+| heuristic merge, `gpt-4.1` per photo | 0.82 | 0.43 | +0.04 | 0 | 0.69 | deterministic | |
+| reconciliation call, `gpt-4.1` per photo, `gpt-4.1-mini` reconciling | 0.81 | 0.43 | +0.03 | 1 | 0.69 | 22 | $0.17 |
+| reconciliation call, `gpt-4.1` per photo, `gpt-4.1` reconciling | 0.84 | 0.41 | +0.09 | 0 | 0.69 | 22 | $0.75 |
+
+The per-photo model upgrade moved the room-level numbers more than the reconciliation
+step does (count MAE 0.95 to 0.82 from the model alone; 0.82 to 0.81 from reconciling).
+Reconciling with the larger model is not better and costs five times more, so the
+reconciliation call can stay on the small model. Both reconciliation variants are stable
+for 22 of 33 rooms. Per-room exact inventories remain rare (one room), which is the
+detection ceiling again: the objects the per-photo step never finds cannot be counted.
