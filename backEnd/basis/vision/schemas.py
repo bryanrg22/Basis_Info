@@ -13,11 +13,17 @@ Vocabulary choices:
   scored as an abstention by the eval, BUILD_PLAN 13.2). ``other`` is a room that is
   clearly none of the listed types. Values outside the enum that reach
   :func:`normalize_room_type` (correction input, older raw payloads) map to ``other``.
-* ``ComponentLabel`` (71 labels + ``other``) is the union of the legacy static
+* ``ComponentLabel`` (77 labels + ``other``) is the union of the legacy static
   classification rule keys (``agentic/agents/static_classification_rules.py``), the
   synthetic fixture vocabulary (``tests/fixtures/synthetic/photos/labels.json``) and the
   building systems a cost segregation study separates (HVAC, electrical, fire safety,
-  site work). Labels are snake_case nouns so the classification rules can key on them.
+  site work), plus six labels for report rows the engineer writes that had none
+  (EVAL_REPORT sections 13 and 19): ``concrete_floor`` (a sealed or bare concrete floor),
+  ``half_wall`` (a partial-height interior wall), ``bathroom_accessory`` (towel bars,
+  paper holders, grab bars, shower rods), ``window_guard`` (bars, grilles or guards over a
+  window or door), ``shed`` (a detached shed) and ``concrete_pad`` (an exterior pad that
+  equipment stands on). Labels are snake_case nouns so the classification rules can key on
+  them.
 * Confidence is the model's self-report in [0, 1]; it is recorded, not trusted: a photo
   is ``needs_review`` when the room is ``ambiguous`` or its confidence is below the
   review threshold (``basis.vision.analyze``).
@@ -71,6 +77,8 @@ class ComponentLabel(StrEnum):
     BASEBOARD = "baseboard"
     CROWN_MOLDING = "crown_molding"
     WAINSCOTING = "wainscoting"
+    CONCRETE_FLOOR = "concrete_floor"
+    HALF_WALL = "half_wall"
     INTERIOR_DOOR = "interior_door"
     EXTERIOR_DOOR = "exterior_door"
     WINDOW = "window"
@@ -101,6 +109,7 @@ class ComponentLabel(StrEnum):
     TOILET = "toilet"
     BATHTUB = "bathtub"
     SHOWER = "shower"
+    BATHROOM_ACCESSORY = "bathroom_accessory"
     # Lighting and electrical
     LIGHT_FIXTURE = "light_fixture"
     CEILING_FAN = "ceiling_fan"
@@ -118,6 +127,7 @@ class ComponentLabel(StrEnum):
     SPRINKLER_SYSTEM = "sprinkler_system"
     SECURITY_SYSTEM = "security_system"
     DOORBELL = "doorbell"
+    WINDOW_GUARD = "window_guard"
     # Furniture and movable property
     FURNITURE = "furniture"
     DESK = "desk"
@@ -139,6 +149,8 @@ class ComponentLabel(StrEnum):
     PARKING_LOT = "parking_lot"
     LANDSCAPING = "landscaping"
     SIGNAGE = "signage"
+    SHED = "shed"
+    CONCRETE_PAD = "concrete_pad"
     OTHER = "other"
 
 

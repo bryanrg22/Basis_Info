@@ -114,9 +114,9 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
     )
     by_prompt = Counter((r.model, r.prompt_version) for r in provider.requests)
     assert by_prompt == {
-        ("gpt-6.1-sol", "photo_countables/v2"): 3,
-        ("gpt-6.1-sol", "photo_surfaces/v1"): 3,
-        ("claude-opus-5-5", "photo_countables/v2"): 3,
+        ("gpt-6.1-sol", "photo_countables/v3"): 3,
+        ("gpt-6.1-sol", "photo_surfaces/v2"): 3,
+        ("claude-opus-5-5", "photo_countables/v3"): 3,
         ("claude-sonnet-5-5", "room_inventory/v3"): 1,  # the two-photo Kitchen only
     }
     components = await rows(run, Component, sid, 1)

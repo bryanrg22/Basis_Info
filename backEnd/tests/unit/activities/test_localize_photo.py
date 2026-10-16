@@ -65,8 +65,13 @@ def instance(label: str, score: float, x1: float = 0.1, with_mask: bool = True) 
 
 def script() -> dict[str, list[Instance]]:
     return {
-        # window: counted at 0.6, so 0.55 is a candidate; 0.2 is below the candidate floor
-        "window": [instance("window", 0.9), instance("window", 0.55, 0.5), instance("window", 0.2)],
+        # phrase set v3 (EVAL_REPORT 19): window ("house window") counted at 0.65, so 0.55 is a
+        # candidate; 0.2 is below the candidate floor (0.25)
+        "house window": [
+            instance("window", 0.9),
+            instance("window", 0.55, 0.5),
+            instance("window", 0.2),
+        ],
         "kitchen cabinet": [instance("kitchen_cabinet", 0.52, with_mask=False)],
         "countertop": [instance("countertop", 0.7)],
     }
@@ -112,12 +117,12 @@ async def test_instances_are_stored_with_counted_flags_and_masks(
     output = await activity_env.run(
         LocalizePhoto(dataclasses.replace(deps, localizer=localizer)).run, localize_input(seeded)
     )
-    assert (output.status, output.instances, output.counted) == ("done", 4, 3)
+    assert (output.status, output.instances, output.counted) == ("done", 4, 2)
     assert output.cost_usd == pytest.approx(2.0 * 0.000975)
 
     [(_, phrases, threshold)] = localizer.calls
     assert threshold == CANDIDATE_THRESHOLD  # one full-frame call, candidates kept
-    assert {"window", "kitchen cabinet", "countertop", "electrical outlet"} <= set(phrases)
+    assert {"house window", "kitchen cabinet", "countertop", "wall outlet"} <= set(phrases)
     assert "wall" not in phrases and "carpet" not in phrases  # surfaces are not prompted
 
     rows = await stored(deps, PhotoObject)
@@ -131,8 +136,9 @@ async def test_instances_are_stored_with_counted_flags_and_masks(
     for row in rows:
         by_label.setdefault(row.label, []).append(row)
     windows = sorted(by_label["window"], key=lambda r: -(r.score or 0))
-    assert [w.counted for w in windows] == [True, False]  # window threshold 0.6 (10.2)
-    assert by_label["kitchen_cabinet"][0].counted is True  # default threshold 0.5
+    assert [w.counted for w in windows] == [True, False]  # window threshold 0.65 (section 19)
+    assert by_label["kitchen_cabinet"][0].counted is False  # cabinet threshold 0.7
+    assert by_label["countertop"][0].counted is True  # no table entry: the default 0.5
     assert by_label["kitchen_cabinet"][0].mask is None
     top = windows[0]
     assert (top.source, top.created_by, top.revision) == ("model", None, 1)
@@ -142,7 +148,17 @@ async def test_instances_are_stored_with_counted_flags_and_masks(
 
     [status] = await stored(deps, PhotoLocalization)
     assert (status.status, status.instances, status.reason) == ("done", 4, None)
-    assert status.params["count_thresholds"] == {"default": 0.5, "window": 0.6}
+    assert status.params["phrase_set"] == "v3"
+    assert status.params["count_thresholds"] == {
+        "default": 0.5,
+        "window": 0.65,
+        "interior_door": 0.5,
+        "exterior_door": 0.85,
+        "light_fixture": 0.7,
+        "outdoor_lighting": 0.3,
+        "electrical_outlet": 0.55,
+        "kitchen_cabinet": 0.7,
+    }
     assert status.params["tiling"] is False
     assert status.image_width is not None and status.cost_usd == pytest.approx(0.00195)
     assert activity_env.heartbeats
@@ -247,9 +263,10 @@ async def test_a_photo_of_another_study_is_a_validation_error(
 
 
 def test_phrase_type_is_what_the_fake_is_scripted_by() -> None:
-    """The script above keys on phrase texts of the v1 table (guards a silent no-match)."""
-    from basis.vision.localize import PHRASES
+    """The script above keys on phrase texts of the default table the activity prompts
+    (guards a silent no-match)."""
+    from basis.vision.localize import DEFAULT_PHRASE_SET, PHRASE_SETS
 
-    texts = {p for phrases in PHRASES.values() for p in phrases}
+    texts = {p for phrases in PHRASE_SETS[DEFAULT_PHRASE_SET].values() for p in phrases}
     assert set(script()) <= texts
-    assert Phrase(label=ComponentLabel.WINDOW, text="window").text in texts
+    assert Phrase(label=ComponentLabel.WINDOW, text="house window").text in texts

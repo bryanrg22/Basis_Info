@@ -58,8 +58,8 @@ assert cost_usd(PHOTO_MODEL, PHOTO_USAGE) == PHOTO_COST_USD
 
 APPRAISAL_FIXTURE: Final = "urar_sample.pdf"
 ROOM_CONFIDENCE: Final = 0.9
-# The labels basis/prompts/photo_surfaces/v1.md asks for; every other label (``other``
-# included: loose furniture) belongs to the countables call.
+# The labels the released photo_surfaces prompt asks for; every other label (``other``
+# and ``furniture`` included) belongs to the countables call.
 SURFACE_LABELS: Final = frozenset(label.value for label in localize.SURFACE_LABELS)
 
 

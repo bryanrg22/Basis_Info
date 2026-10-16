@@ -9,7 +9,8 @@ dataset directory (``--dataset``: ``detection_boxes_v1.json`` and the photos in
 
     <out>/detection_boxes.json   {"<file>": [{"label", "score", "x1", "y1", "x2", "y2"}]}
                                  or {"repeats": [...]}: what evals.run scores
-    <out>/photo_counts.json      {"<file>": {"<label>": count}} at --count-threshold
+    <out>/photo_counts.json      {"<file>": {"<label>": count}} at each class's threshold
+                                 of the phrase set (--count-threshold: one for all)
     <out>/instances_raw.jsonl    one line per (file, repeat): every instance with its
                                  run-length mask (for evals.render_masks and the UI
                                  experiment), the calls, predict seconds and cost
@@ -49,11 +50,13 @@ from typing import Any
 from basis.config import Settings, load_settings
 from basis.llm.provider import Budget, BudgetExceededError
 from basis.vision.localize import (
+    DEFAULT_PHRASE_SET,
     PHRASE_SETS,
     Localization,
     Localizer,
     LocalizerError,
     build_replicate_localizer,
+    class_counts,
     counts,
     localize_photo,
     prompt_labels,
@@ -75,9 +78,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split", default="dev", help="dataset split to run (with --dataset)")
     parser.add_argument("--tiling", choices=("on", "off"), default="off")
     parser.add_argument("--merge-metric", choices=("iou", "ios"), default="iou")
-    parser.add_argument("--phrase-set", choices=tuple(PHRASE_SETS), default="v1")
+    parser.add_argument("--phrase-set", choices=tuple(PHRASE_SETS), default=DEFAULT_PHRASE_SET)
+    parser.add_argument(
+        "--phrase-dedupe",
+        choices=("on", "off"),
+        default="on",
+        help="off keeps every phrase's instances (the phrase-pool experiment; full frame only)",
+    )
     parser.add_argument("--threshold", type=float, default=0.1, help="sent to the model")
-    parser.add_argument("--count-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--count-threshold",
+        type=float,
+        default=None,
+        help="one count threshold for every class (default: the phrase set's per-class table)",
+    )
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument(
         "--phrases-from", choices=("vlm", "countable", "all", "dataset"), default=None
@@ -95,8 +109,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--phrases-from vlm needs --photo-raw (a predict_photos photo_raw.jsonl)")
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
+    if args.phrase_dedupe == "off" and args.tiling == "on":
+        parser.error("--phrase-dedupe off is for the full frame only (--tiling off)")
     for name in ("threshold", "count_threshold"):
-        if not 0.0 <= getattr(args, name) <= 1.0:
+        value = getattr(args, name)
+        if value is not None and not 0.0 <= value <= 1.0:
             parser.error(f"--{name.replace('_', '-')} must be in [0, 1]")
     return args
 
@@ -225,6 +242,7 @@ async def run(args: argparse.Namespace) -> int:
                     threshold=args.threshold,
                     merge_metric=args.merge_metric,
                     phrase_set=args.phrase_set,
+                    dedupe=args.phrase_dedupe == "on",
                 )
             except (LocalizerError, BudgetExceededError) as exc:
                 return base | {"error": f"{type(exc).__name__}: {exc}"}
@@ -232,7 +250,11 @@ async def run(args: argparse.Namespace) -> int:
             "image": {"width": found.width, "height": found.height, "sha256": found.image_sha256},
             "instances": [i.model_dump(mode="json") for i in found.instances],
             "calls": [c.model_dump(mode="json") for c in found.calls],
-            "counts": counts(found, args.count_threshold),
+            "counts": (
+                class_counts(found, args.phrase_set)
+                if args.count_threshold is None
+                else counts(found, args.count_threshold)
+            ),
             "unlocalized": unlocalized(labels, found) if args.phrases_from == "vlm" else [],
             "boxes": _box_record(found),
             "predict_seconds": round(found.predict_seconds, 3),
@@ -293,8 +315,11 @@ async def run(args: argparse.Namespace) -> int:
                 "tiling": tiling,
                 "merge_metric": args.merge_metric,
                 "phrase_set": args.phrase_set,
+                "phrase_dedupe": args.phrase_dedupe,
                 "threshold": args.threshold,
-                "count_threshold": args.count_threshold,
+                "count_threshold": (
+                    "per_class" if args.count_threshold is None else args.count_threshold
+                ),
                 "phrases_from": args.phrases_from,
                 "model": "vufinder/sam3",
                 "version": settings.sam3_replicate_version,
