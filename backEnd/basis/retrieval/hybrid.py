@@ -122,6 +122,6 @@ async def hybrid_search(
     """
     candidates = k * CANDIDATE_FACTOR
     bm25 = await store.search_bm25(corpus_version_id, query, candidates)
-    [embedding] = await asyncio.to_thread(embedder.embed, [query])
+    [embedding] = await asyncio.to_thread(embedder.embed_query, [query])
     vec = await store.search_vector(corpus_version_id, embedding, candidates)
     return fuse(bm25, vec, method, weight, limit=k)

@@ -105,3 +105,65 @@ def test_hash_embedder_is_refused_outside_dev_and_test(env: str) -> None:
                 "embedding_model": "hash",
             }
         )
+
+
+# ----------------------------------------------------------------- prefixes (section 23)
+
+
+class FakeModel:
+    """Records what ``encode`` was given; returns unit vectors of the right size."""
+
+    def __init__(self, dim: int = EMBEDDING_DIM) -> None:
+        self.seen: list[list[str]] = []
+        self.dim = dim
+
+    def encode(self, texts: list[str], **_: object) -> list[list[float]]:
+        self.seen.append(list(texts))
+        return [[1.0] + [0.0] * (self.dim - 1) for _ in texts]
+
+
+@pytest.mark.parametrize(
+    ("model", "query", "passage"),
+    [
+        (DEFAULT_MODEL, "", ""),
+        ("BAAI/bge-small-en-v1.5", "Represent this sentence for searching relevant passages: ", ""),
+        ("intfloat/e5-small-v2", "query: ", "passage: "),
+        ("some/unlisted-model", "", ""),
+    ],
+)
+def test_queries_and_passages_get_the_models_prefixes(
+    monkeypatch: pytest.MonkeyPatch, model: str, query: str, passage: str
+) -> None:
+    from basis.retrieval import embed as embed_module
+
+    fake = FakeModel()
+    monkeypatch.setattr(embed_module, "load_model", lambda name: fake)
+    embedder = SentenceTransformerEmbedder(model)
+    assert isinstance(embedder, Embedder)
+    embedder.embed(["Section 1245 property"])
+    embedder.embed_query(["what is 1245 property"])
+    assert fake.seen == [[passage + "Section 1245 property"], [query + "what is 1245 property"]]
+    assert embedder.embed_query([]) == [] and len(fake.seen) == 2
+
+
+def test_every_listed_model_fits_the_vector_column() -> None:
+    from basis.db.models import EMBEDDING_DIM as COLUMN_DIM
+    from basis.retrieval.embed import MODEL_SPECS
+
+    assert DEFAULT_MODEL in MODEL_SPECS
+    assert {spec.dim for spec in MODEL_SPECS.values()} == {COLUMN_DIM}
+    assert MODEL_SPECS[DEFAULT_MODEL].window == 256
+
+
+def test_wrong_dimension_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    from basis.retrieval import embed as embed_module
+    from basis.retrieval.embed import EmbedderConfigError
+
+    monkeypatch.setattr(embed_module, "load_model", lambda name: FakeModel(dim=768))
+    with pytest.raises(EmbedderConfigError):
+        SentenceTransformerEmbedder("BAAI/bge-base-en-v1.5").embed_query(["x"])
+
+
+def test_hash_embedder_embeds_queries_like_passages() -> None:
+    embedder = HashEmbedder()
+    assert embedder.embed_query(["asset class 57.0"]) == embedder.embed(["asset class 57.0"])

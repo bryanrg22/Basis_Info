@@ -213,10 +213,23 @@ def test_intact_sentences_need_one_chunk_to_hold_the_whole_sentence() -> None:
 def test_score_chunk_systems_on_the_synthetic_corpus() -> None:
     data = ds.synthetic_smoke()["retrieval_qrels"]
     assert isinstance(data, ds.RetrievalQrels)
-    results = score_chunk_systems(
+    scored = score_chunk_systems(
         data, "dev", CORPUS, ["bm25_chunks", "vector_chunks", "hybrid"], HashEmbedder(), sweep=True
     )
-    assert [r.system for r in results] == ["bm25_chunks", "vector_chunks", "hybrid"]
+    assert [(r.dataset, r.system) for r in scored] == [
+        ("retrieval_qrels", "bm25_chunks"),
+        ("retrieval_qrels", "vector_chunks"),
+        ("retrieval_qrels", "hybrid"),
+        ("rule_citations", "resolve_bm25"),
+        ("rule_citations", "resolve_hybrid"),
+    ]
+    results, rules = scored[:3], scored[3:]
+    # The rules table cites the IRS PDFs; the synthetic corpus has none of them.
+    for rule in rules:
+        [row] = rule.rows
+        assert (row.metric, row.value) == ("resolved_fraction", 0.0)
+        assert row.n == len(ds.rule_citations().citations)
+        assert len(row.details["unresolved"]) == row.n
     for result in results:
         assert not result.skipped
         metrics = {r.metric: r for r in result.rows}
@@ -338,3 +351,52 @@ def test_hole_rate_counts_pages_unjudged_for_that_query() -> None:
     rows = {r.metric: r for r in _ir_rows(run, qrels)}
     hole = rows["hole_rate_at_10"]
     assert hole.n == 6 and hole.value == pytest.approx(3 / 6)  # q1: B:1, C:1; q2: A:1
+
+
+# ------------------------------------------------------------- rule citations (section 23)
+
+
+def _citation_index(moved: tuple[str, int, str] | None = None) -> rt.ChunkIndex:
+    """One chunk per rules-table citation, holding its excerpt on the cited page; the
+    chunks of the ``moved`` (doc_id, page, excerpt) claim go one page later."""
+    citations = ds.rule_citations().citations
+    chunks = [
+        rt.CorpusChunk(
+            c.doc_id,
+            c.page + ((c.doc_id, c.page, c.excerpt) == moved),
+            f"{c.doc_id}:{c.page}:{i:03d}",
+            c.excerpt,
+        )
+        for i, c in enumerate(citations)
+    ]
+    chunks.sort(key=lambda c: c.chunk_key)
+    embedder = HashEmbedder()
+    return rt.ChunkIndex(chunks, embedder.embed([c.text for c in chunks]))
+
+
+def test_every_rule_citation_resolves_through_both_searches() -> None:
+    claimed = len(ds.rule_citations().citations)
+    resolutions = rt.resolve_rules(_citation_index(), HashEmbedder(), rt.Fusion("rrf", 0.5))
+    assert [(r.search, r.claimed, r.resolved, r.unresolved) for r in resolutions] == [
+        ("bm25", claimed, claimed, []),
+        ("hybrid", claimed, claimed, []),
+    ]
+
+
+def test_a_citation_on_the_wrong_page_is_unresolved_by_both() -> None:
+    citations = ds.rule_citations().citations
+    first = citations[0]
+    claim = (first.doc_id, first.page, first.excerpt)
+    same = [c for c in citations if (c.doc_id, c.page, c.excerpt) == claim]
+    resolutions = rt.resolve_rules(_citation_index(claim), HashEmbedder(), rt.Fusion("rrf", 0.5))
+    for r in resolutions:
+        assert r.resolved == r.claimed - len(same)
+        assert r.unresolved == [f"{c.rule} {c.doc_id}:p{c.page}" for c in same]
+
+
+def test_parser_chunks_take_the_window() -> None:
+    pdfs = ds.corpus_pdfs(CORPUS)
+    default = rt.parser_chunks(pdfs)
+    small = rt.parser_chunks(pdfs, chunk_tokens=60, overlap_tokens=10)
+    assert len(small) > len(default)
+    assert [c.chunk_key for c in small] == sorted(c.chunk_key for c in small)

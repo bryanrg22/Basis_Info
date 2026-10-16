@@ -175,7 +175,9 @@ def ingested(database_url: str) -> Ingested:
     ]
     for doc_id, path in _corpus().items():
         argv += ["--pdf", str(path), "--doc-id", doc_id]
-    env = {k: v for k, v in os.environ.items() if k not in ("EMBEDDING_MODEL", "PYTHONPATH")}
+    # The pinned baseline is the default embedder and chunk window, whatever the shell has.
+    pinned = ("EMBEDDING_MODEL", "RETRIEVAL_CHUNK_TOKENS", "RETRIEVAL_CHUNK_OVERLAP", "PYTHONPATH")
+    env = {k: v for k, v in os.environ.items() if k not in pinned}
     env |= {"BASIS_ENV": "test", "DATABASE_URL": database_url}
     started = time.perf_counter()
     done = subprocess.run(
@@ -234,6 +236,7 @@ async def test_one_published_version_with_the_baseline_chunk_counts(
         chunks=chunks,
         per_document=counts,
     )
+    assert summary["chunker"] == CHUNKER_VERSION
     assert chunks == summary["chunks"] and summary["carried_forward_chunks"] == 0
     assert summary["scanned_docs"] == []
     for doc_id, (pages, text_chunks, table_chunks) in BASELINE.items():
@@ -392,7 +395,7 @@ async def test_the_harness_index_ranks_like_the_store(
         stored = await store.search_bm25(version, query, 50)
         if pages(stored) == pages(index.bm25(query, 50)):
             bm25_same += 1
-        [vector] = await asyncio.to_thread(embedder.embed, [query])
+        [vector] = await asyncio.to_thread(embedder.embed_query, [query])
         if pages(await store.search_vector(version, vector, 50)) == pages(index.vector(vector, 50)):
             vector_same += 1
         a = await hybrid_search(store, embedder, version, query, 50)

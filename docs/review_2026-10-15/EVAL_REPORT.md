@@ -2370,3 +2370,246 @@ text, `excerpt_supported`), but stricter: the sentence must be whole in one chun
 citation must, not just somewhere on the page; the rates are close to section 20's page
 rates (0.914, 0.885). The chunk counts match section 20's ingest (7,466; Pub 527 132 + 8,
 Pub 946 301 + 141).
+
+## 23. Retrieval follow-ups: embedding window and the hybrid in classification (2026-10-16)
+
+Section 22 left two findings: 79% of the chunks are longer than MiniLM's input window, so
+the vector side never sees most chunk tails, and production does not use the hybrid at
+all (the classifier's `search_reference` tool and `resolve_rule_citations` call
+`store.search_bm25`). This section measures both fixes.
+
+**What the literature leads one to expect.** A bi-encoder truncates at its window, so text
+past it is not embedded at all: sentence-transformers truncates at `max_seq_length` (256
+word pieces for all-MiniLM-L6-v2, which was trained on 128). The two standard fixes are
+chunks that fit the window and a model with a longer one. The small CPU models with a
+512-token window and 384-d vectors (so the `chunks.embedding vector(384)` column stays)
+are bge-small-en-v1.5 (33M parameters; MTEB retrieval average 51.7 on its model card),
+gte-small (49.5) and e5-small-v2 (49.0) on the same table; MiniLM-L6 is not on it. Each is trained with its
+own input format: e5 needs `query: ` and `passage: ` prefixes (its card says omitting them
+degrades results), bge-v1.5 recommends an instruction on short queries only, gte uses none.
+Late chunking (Günther et al., 2024) needs a long-context model (8k tokens) and is out of
+scope for a CPU embedder. Gains from a better embedder on BEIR-style benchmarks are a few
+points of nDCG@10, and section 22 found that 50 queries detect about 0.07 reliably.
+
+**Method.** The section 22 harness and statistics, unchanged (50 dev queries, 173
+judgments at doc + page, top 50 chunks read as pages cut at 10, paired percentile bootstrap
+with 10,000 resamples and sign-flip randomization p). Variants:
+
+* (a) MiniLM with 200-token chunks and 40 overlap (`RETRIEVAL_CHUNK_TOKENS=200`,
+  `RETRIEVAL_CHUNK_OVERLAP=40`, new settings);
+* (b) bge-small-en-v1.5 (with its query instruction, and without), e5-small-v2 (with its
+  prefixes) and gte-small, on the current 400 / 80 chunks;
+* (c) each in the hybrid (RRF, k = 60) and in weighted fusion at 0.3 (section 22's best).
+
+The embedder now carries the model's prefixes (`basis.retrieval.embed.MODEL_SPECS`;
+`Embedder.embed` for stored text, the new `Embedder.embed_query` for queries; the hybrid
+embeds queries with `embed_query`). The variants were run with a scratch driver on the
+`evals.retrieval` index and `hybrid_search`; the default, e5 and 200 / 40 rows were re-run
+through `python -m evals.run --corpus-text parser --retrieval-systems
+bm25_pages,bm25_chunks,vector_chunks,hybrid` with the settings (`EMBEDDING_MODEL`,
+`RETRIEVAL_CHUNK_*`) and gave the same numbers to the third decimal (current 0.3835 /
+0.4501, e5 0.4267 / 0.4653, MiniLM 200 / 40 0.3978 / 0.4438, vector / hybrid nDCG@10). Timings are one run each on an Apple M4 Pro (12 cores), CPU, batch 32, with the
+machine otherwise idle.
+
+### 23.1 Embedding window
+
+How much of each chunk the embedder sees (word pieces of the BERT uncased vocabulary,
+which all five models share, special tokens and the passage prefix included):
+
+| Chunks | Embedder window | Chunks | Longer than the window | Median / p90 / max word pieces |
+|---|---|---|---|---|
+| 400 / 80 | 256 (MiniLM) | 7,466 | 5,885 (79%) | 328 / 407 / 2,503 |
+| 200 / 40 | 256 (MiniLM) | 14,204 | 160 (1.1%; 98 text, 62 table surrogates) | 169 / 207 / 1,587 |
+| 400 / 80 | 512 (bge, e5, gte) | 7,466 | 60 (0.8%; 36 text, 24 table surrogates) | 328 / 407 / 2,503 |
+
+The residue longer than the window is chunks whose characters cost cl100k far fewer tokens
+than word pieces (dot leaders, long codes, OCR runs) and table surrogates whose single row
+exceeds the budget (rows are never split, section 20).
+
+Vector-only and hybrid (nDCG@10 standard error in brackets; holes = share of the top-10
+pages with no judgment for that query):
+
+| Variant | System | nDCG@10 | recall@5 | recall@10 | MRR | holes@10 |
+|---|---|---|---|---|---|---|
+| MiniLM, 400 / 80 (current) | vector | 0.383 (0.041) | 0.338 | 0.475 | 0.464 | 0.830 |
+| | hybrid | 0.450 (0.038) | 0.379 | 0.571 | 0.539 | 0.800 |
+| MiniLM, 200 / 40 | vector | 0.398 (0.041) | 0.385 | 0.492 | 0.491 | 0.826 |
+| | hybrid | 0.444 (0.039) | 0.404 | 0.538 | 0.558 | 0.808 |
+| bge-small, 400 / 80, query instruction | vector | 0.408 (0.044) | 0.393 | 0.483 | 0.484 | 0.830 |
+| | hybrid | 0.443 (0.042) | 0.399 | 0.561 | 0.508 | 0.804 |
+| bge-small, 400 / 80, no instruction | vector | 0.392 (0.043) | 0.357 | 0.459 | 0.472 | 0.842 |
+| | hybrid | 0.439 (0.043) | 0.406 | 0.540 | 0.517 | 0.814 |
+| **e5-small-v2, 400 / 80** | vector | **0.427** (0.042) | 0.390 | 0.503 | 0.518 | 0.826 |
+| | hybrid | **0.465** (0.041) | **0.424** | **0.589** | 0.537 | 0.796 |
+| gte-small, 400 / 80 | vector | 0.426 (0.044) | 0.372 | 0.497 | 0.511 | 0.826 |
+| | hybrid | 0.458 (0.040) | 0.396 | 0.581 | 0.539 | 0.798 |
+| BM25 chunks, 400 / 80 (for reference) | - | 0.415 (0.042) | 0.368 | 0.549 | 0.508 | 0.808 |
+| BM25 chunks, 200 / 40 | - | 0.410 (0.042) | 0.358 | 0.543 | 0.491 | 0.812 |
+
+The vector row of the current configuration is 0.383 here and 0.384 in section 22: the
+same rankings (0.3835, rounded either way). Weighted fusion at 0.3 gives 0.469 (current), 0.466,
+0.467, 0.449, 0.462 and 0.453 in table order: no variant moves it either.
+
+**Paired differences** (variant minus the current MiniLM 400 / 80, per query):
+
+| Difference | Metric | Mean | 95% interval | p | wins / losses / ties |
+|---|---|---|---|---|---|
+| MiniLM 200 / 40, vector | nDCG@10 | +0.014 | [-0.026, +0.056] | 0.50 | 20 / 20 / 10 |
+| MiniLM 200 / 40, hybrid | nDCG@10 | -0.006 | [-0.046, +0.034] | 0.76 | 19 / 21 / 10 |
+| MiniLM 200 / 40, hybrid | recall@10 | -0.033 | [-0.099, +0.032] | 0.33 | 8 / 11 / 31 |
+| bge-small, vector | nDCG@10 | +0.025 | [-0.038, +0.088] | 0.45 | 22 / 18 / 10 |
+| bge-small, hybrid | nDCG@10 | -0.007 | [-0.046, +0.031] | 0.71 | 23 / 18 / 9 |
+| bge-small, no instruction, vector | nDCG@10 | +0.009 | [-0.048, +0.066] | 0.77 | 21 / 19 / 10 |
+| e5-small-v2, vector | nDCG@10 | +0.043 | [-0.013, +0.097] | 0.13 | 29 / 15 / 6 |
+| e5-small-v2, vector | MRR | +0.055 | [-0.035, +0.145] | 0.25 | 16 / 13 / 21 |
+| **e5-small-v2, hybrid** | nDCG@10 | **+0.015** | [-0.020, +0.048] | 0.40 | 27 / 15 / 8 |
+| e5-small-v2, hybrid | recall@10 | +0.018 | [-0.032, +0.069] | 0.50 | 11 / 7 / 32 |
+| e5-small-v2, hybrid | MRR | -0.001 | [-0.070, +0.063] | 0.97 | 12 / 9 / 29 |
+| gte-small, vector | nDCG@10 | +0.042 | [-0.014, +0.101] | 0.16 | 23 / 17 / 10 |
+| gte-small, hybrid | nDCG@10 | +0.008 | [-0.029, +0.043] | 0.69 | 24 / 19 / 7 |
+| e5-small-v2: hybrid - its BM25 | nDCG@10 | +0.050 | [-0.004, +0.105] | 0.086 | 26 / 16 / 8 |
+
+**Condensed lists** (Sakai 2007, as in section 22: unjudged pages removed before cutting
+at 10), nDCG@10 vector / hybrid: current 0.764 / **0.832**, MiniLM 200 / 40 0.783 / 0.817,
+bge 0.790 / 0.826, bge without instruction 0.733 / 0.811, e5 0.801 / 0.826, gte 0.763 /
+0.810 (BM25 0.808). Under this treatment the current hybrid is the best of all, and e5's
+hybrid minus it is -0.006 [-0.039, +0.023].
+
+**Cost** (one corpus embedding, 7,466 or 14,204 chunks; one query embedding; vectors are
+`vector(384)`, 4 x 384 + 8 = 1,544 bytes each, so the dimension and the Alembic column do
+not change):
+
+| Variant | Corpus embedding | Per query | Vector storage (heap, before the HNSW index) |
+|---|---|---|---|
+| MiniLM, 400 / 80 (current) | 40 s | 4.0 ms | 11.5 MB |
+| MiniLM, 200 / 40 | 52 s | 3.6 ms | 21.9 MB (and twice the chunks for BM25 and HNSW) |
+| bge-small, 400 / 80 | 130 s | 6.6 ms | 11.5 MB |
+| e5-small-v2, 400 / 80 | 112 s | 6.7 ms | 11.5 MB |
+| gte-small, 400 / 80 | 1,121 s | 9.4 ms | 11.5 MB |
+
+gte-small's corpus time, ten times bge's on the same architecture size, was measured twice
+(1,183 s under load, 1,121 s idle); the cause was not investigated.
+
+**Reading.**
+
+* Embedding whole chunks helps the vector side, as expected, but by less than 50 queries
+  can confirm: the best, e5-small-v2, adds +0.043 nDCG@10 alone (p = 0.13, better on 29
+  queries, worse on 15), gte +0.042, bge +0.025, smaller chunks for MiniLM +0.014. The
+  model's input format matters: bge without its query instruction loses most of its gain
+  (+0.009).
+* In the hybrid the gains mostly vanish: e5 +0.015 [-0.020, +0.048], gte +0.008, bge
+  -0.007, MiniLM 200 / 40 -0.006. BM25 already finds most of what the better vectors add,
+  and on condensed lists the current hybrid stays the best (e5 -0.006).
+* Smaller chunks are not free: twice the rows, BM25 over shorter documents is slightly
+  worse (0.410 against 0.415), and the hybrid's recall@10 drops 0.033.
+
+**Decision: keep the defaults** (MiniLM, 400 / 80). The rule was to change them only if a
+variant beat the current hybrid outside the noise; none does, under either treatment of
+unjudged pages, and the best candidate costs 2.8 times the embedding time and a
+re-embedding of every corpus. The window and the embedder are now settings
+(`RETRIEVAL_CHUNK_TOKENS`, `RETRIEVAL_CHUNK_OVERLAP`, `EMBEDDING_MODEL` with
+`MODEL_SPECS` prefixes), so e5-small-v2 is one setting and a `--fresh` re-ingest away if
+more judgments (section 22's recommendation 5) show its +0.015 to be real. The
+real-corpus test's pins (`CHUNKER_VERSION = cl100k_base-400/80-page-v1`, 7,466 chunks,
+384-d) therefore stand; the test now also checks the ingest summary's chunker version and
+removes `RETRIEVAL_CHUNK_*` from the subprocess environment, as it already removed
+`EMBEDDING_MODEL`.
+
+### 23.2 The hybrid in classification
+
+`RETRIEVAL_SEARCH` (`bm25` | `hybrid`, default `bm25`) chooses what the classifier searches
+with. `Retrieval.classifier_search(store)` gives `None` for `bm25` (the classifier then
+calls `store.search_bm25` itself, exactly as before) and `Retrieval.hybrid` bound to the
+store for `hybrid`; `process_assets` passes it as `ClassifyContext.search`, which both the
+`search_reference` tool and `resolve_rule_citations` already used when set.
+
+**Method.** `evals.predict_assets` gained `--store parser` (the production parse and chunk
+at the configured window, MiniLM embeddings, the store's `Bm25Index`, in the
+`evals.retrieval` index) and `--search bm25 | hybrid` (the same `classifier_search`
+production binds). Both arms: claude-sonnet-5-5 at effort low, 6,000 output tokens, the 46
+`assets` rows, three repeats, the four IRS PDFs (`IRS_*.pdf`, 1,258 chunks, as in section
+17), everything else equal. Section 17's run (the historical pymupdf store, same model) is
+shown for reference; it was not re-run. Per-row paired bootstrap over the 46 rows of the
+mean over three repeats.
+
+| Arm | Bucket right, mean of 3 | repeat 1 | pass^3 | citations verified, 3 repeats (repeat 1) | rows with a verified citation, 3 repeats (repeat 1) | needs review | searches per row | loop failures (of 138) | cost per study | seconds per row |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `--store parser --search bm25` | 0.652 | 0.652 | 0.609 | 0.989, 176 / 178 (1.000, 57) | 0.986 (0.978) | 0.457 | 1.12 | 0 | $1.209 | 5.4 |
+| `--store parser --search hybrid` | 0.652 | 0.652 | 0.609 | 0.995, 182 / 183 (1.000, 62) | 1.000 (1.000) | 0.435 | 1.08 | 0 | $1.139 | 5.2 |
+| section 17 (pymupdf store, BM25) | 0.688 | 0.674 | 0.630 | 0.970, 164 / 169 (0.964, 55) | 0.957 (0.957) | 0.464 | 1.07 | 0 | $1.247 | 5.9 |
+
+The repeat-1 figures are what `evals.run --predictions` reports (`citation_validity`,
+`rows_with_verified_citation`); the three-repeat figures are over every repeat.
+
+| Difference (per row, mean of 3 repeats) | Mean | 95% interval | p | wins / losses / ties |
+|---|---|---|---|---|
+| hybrid - bm25, bucket right | +0.000 | [-0.022, +0.022] | 1.00 | 1 / 1 / 44 |
+| hybrid - bm25, has a verified citation | +0.014 | [+0.000, +0.043] | 1.00 | 1 / 0 / 45 |
+| hybrid - bm25, citation validity | +0.004 | [-0.007, +0.019] | 0.75 | 2 / 1 / 43 |
+| hybrid - bm25, needs review | -0.022 | [-0.094, +0.051] | 0.71 | 4 / 7 / 35 |
+| section 17 - bm25 (parser store), bucket right | +0.036 | [+0.000, +0.080] | 0.19 | 5 / 1 / 40 |
+
+Per bucket (mean of 3), y39 / y15 / y5: bm25 1.00 / 0.83 / 0.19, hybrid 1.00 / 0.83 / 0.17.
+
+**Rules-table citations through each search.** `evals.run` now scores `rule_citations`
+through `resolve_rule_citations` itself over the chunk systems' index (all six PDFs, as
+the real-corpus test ingests them), once with each classifier search (`resolve_bm25`,
+`resolve_hybrid`):
+
+| Chunks and embedder | BM25 | Hybrid (RRF) | Lost by the hybrid |
+|---|---|---|---|
+| MiniLM, 400 / 80 (current) | 77 / 77 | 74 / 77 (0.961) | mirror (ATG p317), tile (p306), pool (p298) |
+| e5-small-v2, 400 / 80 | 77 / 77 | 73 / 77 (0.948) | the same three and water_heater (p315) |
+| MiniLM, 200 / 40 | 77 / 77 | 75 / 77 (0.974) | doorbell (p301), pool (p298) |
+
+This is a real cost of the hybrid, and the mechanism is RRF's. The resolver asks for 10
+hits (`RULE_RESOLVE_K`) and keeps the first on the cited page that contains the excerpt
+verbatim; an exact excerpt is a lexical query, and BM25 ranks the right chunk first for
+pool and sixth or seventh for the other two. RRF scores a chunk at `1/(60 + rank)` summed
+over the lists that hold it (rank 1-based), so any chunk both retrievers place moderately
+high beats a chunk only BM25 finds, even BM25's first (1/61): for pool all ten fused slots
+went to chunks in both lists. For all three current losses the right chunk is not in
+MiniLM's top 50 at all.
+
+**Reading.** The search does not change the answers: 44 of the 46 rows have the same
+share of right buckets over the three repeats, one row is better with each search. The
+hybrid's citations verify a little more often (every row has a verified citation in every
+repeat, against 0.986), which is the direction section 22 predicts, but the difference is
+one row. The classifier's errors are
+elsewhere: y5 rows (personal property) are right 0.17 to 0.22 of the time with either
+search and either store. The row carries only the component name and the property class
+(section 17), and better passages did not move those rows here. The parser store against section 17's pymupdf store (+0.036 for the old
+run, p = 0.19) is a different day's samples of the same model on a different store and is
+inside the noise too.
+
+**Decision: keep `RETRIEVAL_SEARCH=bm25`.** The rule was to switch if the hybrid won. On
+the product measure it ties (bucket accuracy identical, citation measures +0.004 to +0.014,
+inside the noise), and for rules-table citations it is worse: 3 of 77 no longer resolve,
+and each would flag its rule's assets `citation_unverified` for review. Section 22's
+recommendation 3 is done (the wiring exists and is measured); it stays off. If the hybrid
+is turned on later for the model's `search_reference` tool, `resolve_rule_citations`
+should keep BM25 (exact excerpt lookup is BM25's job), or fuse over the union of both
+candidate lists before the page and verbatim filter; that split is a follow-up, not done
+here, and the setting's comment says so. The cheaper next steps for classification
+accuracy are the y5 rows, not retrieval.
+
+### 23.3 What 50 queries and 46 rows can show
+
+The largest retrieval effect here, e5's vector-only +0.043, has p = 0.13; section 22's
+power estimate (differences of about 0.07 are reliably detected) holds, and the hybrid
+differences (0.006 to 0.015) would need several hundred queries. The qrels pool is still
+legacy BM25 and vector candidates, about 80% of each top 10 is unjudged, and the vector
+variants surface different unjudged pages, which favours systems like the pool's sources.
+On the assets eval 44 of the 46 rows had the same per-row score under both searches, so
+a larger row set, not more repeats, is what would separate them.
+
+**Real-corpus test.** Re-run on this branch: 7,466 chunks with the pinned per-document
+counts, 77 of 77 rules-table citations, two-column sentence rates 0.923 and 0.892, BM25
+identical to the store on 50 of 50 queries. Its HNSW check (store vector search against
+exact cosine, top-10 pages equal on at least 45 of 50 queries) failed once here (43) and
+passed on the next run (50); on PR 42's own commit, unchanged, it gave 43 and failed. So
+pgvector's HNSW graph differs between ingests of the same rows (section 22 saw 50 twice),
+and the 0.9 threshold is too tight for that variation. It is not caused by this change
+(the default embedder has no prefixes, so `embed_query` equals `embed`), and the threshold
+was left as it is: measuring the agreement over several ingests, then pinning below the
+observed minimum, is a follow-up.

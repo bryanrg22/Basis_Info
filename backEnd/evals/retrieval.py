@@ -41,6 +41,7 @@ from typing import Final
 import numpy as np
 
 from basis.retrieval.bm25 import Bm25Doc, Bm25Index
+from basis.retrieval.chunk import CHUNK_TOKENS, OVERLAP_TOKENS
 from basis.retrieval.embed import Embedder
 from basis.retrieval.hybrid import FusionMethod, fuse, hybrid_search
 from basis.retrieval.metrics import page_keys
@@ -61,17 +62,22 @@ class CorpusChunk:
     text: str
 
 
-def parser_chunks(pdfs: Mapping[str, Path]) -> list[CorpusChunk]:
-    """Every chunk production ingestion makes from ``pdfs``, ordered by ``chunk_key``."""
+def parser_chunks(
+    pdfs: Mapping[str, Path],
+    *,
+    chunk_tokens: int = CHUNK_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
+) -> list[CorpusChunk]:
+    """Every chunk production ingestion makes from ``pdfs`` at this chunk window,
+    ordered by ``chunk_key``."""
     from basis.retrieval.chunk import chunk_document
     from basis.retrieval.parse import REFERENCE_MAX_PAGES, parse_pdf
 
     chunks: list[CorpusChunk] = []
     for doc_id, path in pdfs.items():
         document = parse_pdf(path.read_bytes(), doc_id, max_pages=REFERENCE_MAX_PAGES)
-        chunks += [
-            CorpusChunk(d.doc_id, d.page, d.chunk_key, d.text) for d in chunk_document(document)
-        ]
+        drafts = chunk_document(document, chunk_tokens=chunk_tokens, overlap_tokens=overlap_tokens)
+        chunks += [CorpusChunk(d.doc_id, d.page, d.chunk_key, d.text) for d in drafts]
     # The store loads BM25 rows ``ORDER BY chunk_key`` (string order); ties keep it.
     return sorted(chunks, key=lambda c: c.chunk_key)
 
@@ -93,7 +99,11 @@ class ChunkIndex:
             Bm25Doc(chunk_id=cid, text=c.text)
             for cid, c in zip(self._ids, self.chunks, strict=True)
         )
-        matrix = np.asarray(embeddings, dtype=np.float64).reshape(len(self.chunks), -1)
+        matrix = (
+            np.asarray(embeddings, dtype=np.float64).reshape(len(self.chunks), -1)
+            if self.chunks
+            else np.zeros((0, 1))
+        )
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         self._matrix = np.divide(matrix, norms, out=np.zeros_like(matrix), where=norms > 0)
 
@@ -185,7 +195,7 @@ def run_chunk_systems(
 
     candidates = depth * CANDIDATE_FACTOR
     ids = list(queries)
-    vectors = embedder.embed([queries[q] for q in ids])
+    vectors = embedder.embed_query([queries[q] for q in ids])
     bm25 = {q: index.bm25(queries[q], candidates) for q in ids}
     vector = {q: index.vector(v, candidates) for q, v in zip(ids, vectors, strict=True)}
 
@@ -254,6 +264,59 @@ def fusion_sweep(
     return rows, loo, chosen
 
 
+# --------------------------------------------------------------------------- rule citations
+# How many rules-table citations the production resolver finds through each search
+# (``RETRIEVAL_SEARCH``): :func:`basis.classify.router.resolve_rule_citations` searches the
+# excerpt and keeps a hit on the cited document and page that contains it (EVAL_REPORT
+# section 23).
+
+
+@dataclass(frozen=True, slots=True)
+class RuleResolution:
+    search: str
+    claimed: int
+    resolved: int
+    unresolved: list[str]  # "<rule key> <doc_id>:p<page>"
+
+
+def resolve_rules(index: ChunkIndex, embedder: Embedder, fusion: Fusion) -> list[RuleResolution]:
+    """Every rules-table citation through ``resolve_rule_citations`` over ``index``, once
+    with the classifier's default search (the store's BM25) and once with the hybrid."""
+    from basis.classify.router import ClassifyContext, resolve_rule_citations
+    from basis.domain.rules import RULES, lookup
+    from basis.llm.provider import Budget
+    from basis.retrieval import Retrieval
+    from basis.retrieval.bm25 import Bm25Registry
+
+    retrieval = Retrieval(embedder, Bm25Registry(), fusion.method, fusion.weight, "hybrid")
+
+    async def one(search: str) -> RuleResolution:
+        ctx = ClassifyContext(
+            study_id="eval-rule-citations",
+            property_class="residential_rental",
+            budget=Budget(remaining_usd=0.0),
+            store=index,
+            reference_version_id=CHUNK_VERSION,
+            search=retrieval.classifier_search(index) if search == "hybrid" else None,
+        )
+        claimed = resolved = 0
+        unresolved: list[str] = []
+        for key in RULES:
+            hit = lookup(key)
+            if hit is None:  # pragma: no cover - every key looks itself up
+                continue
+            verified, dropped = await resolve_rule_citations(hit, ctx)
+            claimed += len(hit.citations)
+            resolved += len(verified)
+            unresolved += [f"{key} {d.chunk_id}" for d in dropped]
+        return RuleResolution(search, claimed, resolved, unresolved)
+
+    async def both() -> list[RuleResolution]:
+        return [await one("bm25"), await one("hybrid")]
+
+    return asyncio.run(both())
+
+
 # --------------------------------------------------------------------------- sentences
 # The verbatim-sentence check of EVAL_REPORT section 20: sentences from pymupdf's page text
 # (pymupdf reads Pub 527 and Pub 946 column by column, independently of our parser) must
@@ -301,5 +364,6 @@ __all__ = [
     "production_fusion",
     "reference_sentences",
     "refuse",
+    "resolve_rules",
     "run_chunk_systems",
 ]
