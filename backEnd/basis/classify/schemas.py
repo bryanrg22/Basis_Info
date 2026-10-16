@@ -10,12 +10,25 @@ clear one the pipeline sets.
 from __future__ import annotations
 
 import json
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ModelBucket = Literal["y5", "y7", "y15", "y27_5", "y39"]
 MAX_CITATIONS: Final = 5
+ASSET_CLASS_MAX: Final = 16
+
+
+def clip_asset_class(value: Any) -> Any:
+    """An ``asset_class`` longer than :data:`ASSET_CLASS_MAX` cut to it, ending in ``...``.
+
+    OpenAI's strict schema does not enforce ``maxLength``, and an answer such as "Building
+    or Building Component" failed validation in the provider, so the whole loop failed
+    (EVAL_REPORT section 17.2: 43 OpenAI loop failures). Cut it like the vision notes
+    (:func:`basis.vision.reconcile.clip_text`); the full text stays in the raw response."""
+    if isinstance(value, str) and len(value) > ASSET_CLASS_MAX:
+        return value[: ASSET_CLASS_MAX - 3].rstrip() + "..."
+    return value
 
 
 class _Frozen(BaseModel):
@@ -52,9 +65,14 @@ class Classification(_Frozen):
     category: str = Field(min_length=1, max_length=120)
     section: Literal["1245", "1250"]
     bucket: ModelBucket
-    asset_class: str | None = Field(default=None, max_length=16)
+    asset_class: str | None = Field(default=None, max_length=ASSET_CLASS_MAX)
     rationale: str = Field(default="", max_length=1500)
     citations: list[CitationClaim] = Field(default_factory=list, max_length=MAX_CITATIONS)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     needs_review: bool = False
     reason: str | None = Field(default=None, max_length=500)
+
+    @field_validator("asset_class", mode="before")
+    @classmethod
+    def _clip_asset_class(cls, value: Any) -> Any:
+        return clip_asset_class(value)

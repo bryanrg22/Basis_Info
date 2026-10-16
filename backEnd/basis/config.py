@@ -24,9 +24,17 @@ from typing import Final, Literal, get_args
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from basis.llm.families import is_reasoning_model
+from basis.llm.families import (
+    CLAUDE_EFFORTS,
+    is_claude_model,
+    is_reasoning_model,
+    refuses_no_effort,
+)
 
 Env = Literal["dev", "test", "staging", "prod"]
+# A reasoning effort: OpenAI's ``reasoning_effort`` on a reasoning model ("none" and
+# "minimal" are OpenAI only), Claude's ``output_config.effort`` on a ``claude-*`` model.
+Effort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 ENV_VAR: Final = "BASIS_ENV"
@@ -35,6 +43,11 @@ VALID_ENVS: Final[tuple[str, ...]] = get_args(Env)
 # Per-photo output budgets when VISION_MAX_TOKENS is unset (EVAL_REPORT section 12.1).
 VISION_MAX_TOKENS_REASONING: Final = 6000
 VISION_MAX_TOKENS_DEFAULT: Final = 1200
+# Output budget of the extraction fallback when EXTRACTION_FALLBACK_MAX_TOKENS is unset: an
+# OpenAI reasoning model gets what EVAL_REPORT section 17.1 ran it at (it spends output on
+# reasoning first); any other model the 800 the pipeline always used.
+EXTRACTION_MAX_TOKENS_REASONING: Final = 8000
+EXTRACTION_MAX_TOKENS_DEFAULT: Final = 800
 
 _REQUIRED_IN_DEPLOYED: Final = ("database_url", "gcs_bucket", "firebase_project_id")
 _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
@@ -103,7 +116,7 @@ class Settings(BaseSettings):
     # Environment names match the legacy backEnd/.env (agentic/config/settings.py), so an
     # existing .env works unchanged; the newer names are accepted too. Mapping:
     #   OPENAI_API_KEY                       -> openai_api_key
-    #   OPENAI_MODEL | TEXT_MODEL            -> text_model   (OpenAI model for text calls)
+    #   OPENAI_MODEL | TEXT_MODEL            -> text_model   (extraction fallback model)
     #   VISION_MODEL                         -> vision_model (model for photos)
     #   VISION_REASONING_EFFORT              -> vision_reasoning_effort (photos, default low)
     #   VISION_MAX_TOKENS                    -> vision_max_tokens (photo output budget)
@@ -118,10 +131,13 @@ class Settings(BaseSettings):
     #   ANTHROPIC_API_KEY                    -> anthropic_api_key (Claude models, claude-*)
     #   ANTHROPIC_EFFORT                     -> anthropic_effort (thinking depth, default low)
     openai_api_key: SecretStr | None = None
+    # The extraction fallback's model and effort: EVAL_REPORT section 17.1's choice,
+    # gpt-6-luna at low effort (0.924 of 75 fields, 12/12 critical, the cheapest measured).
     text_model: str = Field(
-        default="gpt-4o-mini",
+        default="gpt-6-luna",
         validation_alias=AliasChoices("text_model", "TEXT_MODEL", "OPENAI_MODEL"),
     )
+    extraction_reasoning_effort: Effort = "low"
     # The per-photo vision step's production configuration is EVAL_REPORT section 12.1's
     # decision: gpt-6.1-sol, two-call (decomposed) prompts, reasoning effort low, output
     # budget 6000 (Claude Opus 5.5 decomposed is the fallback: VISION_MODEL=claude-opus-5-5).
@@ -169,7 +185,18 @@ class Settings(BaseSettings):
     # call per photo; "decomposed" sends two narrow calls (photo_countables and
     # photo_surfaces) and merges them (EVAL_REPORT sections 11 and 12.1, the default).
     vision_photo_mode: Literal["single", "decomposed"] = "decomposed"
-    extraction_fallback_max_tokens: int = Field(default=800, ge=64, le=16384)
+    # Per-class count fusion (EVAL_REPORT section 15): with "per_class" the decomposed step
+    # also sends the countables prompt to VISION_FUSION_MODEL, concurrently, and takes each
+    # count class from the source section 15.4 chose (basis.vision.fusion.PER_CLASS_SOURCE).
+    # "off" is the two-call step alone. The single-call mode has no countables call, so
+    # fusion is inactive there (a deployment pinned to the pre-12.1 configuration keeps it
+    # exactly); read the effective value through ``vision_count_fusion_active``.
+    vision_count_fusion: Literal["off", "per_class"] = "per_class"
+    vision_fusion_model: str = "claude-opus-5-5"
+    vision_fusion_reasoning_effort: Effort = "medium"
+    # Unset: the family default (see ``extraction_output_budget``). Read the value in effect
+    # through ``extraction_output_budget``.
+    extraction_fallback_max_tokens: int | None = Field(default=None, ge=64, le=16384)
     azure_document_intelligence_endpoint: str | None = None
     azure_document_intelligence_key: SecretStr | None = None
     azure_di_timeout_seconds: float = Field(default=180.0, gt=0, le=1800)
@@ -177,8 +204,27 @@ class Settings(BaseSettings):
     # (S3_SPEC section 4; tuned later by the real-data eval).
     extraction_review_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
 
-    # Classification and pricing (process_assets, S3_SPEC section 5).
-    classify_model: str = "gpt-4o-mini"
+    # The room step (reconcile_rooms, EVAL_REPORT section 16.5): per room of the revision,
+    # one-photo rooms take the per-photo analysis as their inventory (ROOM_SINGLE_PHOTO
+    # "per_photo"; "reconcile" sends them the call too), multi-photo rooms one
+    # room_inventory/ROOM_PROMPT_VERSION call on ROOM_MODEL at ROOM_REASONING_EFFORT, then a
+    # surface_material second look (ROOM_MATERIALS: "sensitive" looks at every wainscoting,
+    # wall finish and tile, "disagree" only where the photos disagree, "none" skips it) on
+    # the same model. ROOM_RECONCILE=false turns the step off: assets come from the
+    # per-photo components, as before section 16.
+    room_reconcile: bool = True
+    room_prompt_version: str = Field(default="v3", pattern=r"^v[1-9]\d*$")
+    room_model: str = "claude-sonnet-5-5"
+    room_reasoning_effort: Effort = "low"
+    room_single_photo: Literal["per_photo", "reconcile"] = "per_photo"
+    room_materials: Literal["none", "disagree", "sensitive"] = "sensitive"
+
+    # Classification and pricing (process_assets, S3_SPEC section 5). The residual
+    # classifier is a tool loop: EVAL_REPORT section 17.2/17.3 chose claude-sonnet-5-5 at
+    # low effort. An OpenAI reasoning model can run it on Chat Completions only at
+    # CLASSIFY_REASONING_EFFORT=none (gpt-6.1-sol not at all); see _check_models.
+    classify_model: str = "claude-sonnet-5-5"
+    classify_reasoning_effort: Effort = "low"
     classify_concurrency: int = Field(default=4, ge=1, le=32)
     # residential_rental (27.5-year building) or nonresidential (39-year building).
     property_class: Literal["residential_rental", "nonresidential"] = "residential_rental"
@@ -203,6 +249,32 @@ class Settings(BaseSettings):
             return VISION_MAX_TOKENS_REASONING
         return VISION_MAX_TOKENS_DEFAULT
 
+    @property
+    def vision_count_fusion_active(self) -> bool:
+        """Whether the per-photo step fuses counts (``per_class`` and the decomposed mode)."""
+        return self.vision_count_fusion != "off" and self.vision_photo_mode == "decomposed"
+
+    @property
+    def vision_fusion_output_budget(self) -> int:
+        """The fusion countables call's output budget: ``VISION_MAX_TOKENS`` when set, else
+        the default for the fusion model's family (Claude: the 1200-token answer budget
+        section 14/15 ran Opus at; the provider adds its thinking allowance on top)."""
+        if self.vision_max_tokens is not None:
+            return self.vision_max_tokens
+        if is_reasoning_model(self.vision_fusion_model):
+            return VISION_MAX_TOKENS_REASONING
+        return VISION_MAX_TOKENS_DEFAULT
+
+    @property
+    def extraction_output_budget(self) -> int:
+        """The extraction fallback's output budget: ``EXTRACTION_FALLBACK_MAX_TOKENS`` when
+        set, else the default for the text model's family."""
+        if self.extraction_fallback_max_tokens is not None:
+            return self.extraction_fallback_max_tokens
+        if is_reasoning_model(self.text_model):
+            return EXTRACTION_MAX_TOKENS_REASONING
+        return EXTRACTION_MAX_TOKENS_DEFAULT
+
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value: object) -> object:
@@ -216,7 +288,39 @@ class Settings(BaseSettings):
             raise ConfigError(f"{ENV_VAR}={self.env} requires these settings to be set: {names}")
         if self.embedding_model == "hash" and self.env not in ("dev", "test"):
             raise ConfigError(f"EMBEDDING_MODEL=hash is for tests only, not {ENV_VAR}={self.env}")
+        self._check_models()
         return self
+
+    def _check_models(self) -> None:
+        """Refuse model and effort combinations that would fail on the first call."""
+        for name, model, effort in (
+            ("VISION_FUSION", self.vision_fusion_model, self.vision_fusion_reasoning_effort),
+            ("ROOM", self.room_model, self.room_reasoning_effort),
+            ("CLASSIFY", self.classify_model, self.classify_reasoning_effort),
+            ("EXTRACTION", self.text_model, self.extraction_reasoning_effort),
+        ):
+            if is_claude_model(model) and effort not in CLAUDE_EFFORTS:
+                raise ConfigError(
+                    f"{name} reasoning effort {effort!r} is not a Claude effort level for "
+                    f"{model}; use one of {', '.join(CLAUDE_EFFORTS)}"
+                )
+        if is_reasoning_model(self.classify_model):
+            # Chat Completions refuses function tools with a reasoning effort (EVAL_REPORT
+            # section 17.2: 400 "Function tools with reasoning_effort are not supported").
+            if refuses_no_effort(self.classify_model):
+                raise ConfigError(
+                    f"CLASSIFY_MODEL={self.classify_model} cannot run the tool-calling "
+                    "classifier: it refuses reasoning_effort=none and Chat Completions "
+                    "refuses tools with any other effort (needs the Responses API); use a "
+                    "claude-* model (default claude-sonnet-5-5)"
+                )
+            if self.classify_reasoning_effort != "none":
+                raise ConfigError(
+                    f"CLASSIFY_MODEL={self.classify_model} is an OpenAI reasoning model: "
+                    "the tool-calling classifier runs it on Chat Completions, which refuses "
+                    f"tools with reasoning_effort={self.classify_reasoning_effort}; set "
+                    "CLASSIFY_REASONING_EFFORT=none or use a claude-* model"
+                )
 
 
 def _is_set(value: object) -> bool:

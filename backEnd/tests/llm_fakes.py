@@ -15,9 +15,14 @@ network; CI has no provider credentials and real-provider evaluation is run sepa
   ``PHOTO_USAGE`` on ``PHOTO_MODEL``, which the cost table prices at exactly
   ``PHOTO_COST_USD`` (the cost the Stage 2 stub charged, so the lifecycle budget tests
   keep their arithmetic).
+  It also answers the room step's calls: a ``room_inventory`` request gets the heuristic
+  merge of its images' fixture labels (largest count per label, the images listing it), and
+  a ``surface_material`` request :data:`SECOND_LOOK_MATERIALS` for the surface it names.
 * :class:`PromptKeyedProvider` replays scripted turns per prompt family (``photo_countables``,
   ``photo_surfaces``, ...), so the decomposed step's two concurrent calls each get their own
   script whatever order the event loop runs them in; a family without turns raises.
+  :class:`ModelKeyedProvider` does the same per ``(model, family)``, for the count fusion's
+  two countables calls on different models.
 * :class:`FixtureAzureDi` returns a hand-built Azure DI result from
   ``tests/fixtures/synthetic/azure_di/``.
 * :func:`fixture_bytes_for` gives seeded documents real bytes:
@@ -42,7 +47,9 @@ from basis.llm.cost import cost_usd
 from basis.llm.provider import ChatRequest, ChatResponse, ScriptedTurn, Usage
 from basis.vision import localize
 from basis.vision.prep import prepare_image
+from basis.vision.reconcile import ModelInventoryObject, ModelRoomInventory
 from basis.vision.schemas import Component, ModelPhotoAnalysis
+from basis.vision.surface_material import ModelSurfaceMaterial, SurfaceMaterial
 
 PHOTO_MODEL: Final = "gpt-4.1-nano"
 PHOTO_USAGE: Final = Usage(input_tokens=20_000, output_tokens=20_000)
@@ -106,13 +113,64 @@ def for_prompt_family(analysis: ModelPhotoAnalysis, prompt_version: str) -> Mode
     return analysis.model_copy(update={"components": kept})
 
 
-def _image_sha256(request: ChatRequest) -> str | None:
+def _image_hashes(request: ChatRequest) -> list[str]:
     import base64
 
-    for message in request.messages:
-        for image in message.images:
-            return hashlib.sha256(base64.b64decode(image.data_base64)).hexdigest()
-    return None
+    return [
+        hashlib.sha256(base64.b64decode(image.data_base64)).hexdigest()
+        for message in request.messages
+        for image in message.images
+    ]
+
+
+def _image_sha256(request: ChatRequest) -> str | None:
+    hashes = _image_hashes(request)
+    return hashes[0] if hashes else None
+
+
+# What the fixture second look answers per surface label (anything else: unknown).
+SECOND_LOOK_MATERIALS: Final = {
+    "wainscoting": SurfaceMaterial.WALLPAPER,
+    "wall_finish": SurfaceMaterial.PAINTED_DRYWALL,
+    "tile": SurfaceMaterial.CERAMIC,
+}
+
+
+def fixture_room_inventory(request: ChatRequest) -> ModelRoomInventory:
+    """The heuristic merge of the request's images' fixture analyses (Image N = Nth)."""
+    fallback = analysis_for(photo_labels()["photos/08_ambiguous.jpg"])
+    merged: dict[tuple[str, str | None], dict[str, Any]] = {}
+    for index, digest in enumerate(_image_hashes(request), start=1):
+        analysis = _analysis_by_image().get(digest) or fallback
+        for c in analysis.components:
+            key = (c.label.value, c.note if c.label.value == "other" else None)
+            entry = merged.setdefault(key, {"component": c, "count": 0, "indices": []})
+            entry["count"] = max(entry["count"], c.count)
+            entry["indices"].append(index)
+    return ModelRoomInventory(
+        objects=[
+            ModelInventoryObject(
+                label=e["component"].label,
+                count=e["count"],
+                image_indices=e["indices"],
+                material=e["component"].material,
+                attachment=e["component"].attachment,
+                confidence=e["component"].confidence,
+                note=e["component"].note,
+            )
+            for e in merged.values()
+        ]
+    )
+
+
+def fixture_second_look(request: ChatRequest) -> ModelSurfaceMaterial:
+    text = " ".join(m.content for m in request.messages)
+    label = text.split("Surface: ", 1)[1].split(".", 1)[0] if "Surface: " in text else ""
+    return ModelSurfaceMaterial(
+        material=SECOND_LOOK_MATERIALS.get(label, SurfaceMaterial.UNKNOWN),
+        confidence=0.9,
+        evidence="fixture",
+    )
 
 
 @dataclass
@@ -125,6 +183,21 @@ class FixtureVisionProvider:
     async def complete(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
         digest = _image_sha256(request)
+        answer: ModelRoomInventory | ModelSurfaceMaterial | None = None
+        if digest is not None and request.response_model is ModelRoomInventory:
+            answer = fixture_room_inventory(request)
+        elif digest is not None and request.response_model is ModelSurfaceMaterial:
+            answer = fixture_second_look(request)
+        if answer is not None:
+            return ChatResponse(
+                parsed=answer,
+                text=answer.model_dump_json(),
+                usage=PHOTO_USAGE,
+                model=PHOTO_MODEL,  # every fixture call costs PHOTO_COST_USD
+                provider=self.name,
+                latency_ms=1,
+                raw={"fixture": True, "images": len(_image_hashes(request))},
+            )
         if digest is None or request.response_model is not ModelPhotoAnalysis:
             raise AssertionError(
                 f"FixtureVisionProvider got a non-vision request ({request.activity})"
@@ -170,6 +243,34 @@ class PromptKeyedProvider:
             provider=self.name,
             latency_ms=1,
             raw={"keyed": family},
+        )
+
+
+@dataclass
+class ModelKeyedProvider:
+    """Scripted turns keyed by ``(model, prompt family)``; answers report that model."""
+
+    turns: dict[tuple[str, str], list[ScriptedTurn]]
+    name: str = "model-keyed"
+    requests: list[ChatRequest] = field(default_factory=list)
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        key = (request.model, request.prompt_version.split("/", 1)[0])
+        script = self.turns.get(key)
+        if not script:
+            raise AssertionError(f"no scripted turn left for {key}")
+        turn = script.pop(0)
+        if turn.raise_error is not None:
+            raise turn.raise_error
+        return ChatResponse(
+            parsed=turn.parsed,
+            text=turn.text,
+            usage=turn.usage,
+            model=request.model,
+            provider=self.name,
+            latency_ms=1,
+            raw={"keyed": list(key)},
         )
 
 

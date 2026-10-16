@@ -48,6 +48,7 @@ from basis.obs.logging import configure_logging
 from basis.retrieval import default_retrieval
 from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
 from basis.temporal.client import build_id, connect
+from basis.vision import fusion, room_step
 from basis.vision.analyze import prompts_for_mode
 from basis.vision.localize import Localizer, build_replicate_localizer
 from basis.worker.health import HealthServer
@@ -78,8 +79,10 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     residual components are written ``classifier_unavailable``. The embedding model is
     loaded on first use, not here. The per-photo vision step's prompts
     (``VISION_PHOTO_MODE``: one ``photo_analysis`` call, or the ``photo_countables`` +
-    ``photo_surfaces`` pair) are loaded and checked against the manifest here, so a bad
-    release fails at startup rather than on the first photo.
+    ``photo_surfaces`` pair) and the room step's (``ROOM_PROMPT_VERSION`` of
+    ``room_inventory`` and the ``surface_material`` second look) are loaded and checked
+    against the manifest here, so a bad release fails at startup rather than on the first
+    photo or room. The production configuration of each step is logged.
     """
     vision_prompts = prompts_for_mode(settings.vision_photo_mode)
     logger.info(
@@ -89,6 +92,43 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         ", ".join(p.version_id for p in vision_prompts),
         settings.vision_reasoning_effort,
         settings.vision_output_budget,
+    )
+    logger.info(
+        "count fusion: %s%s (%s at effort %s, table %s)",
+        settings.vision_count_fusion,
+        ""
+        if settings.vision_count_fusion_active or settings.vision_count_fusion == "off"
+        else ", inactive: VISION_PHOTO_MODE=single has no countables call",
+        settings.vision_fusion_model,
+        settings.vision_fusion_reasoning_effort,
+        fusion.TABLE_VERSION,
+    )
+    if settings.room_reconcile:
+        rooms = room_step.load_config(
+            prompt_version=settings.room_prompt_version,
+            model=settings.room_model,
+            reasoning_effort=settings.room_reasoning_effort,
+            single_photo=settings.room_single_photo,
+            materials=settings.room_materials,
+        )
+        logger.info(
+            "room step: %s on %s at effort %s, one-photo rooms %s, second look %s (%s)",
+            rooms.room_prompt.version_id,
+            rooms.model,
+            rooms.reasoning_effort,
+            rooms.single_photo,
+            rooms.materials,
+            rooms.materials_prompt.version_id if rooms.materials_prompt else "-",
+        )
+    else:
+        logger.info("room step: off (assets from the per-photo components)")
+    logger.info(
+        "text steps: extraction fallback %s at effort %s (budget %d); classifier %s at effort %s",
+        settings.text_model,
+        settings.extraction_reasoning_effort,
+        settings.extraction_output_budget,
+        settings.classify_model,
+        settings.classify_reasoning_effort,
     )
     storage, bucket = default_storage(settings)
     sessionmaker = create_sessionmaker(engine)

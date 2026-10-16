@@ -1641,3 +1641,47 @@ about $15.31.
 Prediction directories: `text_fields_<model>` and `text_assets_<model>` under
 `$BASIS_EVAL_DATA_DIR/predictions`, each with `run.json` and the raw records. The tables come
 from `docs/review_2026-10-15/repro/text_step_table.py` (run from `backEnd/`).
+
+## 18. Production configuration (2026-10-16)
+
+What the pipeline runs with no model setting changed: the default of each setting in
+`backEnd/basis/config.py` is the configuration the named section measured best. Every row
+is one setting away from the configuration before it (the last column), and the worker logs
+the configuration in effect at startup (`basis/worker/main.py`). Measured on the one client
+study of sections 6 to 17 (52 photos, about 10 rooms, one appraisal, 46 asset rows); each
+choice should be re-measured on the held-out study before it is trusted further.
+
+| Step | Model | Prompt | Effort | Settings (default) | Section | Measured | Previous behaviour |
+|---|---|---|---|---|---|---|---|
+| Per-photo countables | gpt-6.1-sol | `photo_countables/v2` | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
+| Per-photo surfaces and room type | gpt-6.1-sol | `photo_surfaces/v1` | low | as above | 11, 12.1 | merged with the countables call (`basis/vision/merge.py`) | as above |
+| Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v2` | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
+| Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
+| Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
+| Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 (the room model) | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive` | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
+| Object localization | SAM 3 (Replicate) | phrase prompts | - | `REPLICATE_API_TOKEN`, per-class thresholds | 10.2 | instance masks for review; counts not fused (15.3) | token unset: skipped |
+| Extraction fallback | gpt-6-luna | `appraisal_field_fallback/v1` | low | `TEXT_MODEL`, `EXTRACTION_REASONING_EFFORT`, budget 8000 (`EXTRACTION_FALLBACK_MAX_TOKENS`) | 17.1, 17.3 | 0.924 of 75 fields, 12 of 12 critical, $0.0024 per study | `TEXT_MODEL=gpt-4o-mini` (budget 800) |
+| Asset classification (residual tool loop) | claude-sonnet-5-5 | `classify/v1` | low | `CLASSIFY_MODEL`, `CLASSIFY_REASONING_EFFORT` | 17.2, 17.3 | 0.688 bucket accuracy, 96% verified citations, $1.25 per 46 rows | `CLASSIFY_MODEL=gpt-4o-mini` |
+
+Notes on the wiring (code, not measurement):
+
+- Fusion is a third call in the decomposed step, concurrent with the other two. If Opus stays
+  unavailable after retries (or is unusable, not configured, over budget, or slower than 80 s),
+  the photo keeps gpt-6.1-sol's counts and is flagged `count_fusion_fallback:<why>`; it never
+  fails. Both raw answers and the source, model and counts per class are stored with the
+  analysis.
+- The room step is a new activity, `reconcile_rooms`, after the photo stage (workflow patch
+  `reconcile-rooms-v1`); its inventory rows replace a room's per-photo rows as the input of
+  `process_assets`. It reconciles the stored component rows, so reviewer corrections carried into
+  a revision are reconciled. A room is rebuilt only when its photos change. If the activity
+  fails, the rooms review is flagged and the per-photo rows are used.
+- `wallpaper` and `painted_masonry` are component materials now; before, the second look stored
+  them as `other` + note and `concrete` + note. With the `report_rows` evidence rules this also
+  lets a wallpaper `wall_finish` evidence Wall Coverings and a painted masonry wall evidence
+  Painting, which `other` and `concrete` did not (not re-scored here).
+- The classifier settings refuse an OpenAI reasoning model at any effort but `none` (Chat
+  Completions refuses function tools with a reasoning effort, 17.2) and gpt-6.1-sol at all. An
+  `asset_class` longer than 16 characters is clipped instead of failing the loop (the cause of
+  43 OpenAI loop failures in 17.2).
+- No new measurement was run for this section: the OpenAI account was out of credit, and the
+  wiring is tested offline (unit, activity and workflow lifecycle tests with fake providers).

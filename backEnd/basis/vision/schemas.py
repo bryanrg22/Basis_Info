@@ -171,6 +171,10 @@ class Material(StrEnum):
     DRYWALL = "drywall"
     FIBERGLASS = "fiberglass"
     COMPOSITE = "composite"
+    # EVAL_REPORT section 16.5: the second look's answers the report rows depend on
+    # (Wall Coverings; a painted block or brick wall), stored as themselves.
+    WALLPAPER = "wallpaper"
+    PAINTED_MASONRY = "painted_masonry"
     OTHER = "other"
     UNKNOWN = "unknown"
 

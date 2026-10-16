@@ -418,3 +418,57 @@ def test_golden_file_is_the_one_these_tests_assume() -> None:
             "reconciliation.effective_date_of_appraisal",
         ]
     )
+
+
+def _gla_answer() -> ScriptedTurn:
+    return ScriptedTurn(
+        parsed=FallbackAnswer(
+            fields=[
+                FallbackValue(
+                    key="improvements.gla_sqft", value="1,850 sq ft", page=3, confidence=0.95
+                )
+            ]
+        ),
+        usage=Usage(input_tokens=3000, output_tokens=100),
+    )
+
+
+async def _fallback_request(
+    deps: Deps, seeded: SeededStudy, activity_env: Env, **settings: Any
+) -> Any:
+    await put_bytes(deps, seeded, await _fixture_bytes("urar_scan_noisy.pdf"))
+    provider = ScriptedProvider([_gla_answer()], model="gpt-6-luna")
+    configured = deps.settings.model_copy(update=settings)
+    activity = ExtractFields(
+        make_deps(
+            deps.sessionmaker,
+            deps.storage,
+            configured,
+            azure_di=StaticAzure(without_pair("Gross Living Area")),
+            llm=provider,
+        )
+    )
+    await activity_env.run(activity.run, extract(seeded))
+    [request] = provider.requests
+    return request
+
+
+async def test_the_fallback_runs_on_section_17s_model_effort_and_budget(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT section 17.3: gpt-6-luna at low effort; a reasoning model's budget."""
+    request = await _fallback_request(deps, seeded, activity_env)
+    assert (request.model, request.reasoning_effort, request.max_tokens) == (
+        "gpt-6-luna",
+        "low",
+        8000,
+    )
+
+
+async def test_the_previous_fallback_configuration_is_one_setting_away(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """Regression: TEXT_MODEL=gpt-4o-mini is the pre-17 call (800 tokens; the OpenAI
+    provider sends no reasoning effort to a non-reasoning model)."""
+    request = await _fallback_request(deps, seeded, activity_env, text_model="gpt-4o-mini")
+    assert (request.model, request.max_tokens) == ("gpt-4o-mini", 800)

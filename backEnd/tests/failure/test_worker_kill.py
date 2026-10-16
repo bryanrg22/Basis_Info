@@ -368,9 +368,13 @@ async def assert_recovered(
         "rooms": 2,  # kitchen, bathroom
         "room_names": 2,
         "photo_rooms": len(PHOTOS),
-        "components": 2 * len(PHOTOS),
-        "assets": 2 * len(PHOTOS),
-        "asset_components": 2 * len(PHOTOS),
+        # The worker process runs the production defaults, room step included
+        # (EVAL_REPORT 16.5): two per-photo rows per photo plus one inventory per room
+        # (kitchen: cabinets and countertop, counted once over its two photos; bathroom:
+        # bathtub and toilet), and the assets are built from the four inventory rows.
+        "components": 2 * len(PHOTOS) + 4,
+        "assets": 4,
+        "asset_components": 4,
     }
     return attempts
 

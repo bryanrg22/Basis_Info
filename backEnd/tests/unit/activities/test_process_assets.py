@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from lifecycletest_support import SeededStudy, count_rows, make_deps
+from lifecycletest_support import SeededStudy, count_rows, make_deps, scripted_classifier
 from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
 
@@ -335,3 +335,48 @@ async def test_bad_asset_correction_is_not_retried(
         await activity_env.run(ProcessAssets(deps).run, process(analyzed, 2, corrections=bad))
     assert caught.value.non_retryable
     assert await assets(deps, analyzed.study_id, 2) == []
+
+
+async def _residual_request(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env, **settings: Any
+) -> Any:
+    async with session_scope(deps.sessionmaker) as session:
+        await RoomRepository(session).add_component(
+            study_id=analyzed.study_id,
+            revision=1,
+            document_id=None,
+            room_id=None,
+            label="mystery_box",
+            material=None,
+            attachment=None,
+            confidence=0.2,
+        )
+    provider = scripted_classifier()
+    configured = deps.settings.model_copy(update=settings)
+    activity = ProcessAssets(
+        make_deps(deps.sessionmaker, deps.storage, configured, chat_provider=provider)
+    )
+    await activity_env.run(activity.run, process(analyzed))
+    assert provider.requests
+    return provider.requests[0]
+
+
+async def test_the_classifier_runs_on_section_17s_model_and_effort(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT section 17.3: claude-sonnet-5-5 at low effort (routed to Anthropic)."""
+    request = await _residual_request(deps, analyzed, activity_env)
+    assert (request.model, request.reasoning_effort) == ("claude-sonnet-5-5", "low")
+    assert request.tools  # the tool loop
+
+
+async def test_the_previous_classifier_is_one_setting_away(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """Regression: CLASSIFY_MODEL=gpt-4o-mini; its provider drops the effort (no
+    reasoning model), so the wire request is the pre-17 one."""
+    from basis.llm.providers import build_request_body
+
+    request = await _residual_request(deps, analyzed, activity_env, classify_model="gpt-4o-mini")
+    assert request.model == "gpt-4o-mini"
+    assert "reasoning_effort" not in build_request_body(request)

@@ -34,6 +34,7 @@ PROVIDER_ACTIVITIES = {
     "extract_fields",
     "analyze_photo",
     "localize_photo",
+    "reconcile_rooms",
     "process_assets",
     "export_report",
 }
@@ -42,6 +43,7 @@ LOOPING_ACTIVITIES = {
     "extract_fields",
     "analyze_photo",
     "localize_photo",
+    "reconcile_rooms",
     "process_assets",
 }
 

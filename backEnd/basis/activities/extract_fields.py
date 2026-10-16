@@ -169,7 +169,8 @@ class ExtractFields:
             prompt=prompts.latest(PROMPT_NAME),
             text_model=settings.text_model,
             review_threshold=settings.extraction_review_threshold,
-            fallback_max_tokens=settings.extraction_fallback_max_tokens,
+            fallback_max_tokens=settings.extraction_output_budget,
+            fallback_reasoning_effort=settings.extraction_reasoning_effort,
             previous_azure=reuse,
             heartbeat=heartbeat,
         )

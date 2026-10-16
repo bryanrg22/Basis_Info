@@ -61,6 +61,9 @@ class ExtractionContext:
     text_model: str
     review_threshold: float = 0.90
     fallback_max_tokens: int = 800
+    # The fallback call's reasoning effort (``ChatRequest.reasoning_effort``; ignored by a
+    # model that takes none). ``None`` = the provider's default.
+    fallback_reasoning_effort: str | None = None
     previous_azure: AzureDiResult | None = None
     heartbeat: Callable[[str], None] = field(default=_no_heartbeat)
 
@@ -127,6 +130,7 @@ async def extract_appraisal(
         prompt=ctx.prompt,
         model=ctx.text_model,
         max_tokens=ctx.fallback_max_tokens,
+        reasoning_effort=ctx.fallback_reasoning_effort,
     )
     if outcome.fields:
         filled: dict[str, ExtractedField] = dict(fields)

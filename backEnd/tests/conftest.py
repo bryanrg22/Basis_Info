@@ -21,6 +21,11 @@ os.environ["GIT_SHA"] = "test-sha"  # tests are hermetic: CI exports the real sh
 # tests, and tests/unit/config proves the production defaults with these unset.
 os.environ.setdefault("VISION_PHOTO_MODE", "single")
 os.environ.setdefault("VISION_MODEL", "gpt-4o-mini")
+# Likewise the count fusion (EVAL_REPORT section 15) and the room step (16.5) are off in the
+# baseline; tests/lifecycle/test_production_defaults.py runs the whole workflow with every
+# production default, and each step has its own unit and activity tests.
+os.environ.setdefault("VISION_COUNT_FUSION", "off")
+os.environ.setdefault("ROOM_RECONCILE", "false")
 
 from basis.config import Settings, get_settings, reset_settings  # noqa: E402
 from basis.obs.logging import clear_context  # noqa: E402

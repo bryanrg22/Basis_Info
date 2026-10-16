@@ -410,7 +410,8 @@ def test_best_photo_is_the_most_confident_then_the_largest_count() -> None:
 @pytest.mark.parametrize(
     ("answer", "confidence", "material", "note", "applied"),
     [
-        ("wallpaper", 0.9, Material.OTHER, "wallpaper", True),
+        ("wallpaper", 0.9, Material.WALLPAPER, None, True),
+        ("painted_masonry", 0.9, Material.PAINTED_MASONRY, None, True),
         ("painted_drywall", 0.8, Material.DRYWALL, None, True),
         ("vinyl", 0.7, Material.VINYL, None, True),
         ("wallpaper", 0.3, Material.WOOD, None, False),  # below MIN_CONFIDENCE
@@ -442,7 +443,7 @@ async def test_second_look_skips_other_labels_and_keeps_order() -> None:
     objects, looks = await surface_material.second_look(
         [window, wainscot()], photos, material_ctx(provider), "sensitive"
     )
-    assert objects[0] is window and objects[1].material is Material.OTHER
+    assert objects[0] is window and objects[1].material is Material.WALLPAPER
     assert len(looks) == 1 and len(provider.requests) == 1
 
 
@@ -466,9 +467,14 @@ def test_every_surface_material_maps_and_the_prompt_names_the_cues() -> None:
     assert "fiberglass" in text and "not a wall\n  covering" in text
     # v3: painted block or brick has its own option (v2 answers drifted to wallpaper).
     assert "painted_masonry" in text
+    # Section 16.5 follow-up: wallpaper and painted masonry are component materials now.
     assert surface_material.TO_MATERIAL[surface_material.SurfaceMaterial.PAINTED_MASONRY] == (
-        Material.CONCRETE,
-        "painted masonry",
+        Material.PAINTED_MASONRY,
+        None,
+    )
+    assert surface_material.TO_MATERIAL[surface_material.SurfaceMaterial.WALLPAPER] == (
+        Material.WALLPAPER,
+        None,
     )
     assert surface_material.TO_MATERIAL[surface_material.SurfaceMaterial.FIBERGLASS] == (
         Material.FIBERGLASS,
