@@ -257,7 +257,7 @@ async def test_heartbeats_are_sent_at_each_stage() -> None:
     assert beats == ["read_pdf", "azure_di", "map_fields", "fallback"]
 
 
-# ------------------------------------------------------- scope "missing" (EVAL_REPORT 25)
+# ------------------------------------------------------- scope "missing" (EVAL_REPORT 27)
 
 
 async def test_the_missing_scope_asks_once_for_every_empty_field_and_fills_only_those() -> None:

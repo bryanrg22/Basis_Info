@@ -1,4 +1,4 @@
-"""The configured unit-cost table (EVAL_REPORT section 25, item 6): schema, lookup, units.
+"""The configured unit-cost table (EVAL_REPORT section 27, item 6): schema, lookup, units.
 
 The fixture is synthetic (invented numbers); the engineer's RSMeans table is licensed and
 never in the repository (``COST_TABLE_PATH``).

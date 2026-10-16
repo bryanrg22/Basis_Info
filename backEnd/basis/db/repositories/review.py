@@ -187,7 +187,7 @@ class ReviewRepository:
         if to_stage in REVIEW_STAGES:
             # The next gate opens when the workflow says so (its transition converges the
             # status to waiting_review): until then the study is processing, and that gate
-            # refuses decisions (EVAL_REPORT 25: photos run behind the appraisal review).
+            # refuses decisions (EVAL_REPORT 27: photos run behind the appraisal review).
             await self._session.execute(
                 update(Study)
                 .where(Study.id == study_id)

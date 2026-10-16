@@ -216,7 +216,7 @@ def test_empty_input_gives_no_rooms() -> None:
 
 
 # --------------------------------------------------------------------------- production grouping
-# (EVAL_REPORT section 25, item 1: analyze_photo groups by these functions.)
+# (EVAL_REPORT section 27, item 1: analyze_photo groups by these functions.)
 
 # A package named like the client's (synthetic names, same conventions).
 NAMED_PACKAGE = (

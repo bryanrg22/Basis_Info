@@ -42,7 +42,7 @@ def test_cabinets_per_linear_foot() -> None:
 
 
 def test_kitchen_cabinets_are_units_with_no_legacy_row() -> None:
-    """v0.9 (EVAL_REPORT 25): kitchen cabinets are counted in units, which only a cost
+    """v0.9 (EVAL_REPORT 27): kitchen cabinets are counted in units, which only a cost
     table row prices (tests/unit/domain/test_cost_table.py)."""
     takeoff = estimate_quantity("kitchen_cabinet", 144, 18)
     assert (takeoff.quantity, takeoff.unit) == (Decimal("18.00"), "EA")

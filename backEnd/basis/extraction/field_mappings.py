@@ -149,7 +149,7 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
     F("neighborhood.present_land_use_commercial", "Commercial", "percent"),
     F("neighborhood.present_land_use_other", "Other Land Use", "percent"),
     F("neighborhood.neighborhood_boundaries", "Neighborhood Boundaries"),
-    # One-unit housing price ($000) and age (yrs) ranges (EVAL_REPORT section 25).
+    # One-unit housing price ($000) and age (yrs) ranges (EVAL_REPORT section 27).
     M("neighborhood.price_low_thousands", "One-Unit Housing PRICE $(000) Low", "int"),
     M("neighborhood.price_high_thousands", "One-Unit Housing PRICE $(000) High", "int"),
     M("neighborhood.price_predominant_thousands", "One-Unit Housing PRICE $(000) Pred.", "int"),
@@ -264,7 +264,7 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
     # Cost approach (the table rows are matched by caption, the value is the last amount)
     F("cost_approach.site_value", "Opinion of Site Value", "currency", "Site Value"),
     F("cost_approach.dwelling_cost", "Dwelling", "currency"),
-    # The quantity rows "<item> ___ Sq.Ft. @ $___ = $___" (EVAL_REPORT section 25).
+    # The quantity rows "<item> ___ Sq.Ft. @ $___ = $___" (EVAL_REPORT section 27).
     M("cost_approach.dwelling_sqft", "Cost Approach Dwelling Sq.Ft.", "int"),
     M(
         "cost_approach.dwelling_cost_per_sqft",

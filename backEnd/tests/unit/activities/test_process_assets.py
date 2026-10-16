@@ -175,7 +175,7 @@ async def test_rule_and_model_values_and_takeoffs(
     cabinets = sorted(
         (takeoffs[a.id] for label, a in rows if label == "cabinetry"), key=lambda t: t.quantity
     )
-    # v0.9 (EVAL_REPORT 25): cabinets are counted in units, per row (these stub rows carry
+    # v0.9 (EVAL_REPORT 27): cabinets are counted in units, per row (these stub rows carry
     # no count, so one each). With the room step off (this suite's baseline) each photo's
     # row counts its cabinets; the room step's one inventory per room is what dedupes.
     assert [t.quantity for t in cabinets] == [Decimal("1"), Decimal("1")]
@@ -206,7 +206,7 @@ async def test_unknown_label_goes_to_the_model_and_is_flagged(
 async def test_the_cost_table_prices_labels_the_legacy_rows_do_not(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
-    """EVAL_REPORT 25, item 6: with COST_TABLE_PATH (here the synthetic table) kitchen
+    """EVAL_REPORT 27, item 6: with COST_TABLE_PATH (here the synthetic table) kitchen
     cabinets are priced per unit; a row in another unit than the takeoff is
     COST_NEEDS_QUANTITY, a label without a row is still COST_ROW_MISSING."""
     settings = deps.settings.model_copy(

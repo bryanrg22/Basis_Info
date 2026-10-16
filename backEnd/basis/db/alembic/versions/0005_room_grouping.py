@@ -5,7 +5,7 @@ Revises: 0004
 Create Date: 2026-10-16
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it). Both columns are
-additive (EVAL_REPORT section 25, item 1):
+additive (EVAL_REPORT section 27, item 1):
 
 * ``rooms.group_key``: the canonical file-name room id a room groups
   (``basis.vision.rooms.name_hint`` after the study's aliases); NULL for a room keyed by the

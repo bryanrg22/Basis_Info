@@ -27,7 +27,7 @@ after a rooms rejection for a room that held a flagged photo: that room's photos
 to change, so ``reconcile_rooms`` rebuilds its inventory in the new revision (a correction
 of one of those rows is not carried; it would describe photos that are re-analyzed).
 
-Merging rooms (EVAL_REPORT section 25): a ``room`` correction ``{"merge_into": <room id>}``
+Merging rooms (EVAL_REPORT section 27): a ``room`` correction ``{"merge_into": <room id>}``
 moves the room's photos and per-photo rows into the target room of the new revision (chains
 followed; a loop, a self-merge, an unknown target or extra fields are refused). Neither
 room's inventory is carried, so ``reconcile_rooms`` rebuilds the merged room. A merge of

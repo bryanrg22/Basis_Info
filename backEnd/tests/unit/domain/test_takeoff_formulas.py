@@ -29,7 +29,7 @@ from basis.domain.takeoffs import (
         ("tile", 75, "86.25", "SF"),  # 75 x 1.15
         ("tile", "0.3", "0.35", "SF"),  # 0.345 rounds half up (banker's would give 0.34)
         ("cabinet", 144, "48.00", "LF"),  # 4 x sqrt(144)
-        # v0.9 (EVAL_REPORT 25): finishes measured from the room area.
+        # v0.9 (EVAL_REPORT 27): finishes measured from the room area.
         ("wall_finish", 100, "350.00", "SF"),  # 100 x 3.5
         ("ceiling_finish", 100, "100.00", "SF"),
         ("crown_molding", 100, "40.00", "LF"),  # 4 x sqrt(100)

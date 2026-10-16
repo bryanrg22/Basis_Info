@@ -75,7 +75,7 @@ def test_room_step_defaults_are_section_16(env: pytest.MonkeyPatch) -> None:
     assert settings.room_reasoning_effort == "low"
     assert settings.room_single_photo == "per_photo"
     assert settings.room_materials == "sensitive"
-    # EVAL_REPORT section 25: photos are grouped by file name and the study's aliases.
+    # EVAL_REPORT section 27: photos are grouped by file name and the study's aliases.
     assert settings.room_grouping == "filename"
 
 

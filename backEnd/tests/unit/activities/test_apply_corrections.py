@@ -266,7 +266,7 @@ async def test_asset_corrections_are_checked_for_consistency_before_anything_is_
 
 
 # --------------------------------------------------------------------------- room merges
-# EVAL_REPORT section 25, item 1: the engineer merges rooms at the rooms review.
+# EVAL_REPORT section 27, item 1: the engineer merges rooms at the rooms review.
 
 
 def merge(source: Room, target: Room | str) -> CorrectionInput:

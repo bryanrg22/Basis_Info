@@ -38,7 +38,7 @@ SPEC_TABLES = {
     "orgs": "id name created_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
     "org_members": "org_id user_id role",
-    # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 25).
+    # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
     "room_aliases failure_reason created_at updated_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
@@ -91,7 +91,7 @@ EXTRA_COLUMNS = {table: {"created_at"} for table in SPEC_TABLES} | {
 }
 
 SPEC_ENUMS = {
-    # v0.9: "failed" (migration 0006, EVAL_REPORT 25).
+    # v0.9: "failed" (migration 0006, EVAL_REPORT 27).
     "study_status": [
         "draft",
         "processing",

@@ -1,4 +1,4 @@
-"""Derived site-area fields (EVAL_REPORT section 25): one reading of the Area box, three views."""
+"""Derived site-area fields (EVAL_REPORT section 27): one reading of the Area box, three views."""
 
 from __future__ import annotations
 

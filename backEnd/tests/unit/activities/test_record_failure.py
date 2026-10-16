@@ -1,6 +1,6 @@
 """``record_failure``: a failed stage marks the study (guarded), a retry clears it.
 
-EVAL_REPORT section 25, item 3. Real rows (Postgres container).
+EVAL_REPORT section 27, item 3. Real rows (Postgres container).
 """
 
 from __future__ import annotations

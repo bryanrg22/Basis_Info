@@ -17,7 +17,7 @@ class StudyStatus(StrEnum):
     STALLED = "stalled"
     COMPLETED = "completed"
     ARCHIVED = "archived"
-    # v0.9 (EVAL_REPORT 25): a stage failed; the workflow waits for POST .../retry.
+    # v0.9 (EVAL_REPORT 27): a stage failed; the workflow waits for POST .../retry.
     FAILED = "failed"
 
 

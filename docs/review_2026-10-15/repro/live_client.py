@@ -4,7 +4,7 @@ API only for every action. At each gate it also snapshots the database (read-onl
 for the record, then approves with no corrections. Outputs go to OUT (scratchpad; holds
 client data, never committed).
 
-v0.9 (EVAL_REPORT section 25): ``ROOM_ALIASES`` (a JSON file of ``{room id: room id}``)
+v0.9 (EVAL_REPORT section 27): ``ROOM_ALIASES`` (a JSON file of ``{room id: room id}``)
 is sent with the study, as the engineer would; at each gate the gate's contents are read
 through the new routes (``/fields``, ``/rooms``, ``/assets``) and saved; the photo
 stage's progress when the appraisal gate opens is logged (the gate no longer waits for

@@ -1,4 +1,4 @@
-"""The appraisal review opens when the extraction is done (EVAL_REPORT section 25, item 4).
+"""The appraisal review opens when the extraction is done (EVAL_REPORT section 27, item 4).
 
 Live, the appraisal gate waited for SAM 3 localization (74% of the wall time under
 Replicate's throttle) although it reviews only the extraction, done at +94 s. With patch

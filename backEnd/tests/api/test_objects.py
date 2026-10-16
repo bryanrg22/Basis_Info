@@ -276,7 +276,7 @@ async def test_edits_outside_rooms_review_are_409(
 async def test_edits_before_the_rooms_gate_opens_are_409(
     api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """EVAL_REPORT 25: at rooms_review but processing (the photo stage still runs behind
+    """EVAL_REPORT 27: at rooms_review but processing (the photo stage still runs behind
     the appraisal review): the localizations are not final, so no edit yet."""
     sid, photo, ids = await seeded_photo(api, seed, sessionmaker)
     async with session_scope(sessionmaker) as session:

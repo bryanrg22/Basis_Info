@@ -17,7 +17,7 @@ Changes from legacy, each a bug fix:
   mismatch raises :class:`UnitMismatch`.
 * Money is ``Decimal`` rounded half-up to cents (legacy used floats).
 
-v0.9 (EVAL_REPORT section 25): a component the six legacy rows do not price is priced
+v0.9 (EVAL_REPORT section 27): a component the six legacy rows do not price is priced
 from the configured cost table (:mod:`basis.domain.cost_table`, ``COST_TABLE_PATH``: the
 engineer's licensed unit costs, by component label). A table row in another unit than the
 takeoff raises :class:`NeedsQuantity` (the component is priced per area or length that

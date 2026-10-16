@@ -1,4 +1,4 @@
-"""Fields derived from another field's printed value (EVAL_REPORT section 25).
+"""Fields derived from another field's printed value (EVAL_REPORT section 27).
 
 The URAR's site Area box holds one printed value ("1.39 ac", "60,548 sf"). The catalogue
 keeps three views of it, all from the same reading:

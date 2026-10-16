@@ -396,7 +396,7 @@ def test_split_concatenated_field() -> None:
     assert split_concatenated_field(None, patterns) == {}
 
 
-# --------------------------------------------------------------------------- EVAL_REPORT 25
+# --------------------------------------------------------------------------- EVAL_REPORT 27
 
 
 @pytest.mark.parametrize(

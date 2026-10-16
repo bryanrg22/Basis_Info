@@ -121,7 +121,7 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
         ("gpt-6.1-sol", "photo_surfaces/v2"): 3,
         ("claude-opus-5-5", "photo_countables/v3"): 3,
         ("claude-sonnet-5-5", "room_inventory/v3"): 1,  # the two-photo Kitchen only
-        # EVAL_REPORT 25: the fallback asks for every box Azure DI left empty, once.
+        # EVAL_REPORT 27: the fallback asks for every box Azure DI left empty, once.
         ("gpt-6-luna", "appraisal_field_fallback/v1"): 1,
     }
     [fallback] = [r for r in provider.requests if r.prompt_version.startswith("appraisal_")]
