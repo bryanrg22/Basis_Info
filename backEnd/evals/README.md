@@ -32,6 +32,13 @@ materials from the per-photo labels; the ceiling the vocabulary and the labellin
 conventions allow). Model-backed systems are run by the orchestrator and scored through
 `--predictions`.
 
+Corpus text (`--corpus-text`, `retrieval_qrels` and `rule_citations` only): `pymupdf`
+(default; pymupdf's page text, independent of the ingestion parser, the historical
+baseline) or `parser` (the production path: `basis.retrieval.parse.parse_pdf`, then
+`basis.retrieval.chunk.chunk_document`, a page's chunks joined; what retrieval indexes and
+citations are checked against). With `parser` the systems are named `bm25_pages_parser`
+and `page_text_parser`. Use `parser` to measure a parser change (EVAL_REPORT 20).
+
 ## Dataset files
 
 Every item has `split` (`dev` | `regression` | `held_out`, default `dev`) and, where it
