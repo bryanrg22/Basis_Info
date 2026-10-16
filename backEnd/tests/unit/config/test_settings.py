@@ -360,15 +360,15 @@ def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPat
     assert settings.replicate_api_token is None
     assert settings.sam3_replicate_version == SAM3_VERSION
     assert settings.localizer_concurrency == 4
-    clean_env.setenv("REPLICATE_API_TOKEN", "r8_replicate-secret-xyz")
+    clean_env.setenv("REPLICATE_API_TOKEN", "r8_fake-test-token")  # gitleaks:allow
     clean_env.setenv("SAM3_REPLICATE_VERSION", "abc123")
     clean_env.setenv("LOCALIZER_CONCURRENCY", "8")
     settings = load_settings()
     assert isinstance(settings.replicate_api_token, SecretStr)
-    assert settings.replicate_api_token.get_secret_value() == "r8_replicate-secret-xyz"
+    assert settings.replicate_api_token.get_secret_value() == "r8_fake-test-token"
     assert (settings.sam3_replicate_version, settings.localizer_concurrency) == ("abc123", 8)
     for rendered in (repr(settings), str(settings), settings.model_dump_json()):
-        assert "r8_replicate-secret-xyz" not in rendered
+        assert "r8_fake-test-token" not in rendered
 
 
 @pytest.mark.parametrize("value", ["0", "33", "many"])
