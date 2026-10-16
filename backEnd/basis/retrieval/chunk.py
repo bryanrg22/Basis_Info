@@ -45,6 +45,8 @@ ENCODING_NAME: Final = "cl100k_base"
 CHUNK_TOKENS: Final = 400
 OVERLAP_TOKENS: Final = 80
 SECTION_SEPARATOR: Final = " > "
+# Bump when a change alters the chunks of an existing document (see PARSER_VERSION).
+CHUNKER_VERSION: Final = f"{ENCODING_NAME}-{CHUNK_TOKENS}/{OVERLAP_TOKENS}-page-v1"
 
 
 @lru_cache(maxsize=1)

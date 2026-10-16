@@ -14,9 +14,23 @@ Writes ``docs/test-evidence/<label>/`` with:
 * ``summary.json``: pass/fail/skip/xfail counts parsed from the JUnit report, with the
   reason for every skip and expected failure.
 
+The main pytest run is the CI set: it deselects the optional sets below. Each optional
+set runs as its own pytest pass, only when the data it needs is present on this
+machine, and writes ``junit_<name>.xml``, ``summary_<name>.json`` and a ``pytest_<name>``
+section of ``gates.log``; ``manifest.json`` records, for every optional set, whether it
+ran and why not. ``--skip-optional`` leaves them out.
+
+* ``real_corpus`` (marker ``eval_data``): ``tests/integration/retrieval/test_real_corpus.py``,
+  the six private reference PDFs through the ingest CLI with the real embedder (chunk
+  counts against the pinned baseline, embeddings, two-column sentences, the rules-table
+  citations, ingest and cold BM25 timings). Needs ``BASIS_EVAL_DATA_DIR`` with a
+  ``corpus/`` directory, Docker and MiniLM in the Hugging Face cache (the test skips
+  itself with the reason if the PDFs or the model are missing). Takes several minutes.
+
 Usage, from the repository root::
 
     uv run --project backEnd python tooling/evidence/capture.py --label v0.3.0 [--extra-args "-m 'not slow'"]
+    BASIS_EVAL_DATA_DIR=~/basis-eval-data uv run --project backEnd python tooling/evidence/capture.py --label v0.8.0
 
 The script never reads ``.env`` and never prints secrets; it records names, not values.
 """
@@ -61,6 +75,29 @@ KEY_PACKAGES = [
     "ruff",
     "mypy",
 ]
+
+
+# Test sets that need data CI does not have: name -> (pytest marker, what they need).
+OPTIONAL_SUITES: dict[str, tuple[str, str]] = {
+    "real_corpus": ("eval_data", "BASIS_EVAL_DATA_DIR with a corpus/ directory"),
+}
+
+
+def optional_suite_missing(name: str, env: dict[str, str]) -> str | None:
+    """Why optional set ``name`` cannot run here, or ``None`` when its data is present."""
+    if name == "real_corpus":
+        value = env.get("BASIS_EVAL_DATA_DIR")
+        if not value:
+            return "BASIS_EVAL_DATA_DIR is not set"
+        if not (Path(value).expanduser() / "corpus").is_dir():
+            return "BASIS_EVAL_DATA_DIR has no corpus/ directory"
+        return None
+    raise KeyError(name)
+
+
+def deselect_optional() -> list[str]:
+    """The pytest arguments that leave every optional set out (the CI set)."""
+    return ["-m", " and ".join(f"not {marker}" for marker, _ in OPTIONAL_SUITES.values())]
 
 
 def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> tuple[int, str]:
@@ -163,8 +200,13 @@ def parse_junit(path: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--label", required=True, help="version label, e.g. v0.3.0 or stage2-<sha>")
-    parser.add_argument("--extra-args", default="", help="extra pytest args")
+    parser.add_argument(
+        "--extra-args", default="", help="extra pytest args (an -m here replaces the CI-set -m)"
+    )
     parser.add_argument("--skip-gates", action="store_true", help="only capture metadata")
+    parser.add_argument(
+        "--skip-optional", action="store_true", help="do not run the optional data-gated sets"
+    )
     args = parser.parse_args()
 
     out = ROOT / "docs" / "test-evidence" / args.label
@@ -192,23 +234,47 @@ def main() -> int:
             "--timeout=600",
             "-rfEsx",
             f"--junitxml={out / 'junit.xml'}",
+            *deselect_optional(),
             *(args.extra_args.split() if args.extra_args else []),
         ],
     }
+    optional: dict[str, dict[str, object]] = {}
+    for name, (marker, needs) in OPTIONAL_SUITES.items():
+        missing = "--skip-optional given" if args.skip_optional else optional_suite_missing(name, env)
+        optional[name] = {"marker": marker, "needs": needs, "ran": False, "reason": missing}
+        if missing is None:
+            commands[f"pytest_{name}"] = [
+                "uv", "run", "--no-sync", "pytest", "-q", "-p", "no:cacheprovider",
+                "--timeout=3600", "-rfEsxP", "-m", marker,
+                f"--junitxml={out / f'junit_{name}.xml'}",
+            ]  # fmt: skip
 
     results: dict[str, int] = {}
     if not args.skip_gates:
         code, collected = run(commands["collect"], BACKEND, env)
         (out / "tests_collected.txt").write_text(collected)
         results["collect"] = code
+        gates = ["ruff_check", "ruff_format", "mypy", "openapi", "pytest"]
+        gates += [name for name in commands if name.startswith("pytest_")]
         with (out / "gates.log").open("w") as log:
             log.write(f"# evidence capture {started} label={args.label}\n")
-            for name in ("ruff_check", "ruff_format", "mypy", "openapi", "pytest"):
+            for name in gates:
                 log.write(f"\n## {name}\n$ {' '.join(commands[name])}\n")
                 code, text = run(commands[name], BACKEND, env)
                 results[name] = code
                 log.write(text)
                 log.write(f"\n[exit {code}]\n")
+                suite = name.removeprefix("pytest_")
+                if suite in optional:
+                    optional[suite]["ran"] = True
+                    junit = out / f"junit_{suite}.xml"
+                    if junit.exists():
+                        (out / f"summary_{suite}.json").write_text(
+                            json.dumps(parse_junit(junit), indent=2)
+                        )
+    elif not args.skip_optional:
+        for entry in optional.values():
+            entry["reason"] = entry["reason"] or "--skip-gates given"
 
     manifest = {
         "label": args.label,
@@ -240,6 +306,7 @@ def main() -> int:
         "code_artefacts": code_artefact_versions(),
         "commands": {k: " ".join(v) for k, v in commands.items()},
         "exit_codes": results,
+        "optional_suites": optional,
         "notes": "Secrets are never recorded. Real-provider evaluations are reported separately in EVAL_REPORT.md.",
     }
     summary = parse_junit(out / "junit.xml") if (out / "junit.xml").exists() else None
@@ -291,7 +358,20 @@ def main() -> int:
         ]
     else:
         lines.append("- gates not run (metadata only)")
-    lines += ["", "Files: `manifest.json`, `summary.json`, `tests_collected.txt`, `gates.log`, `junit.xml`."]
+    lines += ["", "### Optional sets (data-gated, not in CI)", ""]
+    for name, entry in optional.items():
+        if entry["ran"]:
+            path = out / f"summary_{name}.json"
+            extra = json.loads(path.read_text()) if path.exists() else None
+            counts = (
+                f"{extra['passed']} passed, {len(extra['failed'])} failed, {len(extra['skipped'])} skipped"
+                if extra
+                else "no JUnit report"
+            )
+            lines.append(f"- `{name}` (`-m {entry['marker']}`): ran, {counts}, exit {results[f'pytest_{name}']}")
+        else:
+            lines.append(f"- `{name}` (`-m {entry['marker']}`): not run: {entry['reason']} (needs {entry['needs']})")
+    lines += ["", "Files: `manifest.json`, `summary.json`, `tests_collected.txt`, `gates.log`, `junit.xml`; per optional set that ran, `junit_<name>.xml` and `summary_<name>.json`."]
     (out / "README.md").write_text("\n".join(lines) + "\n")
     print(f"wrote {out} ; exit codes {results}")
     return 0 if all(code == 0 for code in results.values()) else 1

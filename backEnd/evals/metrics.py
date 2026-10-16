@@ -12,6 +12,8 @@
   :func:`basis.classify.router.resolve_rule_citations` checks them).
 * Standard error of a mean clustered by document (CR1: ``G/(G-1)`` small-sample factor),
   because photos and fields from one property are not independent.
+* Paired comparison of two systems on the same queries: a percentile-bootstrap interval
+  of the mean difference and a sign-flip randomization p-value (:func:`paired_bootstrap`).
 * pass^k (all of k repeats succeed), with the unbiased estimator
   ``C(c, k) / C(n, k)`` per item when n repeats ran.
 * Room inventories (VISION_RESEARCH.md section 3, metric 3): per (room, label) over the
@@ -403,6 +405,67 @@ def clustered_standard_error(values: Sequence[float], clusters: Sequence[Hashabl
         return math.nan
     variance = g_count / (g_count - 1) * sum(s * s for s in groups.values()) / (n * n)
     return math.sqrt(variance)
+
+
+@dataclass(frozen=True)
+class PairedDifference:
+    """Mean of ``a - b`` over paired items, a bootstrap interval and a randomization p."""
+
+    n: int
+    mean: float
+    low: float
+    high: float
+    p_value: float
+    wins: int  # items where a > b
+    losses: int  # items where a < b
+    ties: int
+
+
+def paired_bootstrap(
+    a: Sequence[float],
+    b: Sequence[float],
+    *,
+    iterations: int = 10_000,
+    seed: int = 0,
+    confidence: float = 0.95,
+) -> PairedDifference:
+    """Paired comparison of two systems scored on the same items (queries).
+
+    The interval is the percentile bootstrap of the mean difference (Efron and Tibshirani
+    1993): the items are resampled with replacement ``iterations`` times. The p-value is
+    the two-sided paired randomization (sign-flip) test of a zero mean difference, which
+    Smucker, Allan and Carterette (CIKM 2007) recommend for IR and which agrees with the
+    paired t-test and the bootstrap test there; it counts the observed statistic in its
+    own null distribution, so it is never 0. Seeded, so a rerun reproduces it exactly.
+    """
+    if len(a) != len(b):
+        raise ValueError("paired samples differ in length")
+    if not a:
+        raise ValueError("no items to compare")
+    if iterations < 1:
+        raise ValueError("iterations must be positive")
+    import numpy as np  # numpy is a runtime dependency; kept local like the other heavy imports
+
+    diff = np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
+    n = len(diff)
+    observed = float(diff.mean())
+    rng = np.random.default_rng(seed)
+    means = diff[rng.integers(0, n, size=(iterations, n))].mean(axis=1)
+    tail = (1.0 - confidence) / 2.0
+    low, high = (float(x) for x in np.quantile(means, [tail, 1.0 - tail]))
+    signs = rng.choice(np.array([-1.0, 1.0]), size=(iterations, n))
+    null = np.abs((signs * diff).mean(axis=1))
+    extreme = int(np.count_nonzero(null >= abs(observed) - 1e-12))
+    return PairedDifference(
+        n=n,
+        mean=observed,
+        low=low,
+        high=high,
+        p_value=(extreme + 1) / (iterations + 1),
+        wins=int(np.count_nonzero(diff > 0)),
+        losses=int(np.count_nonzero(diff < 0)),
+        ties=int(np.count_nonzero(diff == 0)),
+    )
 
 
 def pass_hat_k(outcomes: Sequence[Sequence[bool]], k: int) -> float:

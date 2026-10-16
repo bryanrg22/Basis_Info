@@ -169,7 +169,9 @@ jobs:
           # $HOME is a runner variable, not a workflow-context value: resolve it here.
           export TIKTOKEN_CACHE_DIR="$HOME/.cache/basis-tiktoken"
           mkdir -p "$TIKTOKEN_CACHE_DIR"
+          # eval_data tests need the private eval data, which CI never has.
           uv run --no-sync pytest -q \
+            -m "not eval_data" \
             --timeout=600 \
             --junitxml=../reports/backend.xml \
             -p no:cacheprovider

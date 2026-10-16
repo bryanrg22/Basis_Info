@@ -17,6 +17,7 @@ from evals.metrics import (
     ir_metrics,
     ndcg_at_k,
     page_citation_status,
+    paired_bootstrap,
     pass_hat_k,
     recall_at_k,
     reciprocal_rank,
@@ -305,3 +306,56 @@ def test_inventory_metrics_with_no_pairs() -> None:
     m = inventory_metrics({"r1": {}}, {})
     assert m.pairs == 0 and math.isnan(m.count_mae) and math.isnan(m.count_mae_se)
     assert m.room_exact_rate == 1.0
+
+
+# --------------------------------------------------------------------------- paired bootstrap
+
+
+def test_paired_bootstrap_identical_systems_have_no_difference() -> None:
+    values = [0.1, 0.5, 0.9, 0.3]
+    diff = paired_bootstrap(values, values, iterations=1000)
+    assert (diff.mean, diff.low, diff.high) == (0.0, 0.0, 0.0)
+    assert diff.p_value == 1.0 and (diff.wins, diff.losses, diff.ties) == (0, 0, 4)
+
+
+def test_paired_bootstrap_constant_shift_is_exact_and_significant() -> None:
+    a = [x + 0.25 for x in range(30)]
+    diff = paired_bootstrap(a, [float(x) for x in range(30)], iterations=2000)
+    assert diff.mean == pytest.approx(0.25)
+    assert diff.low == pytest.approx(0.25) and diff.high == pytest.approx(0.25)
+    # Only the all-positive sign flip reaches |mean| = 0.25 (chance 2^-30): p = 1/(N+1).
+    assert diff.p_value < 0.01 and diff.wins == 30
+
+
+def test_paired_bootstrap_interval_matches_the_normal_approximation() -> None:
+    import random
+
+    rng = random.Random(7)
+    b = [rng.random() for _ in range(200)]
+    a = [x + rng.gauss(0.05, 0.2) for x in b]
+    diff = paired_bootstrap(a, b, iterations=20_000)
+    d = [x - y for x, y in zip(a, b, strict=True)]
+    mean = sum(d) / len(d)
+    se = math.sqrt(sum((x - mean) ** 2 for x in d) / (len(d) - 1) / len(d))
+    assert diff.mean == pytest.approx(mean)
+    assert diff.low == pytest.approx(mean - 1.96 * se, abs=0.25 * se)
+    assert diff.high == pytest.approx(mean + 1.96 * se, abs=0.25 * se)
+    assert diff.p_value < 0.05  # the shift is about 3.5 standard errors
+
+
+def test_paired_bootstrap_is_seeded_and_swapping_systems_flips_the_sign() -> None:
+    a, b = [0.2, 0.9, 0.4, 0.4, 1.0], [0.1, 0.3, 0.6, 0.4, 0.5]
+    first, again = paired_bootstrap(a, b, iterations=500), paired_bootstrap(a, b, iterations=500)
+    assert first == again
+    flipped = paired_bootstrap(b, a, iterations=500)
+    assert flipped.mean == pytest.approx(-first.mean)
+    assert (flipped.wins, flipped.losses, flipped.ties) == (first.losses, first.wins, 1)
+
+
+def test_paired_bootstrap_refuses_bad_input() -> None:
+    with pytest.raises(ValueError):
+        paired_bootstrap([1.0], [1.0, 2.0])
+    with pytest.raises(ValueError):
+        paired_bootstrap([], [])
+    with pytest.raises(ValueError):
+        paired_bootstrap([1.0], [0.0], iterations=0)

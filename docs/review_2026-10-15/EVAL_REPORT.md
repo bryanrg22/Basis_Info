@@ -106,6 +106,7 @@ the corpus or the table changes (`evals/run.py`, dataset `rule_citations`).
   ingested into a Postgres with pgvector (`python -m basis.retrieval.ingest`) and a small
   runner that writes `retrieval_qrels.json` predictions; then `--predictions` scores it
   and the `retrieval_fusion` default is chosen from the numbers, not assumed.
+  Measured in section 22 (in-memory index checked against pgvector).
 - Azure Document Intelligence extraction on the appraisal (`appraisal_fields`), the
   structured vision call on the 52 photos (`photo_rooms`, `photo_components`) and the
   residual classifier on the extracted components (`assets`): model-backed, run by the
@@ -2195,7 +2196,182 @@ Prediction directories under `$BASIS_EVAL_DATA_DIR/predictions`: `som_{box,outli
 fusions `counts_fused_sol_opus_somopus_loo` and `counts_fused_sol_opus_somoutline_loo`, and the
 best new system `som_outline_orig_opus55_med/loop_masked` (2c, with its `eval.md`).
 
-## 22. Over-long `asset_class`: keep the class code (2026-10-16)
+## 22. Retrieval: BM25, vectors and the hybrid (2026-10-16)
+
+Until now `retrieval_qrels` scored one system, `bm25_pages` (BM25 over one chunk per page).
+Production stores 400-token chunks with MiniLM embeddings and has a hybrid search, but
+neither the vectors nor the fusion had been measured. This section scores four systems on
+the same 50 queries and decides what to do with the hybrid.
+
+**What the literature leads one to expect.** On BEIR (Thakur et al., NeurIPS 2021
+datasets track), BM25 is a strong zero-shot baseline and dense retrievers trained on MS
+MARCO often fall below it out of domain. all-MiniLM-L6-v2 is a general sentence model,
+trained on about 1.17 billion sentence pairs (Reddit, S2ORC, Stack Exchange, PAQ and
+others); none of them is tax or construction-cost text. Hybrids usually beat both sides.
+Bruch, Gai and Ingber ("An Analysis of Fusion Functions for Hybrid Retrieval", ACM TOIS
+2023) found a tuned convex combination of normalized scores beats RRF, RRF more sensitive
+to its k than assumed, and the convex weight cheap to tune on a few queries. On statistics:
+Smucker, Allan and Carterette (CIKM 2007) found the paired t-test, the bootstrap and the
+randomization test agree on TREC runs, and their 2009 follow-up found the tests disagree
+more as topics get fewer. Voorhees and Buckley (SIGIR 2002) showed that with 50 topics,
+differences of a few points of MAP often flip on another topic set.
+
+**Method.** `python -m evals.run --corpus-text parser --retrieval-systems all
+--fusion-sweep` (new flags), dev split, 50 queries, 173 judgments at doc + page:
+
+* `bm25_pages_parser`: the existing baseline (BM25 over the parser's page text, one item
+  per page).
+* `bm25_chunks`: the store's BM25 index (`Bm25Index`, IRS tokenizer, Lucene IDF) over the
+  7,466 production chunks.
+* `vector_chunks`: MiniLM query embedding, cosine against every chunk embedding, exact.
+* `hybrid`: `basis.retrieval.hybrid.hybrid_search` itself with the configured fusion
+  (RRF, k = 60; each side gives `2k` candidates).
+
+The chunk systems take the top 50 chunks and read them as pages (first occurrence kept),
+cut at 10; every query got 10 pages. Paired differences: 95% percentile bootstrap of the
+mean per-query difference (10,000 resamples, seed 0) and a two-sided sign-flip
+randomization p. The real-corpus test (gap 1 below) checks that the harness's in-memory
+index ranks as the database does: BM25, vector (exact against pgvector HNSW with
+`iterative_scan = strict_order`) and hybrid gave identical top-10 pages on all 50 queries.
+Two full runs gave identical numbers.
+
+| System | nDCG@10 | recall@5 | recall@10 | MRR | holes@10 |
+|---|---|---|---|---|---|
+| `bm25_pages_parser` (section 20) | 0.416 (0.043) | 0.383 | 0.502 | 0.537 | 0.826 |
+| `bm25_chunks` | 0.415 (0.042) | 0.368 | 0.549 | 0.508 | 0.808 |
+| `vector_chunks` (MiniLM) | 0.384 (0.041) | 0.338 | 0.475 | 0.464 | 0.830 |
+| `hybrid` (RRF, k = 60) | **0.450** (0.038) | 0.379 | **0.571** | **0.539** | 0.800 |
+
+Standard errors in brackets. The hole rate is now per query: the share of top-10 pages
+with no judgment for that query. It used to count a page judged for any query as judged,
+which gave 0.66 for `bm25_pages_parser`; 0.83 is the right number.
+
+**Paired differences** (row minus column system, per query; nDCG@10 unless stated):
+
+| Difference | Mean | 95% interval | p | wins / losses / ties |
+|---|---|---|---|---|
+| hybrid - vector | +0.067 | [+0.016, +0.118] | 0.015 | 28 / 15 / 7 |
+| hybrid - vector, recall@10 | +0.096 | [+0.040, +0.154] | 0.002 | 17 / 4 / 29 |
+| hybrid - bm25_chunks | +0.035 | [-0.014, +0.087] | 0.19 | 24 / 19 / 7 |
+| hybrid - bm25_chunks, MRR | +0.030 | [-0.047, +0.108] | 0.46 | 18 / 11 / 21 |
+| hybrid - bm25_pages_parser | +0.034 | [-0.024, +0.097] | 0.29 | 20 / 21 / 9 |
+| hybrid - bm25_pages_parser, recall@10 | +0.069 | [-0.021, +0.162] | 0.15 | 15 / 11 / 24 |
+| vector - bm25_chunks | -0.032 | [-0.112, +0.052] | 0.46 | 17 / 29 / 4 |
+| bm25_chunks - bm25_pages_parser | -0.001 | [-0.041, +0.042] | 0.97 | 16 / 21 / 13 |
+| bm25_chunks - bm25_pages_parser, recall@10 | +0.047 | [-0.001, +0.100] | 0.075 | 9 / 3 / 38 |
+
+Vectors alone are the weakest system (BM25 is better on 29 queries, vectors on 17, and
+vectors leave 12 queries with no relevant page in the top 10 against BM25's 7). The hybrid
+is clearly better than vectors alone and has the highest mean on every metric but
+recall@5 (0.379 against `bm25_pages_parser`'s 0.383), but its
+gain over BM25 (+0.035 nDCG@10) is inside the noise of 50 queries.
+
+**Fusion weights.** Weighted fusion (max-normalized, `w * bm25 + (1 - w) * vector`) over
+the same candidates, and RRF:
+
+| Fusion | nDCG@10 | condensed nDCG@10 |
+|---|---|---|
+| weighted, w = 0.0 (vector only) | 0.384 | 0.764 |
+| weighted 0.1 / 0.2 | 0.424 / 0.434 | 0.812 / 0.820 |
+| **weighted 0.3** | **0.469** | 0.818 |
+| weighted 0.4 / 0.5 / 0.6 | 0.461 / 0.461 / 0.458 | 0.819 / 0.826 / 0.814 |
+| weighted 0.7 / 0.8 / 0.9 | 0.447 / 0.445 / 0.433 | 0.811 / 0.821 / 0.829 |
+| weighted 1.0 (BM25 only) | 0.415 | 0.808 |
+| **RRF, k = 60 (production)** | 0.450 | **0.832** |
+
+* With unjudged pages counted as misses (the harness's metric), w = 0.3 is best and
+  w = 0.3 to 0.6 form a plateau. Choosing w by leave-one-out (best mean on 49 queries,
+  scored on the 50th) picks 0.3 in all 50 folds, so the 0.469 is not only in-sample;
+  5-fold cross-validation repeated 20 times gives 0.461 on average (0.438 to 0.469).
+  Weighted 0.3 minus RRF: +0.019 [+0.003, +0.037], p = 0.037 (18 / 14 / 18); recall@10
+  +0.006 [-0.020, +0.036] and MRR +0.020 [-0.022, +0.064] are not distinguishable.
+* With condensed lists (Sakai, SIGIR 2007: unjudged pages removed before cutting at 10,
+  the usual check when judgments are incomplete), the order flips: RRF is best and
+  weighted 0.3 minus RRF is -0.014 [-0.038, +0.008], p = 0.23.
+* RRF's k matters little here: k = 1, 5, 10, 20, 60, 100 give 0.438, 0.439, 0.444, 0.446,
+  0.450, 0.446; the default 60 is the best of them.
+
+So the 0.019 advantage of weighted 0.3 depends on how the 80% of unjudged pages are
+treated, and the qrels pool came from the legacy BM25 and vector indexes (295 and 187
+candidates), not from these systems.
+
+**Why vectors are weak here (found while measuring).** MiniLM truncates its input at 256
+word pieces, and the chunks are 400 cl100k tokens: 5,885 of the 7,466 chunks (79%) are
+longer than 256 word pieces (median 328, 90th percentile 407), so the vector side never
+sees the end of most chunks; the 80-token overlap covers only part of what is cut.
+The corpus is also dominated by the two RSMeans cost books (6,208 of the 7,466 chunks,
+OCR text, section 20), where codes and unit names favour lexical matching.
+
+**Recommendation.**
+
+1. **Keep the hybrid; do not drop either side.** It is the best system on every metric and
+   under both ways of treating unjudged pages; vectors alone are clearly worse than the
+   hybrid, and BM25 alone is better on average only on recall@5, by 0.004. Dropping
+   vectors is not supported
+   (hybrid minus BM25 is positive under both evaluations, though not significant);
+   dropping BM25 is ruled out.
+2. **Keep RRF (k = 60) as the default; do not change the weights.** The best weighted
+   setting (0.3) wins under one treatment of unjudged pages and loses under the other,
+   by less than 0.02 either way; that is not evidence for changing a default. The fusion
+   is now a setting so the decision can be revisited without a code change:
+   `RETRIEVAL_FUSION` (`rrf` | `weighted`, default `rrf`) and `RETRIEVAL_BM25_WEIGHT`
+   (default 0.5, unused by RRF), bound on `basis.retrieval.Retrieval` and used by its new
+   `hybrid` method. The `hybrid_search` defaults equal the setting defaults (a unit test
+   keeps them so).
+3. **Wire the hybrid into production.** The residual classifier's `search_reference` tool
+   and `resolve_rule_citations` call `store.search_bm25` directly
+   (`basis/classify/tools.py`, `basis/classify/router.py`), so production retrieval is
+   BM25 today and the measured hybrid gain is not being used. Passing
+   `search=Retrieval.hybrid` bound to the store (the `search` parameter already exists) is
+   the change; it should be measured on the `assets` eval, since only the classifier's
+   answers matter. Not done here.
+4. **Fix the vector input before tuning fusion.** Embed chunks no longer than 256 word
+   pieces (smaller embedding windows mapped to the same chunk, or a model with a longer
+   window), then re-run this section.
+5. **Judge the holes.** About 400 of the 500 top-10 pages of each system are unjudged.
+   Judging the union of the four systems' top 10 (and of weighted 0.3) is what would let
+   the fusion question be answered.
+
+**What 50 queries can and cannot show.** The standard deviation of the per-query nDCG@10
+difference between the hybrid and BM25 is about 0.18, so the standard error of the mean
+difference is about 0.026 and, at 80% power and alpha 0.05, only differences of about
+0.07 are reliably detected. Detecting the observed +0.035 would need about 210 queries.
+Differences between fusion settings have a smaller spread (SE about 0.009 for weighted 0.3
+versus RRF) but are themselves around 0.02, and the condensed-list check shows that
+incomplete judgments move them by as much. All 50 queries are in the `dev` split (no
+held-out set), and the weight sweep was evaluated on the same queries it was chosen on;
+leave-one-out and cross-validation correct for the choice, not for the queries being the
+only ones. The queries are one engineer's, written for this corpus; recall is a lower bound
+while 80% of the top 10 is unjudged.
+
+### 22.1 Gap 1: the real corpus as an automated test
+
+`tests/integration/retrieval/test_real_corpus.py` (markers `integration`, `slow`,
+`eval_data`; skipped with the reason unless `BASIS_EVAL_DATA_DIR` has the six corpus PDFs
+and MiniLM is cached; CI deselects `eval_data`; `tooling/evidence/capture.py` runs it as
+the optional `real_corpus` set when the data is present). It runs
+`python -m basis.retrieval.ingest --corpus reference --fresh --max-pages 2000` as a
+subprocess into the emptied test container and checks:
+
+| Check | Result |
+|---|---|
+| Published reference versions | 1 (version 1, `sentence-transformers/all-MiniLM-L6-v2`) |
+| Chunks (pinned baseline, 1% tolerance) | 7,466: ATG 348 pages, 346 text + 282 table; Pub 527 37, 132 + 8; Pub 946 112, 301 + 141; Rev. Proc. 87-56 42, 48 + 0; RSMeans Building 964, 3,775 + 0; RSMeans Residential 802, 2,433 + 0 |
+| Versions pinned with the baseline | `PARSER_VERSION = "2026-10-16.two-column"`, `CHUNKER_VERSION = "cl100k_base-400/80-page-v1"` (new constants; a change fails the test until re-pinned) |
+| Embeddings | every chunk 384-d, unit length (within 1e-3) |
+| Pages and text | every chunk on one page, none empty |
+| Two-column sentences whole in one chunk | Pub 527: 0.923 of 937 sentences on 30 pages (pinned >= 0.91); Pub 946: 0.892 of 1,659 on 66 pages (pinned >= 0.88) |
+| Rules-table citations through `resolve_rule_citations` | 77 of 77 |
+| Harness index vs store, top-10 pages, 50 queries | BM25 50, vector 50, hybrid 50 identical |
+| Ingest wall time / cold BM25 build | 150 s and 181 s in two runs / 0.9 s (7,466 chunks) |
+
+The sentence check is section 20's (sentences of 40 to 200 characters of pymupdf's page
+text, `excerpt_supported`), but stricter: the sentence must be whole in one chunk, as a
+citation must, not just somewhere on the page; the rates are close to section 20's page
+rates (0.914, 0.885). The chunk counts match section 20's ingest (7,466; Pub 527 132 + 8,
+Pub 946 301 + 141).
+
+## 23. Over-long `asset_class`: keep the class code (2026-10-16)
 
 Follow-up to 17.2 and 18. Branch `claude/asset-class-code`.
 
