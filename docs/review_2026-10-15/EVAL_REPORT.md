@@ -176,3 +176,63 @@ the per-photo results that returns each distinct object with the photos it appea
 scored per room against a human inventory (count error, exact-match rate, signed bias).
 That human per-room inventory does not exist yet for this package; the per-photo labels
 have to be merged by room first, which is the labelling task before that step.
+
+## 9. Rules table re-cited; `rule_citations` eval (added 2026-10-15, later the same day)
+
+Follows section 3. Every rules-table citation was re-cited against the reference PDFs
+(`basis/domain/rules.py`, `RULES_VERSION` `2026-10-15.2`; judgments row by row in
+`RULES_RECITATION.md`), and the check of section 3 is now an eval dataset,
+`rule_citations` (`evals/run.py`, system `page_text`): each `(doc_id, page, excerpt)`
+claim is resolved against the pymupdf text of `<data dir>/corpus/<doc_id>.pdf` the way
+`resolve_rule_citations` checks a chunk (document present, page in range,
+`excerpt_supported`). It is derived from the code, so it runs on every `evals.run`.
+
+Command (from `backEnd/`, at `9c0be45`):
+
+```bash
+BASIS_ENV=test BASIS_EVAL_DATA_DIR=<data dir> uv run --no-sync python -m evals.run \
+  --split dev --no-db --report <scratch>/eval_rules.md
+```
+
+| Table | Citations | Resolved on the cited page | 95% interval | Rules with every citation resolved | Unresolved by status |
+|---|---|---|---|---|---|
+| before (`2026-10-15.1`, legacy claims) | 48 | 0 (0.000) | [0.000, 0.074] | 0 of 47 | page out of range 25 (ATG pp.412-420; the PDF has 348 pages), excerpt not on page 23 |
+| after (`2026-10-15.2`) | 65 | 65 (1.000) | [0.944, 1.000] | 47 of 47 ([0.924, 1.000]) | none |
+
+The "before" row is the same metric code run on the legacy table (statuses from
+`page_citation_status`); it matches section 3 (0 on the cited page; the 3 excerpts that
+were verbatim somewhere were on other pages). The other five datasets score exactly as
+on `806872e` (the report bodies are identical apart from the header).
+
+What the 65 of 65 does and does not establish:
+
+- Every claim is verbatim on its page. The same 65 excerpts were also checked against
+  the chunks production stores (`parse_pdf` + `chunk_document` on the four IRS PDFs):
+  each is inside a chunk of its page, and a simulated `resolve_rule_citations` search
+  (in-memory BM25, k = 10, the IRS documents only, not Postgres, without the RSMeans
+  volumes) puts that chunk in the top 10 for all 65. Not yet measured on the ingested
+  Postgres corpus.
+- A resolved citation is not an approved tax position. 22 of the 47 rows are
+  `contested`, 15 of them added by the re-citation: for 12, no reference document
+  supports the legacy section 1245, 5-year treatment and the ATG's residential rental
+  matrix says section 1250, 27.5 years (kitchen cabinets, countertops, ceiling fans,
+  garbage disposal, bathroom vanity, mirror, smoke detector, thermostat, closet
+  shelving, water heater), or no document names the item (doorbell, laminate);
+  `furniture`, `chair` and `deck` are supported only for office furniture and
+  freestanding decks. The other 7 were contested already (plumbing fixtures, generic
+  lights, tile, hardwood). A contested hit keeps its legacy bucket and goes to review
+  (`rule_contested:<key>`), so no tax position changed silently.
+- On `--dry-run` the dataset resolves 0 of 65 by design: the synthetic corpus holds none
+  of the cited documents (every status `document_missing`). The dry run exercises the
+  code path; only the real corpus measures the table.
+
+Found on the way (not fixed here): the production PDF parser interleaves the two columns
+of Pub 527 and Pub 946 line by line, so a sentence that wraps inside one column is not
+contiguous in the stored chunk and cannot be cited verbatim (five first-choice excerpts
+were replaced for this reason; `RULES_RECITATION.md`). This also degrades retrieval on
+those publications.
+
+Decision needed from the engineer (adds to section 5): for each contested row, change
+the bucket to what the documents say or record the basis for the legacy treatment; and
+the alias follow-ups listed in `RULES_RECITATION.md` (`range_hood`, `exterior_lighting`,
+`hot_tub`/`spa`, `lvp`).
