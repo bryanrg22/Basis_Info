@@ -55,12 +55,20 @@ system), Communication / Data, Access Control.
    material; the per-photo model already returns material and the room inventory should
    carry one entry per surface per room (the label guide already does this).
 2. Three labels are missing from the vocabulary and should be added: `shed` (7-year row),
-   `bathroom_accessory`, and `concrete_pad`. `other` currently absorbs them.
+   `bathroom_accessory`, and `concrete_pad`. `other` currently absorbs them. Writing the
+   row-by-row evidence rules (the `report_rows` dataset, EVAL_REPORT section 13) found
+   three more rows with no label: Interior Half Walls (`half_wall`; the label guide does
+   not list drywall half walls), Door & Window Guards (`window_guard`; a storm door counts
+   as an `exterior_door` today) and Flooring - Sealed Concrete (`concrete_floor`; the room
+   labels file the garage floor under `other`). The tables above group those rows with
+   their nearest labels; the dataset scores them as vocabulary gaps, not as misses. One
+   bucket in the tables is wrong: the report puts Bathroom Accessories in the 39-year
+   bucket, not 5-year.
 3. The evaluation that matters to the engineer is per report row: did the pipeline give
    evidence for every row the engineer wrote? That is a 46-row checklist per study
-   (present / missing / not photo-derivable), which is cheaper to label than boxes and
-   is the product metric; the per-photo and per-room metrics stay as the engineering
-   diagnostics.
+   (present / missing / vocabulary gap / not photo-derivable), which is cheaper to label
+   than boxes and is the product metric; the per-photo and per-room metrics stay as the
+   engineering diagnostics. Built as `backEnd/evals` dataset `report_rows`.
 4. The rules table's 48 rows cover the kind-A labels; the kind-B rows need the
    material-driven rules (floor by material) that `basis.domain.rules.lookup` already
    supports.

@@ -758,3 +758,123 @@ same counts. Next: the same table on a second client package before anything is 
 further; a vision-model second look at the SAM 3 boxes of the weak classes; the cabinet
 convention with the engineer.
 
+## 13. Coverage of the engineer's report rows (2026-10-16)
+
+Question (Bryan's): for each of the 46 rows of the engineer's asset schedule, did the
+pipeline produce the evidence that row needs, and what share of the study's cost, by
+bucket, is covered? This is the product metric COMPONENT_TAXONOMY.md section 2 asked for;
+the per-photo and per-room numbers of sections 6 to 11 are the engineering diagnostics
+behind it. Branch `claude/report-rows-eval`.
+
+Design. Dataset `report_rows` (private file next to `assets_v1.json`; format in
+`backEnd/evals/README.md`; built from the assets file and the taxonomy's section 1 by a
+private script): one item per report row with its bucket, its share of the study's cost,
+its kind (A countable objects, B surfaces, C not photo-derivable) and the evidence rule:
+any-of vocabulary labels, a room-type filter where the bucket depends on the room (kitchen
+millwork against restroom millwork; kitchen and utility sinks against bathroom plumbing),
+material tokens where the bucket depends on the material (tile must be ceramic, porcelain
+or stone; painting is a painted drywall wall; a wall covering is wallpaper or a soft
+covering), and whether the engineer needs a count or a material. A photo-derivable row
+with no label in the vocabulary names the label it needs and scores as a *vocabulary gap*,
+never as a miss. Scorer `score_report_rows`: per row evidenced / missed / vocabulary gap /
+not photo-derivable with the rooms and labels behind it; coverage over the photo-derivable
+rows (Wilson interval; gaps count against it: the product number) and over the rows the
+vocabulary can express (the model number); the same weighted by cost share, per bucket;
+count-present and material-present rates; with repeats, pass^k over the rows (coverage
+stable across repeats). Standard followed: checklist evaluation as in ExpertLongBench and
+CheckEval (one binary judgment per required item, aggregated as recall, not-applicable
+items kept out of the denominator); weighting by cost mirrors the IRS Cost Segregation ATG's
+requirement that a study's asset list tie out to its total cost. The ceiling is the
+`gold_inventory` baseline: the hand-labelled room inventory (section 7) with the materials
+of the per-photo labels, scored as if the pipeline had produced it, which is what the
+vocabulary and the labelling conventions allow at best.
+
+The 46 rows split into 33 the vocabulary can express, 6 vocabulary gaps and 7 kind C rows.
+By cost, the kind C rows (foundations, structural framing, interior partitions, site
+utilities, fire protection, data, access control) are about 34% of the study, the six
+vocabulary gaps about 2%, and the 33 scoreable rows about 64%. Materials for a saved
+inventory come from the reconciliation call's raw records per repeat (the heuristic merge
+carries the per-photo materials); a material-constrained row without a reported material
+is a miss. Scored: the gold ceiling, the one-pass run of section 8, the decomposed run of
+section 11.3 (both three reconciliation repeats, Azure `gpt-4.1-mini`), and the
+deterministic heuristic merge of each.
+
+| Inventory | Rows evidenced, of 39 photo-derivable | Row coverage [95%] | Of the 33 in vocabulary | Cost coverage, photo-derivable rows | Cost coverage, whole study | 5-year (16 rows) | 7-year (1) | 15-year (6) | 39-year (16) | Count present (16 rows need one) | Material present (9 need one) | Stable across 3 repeats |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gold inventory + per-photo label materials (ceiling) | 32 | 0.82 [0.67, 0.91] | 32 | 0.968 | 0.634 | 13 (cost 0.95) | 0 | 5 (1.00) | 14 (0.98) | 15 | 9 | one run |
+| one pass gpt-4.1 per photo, reconciliation call | 32 | 0.82 [0.67, 0.91] | 32 | 0.974 | 0.638 | 13 (0.98) | 0 | 5 (1.00) | 14 (0.98) | 16 | 8 | 32 of 32 (pass^3 0.82) |
+| one pass, heuristic merge | 32 | 0.82 | 32 | 0.974 | 0.638 | 13 | 0 | 5 | 14 | 16 | 8 | one run |
+| decomposed per photo (v1 prompts), reconciliation call | 32 | 0.82 [0.67, 0.91] | 32 | 0.974 | 0.638 | 13 (0.98) | 0 | 5 (1.00) | 14 (0.98) | 16 | 8 | 32 of 32 (pass^3 0.82) |
+| decomposed, heuristic merge | 32 | 0.82 | 32 | 0.974 | 0.638 | 13 | 0 | 5 | 14 | 16 | 8 | one run |
+
+The four pipeline variants give the same outcome on every row. Missed rows, by system
+name:
+
+- **Pipeline (all four variants): Wall Coverings.** A vision miss on the material. This
+  study's wall covering is the wallpaper wainscot of one hall (the label guide files a
+  wainscot wallpaper with its chair rail as one `wainscoting`); both per-photo prompts and
+  both reconciliations list a `wainscoting` in that hall and call its material `wood`, so
+  the rule (wainscoting or wall finish with a wallpaper, fabric, vinyl or plastic
+  material) is not met. The gold inventory evidences it through the label material
+  `embossed_wallpaper`. The material-present rate (8 of 9) is this row.
+- **Gold ceiling: FF&E.** A convention gap, not a vision miss: the room labels file loose
+  furniture under `other` (LABEL_GUIDE section 4, the one open convention decision), while
+  the per-photo labels and the prompts use `furniture`; the pipeline evidences the row with
+  `furniture`, `chair` and `desk` in most rooms. The gold ceiling's count-present rate
+  (15 of 16) is this row too.
+- **Vocabulary gaps (6 rows, about 2% of cost), never a miss:** Movable Shed (`shed`),
+  Bathroom Accessories (`bathroom_accessory`), Exterior Equipment Concrete Pads
+  (`concrete_pad`), named in the taxonomy; and Interior Half Walls (`half_wall`), Door &
+  Window Guards (`window_guard`) and Flooring - Sealed Concrete (`concrete_floor`), found
+  while writing the rules (COMPONENT_TAXONOMY.md section 2 updated; it also had Bathroom
+  Accessories in the wrong bucket: the report puts it in 39-year).
+- **Not photo-derivable (7 rows, about 34% of cost):** Communication / Data, Access
+  Control, Foundations, Fire Protection & Alarm, Interior Framing / Partitions, Structural
+  Framing, Site Utilities. Scored apart; the product should say these come from the
+  appraisal, the plans or the cost model rather than pretend to find them.
+
+Reading.
+
+1. **Row presence is not where the pipeline fails on this study.** It evidences every
+   row the vocabulary can express except one, the same 32 rows the human inventory
+   evidences, with either per-photo prompt, with or without the reconciliation call, and
+   in all three repeats. Over-detection, which section 7 penalizes, does not hurt here, and
+   the rule is deliberately lenient: one object of an allowed label in one allowed room
+   evidences a row. So this metric does not separate the pipelines today; sections 7 and
+   11 (counts, materials, duplicates) do, and the engineer prices from those.
+2. **Two of the "evidenced" rows lean on the room filter and on a convention the labels
+   reject.** The restroom millwork row is evidenced by `kitchen_cabinet` objects in
+   bathrooms (the vanity confusion of section 11.1; the room filter, which uses the room
+   identity the pipeline already has from the file names, rescues the row). Painting is
+   evidenced by `wall_finish` with material `drywall`, which the model lists in most rooms
+   and the label guide says is not an object. Both are convention gaps to settle with the
+   engineer, not model errors.
+3. **The ceiling is the vocabulary.** With a perfect model the row coverage of this study
+   is 33 of 39 (0.85) until six labels exist; the gaps are cheap in cost share (about 2%)
+   but each is a row the engineer wrote. The missed row is a material misread on a
+   surface, the kind-B failure the taxonomy predicted: the per-room step must carry the
+   material, and the material must be read from the photo, not inferred from the label.
+4. **Limits.** One study, 39 rows: the Wilson interval is wide (0.67 to 0.91), and the
+   rules were written from this study's report, so a second study will add rows and
+   rules. The eval says whether evidence exists, not whether it is right: that is the
+   `room_inventory` count metrics and, for the bucket, `assets`. Cost coverage counts a
+   row's whole cost as covered when any evidence exists; the engineer's quantities would
+   let it score the share of each row's quantity found, which this report does not list.
+
+Decision. Keep `report_rows` as the product-level gate: a run is not acceptable while an
+in-vocabulary row is missed or a row flips across repeats. Next: add the six labels to the
+vocabulary and the prompts (`shed`, `bathroom_accessory`, `concrete_pad`, `half_wall`,
+`window_guard`, `concrete_floor`); make the reconciliation call carry the per-photo
+materials rather than re-state them (the wainscot material was right in no call); settle
+the furniture and painted-drywall conventions with the engineer; re-run on the next study
+and extend the rules file.
+
+Commands (from `backEnd/`):
+
+```bash
+BASIS_ENV=test BASIS_EVAL_DATA_DIR=~/basis-eval-data uv run python -m evals.run --split dev --no-db
+BASIS_ENV=test BASIS_EVAL_DATA_DIR=~/basis-eval-data uv run python -m evals.run --split dev --no-db \
+    --repeats 3 --predictions ~/basis-eval-data/predictions/rooms_v1_pp41_recmini
+BASIS_ENV=test BASIS_EVAL_DATA_DIR=~/basis-eval-data uv run python -m evals.run --split dev --no-db \
+    --predictions ~/basis-eval-data/predictions/rooms_v1_pp41_recmini --inventory-file room_inventory.heuristic.json
+```
