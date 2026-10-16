@@ -1975,6 +1975,226 @@ intangible property, you usually use the straight line method of depreciation." 
 **Limits.** Only two columns are recognized; a narrow heading that spans both columns without
 crossing the gutter is read as part of the left column; the pymupdf fallback (pages with no
 pdfplumber words) is unchanged.
+## 21. Detector and language model together (2026-10-16)
+
+Question (Bryan): should SAM 3 run before the language model, then the model, then SAM 3
+again? Today the vision model counts first and SAM 3 runs after it, prompted with the model's
+labels, only to draw highlight masks. This section measures the other orders and the loop
+against the current best per-photo counts (section 15.4, "4c": per class, the better of
+`gpt-6.1-sol` at low effort and `claude-opus-5-5` at medium effort on `photo_countables/v2`,
+chosen leave-one-photo-out: count MAE 0.124, exact 0.899, count precision 0.92, recall 0.87).
+Same yardstick: the 52 photos of the one study, 191 hand-verified objects in six count
+classes, `photo_counts` of `evals.run`; three repeats unless stated; "Diff" is the paired
+bootstrap over photos of section 15 (mean per-photo count error minus the baseline's, 95%
+interval, 5,000 resamples), now a module (`evals.compare_counts`).
+
+### 21.1 What the literature says, and what was tested
+
+- Set-of-Mark prompting (Yang et al. 2023, arXiv 2310.11441; github.com/roboflow/som): a
+  detector or segmenter proposes regions, each is drawn on the image with a number, and the
+  model answers by number; zero-shot GPT-4V with marks beat fine-tuned grounding models on
+  referring and grounding tasks. Tested as experiment 1 (SAM 3 first).
+- SAM 3 Agent (the SAM 3 paper, arXiv 2511.16719, and its documentation): a multimodal model
+  turns the request into noun phrases, calls SAM 3, inspects and filters the masks, and calls
+  SAM 3 again where something is missing; SAM-Veteran (ICLR 2026) trains that proposer.
+  Tested as experiment 2 (the loop: SAM 3 again for the objects the model adds).
+- Point-then-count (arXiv 2603.21746): a model that emits one point per object before it counts
+  beats direct counting, the gap growing with the count; the pointers it studies place more than
+  94% of their points on the object, Molmo strongest. "Assessing visual enumeration"
+  (arXiv 2512.15254): Claude 4.5 Sonnet and Gemini 2.5 Pro count better when asked to locate,
+  label, then count; GPT-5 does not. Tested as experiment 3 (the model points first, SAM 3
+  masks the points) and, since the same call states counts after pointing, experiment 4
+  ("locate, label, then count" without a detector).
+- Exemplar counters (CountGD, T-Rex2, GeCo) are not hosted on Replicate; self-hosting is out of
+  scope for this pass.
+- Temperature voting was not run. `gpt-6.1-sol` accepts only its default temperature and Claude
+  with thinking requires 1, and the counting literature reports that vision-language models are
+  confidently wrong on counts, so sampling more answers repeats the same error (section 15.3
+  measured it: repeat-to-repeat noise is the small part of the error; the median of three gains
+  0.010).
+- Not repeated (section 15): count fusion of raw SAM 3 and model counts, a yes/no check of each
+  SAM 3 crop, tiling, majority vote over repeats.
+
+### 21.2 How each ordering was built
+
+Code: `basis/vision/marks.py` (mark selection, drawing, the answer schemas, Molmo point
+parsing, points resolved to masks), `evals/predict_marks.py` (experiments 1 and 2),
+`evals/predict_points.py` (experiments 3 and 4), `evals/compare_counts.py` (the paired
+bootstrap), prompts `photo_marks/v1` and `photo_points/v1` (released in the manifest). The
+pipeline (`basis/vision/analyze.py`, `localize.py`) is unchanged. Every runner writes the base
+run's counts with the seven countable labels replaced (the other labels, and so label F1 and room
+type, stay the baseline's: 0.70 and 0.90 for every row; the harness's component labels were
+revised after section 15, which is why the baseline's label F1 now reads 0.70 against 0.741
+there).
+
+- Proposals: the saved SAM 3 runs of section 10 (v1 and v2 phrase sets, no new SAM 3 calls),
+  pooled; countable labels at score >= 0.3 (recall-oriented: at 0.3 the marks cover 94% of the
+  verified objects, at 0.5 only 86%); one mark per object across labels (greedy, mask IoU > 0.6:
+  "interior door" and "front door" on the same door are one mark); numbered in reading order.
+  8.9 marks per photo on average, 51 at most. The verified boxes were themselves built from SAM
+  3's boxes (section 10.2), so the coverage figures flatter SAM 3; the count scores do not
+  depend on that.
+- Experiment 1 (SAM 3 first, Set-of-Mark): the photo enlarged to 1024 px with the marks drawn
+  (variants: boxes or mask outlines; with or without the unmarked photo before it), and the list
+  "number: detector's guess". The model gives every mark a label or `duplicate`,
+  `part_or_group` or `not_countable`, and lists every object no mark covers with its label and
+  an approximate centre (x, y as fractions of the image). Count = kept + added.
+- Experiment 2 (the loop): each added point takes the highest-scoring saved SAM 3 candidate of
+  its label family under it (score >= 0.1; `pick_prompted`); a point inside a kept mark of its
+  family, or whose mask overlaps a counted mask by more than mask IoU 0.5, is a duplicate; the
+  count is the kept marks plus the masked additions ("masked"). Points with no saved candidate
+  were to get a fresh SAM 3 point prompt (`--prompt-sam`, implemented and unit-tested); the
+  Replicate account ran out of credit during experiment 3 (402 "insufficient credit"), so that
+  step was not run and the masked count leaves such points out (1.3% of counted objects for the
+  winner; the "all" variant that counts them scores 0.140, row 2c).
+- Experiment 3 (the model first, then SAM 3): one `photo_points/v1` call per photo (Opus,
+  sol), or Molmo-7B-D on Replicate (`zsxkib/molmo-7b`, one "Point to every ..." query per class,
+  greedy: temperature 0.1, top-k 1, one repeat since repeats would be identical); points resolved
+  to masks as in experiment 2. Counts three ways: the points, the masks only, masks plus
+  unmasked points.
+- Experiment 4 ("locate, label, then count", no detector): the counts the same `photo_points`
+  call states after listing its points.
+
+### 21.3 Every system against the current best
+
+Count MAE, exact rate, signed bias, count precision / recall over (photo, class, repeat), 936
+pairs. Cost is one prediction of 52 photos for the counting step only (the baseline's two
+countables calls: $0.47 sol + $1.40 Opus; the shared surfaces call, $0.33, is in neither);
+SAM 3 is the saved runs (a production call is about $0.003 and 3.2 s per photo, added to the
+SoM rows' seconds, which are sequential: SAM 3, then the model). Masks: share of counted
+objects that come with a SAM 3 mask.
+
+| System | Count MAE | Exact | Bias | Count P / R | Diff vs 4c [95% CI] | $ / 52 | s / photo | Masks |
+|---|---|---|---|---|---|---|---|---|
+| **Current best (4c)**: sol low + Opus medium per class | **0.124** | **0.899** | -0.04 | 0.92 / 0.87 | 0 | $1.87 | 11.1 | none (highlights separate) |
+| sol low alone | 0.179 | 0.865 | +0.03 | 0.84 / 0.87 | +0.056 [+0.021, +0.092] | $0.47 | 11.1 | none |
+| Opus medium alone | 0.150 | 0.889 | -0.06 | 0.92 / 0.83 | +0.026 [+0.002, +0.054] | $1.40 | 7.4 | none |
+| 1a. SoM, boxes + photo, sol | 0.179 | 0.851 | +0.08 | 0.81 / 0.92 | +0.056 [+0.011, +0.105] | $0.41 | 3.2 + 16.8 | 94% |
+| 1b. SoM, boxes + photo, Opus | 0.150 | 0.872 | +0.05 | 0.85 / 0.92 | +0.026 [-0.009, +0.059] | $1.31 | 3.2 + 10.0 | 97% |
+| 1c. SoM, outlines + photo, sol | 0.161 | 0.861 | +0.07 | 0.83 / 0.93 | +0.037 [-0.003, +0.081] | $0.42 | 3.2 + 12.7 | 89% |
+| 1d. SoM, outlines + photo, Opus | 0.140 | 0.882 | +0.03 | 0.87 / 0.91 | +0.016 [-0.011, +0.044] | $1.34 | 3.2 + 10.9 | 97% |
+| 1e. SoM, boxes, marked photo only, sol | 0.254 | 0.829 | +0.11 | 0.75 / 0.88 | +0.130 [+0.068, +0.205] | $0.38 | 3.2 + 14.2 | 92% |
+| 1f. SoM, boxes + photo, marks at >= 0.5, sol | 0.171 | 0.870 | +0.05 | 0.83 / 0.90 | +0.047 [-0.001, +0.100] | $0.37 | 3.2 + 9.5 | 83% |
+| 1g. 1d with marks at >= 0.5, Opus | 0.155 | 0.879 | +0.01 | 0.87 / 0.88 | +0.031 [-0.002, +0.069] | $1.17 | 3.2 + 7.9 | 90% |
+| 1h. 1c with marks at >= 0.5, sol | 0.179 | 0.861 | +0.04 | 0.83 / 0.88 | +0.056 [+0.010, +0.107] | $0.37 | 3.2 + 9.2 | 82% |
+| 2a. Loop on 1a (sol), masked | 0.171 | 0.857 | +0.06 | 0.83 / 0.91 | +0.047 [+0.006, +0.094] | as 1a | + 0 | 100% |
+| 2b. Loop on 1b (Opus), masked | 0.149 | 0.873 | +0.04 | 0.86 / 0.91 | +0.025 [-0.011, +0.059] | as 1b | + 0 | 100% |
+| **2c. Loop on 1d (Opus, outlines), masked** | **0.138** | **0.885** | +0.02 | 0.88 / 0.90 | **+0.014 [-0.014, +0.042]** | **$1.34** | **3.2 + 10.9** | **100%** |
+| 2d. Loop on 1c (sol, outlines), masked | 0.153 | 0.870 | +0.04 | 0.85 / 0.91 | +0.029 [-0.013, +0.073] | as 1c | + 0 | 100% |
+| 2e. Loop on 1f (sol, >= 0.5), masked | 0.151 | 0.881 | +0.00 | 0.88 / 0.88 | +0.027 [-0.010, +0.069] | as 1f | + 0 | 100% |
+| 2f. Loop on 1g (Opus, outlines, >= 0.5), masked | 0.151 | 0.880 | -0.01 | 0.88 / 0.87 | +0.027 [-0.004, +0.065] | as 1g | + 0 | 100% |
+| 3a. Opus points, count = points | 0.166 | 0.876 | -0.05 | 0.90 / 0.82 | +0.042 [+0.012, +0.076] | $0.81 | 6.5 | 70% |
+| 3b. Opus points, masks only | 0.275 | 0.834 | -0.24 | 0.95 / 0.58 | +0.151 [+0.082, +0.233] | $0.81 | 6.5 | 100% |
+| 3c. Opus points, masks + unmasked points | 0.171 | 0.875 | -0.08 | 0.91 / 0.80 | +0.047 [+0.015, +0.087] | $0.81 | 6.5 | 70% |
+| 3d. sol points, count = points | 0.186 | 0.859 | +0.04 | 0.82 / 0.88 | +0.062 [+0.019, +0.109] | $0.27 | 11.4 | 92% |
+| 3e. sol points, masks + unmasked points | 0.179 | 0.864 | +0.02 | 0.84 / 0.87 | +0.056 [+0.018, +0.100] | $0.27 | 11.4 | 92% |
+| 3f. Molmo-7B points (37 photos, 1 repeat) | 1.293 | 0.658 | +0.68 | 0.32 / 0.60 | +1.152 [+0.698, +1.701] | $0.66 | 14.5 | 54% |
+| 3g. Molmo-7B points, masks only (37 photos) | 0.545 | 0.739 | -0.18 | 0.69 / 0.53 | +0.404 [+0.248, +0.598] | $0.66 | 14.5 | 100% |
+| 4a. Opus "locate, label, then count" (stated) | 0.167 | 0.875 | -0.05 | 0.90 / 0.82 | +0.043 [+0.013, +0.077] | $0.81 | 6.5 | n/a |
+| 4b. sol "locate, label, then count" (stated) | 0.186 | 0.859 | +0.04 | 0.82 / 0.88 | +0.062 [+0.019, +0.109] | $0.27 | 11.4 | n/a |
+| 5a. Per-class fusion LOO: sol, Opus, 1b | 0.131 | 0.893 | -0.02 | 0.91 / 0.87 | +0.007 [+0.000, +0.016] | $3.18 | 13.2 | partly |
+| 5b. Per-class fusion LOO: sol, Opus, 2c | 0.139 | 0.889 | -0.02 | 0.90 / 0.87 | +0.015 [+0.001, +0.032] | $3.21 | 14.1 | partly |
+
+Against the same model alone (paired over photos): SoM changes nothing for Opus with boxes
+(1b: +0.000 [-0.048, +0.044]) and helps a little, not significantly, with outlines and the loop
+(2c: -0.012 [-0.057, +0.031]); for sol, outlines -0.018 [-0.056, +0.016], and the loop with
+marks at >= 0.5, -0.029 [-0.069, +0.010] (2e). Pointing first does not help either model (Opus points +0.016
+[-0.011, +0.043], sol +0.006 [-0.029, +0.044]). Every model run reported only the model it
+asked for (`models_reported` in each `run.json`), and no model call failed; Molmo lost 15 of 52
+photos to the Replicate credit running out, so its rows are scored on the 37 it answered.
+
+### 21.4 The best new system's per-class counts (2c)
+
+SAM 3 marks at >= 0.3, outlines, the unmarked photo first, Opus 5.5 at medium effort keeps,
+relabels or rejects each mark and adds misses; added points masked from the saved SAM 3
+candidates; the count is the masked objects.
+
+| Class | Current best (4c) MAE / exact / P / R | 2c MAE / exact / P / R | Opus alone MAE / exact / P / R |
+|---|---|---|---|
+| window | 0.24 / 0.83 / 0.91 / 0.91 | 0.24 / 0.83 / 0.89 / 0.93 | 0.24 / 0.83 / 0.91 / 0.91 |
+| door | 0.10 / 0.90 / 0.96 / 0.86 | 0.15 / 0.85 / 0.86 / 0.89 | 0.10 / 0.90 / 0.96 / 0.86 |
+| light fixture | 0.12 / 0.90 / 0.94 / 0.81 | 0.16 / 0.85 / 0.81 / 0.86 | 0.11 / 0.91 / 0.92 / 0.83 |
+| exterior light | 0.08 / 0.92 / 0.91 / 0.90 | 0.08 / 0.92 / 0.91 / 0.91 | 0.24 / 0.86 / 0.90 / 0.51 |
+| electrical outlet | 0.12 / 0.90 / 0.92 / 0.78 | 0.08 / 0.93 / 0.92 / 0.87 | 0.12 / 0.90 / 0.88 / 0.81 |
+| kitchen cabinet | 0.09 / 0.94 / 0.93 / 0.88 | 0.11 / 0.93 / 0.88 / 0.89 | 0.08 / 0.94 / 0.93 / 0.89 |
+| all six | 0.124 / 0.899 / 0.92 / 0.87 | 0.138 / 0.885 / 0.88 / 0.90 | 0.150 / 0.889 / 0.92 / 0.83 |
+
+Where the marks help: the misses section 15 left. Opus with marks finds the exterior lanterns it
+misses on its own (exterior-light recall 0.51 to 0.91, equal to sol's, so one model now covers
+what took two) and more outlets (recall 0.81 to 0.87, MAE 0.12 to 0.08). Where they hurt: precision on look-alikes. The model keeps a mark it would not
+have counted unprompted: lamps and reflections as light fixtures (0.92 to 0.81 precision),
+door-like marks (0.96 to 0.86), cabinet fragments (0.93 to 0.88). The two effects cancel on
+windows. In 2c's answers, 42% of the marks are kept, 36% rejected as `not_countable`, 17% as
+`part_or_group`, 6% as `duplicate`; 79% of the kept marks match a verified box (IoU >= 0.5,
+same class family) against 42% of all marks; the kept marks cover 79% of the verified objects.
+The model relabelled 15 interior "light fixture" proposals as exterior lights and 12 interior
+doors as exterior doors, the confusions section 10.2 found in SAM 3 alone.
+
+### 21.5 Reading: what did not work, and why
+
+- Set-of-Mark with boxes (1a, 1b) raises recall (0.87 to 0.92) and lowers precision by as much,
+  so neither model gains. The marks pull the model's attention to every proposal, and at the
+  recall-oriented threshold more than half of the proposals are wrong (42% box precision). The
+  model rejects most of them, but not enough of the plausible ones.
+- The unmarked photo must come first (1e: without it, +0.130 and significantly worse than sol
+  alone): boxes and tags cover small objects (outlets fell to 0.61 precision, windows to 0.77),
+  the occlusion the SoM authors avoid by drawing light, semi-transparent masks. Mask outlines
+  cover less of the object than boxes and help both models (1c, 1d).
+- Fewer, surer marks (>= 0.5) do not help on top of outlines (1g, 1h): exterior lights and
+  outlets are the classes SAM 3 scores low (section 10.2), and with their marks gone the model
+  goes back to missing them (Opus exterior-light recall 0.91 to 0.74).
+- The loop (experiment 2) does what it should for the highlight layer: every counted object has a
+  mask, and duplicates the model adds on top of a kept mark are caught by mask overlap. As a
+  count it changes little (Opus 0.140 to 0.138, sol up to 0.020 better), because the model adds
+  few objects (18 or 19 in 156 Opus answers) once it has the marks.
+- Pointing first (experiment 3) does not reproduce the gains reported for it. The stated counts
+  are nearly the point counts (4a 0.167 against 3a 0.166: the model counts its own points), and both are slightly worse
+  than the same model's direct counts. The pointers are poorly grounded on these photos: 64% of
+  Opus's points and 79% of sol's fall inside a verified box of their class (the paper's pointers:
+  above 94%), so turning points into SAM 3 masks loses objects (3b: Opus recall 0.58) instead of
+  confirming them.
+- Molmo-7B (3f, 3g) is far off on these photos: it points at every cabinet door and drawer front
+  (cabinet count error 4.6 a photo-class pair), misses half the windows of the exterior shots, and 30% of its
+  points fall in a verified box of their class. The prompts were one short query per class; the
+  paper's protocol is not tuned for building components, and a 7B pointer is not a substitute
+  for the frontier models here.
+- Adding the SoM counts to the per-class fusion (5a, 5b) is worse out of sample than the fusion
+  without them. Fitted on all 52 photos, 5b would take outlets as max(sol, SoM) and exterior lights
+  from SoM; held out, the rule flips on exactly the photos where SoM's advantage lies (one wide
+  exterior shot carries most of 1b's window gain), the selection optimism of section 15.3.
+
+### 21.6 Recommendation
+
+Keep the order: the model counts first, and SAM 3 runs after it for the highlight masks. No
+detector-first or loop ordering beat the current best: the closest, 2c (SAM 3 first, Opus
+reviews outlined marks and adds misses, SAM 3 masks the additions), is 0.014 behind (95% CI
+-0.014 to +0.042, not significant), and nothing here is significantly better than the model
+alone. One property and 191 objects bound this: none of the differences between 2c, 4c and Opus
+alone is resolvable on this set.
+
+What 2c is good for, and the case for adopting it later, is the highlight layer, not the count:
+with one model call instead of two ($1.34 against $1.87 per 52 photos, about 14 s per photo
+sequential against 11 s in parallel) it gives counts close to the current best together with a
+mask for every counted object, and the masks it shows are the reviewed ones (79% match a verified
+object, against 42% of SAM 3's raw proposals at the same threshold and 0.46 precision at the
+pipeline's 0.5, section 10.3). Today the highlight masks come from SAM 3 alone and need not agree with the
+count. Before wiring it: settle the window and door conventions of section 15.3 (doors and light
+fixtures are where 2c loses), re-measure on the second client package, and run the SAM 3 point
+prompt for the 1-2% of added objects without a saved candidate (implemented; not run because
+the Replicate credit ran out).
+
+Spend for this section: $21.47 (Anthropic $14.14: SoM boxes $3.94, outlines $4.02, outlines at
+0.5 $3.52, points $2.44, smoke tests $0.22; OpenAI $6.64: five SoM variants $5.83, points
+$0.81; Replicate $0.69: Molmo $0.66, smoke $0.03; no new SAM 3 calls). The Replicate account
+returned 402 "insufficient credit" during the Molmo run and needs a top-up before any further
+SAM 3 or Molmo work. Scoring note: `report_rows_v1.json` in the data directory now names labels
+that are not in the vocabulary on main (written by another session), so `evals.run` fails to load
+it; this section was scored with a data directory that links every dataset file but that one.
+Prediction directories under `$BASIS_EVAL_DATA_DIR/predictions`: `som_{box,outline}_orig_*`,
+`som_box_marked_gpt61sol_low`, `som_*_t05_*` (each with `loop_masked/` and `loop_all/`),
+`points_{opus55_med,gpt61sol_low,molmo7b}` (with `stated/`, `masked/`, `masked_all/`), the
+fusions `counts_fused_sol_opus_somopus_loo` and `counts_fused_sol_opus_somoutline_loo`, and the
+best new system `som_outline_orig_opus55_med/loop_masked` (2c, with its `eval.md`).
 
 ## 22. Retrieval: BM25, vectors and the hybrid (2026-10-16)
 
