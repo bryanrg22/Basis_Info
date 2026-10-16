@@ -119,6 +119,20 @@ class Settings(BaseSettings):
     # removed), so the 50 queries do not show either fusion to be better.
     retrieval_fusion: Literal["rrf", "weighted"] = "rrf"
     retrieval_bm25_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    # The chunk window at ingest (cl100k tokens; basis.retrieval.chunk). A change applies
+    # to documents ingested after it; carried-forward documents keep their chunks.
+    # EVAL_REPORT section 25: 200/40 (chunks that fit MiniLM's 256 word pieces) and 512-token
+    # embedders on 400/80 (e5-small-v2 best, hybrid +0.015 nDCG@10) are inside the noise of
+    # the 50 queries, so the defaults stay.
+    retrieval_chunk_tokens: int = Field(default=400, ge=50, le=2000)
+    retrieval_chunk_overlap: int = Field(default=80, ge=0)
+    # What the classifier's search_reference tool and resolve_rule_citations search with:
+    # the store's BM25 or Retrieval.hybrid (BM25 + vectors, fused as above). EVAL_REPORT
+    # section 25: on the assets eval the two tie (bucket accuracy identical), and through the
+    # hybrid 3 of the 77 rules-table citations stop resolving (RRF lets chunks both lists
+    # like outrank BM25's exact match), so BM25 stays. Turning hybrid on for the tool should
+    # first keep resolve_rule_citations on BM25.
+    retrieval_search: Literal["bm25", "hybrid"] = "bm25"
 
     # ------------------------------------------------------------------ model providers
     # Environment names match the legacy backEnd/.env (agentic/config/settings.py), so an
@@ -296,6 +310,11 @@ class Settings(BaseSettings):
             raise ConfigError(f"{ENV_VAR}={self.env} requires these settings to be set: {names}")
         if self.embedding_model == "hash" and self.env not in ("dev", "test"):
             raise ConfigError(f"EMBEDDING_MODEL=hash is for tests only, not {ENV_VAR}={self.env}")
+        if self.retrieval_chunk_overlap >= self.retrieval_chunk_tokens:
+            raise ConfigError(
+                f"RETRIEVAL_CHUNK_OVERLAP ({self.retrieval_chunk_overlap}) must be smaller than "
+                f"RETRIEVAL_CHUNK_TOKENS ({self.retrieval_chunk_tokens})"
+            )
         self._check_models()
         return self
 

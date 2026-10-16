@@ -9,9 +9,14 @@ question is how well a model classifies, and the rules table is scored on its ow
 ``<data dir>/corpus`` (``--corpus-glob``, default ``IRS_*.pdf``), read page by page with
 pymupdf and cut into the ingest pipeline's 400-token windows with 80 tokens of overlap
 (:func:`basis.retrieval.chunk.split_text`), searched by BM25
-(:class:`basis.classify.store_protocol.InMemoryChunkStore`); production adds a vector
-leg to the search, which this runner does not have. Writes what ``evals.run
---predictions`` scores::
+(:class:`basis.classify.store_protocol.InMemoryChunkStore`). ``--store parser`` reads
+the PDFs as production ingestion does instead (:func:`basis.retrieval.parse.parse_pdf`
+and :func:`basis.retrieval.chunk.chunk_document` at the configured chunk window, embedded
+with ``EMBEDDING_MODEL``) into :class:`evals.retrieval.ChunkIndex`, whose BM25 is the
+store's :class:`basis.retrieval.bm25.Bm25Index`; ``--search hybrid`` (parser store only)
+then gives the classifier :meth:`basis.retrieval.Retrieval.classifier_search`, the
+production ``RETRIEVAL_SEARCH=hybrid`` path (EVAL_REPORT section 25). Writes what
+``evals.run --predictions`` scores::
 
     <out>/assets.json        {"<id>": {"section", "bucket", "citations": {"claimed",
                               "verified"}} | {"repeats": [...]}}
@@ -40,12 +45,13 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from basis.classify.residual import DEFAULT_LIMITS
 from basis.classify.router import ClassificationResult, ClassifyContext, classify_with_model
 from basis.classify.schemas import ComponentView
-from basis.classify.store_protocol import InMemoryChunkStore, StoredChunk
+from basis.classify.store_protocol import ChunkStore, InMemoryChunkStore, StoredChunk
+from basis.classify.tools import SearchFn
 from basis.config import load_settings
 from basis.llm.cost import cost_usd, is_anthropic_model
 from basis.llm.pool import ProviderPool
@@ -53,7 +59,11 @@ from basis.llm.provider import Budget, ChatProvider, ChatRequest, ChatResponse
 from basis.retrieval.chunk import split_text
 from evals import datasets as ds
 
-REFERENCE_VERSION = uuid.UUID(int=2)
+if TYPE_CHECKING:
+    from basis.config import Settings
+    from evals.retrieval import ChunkIndex
+
+REFERENCE_VERSION = uuid.UUID(int=2)  # == evals.retrieval.CHUNK_VERSION (a test checks)
 
 
 class ErrorLog:
@@ -93,7 +103,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split", default="dev")
     parser.add_argument("--limit", type=int, default=None, help="first N rows only (smoke)")
     parser.add_argument("--corpus-glob", default="IRS_*.pdf")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--store",
+        choices=("pymupdf", "parser"),
+        default="pymupdf",
+        help="pymupdf page windows with a simple BM25 (the runner's historical store), or "
+        "the production parse + chunk + embed path with the store's BM25 and vectors",
+    )
+    parser.add_argument(
+        "--search",
+        choices=("bm25", "hybrid"),
+        default="bm25",
+        help="what the classifier searches with (RETRIEVAL_SEARCH); hybrid needs --store parser",
+    )
+    args = parser.parse_args(argv)
+    if args.search == "hybrid" and args.store != "parser":
+        parser.error("--search hybrid needs --store parser (the pymupdf store has no vectors)")
+    return args
 
 
 def corpus_store(corpus_dir: Path, pattern: str) -> InMemoryChunkStore:
@@ -120,6 +146,32 @@ def corpus_store(corpus_dir: Path, pattern: str) -> InMemoryChunkStore:
                     )
                 )
     return store
+
+
+def parser_store(corpus_dir: Path, pattern: str, settings: Settings) -> ChunkIndex:
+    """The matching PDFs through production parse + chunk (``RETRIEVAL_CHUNK_TOKENS`` /
+    ``_OVERLAP``), embedded with ``EMBEDDING_MODEL``, as one in-memory index."""
+    from basis.retrieval.embed import embedder_for
+    from evals.retrieval import ChunkIndex, parser_chunks
+
+    pdfs = {path.stem: path for path in sorted(corpus_dir.glob(pattern))}
+    chunks = parser_chunks(
+        pdfs,
+        chunk_tokens=settings.retrieval_chunk_tokens,
+        overlap_tokens=settings.retrieval_chunk_overlap,
+    )
+    embedder = embedder_for(settings)
+    return ChunkIndex(chunks, embedder.embed([c.text for c in chunks]) if chunks else [])
+
+
+def classifier_search(
+    settings: Settings, search: Literal["bm25", "hybrid"], store: ChunkStore
+) -> SearchFn | None:
+    """``ClassifyContext.search`` as production binds it for ``RETRIEVAL_SEARCH=search``."""
+    from basis.retrieval import default_retrieval
+
+    retrieval = replace(default_retrieval(settings), search=search)
+    return retrieval.classifier_search(store)
 
 
 def component_view(asset: ds.AssetLabel) -> ComponentView:
@@ -196,13 +248,18 @@ async def run(args: argparse.Namespace) -> int:
     data_dir = args.data_dir or Path(os.environ.get("BASIS_EVAL_DATA_DIR", ""))
     data = ds.Assets.model_validate_json((data_dir / "assets_v1.json").read_text("utf-8"))
     assets = [a for a in data.assets if a.split == args.split][: args.limit]
-    store = corpus_store(data_dir / "corpus", args.corpus_glob)
+    store: ChunkStore
+    if args.store == "parser":
+        store = parser_store(data_dir / "corpus", args.corpus_glob, settings)
+    else:
+        store = corpus_store(data_dir / "corpus", args.corpus_glob)
     if not store.chunks:
         print(f"no corpus PDFs match {args.corpus_glob} in {data_dir / 'corpus'}", file=sys.stderr)
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
     limits = replace(DEFAULT_LIMITS, max_tokens=args.max_tokens, timeout_s=args.timeout_s)
+    search = classifier_search(settings, args.search, store)
 
     def context(asset: ds.AssetLabel) -> ClassifyContext:
         return ClassifyContext(
@@ -216,6 +273,7 @@ async def run(args: argparse.Namespace) -> int:
             limits=limits,
             price=cost_usd,
             reasoning_effort=args.reasoning_effort,
+            search=search,
         )
 
     semaphore = asyncio.Semaphore(args.concurrency)
@@ -266,6 +324,14 @@ def summary(
         or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
         "max_tokens": args.max_tokens,
         "corpus_glob": args.corpus_glob,
+        "store": args.store,
+        "search": args.search,
+        "embedding_model": settings.embedding_model if args.store == "parser" else None,
+        "chunk_window": (
+            [settings.retrieval_chunk_tokens, settings.retrieval_chunk_overlap]
+            if args.store == "parser"
+            else None
+        ),
         "models_reported": sorted({c["model"] for c in calls}),
         "providers_reported": sorted({c["provider"] for c in calls}),
         "model_calls": len(calls),

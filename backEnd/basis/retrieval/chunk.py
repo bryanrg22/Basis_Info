@@ -45,8 +45,18 @@ ENCODING_NAME: Final = "cl100k_base"
 CHUNK_TOKENS: Final = 400
 OVERLAP_TOKENS: Final = 80
 SECTION_SEPARATOR: Final = " > "
-# Bump when a change alters the chunks of an existing document (see PARSER_VERSION).
-CHUNKER_VERSION: Final = f"{ENCODING_NAME}-{CHUNK_TOKENS}/{OVERLAP_TOKENS}-page-v1"
+CHUNKER_REVISION: Final = "page-v1"
+
+
+def chunker_version(chunk_tokens: int = CHUNK_TOKENS, overlap_tokens: int = OVERLAP_TOKENS) -> str:
+    """The chunker's identity at a window size (``RETRIEVAL_CHUNK_TOKENS`` /
+    ``RETRIEVAL_CHUNK_OVERLAP``): two ingests with the same version chunk alike."""
+    return f"{ENCODING_NAME}-{chunk_tokens}/{overlap_tokens}-{CHUNKER_REVISION}"
+
+
+# Bump CHUNKER_REVISION when a change alters the chunks of an existing document at the
+# same window size (see PARSER_VERSION). This is the version at the default size.
+CHUNKER_VERSION: Final = chunker_version()
 
 
 @lru_cache(maxsize=1)

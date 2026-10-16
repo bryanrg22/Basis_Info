@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from basis.retrieval.bm25 import Bm25Registry, process_registry
 from basis.retrieval.embed import Embedder, embedder_for
 
 if TYPE_CHECKING:
+    from basis.classify.store_protocol import ChunkStore as ClassifyStore
+    from basis.classify.tools import SearchFn
     from basis.config import Settings
     from basis.retrieval.store import ChunkStore
     from basis.retrieval.types import Hit
@@ -33,6 +35,7 @@ class Retrieval:
     # The Settings defaults (tests/unit/retrieval/test_retrieval_binding.py keeps them equal).
     fusion: Literal["rrf", "weighted"] = "rrf"
     bm25_weight: float = 0.5
+    search: Literal["bm25", "hybrid"] = "bm25"
 
     async def hybrid(
         self, store: ChunkStore, corpus_version_id: uuid.UUID, query: str, k: int
@@ -50,6 +53,23 @@ class Retrieval:
             weight=self.bm25_weight,
         )
 
+    def classifier_search(self, store: ClassifyStore) -> SearchFn | None:
+        """The ``ClassifyContext.search`` for ``RETRIEVAL_SEARCH``.
+
+        ``None`` for ``bm25``: the classifier then calls ``store.search_bm25`` itself, the
+        behaviour before the setting existed. ``hybrid`` binds :meth:`hybrid` to ``store``.
+        """
+        if self.search == "bm25":
+            return None
+        # The worker's PostgresChunkStore (and the eval harness's ChunkIndex) implement
+        # both store protocols; the classifier's is the read-only view of the same methods.
+        bound = cast("ChunkStore", store)
+
+        async def search(corpus_version_id: uuid.UUID, query: str, k: int) -> list[Hit]:
+            return await self.hybrid(bound, corpus_version_id, query, k)
+
+        return search
+
 
 def default_retrieval(settings: Settings) -> Retrieval:
     """The process's embedder for ``settings`` and the process-wide BM25 registry.
@@ -62,6 +82,7 @@ def default_retrieval(settings: Settings) -> Retrieval:
         registry=process_registry(),
         fusion=settings.retrieval_fusion,
         bm25_weight=settings.retrieval_bm25_weight,
+        search=settings.retrieval_search,
     )
 
 

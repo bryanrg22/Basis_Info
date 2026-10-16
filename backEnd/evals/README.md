@@ -52,6 +52,17 @@ percentile-bootstrap interval, a sign-flip randomization p and wins/losses/ties.
 `--fusion-sweep` (with `hybrid`) adds weighted fusion at BM25 weights 0.0-1.0 and RRF, and
 the leave-one-out score of choosing the weight on the other queries (EVAL_REPORT 22).
 `hole_rate_at_10` is the share of top-10 pages with no judgment for that query.
+The chunk window is `RETRIEVAL_CHUNK_TOKENS` / `RETRIEVAL_CHUNK_OVERLAP` (default 400 / 80)
+and the embedder `EMBEDDING_MODEL` (any of `basis.retrieval.embed.MODEL_SPECS`, which adds
+the model's query and passage prefixes). With `hybrid`, two `rule_citations` results follow:
+`resolve_bm25` and `resolve_hybrid`, every rules-table citation through
+`basis.classify.router.resolve_rule_citations` over the same chunks with the classifier's
+two searches (`RETRIEVAL_SEARCH`; EVAL_REPORT 25).
+
+`python -m evals.predict_assets --store parser [--search hybrid]` runs the classifier
+against the production chunks (parse, chunk at the configured window, embed) with the
+store's BM25, or with `Retrieval.hybrid` as production does under `RETRIEVAL_SEARCH=hybrid`.
+The default `--store pymupdf` is the historical store (pymupdf page text, a simple BM25).
 
 ## Dataset files
 
