@@ -23,6 +23,10 @@ deterministic baseline runs where one exists:
   :func:`basis.classify.router.resolve_rule_citations` checks a chunk). Derived from the
   code, so it has no dataset file and is scored whole on every split. On a dry run the
   synthetic corpus holds none of the cited documents, so nothing resolves (0 of n).
+* ``room_inventory``: ``per_photo_max`` (the labelled per-photo components of
+  ``photo_components`` merged per room by label, count = the largest per-photo count:
+  what the inventory is with no cross-photo reconciliation, the floor the per-room call
+  has to beat).
 
 Model-backed systems (extraction, vision, the residual classifier) are run by the
 orchestrator and scored through ``--predictions``. Every metric is reported with ``n``, a
@@ -45,7 +49,8 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from collections.abc import Callable, Sequence
+from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -62,10 +67,12 @@ from evals.metrics import (
     clustered_standard_error,
     field_accuracy,
     field_matches,
+    inventory_metrics,
     ir_metrics,
     mean,
     page_citation_status,
     pass_hat_k,
+    room_inventory_score,
     summarize_proportion,
 )
 
@@ -496,6 +503,164 @@ def score_rule_citations(
     return result
 
 
+def max_merge(per_photo: Sequence[Mapping[str, int]]) -> dict[str, int]:
+    """Per-photo ``{label: count}`` -> one room inventory: count = the largest per-photo
+    count (the :func:`basis.vision.reconcile.heuristic_merge` rule on plain labels)."""
+    merged: dict[str, int] = {}
+    for counts in per_photo:
+        for label, count in counts.items():
+            merged[label] = max(merged.get(label, 0), count)
+    return merged
+
+
+def _photo_index(components: ds.PhotoComponentsSet) -> dict[str, ds.PhotoComponents]:
+    """Labelled photos by file, and by base name when that is unambiguous (a room may cite
+    ``01_kitchen.jpg`` where the photo labels say ``photos/01_kitchen.jpg``)."""
+    index = {p.file: p for p in components.photos}
+    names: dict[str, list[ds.PhotoComponents]] = {}
+    for photo in components.photos:
+        names.setdefault(Path(photo.file).name, []).append(photo)
+    for name, photos in names.items():
+        if len(photos) == 1:
+            index.setdefault(name, photos[0])
+    return index
+
+
+def per_photo_max(
+    room: ds.RoomInventoryLabel, index: Mapping[str, ds.PhotoComponents]
+) -> tuple[dict[str, int], list[str]]:
+    """The baseline inventory of a room and the room's photos that have no labels."""
+    per_photo: list[dict[str, int]] = []
+    missing: list[str] = []
+    for file in room.photos:
+        photo = index.get(file) or index.get(Path(file).name)
+        if photo is None:
+            missing.append(file)
+            continue
+        counts: dict[str, int] = {}
+        for c in photo.components:
+            counts[c.label] = counts.get(c.label, 0) + c.count
+        per_photo.append(counts)
+    return max_merge(per_photo), missing
+
+
+def _inventory(value: Any) -> dict[str, int]:
+    """A predicted room inventory ``{label: count}`` with labels normalized, ``other``
+    dropped and repeated labels (after normalization) added up."""
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError(f"a room prediction must be {{label: count}}, got {value!r}")
+    counts: dict[str, int] = {}
+    for label, count in value.items():
+        key = normalize_label(str(label))
+        if key and key != "other":
+            counts[key] = counts.get(key, 0) + int(count)
+    return counts
+
+
+def score_room_inventory(
+    data: ds.RoomInventorySet,
+    split: str,
+    repeats: int,
+    saved: dict[str, Any] | None,
+    components: ds.PhotoComponentsSet | None,
+) -> TaskResult:
+    system = "predictions" if saved is not None else "per_photo_max"
+    result = TaskResult("room_inventory", system)
+    rooms = [r for r in data.rooms if r.split == split]
+    if not rooms:
+        result.skipped = True
+        result.notes.append(f"no {split} items")
+        return result
+    if saved is None and components is None:
+        result.skipped = True
+        result.notes.append("no saved predictions and no photo_components labels for the baseline")
+        return result
+    gold = {r.room_id: r.counts() for r in rooms}
+    runs: list[dict[str, dict[str, int]]] = [{} for _ in range(repeats)]
+    if saved is not None:
+        for room in rooms:
+            for r, value in enumerate(_repeats(saved.get(room.room_id), repeats)):
+                runs[r][room.room_id] = _inventory(value)
+        extra = sorted(set(saved) - set(gold))
+        if extra:
+            result.notes.append(f"predicted rooms not in the {split} labels (ignored): {extra}")
+    else:
+        index = _photo_index(components) if components is not None else {}
+        missing: list[str] = []
+        for room in rooms:
+            merged, absent = per_photo_max(room, index)
+            missing += absent
+            for r in range(repeats):
+                runs[r][room.room_id] = _inventory(merged)
+        if missing:
+            result.notes.append(f"{len(missing)} room photos have no photo_components labels")
+    metrics = inventory_metrics(gold, runs[0])
+    documents = {r.room_id: r.document for r in rooms}
+    room_ids = list(metrics.per_room)
+    clusters = [documents[room] for room in room_ids]
+    scores = [metrics.per_room[room] for room in room_ids]
+    exact = summarize_proportion([s.exact for s in scores], clusters)
+    by_label: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for score in scores:
+        for label, truth, guess in score.pairs:
+            by_label[label][0] += 1
+            by_label[label][1] += guess - truth
+    result.rows += [
+        MetricRow("count_mae", metrics.count_mae, metrics.pairs, metrics.count_mae_se),
+        MetricRow(
+            "exact_count_rate", metrics.exact_count_rate, metrics.pairs, metrics.exact_count_se
+        ),
+        MetricRow(
+            "signed_bias",
+            metrics.signed_bias,
+            metrics.pairs,
+            metrics.signed_bias_se,
+            details={"by_label": {k: v for k, v in sorted(by_label.items())}},
+        ),
+        MetricRow(
+            "room_exact_inventory",
+            exact["value"],
+            exact["n"],
+            exact["stderr"],
+            tuple(exact["interval"]),
+            {
+                "per_room": {
+                    room: {
+                        "gold": gold[room],
+                        "predicted": runs[0].get(room, {}),
+                        "exact": metrics.per_room[room].exact,
+                    }
+                    for room in room_ids
+                }
+            },
+        ),
+    ]
+    for name, values in (
+        ("label_precision", [s.precision for s in scores]),
+        ("label_recall", [s.recall for s in scores]),
+        ("label_f1", [s.f1 for s in scores]),
+    ):
+        result.rows.append(
+            MetricRow(name, mean(values), len(values), clustered_standard_error(values, clusters))
+        )
+    _add_pass_k(
+        result,
+        [
+            [room_inventory_score(gold[room], run.get(room, {})).exact for room in room_ids]
+            for run in runs
+        ],
+        repeats,
+    )
+    result.notes.append(
+        "'other' labels are excluded; count metrics are over (room, label) pairs in the "
+        "union of gold and predicted labels (missing = 0), SE clustered by room; room "
+        "metrics are over rooms, SE clustered by document; signed bias > 0 is over-counting"
+    )
+    return result
+
+
 def _transpose(rows: list[list[bool]]) -> list[list[bool]]:
     return [list(col) for col in zip(*rows, strict=True)] if rows else []
 
@@ -645,7 +810,7 @@ def evaluate(
     corpus_dir: Path | None,
 ) -> list[TaskResult]:
     results: list[TaskResult] = []
-    for name in ds.DATASETS:
+    for name in ds.DATASETS:  # the dataset files in order, then the derived rule_citations
         dataset = data.get(name)
         if dataset is None:
             results.append(TaskResult(name, "-", notes=["dataset file not found"], skipped=True))
@@ -663,6 +828,17 @@ def evaluate(
             results.append(score_retrieval(dataset, split, repeats, saved, corpus_dir))
         elif isinstance(dataset, ds.RuleCitations):
             results.append(score_rule_citations(dataset, corpus_dir))
+        elif isinstance(dataset, ds.RoomInventorySet):
+            labels = data.get("photo_components")
+            results.append(
+                score_room_inventory(
+                    dataset,
+                    split,
+                    repeats,
+                    saved,
+                    labels if isinstance(labels, ds.PhotoComponentsSet) else None,
+                )
+            )
     return results
 
 

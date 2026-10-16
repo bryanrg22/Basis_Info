@@ -12,7 +12,7 @@ from basis.domain.rules import RULES, RULES_VERSION
 from evals import datasets as ds
 
 
-def test_synthetic_smoke_builds_all_five_datasets_from_the_fixtures() -> None:
+def test_synthetic_smoke_builds_all_six_datasets_from_the_fixtures() -> None:
     data = ds.synthetic_smoke()
     assert set(data) == set(ds.DATASETS) == {*ds.DATASET_FILES, "rule_citations"}
     fields = data["appraisal_fields"]
@@ -50,6 +50,19 @@ def test_synthetic_smoke_builds_all_five_datasets_from_the_fixtures() -> None:
     qrels = data["retrieval_qrels"]
     assert isinstance(qrels, ds.RetrievalQrels) and len(qrels.queries) == 20
     assert qrels.qrels()["q01"] == {"SYN_PUB_A:1": 2}
+
+    inventory = data["room_inventory"]
+    assert isinstance(inventory, ds.RoomInventorySet) and len(inventory.rooms) == 8
+    kitchen_room = next(r for r in inventory.rooms if r.room_id == "x_kitchen")
+    assert (kitchen_room.name, kitchen_room.floor, kitchen_room.room_type) == (
+        "kitchen",
+        1,
+        "kitchen",
+    )
+    assert kitchen_room.photos == ["photos/01_kitchen.jpg"]
+    assert kitchen_room.counts() == {"kitchen_cabinet": 6, "countertop": 1}
+    bedroom = next(r for r in inventory.rooms if r.room_id == "x_bedroom")
+    assert "other" in {o.label for o in bedroom.objects} and "other" not in bedroom.counts()
 
 
 def test_rule_citations_are_every_citation_of_the_rules_table() -> None:
@@ -142,6 +155,41 @@ def test_missing_directory_file_and_unknown_dataset(
             },
         ),
         ("photo_components", {"photos": [{"file": "a", "components": [], "extra": 1}]}),
+        (
+            "room_inventory",
+            {
+                "rooms": [
+                    {
+                        "room_id": "1_kitchen",
+                        "room_type": "kitchen",
+                        "photos": ["a.jpg"],
+                        "objects": [{"label": "sink", "count": 1, "photos": ["b.jpg"]}],
+                    }
+                ]
+            },
+        ),
+        (
+            "room_inventory",
+            {
+                "rooms": [
+                    {"room_id": "r", "room_type": "kitchen", "photos": [], "objects": []},
+                    {"room_id": "r", "room_type": "bathroom", "photos": [], "objects": []},
+                ]
+            },
+        ),
+        (
+            "room_inventory",
+            {
+                "rooms": [
+                    {
+                        "room_id": "r",
+                        "room_type": "kitchen",
+                        "photos": [],
+                        "objects": [{"label": "sink", "count": 0}],
+                    }
+                ]
+            },
+        ),
     ],
 )
 def test_malformed_files_are_rejected(tmp_path: Path, name: str, payload: object) -> None:

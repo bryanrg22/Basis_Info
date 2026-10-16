@@ -35,10 +35,16 @@ from typing import Any
 from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
+from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.llm.recorder import MemoryRecorder
-from basis.vision.analyze import PhotoResult, VisionContext, analyze_photo_detailed
+from basis.vision.analyze import (
+    PhotoResult,
+    VisionContext,
+    analyze_photo_detailed,
+    released_prompt,
+)
 from basis.vision.prep import ImageRejected
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
@@ -55,6 +61,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--budget-usd", type=float, default=10.0, help="stop when exceeded")
+    parser.add_argument(
+        "--prompt", default=None, help="released photo_analysis version, e.g. v2 (default: latest)"
+    )
+    parser.add_argument("--model", default=None, help="model name (default: VISION_MODEL)")
     return parser.parse_args(argv)
 
 
@@ -75,6 +85,26 @@ def _record(file: str, repeat: int, result: PhotoResult, seconds: float) -> dict
             "original_height": result.image.original_height,
         },
     }
+
+
+RETRY_DELAYS_S: tuple[float, ...] = (2.0, 6.0, 15.0)
+
+
+async def analyze_with_retries(
+    image_bytes: bytes, ctx: VisionContext, delays: Sequence[float] | None = None
+) -> PhotoResult:
+    """``analyze_photo_detailed`` with a bounded retry on rate limits and outages.
+
+    The activity relies on Temporal's retry policy for these; the runner has none, so a
+    single provider timeout would otherwise abort a whole evaluation run.
+    """
+    for delay in RETRY_DELAYS_S if delays is None else delays:
+        try:
+            return await analyze_photo_detailed(image_bytes, ctx)
+        except (ProviderRateLimited, ProviderUnavailable) as exc:
+            print(f"transient provider error, retrying in {delay:g}s: {exc}", file=sys.stderr)
+            await asyncio.sleep(delay)
+    return await analyze_photo_detailed(image_bytes, ctx)
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -99,11 +129,12 @@ async def run(args: argparse.Namespace) -> int:
             recorder=recorder,
         ),
         provider=pool,
-        prompt=prompts.latest("photo_analysis"),
-        model=settings.vision_model,
+        prompt=(prompts.load("photo_analysis", args.prompt) if args.prompt else released_prompt()),
+        model=args.model or settings.vision_model,
     )
     semaphore = asyncio.Semaphore(args.concurrency)
     raw_path = args.out / "photo_raw.jsonl"
+    errors_seen: list[dict[str, Any]] = []
     rooms: dict[str, list[str]] = {f.name: [] for f in files}
     components: dict[str, list[list[str]]] = {f.name: [] for f in files}
 
@@ -111,9 +142,13 @@ async def run(args: argparse.Namespace) -> int:
         async with semaphore:
             started = time.monotonic()
             try:
-                result = await analyze_photo_detailed(file.read_bytes(), ctx)
+                result = await analyze_with_retries(file.read_bytes(), ctx)
             except ImageRejected as exc:
                 return {"file": file.name, "repeat": repeat, "rejected": str(exc)}
+            except (ProviderRateLimited, ProviderUnavailable) as exc:
+                # Transient after every retry: recorded, not fatal (Temporal retries the
+                # activity in production; here the photo is simply missing from the run).
+                return {"file": file.name, "repeat": repeat, "error": str(exc)}
             return _record(file.name, repeat, result, time.monotonic() - started)
 
     with raw_path.open("w", encoding="utf-8") as raw:
@@ -121,6 +156,10 @@ async def run(args: argparse.Namespace) -> int:
             records = await asyncio.gather(*(one(f, repeat) for f in files))
             for record in records:
                 raw.write(json.dumps(record, sort_keys=True) + "\n")
+                if "error" in record:
+                    errors_seen.append(
+                        {"file": record["file"], "repeat": repeat, "error": record["error"]}
+                    )
                 analysis = record.get("analysis")
                 if analysis is None:
                     continue
@@ -150,9 +189,11 @@ async def run(args: argparse.Namespace) -> int:
                 "photos": len(files),
                 "repeats": args.repeats,
                 "vision_model_setting": settings.vision_model,
+                "model_requested": args.model or settings.vision_model,
                 "models_reported": models,
                 "spent_usd": round(budget.spent_usd, 6),
-                "prompt": prompts.latest("photo_analysis").version_id,
+                "errors": errors_seen,
+                "prompt": ctx.prompt.version_id,
             },
             indent=1,
         )

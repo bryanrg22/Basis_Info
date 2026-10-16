@@ -13,18 +13,21 @@ uv run python -m evals.run --split dev --predictions out/            # score sav
 
 Client data never enters the repository. Real datasets live under `BASIS_EVAL_DATA_DIR`
 (mirrored to the private bucket); only the orchestrator runs them. `--dry-run` builds
-the same five datasets from `tests/fixtures/synthetic/`. A sixth, `rule_citations`, has
-no file (see below).
+the same six datasets from `tests/fixtures/synthetic/` (for `room_inventory`, every fixture
+photo is its own room, so the dry-run baseline scores perfectly: it exercises the path,
+not the method). A seventh, `rule_citations`, has no file (see below).
 
 ## Systems
 
 Each dataset is scored by saved predictions (`--predictions DIR/<dataset>.json`) when
 present, otherwise by a deterministic baseline: `printed_text` (fields as printed),
 `filename` (photo rooms and components from file-name words), `rules_table`
-(`basis.domain.rules.lookup`, a miss abstains) and `bm25_pages` (BM25 over one chunk per
-page of `<data dir>/corpus/*.pdf`, doc id = file stem) and `page_text` (rules-table
-citations checked against corpus page text). Model-backed systems are run by the
-orchestrator and scored through `--predictions`.
+(`basis.domain.rules.lookup`, a miss abstains), `bm25_pages` (BM25 over one chunk per
+page of `<data dir>/corpus/*.pdf`, doc id = file stem), `per_photo_max` (room
+inventories: the labelled per-photo components of `photo_components_v1.json` merged per
+room by label, count = the largest per-photo count; the "no reconciliation" floor) and
+`page_text` (rules-table citations checked against corpus page text). Model-backed systems
+are run by the orchestrator and scored through `--predictions`.
 
 ## Dataset files
 
@@ -94,6 +97,39 @@ Labeled at document + page (not chunk id), so re-chunking does not invalidate la
 Grades: 2 exact match, 1 paraphrase, 0 judged not relevant. Predictions:
 `{"<query id>": ["DOC_ID:page", ...]}` in rank order.
 
+### `room_inventory_v1.json`
+
+```json
+{"schema_version": 1, "rooms": [{
+  "room_id": "1_kitchen", "name": "1st Floor Kitchen", "floor": 1, "room_type": "kitchen",
+  "photos": ["21_1st Floor Kitchen photo 1.JPG", "22_1st Floor Kitchen photo 2.JPG"],
+  "document": "package", "split": "dev",
+  "objects": [
+    {"label": "kitchen_cabinet", "count": 1,
+     "photos": ["21_1st Floor Kitchen photo 1.JPG", "22_1st Floor Kitchen photo 2.JPG"]},
+    {"label": "sink", "count": 1, "photos": ["21_1st Floor Kitchen photo 1.JPG"]}]}]}
+```
+
+The human inventory of each room: every distinct physical object once, with the photos it
+is visible in. `room_id` follows `basis.vision.rooms.name_hint` (drop the extension, a
+leading `NN_` index and a trailing `photo N`; `<n>st/nd/rd/th Floor` gives token `n`,
+`Basement` token `b`, anything else `x`; then the rest as a lowercase `_` slug), with views
+merged into their room by hand where needed (the same mapping as `predict_rooms
+--aliases`). Several objects with one label are distinct objects and their counts add up;
+an object's `photos` must be among the room's `photos`; room ids are unique; `other` is
+excluded from scoring. Predictions: `{"<room_id>": {"<label>": count}}` (labels are
+normalized; a room missing from the predictions has an empty inventory).
+
+Metrics, per (room, label) over the union of gold and predicted labels of each room
+(missing = 0): count MAE, exact-count rate and signed bias = mean(predicted - gold)
+(positive = over-counting, the duplicate failure), SE clustered by room; per room: exact
+inventory (Wilson interval), label-set precision/recall/F1 (counts ignored; nothing
+predicted -> precision 0; two empty inventories agree), SE clustered by document; pass^k
+over repeats for the exact inventory. Predictions come from `python -m evals.predict_rooms`
+(`room_inventory.json`, the reconciliation call; `room_inventory.heuristic.json` is the
+per-photo-plus-merge baseline on the model's own per-photo output, scored by copying it to
+`room_inventory.json` in another predictions directory).
+
 ### `rule_citations` (derived, no file)
 
 Every `(doc_id, page, excerpt)` citation of the rules table (`basis.domain.rules.RULES`),
@@ -125,7 +161,8 @@ value per repeat; pass^k is computed over them.
 `evals/metrics.py`, unit-tested against hand-computed values in
 `tests/unit/evals/test_metrics.py`: field accuracy (exact and normalized), per-class
 precision/recall/F1 with macro-F1, accuracy with a 95% Wilson interval, coverage and
-selective accuracy under abstention, nDCG@10 (linear gains, log2 discount, as
+selective accuracy under abstention, room-inventory count MAE / exact-count rate /
+signed bias and per-room exact inventory and label-set P/R/F1, nDCG@10 (linear gains, log2 discount, as
 `pytrec_eval`'s `ndcg_cut_10`), recall@5/10, MRR, the judged-hole rate, citation support
 rate, the status of a page citation (`page_citation_status`), the standard error of a
 mean clustered by document (CR1), and pass^k

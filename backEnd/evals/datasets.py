@@ -2,10 +2,12 @@
 
 Real datasets live outside the repository under ``BASIS_EVAL_DATA_DIR`` (client data never
 enters the repo); :func:`synthetic_smoke` builds the same five datasets from
-``tests/fixtures/synthetic/`` so the harness can be exercised anywhere (``--dry-run``).
-One more dataset, ``rule_citations``, has no file: it is every ``(doc_id, page, excerpt)``
-claim of the rules table (:mod:`basis.domain.rules`), built from the code
-(:func:`rule_citations`) and checked against the corpus PDFs.
+``tests/fixtures/synthetic/`` so the harness can be exercised anywhere (``--dry-run``);
+the sixth, ``room_inventory``, is built there from the fixture photos with every photo its
+own room (named by :func:`basis.vision.rooms.name_hint`). One more dataset,
+``rule_citations``, has no file: it is every ``(doc_id, page, excerpt)`` claim of the rules
+table (:mod:`basis.domain.rules`), built from the code (:func:`rule_citations`) and checked
+against the corpus PDFs.
 
 Every item has a ``split`` (``dev``, ``regression``, ``held_out``) and a ``document``, the
 cluster used for clustered standard errors (photos and fields from one property are not
@@ -19,9 +21,10 @@ import os
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from basis.domain.rules import RULES, RULES_VERSION
+from basis.vision.rooms import display_name, name_hint
 from evals.metrics import FieldType
 
 Split = Literal["dev", "regression", "held_out"]
@@ -32,6 +35,7 @@ DATASET_FILES: Final[dict[str, str]] = {
     "photo_components": "photo_components_v1.json",
     "assets": "assets_v1.json",
     "retrieval_qrels": "retrieval_qrels_v1.json",
+    "room_inventory": "room_inventory_v1.json",
 }
 # Datasets built from code rather than read from a file (always available).
 DERIVED_DATASETS: Final[tuple[str, ...]] = ("rule_citations",)
@@ -175,8 +179,63 @@ def rule_citations() -> RuleCitations:
     )
 
 
+class InventoryObjectLabel(_Model):
+    """One distinct object (or several identical ones) and the photos it is visible in."""
+
+    label: str
+    count: int = Field(default=1, ge=1)
+    photos: list[str] = Field(default_factory=list)
+    note: str | None = None
+
+
+class RoomInventoryLabel(_Model):
+    room_id: str
+    name: str = ""
+    floor: int | None = None
+    room_type: str
+    photos: list[str]
+    document: str = "package"
+    split: Split = "dev"
+    objects: list[InventoryObjectLabel]
+
+    @model_validator(mode="after")
+    def _object_photos_belong_to_the_room(self) -> RoomInventoryLabel:
+        unknown = sorted({f for o in self.objects for f in o.photos} - set(self.photos))
+        if unknown:
+            raise ValueError(f"room {self.room_id}: objects cite photos not in the room: {unknown}")
+        return self
+
+    def counts(self, exclude: frozenset[str] = frozenset({"other"})) -> dict[str, int]:
+        """``{label: count}``; several objects with one label are distinct and add up."""
+        totals: dict[str, int] = {}
+        for obj in self.objects:
+            if obj.label not in exclude:
+                totals[obj.label] = totals.get(obj.label, 0) + obj.count
+        return totals
+
+
+class RoomInventorySet(_Model):
+    schema_version: int = 1
+    rooms: list[RoomInventoryLabel]
+
+    @model_validator(mode="after")
+    def _unique_room_ids(self) -> RoomInventorySet:
+        seen: set[str] = set()
+        for room in self.rooms:
+            if room.room_id in seen:
+                raise ValueError(f"room_id {room.room_id!r} appears twice")
+            seen.add(room.room_id)
+        return self
+
+
 Dataset = (
-    AppraisalFields | PhotoRooms | PhotoComponentsSet | Assets | RetrievalQrels | RuleCitations
+    AppraisalFields
+    | PhotoRooms
+    | PhotoComponentsSet
+    | Assets
+    | RetrievalQrels
+    | RoomInventorySet
+    | RuleCitations
 )
 MODELS: Final[dict[str, type[BaseModel]]] = {
     "appraisal_fields": AppraisalFields,
@@ -184,6 +243,7 @@ MODELS: Final[dict[str, type[BaseModel]]] = {
     "photo_components": PhotoComponentsSet,
     "assets": Assets,
     "retrieval_qrels": RetrievalQrels,
+    "room_inventory": RoomInventorySet,
 }
 
 
@@ -255,7 +315,7 @@ def _json(path: Path) -> Any:
 
 
 def synthetic_smoke(fixtures: Path = SYNTHETIC_DIR) -> dict[str, BaseModel]:
-    """The five datasets built from the synthetic fixtures (all ``dev``), plus the derived
+    """The six datasets built from the synthetic fixtures (all ``dev``), plus the derived
     ``rule_citations`` (scored against the synthetic corpus on a dry run)."""
     urar = _json(fixtures / "urar_sample.expected.json")
     fields = AppraisalFields(
@@ -326,8 +386,33 @@ def synthetic_smoke(fixtures: Path = SYNTHETIC_DIR) -> dict[str, BaseModel]:
         "photo_components": components,
         "assets": assets,
         "retrieval_qrels": qrels,
+        "room_inventory": synthetic_room_inventory(labels),
         "rule_citations": rule_citations(),
     }
+
+
+def synthetic_room_inventory(labels: dict[str, Any]) -> RoomInventorySet:
+    """Every fixture photo is its own room (the fixtures are eight different scenes), with
+    the photo's labelled components as the room's objects."""
+    return RoomInventorySet(
+        rooms=[
+            RoomInventoryLabel(
+                room_id=name_hint(p["file"]).room_id,
+                name=display_name(p["file"]),
+                floor=p["floor"],
+                room_type=p["room_type"],
+                photos=[p["file"]],
+                document="synthetic",
+                objects=[
+                    InventoryObjectLabel(
+                        label=c["label"], count=c.get("count", 1), photos=[p["file"]]
+                    )
+                    for c in p["components"]
+                ],
+            )
+            for p in labels["photos"]
+        ]
+    )
 
 
 def corpus_pdfs(directory: Path) -> dict[str, Path]:

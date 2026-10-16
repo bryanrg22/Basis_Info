@@ -14,6 +14,11 @@
   because photos and fields from one property are not independent.
 * pass^k (all of k repeats succeed), with the unbiased estimator
   ``C(c, k) / C(n, k)`` per item when n repeats ran.
+* Room inventories (VISION_RESEARCH.md section 3, metric 3): per (room, label) over the
+  union of gold and predicted labels, count MAE, exact-count rate and signed bias
+  (predicted - gold: over-counting is the duplicate failure, so the sign matters), with
+  standard errors clustered by room; per room, exact inventory and label-set
+  precision/recall/F1 (counts ignored).
 
 """
 
@@ -411,3 +416,103 @@ def summarize_proportion(
         "interval": [low, high],
         "stderr": clustered_standard_error(values, groups) if n else math.nan,
     }
+
+
+# --------------------------------------------------------------------------- inventories
+
+
+@dataclass(frozen=True)
+class RoomInventoryScore:
+    """One room: ``(label, gold, predicted)`` per label in either inventory, label order."""
+
+    pairs: tuple[tuple[str, int, int], ...]
+    exact: bool
+    precision: float
+    recall: float
+    f1: float
+
+
+def _present(inventory: Mapping[str, int]) -> dict[str, int]:
+    for label, count in inventory.items():
+        if count < 0:
+            raise ValueError(f"negative count {count} for {label!r}")
+    return {label: count for label, count in inventory.items() if count > 0}
+
+
+def room_inventory_score(
+    gold: Mapping[str, int], predicted: Mapping[str, int]
+) -> RoomInventoryScore:
+    """Score one room. A label with count 0 is absent. Label-set precision/recall/F1 use
+    scikit-learn's ``zero_division=0`` (nothing predicted -> precision 0), except that two
+    empty inventories agree perfectly (1, 1, 1)."""
+    truth, guess = _present(gold), _present(predicted)
+    labels = sorted(set(truth) | set(guess))
+    pairs = tuple((label, truth.get(label, 0), guess.get(label, 0)) for label in labels)
+    if not truth and not guess:
+        return RoomInventoryScore(pairs, True, 1.0, 1.0, 1.0)
+    tp = len(set(truth) & set(guess))
+    return RoomInventoryScore(
+        pairs=pairs,
+        exact=truth == guess,
+        precision=_ratio(tp, len(guess)),
+        recall=_ratio(tp, len(truth)),
+        f1=_ratio(2 * tp, len(guess) + len(truth)),
+    )
+
+
+@dataclass(frozen=True)
+class InventoryMetrics:
+    rooms: int
+    pairs: int
+    count_mae: float
+    count_mae_se: float
+    exact_count_rate: float
+    exact_count_se: float
+    signed_bias: float
+    signed_bias_se: float
+    room_exact_rate: float
+    label_precision: float  # macro over rooms
+    label_recall: float
+    label_f1: float
+    per_room: dict[str, RoomInventoryScore]
+
+
+def inventory_metrics(
+    gold: Mapping[str, Mapping[str, int]], predicted: Mapping[str, Mapping[str, int]]
+) -> InventoryMetrics:
+    """Per-(room, label) count metrics and per-room inventory metrics over ``gold``'s rooms.
+
+    A room missing from ``predicted`` has an empty inventory (every gold label is
+    predicted 0); predicted rooms that are not in ``gold`` are ignored (the caller reports
+    them). Pair metrics (count MAE, exact-count rate, signed bias) are means over every
+    (room, label) in the union of the room's gold and predicted labels, with standard
+    errors clustered by room (pairs of one room are not independent). Room metrics (exact
+    inventory, label-set precision/recall/F1) are means over rooms.
+    """
+    per_room = {room: room_inventory_score(gold[room], predicted.get(room, {})) for room in gold}
+    errors: list[float] = []
+    hits: list[float] = []
+    signed: list[float] = []
+    clusters: list[str] = []
+    for room, score in per_room.items():
+        for _, truth, guess in score.pairs:
+            errors.append(float(abs(guess - truth)))
+            hits.append(1.0 if guess == truth else 0.0)
+            signed.append(float(guess - truth))
+            clusters.append(room)
+    scores = list(per_room.values())
+    return InventoryMetrics(
+        rooms=len(per_room),
+        pairs=len(errors),
+        count_mae=mean(errors),
+        count_mae_se=clustered_standard_error(errors, clusters) if errors else math.nan,
+        exact_count_rate=mean(hits),
+        exact_count_se=clustered_standard_error(hits, clusters) if hits else math.nan,
+        signed_bias=mean(signed),
+        signed_bias_se=clustered_standard_error(signed, clusters) if signed else math.nan,
+        room_exact_rate=mean([1.0 if s.exact else 0.0 for s in scores]),
+        label_precision=mean([s.precision for s in scores]),
+        label_recall=mean([s.recall for s in scores]),
+        label_f1=mean([s.f1 for s in scores]),
+        per_room=per_room,
+    )

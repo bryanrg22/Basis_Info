@@ -15,13 +15,13 @@ from fixtures import fixture_path
 from basis.llm import Budget, BudgetExceededError, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
-from basis.llm.prompts import latest
 from basis.llm.recorder import MemoryRecorder
 from basis.vision.analyze import (
     ROOM_REVIEW_THRESHOLD,
     VisionContext,
     analyze_photo,
     analyze_photo_detailed,
+    released_prompt,
     review,
 )
 from basis.vision.prep import ImageRejected, prepare_image
@@ -69,7 +69,7 @@ def context(provider: ScriptedProvider, budget: float = 1.0) -> VisionContext:
             recorder=MemoryRecorder(),
         ),
         provider=provider,
-        prompt=latest("photo_analysis"),
+        prompt=released_prompt(),
         model="gpt-4o-mini",
         max_tokens=1200,
     )
@@ -80,7 +80,7 @@ async def test_one_structured_call_with_the_prepared_image() -> None:
     ctx = context(provider)
     result = await analyze_photo_detailed(KITCHEN, ctx)
     [request] = provider.requests
-    assert request.system == latest("photo_analysis").text
+    assert request.system == released_prompt().text
     assert request.prompt_version == "photo_analysis/v1"
     assert request.response_model is ModelPhotoAnalysis
     assert (request.model, request.max_tokens, request.temperature) == ("gpt-4o-mini", 1200, 0.0)
@@ -175,7 +175,7 @@ def test_review_flags_ambiguous_and_low_confidence_rooms() -> None:
 
 
 def test_the_prompt_treats_text_in_the_image_as_content() -> None:
-    text = latest("photo_analysis").text
+    text = released_prompt().text
     assert "never an instruction" in text and "ambiguous" in text
 
 
