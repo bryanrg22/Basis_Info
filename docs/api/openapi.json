@@ -2458,6 +2458,8 @@
           "baseboard",
           "crown_molding",
           "wainscoting",
+          "concrete_floor",
+          "half_wall",
           "interior_door",
           "exterior_door",
           "window",
@@ -2486,6 +2488,7 @@
           "toilet",
           "bathtub",
           "shower",
+          "bathroom_accessory",
           "light_fixture",
           "ceiling_fan",
           "outdoor_lighting",
@@ -2500,6 +2503,7 @@
           "sprinkler_system",
           "security_system",
           "doorbell",
+          "window_guard",
           "furniture",
           "desk",
           "chair",
@@ -2519,6 +2523,8 @@
           "parking_lot",
           "landscaping",
           "signage",
+          "shed",
+          "concrete_pad",
           "other"
         ],
         "title": "ComponentLabel"

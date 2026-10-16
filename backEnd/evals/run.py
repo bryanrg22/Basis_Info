@@ -23,6 +23,8 @@ deterministic baseline runs where one exists:
   :func:`basis.classify.router.resolve_rule_citations` checks a chunk). Derived from the
   code, so it has no dataset file and is scored whole on every split. On a dry run the
   synthetic corpus holds none of the cited documents, so nothing resolves (0 of n).
+  ``--corpus-text parser`` reads the corpus through the production parse + chunk path
+  instead of pymupdf for both (systems ``bm25_pages_parser``, ``page_text_parser``).
 * ``room_inventory``: ``per_photo_max`` (the labelled per-photo components of
   ``photo_components`` merged per room by label, count = the largest per-photo count:
   what the inventory is with no cross-photo reconciliation, the floor the per-room call
@@ -96,6 +98,11 @@ from evals.metrics import (
 ABSTAIN: Final = "abstain"
 CORPUS_VERSION: Final = uuid.UUID(int=1)
 _WORD: Final = re.compile(r"[a-z]+")
+# Loose furniture (the FF&E row): listed so the engineer can price it (LABEL_GUIDE section 4,
+# EVAL_REPORT section 19) but not a building component, so, like ``other``, it is kept out
+# of the recognition and count scores (photo_components, room_inventory). report_rows reads
+# it: it is the FF&E row's evidence.
+UNSCORED_LABELS: Final = frozenset({"other", "furniture", "chair", "desk", "filing_cabinet"})
 
 
 @dataclass
@@ -267,10 +274,39 @@ def pdf_page_texts(path: Path) -> list[str]:
         return [page.get_text() for page in document]
 
 
-def pdf_page_store(pdfs: dict[str, Path]) -> InMemoryChunkStore:
+def parser_page_texts(path: Path) -> list[str]:
+    """The text of every page as the ingestion path stores it (index 0 is page 1).
+
+    :func:`basis.retrieval.parse.parse_pdf` then :func:`basis.retrieval.chunk.chunk_document`,
+    the chunks of a page (text windows, then table surrogates) joined by newlines: what
+    retrieval indexes and what a citation is checked against, at page level. A page with
+    no chunks is the empty string.
+    """
+    from basis.retrieval.chunk import chunk_document
+    from basis.retrieval.parse import REFERENCE_MAX_PAGES, parse_pdf
+
+    document = parse_pdf(path.read_bytes(), path.stem, max_pages=REFERENCE_MAX_PAGES)
+    by_page: dict[int, list[str]] = defaultdict(list)
+    for draft in chunk_document(document):
+        by_page[draft.page].append(draft.text)
+    return ["\n".join(by_page.get(n, [])) for n in range(1, document.page_count + 1)]
+
+
+# ``--corpus-text``: how the corpus PDFs become page text for retrieval_qrels and
+# rule_citations. ``pymupdf`` is the parser-independent reading (the historical
+# baseline); ``parser`` is the production ingestion path, so it measures the parser.
+CORPUS_TEXT: Final[dict[str, Callable[[Path], list[str]]]] = {
+    "pymupdf": pdf_page_texts,
+    "parser": parser_page_texts,
+}
+
+
+def pdf_page_store(
+    pdfs: dict[str, Path], page_texts: Callable[[Path], list[str]] = pdf_page_texts
+) -> InMemoryChunkStore:
     store = InMemoryChunkStore()
     for doc_id, path in pdfs.items():
-        for number, text in enumerate(pdf_page_texts(path), start=1):
+        for number, text in enumerate(page_texts(path), start=1):
             store.add(
                 StoredChunk(
                     id=uuid.uuid5(CORPUS_VERSION, f"{doc_id}:{number}"),
@@ -428,10 +464,10 @@ def score_photo_components(
     tp = fp = fn = 0
     per_photo: list[bool] = []
     for photo in photos:
-        truth = {c.label for c in photo.components if c.label != "other"}
+        truth = {c.label for c in photo.components if c.label not in UNSCORED_LABELS}
         if saved is not None:
             raw = _repeats(saved.get(photo.file), repeats)[0] or []
-            predicted = {normalize_label(str(x)) for x in raw} - {"other"}
+            predicted = {normalize_label(str(x)) for x in raw} - UNSCORED_LABELS
         else:
             predicted = filename_components(photo.file, vocabulary)
         tp += len(truth & predicted)
@@ -450,7 +486,10 @@ def score_photo_components(
             "photo_exact_set", exact["value"], exact["n"], exact["stderr"], tuple(exact["interval"])
         ),
     ]
-    result.notes.append("'other' labels are excluded; sets of labels per photo are compared")
+    result.notes.append(
+        "'other' and loose furniture (furniture, chair, desk, filing_cabinet) are excluded; "
+        "sets of labels per photo are compared"
+    )
     return result
 
 
@@ -551,14 +590,20 @@ def score_assets(
     return result
 
 
+def _corpus_system(name: str, corpus_text: str) -> str:
+    """The system name, suffixed for a corpus text other than the pymupdf baseline."""
+    return name if corpus_text == "pymupdf" else f"{name}_{corpus_text}"
+
+
 def score_retrieval(
     data: ds.RetrievalQrels,
     split: str,
     repeats: int,
     saved: dict[str, Any] | None,
     corpus_dir: Path | None,
+    corpus_text: str = "pymupdf",
 ) -> TaskResult:
-    system = "predictions" if saved is not None else "bm25_pages"
+    system = "predictions" if saved is not None else _corpus_system("bm25_pages", corpus_text)
     result = TaskResult("retrieval_qrels", system)
     qrels = data.qrels(split)
     if not qrels:
@@ -573,7 +618,7 @@ def score_retrieval(
             result.skipped = True
             result.notes.append("no corpus PDFs to search and no saved predictions")
             return result
-        store = pdf_page_store(pdfs)
+        store = pdf_page_store(pdfs, CORPUS_TEXT[corpus_text])
         queries = {q.id: q.query for q in data.queries if q.id in qrels}
         run = {
             qid: [f"{h.doc_id}:{h.page_start}" for h in store.bm25(CORPUS_VERSION, text, 10)]
@@ -609,6 +654,7 @@ def score_rule_citations(
     data: ds.RuleCitations,
     corpus_dir: Path | None,
     page_texts: Callable[[Path], list[str]] = pdf_page_texts,
+    system: str = "page_text",
 ) -> TaskResult:
     """Resolve every rules-table citation against the corpus page text.
 
@@ -617,7 +663,7 @@ def score_rule_citations(
     citation resolves (a rule with any unresolved citation is flagged
     ``citation_unverified`` in production).
     """
-    result = TaskResult("rule_citations", "page_text")
+    result = TaskResult("rule_citations", system)
     if not data.citations:
         result.skipped = True
         result.notes.append("the rules table has no citations")
@@ -735,6 +781,11 @@ def _inventory(value: Any) -> dict[str, int]:
     return counts
 
 
+def _scored(counts: Mapping[str, int]) -> dict[str, int]:
+    """``counts`` without the labels the count scores leave out (:data:`UNSCORED_LABELS`)."""
+    return {label: n for label, n in counts.items() if label not in UNSCORED_LABELS}
+
+
 def score_room_inventory(
     data: ds.RoomInventorySet,
     split: str,
@@ -753,12 +804,12 @@ def score_room_inventory(
         result.skipped = True
         result.notes.append("no saved predictions and no photo_components labels for the baseline")
         return result
-    gold = {r.room_id: r.counts() for r in rooms}
+    gold = {r.room_id: _scored(r.counts()) for r in rooms}
     runs: list[dict[str, dict[str, int]]] = [{} for _ in range(repeats)]
     if saved is not None:
         for room in rooms:
             for r, value in enumerate(_repeats(saved.get(room.room_id), repeats)):
-                runs[r][room.room_id] = _inventory(value)
+                runs[r][room.room_id] = _scored(_inventory(value))
         extra = sorted(set(saved) - set(gold))
         if extra:
             result.notes.append(f"predicted rooms not in the {split} labels (ignored): {extra}")
@@ -769,7 +820,7 @@ def score_room_inventory(
             merged, absent = per_photo_max(room, index)
             missing += absent
             for r in range(repeats):
-                runs[r][room.room_id] = _inventory(merged)
+                runs[r][room.room_id] = _scored(_inventory(merged))
         if missing:
             result.notes.append(f"{len(missing)} room photos have no photo_components labels")
     metrics = inventory_metrics(gold, runs[0])
@@ -830,8 +881,8 @@ def score_room_inventory(
         repeats,
     )
     result.notes.append(
-        "'other' labels are excluded; count metrics are over (room, label) pairs in the "
-        "union of gold and predicted labels (missing = 0), SE clustered by room; room "
+        "'other' and loose furniture are excluded; count metrics are over (room, label) "
+        "pairs in the union of gold and predicted labels (missing = 0), SE clustered by room; room "
         "metrics are over rooms, SE clustered by document; signed bias > 0 is over-counting"
     )
     return result
@@ -1468,6 +1519,7 @@ def evaluate(
     corpus_dir: Path | None,
     detection_threshold: float = 0.5,
     inventory_file: str = INVENTORY_FILE,
+    corpus_text: str = "pymupdf",
 ) -> list[TaskResult]:
     results: list[TaskResult] = []
     rooms = data.get("room_inventory")
@@ -1490,9 +1542,16 @@ def evaluate(
         elif isinstance(dataset, ds.Assets):
             results.append(score_assets(dataset, split, repeats, saved))
         elif isinstance(dataset, ds.RetrievalQrels):
-            results.append(score_retrieval(dataset, split, repeats, saved, corpus_dir))
+            results.append(score_retrieval(dataset, split, repeats, saved, corpus_dir, corpus_text))
         elif isinstance(dataset, ds.RuleCitations):
-            results.append(score_rule_citations(dataset, corpus_dir))
+            results.append(
+                score_rule_citations(
+                    dataset,
+                    corpus_dir,
+                    CORPUS_TEXT[corpus_text],
+                    _corpus_system("page_text", corpus_text),
+                )
+            )
         elif isinstance(dataset, ds.RoomInventorySet):
             labels = data.get("photo_components")
             results.append(
@@ -1548,6 +1607,13 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="the room inventory file in --predictions to score (room_inventory and "
         f"report_rows); {HEURISTIC_INVENTORY_FILE} is the heuristic merge",
     )
+    parser.add_argument(
+        "--corpus-text",
+        default="pymupdf",
+        choices=tuple(CORPUS_TEXT),
+        help="page text for retrieval_qrels and rule_citations: pymupdf (parser-independent "
+        "baseline) or parser (the production parse + chunk path)",
+    )
     args = parser.parse_args(argv)
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
@@ -1583,6 +1649,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         corpus_dir=corpus_dir,
         detection_threshold=args.detection_threshold,
         inventory_file=args.inventory_file,
+        corpus_text=args.corpus_text,
     )
     report = render_report(
         results, split=args.split, repeats=args.repeats, source=source, git_sha=sha

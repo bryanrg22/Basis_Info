@@ -61,7 +61,7 @@ def instance(label: str, score: float, at: int = 0) -> Instance:
 
 
 SCRIPT = {
-    "window": [instance("window", 0.9)],
+    "house window": [instance("window", 0.9)],  # the v3 window phrase (EVAL_REPORT 19)
     "kitchen cabinet": [instance("kitchen_cabinet", 0.8), instance("kitchen_cabinet", 0.4, at=1)],
     "toilet": [instance("toilet", 0.95)],
 }

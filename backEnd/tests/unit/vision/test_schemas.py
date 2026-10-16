@@ -37,11 +37,37 @@ def test_room_types_include_the_non_room_answers() -> None:
     assert {"ambiguous", "exterior", "mechanical", "other"} <= set(ROOM_TYPES)
 
 
-def test_vocabulary_has_about_sixty_labels_plus_other() -> None:
-    assert 55 <= len(COMPONENT_LABELS) - 1 <= 75
+def test_vocabulary_has_about_seventy_labels_plus_other() -> None:
+    assert 55 <= len(COMPONENT_LABELS) - 1 <= 85
     assert COMPONENT_LABELS[-1] == "other"
     assert len(set(COMPONENT_LABELS)) == len(COMPONENT_LABELS)
     assert all(label == label.lower() and " " not in label for label in COMPONENT_LABELS)
+
+
+def test_the_report_row_labels_of_eval_report_19_are_in_the_vocabulary() -> None:
+    """The six labels the engineer's report rows needed (EVAL_REPORT sections 13 and 19);
+    the model may answer them and they no longer fall back to ``other``."""
+    added = {
+        "concrete_floor",
+        "half_wall",
+        "bathroom_accessory",
+        "window_guard",
+        "shed",
+        "concrete_pad",
+    }
+    assert added <= set(COMPONENT_LABELS)
+    assert len(COMPONENT_LABELS) - 1 == 77
+    for label in added:
+        component = Component.model_validate(
+            {
+                "label": label.replace("_", " ").title(),
+                "count": 1,
+                "material": "concrete",
+                "attachment": "permanent",
+                "confidence": 0.9,
+            }
+        )
+        assert component.label.value == label and component.note is None
 
 
 def test_fixture_vocabulary_is_covered() -> None:

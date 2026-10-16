@@ -32,6 +32,13 @@ materials from the per-photo labels; the ceiling the vocabulary and the labellin
 conventions allow). Model-backed systems are run by the orchestrator and scored through
 `--predictions`.
 
+Corpus text (`--corpus-text`, `retrieval_qrels` and `rule_citations` only): `pymupdf`
+(default; pymupdf's page text, independent of the ingestion parser, the historical
+baseline) or `parser` (the production path: `basis.retrieval.parse.parse_pdf`, then
+`basis.retrieval.chunk.chunk_document`, a page's chunks joined; what retrieval indexes and
+citations are checked against). With `parser` the systems are named `bm25_pages_parser`
+and `page_text_parser`. Use `parser` to measure a parser change (EVAL_REPORT 20).
+
 ## Dataset files
 
 Every item has `split` (`dev` | `regression` | `held_out`, default `dev`) and, where it
@@ -161,8 +168,10 @@ leading `NN_` index and a trailing `photo N`; `<n>st/nd/rd/th Floor` gives token
 `Basement` token `b`, anything else `x`; then the rest as a lowercase `_` slug), with views
 merged into their room by hand where needed (the same mapping as `predict_rooms
 --aliases`). Several objects with one label are distinct objects and their counts add up;
-an object's `photos` must be among the room's `photos`; room ids are unique; `other` is
-excluded from scoring. Predictions: `{"<room_id>": {"<label>": count}}` (labels are
+an object's `photos` must be among the room's `photos`; room ids are unique; `other` and
+loose furniture (`furniture`, `chair`, `desk`, `filing_cabinet`: listed for the FF&E report
+row, EVAL_REPORT section 19) are excluded from scoring (`photo_components` excludes them
+too; `report_rows` reads them). Predictions: `{"<room_id>": {"<label>": count}}` (labels are
 normalized; a room missing from the predictions has an empty inventory).
 
 Metrics, per (room, label) over the union of gold and predicted labels of each room
@@ -237,6 +246,26 @@ of every CSV and image, per-image author and licence for the CC BY 2.0 attributi
 per-photo model named (`--phrases-from vlm --photo-raw <predict_photos>/photo_raw.jsonl`)
 plus the always-prompted countable set; `--tiling on` adds 2 x 2 tiles for the countable
 phrases, merged by mask NMS (`--merge-metric iou` or `ios`).
+
+Phrases and count thresholds come from a phrase set (`--phrase-set`, default the
+localizer's `DEFAULT_PHRASE_SET`, `v3`); `photo_counts.json` counts each class at that
+set's threshold (`--count-threshold` sets one for all). Choosing phrases and thresholds per
+class (EVAL_REPORT section 19): run the candidate pool once with every phrase's instances
+kept, then choose offline by leaving one photo out, and score a run at the shipped
+thresholds:
+
+```bash
+BASIS_ENV=dev uv run python -m evals.predict_boxes --dataset ~/basis-eval-data/detection \
+    --out out/sam3_pool --phrase-set pool --phrase-dedupe off
+uv run python -m evals.sam3_select select --pool out/sam3_pool \
+    --dataset ~/basis-eval-data/detection --out out/sam3_select
+uv run python -m evals.sam3_select score --predictions out/sam3_v3 \
+    --dataset ~/basis-eval-data/detection
+```
+
+`select` writes `selection.json` (the chosen phrases and threshold per class, every fold's
+choice, the out-of-sample and in-sample metrics and the v1/v2 baselines) and the
+out-of-sample `detection_boxes.json` / `photo_counts.json`.
 
 ### `report_rows_v1.json`
 

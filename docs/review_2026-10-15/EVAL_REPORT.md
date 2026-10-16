@@ -1653,13 +1653,13 @@ choice should be re-measured on the held-out study before it is trusted further.
 
 | Step | Model | Prompt | Effort | Settings (default) | Section | Measured | Previous behaviour |
 |---|---|---|---|---|---|---|---|
-| Per-photo countables | gpt-6.1-sol | `photo_countables/v2` | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
-| Per-photo surfaces and room type | gpt-6.1-sol | `photo_surfaces/v1` | low | as above | 11, 12.1 | merged with the countables call (`basis/vision/merge.py`) | as above |
-| Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v2` | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
+| Per-photo countables | gpt-6.1-sol | `photo_countables/v3` (19; v2 before) | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
+| Per-photo surfaces and room type | gpt-6.1-sol | `photo_surfaces/v2` (19; v1 before) | low | as above | 11, 12.1 | merged with the countables call (`basis/vision/merge.py`) | as above |
+| Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
 | Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
 | Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 (the room model) | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive` | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
-| Object localization | SAM 3 (Replicate) | phrase prompts | - | `REPLICATE_API_TOKEN`, per-class thresholds | 10.2 | instance masks for review; counts not fused (15.3) | token unset: skipped |
+| Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
 | Extraction fallback | gpt-6-luna | `appraisal_field_fallback/v1` | low | `TEXT_MODEL`, `EXTRACTION_REASONING_EFFORT`, budget 8000 (`EXTRACTION_FALLBACK_MAX_TOKENS`) | 17.1, 17.3 | 0.924 of 75 fields, 12 of 12 critical, $0.0024 per study | `TEXT_MODEL=gpt-4o-mini` (budget 800) |
 | Asset classification (residual tool loop) | claude-sonnet-5-5 | `classify/v1` | low | `CLASSIFY_MODEL`, `CLASSIFY_REASONING_EFFORT` | 17.2, 17.3 | 0.688 bucket accuracy, 96% verified citations, $1.25 per 46 rows | `CLASSIFY_MODEL=gpt-4o-mini` |
 
@@ -1686,6 +1686,294 @@ Notes on the wiring (code, not measurement):
 - No new measurement was run for this section: the OpenAI account was out of credit, and the
   wiring is tested offline (unit, activity and workflow lifecycle tests with fake providers).
 
+## 19. SAM 3 per class and vocabulary completion (2026-10-16)
+
+Two open items from sections 10 and 13, each measured on the 52 client photos. Branch
+`claude/vision-leftovers-d42d59`.
+
+### 19.1 SAM 3: phrases and count thresholds chosen per class
+
+Question: section 10.3 found that phrase set v2 helps some classes and hurts others and that
+one threshold does not suit every class. Which phrases and which count threshold per class,
+chosen without selecting on the photos that score the choice?
+
+Standard followed. A detector's scores are not calibrated alike across classes, so a
+deployed detector gets one confidence cut-off per class, and an open-vocabulary one is tuned
+through its prompts as well (section 10.2 showed both effects). Choosing among many phrase
+subsets and thresholds on the same photos that score them overstates the result (Cawley and
+Talbot 2010, "On over-fitting in model selection"); the remedy is nested evaluation: every
+choice is made on 51 photos and scored on the 52nd (leave one photo out), so the reported
+numbers include the cost of choosing. One threshold for every class (10.2) is the baseline.
+
+Method.
+
+1. **Phrase pool, one call per photo.** Phrase set `pool` (`basis/vision/localize.py`): every
+   v1 and v2 phrase of the seven countable classes plus the ones the rejection reasons of
+   10.2 suggest (37 phrases: `house window`, `glass window`; `room door`, `bedroom door`,
+   `wooden door`, `door`; `entry door`, `entrance door`; `ceiling lamp`, `flush mount
+   light`; `exterior light`, `porch lantern`, `hanging lantern`, `outdoor wall light`;
+   `power outlet`, `outlet`; `cabinet`, `cabinet drawer`, `drawer`). Run once with
+   `evals.predict_boxes --phrase-set pool --phrase-dedupe off`, so every phrase keeps its own
+   instances (the pipeline's same-label dedupe would hide which phrase found what). 52
+   photos, threshold 0.1, $0.60; four photos lost to the Replicate throttle were rerun with the
+   same settings (`sam3_phrase_pool_v1_merged`).
+2. **Offline scoring of any subset** (`evals/sam3_select.py`). SAM 3 answers each phrase
+   independently (a phrase gives the same instances whatever else is prompted: `window`'s
+   instances are identical in the saved v1 and v2 runs on all 52 photos, and the pool's
+   differ from them only by the duplicates the dedupe removes), so a class's output under a phrase subset is the
+   union of those phrases' instances deduplicated exactly as the localizer does (mask IoU
+   0.8; a cached implementation checked equal to `suppress` on random cases). Check: the
+   pool reproduces section 10.3 exactly for v1 (mAP 0.653, P/R 0.46/0.80, count MAE 1.50,
+   every class AP) and for v2 (cabinet 0.74, light fixture 0.76, interior door 0.70, outdoor
+   lighting 0.48).
+3. **Rule, fixed before the results.** Phrases: the candidate subset (every subset of at most
+   three pool phrases of the class, plus the v1 and v2 tables) with the highest AP@0.5 on the
+   training photos, ties to fewer phrases. Threshold: on the training photos and those
+   phrases, the value in 0.30 to 0.90 (step 0.05; 0.30 is the lowest the product's candidate
+   floor allows) with the smallest total absolute count error, ties to the higher F1, then to
+   the value nearest 0.5. Leave one photo out over the 52 photos; the shipped table is the
+   same rule on all 52.
+
+Results. Baseline: the v1 phrases at the product's 10.2 thresholds (window 0.6, every other
+class 0.5), from the same pool. Count MAE as in 10.3 (over photo-classes where the gold or
+the predicted count is non-zero); the paired column is the absolute count error over every
+verified photo-class (52 x 7), which compares the two on the same pairs.
+
+| Run | mAP@0.5 | Precision / recall at the class thresholds | Count MAE (pairs), signed bias | Abs count error per verified photo-class |
+|---|---|---|---|---|
+| v1 phrases, 10.2 thresholds (the product until now) | 0.653 | 0.48 / 0.77 | 1.39 (127), +0.91 | 0.486 |
+| v2 phrases at 0.5 (10.3) | 0.653 | 0.47 / 0.82 | 1.41 (131), +1.08 | |
+| **per class, leave one photo out (the estimate)** | **0.763** | **0.73 / 0.77** | **0.79 (102), +0.11** | **0.223** |
+| per class, chosen on all 52 (in sample, the shipped table) | 0.778 | 0.77 / 0.77 | 0.65 (101), +0.00 | |
+| shipped v3, fresh Replicate run through the pipeline's localizer (`sam3_photos_v3_merged`, $0.19) | 0.778 | 0.77 / 0.77 | 0.65 (101), +0.00 | |
+
+The fresh run matches the offline in-sample row exactly on every class (and `evals.run` gives the
+same mAP), which confirms that scoring phrase subsets from the pool reproduces what the
+localizer returns; it is a check of the method, not a second out-of-sample estimate (same
+photos). Paired bootstrap over photos (2,000 resamples), out-of-sample v3 minus v1: mAP +0.10 [+0.02,
++0.16]; count error per photo-class -0.26 [-0.39, -0.16]; precision +0.25 [+0.17, +0.32];
+recall -0.00 [-0.07, +0.06]. Selection optimism (in sample minus out of sample) is small:
+0.015 mAP, 0.14 count MAE.
+
+Per class (out of sample; v1 baseline in brackets):
+
+| Class (true objects) | v3 phrases | Count threshold | AP@0.5 | Precision / recall | Count MAE, bias | Same choice in folds |
+|---|---|---|---|---|---|---|
+| window (68) | `house window` | 0.65 | 0.833 (0.837) | 0.70 / 0.84 (0.65 / 0.84) | 1.07, +0.45 (1.31, +0.69) | 51 of 52 |
+| interior door (25) | `room door` | 0.50 | 0.883 (0.848) | 0.95 / 0.72 (0.51 / 0.80) | 0.42, -0.32 (1.00, +0.64) | 52 |
+| exterior door (6) | `front door` | 0.85 | 0.376 (0.184) | 1.00 / 0.17 (0.12 / 0.83) | 1.00, -1.00 (1.80, +1.70) | 52 |
+| light fixture (24) | `recessed light`, `ceiling lamp` | 0.70 | 0.851 (0.614) | 0.74 / 0.71 (0.31 / 0.92) | 0.56, -0.06 (1.88, +1.88) | 44 |
+| outdoor lighting (23) | `porch light`, `outdoor wall light` | 0.30 | 0.788 (0.665) | 0.72 / 0.78 (0.61 / 0.48) | 1.00, +0.20 (1.50, -0.50) | 51 |
+| electrical outlet (21) | `wall outlet`, `power outlet` | 0.55 | 0.899 (0.881) | 0.79 / 0.90 (0.69 / 0.95) | 0.44, +0.19 (0.62, +0.50) | 50 |
+| kitchen cabinet (24 units) | `kitchen cabinet`, `cabinet door` | 0.70 | 0.713 (0.545) | 0.59 / 0.71 (0.57 / 0.50) | 1.57, +0.71 (1.80, -0.60) | 50 |
+
+Checks on the rule: allowing thresholds down to 0.15 changes nothing (outdoor lighting
+still picks 0.30, so the product's candidate floor does not bind); capping subsets at one
+phrase gives mAP 0.687, at two 0.764, at four 0.763 (three is not a tuned value).
+
+Reading.
+
+1. **The gain is precision, from phrasing.** Recall is unchanged (0.77); precision goes from
+   0.48 to 0.73, and the over-count (bias +0.91 per photo-class) almost disappears. The
+   phrase that names the object as the engineer means it filters the confusions 10.2 listed:
+   `room door` drops appliance and cabinet doors and casings (interior-door precision 0.51 to
+   0.95), `recessed light` + `ceiling lamp` drop the plug-in lamps and exterior lanterns that
+   `light fixture` caught (0.31 to 0.74), `porch light` + `outdoor wall light` find the
+   lanterns `outdoor light` missed (recall 0.48 to 0.78). Window phrasing barely matters
+   (`house window` vs `window` AP 0.833 vs 0.837); its gain is the threshold.
+2. **Exterior doors are not solved, and the rule says so.** Six true doors in five photos;
+   most high-scoring detections are the neighbours' doors and garage doors of section 10.2.
+   `front door` doubles AP (0.18 to 0.38), but no threshold separates the true doors, so the
+   count-error rule picks 0.85, where almost nothing is counted (recall 0.17, bias -1). In the
+   product that means exterior doors come from the per-photo model's count (section 15), and
+   SAM 3's exterior-door masks are stored as uncounted candidates for the engineer to tap.
+   Six objects cannot support a better choice.
+3. **Cabinet units stay the weakest count.** AP rises 0.55 to 0.71 (`cabinet door` finds units),
+   but the count error is driven by the two kitchen photos with 8 and 10 units, where one fold's
+   different threshold moves the count by several units (out-of-sample MAE 1.57 against 0.86
+   in sample). Counting cabinets stays with the per-photo model (section 15's fusion), as before.
+4. **Limits.** One property; the per-class thresholds are tuned on 191 boxes, some classes on
+   very few (exterior door 6); out-of-sample here means another photo of the same building,
+   not another building. Re-measure on the next study before trusting the thresholds further.
+
+Shipped: phrase set `v3` and its threshold table (`COUNT_THRESHOLD_SETS["v3"]`) are the
+localizer's defaults (`DEFAULT_PHRASE_SET`); `basis.activities.localize_photo` prompts them,
+records `phrase_set` and the thresholds with every localization, and stores candidates from
+`CANDIDATE_THRESHOLD` 0.25 (below every count threshold). v1 and its 10.2 table stay
+available for comparison runs (`--phrase-set v1`).
+
+### 19.2 Vocabulary completion and the two conventions
+
+Six labels join the component vocabulary (77 labels + `other`) for the report rows that had
+none (section 13): `concrete_floor`, `half_wall` (surfaces), `bathroom_accessory`,
+`window_guard`, `shed`, `concrete_pad` (objects). Each has a rules-table row with verbatim
+citations (`RULES_VERSION` `2026-10-16.1`; RULES_RECITATION.md, "Rows added 2026-10-16"; the
+`rule_citations` eval resolves 77 of 77), SAM 3 phrases, a definition in the released prompts
+`photo_countables/v3` and `photo_surfaces/v2`, and a dated label-guide entry. Three rows are
+building components (section 1250), which the table could not express before: a building
+row is 27.5 years for residential rental and 39 for nonresidential (ATG Exhibit A gives
+both). Bathroom accessories and sealed concrete floors are supported by Exhibit A as the
+engineer treated them (39-year, nonresidential); half walls and window guards are section
+1250 in Exhibit A but 5-year in the engineer's report, the shed's 7 years and the pads' 15
+years rest on passages that do not name the item, so those four rows are contested (a hit
+goes to the engineer).
+
+Two conventions, decided:
+
+- **Loose furniture (the FF&E row): listed as `furniture` with a count.** The engineer prices an
+  FF&E row (5-year, 0.46% of this study), and a count of pieces per room is what it needs;
+  filing loose furniture under `other` made even the gold inventory miss the row. It is still
+  not a building component, so the harness keeps `furniture` (and `chair`, `desk`,
+  `filing_cabinet`) out of the recognition and count scores (`photo_components`,
+  `room_inventory`, `evals.run.UNSCORED_LABELS`), as it does `other`; only `report_rows`
+  reads it. The countables prompt v3 lists it with a note naming the pieces; the room labels
+  map `loose_furniture` to it (counts unchanged).
+- **Painted drywall: not listed; Painting is not photo-derivable.** Plain painted drywall is the
+  default finish of every finished room. Listing it adds one entry to every room inventory and
+  carries no classification information: in this report Painting is 39-year, the same bucket
+  as the walls under it, and the engineer prices it from wall area (plans, takeoff), not from
+  photos. What the photo must establish is the exception (wallpaper, paneling, beadboard,
+  painted block), which the 5-year wall rows score. So the Painting row moves to kind C
+  (before: evidenced by a `wall_finish` with a drywall or paint material, which the models
+  listed against their prompt's instruction). This lowers the whole-study cost coverage by
+  Painting's 5.2% share, by convention, not by a vision change.
+
+Label changes (private, `labels/LABEL_GUIDE.md` dated 2026-10-16; harness files rebuilt with
+`work/convert_labels.py` and `work/build_report_rows.py`): bath accessories, the shed, the
+garage's concrete floor and the shed's pad (was `patio`) now carry the new labels; loose
+furniture is `furniture`; two half walls were added (photo 32, a drywall half wall with a cap;
+photo 52, a carpeted knee wall at the stair opening, flagged for Bryan to verify). No window
+guard is visible in the 52 photos.
+
+Measured. New per-photo prompts on Claude Opus 5.5 (low effort; the OpenAI account was out of
+credit, so gpt-6.1-sol, the production base model, was not re-run): one repeat of each call,
+merged as in section 11, then the room step of section 16.5 (Sonnet 5.5, three repeats).
+
+| Per-photo (one repeat, 52 photos) | countables v2 + surfaces v1 | countables v3 + surfaces v2 |
+|---|---|---|
+| Count MAE vs the verified boxes (312 photo-classes) | 0.154 | 0.157 |
+| Label precision / recall / F1 (new labels) | 0.68 / 0.84 / 0.75 | 0.70 / 0.88 / 0.78 |
+| Room type accuracy | 0.885 | 0.865 (one photo) |
+| Cost | $2.23 (section 14) | $2.33 |
+
+| Report rows (section 13's metric) | Before (39 photo-derivable rows, 6 gaps) | After (38 rows, 0 gaps) |
+|---|---|---|
+| Gold inventory (the ceiling) | 32 (0.82); missed FF&E | 37 (0.97); missed Door & Window Guards |
+| Opus 5.5 per-photo v2 prompts, room step (`rooms16_final_v2_opus55`) | 31 (0.79); missed FF&E, Retaining Walls | 30 (0.79); misses the 6 new rows, FF&E, Retaining Walls |
+| gpt-6.1-sol per-photo v2 prompts, room step (`rooms16_final_v2b_gpt61sol`) | 32 (0.82); missed FF&E | 31 (0.82); misses the 6 new rows, FF&E |
+| **Opus 5.5 per-photo v3 prompts, room step (`rooms19_v3_opus55`)** | | **37 (0.97, [0.87, 1.00]); missed Door & Window Guards; same in 3 of 3 repeats** |
+| Cost coverage of the photo-derivable rows | gold 0.968, Opus v2 run 0.967 | gold 0.997, Opus v3 run 0.997 |
+
+The six gaps became five evidenced rows and one honest miss: half walls (photos 32, 52 and
+two the labels do not have: a kitchen pony wall and a stair wall, to check), bathroom
+accessories in five bathrooms, the shed and its pad, the garage's concrete floor. Door &
+Window Guards stays missed in both the gold and the pipeline: nothing in the photos is a guard
+(the engineer's row may be the storm door, which is an `exterior_door`, or something not
+photographed). FF&E is now evidenced in 17 rooms with counts. Room counts on the new labels
+(the same labels for both runs): absolute error on the six new labels 14 to 7 in each repeat,
+on every other label 82 / 79 / 83 to 80 / 79 / 74; room count MAE 0.39 to 0.36 (paired by
+room and label, bootstrap over rooms: CI of the difference covers zero in two of three
+repeats). Under the old labels the v2 run's MAE was 0.346; the yardstick now has more labels,
+so whole-room exact matches fell (0.15 to 0.09).
+
+Shipped: `photo_countables/v3` and `photo_surfaces/v2` are the decomposed step's prompts
+(`basis/vision/analyze.py`; the fusion call uses the same countables prompt). They need a
+gpt-6.1-sol re-run when OpenAI credit returns, to confirm the base model's counts hold as
+Opus's did.
+
+Commands (from `backEnd/`; `BASIS_ENV=dev` with `REPLICATE_API_TOKEN` for the SAM 3 runs):
+
+```bash
+python -m evals.predict_boxes --dataset ~/basis-eval-data/detection --out ~/basis-eval-data/predictions/sam3_phrase_pool_v1 --phrase-set pool --phrase-dedupe off
+python -m evals.sam3_select select --pool ~/basis-eval-data/predictions/sam3_phrase_pool_v1_merged --dataset ~/basis-eval-data/detection --out ~/basis-eval-data/predictions/sam3_select_v1
+python -m evals.predict_boxes --dataset ~/basis-eval-data/detection --out ~/basis-eval-data/predictions/sam3_photos_v3
+python -m evals.sam3_select score --predictions ~/basis-eval-data/predictions/sam3_photos_v3_merged --dataset ~/basis-eval-data/detection
+BASIS_ENV=test BASIS_EVAL_DATA_DIR=~/basis-eval-data python -m evals.run --split dev --no-db --repeats 3 --predictions ~/basis-eval-data/predictions/rooms19_v3_opus55
+```
+## 20. Two-column parsing (2026-10-16)
+
+The ingestion parser (`basis/retrieval/parse.py`) grouped words into lines by height alone,
+so on IRS Pub 527 and Pub 946 (two 255 pt columns on the same baselines, an 18 pt gutter) the
+left and right columns were joined into one line per baseline ("Generally, if you can
+depreciate intangible property, you for the section 179 deduction and the special
+depreciation ..."). Every chunk of those pages mixed two texts, which breaks verbatim
+excerpts and citation checks.
+
+**Fix.** Per page, `detect_columns` looks for a vertical whitespace gutter: the x projection
+of the words (the projection-profile step of XY-cut layout analysis) and the widest run at
+the lowest coverage, with at most 20% of the rows crossing it (full-width titles, spanning
+tables, footers). The gutter is accepted only when both columns are at least 30% of the text
+width and 0.6 of each other, hold 3 or more rows, their median row fills half the column, and
+70% of their tokens are words rather than numbers. Words and ruled tables that cross the
+gutter cut the page into bands; each band between two cuts is read left column, then right
+column. Running headers and footers are found on the old full-width lines first (so a header
+split by the gutter is still one repeated key), then their words are removed. A page with no
+accepted gutter takes the old path unchanged. Pages read by column are marked
+`ParsedPage.columns == 2`.
+
+**Pages read by column** (private corpus, `~/basis-eval-data/corpus`):
+
+| Document | Pages | Two-column | Note |
+|---|---|---|---|
+| IRS Pub 527 (2024) | 37 | 30 | the rest: worksheets and the index |
+| IRS Pub 946 (2024) | 112 | 66 | pages 69-111 are the rate tables (single column) |
+| IRS Cost Segregation ATG | 348 | 0 | single column |
+| Rev. Proc. 87-56 | 42 | 0 | description \| class life \| GDS \| ADS table, kept row by row (the balance and number guards) |
+| RSMeans Building 2020 | 964 | 92 | OCR text; prose pages improve, some unit-price pages are split too (word share 0.70-0.71 against IRS's lowest 0.73) |
+| RSMeans Residential 2020 | 802 | 69 | as above; the document body size moves from 7.5 to 8.0 pt |
+| Study appraisal and engineer report (inputs) | 32 | 0 | |
+
+**Single-column output is unchanged.** On every page with `columns == 1` of the eight private
+PDFs and the synthetic fixtures, every element (type, text, box, size, weight, ordinal), table,
+body size and furniture key equals the pre-change parser's output (field by field, against
+`main` at 8908ed6). The test suite locks the fixtures with SHA-256 digests of the pre-change
+output.
+
+**Verbatim sentences.** Sentences of 40 to 200 characters from pymupdf's page text (which reads
+these PDFs column by column), checked with the production matcher
+(`basis.classify.verify.excerpt_supported`) against the parser's page text:
+
+| Document | Pages | Sentences | Before | After |
+|---|---|---|---|---|
+| Pub 527 | two-column | 941 | 0.102 | 0.914 |
+| Pub 946 | two-column | 1672 | 0.095 | 0.885 |
+| Pub 527 | all | 1071 | 0.124 | 0.838 |
+| Pub 946 | all | 2039 | 0.086 | 0.733 |
+| Cost Segregation ATG | all (single column) | 2172 | 0.594 | 0.594 |
+| Rev. Proc. 87-56 | all (single column) | 185 | 0.476 | 0.476 |
+
+The rest (about 9% on two-column pages) is not explained yet. Suspected causes: hyphenated
+line breaks, word boundaries that differ between pymupdf and pdfplumber, and sentences that
+run across a spanning band.
+
+**Retrieval and citations.** `python -m evals.run --corpus-text parser` (new option) reads
+the corpus through the production parse + chunk path instead of pymupdf. Dev split, 50 queries,
+65 rules-table citations; only `retrieval_qrels_v1.json` and the corpus were loaded, because
+the other private label files no longer validate against this branch's vocabulary:
+
+| System | ndcg_10 | recall_5 | recall_10 | mrr | resolved_fraction |
+|---|---|---|---|---|---|
+| pymupdf page text (the earlier baseline) | 0.4225 | 0.3823 | 0.5180 | 0.5567 | 1.000 (65/65) |
+| parser, before | 0.4102 | 0.3793 | 0.4953 | 0.5282 | 1.000 (65/65) |
+| parser, after | 0.4163 | 0.3833 | 0.5020 | 0.5367 | 1.000 (65/65) |
+| paired delta after - before (SE) | +0.006 (0.010) | +0.004 (0.004) | +0.007 (0.007) | +0.009 (0.021) | 0 |
+
+The retrieval change is within noise (ndcg_10: 5 queries up, 3 down, 42 the same). Page-level
+BM25 is a bag of words, so word order hardly moves it; the gain is in the text itself (the
+table above) and in what an embedding or a citation sees. `rule_citations` cannot move: all 65
+citations are in the single-column ATG (59) and Rev. Proc. 87-56 (6), so here it only confirms
+that nothing regressed. A citation to Pub 527 or Pub 946 would have failed before on most
+pages.
+
+**Ingestion.** `python -m basis.retrieval.ingest --corpus reference --fresh --max-pages 2000`
+over the six corpus PDFs into a throwaway pgvector database (not the live study's): version 1,
+7,466 chunks (Pub 527: 132 text, 8 table; Pub 946: 301 text, 141 table), MiniLM embeddings,
+179 s. The stored page 10 chunk of Pub 946 contains "Generally, if you can depreciate
+intangible property, you usually use the straight line method of depreciation." intact.
+
+**Limits.** Only two columns are recognized; a narrow heading that spans both columns without
+crossing the gutter is read as part of the left column; the pymupdf fallback (pages with no
+pdfplumber words) is unchanged.
 ## 21. Detector and language model together (2026-10-16)
 
 Question (Bryan): should SAM 3 run before the language model, then the model, then SAM 3

@@ -124,3 +124,34 @@ Pub 946 = `IRS_IRS_PUB_946__2024`. "Exhibit A" = ATG pp.297-322.
 | `patio` | 1250, y15 | Pub 946 p.38: "Land improvements - patios" | ATG p.314: "A ground level, paved outdoor area adjoining a residence or other building" | supported | Exhibit A, Patios (p.314): 00.3, 15 years. |
 | `deck` | 1250, y15 | Pub 946 p.38: "Land improvements - decks" | ATG p.300: "Inherently permanent decks and gazebos not attached to buildings." | contested (new) | Exhibit A (p.300): only a freestanding deck is 00.3, 15 years; a deck attached to the residence, the usual case, is section 1250, 27.5 years. |
 | `sprinkler_system` | 1250, y15 | Pub 946 p.38: "Land improvements - irrigation systems" | ATG p.305: "holding, settling, or detention ponds; and irrigation systems" | supported | Exhibit A, Fencing, Gates, ... and Other Land Improvements (p.305) names irrigation systems, 00.3, 15 years (also Plumbing - Lawn/Landscaping Sprinkler System, p.315). |
+
+## Rows added 2026-10-16 (`RULES_VERSION` `2026-10-16.1`)
+
+Six labels joined the vocabulary for report rows that had none (EVAL_REPORT sections 13 and
+19), so each gets a row. Three of them are building components (section 1250), which the
+table had no rows for: a building row (`Rule.building`) stores the residential rental bucket
+(27.5 years) and `lookup` returns 39 years for a nonresidential property, the two periods
+ATG Exhibit A gives ("RRP - 27.5 Years NRRP - 39 Years"). Rule for the bucket of a new row:
+the treatment the documents give for the item; where they give none, the client engineer's
+report; and the row is contested whenever the documents and the engineer's report disagree
+or no passage names the item, so a hit goes to the engineer. The same three checks as above
+pass for all 12 new citations: verbatim on the cited page, inside one production chunk of
+that page, and the cited chunk in the BM25 top 10 (in-memory, the four IRS documents).
+Totals now: 53 rows, 77 citations, 26 contested.
+
+| Rule | Section, bucket | Citation | Status | Why |
+|---|---|---|---|---|
+| `bathroom_accessory` | 1250, building (27.5 / 39) | ATG p.316: "Also, includes paper towel dispensers, electric hand dryers, towel racks or holders, cup dispensers, purse shelves, toilet paper holders"<br>ATG p.317: "Cabinet, counter, sink, faucet, mirror attached with permanent adhesive, toilet, towel rack, toilet paper holder, flush mounted medicine cabinet, tub, shower, vent fan, etc." | supported | Exhibit A, Restroom Accessories/Partitions (pp.316-317) and Restroom Components (p.317): section 1250, RRP 27.5 / NRRP 39. The retail, restaurant, office and casino tables and the case table (HCA, Morrison, A.C. Monk) agree. The engineer's report puts the row in 39-year (the property is nonresidential), as this row gives; COMPONENT_TAXONOMY had it in 5-year by mistake. |
+| `concrete_floor` | 1250, building (27.5 / 39) | ATG p.307: "Includes concrete slabs and other floor systems."<br>ATG p.307: "Floors include special treatments applied to, or otherwise made a permanent part, of the floor." | supported | Exhibit A, Floors - Concrete (p.307): section 1250, 27.5 years; a sealer is a treatment made a permanent part of the floor. The engineer's report: Flooring - Sealed Concrete, 39-year. |
+| `half_wall` | 1250, building (27.5 / 39) | ATG p.321: "partitions regardless of height (typically constructed of studs and sheetrock or other materials) that divide or create rooms or provide traffic control."<br>ATG p.321: "Interior walls where the partition can be 1) readily removed and remain in substantially the same condition after removal as before" | contested (new) | Exhibit A, Walls - Interior (p.321): non-load bearing partitions "regardless of height" are section 1250. Only a readily removable or movable partition (Walls Interior Partitions, same page) is section 1245, 5 years, which is where the engineer's report puts Interior Half Walls; cited second so the engineer sees both. |
+| `window_guard` | 1250, building (27.5 / 39) | ATG p.300: "roll-up or sliding wire mesh or steel grills and gates"<br>ATG p.318: "Examples include window and door locks; card key access systems; keyless entry systems" | contested (new) | No document names window guards or bars. Closest: Exhibit A, Doors (p.300: steel grills and gates are doors, section 1250) and Security Systems - Building (p.318: window and door locks, section 1250). The engineer's report: Door & Window Guards, 5-year. |
+| `shed` | 1245, y7 (no asset class) | ATG p.102: "Storage sheds (§ 1245)"<br>Pub 946 p.29: "does not have a class life and has not been designated by law" | contested (new) | The case table (A.C. Monk, p.102) holds storage sheds section 1245, with no period. The engineer's 7-year is Pub 946's 7-year class for property with no class life (p.29; the full sentence is split by the two-column parser, so the excerpt is its middle); ATG p.297 says 57.0, 5 years, applies to most section 1245 property used with residential rental property; a shed on a permanent foundation may be a building. |
+| `concrete_pad` | 1250, y15 (00.3) | ATG p.299: "Foundations and footings for signs, light poles, and other land improvements (except buildings)."<br>ATG p.320: "Enclosures for waste receptacles, typically constructed on a concrete pad with its posts set in the concrete." | contested (new) | No document names exterior equipment pads. Exhibit A puts foundations for land improvements (p.299) and a trash enclosure on its pad (p.320) in 00.3, 15 years, the engineer's treatment; equipment foundations inside the building footprint are section 1250 (p.299), and a pad under building HVAC equipment outside it is not addressed. |
+
+Aliases added with the rows: `towel_bar`, `towel_ring`, `toilet_paper_holder`, `grab_bar`,
+`shower_curtain_rod`, `bath_accessory`, `restroom_accessory` -> `bathroom_accessory`;
+`storage_shed`, `garden_shed` -> `shed`; `equipment_pad`, `condenser_pad` -> `concrete_pad`;
+`sealed_concrete_floor`, `garage_floor` -> `concrete_floor`; `pony_wall`, `knee_wall` ->
+`half_wall`; `window_bars`, `security_bars`, `security_grille`, `door_guard` ->
+`window_guard`; and a generic floor label with material `concrete` or `sealed_concrete`
+resolves to `concrete_floor`.

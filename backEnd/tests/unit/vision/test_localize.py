@@ -154,7 +154,7 @@ def test_box_iou_and_pixels_by_hand() -> None:
 
 def test_every_label_but_other_has_one_to_three_distinct_short_phrases() -> None:
     assert set(PHRASES) == set(ComponentLabel) - {L.OTHER}
-    assert len(PHRASES) == 71
+    assert len(PHRASES) == 77  # 71 + the six labels of EVAL_REPORT section 19
     seen: dict[str, ComponentLabel] = {}
     for label, phrases in PHRASES.items():
         assert 1 <= len(phrases) <= 3, label
@@ -370,6 +370,17 @@ async def test_phrases_of_one_label_are_deduped_but_labels_are_not() -> None:
         (0.9, "wall outlet"),
     ]
     assert counts(found) == {"electrical_outlet": 2, "window": 1}
+
+    # Without dedupe (the phrase-pool experiment, EVAL_REPORT 19) every phrase keeps its
+    # instance, so a subset of the phrases can be scored offline as the pipeline would.
+    fake.requests.clear()
+    raw = await localizer(fake).localize(image, phrases, threshold=0.5, dedupe=False)
+    assert sorted((i.score, i.phrase) for i in raw.instances if i.label is L.ELECTRICAL_OUTLET) == [
+        (0.6, "wall outlet"),
+        (0.7, "electrical outlet"),
+        (0.9, "wall outlet"),
+    ]
+    assert loc.suppress(raw.instances, loc.PHRASE_DEDUPE_IOU) == list(found.instances)
 
 
 async def test_running_prediction_is_polled_and_cost_is_charged() -> None:
@@ -689,14 +700,18 @@ async def test_localize_photo_prompts_vlm_labels_and_countable_and_tiles_countab
             ),
         }
     )
-    plain = await localize_photo(image, ["toilet"], fake, tiling=False, threshold=0.5)
+    plain = await localize_photo(
+        image, ["toilet"], fake, tiling=False, threshold=0.5, phrase_set="v1"
+    )
     [(sha, texts, threshold)] = fake.calls
     expected = {t for label in COUNTABLE | {L.TOILET} for t in PHRASES[label]}
     assert sha == image.sha256 and set(texts) == expected and threshold == 0.5
     assert counts(plain) == {"toilet": 1, "window": 1}
 
     fake.calls.clear()
-    tiled = await localize_photo(image, ["toilet"], fake, tiling=True, threshold=0.5)
+    tiled = await localize_photo(
+        image, ["toilet"], fake, tiling=True, threshold=0.5, phrase_set="v1"
+    )
     assert len(fake.calls) == 5  # the full image and four tiles
     countable = {t for label in COUNTABLE for t in PHRASES[label]}
     assert all(set(texts) == countable for _, texts, _ in fake.calls[1:])
@@ -744,7 +759,11 @@ def test_phrase_sets_share_the_table_except_the_rephrased_classes() -> None:
         ComponentLabel.KITCHEN_CABINET,
         ComponentLabel.INTERIOR_DOOR,
     }
-    # No phrase is shared between two labels in either set (a hit must map to one label).
+    # v3 (EVAL_REPORT 19) and the pool re-phrase exactly the countable classes
+    for name in ("v3", "pool"):
+        assert {k for k in PHRASES if PHRASE_SETS[name][k] != PHRASES[k]} == set(loc.COUNTABLE)
+        assert set(PHRASE_SETS[name]) == set(PHRASES)
+    # No phrase is shared between two labels in any set (a hit must map to one label).
     for table in PHRASE_SETS.values():
         seen: dict[str, ComponentLabel] = {}
         for label, texts in table.items():
@@ -752,18 +771,38 @@ def test_phrase_sets_share_the_table_except_the_rephrased_classes() -> None:
                 assert text not in seen, (text, seen.get(text), label)
                 seen[text] = label
     assert [p.text for p in phrases_for([ComponentLabel.KITCHEN_CABINET], "v2")] == ["cabinet door"]
-    assert [p.text for p in phrases_for([ComponentLabel.KITCHEN_CABINET])] == ["kitchen cabinet"]
+    assert [p.text for p in phrases_for([ComponentLabel.KITCHEN_CABINET], "v1")] == [
+        "kitchen cabinet"
+    ]
+
+
+def test_v3_is_the_default_and_every_v3_phrase_comes_from_the_pool() -> None:
+    """The shipped set is a per-class choice from the measured pool (EVAL_REPORT 19), so
+    every v3 phrase of a countable class was in the pool run that chose it."""
+    from basis.vision.localize import DEFAULT_PHRASE_SET, PHRASE_SETS, phrases_for
+
+    assert DEFAULT_PHRASE_SET == "v3"
+    for label in loc.COUNTABLE:
+        assert set(PHRASE_SETS["v3"][label]) <= set(PHRASE_SETS["pool"][label]), label
+    assert [p.text for p in phrases_for([ComponentLabel.WINDOW])] == ["house window"]
+    assert [p.text for p in phrases_for([ComponentLabel.LIGHT_FIXTURE])] == [
+        "recessed light",
+        "ceiling lamp",
+    ]
+    assert PHRASE_SETS["v3"][ComponentLabel.TOILET] == PHRASES[ComponentLabel.TOILET]
 
 
 # --------------------------------------------------------------------------- product step
 
 
 def test_surface_labels_are_the_surfaces_prompts_list() -> None:
-    """``SURFACE_LABELS`` mirrors photo_surfaces/v1's list, so the product step never
-    prompts a label the surfaces call owns and prompts every one the countables call owns."""
+    """``SURFACE_LABELS`` mirrors the released photo_surfaces prompt's list, so the product
+    step never prompts a label the surfaces call owns and prompts every one the countables
+    call owns."""
     from basis.llm import prompts
+    from basis.vision.analyze import SURFACES_PROMPT_NAME, SURFACES_PROMPT_VERSION
 
-    text = prompts.load("photo_surfaces", "v1").text
+    text = prompts.load(SURFACES_PROMPT_NAME, SURFACES_PROMPT_VERSION).text
     listed = text.split("ONLY surfaces from this list, at most one entry per label, count 1:")[1]
     listed = listed.split("Floors:")[0]
     names = {part.strip().split(" ")[0].strip(".") for part in listed.replace("\n", " ").split(",")}
@@ -780,11 +819,44 @@ def test_object_labels_drop_surfaces_and_other_and_keep_the_countable_set() -> N
     assert loc.object_labels([]) == loc.prompt_labels([])  # the countable set alone
 
 
-def test_count_thresholds_follow_eval_report_10_2() -> None:
-    assert loc.count_threshold(ComponentLabel.WINDOW) == 0.6
-    for label in ("electrical_outlet", "interior_door", "light_fixture", "kitchen_cabinet"):
-        assert loc.count_threshold(label) == 0.5
+def test_count_thresholds_are_versioned_with_their_phrase_set() -> None:
+    """v1: EVAL_REPORT 10.2 (window 0.6, others 0.5); v3, the default: section 19's
+    leave-one-photo-out choice per class. Candidates are kept below every count threshold."""
+    assert loc.count_threshold(ComponentLabel.WINDOW, "v1") == 0.6
+    assert loc.count_threshold("light_fixture", "v1") == 0.5
+    expected = {
+        "window": 0.65,
+        "interior_door": 0.5,
+        "exterior_door": 0.85,
+        "light_fixture": 0.7,
+        "outdoor_lighting": 0.3,
+        "electrical_outlet": 0.55,
+        "kitchen_cabinet": 0.7,
+    }
+    for label, value in expected.items():
+        assert loc.count_threshold(label) == value == loc.count_threshold(label, "v3")
+    assert {k.value: v for k, v in loc.COUNT_THRESHOLDS.items()} == expected
+    assert set(loc.COUNT_THRESHOLDS) == set(loc.COUNTABLE)
+    assert loc.count_threshold("toilet") == loc.COUNT_THRESHOLD_DEFAULT == 0.5
     assert loc.count_threshold("not_a_label") == 0.5
+    assert loc.count_threshold("window", "v2") == 0.5  # a set without a table: the default
     assert loc.CANDIDATE_THRESHOLD < min(
-        loc.COUNT_THRESHOLD_DEFAULT, *loc.COUNT_THRESHOLDS.values()
+        loc.COUNT_THRESHOLD_DEFAULT,
+        *(v for table in loc.COUNT_THRESHOLD_SETS.values() for v in table.values()),
     )
+
+
+def test_class_counts_use_each_classes_threshold() -> None:
+    found = Localization(
+        image_sha256="x",
+        width=10,
+        height=10,
+        instances=(
+            instance(L.WINDOW, 0.7, (0, 0, 2, 2), (10, 10)),
+            instance(L.WINDOW, 0.6, (5, 5, 7, 7), (10, 10)),  # below window's 0.65
+            instance(L.OUTDOOR_LIGHTING, 0.32, (3, 3, 4, 4), (10, 10)),  # above its 0.3
+            instance(L.TOILET, 0.45, (8, 8, 9, 9), (10, 10)),  # below the default 0.5
+        ),
+    )
+    assert loc.class_counts(found) == {"outdoor_lighting": 1, "window": 1}
+    assert loc.class_counts(found, "v1") == {"window": 2}

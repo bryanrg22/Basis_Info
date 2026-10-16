@@ -11,13 +11,18 @@ from basis.vision.reconcile import heuristic_merge
 from basis.vision.schemas import Component, PhotoAnalysis, RoomType
 from evals import datasets as ds
 from evals.run import (
+    CORPUS_TEXT,
     evaluate,
     main,
     max_merge,
+    parse_args,
+    parser_page_texts,
+    pdf_page_texts,
     render_report,
     score_detection_boxes,
     score_photo_components,
     score_photo_counts,
+    score_report_rows,
     score_room_inventory,
     score_rule_citations,
     write_results,
@@ -192,6 +197,56 @@ def test_room_inventory_predictions_with_repeats() -> None:
     assert rows["pass^3"] == pytest.approx(0.5)
     assert rows["pass^1"] == pytest.approx((2 / 3 + 1) / 2)
     assert any("x_ghost" in n for n in result.notes)
+
+
+def test_loose_furniture_is_kept_out_of_the_recognition_and_count_scores() -> None:
+    """The FF&E convention (EVAL_REPORT section 19): loose furniture is listed as
+    ``furniture`` with a count so the engineer can price the FF&E row, but like ``other``
+    it never counts for or against recognition or counts; report_rows still reads it."""
+    data = ds.PhotoComponentsSet.model_validate(
+        {"photos": [{"file": "a.jpg", "components": [{"label": "sink"}, {"label": "furniture"}]}]}
+    )
+    rows = {
+        r.metric: r.value
+        for r in score_photo_components(data, "dev", 1, {"a.jpg": ["sink", "chair", "desk"]}).rows
+    }
+    assert (rows["precision"], rows["recall"]) == (1.0, 1.0)
+    rooms, _ = two_photo_room()
+    rooms = rooms.model_copy(
+        update={
+            "rooms": [
+                r.model_copy(
+                    update={
+                        "objects": [
+                            *r.objects,
+                            ds.InventoryObjectLabel(label="furniture", count=4),
+                        ]
+                    }
+                )
+                for r in rooms.rooms
+            ]
+        }
+    )
+    saved = {"1_kitchen": {"sink": 2, "countertop": 1, "furniture": 9}, "b_bath": {"toilet": 1}}
+    scored = {r.metric: r.value for r in score_room_inventory(rooms, "dev", 1, saved, None).rows}
+    assert scored["count_mae"] == 0.0 and scored["label_f1"] == 1.0
+    ffe = ds.ReportRows.model_validate(
+        {
+            "rows": [
+                {
+                    "id": "ffe",
+                    "system": "FF&E",
+                    "bucket": "y5",
+                    "cost_share": 1.0,
+                    "kind": "A",
+                    "labels": ["furniture"],
+                    "count_required": True,
+                }
+            ]
+        }
+    )
+    coverage = score_report_rows(ffe, "dev", 1, saved, rooms).rows[0]
+    assert coverage.metric == "row_coverage" and coverage.value == 1.0
 
 
 def test_room_inventory_needs_predictions_or_photo_labels() -> None:
@@ -445,6 +500,45 @@ def test_rule_citations_are_scored_on_every_split(tmp_path: Path) -> None:
         [result] = [r for r in results if r.dataset == "rule_citations"]
         assert not result.skipped
         assert result.rows[0].details["by_status"] == {"document_missing": 1}
+
+
+def test_parser_page_texts_are_the_ingested_chunks_per_page() -> None:
+    from basis.retrieval.chunk import chunk_document
+    from basis.retrieval.parse import parse_pdf
+
+    path = ds.SYNTHETIC_DIR / "corpus" / "SYN_PUB_A.pdf"
+    pages = parser_page_texts(path)
+    assert len(pages) == len(pdf_page_texts(path)) == 4
+    drafts = chunk_document(parse_pdf(path.read_bytes(), "SYN_PUB_A"))
+    for draft in drafts:  # every stored chunk is on its page's text
+        assert draft.text in pages[draft.page - 1]
+    assert "Section 168(e)(3) groups property into recovery classes" in pages[0]
+
+
+def test_corpus_text_selects_the_page_text_and_names_the_system() -> None:
+    assert parse_args([]).corpus_text == "pymupdf"
+    assert parse_args(["--corpus-text", "parser"]).corpus_text == "parser"
+    with pytest.raises(SystemExit):
+        parse_args(["--corpus-text", "ocr"])
+    assert CORPUS_TEXT == {"pymupdf": pdf_page_texts, "parser": parser_page_texts}
+    by_text = {}
+    for corpus_text in CORPUS_TEXT:
+        results = evaluate(
+            ds.synthetic_smoke(),
+            split="dev",
+            repeats=1,
+            predictions=None,
+            corpus_dir=ds.SYNTHETIC_DIR / "corpus",
+            corpus_text=corpus_text,
+        )
+        by_text[corpus_text] = {r.dataset: r for r in results}
+    assert by_text["pymupdf"]["retrieval_qrels"].system == "bm25_pages"
+    assert by_text["parser"]["retrieval_qrels"].system == "bm25_pages_parser"
+    assert by_text["pymupdf"]["rule_citations"].system == "page_text"
+    assert by_text["parser"]["rule_citations"].system == "page_text_parser"
+    for result in by_text["parser"].values():
+        if result.dataset == "retrieval_qrels":
+            assert not result.skipped and {r.metric for r in result.rows} >= {"ndcg_10", "mrr"}
 
 
 @pytest.mark.integration
