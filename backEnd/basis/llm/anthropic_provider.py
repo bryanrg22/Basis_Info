@@ -25,13 +25,15 @@ Sources (Anthropic docs, read 2026-10-15):
   ``max_tokens`` or ``refusal`` means the JSON may not match the schema.
 * Thinking, https://platform.claude.com/docs/en/build-with-claude/thinking: on Claude 5
   models thinking is always on (adaptive) and cannot be disabled; its depth is steered by
-  ``output_config.effort`` (``settings.anthropic_effort``, default ``low``: these are
-  perception and extraction calls, and the OpenAI baseline does not reason). Thinking tokens
-  are billed as output tokens and count toward ``max_tokens``, so the wire ``max_tokens`` is
-  :func:`basis.llm.cost.output_ceiling` (the request's answer budget plus a thinking
-  allowance); the budget estimate uses the same number. ``temperature``/``top_p``/``top_k``
-  are rejected by these models and are not sent. No ``thinking`` parameter is sent, so older
-  models (4.x) run without thinking, as they do by default.
+  ``output_config.effort``: ``ChatRequest.reasoning_effort`` when the caller set one (the
+  same field the OpenAI reasoning models take), else ``settings.anthropic_effort`` (default
+  ``low``: these are perception and extraction calls, and the OpenAI baseline does not
+  reason; the API's own defaults are ``high`` on Fable 5.1 and ``medium`` on Opus 5.5).
+  Thinking tokens are billed as output tokens and count toward ``max_tokens``, so the wire
+  ``max_tokens`` is :func:`basis.llm.cost.output_ceiling` (the request's answer budget plus
+  a thinking allowance); the budget estimate uses the same number. ``temperature``/``top_p``/
+  ``top_k`` are rejected by these models and are not sent. No ``thinking`` parameter is
+  sent, so older models (4.x) run without thinking, as they do by default.
 * Errors, https://platform.claude.com/docs/en/api/errors: 429 ``rate_limit_error``, 500
   ``api_error``, 504 ``timeout_error``, 529 ``overloaded_error``; 413 ``request_too_large``.
   Mapped like the OpenAI providers: 429 -> :class:`ProviderRateLimited`, 5xx (529 included),
@@ -174,9 +176,23 @@ def _message_dicts(messages: tuple[Message, ...]) -> list[dict[str, Any]]:
 
 
 def build_request_body(request: ChatRequest, *, effort: str = "low") -> dict[str, Any]:
-    """The ``messages.create`` keyword arguments for ``request``."""
+    """The ``messages.create`` keyword arguments for ``request``.
+
+    ``effort`` is the provider's default (``ANTHROPIC_EFFORT``); a ``request.reasoning_effort``
+    overrides it. An effort Claude does not know is a :class:`ProviderBadResponse` (the API
+    would answer 400; nothing is sent).
+    """
     if effort not in EFFORT_LEVELS:
         raise ValueError(f"effort must be one of {EFFORT_LEVELS}, not {effort!r}")
+    if request.reasoning_effort is not None:
+        if request.reasoning_effort not in EFFORT_LEVELS:
+            raise ProviderBadResponse(
+                f"reasoning_effort {request.reasoning_effort!r} is not a Claude effort level "
+                f"{EFFORT_LEVELS}",
+                provider=PROVIDER_NAME,
+                status=400,
+            )
+        effort = request.reasoning_effort
     body: dict[str, Any] = {
         "model": request.model,
         "max_tokens": output_ceiling(request.model, request.max_tokens),

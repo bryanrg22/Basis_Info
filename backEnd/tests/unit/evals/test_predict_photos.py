@@ -143,8 +143,18 @@ async def test_a_claude_model_is_requested_as_is_and_the_effort_recorded(
     )
     assert code == 0
     assert {r.model for r in provider.requests} == {"claude-fable-5-1"}
+    assert {r.reasoning_effort for r in provider.requests} == {None}  # the provider's default
     run = json.loads((out / "run.json").read_text())
-    assert (run["model_requested"], run["anthropic_effort"]) == ("claude-fable-5-1", "medium")
+    # Without --reasoning-effort the Anthropic default (ANTHROPIC_EFFORT) is what ran.
+    assert (run["model_requested"], run["reasoning_effort"]) == ("claude-fable-5-1", "medium")
+    out2 = tmp_path / "out2"
+    args = ["--photos", str(photo_dir), "--out", str(out2), "--model", "claude-opus-5-5"]
+    assert (
+        await predict_photos.run(predict_photos.parse_args([*args, "--reasoning-effort", "low"]))
+        == 0
+    )
+    assert {r.reasoning_effort for r in provider.requests[2:]} == {"low"}
+    assert json.loads((out2 / "run.json").read_text())["reasoning_effort"] == "low"
     # models_reported comes from the recorder: the fixture answers as its own model, which
     # is how a run that silently fell back to another provider would show up.
     assert run["models_reported"] == ["gpt-4.1-nano"]
@@ -167,7 +177,7 @@ async def test_openai_runs_record_no_effort(
         )
         == 0
     )
-    assert json.loads((out / "run.json").read_text())["anthropic_effort"] is None
+    assert json.loads((out / "run.json").read_text())["reasoning_effort"] is None
 
 
 class FlakyProvider:
@@ -244,3 +254,55 @@ async def test_prompt_family_option_selects_a_decomposed_prompt(
     latest = prompts.versions("photo_countables")[-1]
     assert {r.prompt_version for r in provider.requests} == {f"photo_countables/{latest}"}
     assert json.loads((out / "run.json").read_text())["prompt"] == f"photo_countables/{latest}"
+
+
+async def test_reasoning_effort_and_max_tokens_reach_the_request(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FixtureVisionProvider()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    out = tmp_path / "out"
+    code = await predict_photos.run(
+        predict_photos.parse_args(
+            [
+                "--photos",
+                str(photo_dir),
+                "--out",
+                str(out),
+                "--model",
+                "gpt-6.1-sol",
+                "--reasoning-effort",
+                "low",
+                "--max-tokens",
+                "6000",
+            ]
+        )
+    )
+    assert code == 0
+    assert {(r.reasoning_effort, r.max_tokens) for r in provider.requests} == {("low", 6000)}
+    summary = json.loads((out / "run.json").read_text())
+    assert (summary["reasoning_effort"], summary["max_tokens"]) == ("low", 6000)
+
+
+async def test_photo_counts_file_adds_up_same_label_entries(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FixtureVisionProvider()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    out = tmp_path / "out"
+    assert (
+        await predict_photos.run(
+            predict_photos.parse_args(["--photos", str(photo_dir), "--out", str(out)])
+        )
+        == 0
+    )
+    counts = json.loads((out / "photo_counts.json").read_text())
+    raw = [json.loads(line) for line in (out / "photo_raw.jsonl").read_text().splitlines()]
+    for record in raw:
+        expected = predict_photos.label_counts(record["analysis"]["components"])
+        assert counts[record["file"]] == expected and sum(expected.values()) >= 1
+    assert predict_photos.label_counts([{"label": "x", "count": 2}, {"label": "x"}]) == {"x": 3}

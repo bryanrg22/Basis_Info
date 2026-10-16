@@ -202,6 +202,12 @@ async def test_effort_setting_reaches_the_request() -> None:
     server = Server(ok())
     await provider(server, effort="high").complete(request())
     assert server.body()["output_config"]["effort"] == "high"
+    # The request's own reasoning_effort (the runner's --reasoning-effort) wins.
+    await provider(server, effort="high").complete(request(reasoning_effort="xhigh"))
+    assert server.body()["output_config"]["effort"] == "xhigh"
+    with pytest.raises(ProviderBadResponse, match="not a Claude effort level") as caught:
+        await provider(server).complete(request(reasoning_effort="minimal"))
+    assert caught.value.status == 400 and server.call_count == 2  # nothing was sent
     with pytest.raises(ValueError):
         provider(server, effort="extreme")
     with pytest.raises(ValueError):
