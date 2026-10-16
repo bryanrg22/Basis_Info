@@ -21,7 +21,8 @@ activity)::
         [--pdf PATH2 --doc-id ID2 ...] [--fresh] [--max-pages N]
     python -m basis.retrieval.ingest --list-versions [--corpus study --study-id UUID]
 
-It reads ``BASIS_ENV``, ``DATABASE_URL`` and ``EMBEDDING_MODEL`` like every process.
+It reads ``BASIS_ENV``, ``DATABASE_URL``, ``EMBEDDING_MODEL`` and the chunk window
+(``RETRIEVAL_CHUNK_TOKENS``, ``RETRIEVAL_CHUNK_OVERLAP``) like every process.
 """
 
 from __future__ import annotations
@@ -38,7 +39,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
 
-from basis.retrieval.chunk import ChunkDraft, chunk_document
+from basis.retrieval.chunk import (
+    CHUNK_TOKENS,
+    OVERLAP_TOKENS,
+    ChunkDraft,
+    chunk_document,
+    chunker_version,
+)
 from basis.retrieval.embed import Embedder
 from basis.retrieval.parse import (
     REFERENCE_MAX_PAGES,
@@ -87,6 +94,7 @@ class IngestResult:
     carried_forward_chunks: int
     seconds: float
     scanned_docs: list[str] = field(default_factory=list)
+    chunker: str = field(default_factory=chunker_version)
 
     @property
     def chunks(self) -> int:
@@ -104,6 +112,7 @@ class IngestResult:
             "study_id": None if self.study_id is None else str(self.study_id),
             "version": self.version,
             "embedding_model": self.embedding_model,
+            "chunker": self.chunker,
             "chunks": self.chunks,
             "carried_forward_chunks": self.carried_forward_chunks,
             "scanned_docs": self.scanned_docs,
@@ -127,12 +136,17 @@ async def ingest_documents(
     carry_forward: bool | None = None,
     max_pages: int | None = None,
     progress: Progress = _noop,
+    chunk_tokens: int = CHUNK_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
 ) -> IngestResult:
     """Parse, chunk, embed and store ``sources`` as a new published corpus version.
 
     Every write goes through ``store``; give it a session-bound store so the whole
     version commits or rolls back as one unit. Raises :class:`PdfError` subclasses for
-    unusable PDFs before anything is written.
+    unusable PDFs before anything is written. ``chunk_tokens`` / ``overlap_tokens`` are
+    the chunk window (``RETRIEVAL_CHUNK_TOKENS`` / ``RETRIEVAL_CHUNK_OVERLAP``). Carried
+    forward documents keep the chunks they were ingested with: every chunk is a slice of
+    one page either way, so a version may mix window sizes, but not embedders.
     """
     if not sources:
         raise ValueError("nothing to ingest")
@@ -154,7 +168,10 @@ async def ingest_documents(
         parsed.append(document)
         progress(f"parsed {source.doc_id}: {document.page_count} pages")
 
-    drafts_per_doc = [chunk_document(document) for document in parsed]
+    drafts_per_doc = [
+        chunk_document(document, chunk_tokens=chunk_tokens, overlap_tokens=overlap_tokens)
+        for document in parsed
+    ]
     all_drafts = [draft for drafts in drafts_per_doc for draft in drafts]
     embeddings = await _embed(embedder, [d.text for d in all_drafts], progress)
 
@@ -200,6 +217,7 @@ async def ingest_documents(
         carried_forward_chunks=carried,
         seconds=time.perf_counter() - started,
         scanned_docs=[document.doc_id for document in parsed if document.scanned],
+        chunker=chunker_version(chunk_tokens, overlap_tokens),
     )
     logger.info("corpus version ingested", extra=result.summary())
     return result
@@ -217,6 +235,8 @@ async def ingest_pdf(
     carry_forward: bool | None = None,
     max_pages: int | None = None,
     progress: Progress = _noop,
+    chunk_tokens: int = CHUNK_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
 ) -> IngestResult:
     """One PDF into a new published version (see :func:`ingest_documents`)."""
     return await ingest_documents(
@@ -229,6 +249,8 @@ async def ingest_pdf(
         carry_forward=carry_forward,
         max_pages=max_pages,
         progress=progress,
+        chunk_tokens=chunk_tokens,
+        overlap_tokens=overlap_tokens,
     )
 
 
@@ -327,6 +349,8 @@ async def _run(args: argparse.Namespace) -> int:
                 carry_forward=not args.fresh,
                 max_pages=args.max_pages,
                 progress=lambda message: print(message, file=sys.stderr),
+                chunk_tokens=settings.retrieval_chunk_tokens,
+                overlap_tokens=settings.retrieval_chunk_overlap,
             )
         print(json.dumps(result.summary()))
         return 0

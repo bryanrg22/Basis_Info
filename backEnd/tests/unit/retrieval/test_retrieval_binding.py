@@ -94,3 +94,73 @@ def test_hybrid_uses_the_bound_fusion(fusion: str, weight: float) -> None:
     assert store.asked == [("bm25", 3 * CANDIDATE_FACTOR), ("vector", 3 * CANDIDATE_FACTOR)]
     expected = fuse(store._hits([0, 1, 2], 6), store._hits([3, 2, 1], 6), fusion, weight, limit=3)  # type: ignore[arg-type]
     assert [h.chunk_id for h in hits] == [h.chunk_id for h in expected]
+
+
+# ----------------------------------------------------------------- RETRIEVAL_SEARCH (section 25)
+
+
+def test_search_defaults_to_bm25_everywhere() -> None:
+    settings = make_settings()
+    assert settings.retrieval_search == "bm25"
+    assert Retrieval(HashEmbedder(), Bm25Registry()).search == "bm25"
+    assert default_retrieval(settings).search == "bm25"
+
+
+def test_default_retrieval_takes_the_search_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RETRIEVAL_SEARCH", "hybrid")
+    assert default_retrieval(make_settings()).search == "hybrid"
+    with pytest.raises(ValidationError):
+        make_settings(retrieval_search="vector")
+
+
+def test_bm25_search_leaves_the_classifier_on_the_stores_bm25() -> None:
+    bound = Retrieval(HashEmbedder(), Bm25Registry(), search="bm25")
+    assert bound.classifier_search(RecordingStore()) is None  # type: ignore[arg-type]
+
+
+def test_hybrid_search_is_retrieval_hybrid_bound_to_the_store() -> None:
+    store = RecordingStore()
+    bound = Retrieval(HashEmbedder(), Bm25Registry(), fusion="rrf", search="hybrid")
+    search = bound.classifier_search(store)  # type: ignore[arg-type]
+    assert search is not None
+    version = uuid.uuid4()
+    got = asyncio.run(search(version, "query", 3))
+    assert store.asked == [("bm25", 3 * CANDIDATE_FACTOR), ("vector", 3 * CANDIDATE_FACTOR)]
+    direct = asyncio.run(bound.hybrid(store, version, "query", 3))  # type: ignore[arg-type]
+    assert [(h.chunk_id, h.score) for h in got] == [(h.chunk_id, h.score) for h in direct]
+
+
+@pytest.mark.parametrize(
+    ("values", "ok"),
+    [
+        ({"retrieval_chunk_tokens": 200, "retrieval_chunk_overlap": 40}, True),
+        ({"retrieval_chunk_tokens": 200, "retrieval_chunk_overlap": 199}, True),
+        ({"retrieval_chunk_tokens": 200, "retrieval_chunk_overlap": 200}, False),
+        ({"retrieval_chunk_tokens": 40}, False),  # overlap 80 >= 40 (and below the minimum)
+        ({"retrieval_chunk_tokens": 10, "retrieval_chunk_overlap": 0}, False),
+        ({"retrieval_chunk_overlap": -1}, False),
+    ],
+)
+def test_chunk_window_settings(values: dict[str, object], ok: bool) -> None:
+    from basis.config import ConfigError
+
+    if ok:
+        settings = make_settings(**values)
+        assert settings.retrieval_chunk_tokens == values["retrieval_chunk_tokens"]
+        return
+    with pytest.raises((ValidationError, ConfigError)):
+        make_settings(**values)
+
+
+def test_chunk_window_defaults_are_the_chunkers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from basis.retrieval.chunk import CHUNK_TOKENS, OVERLAP_TOKENS
+
+    settings = make_settings()
+    assert (settings.retrieval_chunk_tokens, settings.retrieval_chunk_overlap) == (
+        CHUNK_TOKENS,
+        OVERLAP_TOKENS,
+    )
+    monkeypatch.setenv("RETRIEVAL_CHUNK_TOKENS", "200")
+    monkeypatch.setenv("RETRIEVAL_CHUNK_OVERLAP", "40")
+    settings = make_settings()
+    assert (settings.retrieval_chunk_tokens, settings.retrieval_chunk_overlap) == (200, 40)

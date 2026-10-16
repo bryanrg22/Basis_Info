@@ -103,6 +103,8 @@ class IngestAppraisal:
                     version=input.revision,
                     carry_forward=False,
                     progress=lambda step: heartbeat(step),
+                    chunk_tokens=self._deps.settings.retrieval_chunk_tokens,
+                    overlap_tokens=self._deps.settings.retrieval_chunk_overlap,
                 )
             except PdfError as exc:
                 raise validation_error(f"appraisal {document.id}: {exc}") from exc

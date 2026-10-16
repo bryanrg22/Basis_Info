@@ -749,22 +749,25 @@ def score_chunk_systems(
         return [
             TaskResult("retrieval_qrels", name, notes=[reason], skipped=True) for name in systems
         ]
+    from basis.config import get_settings
+
+    settings = get_settings()
     if embedder is None:
-        from basis.config import get_settings
         from basis.retrieval.embed import embedder_for
 
-        embedder = embedder_for(get_settings())
+        embedder = embedder_for(settings)
+    window = (settings.retrieval_chunk_tokens, settings.retrieval_chunk_overlap)
     started = time.perf_counter()
-    chunks = rt.parser_chunks(pdfs)
+    chunks = rt.parser_chunks(pdfs, chunk_tokens=window[0], overlap_tokens=window[1])
     parsed = time.perf_counter()
     index = rt.ChunkIndex(chunks, embedder.embed([c.text for c in chunks]))
     embedded = time.perf_counter()
     queries = {q.id: q.query for q in data.queries if q.id in qrels}
     runs = rt.run_chunk_systems(index, embedder, queries, rt.production_fusion())
     setup = (
-        f"{len(chunks)} production chunks from {len(pdfs)} PDFs (parse + chunk "
-        f"{parsed - started:.0f} s, embed with {embedder.name} {embedded - parsed:.0f} s); "
-        f"top {rt.CHUNK_DEPTH} chunks per query read as pages"
+        f"{len(chunks)} production chunks ({window[0]}/{window[1]} tokens) from {len(pdfs)} "
+        f"PDFs (parse + chunk {parsed - started:.0f} s, embed with {embedder.name} "
+        f"{embedded - parsed:.0f} s); top {rt.CHUNK_DEPTH} chunks per query read as pages"
     )
     results: list[TaskResult] = []
     for name in systems:
@@ -786,6 +789,27 @@ def score_chunk_systems(
         results.append(result)
     if sweep:
         results[-1].tables.append(_fusion_sweep_table(runs, qrels))
+    if "hybrid" in systems:
+        results += _rule_resolution_results(rt.resolve_rules(index, embedder, runs.fusion), setup)
+    return results
+
+
+def _rule_resolution_results(resolutions: Sequence[Any], setup: str) -> list[TaskResult]:
+    """``rule_citations`` through ``resolve_rule_citations`` with each classifier search
+    (``resolve_bm25``, ``resolve_hybrid``) over the chunk systems' index."""
+    results: list[TaskResult] = []
+    for r in resolutions:
+        result = TaskResult("rule_citations", f"resolve_{r.search}", notes=[setup])
+        result.rows.append(
+            MetricRow(
+                "resolved_fraction",
+                r.resolved / r.claimed if r.claimed else math.nan,
+                r.claimed,
+                details={"unresolved": r.unresolved},
+            )
+        )
+        result.notes.append("unresolved: " + (", ".join(r.unresolved) or "none"))
+        results.append(result)
     return results
 
 
@@ -1729,8 +1753,9 @@ def evaluate(
                     dataset, split, corpus_dir, chunk_systems, embedder, fusion_sweep
                 )
             results += scored
-            if sum(1 for r in scored if not r.skipped) > 1:
-                results.append(paired_comparison(scored))
+            ranked = [r for r in scored if r.dataset == "retrieval_qrels"]
+            if sum(1 for r in ranked if not r.skipped) > 1:
+                results.append(paired_comparison(ranked))
         elif isinstance(dataset, ds.RuleCitations):
             results.append(
                 score_rule_citations(

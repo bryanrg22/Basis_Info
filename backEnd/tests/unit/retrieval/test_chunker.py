@@ -7,8 +7,10 @@ from fixtures import fixture_path, load_fixture_json
 
 from basis.retrieval.chunk import (
     CHUNK_TOKENS,
+    CHUNKER_VERSION,
     OVERLAP_TOKENS,
     chunk_document,
+    chunker_version,
     count_tokens,
     encoding,
     page_texts,
@@ -123,6 +125,27 @@ def test_chunks_never_cross_pages_and_respect_the_budget() -> None:
     texts = page_texts(doc)
     assert all(d.text in texts[d.page] for d in drafts)
     assert [d.chunk_key for d in drafts] == ["DOC:1:0", "DOC:1:1", "DOC:2:0"]
+
+
+def test_a_smaller_window_respects_its_budget_and_stays_on_the_page() -> None:
+    doc = document([element(1, 0, words(700, "dog"))], [element(2, 0, words(150, "tree"))])
+    drafts = chunk_document(doc, chunk_tokens=200, overlap_tokens=40)
+    assert all(d.token_count <= 200 for d in drafts)
+    assert len([d for d in drafts if d.page == 1]) > len(
+        [d for d in chunk_document(doc) if d.page == 1]
+    )
+    texts = page_texts(doc)
+    assert all(d.text in texts[d.page] for d in drafts)
+    # The windows overlap by 40 tokens: each page-1 window starts 160 tokens on.
+    starts = [start for start, _, _ in split_text(texts[1], 200, 40)]
+    assert len(starts) == len([d for d in drafts if d.page == 1])
+    assert all(b > a for a, b in zip(starts, starts[1:], strict=False))
+    assert [n for _, _, n in split_text(texts[1], 200, 40)][:-1] == [200] * (len(starts) - 1)
+
+
+def test_chunker_version_names_the_window() -> None:
+    assert CHUNKER_VERSION == chunker_version() == "cl100k_base-400/80-page-v1"
+    assert chunker_version(200, 40) == "cl100k_base-200/40-page-v1"
 
 
 def test_section_paths_follow_a_size_hierarchy() -> None:

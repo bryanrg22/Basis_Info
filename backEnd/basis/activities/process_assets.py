@@ -160,6 +160,11 @@ async def _process(
         model=settings.classify_model,
         price=cost_usd,
         reasoning_effort=settings.classify_reasoning_effort,
+        search=(
+            None
+            if deps.chunk_store is None
+            else deps.retrieval_deps().classifier_search(deps.chunk_store)
+        ),
     )
     residual = [v for v in views.values() if route(v, ctx)[0] == "llm"]
     if residual and deps.chat_provider is not None:

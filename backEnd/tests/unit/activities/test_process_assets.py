@@ -422,3 +422,54 @@ async def test_the_previous_classifier_is_one_setting_away(
     request = await _residual_request(deps, analyzed, activity_env, classify_model="gpt-4o-mini")
     assert request.model == "gpt-4o-mini"
     assert "reasoning_effort" not in build_request_body(request)
+
+
+@pytest.mark.parametrize("search", ["bm25", "hybrid"])
+async def test_the_classifier_searches_with_retrieval_search(
+    deps: Deps,
+    analyzed: SeededStudy,
+    activity_env: Env,
+    monkeypatch: pytest.MonkeyPatch,
+    search: str,
+) -> None:
+    """EVAL_REPORT section 25: RETRIEVAL_SEARCH picks the store's BM25 (the classifier's
+    own default, ``ctx.search`` None) or ``Retrieval.hybrid`` bound to the chunk store."""
+    from dataclasses import replace
+
+    from basis.activities import process_assets as module
+    from basis.classify.store_protocol import InMemoryChunkStore, StoredChunk
+
+    seen: list[Any] = []
+    original = module._classify_all
+
+    async def spy(views: Any, ctx: Any, concurrency: int) -> Any:
+        seen.append(ctx)
+        return await original(views, ctx, concurrency)
+
+    monkeypatch.setattr(module, "_classify_all", spy)
+    store = InMemoryChunkStore()
+    version = uuid.uuid4()
+    store.add(
+        StoredChunk(
+            id=uuid.uuid4(),
+            corpus_version_id=version,
+            doc_id="D",
+            text="asset class 57.0 distributive trades",
+            page_start=1,
+            page_end=1,
+            embedding=tuple([1.0] + [0.0] * 383),
+        )
+    )
+    base = make_deps(deps.sessionmaker, deps.storage, deps.settings, chunk_store=store)
+    assert base.retrieval is not None
+    bound = replace(base, retrieval=replace(base.retrieval, search=search))
+    await activity_env.run(ProcessAssets(bound).run, process(analyzed))
+    [ctx] = seen
+    if search == "bm25":
+        assert ctx.search is None
+        return
+    assert ctx.search is not None
+    store.calls.clear()
+    hits = await ctx.search(version, "asset class 57.0", 3)
+    assert [c[0] for c in store.calls] == ["search_bm25", "search_vector"]
+    assert [h.doc_id for h in hits] == ["D"]
