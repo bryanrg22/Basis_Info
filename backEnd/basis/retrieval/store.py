@@ -23,6 +23,10 @@ migration 0003). Before it, ``SET LOCAL hnsw.iterative_scan = strict_order`` (pg
 only the matches among its first ``hnsw.ef_search`` (40) candidates, which for a small
 study corpus inside a large table can be fewer than ``k`` or none. Rows are returned in
 distance order; ties at equal distance are ordered by ``chunk_key`` after the fetch.
+HNSW is approximate and its graph differs from build to build, so two ingests of the same
+corpus can rank near-ties differently; ``search_vector(..., ef_search=N)`` widens the
+candidate list for one query (up to 1000, near-exact) for callers that need to compare
+against an exact scan.
 """
 
 from __future__ import annotations
@@ -451,10 +455,25 @@ class PostgresChunkStore:
         return [_hit(by_id[cid], score) for cid, score in ranked if cid in by_id]
 
     async def search_vector(
-        self, corpus_version_id: uuid.UUID, query_embedding: Sequence[float], k: int
+        self,
+        corpus_version_id: uuid.UUID,
+        query_embedding: Sequence[float],
+        k: int,
+        *,
+        ef_search: int | None = None,
     ) -> list[Hit]:
+        """The ``k`` nearest chunks by cosine distance through the HNSW index.
+
+        ``ef_search`` widens the index's candidate list for this query (pgvector's
+        ``hnsw.ef_search``, default 40, at most 1000): larger is closer to an exact scan and
+        slower. Production leaves it unset; tests that compare the index against an exact
+        scan pass a large value so the comparison does not depend on the graph the build
+        happened to produce.
+        """
         if k <= 0:
             return []
+        if ef_search is not None and not 1 <= ef_search <= 1000:
+            raise ValueError("ef_search must be between 1 and 1000")
         distance = ChunkRow.embedding.cosine_distance(list(query_embedding)).label("distance")
         stmt = (
             select(ChunkRow, distance)
@@ -468,6 +487,8 @@ class PostgresChunkStore:
         async with self._session() as session:
             await self._require_published(session, corpus_version_id)
             await session.execute(text("SET LOCAL hnsw.iterative_scan = strict_order"))
+            if ef_search is not None:
+                await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef_search)}"))
             rows = (await session.execute(stmt)).all()
         ordered = sorted(rows, key=lambda r: (float(r.distance), r.Chunk.chunk_key))
         return [_hit(r.Chunk, 1.0 - float(r.distance)) for r in ordered]
