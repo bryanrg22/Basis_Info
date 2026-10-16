@@ -7,6 +7,7 @@ environment, and writes what ``evals.run --predictions`` scores::
 
     <out>/photo_rooms.json        {"<file>": "<room_type>" | {"repeats": [...]}}
     <out>/photo_components.json   {"<file>": ["label", ...] | {"repeats": [...]}}
+    <out>/photo_counts.json       {"<file>": {"label": count} | {"repeats": [...]}}
     <out>/photo_raw.jsonl         one line per (file, repeat): the full analysis, model,
                                   provider, attempts, errors, estimated cost
 
@@ -28,7 +29,7 @@ import json
 import sys
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--prompt", default=None, help="released photo_analysis version, e.g. v2 (default: latest)"
     )
     parser.add_argument("--model", default=None, help="model name (default: VISION_MODEL)")
+    parser.add_argument(
+        "--reasoning-effort",
+        default=None,
+        help="reasoning models only: none/minimal/low/medium/high (default: the model's)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="output budget per call (default: the pipeline's; raise it for reasoning models)",
+    )
+    parser.add_argument(
+        "--prompt-name",
+        default="photo_analysis",
+        help="prompt family: photo_analysis (default), photo_countables or photo_surfaces",
+    )
     return parser.parse_args(argv)
 
 
@@ -88,6 +105,15 @@ def _record(file: str, repeat: int, result: PhotoResult, seconds: float) -> dict
 
 
 RETRY_DELAYS_S: tuple[float, ...] = (2.0, 6.0, 15.0)
+
+
+def label_counts(components: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """``{label: count}`` with same-label entries added up (``photo_counts`` predictions)."""
+    counts: dict[str, int] = {}
+    for component in components:
+        label = str(component["label"])
+        counts[label] = counts.get(label, 0) + int(component.get("count", 1))
+    return counts
 
 
 async def analyze_with_retries(
@@ -129,14 +155,21 @@ async def run(args: argparse.Namespace) -> int:
             recorder=recorder,
         ),
         provider=pool,
-        prompt=(prompts.load("photo_analysis", args.prompt) if args.prompt else released_prompt()),
+        prompt=(
+            prompts.load(args.prompt_name, args.prompt or prompts.versions(args.prompt_name)[-1])
+            if args.prompt or args.prompt_name != "photo_analysis"
+            else released_prompt()
+        ),
         model=args.model or settings.vision_model,
+        reasoning_effort=args.reasoning_effort,
+        **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
     )
     semaphore = asyncio.Semaphore(args.concurrency)
     raw_path = args.out / "photo_raw.jsonl"
     errors_seen: list[dict[str, Any]] = []
     rooms: dict[str, list[str]] = {f.name: [] for f in files}
     components: dict[str, list[list[str]]] = {f.name: [] for f in files}
+    counts: dict[str, list[dict[str, int]]] = {f.name: [] for f in files}
 
     async def one(file: Path, repeat: int) -> dict[str, Any]:
         async with semaphore:
@@ -167,6 +200,7 @@ async def run(args: argparse.Namespace) -> int:
                 components[record["file"]].append(
                     sorted({c["label"] for c in analysis["components"]})
                 )
+                counts[record["file"]].append(label_counts(analysis["components"]))
             print(
                 f"repeat {repeat}/{args.repeats}: {len(records)} photos, "
                 f"spent ${budget.spent_usd:.4f}",
@@ -182,6 +216,9 @@ async def run(args: argparse.Namespace) -> int:
     (args.out / "photo_components.json").write_text(
         json.dumps({f: fold(v) for f, v in components.items() if v}, indent=1, sort_keys=True)
     )
+    (args.out / "photo_counts.json").write_text(
+        json.dumps({f: fold(v) for f, v in counts.items() if v}, indent=1, sort_keys=True)
+    )
     models = sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""})
     (args.out / "run.json").write_text(
         json.dumps(
@@ -190,6 +227,8 @@ async def run(args: argparse.Namespace) -> int:
                 "repeats": args.repeats,
                 "vision_model_setting": settings.vision_model,
                 "model_requested": args.model or settings.vision_model,
+                "reasoning_effort": args.reasoning_effort,
+                "max_tokens": ctx.max_tokens,
                 "models_reported": models,
                 "spent_usd": round(budget.spent_usd, 6),
                 "errors": errors_seen,

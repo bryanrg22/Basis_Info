@@ -19,6 +19,19 @@
         "sha256": "5bd652a01d6aac0e8551e38e75727e9caf711df89d3e970c3acf8fb51c00a35e"
       }
     },
+    "photo_countables": {
+      "v1": {
+        "sha256": "3ce61c63028c0747e5a506966d60124982f80d5d508e76615021f8798a331536"
+      },
+      "v2": {
+        "sha256": "bbd3f81342cf4b2d2481a00805a3205f6b9351b8c95d55c199e60692da1c93d0"
+      }
+    },
+    "photo_surfaces": {
+      "v1": {
+        "sha256": "344617b4b1dba18735f840cb3e8b42aa4eb86b11ad75ed335b1e2383043d6f10"
+      }
+    },
     "room_inventory": {
       "v1": {
         "sha256": "36c0487fa5dcf3fd8f49309d17d4fc3043931d247e14c21f2c8de273597ffbf1"

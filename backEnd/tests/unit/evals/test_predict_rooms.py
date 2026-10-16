@@ -21,7 +21,7 @@ from fixtures import fixture_path
 from llm_fakes import PHOTO_MODEL, PHOTO_USAGE, FixtureVisionProvider, photo_labels
 
 from basis.llm import ScriptedProvider, ScriptedTurn, Usage
-from basis.llm.errors import ProviderBadResponse
+from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
 from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import ModelRoomInventory
@@ -373,6 +373,47 @@ async def test_no_provider_is_an_error(
 ) -> None:
     use(monkeypatch, None)
     assert await run("--photos", str(photo_dir), "--out", str(tmp_path / "o")) == 2
+
+
+@dataclass
+class FlakyRoomProvider:
+    """Fails the first ``failures`` room requests with a transient error, then answers."""
+
+    failures: int
+    inner: FixtureRoomProvider = field(default_factory=FixtureRoomProvider)
+    calls: int = 0
+    name: str = "flaky-rooms"
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise ProviderUnavailable("azure returned 500")
+        return await self.inner.complete(request)
+
+
+async def test_a_transient_provider_error_on_one_room_is_retried(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rooms = FlakyRoomProvider(failures=1)
+    use(monkeypatch, Router(FixtureVisionProvider(), rooms))
+    monkeypatch.setattr(predict_rooms, "RETRY_DELAYS_S", (0.0, 0.0))
+    out = tmp_path / "out"
+    assert await run("--photos", str(photo_dir), "--out", str(out), "--concurrency", "1") == 0
+    assert rooms.calls == 3 and len(rooms.inner.requests) == 2  # 2 rooms, one retried
+    assert len(json.loads((out / "room_inventory.json").read_text())) == 2
+
+
+async def test_a_persistent_provider_error_still_fails_the_run(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rooms = FlakyRoomProvider(failures=99)
+    use(monkeypatch, Router(FixtureVisionProvider(), rooms))
+    monkeypatch.setattr(predict_rooms, "RETRY_DELAYS_S", (0.0,))
+    with pytest.raises(ProviderUnavailable):
+        await run("--photos", str(photo_dir), "--out", str(tmp_path / "out"), "--concurrency", "1")
+    # Every attempt failed: the retry happened, the error propagated, nothing was written.
+    assert rooms.calls >= 2 and rooms.inner.requests == []
+    assert not (tmp_path / "out" / "room_inventory.json").exists()
 
 
 def test_argument_limits() -> None:

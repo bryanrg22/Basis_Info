@@ -73,6 +73,16 @@ Predictions: `{"<file>": "<room_type>"}`.
 
 `other` labels are excluded from scoring. Predictions: `{"<file>": ["label", ...]}`.
 
+Predictions come from `python -m evals.predict_photos` (one call per photo with
+`photo_analysis`, or one narrow prompt family with `--prompt-name photo_countables` /
+`photo_surfaces`, `--prompt vN` for a version other than the latest). Decomposed runs are
+combined with `python -m evals.merge_photo_runs --runs <countables> <surfaces> --out <dir>`
+(label sets unioned per photo, the largest count per label, the room type of the run named
+by `--room-from N`, default the first) and
+the merged directory scores like any single run (EVAL_REPORT section 11). After a
+`--model` run, check `run.json` `models_reported`: the provider pool falls back to the
+secondary provider per call, so a rate-limited primary silently mixes models into a run.
+
 ### `assets_v1.json`
 
 ```json
@@ -184,6 +194,24 @@ of every CSV and image, per-image author and licence for the CC BY 2.0 attributi
 per-photo model named (`--phrases-from vlm --photo-raw <predict_photos>/photo_raw.jsonl`)
 plus the always-prompted countable set; `--tiling on` adds 2 x 2 tiles for the countable
 phrases, merged by mask NMS (`--merge-metric iou` or `ios`).
+
+### `photo_counts` (derived from `detection_boxes`, no file)
+
+Per photo, the true count of every verified class: the non-group boxes of that label,
+zero when the class is verified absent. The door labels pool into one `door` class
+(`door`, `interior_door`, `exterior_door` boxes; predictions of the three are summed),
+because the count, not the interior/exterior split, is what the yardstick measures. On our
+own photos every image carries the six verified classes, so every (photo, class) pair
+counts, zeros included; Open Images images without a `verified` list contribute one class
+per boxed label and no zeros. Predictions: `photo_counts.json` from `evals.predict_photos`
+or `evals.merge_photo_runs` (`{"<file>": {"label": count} | {"repeats": [...]}}`); a
+predictions directory without it is read from its `photo_raw.jsonl`.
+
+Metrics, per (photo, class, repeat): count MAE (SE clustered by document), exact-count
+rate, signed bias (> 0 over-counting), count precision and recall (min / over / under
+counts pooled over pairs), and the same per class (`count_mae:window`, ...). This is the
+number the engineer prices; the label-set metrics of `photo_components` say whether a
+thing was listed at all.
 
 ### `rule_citations` (derived, no file)
 
