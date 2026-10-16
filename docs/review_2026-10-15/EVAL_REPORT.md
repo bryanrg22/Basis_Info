@@ -466,11 +466,17 @@ at 0.84), while tile edges cut doors, windows and fixtures into fragments whose 
 full-frame mask is too low for NMS to remove, so the fragments survive as extra detections
 (interior door 0.85 to 0.61, over-count doubled). Outlets and cabinets, the small-object
 classes tiling was meant to help, do not move. The research note's premise (tiling for small
-objects in drone imagery) does not transfer to interior photos taken at room scale. Pending
-from the same batch, blocked on the Replicate throttle: the same tiling with containment
-(IoS) merging, which should remove the fragments, and the v2 phrase set; if IoS tiling is not
-better than the single pass, tiling is dropped and the per-class thresholds and the
-vision-model crop check become the next adjustments.
+objects in drone imagery) does not transfer to interior photos taken at room scale.
+
+Containment merging (the same tiles, a tile mask dropped when mostly inside a full-frame mask,
+IoS 0.5; 225 calls, $0.40, 7 interior photos lost to the throttle) is worse again:
+mAP@0.5 0.453, precision / recall 0.42 / 0.59 at 0.5. It removes the fragments (count bias
++2.22 to +0.59) but also removes real objects nested inside a larger mask of the same class:
+recessed lights inside a ceiling fixture's mask (light fixture AP 0.61 to 0.23), outlets
+and cabinet units inside runs (0.88 to 0.57, 0.55 to 0.30). The seven lost photos depress
+the interior classes somewhat, but not by that much. Tiling is dropped. The v2 phrase set
+is the last run of this batch (still throttled); after it, the adjustments are per-class
+thresholds and the vision-model crop check, both on the single pass.
 
 ## 11. Task decomposition: one call per task instead of one call for everything (2026-10-16)
 
