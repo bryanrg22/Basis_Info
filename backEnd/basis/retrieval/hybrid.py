@@ -113,7 +113,13 @@ async def hybrid_search(
     method: FusionMethod = "rrf",
     weight: float = 0.5,
 ) -> list[Hit]:
-    """BM25 and vector search over one corpus version, fused, top ``k``."""
+    """BM25 and vector search over one corpus version, fused, top ``k``.
+
+    The production fusion is the settings (``RETRIEVAL_FUSION``,
+    ``RETRIEVAL_BM25_WEIGHT``) bound on :class:`basis.retrieval.Retrieval`; call
+    ``Retrieval.hybrid`` to get it. These defaults equal the settings' defaults (RRF,
+    EVAL_REPORT section 22), which a unit test keeps true.
+    """
     candidates = k * CANDIDATE_FACTOR
     bm25 = await store.search_bm25(corpus_version_id, query, candidates)
     [embedding] = await asyncio.to_thread(embedder.embed, [query])

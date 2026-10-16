@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     # Sentence-embedding model for the evidence corpora (recorded per corpus version).
     # "hash" selects the deterministic test embedder and is refused outside dev and test.
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Hybrid retrieval (Retrieval.hybrid -> basis.retrieval.hybrid.hybrid_search): how BM25
+    # and vector results are fused, and BM25's weight in "weighted" (max-normalized convex
+    # combination; unused by "rrf"). Measured on the 50 retrieval qrels, EVAL_REPORT section
+    # 22: RRF (k=60) stays the default. Weighted 0.3 scored 0.019 nDCG@10 higher with
+    # unjudged pages counted as misses, but 0.014 lower on condensed lists (unjudged pages
+    # removed), so the 50 queries do not show either fusion to be better.
+    retrieval_fusion: Literal["rrf", "weighted"] = "rrf"
+    retrieval_bm25_weight: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # ------------------------------------------------------------------ model providers
     # Environment names match the legacy backEnd/.env (agentic/config/settings.py), so an
