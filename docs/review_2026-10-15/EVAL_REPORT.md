@@ -143,9 +143,9 @@ converter.
 | Room accuracy (repeat 1) | 0.808 | 52 | [0.681, 0.892] | repeats 2 and 3: 0.827, 0.788 |
 | Room macro-F1 | 0.748 | 52 | | 13 room types in the labels |
 | Room pass^3 (all three repeats right) | 0.788 | 52 | | the room answer was identical across repeats for 50 of 52 photos |
-| Component set precision | 0.602 | 271 predicted | | loose furniture is `other` on both sides (see the label guide) |
+| Component set precision | 0.627 | 260 predicted | | loose furniture is `other` on both sides (see the label guide); corrected 2026-10-16, see section 11 |
 | Component set recall | 0.632 | 258 labelled | | |
-| Component set F1 | 0.616 | | | |
+| Component set F1 | 0.629 | | | |
 | Photos with the exact label set | 0.058 | 52 | [0.020, 0.156] | |
 | Component set identical across the three repeats | 16 of 52 | | | temperature 0 does not make the list stable |
 
@@ -265,27 +265,30 @@ objects. The pipeline stays pinned to `v1` (`basis.vision.analyze.PROMPT_VERSION
 
 | Run | Room accuracy | Room pass^3 | Component precision | Component recall | Component F1 | Label set identical across 3 repeats | Count MAE on shared labels | Exact count on shared labels | Cost per 52 photos | Seconds per photo |
 |---|---|---|---|---|---|---|---|---|---|---|
-| gpt-4.1-mini, v1 (today) | 0.81 | 0.79 | 0.60 | 0.63 | 0.62 | 16 of 52 | 0.50 | 0.74 | $0.06 | 4.3 |
-| gpt-4.1-mini, v2 | 0.85 | 0.79 | 0.58 | 0.66 | 0.62 | 9 of 52 | 0.46 | 0.77 | $0.08 | 5.5 |
-| gpt-4.1, v1 | 0.85 | 0.85 | 0.63 | 0.72 | 0.67 | 26 of 52 | 0.44 | 0.78 | $0.30 | 2.2 |
-| gpt-4.1, v2 | 0.81 | 0.79 | 0.63 | 0.68 | 0.65 | 27 of 52 | 0.39 | 0.82 | $0.38 | 2.3 |
+| gpt-4.1-mini, v1 (today) | 0.81 | 0.79 | 0.63 | 0.63 | 0.63 | 16 of 52 | 0.50 | 0.74 | $0.06 | 4.3 |
+| gpt-4.1-mini, v2 | 0.85 | 0.79 | 0.65 | 0.66 | 0.66 | 9 of 52 | 0.46 | 0.77 | $0.08 | 5.5 |
+| gpt-4.1, v1 | 0.85 | 0.85 | 0.68 | 0.72 | 0.70 | 26 of 52 | 0.44 | 0.78 | $0.30 | 2.2 |
+| gpt-4.1, v2 | 0.81 | 0.79 | 0.74 | 0.68 | 0.71 | 27 of 52 | 0.39 | 0.82 | $0.38 | 2.3 |
 
 "Shared labels" are the (photo, label) pairs both the model and the labels list; the count
 metrics there ask whether the model counts right what it did find. Per-photo count
 metrics are not yet in the harness (computed from the raw records; add them).
 
-Reading the table:
+Reading the table (component columns corrected 2026-10-16: the harness had counted a
+predicted `other` as a false positive, section 11; the readings below were re-checked):
 
 - The model is the lever. `gpt-4.1` raises component recall from 0.63 to 0.72 and F1 from
-  0.62 to 0.67, gets 46 of 52 room labels right on all three repeats, returns the same
+  0.63 to 0.70, gets 46 of 52 room labels right on all three repeats, returns the same
   label set across repeats for half the photos instead of a third, and answers in half
   the time. It costs five times more per photo, which is still under a dollar per
   property.
-- The prompt is not. Writing the conventions in (`v2`) improves the counts of what is
-  found (exact count 0.74 to 0.77 on the small model, 0.78 to 0.82 on the large one) but
-  lowers precision or recall on label sets, and on the small model makes the output less
-  stable. Its instructions about what not to list cost more than its counting
-  instructions gain. `v2` stays released for later experiments; the pipeline keeps `v1`.
+- The prompt moves less. Writing the conventions in (`v2`) improves the counts of what is
+  found (exact count 0.74 to 0.77 on the small model, 0.78 to 0.82 on the large one) and
+  trades recall for precision on label sets (on `gpt-4.1`: precision 0.68 to 0.74, recall
+  0.72 to 0.68, F1 +0.01); on the small model it makes the output less stable (9 instead of
+  16 photos identical across repeats). Recall is what the engineer needs (a missed system
+  costs more than an extra candidate), so `v2` stays released for later experiments and the
+  pipeline keeps `v1`.
 - Repeated small objects are not solved by either change: the exterior's windows and
   lights are still undercounted by every run. That is the detector question (section 7,
   next steps, and the detection research).
@@ -491,10 +494,10 @@ harness), and the per-room inventory after reconciliation (section 7).
 
 | Run | Room accuracy | Component P / R / F1 | Label set identical across 3 repeats | Count MAE, 6 verified classes | Signed bias | Count recall | Cost per 52 photos | Seconds per photo |
 |---|---|---|---|---|---|---|---|---|
-| one pass, `photo_analysis/v1` (section 8) | 0.85 | 0.63 / 0.72 / 0.67 | 26 of 52 | 0.36 | -0.16 | 0.57 | $0.30 | 2.2 |
+| one pass, `photo_analysis/v1` (section 8) | 0.85 | 0.68 / 0.72 / 0.70 | 26 of 52 | 0.36 | -0.16 | 0.57 | $0.30 | 2.2 |
 | countables pass alone | 0.87 | 0.59 / 0.45 / 0.51 | 35 of 52 | 0.30 | -0.07 | 0.70 | $0.30 | 1.8 |
 | surfaces pass alone | 0.90 | 0.62 / 0.33 / 0.43 | 42 of 52 | (none listed) | | | $0.26 | 1.5 |
-| decomposed: union of the two | 0.87 | 0.59 / 0.73 / 0.65 | 33 of 52 | 0.30 | -0.07 | 0.70 | $0.56 | 3.3 summed; 1.8 when the two calls run in parallel |
+| decomposed: union of the two (room type from the countables pass) | 0.87 | 0.59 / 0.73 / 0.65 | 33 of 52 | 0.30 | -0.07 | 0.70 | $0.56 | 3.3 summed; 1.8 when the two calls run in parallel |
 
 Counts per class against the verified boxes (count MAE per photo; count recall = found
 objects over true objects):
@@ -511,7 +514,7 @@ objects over true objects):
 The counts, which are what the engineer prices, improve on five of six classes, and the
 under-count bias halves; outlets go from mostly missed to mostly found. Each narrow call is
 also more repeatable than the wide one (35 and 42 photos with identical label sets across
-repeats, against 26). Label-set F1 is a wash (0.67 to 0.65), and the per-label breakdown of
+repeats, against 26). Label-set F1 drops (0.70 to 0.65), and the per-label breakdown of
 where its precision went (156 records each) is instructive:
 
 - `furniture` false positives 22 to 83: the countables prompt said plug-in lamps are
@@ -535,23 +538,32 @@ where its precision went (156 records each) is instructive:
 for the three confusions above (vanity is never `kitchen_cabinet`; `blinds` are slatted, every
 curtain and shade is `window_treatment`, a shower curtain is `other`; loose furniture, lamps,
 rugs, art and bath accessories are one `other` entry) and drops `furniture`, `chair`, `desk`,
-`filing_cabinet` from its list. Its run stopped after 50 photos of the first repeat: the
-OpenAI account ran out of credit mid-run, and the provider pool's per-call fallback sent the
-rest to the Azure small model (those records are excluded here; `run.json` `models_reported`
-is the purity check for every `--model` run from now on). So this is a paired comparison on
-50 photos and one repeat, to be confirmed on three repeats after a top-up:
+`filing_cabinet` from its list. Run on OpenAI only (the Azure fallback disabled, so the run is
+pure `gpt-4.1`; `models_reported` confirms it), three repeats, $0.98. A first attempt had died
+when the OpenAI account ran out of credit mid-run, and its 50 completed photos had already
+pointed the same way.
 
-| Run (50 photos, repeat 1) | Component P / R / F1 | Count MAE, 6 classes | kitchen cabinet MAE / count recall | light fixture MAE |
-|---|---|---|---|---|
-| one pass v1 | 0.67 / 0.72 / 0.69 | 0.33 | 0.20 / 0.38 | 0.24 |
-| decomposed, countables v1 | 0.58 / 0.73 / 0.65 | 0.30 | 0.12 / 0.69 | 0.20 |
-| decomposed, countables v2 | 0.66 / 0.73 / 0.70 | 0.27 | 0.08 / 0.81 | 0.16 |
+Scoring this exposed a harness defect: `score_photo_components` dropped `other` from the
+labels but not from the predictions, so every photo where the model listed `other` was
+charged a false positive. With v2 that was 42 photos, with the one-pass prompt 20. Fixed in
+this branch with a test; every per-photo number in sections 6, 8 and 11 was rescored and
+corrected (precision rose 0.01 to 0.05 across runs; no reading of section 8 reversed, see
+its note). The merge tool also gained `--room-from N`, since the surfaces pass is the best
+room-type judge (0.90 against 0.85 for the one-pass prompt).
 
-The definitions recover the precision (false positives 126 to 90 on these photos, `furniture`
-27 to 0, `blinds` 5 to 0, `window_treatment` found 0 to 3 of 10) without touching recall, and
-the counts improve further. The eight "lost" true positives of v2 against v1 are surface
-labels the v1 countables call listed outside its brief (siding, roof, porch, driveway, gutter)
-and chairs and a desk now filed as `other`; the surfaces pass supplies the former.
+| Run (52 photos, 3 repeats) | Room accuracy | Component P / R / F1 | Label set identical across repeats | Count MAE, 6 classes | Signed bias | Count recall | window MAE | light fixture MAE | outlet MAE | cabinet MAE / count recall |
+|---|---|---|---|---|---|---|---|---|---|---|
+| one pass v1 | 0.85 | 0.68 / 0.72 / 0.70 | 26 of 52 | 0.36 | -0.16 | 0.57 | 0.63 | 0.26 | 0.34 | 0.22 / 0.51 |
+| decomposed, countables v1, room from surfaces | 0.90 | 0.59 / 0.73 / 0.65 | 33 of 52 | 0.30 | -0.07 | 0.70 | 0.58 | 0.19 | 0.14 | 0.15 / 0.79 |
+| decomposed, countables v2, room from surfaces | 0.90 | 0.66 / 0.72 / 0.69 | 31 of 52 | 0.29 | -0.12 | 0.66 | 0.51 | 0.19 | 0.15 | 0.17 / 0.74 |
+
+The definitions recover the precision (false positives 390 to 279 over the 156 records;
+`furniture` 83 to 0, `blinds` 14 to 0, `window_treatment` found again) at the one-pass
+recall, so the label-set score is now level with the one-pass prompt (F1 0.69 against 0.70)
+while the counts keep their gain (MAE 0.29 against 0.36; outlets 0.15 against 0.34; windows
+0.51 against 0.63). The v2 prompt gives back a little of v1-countables' cabinet and outlet
+gain and its room accuracy (0.83 against 0.87 on its own answer; the merge takes the
+surfaces pass's answer instead). Door counts do not move under any prompt.
 
 ### 11.3 Per room, after reconciliation
 
@@ -565,16 +577,21 @@ setting of the per-photo runs changed the reconciler too); the rerun on the Azur
 |---|---|---|---|---|---|---|---|---|
 | one pass v1 (section 8) | Azure gpt-4.1-mini | 0.81 | 0.43 | +0.03 | 0.69 | 22 of 33 | 0.74 | 0.72 |
 | decomposed v1 | OpenAI gpt-4o-mini | 0.93 | 0.45 | +0.32 | 0.70 | 30 of 33 | 0.75 | 0.68 |
-| decomposed v1 | Azure gpt-4.1-mini | (pending: two attempts died, one on an Azure timeout, one on an Azure 500 whose per-call fallback hit the empty OpenAI account) | | | | | | |
+| decomposed v1 | Azure gpt-4.1-mini (like for like) | 0.84 | 0.47 | +0.20 | 0.70 | 28 of 33 | 0.66 | 0.63 |
 
-The headline room MAE gets worse because of two things that are not decomposition: the v1
-prompt's `furniture` rule (20 room-label pairs, bias +3.0; gone in v2) and the kitchen's
-cabinets, which the reconciliation summed across the kitchen's two photos (10 + 8 = 18) where
-it had merged 6 + 6 into 6 before, against a room label of 1. That last number exposes a
-convention gap: the verified boxes count cabinet units, the room inventory counts the run.
-Outside those two labels, the decomposed input is as good or better (MAE 0.72 to 0.68, bias
--0.08 to -0.01), the under-count is gone, and the inventories are stable for 30 rooms
-instead of 22. Exact inventories per room stay rare (1 of 33) for the reason section 8 gave.
+The headline room MAE moves little (0.81 to 0.84 like for like) and the bias turns positive,
+for two reasons that are not decomposition: the v1 prompt's `furniture` rule (20 room-label
+pairs, bias +3.0; gone in v2) and the kitchen's cabinets, where the per-photo counts rose
+from 6 and 6 to 10 and 8 and the reconciliation kept 10 (the OpenAI reconciler summed them
+to 18) against a room label of 1. That last number exposes a convention gap: the verified
+boxes count cabinet units, the room inventory counts the run. Outside those two labels the
+decomposed input is clearly better (MAE 0.74 to 0.66 without furniture, 0.72 to 0.63 without
+furniture and cabinets; bias -0.07 to -0.04), the exact-count rate rises (0.43 to 0.47), and
+the inventories are stable for 28 rooms instead of 22. Exact inventories per room stay rare
+(1 of 33) for the reason section 8 gave. The second attempt at this row died on an Azure
+timeout, the third on an Azure 500 whose per-call fallback hit the empty OpenAI account;
+`evals.predict_rooms` now retries transient provider errors per room, as the photo runner
+always did.
 
 ### 11.4 Reading and decision
 
@@ -582,13 +599,13 @@ Decomposition works for the thing it was meant to fix: the model counts repeated
 objects better when counting is its only job, and it answers more consistently. It costs
 twice as much per photo ($0.56 against $0.30 per 52 photos, so about a dollar per property)
 and no more wall time when the two calls run in parallel. Its label-set cost was a prompt
-vocabulary error, fixed in v2 on the partial evidence above. Decision: adopt the two-call
-per-photo step once v2 is confirmed on three repeats; wire it into `basis.vision.analyze`
-(two calls, `merge_photo_runs.merge_components` as the merge) only then, the pipeline stays
-on one call until that. Open from this section: settle the cabinet convention (units or run)
+vocabulary error, fixed in v2 and confirmed on three repeats. Decision: adopt the two-call
+per-photo step (`photo_countables/v2` + `photo_surfaces/v1`, room type from the surfaces
+call, `merge_photo_runs.merge_components` as the merge) and wire it into
+`basis.vision.analyze` as the next code change; the pipeline stays on one call until that
+lands. Open from this section: settle the cabinet convention (units or run)
 between the box labels and the room labels; make the reconciliation call carry the verified
 per-photo counts rather than re-estimate them; a third narrow call (electrical only, or
 exterior only) is the next thing to test once the two-call result is confirmed; add the
-per-photo count metrics against the verified boxes to the harness. Blocked on Bryan: OpenAI
-credit (v2, three repeats) and Replicate credit (the section 10.3 tiling and phrase runs have
-returned 429 for every call for two hours).
+per-photo count metrics against the verified boxes to the harness. Blocked on Bryan:
+Replicate credit (the section 10.3 containment-merge and phrase runs are still throttled).

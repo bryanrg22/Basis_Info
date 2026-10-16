@@ -295,7 +295,7 @@ def score_photo_components(
         truth = {c.label for c in photo.components if c.label != "other"}
         if saved is not None:
             raw = _repeats(saved.get(photo.file), repeats)[0] or []
-            predicted = {normalize_label(str(x)) for x in raw}
+            predicted = {normalize_label(str(x)) for x in raw} - {"other"}
         else:
             predicted = filename_components(photo.file, vocabulary)
         tp += len(truth & predicted)

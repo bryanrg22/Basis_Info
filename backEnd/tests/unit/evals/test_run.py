@@ -16,6 +16,7 @@ from evals.run import (
     max_merge,
     render_report,
     score_detection_boxes,
+    score_photo_components,
     score_room_inventory,
     score_rule_citations,
     write_results,
@@ -131,6 +132,20 @@ def two_photo_room() -> tuple[ds.RoomInventorySet, ds.PhotoComponentsSet]:
         }
     )
     return rooms, components
+
+
+def test_predicted_other_labels_are_not_false_positives() -> None:
+    """``other`` is excluded on both sides: the labels file loose items there, and so do
+    the prompts, so a predicted ``other`` must not count against precision."""
+    data = ds.PhotoComponentsSet.model_validate(
+        {"photos": [{"file": "a.jpg", "components": [{"label": "sink"}, {"label": "other"}]}]}
+    )
+    rows = {
+        r.metric: r
+        for r in score_photo_components(data, "dev", 1, {"a.jpg": ["sink", "other", "Other"]}).rows
+    }
+    assert (rows["precision"].value, rows["recall"].value, rows["f1"].value) == (1.0, 1.0, 1.0)
+    assert rows["precision"].n == 1 and rows["photo_exact_set"].value == 1.0
 
 
 def test_per_photo_max_baseline_under_counts_distinct_identical_objects() -> None:

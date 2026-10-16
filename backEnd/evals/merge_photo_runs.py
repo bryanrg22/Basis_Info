@@ -7,8 +7,8 @@ prompt. This tool merges the per-photo outputs of N such runs into one run's wor
 prediction files, so ``evals.run --predictions`` scores the combination exactly as it
 scores a single run:
 
-* ``photo_rooms.json``: the room type of the FIRST run (its prompt answers that question
-  too; the others repeat it only for the schema).
+* ``photo_rooms.json``: the room type of one run (``--room-from N``, 1-based, default the
+  first; every prompt answers that question, so take it from the pass that answers it best).
 * ``photo_components.json``: per photo the union of the runs' label sets, per repeat.
 * ``photo_raw.jsonl``: one merged record per (photo, repeat): components are the union by
   label with the largest count, material and attachment from the run that listed the label
@@ -36,7 +36,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--runs", type=Path, nargs="+", required=True, help="predict_photos outputs"
     )
     parser.add_argument("--out", type=Path, required=True)
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--room-from",
+        type=int,
+        default=1,
+        help="1-based index of the run in --runs whose room type is kept (default 1)",
+    )
+    args = parser.parse_args(argv)
+    if not 1 <= args.room_from <= len(args.runs):
+        parser.error("--room-from must index one of --runs")
+    return args
 
 
 def read_raw(run: Path) -> dict[tuple[str, int], dict[str, Any]]:
@@ -91,7 +100,8 @@ def merge_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def merge_runs(runs: Sequence[Path], out: Path) -> dict[str, Any]:
+def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str, Any]:
+    """``room_from`` is the 1-based index of the run whose room type the merge keeps."""
     raws = [read_raw(run) for run in runs]
     keys = sorted(set(raws[0]))
     out.mkdir(parents=True, exist_ok=True)
@@ -101,6 +111,9 @@ def merge_runs(runs: Sequence[Path], out: Path) -> dict[str, Any]:
         for key in keys:
             present = [raw[key] for raw in raws if key in raw]
             merged = merge_records(present)
+            room_source = raws[room_from - 1].get(key)
+            if room_source is not None:
+                merged["analysis"]["room_type"] = room_source["analysis"]["room_type"]
             raw_out.write(json.dumps(merged, sort_keys=True) + "\n")
             file = key[0]
             rooms.setdefault(file, []).append(merged["analysis"]["room_type"])
@@ -132,6 +145,7 @@ def merge_runs(runs: Sequence[Path], out: Path) -> dict[str, Any]:
         spent += float(summary.get("spent_usd") or 0.0)
     summary = {
         "merged_from": sources,
+        "room_from": str(runs[room_from - 1]),
         "photos": len(rooms),
         "repeats": max((len(v) for v in rooms.values()), default=0),
         "spent_usd": round(spent, 6),
@@ -145,7 +159,7 @@ def merge_runs(runs: Sequence[Path], out: Path) -> dict[str, Any]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    summary = merge_runs(args.runs, args.out)
+    summary = merge_runs(args.runs, args.out, room_from=args.room_from)
     print(
         f"wrote {args.out}: {summary['photos']} photos, {summary['repeats']} repeats",
         file=sys.stderr,

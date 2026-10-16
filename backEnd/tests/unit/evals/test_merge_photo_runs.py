@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from evals import merge_photo_runs
 
 
@@ -111,3 +113,17 @@ def test_merge_runs_writes_the_harness_files(tmp_path: Path) -> None:
         "photo_surfaces/v1",
     ]
     assert merge_photo_runs.main(["--runs", str(a), str(b), "--out", str(tmp_path / "m2")]) == 0
+
+
+def test_room_type_can_come_from_another_run(tmp_path: Path) -> None:
+    a = write_run(tmp_path, "a", "p/a", [record("1.jpg", 1, "kitchen", [component("sink")])], 0.1)
+    b = write_run(tmp_path, "b", "p/b", [record("1.jpg", 1, "other", [component("tile")])], 0.1)
+    out = tmp_path / "merged"
+    summary = merge_photo_runs.merge_runs([a, b], out, room_from=2)
+    assert json.loads((out / "photo_rooms.json").read_text()) == {"1.jpg": "other"}
+    raw = json.loads((out / "photo_raw.jsonl").read_text().splitlines()[0])
+    assert raw["analysis"]["room_type"] == "other"
+    assert {c["label"] for c in raw["analysis"]["components"]} == {"sink", "tile"}
+    assert summary["room_from"] == str(b)
+    with pytest.raises(SystemExit):
+        merge_photo_runs.parse_args(["--runs", str(a), "--out", "x", "--room-from", "2"])
