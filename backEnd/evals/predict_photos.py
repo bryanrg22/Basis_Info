@@ -7,6 +7,7 @@ environment, and writes what ``evals.run --predictions`` scores::
 
     <out>/photo_rooms.json        {"<file>": "<room_type>" | {"repeats": [...]}}
     <out>/photo_components.json   {"<file>": ["label", ...] | {"repeats": [...]}}
+    <out>/photo_counts.json       {"<file>": {"label": count} | {"repeats": [...]}}
     <out>/photo_raw.jsonl         one line per (file, repeat): the full analysis, model,
                                   provider, attempts, errors, estimated cost
 
@@ -28,7 +29,7 @@ import json
 import sys
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,15 @@ def _record(file: str, repeat: int, result: PhotoResult, seconds: float) -> dict
 RETRY_DELAYS_S: tuple[float, ...] = (2.0, 6.0, 15.0)
 
 
+def label_counts(components: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """``{label: count}`` with same-label entries added up (``photo_counts`` predictions)."""
+    counts: dict[str, int] = {}
+    for component in components:
+        label = str(component["label"])
+        counts[label] = counts.get(label, 0) + int(component.get("count", 1))
+    return counts
+
+
 async def analyze_with_retries(
     image_bytes: bytes, ctx: VisionContext, delays: Sequence[float] | None = None
 ) -> PhotoResult:
@@ -159,6 +169,7 @@ async def run(args: argparse.Namespace) -> int:
     errors_seen: list[dict[str, Any]] = []
     rooms: dict[str, list[str]] = {f.name: [] for f in files}
     components: dict[str, list[list[str]]] = {f.name: [] for f in files}
+    counts: dict[str, list[dict[str, int]]] = {f.name: [] for f in files}
 
     async def one(file: Path, repeat: int) -> dict[str, Any]:
         async with semaphore:
@@ -189,6 +200,7 @@ async def run(args: argparse.Namespace) -> int:
                 components[record["file"]].append(
                     sorted({c["label"] for c in analysis["components"]})
                 )
+                counts[record["file"]].append(label_counts(analysis["components"]))
             print(
                 f"repeat {repeat}/{args.repeats}: {len(records)} photos, "
                 f"spent ${budget.spent_usd:.4f}",
@@ -203,6 +215,9 @@ async def run(args: argparse.Namespace) -> int:
     )
     (args.out / "photo_components.json").write_text(
         json.dumps({f: fold(v) for f, v in components.items() if v}, indent=1, sort_keys=True)
+    )
+    (args.out / "photo_counts.json").write_text(
+        json.dumps({f: fold(v) for f, v in counts.items() if v}, indent=1, sort_keys=True)
     )
     models = sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""})
     (args.out / "run.json").write_text(
