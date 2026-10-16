@@ -57,7 +57,7 @@ and the embedder `EMBEDDING_MODEL` (any of `basis.retrieval.embed.MODEL_SPECS`, 
 the model's query and passage prefixes). With `hybrid`, two `rule_citations` results follow:
 `resolve_bm25` and `resolve_hybrid`, every rules-table citation through
 `basis.classify.router.resolve_rule_citations` over the same chunks with the classifier's
-two searches (`RETRIEVAL_SEARCH`; EVAL_REPORT 23).
+two searches (`RETRIEVAL_SEARCH`; EVAL_REPORT 25).
 
 `python -m evals.predict_assets --store parser [--search hybrid]` runs the classifier
 against the production chunks (parse, chunk at the configured window, embed) with the

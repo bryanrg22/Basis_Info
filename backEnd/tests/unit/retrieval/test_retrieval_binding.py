@@ -96,7 +96,7 @@ def test_hybrid_uses_the_bound_fusion(fusion: str, weight: float) -> None:
     assert [h.chunk_id for h in hits] == [h.chunk_id for h in expected]
 
 
-# ----------------------------------------------------------------- RETRIEVAL_SEARCH (section 23)
+# ----------------------------------------------------------------- RETRIEVAL_SEARCH (section 25)
 
 
 def test_search_defaults_to_bm25_everywhere() -> None:

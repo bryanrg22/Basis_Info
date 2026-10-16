@@ -353,7 +353,7 @@ def test_hole_rate_counts_pages_unjudged_for_that_query() -> None:
     assert hole.n == 6 and hole.value == pytest.approx(3 / 6)  # q1: B:1, C:1; q2: A:1
 
 
-# ------------------------------------------------------------- rule citations (section 23)
+# ------------------------------------------------------------- rule citations (section 25)
 
 
 def _citation_index(moved: tuple[str, int, str] | None = None) -> rt.ChunkIndex:

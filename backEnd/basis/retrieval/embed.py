@@ -52,7 +52,7 @@ class ModelSpec:
     passage_prefix: str = ""
 
 
-# The models measured in EVAL_REPORT section 23. All are 384-d, the chunks.embedding
+# The models measured in EVAL_REPORT section 25. All are 384-d, the chunks.embedding
 # column's dimension; a model of another dimension needs a migration first.
 MODEL_SPECS: Final[dict[str, ModelSpec]] = {
     DEFAULT_MODEL: ModelSpec(dim=384, window=256),

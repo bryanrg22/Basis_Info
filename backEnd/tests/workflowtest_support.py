@@ -52,6 +52,7 @@ from basis.temporal.service import (
     WorkflowNotRunningError,
     WorkflowRef,
     WorkflowUnavailableError,
+    ensure_not_ended_unsuccessfully,
 )
 from basis.workflow.contracts import (
     Decision,
@@ -294,6 +295,7 @@ class FakeWorkflowService:
         execution = self.executions.setdefault(
             workflow_id, FakeExecution(workflow_input=workflow_input, run_id=str(uuid.uuid4()))
         )
+        ensure_not_ended_unsuccessfully(await self.describe(workflow_id))  # as the real one
         return WorkflowRef(workflow_id=workflow_id, run_id=execution.run_id)
 
     async def describe(self, workflow_id: str) -> WorkflowDescription:

@@ -1,0 +1,283 @@
+{
+ "note": "What the appraisal_review gate holds (read from the database: no API route returns extraction fields). Values redacted; key, page cited, source and confidence kept.",
+ "extraction": {
+  "method": "azure_di+regex",
+  "overall_confidence": 0,
+  "needs_review": true
+ },
+ "fields": [
+  {
+   "key": "cost_approach.depreciated_cost_improvements",
+   "page": 3,
+   "source": "azure",
+   "confidence": 0.989,
+   "value": "<redacted>"
+  },
+  {
+   "key": "cost_approach.depreciation",
+   "page": 3,
+   "source": "azure",
+   "confidence": 0.98,
+   "value": "<redacted>"
+  },
+  {
+   "key": "cost_approach.indicated_value",
+   "page": 3,
+   "source": "azure",
+   "confidence": 0.963,
+   "value": "<redacted>"
+  },
+  {
+   "key": "cost_approach.site_improvements_value",
+   "page": 3,
+   "source": "azure",
+   "confidence": 0.987,
+   "value": "<redacted>"
+  },
+  {
+   "key": "cost_approach.site_value",
+   "page": 3,
+   "source": "azure",
+   "confidence": 0.992,
+   "value": "<redacted>"
+  },
+  {
+   "key": "cost_approach.total_cost_new",
+   "page": 3,
+   "source": "azure",
+   "confidence": 0.992,
+   "value": "<redacted>"
+  },
+  {
+   "key": "improvements.effective_age_years",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.964,
+   "value": "<redacted>"
+  },
+  {
+   "key": "improvements.foundation_type",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.711,
+   "value": "<redacted>"
+  },
+  {
+   "key": "improvements.gla_sqft",
+   "page": 5,
+   "source": "azure",
+   "confidence": 0.995,
+   "value": "<redacted>"
+  },
+  {
+   "key": "improvements.year_built",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.885,
+   "value": "<redacted>"
+  },
+  {
+   "key": "listing_and_contract.contract_date",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.996,
+   "value": "<redacted>"
+  },
+  {
+   "key": "listing_and_contract.contract_price",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.992,
+   "value": "<redacted>"
+  },
+  {
+   "key": "listing_and_contract.data_source",
+   "page": 4,
+   "source": "azure",
+   "confidence": 0.99,
+   "value": "<redacted>"
+  },
+  {
+   "key": "neighborhood.location",
+   "page": 5,
+   "source": "azure",
+   "confidence": 0.959,
+   "value": "<redacted>"
+  },
+  {
+   "key": "neighborhood.neighborhood_boundaries",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.99,
+   "value": "<redacted>"
+  },
+  {
+   "key": "neighborhood.present_land_use_commercial",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "neighborhood.present_land_use_multi_family",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.994,
+   "value": "<redacted>"
+  },
+  {
+   "key": "neighborhood.present_land_use_one_unit",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.996,
+   "value": "<redacted>"
+  },
+  {
+   "key": "neighborhood.present_land_use_two_to_four",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "reconciliation.final_market_value",
+   "page": 2,
+   "source": "llm",
+   "confidence": 0.6,
+   "value": "<redacted>"
+  },
+  {
+   "key": "sales_comparison.indicated_value",
+   "page": 2,
+   "source": "azure",
+   "confidence": 0.996,
+   "value": "<redacted>"
+  },
+  {
+   "key": "site.area_sqft",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.996,
+   "value": "<redacted>"
+  },
+  {
+   "key": "site.shape",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.998,
+   "value": "<redacted>"
+  },
+  {
+   "key": "site.view",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.858,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.assessors_parcel",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.989,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.borrower",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.998,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.census_tract",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.city",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.996,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.county",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.998,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.lender_client",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.map_reference",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.neighborhood_name",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.owner_of_public_record",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.property_address",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.995,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.real_estate_taxes",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.994,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.special_assessments",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.907,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.state",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.tax_year",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.995,
+   "value": "<redacted>"
+  },
+  {
+   "key": "subject.zip",
+   "page": 1,
+   "source": "azure",
+   "confidence": 0.997,
+   "value": "<redacted>"
+  }
+ ]
+}

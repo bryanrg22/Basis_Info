@@ -194,3 +194,24 @@ def test_over_long_note_and_description_are_cut_not_fatal() -> None:
         }
     )
     assert len(analysis.description) == 500
+
+
+def test_a_component_counted_zero_is_dropped_not_fatal() -> None:
+    """A count of 0 says "none visible", which is what leaving the item out says. The live
+    run's fusion call (claude-opus-5-5) answered one item with count 0 on both attempts, so
+    the whole answer was rejected and the photo lost its fused counts (EVAL_REPORT 23)."""
+    answer = {
+        "room_type": "kitchen",
+        "room_confidence": 0.9,
+        "floor": 1,
+        "room_ordinal": 1,
+        "components": [component(label="window", count=2), component(label="door", count=0)],
+        "description": "",
+    }
+    analysis = ModelPhotoAnalysis.model_validate(answer)
+    assert [(c.label.value, c.count) for c in analysis.components] == [("window", 2)]
+    for bad in (-1, "many"):
+        with pytest.raises(ValidationError):
+            ModelPhotoAnalysis.model_validate(
+                {**answer, "components": [component(label="door", count=bad)]}
+            )

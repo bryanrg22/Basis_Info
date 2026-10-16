@@ -39,8 +39,9 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -66,6 +67,7 @@ from basis.retrieval.embed import (
 from basis.retrieval.hybrid import hybrid_search
 from basis.retrieval.parse import PARSER_VERSION, REFERENCE_MAX_PAGES, parse_pdf
 from basis.retrieval.store import PostgresChunkStore
+from basis.retrieval.types import Hit
 
 ENV_VAR: Final = "BASIS_EVAL_DATA_DIR"
 PUB_527: Final = "IRS_IRS_PUB_527__2024"
@@ -102,7 +104,32 @@ TOLERANCE: Final = 0.01  # relative, per document and kind, and for the total
 # Sentences of the two-column pages whole in one chunk (pinned a little under the
 # measured rate; EVAL_REPORT section 22 has the measurement).
 MIN_INTACT: Final = {PUB_527: 0.91, PUB_946: 0.88}  # measured 0.923 (937), 0.892 (1659)
-MIN_VECTOR_AGREEMENT: Final = 0.9  # queries whose top-10 pages agree, HNSW vs exact
+# HNSW is approximate and its graph differs from build to build, so the index is compared
+# with the exact harness scan at ef_search 1000 (near-exact), and its recall at the
+# production setting (ef_search 40) is recorded separately with a floor, not an equality.
+EXACT_EF_SEARCH: Final = 1000
+
+
+class _NearExact:
+    """The store with its vector search widened to ``EXACT_EF_SEARCH`` candidates, so the
+    hybrid comparison below does not depend on the HNSW graph the build produced."""
+
+    def __init__(self, store: PostgresChunkStore) -> None:
+        self._store = store
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    async def search_vector(
+        self, corpus_version_id: uuid.UUID, query_embedding: Sequence[float], k: int
+    ) -> list[Hit]:
+        return await self._store.search_vector(
+            corpus_version_id, query_embedding, k, ef_search=EXACT_EF_SEARCH
+        )
+
+
+MIN_VECTOR_AGREEMENT: Final = 0.98  # queries whose top-10 pages agree, near-exact HNSW vs exact
+MIN_PRODUCTION_VECTOR_AGREEMENT: Final = 0.7  # the same at production ef_search (ANN recall)
 
 
 def _data_dir() -> Path | None:
@@ -390,15 +417,19 @@ async def test_the_harness_index_ranks_like_the_store(
         [json.loads(r.e) for r in rows],
     )
     embedder = SentenceTransformerEmbedder()
-    bm25_same = vector_same = hybrid_same = 0
+    bm25_same = vector_same = vector_same_production = hybrid_same = 0
     for query in queries.values():
         stored = await store.search_bm25(version, query, 50)
         if pages(stored) == pages(index.bm25(query, 50)):
             bm25_same += 1
         [vector] = await asyncio.to_thread(embedder.embed_query, [query])
-        if pages(await store.search_vector(version, vector, 50)) == pages(index.vector(vector, 50)):
+        exact = pages(index.vector(vector, 50))
+        near_exact = await store.search_vector(version, vector, 50, ef_search=EXACT_EF_SEARCH)
+        if pages(near_exact) == exact:
             vector_same += 1
-        a = await hybrid_search(store, embedder, version, query, 50)
+        if pages(await store.search_vector(version, vector, 50)) == exact:
+            vector_same_production += 1
+        a = await hybrid_search(_NearExact(store), embedder, version, query, 50)
         b = await hybrid_search(index, embedder, version, query, 50)
         if pages(a) == pages(b):
             hybrid_same += 1
@@ -410,9 +441,11 @@ async def test_the_harness_index_ranks_like_the_store(
         queries=n,
         bm25_top10_pages_equal=bm25_same,
         vector_top10_pages_equal=vector_same,
+        vector_top10_pages_equal_at_production_ef_search=vector_same_production,
         hybrid_top10_pages_equal=hybrid_same,
     )
     assert registry.stats.builds == 1
     assert bm25_same == n
     assert vector_same >= MIN_VECTOR_AGREEMENT * n
+    assert vector_same_production >= MIN_PRODUCTION_VECTOR_AGREEMENT * n
     assert hybrid_same >= MIN_VECTOR_AGREEMENT * n

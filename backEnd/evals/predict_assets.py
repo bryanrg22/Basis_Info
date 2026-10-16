@@ -15,7 +15,7 @@ and :func:`basis.retrieval.chunk.chunk_document` at the configured chunk window,
 with ``EMBEDDING_MODEL``) into :class:`evals.retrieval.ChunkIndex`, whose BM25 is the
 store's :class:`basis.retrieval.bm25.Bm25Index`; ``--search hybrid`` (parser store only)
 then gives the classifier :meth:`basis.retrieval.Retrieval.classifier_search`, the
-production ``RETRIEVAL_SEARCH=hybrid`` path (EVAL_REPORT section 23). Writes what
+production ``RETRIEVAL_SEARCH=hybrid`` path (EVAL_REPORT section 25). Writes what
 ``evals.run --predictions`` scores::
 
     <out>/assets.json        {"<id>": {"section", "bucket", "citations": {"claimed",

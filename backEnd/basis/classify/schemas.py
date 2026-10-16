@@ -10,6 +10,7 @@ clear one the pipeline sets.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -19,14 +20,29 @@ MAX_CITATIONS: Final = 5
 ASSET_CLASS_MAX: Final = 16
 
 
-def clip_asset_class(value: Any) -> Any:
-    """An ``asset_class`` longer than :data:`ASSET_CLASS_MAX` cut to it, ending in ``...``.
+# A Rev. Proc. 87-56 class code at the start of the answer ("57.0", "00.11"), followed by
+# its title or nothing: the form of every asset_class in the rules table.
+_LEADING_CLASS_CODE: Final = re.compile(r"\s*(\d{2}\.\d{1,2})(?![\d.])")
 
-    OpenAI's strict schema does not enforce ``maxLength``, and an answer such as "Building
-    or Building Component" failed validation in the provider, so the whole loop failed
-    (EVAL_REPORT section 17.2: 43 OpenAI loop failures). Cut it like the vision notes
-    (:func:`basis.vision.reconcile.clip_text`); the full text stays in the raw response."""
-    if isinstance(value, str) and len(value) > ASSET_CLASS_MAX:
+
+def clip_asset_class(value: Any) -> Any:
+    """An ``asset_class`` reduced to its class code, or cut to :data:`ASSET_CLASS_MAX`.
+
+    OpenAI's strict schema does not enforce ``maxLength``, and an over-long answer failed
+    validation in the provider, so the whole loop failed (EVAL_REPORT section 17.2: 43
+    OpenAI loop failures). 38 of the 43 began with the class code and went on with its
+    title ("00.3 Land Improvements", "57.0 Distributive Trades and Services"), so a leading
+    code is kept alone, the form of every accepted answer. Other text over the limit is cut
+    like the vision notes (:func:`basis.vision.reconcile.clip_text`). ``asset_class`` is not
+    stored on the asset or used in any decision (the cache of approved assets writes
+    ``None``), so neither case flags the row. The full text is in the provider response's
+    ``raw``, which is not persisted."""
+    if not isinstance(value, str):
+        return value
+    code = _LEADING_CLASS_CODE.match(value)
+    if code is not None:
+        return code.group(1)
+    if len(value) > ASSET_CLASS_MAX:
         return value[: ASSET_CLASS_MAX - 3].rstrip() + "..."
     return value
 

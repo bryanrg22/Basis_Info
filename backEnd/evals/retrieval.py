@@ -268,7 +268,7 @@ def fusion_sweep(
 # How many rules-table citations the production resolver finds through each search
 # (``RETRIEVAL_SEARCH``): :func:`basis.classify.router.resolve_rule_citations` searches the
 # excerpt and keeps a hit on the cited document and page that contains it (EVAL_REPORT
-# section 23).
+# section 25).
 
 
 @dataclass(frozen=True, slots=True)

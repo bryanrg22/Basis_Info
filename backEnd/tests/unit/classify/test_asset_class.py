@@ -1,8 +1,9 @@
-"""An over-long ``asset_class`` is clipped, not a loop failure (EVAL_REPORT section 17.2).
+"""An over-long ``asset_class`` is reduced to its code or clipped, not a loop failure.
 
 OpenAI's strict schema does not enforce ``maxLength``; before the clip an answer such as
-"Building or Building Component" failed validation in the provider (43 OpenAI loop
-failures). The provider parses with ``model_validate_json``, so the clip must hold there.
+"Building or Building Component" failed validation in the provider (EVAL_REPORT section
+17.2: 43 OpenAI loop failures). The provider parses with ``model_validate_json``, so the
+clip must hold there. The parametrized values are every distinct value of those 43.
 """
 
 from __future__ import annotations
@@ -37,11 +38,30 @@ def answer(asset_class: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        (LONG, "Building or B..."),
-        ("57.0 Distributive", "57.0 Distribu..."),
-        ("x" * ASSET_CLASS_MAX, "x" * ASSET_CLASS_MAX),  # at the limit: unchanged
+        # The 43 section 17.2 failures, by distinct value (count in the comment).
+        ("00.3 Land Improvements", "00.3"),  # 21
+        ("57.0 Distributive Trades and Services", "57.0"),  # 10
+        ("00.11 Office Furniture, Fixtures, and Equipment", "00.11"),  # 3
+        ("Nonresidential Real Property - 39 Year", "Nonresidentia..."),  # 2
+        ("Millwork - General", "Millwork - Ge..."),  # 2
+        ("00.11 Office Furniture, ... and Equipment - 7 Year", "00.11"),  # 2
+        (LONG, "Building or B..."),  # 1
+        ("00.3 Land Improvement", "00.3"),  # 1
+        ("00.3 Land Improvement \u2013 15 Years", "00.3"),  # 1
+        # Accepted answers are unchanged.
         ("57.0", "57.0"),
+        ("00.11", "00.11"),
+        ("06", "06"),
         (None, None),
+        # A short code with a title is reduced too, so the field has one form.
+        ("57.0 Distrib", "57.0"),
+        (" 00.3", "00.3"),
+        # Not a class code at the start: the length rule alone.
+        ("x" * ASSET_CLASS_MAX, "x" * ASSET_CLASS_MAX),  # at the limit: unchanged
+        ("Class 57.0 Distributive", "Class 57.0 Di..."),
+        ("57.0.1 Something long here", "57.0.1 Someth..."),  # not a code (two dots)
+        ("570.1 Something long here", "570.1 Somethi..."),  # not a code (three digits)
+        ("39 Year Nonresidential", "39 Year Nonre..."),
     ],
 )
 def test_clip_asset_class(value: str | None, expected: str | None) -> None:
@@ -58,6 +78,17 @@ def test_the_schema_accepts_a_long_asset_class_from_json() -> None:
     parsed = Classification.model_validate_json(json.dumps(answer(LONG)))
     assert parsed.asset_class == "Building or B..."
     assert len(parsed.asset_class) == ASSET_CLASS_MAX
+
+
+def test_the_schema_keeps_the_code_of_a_long_titled_class() -> None:
+    """The commonest failure (21 of 43): a code with its title."""
+    parsed = Classification.model_validate_json(json.dumps(answer("00.3 Land Improvements")))
+    assert parsed.asset_class == "00.3"
+
+
+def test_a_non_string_asset_class_still_fails() -> None:
+    with pytest.raises(ValueError):
+        Classification.model_validate(answer(57.0))
 
 
 def test_the_openai_provider_parses_a_long_asset_class() -> None:

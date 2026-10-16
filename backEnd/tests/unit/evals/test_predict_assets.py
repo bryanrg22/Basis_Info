@@ -1,5 +1,5 @@
 """``evals.predict_assets``: the store and the classifier search it gives the model
-(EVAL_REPORT section 23). The model loop itself is the router's and is tested there."""
+(EVAL_REPORT section 25). The model loop itself is the router's and is tested there."""
 
 from __future__ import annotations
 

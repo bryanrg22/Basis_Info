@@ -1,0 +1,1399 @@
+{
+ "note": "What the rooms_review gate holds (database: no API route returns rooms or inventories). Room names are the model's room identity.",
+ "rooms": [
+  {
+   "room": "Basement",
+   "room_type": "basement",
+   "floor": "-1",
+   "photos": 2,
+   "step": "model",
+   "inventory": [
+    {
+     "label": "ceiling_finish",
+     "count": 1,
+     "material": "drywall",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "built_in_shelving",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "painted_masonry",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "window",
+     "count": 2,
+     "material": null,
+     "seen_in_photos": 2
+    },
+    {
+     "label": "window_treatment",
+     "count": 2,
+     "material": "fabric",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "light_fixture",
+     "count": 1,
+     "material": "glass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "refrigerator",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 9,
+     "material": "other",
+     "seen_in_photos": 2
+    }
+   ]
+  },
+  {
+   "room": "Bathroom",
+   "room_type": "bathroom",
+   "floor": null,
+   "photos": 9,
+   "step": "model",
+   "inventory": [
+    {
+     "label": "bathtub",
+     "count": 1,
+     "material": "fiberglass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "shower",
+     "count": 1,
+     "material": "fiberglass",
+     "seen_in_photos": 3
+    },
+    {
+     "label": "interior_door",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 5
+    },
+    {
+     "label": "sink",
+     "count": 2,
+     "material": "porcelain",
+     "seen_in_photos": 5
+    },
+    {
+     "label": "sink",
+     "count": 1,
+     "material": "ceramic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "toilet",
+     "count": 2,
+     "material": "porcelain",
+     "seen_in_photos": 5
+    },
+    {
+     "label": "toilet",
+     "count": 1,
+     "material": "porcelain",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 5
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 3,
+     "material": "plastic",
+     "seen_in_photos": 3
+    },
+    {
+     "label": "tile",
+     "count": 1,
+     "material": "ceramic",
+     "seen_in_photos": 4
+    },
+    {
+     "label": "window",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "blinds",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wainscoting",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "bathroom_vanity",
+     "count": 1,
+     "material": "granite",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "mirror",
+     "count": 1,
+     "material": "glass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "painted_masonry",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "built_in_shelving",
+     "count": 1,
+     "material": "glass",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "other",
+     "count": 12,
+     "material": "other",
+     "seen_in_photos": 8
+    }
+   ]
+  },
+  {
+   "room": "Bedroom",
+   "room_type": "bedroom",
+   "floor": null,
+   "photos": 9,
+   "step": "model",
+   "inventory": [
+    {
+     "label": "ceiling_fan",
+     "count": 2,
+     "material": "metal",
+     "seen_in_photos": 3
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 3
+    },
+    {
+     "label": "interior_door",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "light_fixture",
+     "count": 2,
+     "material": "glass",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "window",
+     "count": 6,
+     "material": "wood",
+     "seen_in_photos": 6
+    },
+    {
+     "label": "window_treatment",
+     "count": 6,
+     "material": "fabric",
+     "seen_in_photos": 6
+    },
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 5
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 4
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 3,
+     "material": "plastic",
+     "seen_in_photos": 3
+    },
+    {
+     "label": "fireplace",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "built_in_shelving",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 60,
+     "material": "other",
+     "seen_in_photos": 9
+    }
+   ]
+  },
+  {
+   "room": "Bedroom",
+   "room_type": "bedroom",
+   "floor": "2",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 1,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 4,
+     "material": null,
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window_treatment",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Dining Room",
+   "room_type": "dining_room",
+   "floor": "1",
+   "photos": 2,
+   "step": "model",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "blinds",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "ceiling_fan",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "countertop",
+     "count": 1,
+     "material": "composite",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 2,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 1,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 6,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 13,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "refrigerator",
+     "count": 1,
+     "material": "steel",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "tile",
+     "count": 1,
+     "material": "ceramic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "drywall",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window_treatment",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Exterior",
+   "room_type": "exterior",
+   "floor": "1",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "ceiling_finish",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 1,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "gutter",
+     "count": 1,
+     "material": "aluminum",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "landscaping",
+     "count": 1,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 6,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "outdoor_lighting",
+     "count": 5,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "porch",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "sidewalk",
+     "count": 1,
+     "material": "concrete",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "siding",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "stairs",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 6,
+     "material": "wood",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Exterior",
+   "room_type": "exterior",
+   "floor": null,
+   "photos": 12,
+   "step": "model",
+   "inventory": [
+    {
+     "label": "driveway",
+     "count": 2,
+     "material": "asphalt",
+     "seen_in_photos": 6
+    },
+    {
+     "label": "landscaping",
+     "count": 1,
+     "material": "other",
+     "seen_in_photos": 12
+    },
+    {
+     "label": "roof",
+     "count": 2,
+     "material": "other",
+     "seen_in_photos": 6
+    },
+    {
+     "label": "siding",
+     "count": 2,
+     "material": "vinyl",
+     "seen_in_photos": 9
+    },
+    {
+     "label": "signage",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "porch",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 5
+    },
+    {
+     "label": "garage_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "outdoor_lighting",
+     "count": 2,
+     "material": "metal",
+     "seen_in_photos": 3
+    },
+    {
+     "label": "retaining_wall",
+     "count": 1,
+     "material": "stone",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "sidewalk",
+     "count": 1,
+     "material": "concrete",
+     "seen_in_photos": 3
+    },
+    {
+     "label": "window",
+     "count": 12,
+     "material": null,
+     "seen_in_photos": 6
+    },
+    {
+     "label": "gutter",
+     "count": 1,
+     "material": "aluminum",
+     "seen_in_photos": 7
+    },
+    {
+     "label": "other",
+     "count": 10,
+     "material": "wood",
+     "seen_in_photos": 11
+    },
+    {
+     "label": "ac_condenser",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "electrical_panel",
+     "count": 2,
+     "material": "metal",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "exterior_door",
+     "count": 2,
+     "material": null,
+     "seen_in_photos": 2
+    },
+    {
+     "label": "fence",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "patio",
+     "count": 1,
+     "material": "concrete",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Family Room",
+   "room_type": "family_room",
+   "floor": "2",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 8,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "railing",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Garage",
+   "room_type": "garage",
+   "floor": "1",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "garage_door",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": null,
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 2,
+     "material": null,
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 3,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 1,
+     "material": "concrete",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "sink",
+     "count": 1,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Hallway",
+   "room_type": "hallway",
+   "floor": null,
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "ceiling_finish",
+     "count": 1,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 2,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 2,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "mirror",
+     "count": 3,
+     "material": "glass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 6,
+     "material": null,
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wainscoting",
+     "count": 1,
+     "material": "wallpaper",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "wallpaper",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Kitchen",
+   "room_type": "kitchen",
+   "floor": "1",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "blinds",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "ceiling_finish",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "countertop",
+     "count": 1,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "dishwasher",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 2,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hvac_vent",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "kitchen_cabinet",
+     "count": 8,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 7,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 5,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "oven",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "refrigerator",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "sink",
+     "count": 1,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "stove",
+     "count": 1,
+     "material": "glass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wainscoting",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "drywall",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Kitchen",
+   "room_type": "kitchen",
+   "floor": null,
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "ceiling_finish",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "countertop",
+     "count": 1,
+     "material": "laminate",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "kitchen_cabinet",
+     "count": 14,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 3,
+     "material": null,
+     "seen_in_photos": 1
+    },
+    {
+     "label": "refrigerator",
+     "count": 1,
+     "material": "steel",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "tile",
+     "count": 1,
+     "material": "ceramic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": null,
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Laundry",
+   "room_type": "laundry",
+   "floor": null,
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "dryer",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "kitchen_cabinet",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 3,
+     "material": null,
+     "seen_in_photos": 1
+    },
+    {
+     "label": "tile",
+     "count": 1,
+     "material": "ceramic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "washer",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": "vinyl",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window_treatment",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Living Room",
+   "room_type": "living_room",
+   "floor": "1",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "ceiling_finish",
+     "count": 1,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "fireplace",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 1,
+     "material": "glass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "mirror",
+     "count": 1,
+     "material": "glass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 11,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Lobby",
+   "room_type": "lobby",
+   "floor": "1",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "exterior_door",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 11,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "drywall",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Mechanical",
+   "room_type": "mechanical",
+   "floor": null,
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "other",
+     "count": 2,
+     "material": "metal",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Mechanical",
+   "room_type": "mechanical",
+   "floor": "-1",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "ceiling_finish",
+     "count": 1,
+     "material": "steel",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 1,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "painted_masonry",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Office",
+   "room_type": "office",
+   "floor": null,
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 1,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 1,
+     "material": "metal",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 11,
+     "material": "other",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window",
+     "count": 2,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "window_treatment",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Stairway",
+   "room_type": "stairway",
+   "floor": null,
+   "photos": 3,
+   "step": "model",
+   "inventory": [
+    {
+     "label": "baseboard",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "railing",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "railing",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "railing",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "stairs",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "stairs",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "stairs",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "electrical_outlet",
+     "count": 1,
+     "material": "plastic",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "hardwood_floor",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "drywall",
+     "seen_in_photos": 2
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "painted_masonry",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "other",
+     "count": 2,
+     "material": "other",
+     "seen_in_photos": 2
+    }
+   ]
+  },
+  {
+   "room": "Stairway",
+   "room_type": "stairway",
+   "floor": "1",
+   "photos": 1,
+   "step": "per_photo",
+   "inventory": [
+    {
+     "label": "railing",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "carpet",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "interior_door",
+     "count": 1,
+     "material": "wood",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "light_fixture",
+     "count": 1,
+     "material": "glass",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "stairs",
+     "count": 1,
+     "material": "fabric",
+     "seen_in_photos": 1
+    },
+    {
+     "label": "wall_finish",
+     "count": 1,
+     "material": "painted_masonry",
+     "seen_in_photos": 1
+    }
+   ]
+  },
+  {
+   "room": "Unassigned",
+   "room_type": "ambiguous",
+   "floor": null,
+   "photos": 1,
+   "step": "per-photo rows (no inventory)",
+   "inventory": []
+  }
+ ]
+}

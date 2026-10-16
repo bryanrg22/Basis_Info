@@ -107,7 +107,7 @@ def test_hash_embedder_is_refused_outside_dev_and_test(env: str) -> None:
         )
 
 
-# ----------------------------------------------------------------- prefixes (section 23)
+# ----------------------------------------------------------------- prefixes (section 25)
 
 
 class FakeModel:

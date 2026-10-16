@@ -390,7 +390,7 @@ async def test_the_classifier_searches_with_retrieval_search(
     monkeypatch: pytest.MonkeyPatch,
     search: str,
 ) -> None:
-    """EVAL_REPORT section 23: RETRIEVAL_SEARCH picks the store's BM25 (the classifier's
+    """EVAL_REPORT section 25: RETRIEVAL_SEARCH picks the store's BM25 (the classifier's
     own default, ``ctx.search`` None) or ``Retrieval.hybrid`` bound to the chunk store."""
     from dataclasses import replace
 
