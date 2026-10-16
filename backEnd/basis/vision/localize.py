@@ -396,6 +396,28 @@ COUNTABLE: Final[frozenset[ComponentLabel]] = frozenset(
 _LABEL_ORDER: Final = {label: i for i, label in enumerate(ComponentLabel)}
 
 
+# Alternative phrase tables for experiments (EVAL_REPORT section 10): "v1" is PHRASES; "v2"
+# re-phrases the classes whose v1 phrases caught the wrong objects on the real photos
+# (plug-in lamps as light fixtures, porch lanterns missed by "outdoor light", cabinet runs
+# instead of units) so each change is measured against the same verified labels.
+PHRASE_SETS: Final[dict[str, Mapping[ComponentLabel, tuple[str, ...]]]] = {
+    "v1": PHRASES,
+    "v2": {
+        **PHRASES,
+        L.LIGHT_FIXTURE: (
+            "ceiling light",
+            "recessed light",
+            "pendant light",
+            "chandelier",
+            "wall sconce",
+        ),
+        L.OUTDOOR_LIGHTING: ("porch light", "wall lantern", "outdoor light fixture"),
+        L.KITCHEN_CABINET: ("cabinet door",),
+        L.INTERIOR_DOOR: ("interior door", "door"),
+    },
+}
+
+
 def prompt_labels(labels: Sequence[ComponentLabel | str]) -> list[ComponentLabel]:
     """``labels`` | :data:`COUNTABLE`, without ``other`` and unknown labels, in vocabulary
     order (so the prompt list, and so the request, is deterministic)."""
@@ -409,8 +431,9 @@ def prompt_labels(labels: Sequence[ComponentLabel | str]) -> list[ComponentLabel
     return sorted(chosen, key=_LABEL_ORDER.__getitem__)
 
 
-def phrases_for(labels: Sequence[ComponentLabel]) -> list[Phrase]:
-    return [Phrase(label=label, text=text) for label in labels for text in PHRASES.get(label, ())]
+def phrases_for(labels: Sequence[ComponentLabel], phrase_set: str = "v1") -> list[Phrase]:
+    table = PHRASE_SETS[phrase_set]
+    return [Phrase(label=label, text=text) for label in labels for text in table.get(label, ())]
 
 
 # --------------------------------------------------------------------------- suppression
@@ -1049,10 +1072,11 @@ async def localize_photo(
     grid: int = 2,
     overlap: float = 0.2,
     merge_metric: MergeMetric = "iou",
+    phrase_set: str = "v1",
 ) -> Localization:
     """Prompt (VLM labels | COUNTABLE) on the full image and, with ``tiling``, the
     countable phrases on ``grid x grid`` tiles too; merged into one localization."""
-    phrases = phrases_for(prompt_labels(labels_from_vlm))
+    phrases = phrases_for(prompt_labels(labels_from_vlm), phrase_set)
     if not tiling:
         return await localizer.localize(image, phrases, threshold=threshold)
     countable = [p for p in phrases if p.label in COUNTABLE]
@@ -1067,6 +1091,7 @@ async def localize_photo(
 __all__ = [
     "COUNTABLE",
     "PHRASES",
+    "PHRASE_SETS",
     "Box",
     "FakeLocalizer",
     "Instance",

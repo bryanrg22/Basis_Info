@@ -731,3 +731,25 @@ def test_counts_with_a_minimum_score() -> None:
     assert counts(loc_) == {"sink": 1, "window": 2}
     assert counts(loc_, min_score=0.5) == {"sink": 1, "window": 1}
     assert loc_.counts == counts(loc_)
+
+
+def test_phrase_sets_share_the_table_except_the_rephrased_classes() -> None:
+    from basis.vision.localize import PHRASE_SETS, phrases_for
+
+    assert PHRASE_SETS["v1"] is PHRASES
+    changed = {k for k in PHRASES if PHRASE_SETS["v2"][k] != PHRASES[k]}
+    assert changed == {
+        ComponentLabel.LIGHT_FIXTURE,
+        ComponentLabel.OUTDOOR_LIGHTING,
+        ComponentLabel.KITCHEN_CABINET,
+        ComponentLabel.INTERIOR_DOOR,
+    }
+    # No phrase is shared between two labels in either set (a hit must map to one label).
+    for table in PHRASE_SETS.values():
+        seen: dict[str, ComponentLabel] = {}
+        for label, texts in table.items():
+            for text in texts:
+                assert text not in seen, (text, seen.get(text), label)
+                seen[text] = label
+    assert [p.text for p in phrases_for([ComponentLabel.KITCHEN_CABINET], "v2")] == ["cabinet door"]
+    assert [p.text for p in phrases_for([ComponentLabel.KITCHEN_CABINET])] == ["kitchen cabinet"]

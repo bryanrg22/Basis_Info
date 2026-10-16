@@ -371,3 +371,72 @@ Decision needed from the engineer (adds to section 5): for each contested row, c
 the bucket to what the documents say or record the basis for the legacy treatment; and
 the alias follow-ups listed in `RULES_RECITATION.md` (`range_hood`, `exterior_lighting`,
 `hot_tub`/`spa`, `lvp`).
+
+## 10. Localizing and counting objects with SAM 3 (2026-10-16)
+
+Design: `VISION_DETECTION_RESEARCH.md`. Code: `basis/vision/localize.py` (SAM 3 through
+Replicate, `vufinder/sam3`; masks kept as run lengths; per-label phrases; 2 x 2 tiling with
+mask NMS; tap-to-add prompts), `evals/openimages.py` (public evaluation set),
+`evals/predict_boxes.py` (runner), `evals.run` dataset `detection_boxes`. Replicate billed
+by predict time; the account was throttled to 6 prediction creates per minute (under $5 of
+credit), which is why runs below took an hour and lost some images to retries.
+
+### 10.1 Public yardstick: Open Images V7 validation, 23 of our classes
+
+360 images selected (25 per class where available, 879 boxes, built by
+`evals.openimages`; Open Images "Door" scored against the union of our interior and
+exterior door predictions; group boxes and verified-label rules as in the Open Images
+protocol). SAM 3 prompted with every label of the dataset, no tiling, score threshold 0.1
+for the curve; 310 images returned (50 lost to the throttle), $2.18.
+
+| Metric | Value |
+|---|---|
+| mAP@0.5 over 23 classes | 0.596 |
+| AP@0.5, strongest: washer / toilet / ceiling_fan / light_fixture / bathtub / window / pool / refrigerator / stairs | 0.91 / 0.85 / 0.82 / 0.81 / 0.77 / 0.77 / 0.75 / 0.73 / 0.71 |
+| AP@0.5, weakest: kitchen_cabinet / dishwasher / porch / countertop / door | 0.11 / 0.16 / 0.32 / 0.35 / 0.38 |
+| at threshold 0.5: precision / recall | 0.45 / 0.66 |
+| at threshold 0.6: precision / recall; count MAE; signed bias (per image-class) | 0.54 / 0.60; 0.99; +0.19 |
+| at threshold 0.3: precision / recall; count MAE; signed bias | 0.31 / 0.75; 2.45; +1.98 |
+
+The two worst classes fail on semantics, not vision: SAM 3 returns every cabinet door
+where Open Images boxes a run of cabinetry (count bias +4.3 per image), and "door" also
+returns appliance and cabinet doors (bias +2.7). Singular fixtures are found reliably.
+For comparison, the SAM 3 paper reports 53.6 box AP on LVIS zero-shot; 0.60 on these
+everyday classes is in line with that, so the public set says the model is as advertised
+on our vocabulary and that the remaining work is phrasing, granularity and thresholds.
+
+### 10.2 Our photos: SAM 3 against verified boxes
+
+Labels: SAM 3's own boxes for six countable classes on all 52 photos were verified by hand
+(every instance accepted or rejected with a reason, missed objects added; 191 boxes;
+`labels/countable_boxes_v1_part1/2.json`, harness copy `detection_boxes_v1.json`). This
+replaced the per-photo component labels as the yardstick for countable classes, because
+those labels undercounted badly (one window on a facade photo where SAM 3 found six; one
+light fixture in a kitchen with nine recessed lights and a chandelier).
+
+Single full-frame pass, plain thresholds, from the verification data (precision and recall
+over instances; count error per photo):
+
+| Class | True objects | Threshold | Precision | Recall | Count MAE per photo |
+|---|---|---|---|---|---|
+| electrical outlet | 21 | 0.5 | 0.71 | 0.95 | 0.17 |
+| window | 68 | 0.6 | 0.66 | 0.84 | 0.71 |
+| door | 31 | 0.5 | 0.51 | 0.81 | 0.54 |
+| light fixture | 24 | 0.5 | 0.32 | 0.92 | 0.85 |
+| exterior light | 23 | 0.5 | 0.80 | 0.17 | 0.38 |
+| kitchen cabinet | 24 | 0.5 | 0.45 | 0.42 | 0.15 |
+
+Why precision is low, from the rejection reasons: windows of neighbouring buildings and
+garage-door glass (window), appliance and cabinet doors and casings (door), plug-in lamps
+and outdoor lanterns (light fixture); "exterior light" as a phrase misses porch lanterns
+that "light fixture" finds (pooling the two on outdoor photos raises exterior-light recall
+from 0.17 to 0.52); cabinets are a granularity mismatch (the label counts units, the
+model boxes both doors and runs). Containment suppression (a same-class box mostly inside
+another is dropped) raises window precision 0.55 to 0.62 at 0.5 but removes cabinet units
+inside run boxes, so it must be per class.
+
+Adjustments to measure next, one at a time against these labels: per-class thresholds;
+phrases per class ("ceiling light", "recessed light", "chandelier" for fixtures; "porch
+light", "wall lantern" for exterior lights; "cabinet door" for cabinets); a vision-model
+check of each box's crop for the door and neighbour-building confusions; tiling for the
+exterior windows. (Harness runs with tiling on and off follow in 10.3.)

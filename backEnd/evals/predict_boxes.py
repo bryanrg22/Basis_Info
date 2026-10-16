@@ -49,6 +49,7 @@ from typing import Any
 from basis.config import Settings, load_settings
 from basis.llm.provider import Budget, BudgetExceededError
 from basis.vision.localize import (
+    PHRASE_SETS,
     Localization,
     Localizer,
     LocalizerError,
@@ -74,6 +75,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split", default="dev", help="dataset split to run (with --dataset)")
     parser.add_argument("--tiling", choices=("on", "off"), default="off")
     parser.add_argument("--merge-metric", choices=("iou", "ios"), default="iou")
+    parser.add_argument("--phrase-set", choices=tuple(PHRASE_SETS), default="v1")
     parser.add_argument("--threshold", type=float, default=0.1, help="sent to the model")
     parser.add_argument("--count-threshold", type=float, default=0.5)
     parser.add_argument("--repeats", type=int, default=1)
@@ -222,6 +224,7 @@ async def run(args: argparse.Namespace) -> int:
                     tiling=tiling,
                     threshold=args.threshold,
                     merge_metric=args.merge_metric,
+                    phrase_set=args.phrase_set,
                 )
             except (LocalizerError, BudgetExceededError) as exc:
                 return base | {"error": f"{type(exc).__name__}: {exc}"}
@@ -289,6 +292,7 @@ async def run(args: argparse.Namespace) -> int:
                 "repeats": args.repeats,
                 "tiling": tiling,
                 "merge_metric": args.merge_metric,
+                "phrase_set": args.phrase_set,
                 "threshold": args.threshold,
                 "count_threshold": args.count_threshold,
                 "phrases_from": args.phrases_from,
