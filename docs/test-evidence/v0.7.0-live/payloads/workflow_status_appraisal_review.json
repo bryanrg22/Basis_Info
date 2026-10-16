@@ -1,0 +1,33 @@
+{
+ "workflow_id": "study-16522525-d6d4-445e-aa74-6cf9ec407bd3",
+ "run_id": "01a145b9-1bb6-7432-95e2-60a354c6718a",
+ "execution_status": "RUNNING",
+ "status": {
+  "stage": "appraisal_review",
+  "revision": 1,
+  "waiting_since": "2026-10-16T17:31:01.465006Z",
+  "pending_photos": 0,
+  "completed_photos": 52,
+  "decisions_applied": [],
+  "stalled": false,
+  "budget_remaining_usd": 22.341314000000015,
+  "awaiting": "appraisal_review",
+  "flagged_photos": [
+   "618adcbe-67c2-4f2c-92a8-a74a789c53b7"
+  ],
+  "needs_review_stages": [
+   "appraisal_review"
+  ]
+ },
+ "runs": [
+  {
+   "workflow_id": "study-16522525-d6d4-445e-aa74-6cf9ec407bd3",
+   "run_id": "01a145b9-1bb6-7432-95e2-60a354c6718a",
+   "workflow_version": "8908ed6",
+   "input_revision": 1,
+   "started_at": "2026-10-16T17:18:41.635879Z",
+   "ended_at": null,
+   "outcome": null
+  }
+ ]
+}
