@@ -1,2 +1,2 @@
 # Reviewed waivers for tooling/check_no_client_data.py: <sha256>  <path>  # reason
-f7cb47567313de80c7d91554c1fd5ba78450502dc83c93b815dbd8960e655e2a  backEnd/.env.example  # settings names only, every value empty (re-pin after any edit)
+ea67667d1d4ccb70c7cb09e58aafdef8ba76f8746da6d9a821ab086e6bb43a9c  backEnd/.env.example  # settings names only, every value empty (re-pin after any edit)
