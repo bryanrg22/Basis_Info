@@ -211,8 +211,9 @@ class AnalyzePhoto:
             provider=self._deps.llm,
             prompt=released_prompt(),
             model=settings.vision_model,
-            max_tokens=settings.vision_max_tokens,
+            max_tokens=settings.vision_output_budget,
             heartbeat=heartbeat,
+            reasoning_effort=settings.vision_reasoning_effort,
         )
         try:
             async with heartbeating("analyzing"):

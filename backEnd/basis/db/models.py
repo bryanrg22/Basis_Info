@@ -372,6 +372,95 @@ class Component(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+# Migration 0004: SAM 3 localization of the countable objects in each photo.
+LOCALIZATION_STATUSES: Final = ("done", "failed", "skipped")
+OBJECT_SOURCES: Final = ("model", "manual")
+
+
+class PhotoLocalization(Base):
+    """One photo's localization outcome per revision (``basis.activities.localize_photo``).
+
+    ``status``: ``done`` (the localizer answered; ``instances`` were written, possibly
+    none), ``failed`` (it did not, after retries; ``reason`` says why) or ``skipped``
+    (no localizer configured, no budget, or nothing to prompt). Rows of a decided revision
+    are copied, not changed, into the next one (``carried_from_revision``).
+    """
+
+    __tablename__ = "photo_localizations"
+    __table_args__ = (
+        PrimaryKeyConstraint("document_id", "revision"),
+        ForeignKeyConstraint(["study_id", "document_id"], ["documents.study_id", "documents.id"]),
+        CheckConstraint("status IN ('done', 'failed', 'skipped')", name="status_valid"),
+        CheckConstraint("instances >= 0", name="instances_nonnegative"),
+    )
+
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    document_id: Mapped[uuid.UUID]
+    revision: Mapped[int]
+    status: Mapped[str]
+    reason: Mapped[str | None]
+    instances: Mapped[int] = mapped_column(server_default=ZERO)
+    model_version: Mapped[str | None]
+    # Prompted labels and phrases, the threshold sent and the per-class count thresholds.
+    params: Mapped[Any | None] = mapped_column(JSON_DOC)
+    image_width: Mapped[int | None]
+    image_height: Mapped[int | None]
+    predict_seconds: Mapped[float | None] = mapped_column(Double)
+    cost_usd: Mapped[float | None] = mapped_column(Double)
+    carried_from_revision: Mapped[int | None]
+    created_at: Mapped[datetime] = _created_at()
+
+
+class PhotoObject(Base):
+    """One instance of a component in a photo: a normalized box, an optional run-length
+    mask (``basis.vision.localize.Rle``: row-major, zeros first) and where it came from.
+
+    ``source="model"`` rows come from SAM 3; ``counted`` says whether the score clears
+    the class's count threshold (lower-scoring candidates are kept so an engineer's tap can
+    select one). ``source="manual"`` rows are an engineer's selection (``created_by``),
+    always counted; ``derived_from`` names the candidate a tap or box resolved to.
+    Deleting is a soft delete (``deleted_at``/``deleted_by``) so the audit trail stays.
+    """
+
+    __tablename__ = "photo_objects"
+    __table_args__ = (
+        UniqueConstraint("study_id", "id"),
+        ForeignKeyConstraint(["study_id", "document_id"], ["documents.study_id", "documents.id"]),
+        Index(None, "document_id", "revision"),
+        CheckConstraint("source IN ('model', 'manual')", name="source_valid"),
+        CheckConstraint(
+            "x1 >= 0 AND y1 >= 0 AND x2 <= 1 AND y2 <= 1 AND x1 <= x2 AND y1 <= y2",
+            name="box_normalized",
+        ),
+        CheckConstraint("score IS NULL OR score BETWEEN 0 AND 1", name="score_range"),
+        CheckConstraint("area BETWEEN 0 AND 1", name="area_range"),
+        CheckConstraint("source = 'manual' OR created_by IS NULL", name="model_has_no_author"),
+        CheckConstraint("(deleted_at IS NULL) = (deleted_by IS NULL)", name="deleted_by_whom"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    document_id: Mapped[uuid.UUID]
+    revision: Mapped[int]
+    label: Mapped[str]
+    phrase: Mapped[str | None]
+    score: Mapped[float | None] = mapped_column(REAL)
+    x1: Mapped[float] = mapped_column(Double)
+    y1: Mapped[float] = mapped_column(Double)
+    x2: Mapped[float] = mapped_column(Double)
+    y2: Mapped[float] = mapped_column(Double)
+    mask: Mapped[Any | None] = mapped_column(JSON_DOC)
+    area: Mapped[float] = mapped_column(REAL)
+    source: Mapped[str]
+    counted: Mapped[bool] = mapped_column(server_default=text("true"))
+    derived_from: Mapped[uuid.UUID | None]
+    carried_from: Mapped[uuid.UUID | None]
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    deleted_at: Mapped[datetime | None]
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _created_at()
+
+
 class Asset(Base):
     __tablename__ = "assets"
     __table_args__ = (

@@ -88,6 +88,12 @@ OPTIONS: Final[dict[str, ActivityOptions]] = {
     "analyze_photo": ActivityOptions(
         timedelta(minutes=2), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
     ),
+    # SAM 3 on Replicate: the localizer's own backoff on 429/5xx waits up to ~4 minutes
+    # (RETRY_DELAYS_S, the throttle answers 429 for minutes) and a prediction is canceled
+    # after 5, so one attempt gets 12; heartbeats continue while it waits.
+    "localize_photo": ActivityOptions(
+        timedelta(minutes=12), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
+    ),
     "process_assets": ActivityOptions(
         timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
     ),

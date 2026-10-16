@@ -753,3 +753,38 @@ def test_phrase_sets_share_the_table_except_the_rephrased_classes() -> None:
                 seen[text] = label
     assert [p.text for p in phrases_for([ComponentLabel.KITCHEN_CABINET], "v2")] == ["cabinet door"]
     assert [p.text for p in phrases_for([ComponentLabel.KITCHEN_CABINET])] == ["kitchen cabinet"]
+
+
+# --------------------------------------------------------------------------- product step
+
+
+def test_surface_labels_are_the_surfaces_prompts_list() -> None:
+    """``SURFACE_LABELS`` mirrors photo_surfaces/v1's list, so the product step never
+    prompts a label the surfaces call owns and prompts every one the countables call owns."""
+    from basis.llm import prompts
+
+    text = prompts.load("photo_surfaces", "v1").text
+    listed = text.split("ONLY surfaces from this list, at most one entry per label, count 1:")[1]
+    listed = listed.split("Floors:")[0]
+    names = {part.strip().split(" ")[0].strip(".") for part in listed.replace("\n", " ").split(",")}
+    assert {label.value for label in loc.SURFACE_LABELS} == names
+
+
+def test_object_labels_drop_surfaces_and_other_and_keep_the_countable_set() -> None:
+    chosen = loc.object_labels(["wall_finish", "toilet", "other", "carpet", "not_a_label"])
+    assert ComponentLabel.TOILET in chosen
+    assert not {ComponentLabel.WALL_FINISH, ComponentLabel.CARPET, ComponentLabel.OTHER} & set(
+        chosen
+    )
+    assert loc.COUNTABLE <= set(chosen)
+    assert loc.object_labels([]) == loc.prompt_labels([])  # the countable set alone
+
+
+def test_count_thresholds_follow_eval_report_10_2() -> None:
+    assert loc.count_threshold(ComponentLabel.WINDOW) == 0.6
+    for label in ("electrical_outlet", "interior_door", "light_fixture", "kitchen_cabinet"):
+        assert loc.count_threshold(label) == 0.5
+    assert loc.count_threshold("not_a_label") == 0.5
+    assert loc.CANDIDATE_THRESHOLD < min(
+        loc.COUNT_THRESHOLD_DEFAULT, *loc.COUNT_THRESHOLDS.values()
+    )

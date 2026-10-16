@@ -44,6 +44,11 @@ in, every matching instance out, each with a mask, a box and a score) and counts
   (``evals.predict_boxes --merge-metric``).
 * :func:`localize_photo` is the pipeline step: phrases for (VLM labels | COUNTABLE), one
   full-image prediction, tiles for the countable phrases only when ``tiling``, merged.
+* The product step (``basis.activities.localize_photo``) prompts the analysis's object
+  labels (:func:`object_labels`: everything but :data:`SURFACE_LABELS`) with the countable
+  set, on the full frame only (EVAL_REPORT 10.3: tiling hurt), at
+  :data:`CANDIDATE_THRESHOLD`, and counts an instance when its score clears its class's
+  threshold (:func:`count_threshold`, EVAL_REPORT 10.2: window 0.6, every other class 0.5).
 
 Tap-to-add (:meth:`Localizer.segment_prompt`) uses SAM 3's point and box prompts. In SAM
 3's concept mode a box or point is an *exemplar* (the model may return every similar
@@ -394,6 +399,44 @@ COUNTABLE: Final[frozenset[ComponentLabel]] = frozenset(
     }
 )
 _LABEL_ORDER: Final = {label: i for i, label in enumerate(ComponentLabel)}
+# Surfaces and areas, not objects: the photo_surfaces/v1 prompt's list. A mask of a wall or
+# a driveway is not something to count, so the product step does not prompt them.
+SURFACE_LABELS: Final[frozenset[ComponentLabel]] = frozenset(
+    {
+        L.CARPET,
+        L.HARDWOOD_FLOOR,
+        L.VINYL_FLOORING,
+        L.LAMINATE_FLOORING,
+        L.TILE,
+        L.WALL_FINISH,
+        L.CEILING_FINISH,
+        L.BASEBOARD,
+        L.CROWN_MOLDING,
+        L.WAINSCOTING,
+        L.SIDING,
+        L.ROOF,
+        L.GUTTER,
+        L.STAIRS,
+        L.RAILING,
+        L.PORCH,
+        L.DECK,
+        L.PATIO,
+        L.DRIVEWAY,
+        L.SIDEWALK,
+        L.PARKING_LOT,
+        L.LANDSCAPING,
+        L.POOL,
+        L.RETAINING_WALL,
+    }
+)
+# Count thresholds per class, from the verified boxes of EVAL_REPORT section 10.2 (single
+# full-frame pass): the window threshold 0.6 is where its precision and count error were
+# best; every other class was measured at 0.5.
+COUNT_THRESHOLD_DEFAULT: Final = 0.5
+COUNT_THRESHOLDS: Final[Mapping[ComponentLabel, float]] = {L.WINDOW: 0.6}
+# Sent to the model in the product step: instances between this and the count threshold
+# are stored as uncounted candidates, so a tap can select an object the model scored low.
+CANDIDATE_THRESHOLD: Final = 0.3
 
 
 # Alternative phrase tables for experiments (EVAL_REPORT section 10): "v1" is PHRASES; "v2"
@@ -429,6 +472,28 @@ def prompt_labels(labels: Sequence[ComponentLabel | str]) -> list[ComponentLabel
             logger.warning("not a component label, not prompted: %r", label)
     chosen.discard(ComponentLabel.OTHER)
     return sorted(chosen, key=_LABEL_ORDER.__getitem__)
+
+
+def object_labels(labels: Sequence[ComponentLabel | str]) -> list[ComponentLabel]:
+    """The labels the product step prompts: :func:`prompt_labels` of ``labels`` without the
+    surfaces (:data:`SURFACE_LABELS`); the countable set is always included."""
+    objects: list[ComponentLabel | str] = []
+    for label in labels:
+        try:
+            if ComponentLabel(label) in SURFACE_LABELS:
+                continue
+        except ValueError:
+            pass  # prompt_labels logs and drops it
+        objects.append(label)
+    return prompt_labels(objects)
+
+
+def count_threshold(label: ComponentLabel | str) -> float:
+    """The score at which an instance of ``label`` is counted (EVAL_REPORT 10.2)."""
+    try:
+        return COUNT_THRESHOLDS.get(ComponentLabel(label), COUNT_THRESHOLD_DEFAULT)
+    except ValueError:
+        return COUNT_THRESHOLD_DEFAULT
 
 
 def phrases_for(labels: Sequence[ComponentLabel], phrase_set: str = "v1") -> list[Phrase]:
@@ -1089,7 +1154,11 @@ async def localize_photo(
 
 
 __all__ = [
+    "CANDIDATE_THRESHOLD",
     "COUNTABLE",
+    "COUNT_THRESHOLDS",
+    "COUNT_THRESHOLD_DEFAULT",
+    "SURFACE_LABELS",
     "PHRASES",
     "PHRASE_SETS",
     "Box",
@@ -1107,8 +1176,11 @@ __all__ = [
     "Rle",
     "Tile",
     "box_iou",
+    "count_threshold",
     "counts",
     "localize_photo",
     "merge_tiled",
+    "object_labels",
+    "pick_prompted",
     "tiles",
 ]

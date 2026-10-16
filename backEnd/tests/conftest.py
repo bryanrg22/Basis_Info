@@ -15,6 +15,12 @@ import pytest
 
 os.environ.setdefault("BASIS_ENV", "test")
 os.environ["GIT_SHA"] = "test-sha"  # tests are hermetic: CI exports the real sha for the job
+# The suite's photo-step baseline is the pre-12.1 configuration (one call per photo on a
+# non-reasoning model), which the budget and call-count arithmetic of the lifecycle tests
+# is written against; the decomposed step and the reasoning-model budget have their own
+# tests, and tests/unit/config proves the production defaults with these unset.
+os.environ.setdefault("VISION_PHOTO_MODE", "single")
+os.environ.setdefault("VISION_MODEL", "gpt-4o-mini")
 
 from basis.config import Settings, get_settings, reset_settings  # noqa: E402
 from basis.obs.logging import clear_context  # noqa: E402
