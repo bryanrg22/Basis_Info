@@ -16,6 +16,7 @@ import pytest
 from fixtures import fixture_path
 from llm_fakes import FixtureVisionProvider, photo_labels
 
+from basis.llm import prompts
 from basis.llm.errors import ProviderUnavailable
 from evals import predict_photos
 
@@ -197,5 +198,6 @@ async def test_prompt_family_option_selects_a_decomposed_prompt(
         )
     )
     assert code == 0
-    assert {r.prompt_version for r in provider.requests} == {"photo_countables/v1"}
-    assert json.loads((out / "run.json").read_text())["prompt"] == "photo_countables/v1"
+    latest = prompts.versions("photo_countables")[-1]
+    assert {r.prompt_version for r in provider.requests} == {f"photo_countables/{latest}"}
+    assert json.loads((out / "run.json").read_text())["prompt"] == f"photo_countables/{latest}"

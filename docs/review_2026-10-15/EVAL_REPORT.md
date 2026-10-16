@@ -440,3 +440,127 @@ phrases per class ("ceiling light", "recessed light", "chandelier" for fixtures;
 light", "wall lantern" for exterior lights; "cabinet door" for cabinets); a vision-model
 check of each box's crop for the door and neighbour-building confusions; tiling for the
 exterior windows. (Harness runs with tiling on and off follow in 10.3.)
+
+## 11. Task decomposition: one call per task instead of one call for everything (2026-10-16)
+
+Question (Bryan's): does the per-photo model do better when the same photo is sent several
+times, each call with one narrow job, than when one call is asked for everything? The
+literature calls this decomposed (or compositional) prompting; in detection it is
+class-conditioned, multi-query inference. Branch `exp/focused-prompts`.
+
+Design. Two released prompts, same output schema as `photo_analysis/v1` so the harness scores
+them unchanged: `photo_countables/v1` (find and count the countable objects; floors, walls,
+ceilings, trim and site surfaces forbidden) and `photo_surfaces/v1` (surfaces and their
+materials, one entry each; countable objects forbidden). `evals.predict_photos --prompt-name`
+runs a family; `evals.merge_photo_runs` merges N runs into one run's prediction files (room
+type from the first run; label sets unioned per photo; the largest count per label; costs and
+seconds summed). `gpt-4.1` through OpenAI, three repeats, the 52 real photos. Scored three
+ways: per-photo label sets (`photo_components`, section 6), per-photo counts against the
+verified boxes of section 10.2 (six classes, 191 objects; scratch scorer, not yet in the
+harness), and the per-room inventory after reconciliation (section 7).
+
+### 11.1 Per photo, prompts v1
+
+| Run | Room accuracy | Component P / R / F1 | Label set identical across 3 repeats | Count MAE, 6 verified classes | Signed bias | Count recall | Cost per 52 photos | Seconds per photo |
+|---|---|---|---|---|---|---|---|---|
+| one pass, `photo_analysis/v1` (section 8) | 0.85 | 0.63 / 0.72 / 0.67 | 26 of 52 | 0.36 | -0.16 | 0.57 | $0.30 | 2.2 |
+| countables pass alone | 0.87 | 0.59 / 0.45 / 0.51 | 35 of 52 | 0.30 | -0.07 | 0.70 | $0.30 | 1.8 |
+| surfaces pass alone | 0.90 | 0.62 / 0.33 / 0.43 | 42 of 52 | (none listed) | | | $0.26 | 1.5 |
+| decomposed: union of the two | 0.87 | 0.59 / 0.73 / 0.65 | 33 of 52 | 0.30 | -0.07 | 0.70 | $0.56 | 3.3 summed; 1.8 when the two calls run in parallel |
+
+Counts per class against the verified boxes (count MAE per photo; count recall = found
+objects over true objects):
+
+| Class | one pass MAE / count recall | decomposed MAE / count recall |
+|---|---|---|
+| window | 0.63 / 0.79 | 0.58 / 0.82 |
+| door | 0.42 / 0.38 | 0.46 / 0.38 |
+| light fixture | 0.26 / 0.86 | 0.19 / 0.85 |
+| exterior light | 0.31 / 0.30 | 0.25 / 0.43 |
+| electrical outlet | 0.34 / 0.16 | 0.14 / 0.79 |
+| kitchen cabinet | 0.22 / 0.51 | 0.15 / 0.79 |
+
+The counts, which are what the engineer prices, improve on five of six classes, and the
+under-count bias halves; outlets go from mostly missed to mostly found. Each narrow call is
+also more repeatable than the wide one (35 and 42 photos with identical label sets across
+repeats, against 26). Label-set F1 is a wash (0.67 to 0.65), and the per-label breakdown of
+where its precision went (156 records each) is instructive:
+
+- `furniture` false positives 22 to 83: the countables prompt said plug-in lamps are
+  furniture, while the labels file loose furniture under `other`. A prompt convention error,
+  not a vision error.
+- Exterior surfaces listed on every exterior photo (roof 9 to 17 false positives, driveway 9
+  to 18, landscaping 4 to 21, siding 6 to 12) and baseboard 11 to 29: the label guide lists
+  site-wide items and baseboard once per room, so the per-photo labels carry them on some
+  photos only. The surfaces pass does what it was told; the per-photo yardstick cannot tell
+  "listed on the wrong photo" from "wrong". The room level settles it (11.3).
+- Two vocabulary confusions: bathroom vanities came back as `kitchen_cabinet` plus `sink`
+  (0 of 6 vanity records found, against 6 of 6 for the one-pass prompt), and curtains and
+  shades came back as `blinds` (`window_treatment` 0 of 30 found; `blinds` false positives 3
+  to 14).
+- Gains on the surfaces side: carpet misses 15 to 3, wainscoting 6 to 0, vinyl flooring 12
+  to 6; `wall_finish` false positives 55 to 23, `light_fixture` 34 to 21, stairs 8 to 0.
+
+### 11.2 Countables prompt v2: definitions only
+
+`photo_countables/v2` (released) changes nothing about counting; it adds label definitions
+for the three confusions above (vanity is never `kitchen_cabinet`; `blinds` are slatted, every
+curtain and shade is `window_treatment`, a shower curtain is `other`; loose furniture, lamps,
+rugs, art and bath accessories are one `other` entry) and drops `furniture`, `chair`, `desk`,
+`filing_cabinet` from its list. Its run stopped after 50 photos of the first repeat: the
+OpenAI account ran out of credit mid-run, and the provider pool's per-call fallback sent the
+rest to the Azure small model (those records are excluded here; `run.json` `models_reported`
+is the purity check for every `--model` run from now on). So this is a paired comparison on
+50 photos and one repeat, to be confirmed on three repeats after a top-up:
+
+| Run (50 photos, repeat 1) | Component P / R / F1 | Count MAE, 6 classes | kitchen cabinet MAE / count recall | light fixture MAE |
+|---|---|---|---|---|
+| one pass v1 | 0.67 / 0.72 / 0.69 | 0.33 | 0.20 / 0.38 | 0.24 |
+| decomposed, countables v1 | 0.58 / 0.73 / 0.65 | 0.30 | 0.12 / 0.69 | 0.20 |
+| decomposed, countables v2 | 0.66 / 0.73 / 0.70 | 0.27 | 0.08 / 0.81 | 0.16 |
+
+The definitions recover the precision (false positives 126 to 90 on these photos, `furniture`
+27 to 0, `blinds` 5 to 0, `window_treatment` found 0 to 3 of 10) without touching recall, and
+the counts improve further. The eight "lost" true positives of v2 against v1 are surface
+labels the v1 countables call listed outside its brief (siding, roof, porch, driveway, gutter)
+and chairs and a desk now filed as `other`; the surfaces pass supplies the former.
+
+### 11.3 Per room, after reconciliation
+
+Section 7's pipeline on the decomposed per-photo output (repeat 1 of the v1 prompts),
+reconciled with the small model three times, against the one-pass equivalent of section 8.
+The first decomposed run was reconciled by OpenAI `gpt-4o-mini` (the `LLM_PRIMARY=openai`
+setting of the per-photo runs changed the reconciler too); the rerun on the Azure
+`gpt-4.1-mini` deployment, the baseline's reconciler, is the like-for-like row.
+
+| Per-photo input | Reconciler | count MAE | exact-count rate | signed bias | label F1 | inventory identical across 3 repeats | MAE without furniture | MAE without furniture and kitchen cabinets |
+|---|---|---|---|---|---|---|---|---|
+| one pass v1 (section 8) | Azure gpt-4.1-mini | 0.81 | 0.43 | +0.03 | 0.69 | 22 of 33 | 0.74 | 0.72 |
+| decomposed v1 | OpenAI gpt-4o-mini | 0.93 | 0.45 | +0.32 | 0.70 | 30 of 33 | 0.75 | 0.68 |
+| decomposed v1 | Azure gpt-4.1-mini | (pending: two attempts died, one on an Azure timeout, one on an Azure 500 whose per-call fallback hit the empty OpenAI account) | | | | | | |
+
+The headline room MAE gets worse because of two things that are not decomposition: the v1
+prompt's `furniture` rule (20 room-label pairs, bias +3.0; gone in v2) and the kitchen's
+cabinets, which the reconciliation summed across the kitchen's two photos (10 + 8 = 18) where
+it had merged 6 + 6 into 6 before, against a room label of 1. That last number exposes a
+convention gap: the verified boxes count cabinet units, the room inventory counts the run.
+Outside those two labels, the decomposed input is as good or better (MAE 0.72 to 0.68, bias
+-0.08 to -0.01), the under-count is gone, and the inventories are stable for 30 rooms
+instead of 22. Exact inventories per room stay rare (1 of 33) for the reason section 8 gave.
+
+### 11.4 Reading and decision
+
+Decomposition works for the thing it was meant to fix: the model counts repeated small
+objects better when counting is its only job, and it answers more consistently. It costs
+twice as much per photo ($0.56 against $0.30 per 52 photos, so about a dollar per property)
+and no more wall time when the two calls run in parallel. Its label-set cost was a prompt
+vocabulary error, fixed in v2 on the partial evidence above. Decision: adopt the two-call
+per-photo step once v2 is confirmed on three repeats; wire it into `basis.vision.analyze`
+(two calls, `merge_photo_runs.merge_components` as the merge) only then, the pipeline stays
+on one call until that. Open from this section: settle the cabinet convention (units or run)
+between the box labels and the room labels; make the reconciliation call carry the verified
+per-photo counts rather than re-estimate them; a third narrow call (electrical only, or
+exterior only) is the next thing to test once the two-call result is confirmed; add the
+per-photo count metrics against the verified boxes to the harness. Blocked on Bryan: OpenAI
+credit (v2, three repeats) and Replicate credit (the section 10.3 tiling and phrase runs have
+returned 429 for every call for two hours).
