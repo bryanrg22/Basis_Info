@@ -609,3 +609,102 @@ per-photo counts rather than re-estimate them; a third narrow call (electrical o
 exterior only) is the next thing to test once the two-call result is confirmed; add the
 per-photo count metrics against the verified boxes to the harness. Blocked on Bryan:
 Replicate credit (the section 10.3 containment-merge and phrase runs are still throttled).
+
+## 14. Claude models on the per-photo step (2026-10-16)
+
+Question: do Anthropic's current models move the per-photo numbers of sections 8 and 11,
+and at what cost? Same photos, prompts, harness and scoring as those sections; only the
+provider changes. The Anthropic provider (`basis.llm.anthropic_provider`, this branch) sends
+the pydantic schema as `output_config.format` (the structured-outputs grammar; the unsupported
+numeric and length keywords are moved into descriptions by the SDK's `transform_schema` and
+still enforced by pydantic on the reply), the image as a base64 block before the text, and
+`output_config.effort` = `low` (`--reasoning-effort low`): thinking cannot be turned off on
+these models, so `low` is the nearest thing to the non-reasoning `gpt-4.1` baseline and keeps
+a pass under the $5 line set for this experiment (the API defaults are `high` on Fable 5.1 and
+`medium` on Opus 5.5; higher effort is untested here). `temperature` is not accepted by these
+models. The wire `max_tokens` is the 1200-token answer budget plus a 4096-token thinking
+allowance (thinking counts toward `max_tokens`). No server-side fallback was enabled, so a run
+can only contain the model it names; `run.json` `models_reported` is a single model in every
+run below. A one-pass probe (`vision_v1_fable51_probe`, one repeat) came in at $3.23 per 52
+photos, under the line, before the full runs were started.
+
+Runs: `BASIS_ENV=dev LLM_PRIMARY=anthropic`, `--repeats 3 --concurrency 2 --budget-usd 25`,
+no other provider configured. For each model: one pass with `photo_analysis/v1`;
+`photo_countables/v2`; `photo_surfaces/v1`; the last two merged with `merge_photo_runs
+--room-from 2` (room type from the surfaces pass, as in 11.2). Scored with `evals.run --split
+dev --no-db --repeats 3 --predictions <dir> --report <dir>/eval.md`; the rows below are
+`docs/review_2026-10-15/repro/photo_run_table.py` over the run directories (it reproduces the
+gpt-4.1 rows of sections 8 and 11 from their directories, so the two sets of numbers are
+computed the same way). Component P/R/F1 and room accuracy are repeat 1 with `other` excluded;
+"identical" counts photos whose sorted label list is the same on all three repeats.
+
+| Run (52 photos, 3 repeats) | Room accuracy | Room pass^3 | Component P / R / F1 | Label set identical across repeats | Cost per 52 photos | Seconds per photo |
+|---|---|---|---|---|---|---|
+| gpt-4.1, one pass v1 (section 8) | 0.85 | 0.85 | 0.68 / 0.72 / 0.70 | 26 of 52 | $0.30 | 2.2 |
+| gpt-4.1, countables v2 alone (11.2) | 0.83 | 0.81 | 0.71 / 0.40 / 0.51 | 35 of 52 | $0.33 | 2.2 |
+| gpt-4.1, surfaces v1 alone (11.1) | 0.90 | 0.90 | 0.62 / 0.33 / 0.43 | 42 of 52 | $0.26 | 1.5 |
+| gpt-4.1, decomposed v2, room from surfaces (11.2) | 0.90 | 0.90 | 0.66 / 0.72 / 0.69 | 31 of 52 | $0.59 | 3.7 summed; 2.2 in parallel |
+| Fable 5.1, one pass v1 | 0.85 | 0.83 | 0.57 / 0.94 / 0.71 | 17 of 52 | $3.24 | 7.4 |
+| Fable 5.1, countables v2 alone | 0.85 | 0.85 | 0.79 / 0.50 / 0.61 | 38 of 52 | $3.21 | 5.3 |
+| Fable 5.1, surfaces v1 alone | 0.87 | 0.87 | 0.65 / 0.40 / 0.49 | 33 of 52 | $2.55 | 4.5 |
+| Fable 5.1, decomposed v2, room from surfaces | 0.87 | 0.87 | 0.72 / 0.89 / 0.79 | 25 of 52 | $5.76 | 9.8 summed; 5.8 in parallel |
+| Opus 5.5, one pass v1 | 0.88 | 0.88 | 0.59 / 0.91 / 0.72 | 19 of 52 | $1.25 | 6.2 |
+| Opus 5.5, countables v2 alone | 0.90 | 0.85 | 0.74 / 0.50 / 0.59 | 29 of 52 | $1.23 | 4.7 |
+| Opus 5.5, surfaces v1 alone | 0.88 | 0.88 | 0.63 / 0.37 / 0.47 | 36 of 52 | $1.00 | 4.2 |
+| Opus 5.5, decomposed v2, room from surfaces | 0.88 | 0.88 | 0.69 / 0.86 / 0.76 | 20 of 52 | $2.23 | 8.9 summed; 5.3 in parallel |
+
+Every Claude call succeeded on its first attempt: 936 structured calls (52 photos x 3
+repeats x 3 prompts x 2 models) plus the 52-photo probe, with no rate limit, timeout, refusal
+or schema failure, so the attempt counts and error lists in `photo_raw.jsonl` are all 1 and
+empty. The seconds are wall time per call at concurrency 2; the Fable one-pass run had one
+42 s call, its median is 7.0 s.
+
+Reading:
+
+- Recall is the gain. On the 258 labelled (photo, label) pairs, repeat 1, the one-pass
+  prompt misses 72 with `gpt-4.1`, 16 with Fable 5.1 and 23 with Opus 5.5; decomposed, 72
+  against 29 and 36. The Claude models list what is there (9.5 and 9.3 labels per photo
+  against 6.0), which is what the engineer asked for (section 8: a missed system costs more
+  than an extra candidate).
+- The one-pass precision drop (0.68 to 0.57 / 0.59) is mostly convention, not vision. Of
+  Fable's 184 one-pass false positives on repeat 1, 30 are `furniture` and `chair` (the
+  labels file loose furniture as `other`, prompt v1 does not say so) and 49 are `wall_finish`,
+  `ceiling_finish` and `baseboard` listed on photos where the label guide carries them once
+  per room; `gpt-4.1` has 8 and 26 of those. The countables v2 definitions (11.2) remove the
+  first group entirely (0 `furniture`/`chair` false positives in the decomposed runs) and the
+  decomposed false-positive counts land where `gpt-4.1`'s are (91 and 102 against 96) while
+  the misses stay at 29 and 36 against 72. Hence the decomposed F1: 0.79 (Fable) and 0.76
+  (Opus) against 0.69.
+- Room type does not move: 0.85 to 0.90 across all twelve rows, inside the n = 52 interval
+  ([0.72, 0.92] for 0.85). Opus 5.5 is the most consistent (0.88 and pass^3 0.88 on three of
+  its four rows). The Claude models answer `ambiguous` a little more often (6 and 3 of 156
+  one-pass records against 1), which the pipeline routes to review.
+- Repeatability is worse one-pass and level decomposed. The Claude one-pass runs return the
+  same label set on 17 and 19 photos (against 26), a consequence of listing more labels: more
+  items, more items to vary. Narrow prompts recover it (Fable countables 38 of 52, the best
+  of any countables run; surfaces 33 and 36 against 42); the decomposed union is 25 and 20
+  against 31. Temperature cannot be pinned on these models, so this is the floor at `low`
+  effort.
+- Cost and time. Per 52 photos the decomposed step is $5.76 on Fable 5.1 and $2.23 on
+  Opus 5.5 against $0.59 on `gpt-4.1`: about $6 and $2 per property against 60 cents. Per
+  photo the Claude calls take 4 to 7 s against 1.5 to 2.2 s, 5.8 and 5.3 s for the two calls
+  in parallel. Opus 5.5 gives most of Fable's gain (F1 0.76 against 0.79, misses 36 against
+  29) at 39% of its price. The effort lever is unexplored: `low` was chosen for the
+  comparison, and the prompts were written for `gpt-4.1`, not tuned for Claude.
+- What this section does not do: score the counts against the verified boxes. The harness
+  now writes a `photo_counts` block into every `eval.md` (the `photo_counts` task merged
+  from `exp/focused-prompts`), and the
+  orchestrating session reads those from the prediction directories; the per-class count
+  reading is theirs.
+
+Spend for this section: $40.68 (Fable 5.1 runs $27.01, Opus 5.5 runs $10.45, the probe
+$3.23). Prediction directories: `vision_v1_{fable51,opus55}`, `vision_countables_v2_*`,
+`vision_surfaces_*`, `vision_decomposed_v2_*` and `vision_v1_fable51_probe` under
+`$BASIS_EVAL_DATA_DIR/predictions`, each with its `eval.md`.
+
+Decision for Bryan: the two-call step on Opus 5.5 at `low` effort is the cheapest configuration
+measured here that beats the `gpt-4.1` baseline on misses (36 against 72) at level precision;
+it costs $2.23 per 52 photos against $0.59 and 5 s per photo against 2. Whether the +0.07 F1
+is worth four times the per-property spend, and whether to spend a run on `medium` effort or
+a Claude-tuned prompt before deciding, is the open question; the provider and the routing are
+in place either way (`LLM_PRIMARY=anthropic`, `VISION_MODEL=claude-opus-5-5`).
