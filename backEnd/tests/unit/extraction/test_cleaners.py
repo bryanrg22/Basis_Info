@@ -191,6 +191,22 @@ class TestCleanDate:
         assert parse_date("2026-10-01") == date(2026, 10, 1)
         assert parse_date("Effective 10/01/2026") == date(2026, 10, 1)
 
+    def test_parse_date_two_digit_years(self) -> None:
+        """URAR forms print M/D/YY ("Effective Date of Appraisal 1/29/25"); the live run's
+        fallback answer was dropped as "not a date" (EVAL_REPORT section 19). The century
+        puts the date at most a year after ``today``: an appraisal's dates (effective,
+        contract, comparable and prior sales) are never far in the future."""
+        today = date(2026, 10, 16)
+        assert parse_date("1/29/25", today=today) == date(2025, 1, 29)
+        assert parse_date("Effective 01/29/25.", today=today) == date(2025, 1, 29)
+        assert parse_date("12/31/27", today=today) == date(2027, 12, 31)  # within a year
+        assert parse_date("1/1/28", today=today) == date(1928, 1, 1)  # beyond: last century
+        assert parse_date("6/15/98", today=today) == date(1998, 6, 15)
+        assert parse_date("1/29/2025", today=today) == date(2025, 1, 29)  # four digits first
+        assert parse_date("2/30/25", today=today) is None
+        assert parse_date("1/29/255", today=today) is None
+        assert clean_date("1/29/25") == "1/29/2025"
+
     def test_parse_date_rejects_impossible_dates(self) -> None:
         assert parse_date("02/30/2026") is None
         assert parse_date("13/01/2026") is None
