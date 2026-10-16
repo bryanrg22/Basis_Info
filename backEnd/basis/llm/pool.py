@@ -8,6 +8,13 @@ failed with HTTP 429 or 5xx after its own single retry. Any other error (a bad r
 a timeout, a 4xx) is raised as is: the secondary would get the same request and the same
 answer, or the activity's Temporal retry is the better place to wait.
 
+Routing by model: a provider may declare ``accepts(model)`` (the Anthropic provider serves
+``claude-*`` names, the OpenAI and Azure providers everything else). Each call considers only
+the providers that accept its model, in the pool's order: the first is its primary, the
+second its one fallback. A ``claude-*`` request is therefore never sent to OpenAI, whatever
+``LLM_PRIMARY`` says, and a ``gpt-*`` request never to Anthropic. A model no configured
+provider serves is :class:`ProviderNotConfigured`.
+
 The semaphore bounds concurrent model calls in one worker process (the legacy
 ``HybridVisionPool`` bounded photos per provider; with per-call fallback one bound is
 enough). It is held for the whole call, including the fallback attempt.
@@ -20,21 +27,25 @@ import logging
 from collections.abc import Sequence
 
 from basis.config import Settings
-from basis.llm.errors import ProviderError, ProviderNotConfigured
+from basis.llm.errors import ProviderError, ProviderNotConfigured, is_retryable_status
 from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse
-from basis.llm.providers import is_retryable_status, providers_from_settings
+from basis.llm.providers import providers_from_settings
 
 logger = logging.getLogger("basis.llm.pool")
 
 
+def accepts(provider: ChatProvider, model: str) -> bool:
+    """Whether ``provider`` serves ``model`` (a provider without ``accepts`` serves any)."""
+    check = getattr(provider, "accepts", None)
+    return True if check is None else bool(check(model))
+
+
 class ProviderPool:
-    """A :class:`ChatProvider` over one or two providers (primary first)."""
+    """A :class:`ChatProvider` over the configured providers (primary first per model)."""
 
     def __init__(self, providers: Sequence[ChatProvider], *, concurrency: int = 4) -> None:
         if not providers:
             raise ProviderNotConfigured("a provider pool needs at least one provider")
-        if len(providers) > 2:
-            raise ValueError("a provider pool has a primary and at most one secondary")
         if concurrency < 1:
             raise ValueError("concurrency must be at least 1")
         self._providers = list(providers)
@@ -47,15 +58,25 @@ class ProviderPool:
     def providers(self) -> tuple[ChatProvider, ...]:
         return tuple(self._providers)
 
+    def candidates(self, model: str) -> list[ChatProvider]:
+        """The providers that serve ``model``, in pool order (primary, then the fallback)."""
+        return [p for p in self._providers if accepts(p, model)]
+
     async def complete(self, request: ChatRequest) -> ChatResponse:
         async with self._semaphore:
-            primary = self._providers[0]
+            candidates = self.candidates(request.model)
+            if not candidates:
+                raise ProviderNotConfigured(
+                    f"no configured provider serves model {request.model!r} "
+                    f"(configured: {self.name})"
+                )
+            primary = candidates[0]
             try:
                 return await primary.complete(request)
             except ProviderError as error:
-                if len(self._providers) < 2 or not is_retryable_status(error):
+                if len(candidates) < 2 or not is_retryable_status(error):
                     raise
-                secondary = self._providers[1]
+                secondary = candidates[1]
                 logger.warning(
                     "%s failed with %s for %s; this call falls back to %s",
                     primary.name,

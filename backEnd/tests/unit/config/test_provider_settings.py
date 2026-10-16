@@ -30,6 +30,8 @@ PROVIDER_VARS = (
     "LLM_REQUEST_TIMEOUT_SECONDS",
     "LLM_PRIMARY",
     "EXTRACTION_REVIEW_THRESHOLD",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_EFFORT",
 )
 
 # pragma: allowlist nextline secret
@@ -69,6 +71,19 @@ def test_defaults_without_credentials(clean: pytest.MonkeyPatch) -> None:
     assert settings.extraction_review_threshold == 0.90
     assert settings.azure_openai_api_version == "2024-10-21"
     assert settings.llm_primary == "azure"
+    assert settings.anthropic_api_key is None and settings.anthropic_effort == "low"
+
+
+def test_anthropic_settings_are_read(clean: pytest.MonkeyPatch) -> None:
+    clean.setenv("BASIS_ENV", "test")
+    clean.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-for-tests")  # pragma: allowlist secret
+    clean.setenv("ANTHROPIC_EFFORT", "medium")
+    clean.setenv("LLM_PRIMARY", "anthropic")
+    settings = load_settings()
+    assert settings.anthropic_api_key is not None
+    assert settings.anthropic_api_key.get_secret_value() == "sk-ant-fake-for-tests"
+    assert "sk-ant-fake" not in repr(settings)  # secrets stay masked
+    assert (settings.anthropic_effort, settings.llm_primary) == ("medium", "anthropic")
 
 
 def test_the_legacy_env_file_works_unchanged_in_dev(
@@ -108,7 +123,8 @@ def test_new_names_are_accepted_too(clean: pytest.MonkeyPatch) -> None:
     [
         ("EXTRACTION_REVIEW_THRESHOLD", "1.5"),
         ("LLM_REQUEST_TIMEOUT_SECONDS", "0"),
-        ("LLM_PRIMARY", "anthropic"),
+        ("LLM_PRIMARY", "gemini"),
+        ("ANTHROPIC_EFFORT", "extreme"),
     ],
 )
 def test_invalid_values_are_refused(clean: pytest.MonkeyPatch, name: str, value: str) -> None:

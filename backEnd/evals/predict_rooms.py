@@ -208,7 +208,10 @@ async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
     pool = ProviderPool.from_settings(settings)
     if pool is None:
-        print("no model provider configured (OPENAI_API_KEY or AZURE_OPENAI_*)", file=sys.stderr)
+        print(
+            "no model provider configured (OPENAI_API_KEY, ANTHROPIC_API_KEY or AZURE_OPENAI_*)",
+            file=sys.stderr,
+        )
         return 2
     files = photo_files(args.photos)
     if not files:

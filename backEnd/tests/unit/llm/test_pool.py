@@ -133,9 +133,87 @@ def test_construction_rules() -> None:
     with pytest.raises(ProviderNotConfigured):
         ProviderPool([])
     with pytest.raises(ValueError):
-        ProviderPool([Slow(), Slow(), Slow()])
-    with pytest.raises(ValueError):
         ProviderPool([Slow()], concurrency=0)
+    # Three providers are allowed (Azure, OpenAI and Anthropic); a call still has one
+    # primary and one fallback among the providers that serve its model.
+    assert ProviderPool([Slow(), Slow(), Slow()]).name == "slow+slow+slow"
+
+
+# --------------------------------------------------------------------------- routing by model
+
+
+class Family(ScriptedProvider):
+    """A scripted provider that serves only one model family (like the real ones)."""
+
+    def __init__(self, name: str, turns: list[ScriptedTurn], *, claude: bool) -> None:
+        super().__init__(turns)
+        self.name = name
+        self.claude = claude
+
+    def accepts(self, model: str) -> bool:
+        return model.startswith("claude") is self.claude
+
+
+def claude_request() -> ChatRequest:
+    return request().model_copy(update={"model": "claude-opus-5-5"})
+
+
+async def test_a_claude_request_goes_to_anthropic_even_when_openai_is_primary() -> None:
+    openai = Family("openai", [text("gpt")], claude=False)
+    claude = Family("anthropic", [text("claude")], claude=True)
+    pool = ProviderPool([openai, claude])
+    assert pool.candidates("claude-fable-5-1") == [claude]
+    assert pool.candidates("gpt-4.1") == [openai]
+    assert (await pool.complete(claude_request())).text == "claude"
+    assert (await pool.complete(request())).text == "gpt"
+    assert [r.model for r in claude.requests] == ["claude-opus-5-5"]
+    assert [r.model for r in openai.requests] == [request().model]
+
+
+async def test_fallback_never_crosses_model_families() -> None:
+    overloaded = ProviderUnavailable("overloaded", provider="anthropic", status=529)
+    claude = Family("anthropic", [ScriptedTurn(raise_error=overloaded)], claude=True)
+    openai = Family("openai", [text("gpt")], claude=False)
+    pool = ProviderPool([claude, openai])
+    with pytest.raises(ProviderUnavailable) as caught:
+        await pool.complete(claude_request())
+    assert caught.value.provider == "anthropic"
+    assert openai.requests == [] and pool.fallbacks == 0
+    # And a gpt request that fails on OpenAI is not sent to Anthropic either.
+    openai_down = Family(
+        "openai",
+        [ScriptedTurn(raise_error=ProviderUnavailable("x", provider="openai", status=503))],
+        claude=False,
+    )
+    pool = ProviderPool([openai_down, Family("anthropic", [text("no")], claude=True)])
+    with pytest.raises(ProviderUnavailable):
+        await pool.complete(request())
+    assert pool.fallbacks == 0
+
+
+async def test_fallback_within_a_family_still_works_with_anthropic_configured() -> None:
+    azure = Family(
+        "azure",
+        [ScriptedTurn(raise_error=ProviderUnavailable("x", provider="azure", status=503))],
+        claude=False,
+    )
+    openai = Family("openai", [text("secondary")], claude=False)
+    claude = Family("anthropic", [], claude=True)
+    pool = ProviderPool([azure, openai, claude])
+    assert (await pool.complete(request())).text == "secondary"
+    assert pool.fallbacks == 1 and claude.requests == []
+
+
+async def test_a_model_nobody_serves_is_not_configured() -> None:
+    pool = ProviderPool([Family("anthropic", [text("x")], claude=True)])
+    with pytest.raises(ProviderNotConfigured, match="serves model"):
+        await pool.complete(request())
+
+
+async def test_a_provider_without_accepts_serves_every_model() -> None:
+    pool = ProviderPool([named("any", [text("a"), text("b")])])
+    assert (await pool.complete(request())).text == "a"
+    assert (await pool.complete(claude_request())).text == "b"
 
 
 def settings(**values: Any) -> Settings:
@@ -144,6 +222,7 @@ def settings(**values: Any) -> Settings:
         "openai_api_key": None,
         "azure_openai_endpoint": None,
         "azure_openai_api_key": None,
+        "anthropic_api_key": None,
     }
     base.update(values)
     return Settings(**base)
@@ -153,6 +232,23 @@ def test_from_settings() -> None:
     assert ProviderPool.from_settings(settings()) is None
     pool = ProviderPool.from_settings(settings(openai_api_key="sk-test", llm_concurrency=2))
     assert pool is not None and pool.name == "openai" and pool.concurrency == 2
+    claude = ProviderPool.from_settings(settings(anthropic_api_key="sk-ant-test"))
+    assert claude is not None and claude.name == "anthropic"
+    assert claude.candidates("gpt-4.1") == [] and len(claude.candidates("claude-opus-5-5")) == 1
+    everything = ProviderPool.from_settings(
+        settings(
+            openai_api_key="sk-test",  # pragma: allowlist secret
+            anthropic_api_key="sk-ant-test",  # pragma: allowlist secret
+            azure_openai_endpoint="https://x.openai.azure.com",
+            azure_openai_api_key="k",
+            azure_openai_deployment_name="dep",
+            llm_primary="anthropic",
+        )
+    )
+    assert everything is not None
+    assert [p.name for p in everything.providers] == ["anthropic", "azure", "openai"]
+    assert [p.name for p in everything.candidates("gpt-4.1")] == ["azure", "openai"]
+    assert [p.name for p in everything.candidates("claude-fable-5-1")] == ["anthropic"]
     both = ProviderPool.from_settings(
         settings(
             openai_api_key="sk-test",  # pragma: allowlist secret

@@ -35,6 +35,7 @@ from typing import Any
 from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
+from basis.llm.cost import is_anthropic_model
 from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
@@ -116,7 +117,10 @@ async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
     pool = ProviderPool.from_settings(settings)
     if pool is None:
-        print("no model provider configured (OPENAI_API_KEY or AZURE_OPENAI_*)", file=sys.stderr)
+        print(
+            "no model provider configured (OPENAI_API_KEY, ANTHROPIC_API_KEY or AZURE_OPENAI_*)",
+            file=sys.stderr,
+        )
         return 2
     files = photo_files(args.photos)
     if not files:
@@ -125,6 +129,7 @@ async def run(args: argparse.Namespace) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
     recorder = MemoryRecorder()
+    model = args.model or settings.vision_model
     ctx = VisionContext(
         call=CallContext(
             study_id=uuid.uuid4(),
@@ -139,7 +144,7 @@ async def run(args: argparse.Namespace) -> int:
             if args.prompt or args.prompt_name != "photo_analysis"
             else released_prompt()
         ),
-        model=args.model or settings.vision_model,
+        model=model,
     )
     semaphore = asyncio.Semaphore(args.concurrency)
     raw_path = args.out / "photo_raw.jsonl"
@@ -198,8 +203,11 @@ async def run(args: argparse.Namespace) -> int:
                 "photos": len(files),
                 "repeats": args.repeats,
                 "vision_model_setting": settings.vision_model,
-                "model_requested": args.model or settings.vision_model,
+                "model_requested": model,
                 "models_reported": models,
+                "anthropic_effort": (
+                    settings.anthropic_effort if is_anthropic_model(model) else None
+                ),
                 "spent_usd": round(budget.spent_usd, 6),
                 "errors": errors_seen,
                 "prompt": ctx.prompt.version_id,

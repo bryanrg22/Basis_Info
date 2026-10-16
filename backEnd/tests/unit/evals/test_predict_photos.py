@@ -127,6 +127,49 @@ async def test_prompt_and_model_options_reach_the_request(
     assert (run["prompt"], run["model_requested"]) == ("photo_analysis/v2", "gpt-4.1")
 
 
+async def test_a_claude_model_is_requested_as_is_and_the_effort_recorded(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FixtureVisionProvider()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    monkeypatch.setenv("ANTHROPIC_EFFORT", "medium")
+    out = tmp_path / "out"
+    code = await predict_photos.run(
+        predict_photos.parse_args(
+            ["--photos", str(photo_dir), "--out", str(out), "--model", "claude-fable-5-1"]
+        )
+    )
+    assert code == 0
+    assert {r.model for r in provider.requests} == {"claude-fable-5-1"}
+    run = json.loads((out / "run.json").read_text())
+    assert (run["model_requested"], run["anthropic_effort"]) == ("claude-fable-5-1", "medium")
+    # models_reported comes from the recorder: the fixture answers as its own model, which
+    # is how a run that silently fell back to another provider would show up.
+    assert run["models_reported"] == ["gpt-4.1-nano"]
+
+
+async def test_openai_runs_record_no_effort(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        predict_photos.ProviderPool,
+        "from_settings",
+        staticmethod(lambda settings: FixtureVisionProvider()),
+    )
+    out = tmp_path / "out"
+    assert (
+        await predict_photos.run(
+            predict_photos.parse_args(
+                ["--photos", str(photo_dir), "--out", str(out), "--model", "gpt-4.1"]
+            )
+        )
+        == 0
+    )
+    assert json.loads((out / "run.json").read_text())["anthropic_effort"] is None
+
+
 class FlakyProvider:
     """Fails the first ``failures`` calls with a transient error, then answers."""
 
