@@ -1,0 +1,33 @@
+{
+  "totals": {
+    "tests": 2636,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5
+  },
+  "passed": 2631,
+  "skipped": [
+    {
+      "test": "tests.api.test_auth::test_real_verifier_against_the_auth_emulator",
+      "reason": "needs the Firebase Auth emulator (FIREBASE_AUTH_EMULATOR_HOST)"
+    },
+    {
+      "test": "tests.integration.storage.test_gcs::test_signed_upload_stat_read_delete",
+      "reason": "BASIS_GCS_TEST_BUCKET is not set"
+    },
+    {
+      "test": "tests.lifecycle.test_versioning::test_record_histories[appraisal_reject]",
+      "reason": "set BASIS_RECORD_HISTORIES=1 to re-record"
+    },
+    {
+      "test": "tests.lifecycle.test_versioning::test_record_histories[cancelled]",
+      "reason": "set BASIS_RECORD_HISTORIES=1 to re-record"
+    },
+    {
+      "test": "tests.lifecycle.test_versioning::test_record_histories[happy_path]",
+      "reason": "set BASIS_RECORD_HISTORIES=1 to re-record"
+    }
+  ],
+  "xfailed": [],
+  "failed": []
+}
