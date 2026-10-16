@@ -13,7 +13,8 @@ and the enlarged, greyed-around crop (prompt ``surface_crop_material``)::
 
 ``score``: material accuracy per surface kind (floor, wall, wainscot band, ceiling)
 against the per-photo labels (``photo_components_v1``), for crop runs (``--crops NAME=DIR``)
-and per-photo runs (``--per-photo NAME=DIR``, the surfaces in their ``photo_raw.jsonl``),
+per-photo runs (``--per-photo NAME=DIR``, the surfaces in their ``photo_raw.jsonl``) and
+crops with the per-photo surfaces where no crop answered (``--combine NAME=CROPS,PHOTOS``),
 per repeat, averaged. Over the (photo, kind) pairs with a labelled class: *hit* = some
 predicted class is a labelled one; *exact* = the predicted classes are the labelled ones;
 *answered* = something was predicted.
@@ -269,6 +270,27 @@ def per_photo_predictions(directory: Path) -> list[dict[str, dict[sc.Kind, set[s
     return [by_repeat[r] for r in sorted(by_repeat)]
 
 
+def with_fallback(
+    primary: Sequence[Mapping[str, Mapping[sc.Kind, set[str]]]],
+    fallback: Sequence[Mapping[str, Mapping[sc.Kind, set[str]]]],
+) -> list[dict[str, dict[sc.Kind, set[str]]]]:
+    """Per repeat, file and kind: the primary source's classes, or the fallback's where the
+    primary gave none (a surface too small to crop, or answered ``unknown``). Repeats pair up
+    in order; the shorter list is cycled."""
+    count = max(len(primary), len(fallback))
+    out: list[dict[str, dict[sc.Kind, set[str]]]] = []
+    for r in range(count):
+        a, b = primary[r % len(primary)], fallback[r % len(fallback)]
+        merged: dict[str, dict[sc.Kind, set[str]]] = {}
+        for file in sorted(set(a) | set(b)):
+            merged[file] = {
+                kind: set(a.get(file, {}).get(kind, set())) or set(b.get(file, {}).get(kind, set()))
+                for kind in KINDS
+            }
+        out.append(merged)
+    return out
+
+
 def material_accuracy(
     truth: Mapping[str, Mapping[sc.Kind, set[str]]],
     repeats: Sequence[Mapping[str, Mapping[sc.Kind, set[str]]]],
@@ -307,6 +329,16 @@ def score(args: argparse.Namespace) -> int:
     systems: list[tuple[str, list[dict[str, dict[sc.Kind, set[str]]]]]] = [
         (name, crop_predictions(d)) for name, d in args.crops
     ] + [(name, per_photo_predictions(d)) for name, d in args.per_photo]
+    for name, pair in args.combine:
+        crops_dir, _, photos_dir = str(pair).partition(",")
+        systems.append(
+            (
+                name,
+                with_fallback(
+                    crop_predictions(Path(crops_dir)), per_photo_predictions(Path(photos_dir))
+                ),
+            )
+        )
     lines = [
         "| Source | Floor hit / exact (n) | Wall hit (n) | Wainscot hit (n) | Ceiling hit (n) "
         "| All hit / exact | Answered |",
@@ -431,6 +463,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     s.add_argument("--data-dir", type=Path, required=True)
     s.add_argument("--crops", type=parse_named, action="append", default=[])
     s.add_argument("--per-photo", type=parse_named, action="append", default=[])
+    s.add_argument(
+        "--combine",
+        type=parse_named,
+        action="append",
+        default=[],
+        help="NAME=CROPS_DIR,PER_PHOTO_DIR: crop answers, the per-photo surfaces where none",
+    )
     s.add_argument("--json", type=Path, default=None)
     a = sub.add_parser("apply")
     a.add_argument("--rooms", type=Path, required=True, help="an evals.predict_rooms run")

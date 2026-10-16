@@ -173,3 +173,14 @@ def test_apply_replaces_surface_materials_by_the_crops_majority_over_the_rooms_p
     assert written["objects"][0]["material_before_crops"] == "wood"
     assert json.loads((out / "room_inventory.json").read_text()) == {"1_hall": {"wainscoting": 1}}
     assert json.loads((out / "run.json").read_text())["materials_changed"] == 1
+
+
+def test_with_fallback_fills_only_the_kinds_the_crops_left_empty() -> None:
+    crops = [{"a.jpg": {"floor": set(), "wall": {"wallpaper"}}}]
+    photos = [
+        {"a.jpg": {"floor": {"carpet"}, "wall": {"painted_drywall"}}},
+        {"b.jpg": {"floor": {"tile"}}},
+    ]
+    first, second = ps.with_fallback(crops, photos)  # type: ignore[arg-type]
+    assert first["a.jpg"]["floor"] == {"carpet"} and first["a.jpg"]["wall"] == {"wallpaper"}
+    assert second["b.jpg"]["floor"] == {"tile"} and second["a.jpg"]["wall"] == {"wallpaper"}
