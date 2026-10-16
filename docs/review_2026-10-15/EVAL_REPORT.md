@@ -2194,3 +2194,45 @@ Prediction directories under `$BASIS_EVAL_DATA_DIR/predictions`: `som_{box,outli
 `points_{opus55_med,gpt61sol_low,molmo7b}` (with `stated/`, `masked/`, `masked_all/`), the
 fusions `counts_fused_sol_opus_somopus_loo` and `counts_fused_sol_opus_somoutline_loo`, and the
 best new system `som_outline_orig_opus55_med/loop_masked` (2c, with its `eval.md`).
+
+## 22. Over-long `asset_class`: keep the class code (2026-10-16)
+
+Follow-up to 17.2 and 18. Branch `claude/asset-class-code`.
+
+What the field is. `Classification.asset_class` is the Rev. Proc. 87-56 class the model may
+name (`57.0`, `00.3`, `00.11`, the form the rules table uses). It reaches
+`ClassificationResult` and the eval output only: the `assets` table has no such column, the
+cache of approved assets writes `None`, and no validation or review rule reads it. So no
+column width constrains it, and the 16-character limit is the schema's own.
+
+What the 43 failures were. In the 17.2 `run.json` files, the values that failed the limit
+were `00.3 Land Improvements` (21), `57.0 Distributive Trades and Services` (10), `00.11
+Office Furniture, Fixtures, and Equipment` (3), `00.11 Office Furniture, ... and Equipment - 7
+Year` (2), `Nonresidential Real Property - 39 Year` (2), `Millwork - General` (2), `Building
+or Building Component` (1), `00.3 Land Improvement` (1) and `00.3 Land Improvement – 15
+Years` (1). 38 of 43 start with the class code; every accepted answer in 17.2 was a bare code
+or null.
+
+Change. Section 18 clipped any value over 16 characters (`00.3 Land Imp...`). Now a value
+that starts with a class code (two digits, a dot, one or two digits) keeps the code alone, at
+any length, so the field has one form; other text over 16 characters is still clipped. No
+review flag is added: the field is not stored or used in a decision, and a flag would add
+reviewer work for nothing. `tests/unit/classify/test_asset_class.py` has every distinct
+failing value as a case.
+
+Measurement: `evals.predict_assets --model gpt-6-luna --reasoning-effort none --max-tokens
+6000 --repeats 3`, the 17.2 settings, OpenAI direct (Azure unset; `models_reported` is
+gpt-6-luna only).
+
+| gpt-6-luna, none | Bucket right, repeat 1 | mean of 3 | pass^3 | macro-F1, repeat 1 | citations verified | rows with a verified citation | needs review | loop failures (of 138) | provider errors | spend (3 repeats) | seconds per row |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 17.2 (no clip) | 0.609 | 0.630 | 0.587 | 0.449 | 0.873 | 0.891 | 0.57 | 6 | 6 | $0.156 | 6.2 |
+| this section | 0.630 | 0.659 | 0.587 | 0.483 | 0.883 | 0.935 | 0.54 | **0** | 0 | $0.153 | 6.7 |
+
+Reading: the loop failures go from 6 to 0, as expected. The mean of 3 moves to 0.659, the
+17.2 "answered loops only" figure, which is what removing the y39 fallback rows predicts. One
+run of 46 rows; the 95% interval on bucket accuracy is [0.49, 0.75], so the accuracy change is
+not a measured improvement. The answered `asset_class` values were `00.3` (16), `57.0` (12),
+`00.11` (3), `37.11` (1) and null (106); how many came through the code rule is not
+recorded, since the raw model text is not saved. gpt-5.2 (30 failures) and gpt-5.4-mini (7)
+were not re-run.
