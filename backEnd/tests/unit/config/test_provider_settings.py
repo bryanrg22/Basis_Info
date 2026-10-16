@@ -69,6 +69,7 @@ def test_defaults_without_credentials(clean: pytest.MonkeyPatch) -> None:
     assert settings.extraction_review_threshold == 0.90
     assert settings.azure_openai_api_version == "2024-10-21"
     assert settings.llm_primary == "azure"
+    assert settings.vision_photo_mode == "single"  # one call per photo until flipped
 
 
 def test_the_legacy_env_file_works_unchanged_in_dev(
@@ -96,11 +97,13 @@ def test_new_names_are_accepted_too(clean: pytest.MonkeyPatch) -> None:
     clean.setenv("AZURE_OPENAI_TEXT_DEPLOYMENT", "text-dep")
     clean.setenv("LLM_REQUEST_TIMEOUT_SECONDS", "30")
     clean.setenv("EXTRACTION_REVIEW_THRESHOLD", "0.85")
+    clean.setenv("VISION_PHOTO_MODE", "decomposed")
     settings = load_settings()
     assert (settings.text_model, settings.vision_model) == ("gpt-5-mini", "gpt-4o")
     assert settings.azure_openai_text_deployment == "text-dep"
     assert settings.llm_request_timeout_seconds == 30
     assert settings.extraction_review_threshold == 0.85
+    assert settings.vision_photo_mode == "decomposed"
 
 
 @pytest.mark.parametrize(
@@ -109,6 +112,7 @@ def test_new_names_are_accepted_too(clean: pytest.MonkeyPatch) -> None:
         ("EXTRACTION_REVIEW_THRESHOLD", "1.5"),
         ("LLM_REQUEST_TIMEOUT_SECONDS", "0"),
         ("LLM_PRIMARY", "anthropic"),
+        ("VISION_PHOTO_MODE", "both"),
     ],
 )
 def test_invalid_values_are_refused(clean: pytest.MonkeyPatch, name: str, value: str) -> None:

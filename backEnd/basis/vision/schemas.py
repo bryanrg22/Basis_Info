@@ -144,6 +144,11 @@ class ComponentLabel(StrEnum):
 
 COMPONENT_LABELS: Final = tuple(c.value for c in ComponentLabel)
 
+# Caps on one analysis (the JSON schema the model fills and the merged decomposed answer).
+MAX_COMPONENTS: Final = 60
+MAX_DESCRIPTION_CHARS: Final = 500
+MAX_NOTE_CHARS: Final = 200
+
 
 class Material(StrEnum):
     WOOD = "wood"
@@ -179,10 +184,6 @@ class Attachment(StrEnum):
     UNKNOWN = "unknown"
 
 
-NOTE_MAX_CHARS: Final = 200
-DESCRIPTION_MAX_CHARS: Final = 500
-
-
 class Component(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -190,7 +191,7 @@ class Component(BaseModel):
     note: str | None = Field(
         default=None,
         description="Free text; required when label is 'other'",
-        max_length=NOTE_MAX_CHARS,
+        max_length=MAX_NOTE_CHARS,
     )
     count: int = Field(ge=1, le=500, description="How many of this item are visible")
     material: Material
@@ -214,9 +215,9 @@ class Component(BaseModel):
                     data["label"] = ComponentLabel.OTHER.value
                     data["note"] = data.get("note") or label[:200]
             note = data.get("note")
-            if isinstance(note, str) and len(note) > NOTE_MAX_CHARS:
+            if isinstance(note, str) and len(note) > MAX_NOTE_CHARS:
                 data = dict(data)
-                data["note"] = note[: NOTE_MAX_CHARS - 1] + "…"
+                data["note"] = note[: MAX_NOTE_CHARS - 1] + "…"
         return data
 
 
@@ -244,8 +245,8 @@ class PhotoAnalysis(BaseModel):
         description="Which room of this type on this floor, only when the photo shows it "
         "(for example a door sign 'Bedroom 2'); otherwise 1",
     )
-    components: list[Component] = Field(default_factory=list, max_length=60)
-    description: str = Field(default="", max_length=500)
+    components: list[Component] = Field(default_factory=list, max_length=MAX_COMPONENTS)
+    description: str = Field(default="", max_length=MAX_DESCRIPTION_CHARS)
     # Set by basis.vision.analyze, never by the model: the analysis could not be trusted.
     needs_review: bool = False
     review_reason: str | None = None
@@ -262,8 +263,8 @@ class ModelPhotoAnalysis(BaseModel):
     room_confidence: float = Field(ge=0.0, le=1.0)
     floor: int | None = Field(ge=-3, le=200)
     room_ordinal: int = Field(ge=1, le=50)
-    components: list[Component] = Field(max_length=60)
-    description: str = Field(max_length=DESCRIPTION_MAX_CHARS)
+    components: list[Component] = Field(max_length=MAX_COMPONENTS)
+    description: str = Field(max_length=MAX_DESCRIPTION_CHARS)
 
     _room = field_validator("room_type", mode="before")(_room_type_before)
 
@@ -271,8 +272,8 @@ class ModelPhotoAnalysis(BaseModel):
     @classmethod
     def _cut_description(cls, value: Any) -> Any:
         """Same reason as the component note: an over-long description is cut, not fatal."""
-        if isinstance(value, str) and len(value) > DESCRIPTION_MAX_CHARS:
-            return value[: DESCRIPTION_MAX_CHARS - 1] + "…"
+        if isinstance(value, str) and len(value) > MAX_DESCRIPTION_CHARS:
+            return value[: MAX_DESCRIPTION_CHARS - 1] + "…"
         return value
 
     def to_analysis(self) -> PhotoAnalysis:

@@ -3,7 +3,9 @@
 ``FixtureVisionProvider`` recognises the synthetic photos the ``seeded`` fixture wrote to
 storage (``kitchen_1.jpg`` and ``kitchen_2.jpg`` are the kitchen scene, ``bathroom_1.jpg``
 the bathroom scene) and answers with their labels; ``ScriptedProvider`` drives the
-invalid-output paths. Rows are real (Postgres container).
+invalid-output paths. Rows are real (Postgres container). The ``decomposed`` tests run the
+same activity with ``VISION_PHOTO_MODE=decomposed``: two calls per photo, both recorded,
+their cost summed, one merged analysis.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from typing import Any
 import pytest
 from fixtures import fixture_path
 from lifecycletest_support import SeededStudy, count_rows, make_deps
-from llm_fakes import PHOTO_COST_USD, FixtureVisionProvider
+from llm_fakes import PHOTO_COST_USD, FixtureVisionProvider, PromptKeyedProvider
 from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
 
@@ -59,6 +61,14 @@ def analyze(
 
 def with_llm(deps: Deps, llm: Any) -> Deps:
     return make_deps(deps.sessionmaker, deps.storage, deps.settings, llm=llm)
+
+
+def decomposed(deps: Deps, llm: Any = None) -> Deps:
+    """The same deps with ``VISION_PHOTO_MODE=decomposed`` (the fixture provider unless given)."""
+    settings = deps.settings.model_copy(update={"vision_photo_mode": "decomposed"})
+    if llm is None:
+        return make_deps(deps.sessionmaker, deps.storage, settings)
+    return make_deps(deps.sessionmaker, deps.storage, settings, llm=llm)
 
 
 async def put_photo(deps: Deps, document_id: uuid.UUID, data: bytes) -> None:
@@ -383,3 +393,162 @@ async def test_not_a_photo_of_this_study_is_not_retried(
     with pytest.raises(ApplicationError) as caught:
         await activity_env.run(AnalyzePhoto(deps).run, analyze(seeded, document_id=doc))
     assert caught.value.type == "ValidationError" and caught.value.non_retryable
+
+
+# --------------------------------------------------------------------------- decomposed mode
+
+DECOMPOSED_PROMPTS = ["photo_countables/v2", "photo_surfaces/v1"]
+
+
+async def test_the_default_mode_is_single(deps: Deps) -> None:
+    assert deps.settings.vision_photo_mode == "single"
+
+
+async def test_decomposed_makes_two_recorded_calls_and_writes_one_merged_analysis(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    # The bedroom scene: carpet comes from the surfaces call, the unlisted item from the
+    # countables call; the photo's components are the union.
+    await put_photo(
+        deps, seeded.photo_ids[0], fixture_path("photos", "03_bedroom.jpg").read_bytes()
+    )
+    provider = FixtureVisionProvider()
+    output = await activity_env.run(
+        AnalyzePhoto(decomposed(deps, provider)).run, analyze(seeded, 0)
+    )
+    assert (output.components, output.needs_review) == (2, False)
+    assert output.cost_usd == pytest.approx(2 * PHOTO_COST_USD)  # both calls charged
+    assert sorted(r.prompt_version for r in provider.requests) == DECOMPOSED_PROMPTS
+    [room] = await rows(deps, Room, study_id=seeded.study_id)
+    assert (room.name, room.room_type, room.floor) == ("Bedroom", "bedroom", "2")
+    components = {c.label: c for c in await rows(deps, Component, study_id=seeded.study_id)}
+    assert set(components) == {"carpet", "other"}
+    assert {c.raw["prompt_version"] for c in components.values()} == {
+        "photo_countables/v2+photo_surfaces/v1"
+    }
+    calls = await rows(deps, LlmCall, study_id=seeded.study_id)
+    assert sorted(c.prompt_version for c in calls) == DECOMPOSED_PROMPTS
+    assert {(c.activity, c.model, c.cost_usd) for c in calls} == {
+        ("analyze_photo", "gpt-4.1-nano", Decimal("0.010000"))
+    }
+    stored = json.loads(
+        await deps.storage.read(analysis_uri(deps.bucket, seeded.study_id, seeded.photo_ids[0], 1))
+    )
+    assert (stored["mode"], stored["prompt_versions"]) == ("decomposed", DECOMPOSED_PROMPTS)
+    assert [(c["prompt_version"], c["usable"], c["attempts"]) for c in stored["calls"]] == [
+        ("photo_countables/v2", True, 1),
+        ("photo_surfaces/v1", True, 1),
+    ]
+    assert len(stored["responses"]) == 2 and stored["attempts"] == 2
+    assert {c["label"] for c in stored["analysis"]["components"]} == {"carpet", "other"}
+
+
+async def test_decomposed_writes_the_same_rows_as_single_for_the_kitchen(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    single = await activity_env.run(AnalyzePhoto(deps).run, analyze(seeded, 0))
+    before = {
+        (c.label, c.raw["count"], c.material, c.attachment)
+        for c in await rows(deps, Component, study_id=seeded.study_id)
+    }
+    # kitchen_2.jpg is the same scene; analyzed decomposed it joins the same room with the
+    # same component kinds and counts, at twice the cost.
+    output = await activity_env.run(AnalyzePhoto(decomposed(deps)).run, analyze(seeded, 1))
+    assert output.room_id == single.room_id and output.components == single.components == 2
+    assert output.cost_usd == pytest.approx(2 * single.cost_usd)
+    after = {
+        (c.label, c.raw["count"], c.material, c.attachment)
+        for c in await rows(
+            deps, Component, study_id=seeded.study_id, document_id=seeded.photo_ids[1]
+        )
+    }
+    assert (
+        after
+        == before
+        == {("kitchen_cabinet", 6, None, "permanent"), ("countertop", 1, None, "permanent")}
+    )
+    assert await count_rows(deps.sessionmaker, LlmCall, study_id=seeded.study_id) == 3
+
+
+async def test_decomposed_one_failing_call_fails_the_photo(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    from llm_fakes import _analysis_by_image
+
+    kitchen = next(a for a in _analysis_by_image().values() if a.room_type == "kitchen")
+    provider = PromptKeyedProvider(
+        {
+            "photo_countables": [
+                ScriptedTurn(parsed=kitchen, usage=Usage(input_tokens=1000, output_tokens=200))
+            ],
+            "photo_surfaces": [
+                ScriptedTurn(raise_error=ProviderRateLimited("429", provider="azure", status=429))
+            ],
+        }
+    )
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(AnalyzePhoto(decomposed(deps, provider)).run, analyze(seeded, 0))
+    assert caught.value.type == "ProviderUnavailable" and not caught.value.non_retryable
+    # No half result: no room, no assignment, no component from the call that succeeded.
+    assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
+    assert await count_rows(deps.sessionmaker, PhotoRoom, study_id=seeded.study_id) == 0
+    assert await count_rows(deps.sessionmaker, Component, study_id=seeded.study_id) == 0
+
+
+async def test_decomposed_one_call_unusable_twice_is_ambiguous_with_the_call_named(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    from llm_fakes import _analysis_by_image
+
+    kitchen = next(a for a in _analysis_by_image().values() if a.room_type == "kitchen")
+    provider = PromptKeyedProvider(
+        {
+            "photo_countables": [
+                ScriptedTurn(parsed=kitchen, usage=Usage(input_tokens=1000, output_tokens=200))
+            ],
+            "photo_surfaces": [
+                invalid_turn(),
+                ScriptedTurn(text="tile floor", usage=Usage(input_tokens=1000, output_tokens=200)),
+            ],
+        }
+    )
+    output = await activity_env.run(
+        AnalyzePhoto(decomposed(deps, provider)).run, analyze(seeded, 0)
+    )
+    assert output.needs_review and output.components == 0
+    [room] = await rows(deps, Room, study_id=seeded.study_id)
+    assert (room.name, room.room_type) == ("Unassigned", "ambiguous")
+    stored = json.loads(
+        await deps.storage.read(analysis_uri(deps.bucket, seeded.study_id, seeded.photo_ids[0], 1))
+    )
+    assert stored["analysis"]["review_reason"] == "invalid_model_output:photo_surfaces/v1"
+    assert [c["usable"] for c in stored["calls"]] == [True, False]
+    assert await count_rows(deps.sessionmaker, LlmCall) == 3  # every attempt cost money
+    assert output.cost_usd == pytest.approx(3 * (1000 * 0.15 + 200 * 0.60) / 1e6)
+
+
+async def test_decomposed_budget_must_cover_both_calls(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    # 0.015 covers one fixture call (0.01) but not two. Each call's estimate fits, so both
+    # are sent, recorded and charged; the second charge breaks the cap and the merged
+    # result is discarded: non-retryable, no rows (as the single mode's overrun).
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(AnalyzePhoto(decomposed(deps)).run, analyze(seeded, 0, budget=0.015))
+    assert caught.value.type == "BudgetExceededError" and caught.value.non_retryable
+    assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
+    assert await count_rows(deps.sessionmaker, Component, study_id=seeded.study_id) == 0
+    calls = await rows(deps, LlmCall, study_id=seeded.study_id)
+    assert sorted(c.prompt_version for c in calls) == DECOMPOSED_PROMPTS  # the spend is kept
+
+
+async def test_decomposed_replay_makes_no_new_calls(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    provider = FixtureVisionProvider()
+    activity = AnalyzePhoto(decomposed(deps, provider))
+    first = await activity_env.run(activity.run, analyze(seeded, 0))
+    assert await activity_env.run(activity.run, analyze(seeded, 0)) == first
+    again = await activity_env.run(activity.run, analyze(seeded, 0, key="k-new"))
+    assert again.room_id == first.room_id and again.cost_usd == 0
+    assert len(provider.requests) == 2

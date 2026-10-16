@@ -616,7 +616,25 @@ vocabulary error, fixed in v2 and confirmed on three repeats. Decision: adopt th
 per-photo step (`photo_countables/v2` + `photo_surfaces/v1`, room type from the surfaces
 call, `merge_photo_runs.merge_components` as the merge) and wire it into
 `basis.vision.analyze` as the next code change; the pipeline stays on one call until that
-lands. Open from this section: settle the cabinet convention (units or run)
+lands.
+
+*Wired (2026-10-16, follow-up PR to this branch).* `basis.vision.analyze.analyze_photo_decomposed`
+runs `photo_countables/v2` and `photo_surfaces/v1` concurrently on the prepared image and
+merges them with `basis.vision.merge` (the merge moved out of `evals.merge_photo_runs`, which
+now imports it, so the harness and the pipeline share one implementation): components unioned
+by label with the largest count, the countables call's material and attachment for a label
+both list, every `other` kept; room type, confidence, floor and ordinal from the surfaces
+call. The step is selected by `VISION_PHOTO_MODE` (`single` | `decomposed`), read by the
+`analyze_photo` activity from the worker's settings and checked at worker startup
+(`build_deps` loads the mode's prompts against the manifest). Each call is its own
+`llm_calls` row and the activity's cost is their sum; a component row's `raw.prompt_version`
+is `photo_countables/v2+photo_surfaces/v1`; the stored analysis JSON records the mode and
+each call's attempts. If either call stays unusable after its retry the photo is
+`ambiguous`/`needs_review` naming the call; a provider error or an exhausted budget on either
+call fails the photo as a whole. **The default is still `single`**: the single-call record,
+request and heartbeats are pinned unchanged by a regression test, and switching the deployed
+worker to `decomposed` is Bryan's call (about a dollar more per property). Open from this
+section: settle the cabinet convention (units or run)
 between the box labels and the room labels; make the reconciliation call carry the verified
 per-photo counts rather than re-estimate them; a third narrow call (electrical only, or
 exterior only) is the next thing to test once the two-call result is confirmed; add the

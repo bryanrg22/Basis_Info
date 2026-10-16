@@ -79,7 +79,10 @@ Predictions come from `python -m evals.predict_photos` (one call per photo with
 combined with `python -m evals.merge_photo_runs --runs <countables> <surfaces> --out <dir>`
 (label sets unioned per photo, the largest count per label, the room type of the run named
 by `--room-from N`, default the first) and
-the merged directory scores like any single run (EVAL_REPORT section 11). After a
+the merged directory scores like any single run (EVAL_REPORT section 11). The component
+merge is `basis.vision.merge.merge_components`, the same function the pipeline's
+`VISION_PHOTO_MODE=decomposed` step runs, so a merged run scores the step as shipped.
+After a
 `--model` run, check `run.json` `models_reported`: the provider pool falls back to the
 secondary provider per call, so a rate-limited primary silently mixes models into a run.
 
