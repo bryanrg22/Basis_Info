@@ -4,8 +4,9 @@ Before v0.9 an extraction failure surfaced only after the photo stage (17 minute
 $2.67 on the live run) and failed the whole execution, which could not be restarted. With
 patch ``stage-failure-retry-v1``:
 
-* an extraction that fails permanently is noticed at once: the photo work in flight is
-  cancelled, the study is ``failed`` with the reason, and the workflow waits;
+* an extraction that fails permanently is noticed at once: the study is ``failed`` with
+  the reason, the photo stage schedules nothing more (the analyses already running
+  finish and keep their rows), and the workflow waits;
 * the ``retry`` update (``POST /v1/studies/{id}/retry``) clears the failure and runs the
   stage again; the photos already analyzed are reused and the study completes;
 * ``process_assets`` and ``export_report`` failures are held and retried the same way;
@@ -128,7 +129,7 @@ async def test_an_extraction_failure_stops_the_photos_and_a_retry_completes_the_
 ) -> None:
     flaky = FlakyExtract(harness, failures=1)
     study = await harness.seed()
-    slow = {str(p): SimulateFault(sleep_seconds=3) for p in study.photo_ids}
+    slow = {str(p): SimulateFault(sleep_seconds=5) for p in study.photo_ids}
     async with harness.worker(extract_fields=flaky.run):
         started = await harness.start(study, simulate_photos=slow)
         handle, sid = started.handle, started.study_id
@@ -138,19 +139,20 @@ async def test_an_extraction_failure_stops_the_photos_and_a_retry_completes_the_
         assert status.failed_stage == "extracting" and status.awaiting is None
         assert status.failure is not None and BROKEN in status.failure
         assert status.failure.startswith("extract_fields: ProviderUnavailable")
-        await harness.wait_for(handle, lambda s: s.pending_photos == 0, "photos to stop")
-        # Failed fast: as soon as the extraction failed, every photo in flight was asked to
-        # cancel, before any of them finished (each sleeps 3 s); a photo that still completes
-        # (it reaches its commit before its next heartbeat sees the cancel) keeps its rows
-        # for the retry but schedules nothing more (no localization, no room step).
+        # Failed fast: the failure was recorded as soon as the extraction failed, before
+        # any photo finished (each sleeps 5 s). The photo stage then drains: the analyses
+        # already running finish and keep their rows; nothing new (no localization, no
+        # room step, no other photo) is scheduled until the retry, and nothing is
+        # cancelled (a cancel races with an activity completing at the same moment).
+        await harness.wait_for(handle, lambda s: s.pending_photos == 0, "photos to drain")
         events = await history_events(handle)
         failed = events.index(("failed", "extract_fields"))
-        first_cancel = events.index(("cancel_requested", "analyze_photo"))
         recorded = events.index(("scheduled", "record_failure"))
-        assert failed < first_cancel < recorded
-        assert ("completed", "analyze_photo") not in events[:first_cancel]
-        assert events[:recorded].count(("cancel_requested", "analyze_photo")) == 3
-        after = events[first_cancel:recorded]
+        assert failed < recorded
+        assert ("completed", "analyze_photo") not in events[:recorded]
+        assert not any(what == "cancel_requested" for what, _ in events)
+        after = events[recorded:]
+        assert ("scheduled", "analyze_photo") not in after
         assert ("scheduled", "localize_photo") not in after
         assert ("scheduled", "reconcile_rooms") not in after
         row = await harness.study_row(sid)
@@ -161,7 +163,8 @@ async def test_an_extraction_failure_stops_the_photos_and_a_retry_completes_the_
         assert (ack.stage, ack.revision, ack.already_requested) == ("extracting", 1, False)
         status = await harness.wait_awaiting(handle, "appraisal_review", 1)
         assert status.failed_stage is None and status.failure is None
-        assert status.completed_photos == 3 and status.flagged_photos == ()
+        status = await harness.wait_photos(handle, 3)
+        assert status.flagged_photos == ()
         await harness.approve_all(handle)
         result = await harness.result(handle)
     assert result.outcome == "completed"

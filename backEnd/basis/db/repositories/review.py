@@ -34,13 +34,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, update
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from basis.db.enums import REVIEW_STAGES, Decision, DocumentKind, Stage
-from basis.db.errors import DuplicateKeyError, StaleStateError, constraint_name
+from basis.db.enums import REVIEW_STAGES, Decision, DocumentKind, Stage, StudyStatus
+from basis.db.errors import (
+    DuplicateKeyError,
+    GateNotOpenError,
+    StaleStateError,
+    constraint_name,
+)
 from basis.db.models import (
     Asset,
     Component,
@@ -138,6 +143,21 @@ class ReviewRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def _ensure_gate_open(self, study_id: uuid.UUID, stage: Stage, revision: int) -> None:
+        """``GateNotOpenError`` when the study is at ``stage``/``revision`` but not waiting
+        for a decision (``waiting_review``, or ``stalled`` past the deadline). The row is
+        locked, so the workflow's transition and this decision serialize."""
+        status = await self._session.scalar(
+            select(Study.status)
+            .where(Study.id == study_id, Study.current_stage == stage, Study.revision == revision)
+            .with_for_update()
+        )
+        if status is not None and status not in (StudyStatus.WAITING_REVIEW, StudyStatus.STALLED):
+            raise GateNotOpenError(
+                f"{stage.value} revision {revision} of study {study_id} is not open for a "
+                f"decision yet (status {status.value})"
+            )
+
     async def record_decision(
         self,
         *,
@@ -160,9 +180,21 @@ class ReviewRepository:
         back everything.
         """
         to_stage, new_revision = decision_target(stage, decision, revision)
+        await self._ensure_gate_open(study_id, stage, revision)
         study = await StudyRepository(self._session).transition(
             study_id, stage, to_stage, revision, new_revision=new_revision
         )
+        if to_stage in REVIEW_STAGES:
+            # The next gate opens when the workflow says so (its transition converges the
+            # status to waiting_review): until then the study is processing, and that gate
+            # refuses decisions (EVAL_REPORT 25: photos run behind the appraisal review).
+            await self._session.execute(
+                update(Study)
+                .where(Study.id == study_id)
+                .values(status=StudyStatus.PROCESSING)
+                .execution_options(synchronize_session=False)
+            )
+            await self._session.refresh(study)
         review = Review(
             study_id=study_id,
             stage=stage,

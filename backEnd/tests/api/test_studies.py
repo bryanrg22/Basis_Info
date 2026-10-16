@@ -244,6 +244,7 @@ async def test_get_includes_documents_and_latest_review_per_stage(api: Api, seed
         "alice", decide, {"stage": "appraisal_review", "revision": 1, "decision": "approve"}
     )
     assert approved.status_code == 202
+    await seed.stage(sid, Stage.ROOMS_REVIEW, 1)  # the workflow opens the rooms gate
     rejected = await api.post(
         "alice", decide, {"stage": "rooms_review", "revision": 1, "decision": "reject"}
     )

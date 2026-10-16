@@ -13,12 +13,12 @@ from typing import Any
 import numpy as np
 import pytest
 from apitest_support import Api, Seed
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.errors import PROBLEM_JSON
-from basis.db.enums import OrgRole, Stage
-from basis.db.models import PhotoObject
+from basis.db.enums import OrgRole, Stage, StudyStatus
+from basis.db.models import PhotoObject, Study
 from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository
 from basis.db.session import session_scope
 from basis.vision.localize import Rle
@@ -268,6 +268,23 @@ async def test_edits_outside_rooms_review_are_409(
     sid, photo, ids = await seeded_photo(api, seed, sessionmaker, stage=stage)
     added = await api.post("alice", path(sid, photo), box("window", 0.1, 0.1, 0.2, 0.2))
     assert added.status_code == 409
+    deleted = await api.delete("alice", f"{path(sid, photo)}/{ids['window']}")
+    assert deleted.status_code == 409
+    assert await object_rows(sessionmaker) == 3
+
+
+async def test_edits_before_the_rooms_gate_opens_are_409(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """EVAL_REPORT 25: at rooms_review but processing (the photo stage still runs behind
+    the appraisal review): the localizations are not final, so no edit yet."""
+    sid, photo, ids = await seeded_photo(api, seed, sessionmaker)
+    async with session_scope(sessionmaker) as session:
+        await session.execute(
+            update(Study).where(Study.id == uuid.UUID(sid)).values(status=StudyStatus.PROCESSING)
+        )
+    added = await api.post("alice", path(sid, photo), box("window", 0.1, 0.1, 0.2, 0.2))
+    assert added.status_code == 409 and added.json()["type"].endswith("gate-not-open")
     deleted = await api.delete("alice", f"{path(sid, photo)}/{ids['window']}")
     assert deleted.status_code == 409
     assert await object_rows(sessionmaker) == 3

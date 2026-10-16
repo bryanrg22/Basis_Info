@@ -58,14 +58,23 @@ Patches in this file:
   does not depend on settings.
 * ``stage-failure-retry-v1`` (EVAL_REPORT section 25, item 3): the photo stage runs in the
   background while the appraisal is ingested and extracted, and an extraction that fails
-  is noticed at once: the photo work in flight is cancelled (photos already analyzed keep
-  their rows and are reused), ``record_failure`` sets the study ``failed`` with the reason,
-  and the workflow waits for the ``retry`` update (``POST /v1/studies/{id}/retry``); then
-  it clears the failure and runs the stage again (activity ids get a ``:retry<n>`` suffix,
-  so their idempotency keys are fresh). ``process_assets`` (other than an exhausted budget)
-  and ``export_report`` failures are held the same way instead of failing the execution.
+  is noticed at once: ``record_failure`` sets the study ``failed`` with the reason, the
+  photo stage schedules nothing more (the few photo activities already running finish
+  and keep their rows, which the retry reuses; cancelling them instead races with their
+  completion), and the workflow waits for the ``retry`` update
+  (``POST /v1/studies/{id}/retry``); then it clears the failure and runs the stage again
+  (activity ids get a ``:retry<n>`` suffix, so their idempotency keys are fresh).
+  ``process_assets`` (other than an exhausted budget) and ``export_report`` failures are
+  held the same way instead of failing the execution.
   Before the patch an extraction failure surfaced only after the photo stage and failed
   the whole execution, which could not be restarted.
+* ``appraisal-gate-early-v1`` (EVAL_REPORT section 25, item 4; only with the patch above):
+  the appraisal review opens as soon as the extraction is done, while the photo stage
+  (analysis, SAM 3 localization, the room step) continues in the background; the rooms
+  review opens only after it. A rejection of the appraisal waits for the photo stage
+  before it starts the next revision (the revision carries the photo outputs over, so
+  they must be complete). Before the patch the appraisal review waited for the photo
+  stage, which was 74% of the live run's wall time under Replicate's throttle.
 """
 
 from __future__ import annotations
@@ -142,6 +151,7 @@ ALREADY_APPLIED: Final = "already applied"
 LOCALIZE_PATCH: Final = "localize-photos-v1"
 RECONCILE_ROOMS_PATCH: Final = "reconcile-rooms-v1"
 STAGE_RETRY_PATCH: Final = "stage-failure-retry-v1"
+EARLY_GATE_PATCH: Final = "appraisal-gate-early-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
@@ -193,8 +203,8 @@ class StudyWorkflow:
         self._failure: str | None = None
         self._retry_requested = False
         self._failures = 0
-        # Set while the photo stage is being stopped after a failed extraction: a photo
-        # whose analysis completes despite the cancel request schedules nothing more.
+        # Set while the photo stage drains after a failed extraction: no photo activity
+        # is scheduled any more; the ones already running finish and keep their rows.
         self._photos_stopping = False
 
     # ------------------------------------------------------------------ handlers
@@ -344,8 +354,11 @@ class StudyWorkflow:
             "list_photos", ListPhotosInput(study_id=study_id), ListPhotosOutput, "list_photos"
         )
         self._stage_retry = workflow.patched(STAGE_RETRY_PATCH)
+        photo_task: asyncio.Task[None] | None = None
         if self._stage_retry:
-            document_id = await self._extract_with_photos(list(photos.document_ids))
+            document_id, photo_task = await self._extract_with_photos(list(photos.document_ids))
+            if not workflow.patched(EARLY_GATE_PATCH):
+                await photo_task
         else:
             appraisal_task = self._spawn(self._ingest_and_extract())
             photo_revision = self._revision
@@ -358,10 +371,14 @@ class StudyWorkflow:
             decision = await self._await_decision("appraisal_review")
             if decision.decision == "approve":
                 break
+            if photo_task is not None:
+                await photo_task  # the next revision carries the photo outputs over
             new_revision, corrections = await self._reject(decision, "extracting")
             await self._held("extracting", self._extractor(document_id, new_revision, corrections))
 
-        # Gate 2: rooms review.
+        # Gate 2: rooms review, once the photo stage is done.
+        if photo_task is not None:
+            await photo_task
         while True:
             decision = await self._await_decision("rooms_review")
             if decision.decision == "approve":
@@ -401,11 +418,13 @@ class StudyWorkflow:
             activity_id,
         )
 
-    async def _extract_with_photos(self, photo_ids: list[str]) -> str | None:
+    async def _extract_with_photos(
+        self, photo_ids: list[str]
+    ) -> tuple[str | None, asyncio.Task[None]]:
         """Patch ``stage-failure-retry-v1``: the photo stage in the background, the
-        appraisal in front; a failed extraction stops the photo work, is held for a retry
-        (:meth:`_held`), and the photo stage resumes after the retry. Returns once both
-        are done."""
+        appraisal in front; a failed extraction drains the photo stage, is held for a
+        retry (:meth:`_hold`), and the photo stage runs again after the retry. Returns
+        when the extraction is done, with the photo stage's task (still running or done)."""
         revision = self._revision
         photo_task = self._spawn(self._photo_stage(photo_ids, revision))
         attempt = 0
@@ -418,32 +437,19 @@ class StudyWorkflow:
                 if isinstance(error.cause, CancelledError) or self._stopping:
                     raise
                 self._photos_stopping = True
-                await self._cancel_task(photo_task)
-                await self._hold("extracting", error)
+                await self._hold("extracting", error, photo_task)
                 attempt += 1
                 self._photos_stopping = False
                 self._pending_photos = 0
                 self._completed_photos = 0
                 photo_task = self._spawn(self._photo_stage(photo_ids, revision))
-        await photo_task
-        return document_id
+        return document_id, photo_task
 
     async def _photo_stage(self, photo_ids: list[str], revision: int) -> None:
         await self._analyze_photos(photo_ids, revision)
         if self._photos_stopping:
-            raise asyncio.CancelledError("photo stage stopped")
+            return  # drained after a failed extraction; the retry runs the stage again
         await self._reconcile_rooms(revision)
-
-    async def _cancel_task(self, task: asyncio.Task[Any]) -> None:
-        """Cancel a stage's task and wait until its activities have stopped."""
-        if task.done():
-            return
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, ActivityError):
-            if self._stopping:
-                raise
 
     async def _held(self, stage: StageName, run: Callable[[str], Awaitable[_T]]) -> _T:
         """Run a stage; with patch ``stage-failure-retry-v1`` a failure (not a
@@ -460,8 +466,11 @@ class StudyWorkflow:
                 await self._hold(stage, error)
                 attempt += 1
 
-    async def _hold(self, stage: StageName, error: ActivityError) -> None:
-        """Record the failure, wait for the ``retry`` update, clear the failure."""
+    async def _hold(
+        self, stage: StageName, error: ActivityError, drain: asyncio.Task[Any] | None = None
+    ) -> None:
+        """Record the failure, wait for the ``retry`` update (and for ``drain``, the photo
+        stage finishing the activities it had started), clear the failure."""
         self._failures += 1
         number = self._failures
         reason = _failure_reason(error)
@@ -477,6 +486,8 @@ class StudyWorkflow:
         # Exposed (status query, retry validator) once the study row says failed.
         self._failed_stage, self._failure, self._retry_requested = stage, reason, False
         await workflow.wait_condition(lambda: self._retry_requested)
+        if drain is not None:
+            await drain
         await self._activity(
             "record_failure",
             RecordFailureInput(study_id=self._input.study_id, stage=stage, revision=self._revision),
@@ -548,22 +559,8 @@ class StudyWorkflow:
             self._spawn(self._analyze_and_localize(semaphore, localizing, doc, revision))
             for doc in document_ids
         ]
-        try:
-            for completed in workflow.as_completed(tasks):
-                await completed
-        except asyncio.CancelledError:
-            if not self._stage_retry:
-                raise
-            # The photo stage is being stopped (patch stage-failure-retry-v1): stop every
-            # photo's task too, and wait until their activities have stopped.
-            for task in tasks:
-                task.cancel()
-            for task in tasks:
-                try:
-                    await task
-                except (asyncio.CancelledError, ActivityError):
-                    pass
-            raise
+        for completed in workflow.as_completed(tasks):
+            await completed
 
     async def _analyze_and_localize(
         self,
@@ -573,9 +570,7 @@ class StudyWorkflow:
         rev: int,
     ) -> None:
         analyzed = await self._analyze_one(analyzing, document_id, rev)
-        if self._photos_stopping:
-            return
-        if analyzed and workflow.patched(LOCALIZE_PATCH):
+        if analyzed and not self._photos_stopping and workflow.patched(LOCALIZE_PATCH):
             await self._localize_one(localizing, document_id, rev)
 
     async def _localize_one(self, semaphore: asyncio.Semaphore, document_id: str, rev: int) -> None:
@@ -607,6 +602,8 @@ class StudyWorkflow:
         """Analyze one photo; True when ``analyze_photo`` returned (even ``needs_review``)."""
         async with semaphore:
             try:
+                if self._photos_stopping:
+                    return False  # draining after a failed extraction: not scheduled
                 if self._budget <= 0:
                     self._flag(document_id, budget=True)
                     return False

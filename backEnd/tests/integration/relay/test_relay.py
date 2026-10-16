@@ -31,8 +31,8 @@ from workflowtest_support import (
 )
 
 from basis.db.enums import Decision as DecisionKind
-from basis.db.enums import OutboxStatus, Stage
-from basis.db.models import OutboxMessage
+from basis.db.enums import OutboxStatus, Stage, StudyStatus
+from basis.db.models import OutboxMessage, Study
 from basis.db.repositories import CorrectionInput, OutboxRepository
 from basis.db.session import session_scope
 from basis.relay.delivery import MAX_ATTEMPTS, Relay, TemporalWorkflowGateway
@@ -119,6 +119,12 @@ async def test_a_studys_decisions_are_delivered_in_order(
     handle = await start_fake(fake_workflows, study, task_queue)
     await wait_for_stage(handle, "appraisal_review")
     first = await record_decision(sm, study)
+    # v0.9: an approval leaves the next gate closed until the workflow opens it; open it
+    # in the database so the second decision can be queued behind the first.
+    async with session_scope(sm) as session:
+        await session.execute(
+            update(Study).where(Study.id == study.id).values(status=StudyStatus.WAITING_REVIEW)
+        )
     second = await record_decision(sm, study, stage=Stage.ROOMS_REVIEW)
 
     report = await relay_for(sm, fake_workflows).run_once()

@@ -13,16 +13,25 @@ from typing import Any
 
 import pytest
 from apitest_support import Api, Seed
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.errors import PROBLEM_JSON
 from basis.api.idempotency import IDEMPOTENCY_HEADER, REPLAYED_HEADER
 from basis.api.schemas.common import MAX_REVISION
-from basis.db.enums import Decision, DocumentKind, OrgRole, Stage
+from basis.db.enums import (
+    REVIEW_STAGES,
+    Decision,
+    DocumentKind,
+    OrgRole,
+    Stage,
+    StudyStatus,
+    status_for_stage,
+)
 from basis.db.models import Correction, Document, OutboxMessage, Review, Study
 from basis.db.repositories import DECISION_TRANSITIONS, WORKFLOW_SIGNAL, scoped_key
 from basis.db.repositories.review import CORRECTION_TARGET_TYPES
+from basis.db.session import session_scope
 from basis.workflow.contracts import CORRECTION_TYPES
 
 pytestmark = pytest.mark.integration
@@ -94,6 +103,10 @@ async def test_each_transition(
         to_stage,
         expected_revision,
     )
+    # v0.9: landing on a review stage, the study is processing until the workflow opens it.
+    assert study.status is status_for_stage(to_stage) or (
+        to_stage in REVIEW_STAGES and study.status is StudyStatus.PROCESSING
+    )
     assert row is not None and row.idempotency_key == scoped_key(alice.id, key)
     assert signal.kind == WORKFLOW_SIGNAL
     assert signal.delivered_at is None
@@ -161,6 +174,43 @@ async def test_study_not_waiting_for_review_is_409(api: Api, seed: Seed, stage: 
         "alice", f"/v1/studies/{sid}/decisions", decision("appraisal_review", 1, "approve")
     )
     assert response.status_code == 409
+
+
+@pytest.mark.parametrize("status", [StudyStatus.PROCESSING, StudyStatus.FAILED])
+async def test_a_gate_the_workflow_has_not_opened_is_409(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    status: StudyStatus,
+) -> None:
+    """EVAL_REPORT 25: the study is at rooms_review (the appraisal was approved) but the
+    photo stage still runs, so the workflow has not opened that gate: no decision."""
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW)
+    async with session_scope(sessionmaker) as session:
+        await session.execute(update(Study).where(Study.id == uuid.UUID(sid)).values(status=status))
+    before = await counts(sessionmaker)
+    response = await api.post(
+        "alice", f"/v1/studies/{sid}/decisions", decision(Stage.ROOMS_REVIEW, 1, "approve")
+    )
+    assert response.status_code == 409
+    body = response.json()
+    assert body["type"].endswith("/gate-not-open")
+    assert f"status {status.value}" in body["detail"]
+    assert await counts(sessionmaker) == before  # nothing recorded
+
+
+async def test_a_stalled_gate_still_takes_a_decision(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.ASSETS_REVIEW)
+    async with session_scope(sessionmaker) as session:
+        await session.execute(
+            update(Study).where(Study.id == uuid.UUID(sid)).values(status=StudyStatus.STALLED)
+        )
+    response = await api.post(
+        "alice", f"/v1/studies/{sid}/decisions", decision(Stage.ASSETS_REVIEW, 1, "approve")
+    )
+    assert response.status_code == 202, response.text
 
 
 @pytest.mark.parametrize("stage", ["extracting", "uploading", "completed", "nope"])
