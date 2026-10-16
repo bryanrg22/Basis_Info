@@ -57,7 +57,8 @@ async def test_tool_results_are_named_json_tool_messages() -> None:
     messages = provider.requests[1].messages
     assistant, tool = messages[-2], messages[-1]
     assert assistant.role == "assistant"
-    assert json.loads(assistant.content)["tool_calls"][0]["name"] == "search_reference"
+    [replayed] = assistant.tool_calls  # native calls, not JSON text the APIs reject
+    assert (replayed.id, replayed.name) == ("call-1", "search_reference")
     assert (tool.role, tool.name, tool.tool_call_id) == ("tool", "search_reference", "call-1")
     payload = json.loads(tool.content)
     assert payload["corpus"] == "reference"
@@ -246,3 +247,35 @@ async def test_run_residual_records_usage_and_trace() -> None:
     assert outcome.tool_calls[0].refused
     assert [c.input_tokens for c in outcome.calls] == [1000, 100]
     assert outcome.iterations == 2
+
+
+async def test_reasoning_effort_reaches_every_model_call() -> None:
+    provider = ScriptedProvider(happy_turns())
+    await classify(component(), make_ctx(provider, reasoning_effort="none"))
+    assert [r.reasoning_effort for r in provider.requests] == ["none", "none"]
+    provider = ScriptedProvider(happy_turns())
+    await classify(component(), make_ctx(provider))
+    assert [r.reasoning_effort for r in provider.requests] == [None, None]
+
+
+async def test_replayed_history_is_valid_on_the_openai_and_anthropic_wires() -> None:
+    """Regression (2026-10-16): the tool-call turn went back as JSON text, and OpenAI
+    answered 400 "messages with role 'tool' must be a response to a preceeding message
+    with 'tool_calls'". Each tool result must follow an assistant turn that made the call."""
+    from basis.llm.anthropic_provider import _message_dicts
+    from basis.llm.providers import _message_dict
+
+    provider = ScriptedProvider(happy_turns())
+    await classify(component(), make_ctx(provider))
+    history = provider.requests[1].messages
+
+    openai = [_message_dict(m) for m in history]
+    assert [m["role"] for m in openai] == ["user", "assistant", "tool"]
+    assert openai[1]["tool_calls"][0]["id"] == openai[2]["tool_call_id"] == "call-1"
+    assert openai[1]["tool_calls"][0]["function"]["name"] == "search_reference"
+
+    anthropic = _message_dicts(history)
+    assert [m["role"] for m in anthropic] == ["user", "assistant", "user"]
+    [use] = [b for b in anthropic[1]["content"] if b["type"] == "tool_use"]
+    [result] = anthropic[2]["content"]
+    assert use["id"] == result["tool_use_id"] == "call-1"
