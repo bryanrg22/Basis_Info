@@ -976,3 +976,184 @@ it costs $2.23 per 52 photos against $0.59 and 5 s per photo against 2. Whether 
 is worth four times the per-property spend, and whether to spend a run on `medium` effort or
 a Claude-tuned prompt before deciding, is the open question; the provider and the routing are
 in place either way (`LLM_PRIMARY=anthropic`, `VISION_MODEL=claude-opus-5-5`).
+
+## 17. Text steps on current models (2026-10-16)
+
+Question: the vision step was benchmarked across models (sections 12 and 14); the two text
+steps never were. Appraisal field extraction (`TEXT_MODEL`, the `appraisal_field_fallback`
+call) and IRS asset classification (`CLASSIFY_MODEL`, the residual tool loop) run on the code
+default `gpt-4o-mini`. Which model should each step run on, judged by accuracy per dollar?
+
+Setup. Seven models, three repeats each, on the client study's labels: the 75 fields of
+`appraisal_fields` (12 marked critical) and the 46 rows of `assets` (the engineer's schedule:
+21 y39, 18 y5, 6 y15, 1 y7; no section labels). Two new runners produce the predictions and
+`evals.run` scores them (`critical_accuracy`, `critical_pass^k`, `bucket_pass^k`,
+`citation_validity` and `rows_with_verified_citation` were added to the harness for this
+section; `evals/README.md`):
+
+- `evals.predict_fields`: every labelled field in one call with the released
+  `appraisal_field_fallback/v1` prompt, the production request format and structured answer,
+  the whole document (`read_pdf` text, 20 pages, 28k characters) as context, and the
+  production verbatim guard (a value not in the page text is dropped and scores as a miss).
+  Production asks this call only for the critical fields Azure DI and the regex pass missed.
+  Asking for all 75 fields measures the model on the whole form. 40 of the 75 keys are not
+  in the field catalogue and get their key in words as the caption.
+- `evals.predict_assets`: every row through `classify_with_model`, the production model path
+  (the residual loop with `classify/v1`, at most 3 tools and 4 model calls, citation
+  verification, the review policy), with the rules table and the cache skipped. The
+  reference corpus is the four IRS PDFs cut into the ingest's 400-token windows, searched by
+  BM25 (production adds a vector leg). The input is what the row carries: the component name
+  and `nonresidential`, with no material, attachment or room. A failed loop is scored as
+  what production writes: 1250, the building bucket (y39).
+
+Prices are `basis.llm.cost` (section 12 and 14 sources). Every run's `run.json`
+`models_reported` names only the requested model (Azure was unset, so nothing fell back),
+with no provider errors except those counted below. Efforts: extraction at `low` for every
+reasoning model. For classification, the OpenAI reasoning models ran at `none` and Claude at
+`low` (see the first finding below).
+
+### 17.1 Field extraction
+
+| Model | effort | Fields right, repeat 1 | mean of 3 | critical (12), mean of 3 | pass^3 | critical pass^3 | before the guard, mean of 3 | cost per study | seconds per call |
+|---|---|---|---|---|---|---|---|---|---|
+| gpt-4o-mini (current default) | - | 0.253 | 0.249 | 0.167 | 0.240 | 0.167 | 0.262 | $0.0025 | 12.6 |
+| gpt-5.2 (Bryan's `.env`) | low | 0.867 | 0.880 | 1.000 | 0.867 | 1.000 | 0.880 | $0.0591 | 33.5 |
+| gpt-5.4-mini | low | 0.813 | 0.782 | 0.889 | 0.707 | 0.833 | 0.800 | $0.0197 | 15.4 |
+| **gpt-6-luna** | low | 0.867 | **0.924** | **1.000** | 0.853 | 1.000 | 0.924 | **$0.0024** | 17.0 |
+| gpt-6.1-sol | low | 0.880 | 0.880 | 1.000 | 0.880 | 1.000 | 0.880 | $0.0376 | 22.9 |
+| claude-sonnet-5-5 | low | 0.947 | 0.916 | 1.000 | 0.853 | 1.000 | 0.916 | $0.0610 | 14.0 |
+| claude-opus-5-5 | low | 0.973 | 0.911 | 1.000 | 0.880 | 1.000 | 0.911 | $0.1221 | 18.9 |
+
+Paired over the 75 fields (mean of 3 per field, bootstrap 95% interval), gpt-6-luna minus:
+Opus +0.013 [-0.009, 0.036], Sonnet +0.009 [-0.018, 0.044], gpt-5.2 +0.044 [-0.027, 0.12],
+gpt-6.1-sol +0.044 [0.004, 0.089], gpt-5.4-mini +0.142 [0.062, 0.227].
+
+Reading:
+
+- `gpt-4o-mini`, the default, returns null for about 50 of the 75 fields in one call. Two of
+  its 12 critical fields are right on average. Every current model reads the form. The
+  gpt-4o-mini number measures the model and not the text: 55 of the 75 values are printed
+  verbatim in the text sent, and the other 20 are numbers printed with thousands separators.
+- The top four (luna, Sonnet, Opus, gpt-5.2) are tied within noise, and all get the 12
+  critical fields right on every repeat. gpt-6-luna has the highest mean at the lowest price:
+  $0.0024 per study, 25 times cheaper than Sonnet and 50 times cheaper than Opus.
+- Remaining misses are mostly conventions, not reading errors. Two fields are disputed
+  labels that every model misses the same way. `reconciliation.indicated_value_cost_approach`
+  is labelled 692831, but the reconciliation section prints 682,831; the cost approach page
+  prints 692,831, so the document contradicts itself, and every model copies the
+  reconciliation figure. `cost_approach.effective_date_of_cost_data` is labelled `2025-01`
+  as text, but the form prints `01/2025`, so a correct copy cannot match. Excluding the two,
+  luna is at 0.950, Sonnet 0.941, Opus 0.936 and sol 0.904. The private labels are left for
+  Bryan to decide. The other convention is the condition rating: the URAR prints
+  "Concrete C3" in the improvements grid, and the labels keep the material only. gpt-6.1-sol
+  keeps the suffix on all 7 such fields, more than its whole gap to luna (about 3.4 fields);
+  Opus loses 4.7 fields per call to it and luna 2.3. A prompt line ("material only, without the C1-C6 rating") would
+  close it, as a new prompt version.
+- The verbatim guard costs nothing on the current models (0 drops). It drops about one value
+  per call from gpt-4o-mini and gpt-5.4-mini (`$680,000` where the text prints `680,000`).
+
+### 17.2 Asset classification
+
+| Model | effort | Bucket right, repeat 1 | mean of 3 | pass^3 | macro-F1, repeat 1 | bucket right, answered loops only | citations verified | rows with a verified citation | needs review | loop failures (of 138) | cost per study (46 rows) | seconds per row |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| always y39 (the failure fallback) | - | 0.457 | 0.457 | 0.457 | 0.157 | - | - | - | - | - | $0 | - |
+| rules table (`lookup`) | - | 0.087 | - | - | 0.175 | - | - | - | - | - | $0 | - |
+| gpt-4o-mini (current default) | - | 0.565 | 0.580 | 0.565 | 0.446 | 0.580 | 0.663 | 0.761 | 0.51 | 0 | $0.073 | 5.5 |
+| gpt-5.2 | none | 0.522 | 0.507 | 0.457 | 0.383 | 0.648 | 0.892 | 0.761 | 0.75 | 30 | $0.874 | 8.2 |
+| gpt-5.4-mini | none | 0.674 | 0.630 | 0.565 | 0.522 | 0.649 | 0.882 | 0.891 | 0.43 | 7 | $0.269 | 4.0 |
+| gpt-6-luna | none | 0.609 | 0.630 | 0.587 | 0.449 | 0.659 | 0.873 | 0.891 | 0.57 | 6 | $0.052 | 6.2 |
+| gpt-6.1-sol | - | not runnable (below) | | | | | | | | 5 of 5 in the probe | | |
+| **claude-sonnet-5-5** | low | 0.674 | **0.688** | 0.630 | 0.600 | 0.688 | 0.964 | 0.957 | 0.46 | 0 | **$1.247** | 5.9 |
+| claude-opus-5-5 | low | 0.696 | 0.703 | 0.696 | 0.541 | 0.703 | 0.959 | 1.000 | 0.36 | 0 | $1.919 | 9.1 |
+
+Per bucket (mean of 3), y39 / y15 / y5: gpt-4o-mini 0.97 / 0.17 / 0.24, gpt-6-luna 1.00 /
+0.67 / 0.22, Sonnet 1.00 / 0.94 / 0.22, Opus 1.00 / 0.83 / 0.33. Paired over the 46 rows:
+Opus minus luna +0.072 [0.014, 0.152], Sonnet minus luna +0.058 [0.000, 0.130], Opus minus
+Sonnet +0.014 [-0.043, 0.072], Sonnet minus gpt-4o-mini +0.109 [0.014, 0.210], luna minus
+gpt-4o-mini +0.051 [-0.043, 0.152].
+
+Reading:
+
+- The production loop had never completed a search on a real API. The assistant turn that
+  made the tool calls was replayed as `{"tool_calls": [...]}` JSON text, not as
+  `Message.tool_calls`, and OpenAI answers the next call with 400 "messages with role 'tool'
+  must be a response to a preceeding message with 'tool_calls'". So every residual
+  classification that searched ended in `provider_error` and was written as y39 with
+  `needs_review` (the 2-row smoke reproduced it on gpt-4o-mini). The scripted unit tests
+  could not see it: they asserted on the JSON text. Fixed in `basis/classify/residual.py`,
+  and the replayed history is now checked against both providers' wire mappings
+  (`test_replayed_history_is_valid_on_the_openai_and_anthropic_wires`). Every number above
+  is after the fix. The Claude 5 loop works without replaying thinking blocks: 0 failures
+  in 276 rows, against the caveat in the Anthropic provider docstring.
+- The newer OpenAI models cannot run this loop at their reasoning efforts on Chat
+  Completions. gpt-5.4-mini, gpt-6-luna and gpt-6.1-sol answer 400 "Function tools with
+  reasoning_effort are not supported ... use /v1/responses or set reasoning_effort to
+  'none'" (also with no effort given, since their default is not `none`). gpt-6.1-sol does
+  not accept `none`, so it cannot run the classifier at all until the OpenAI provider speaks
+  the Responses API. The other three ran at `none`, so the OpenAI rows are those models
+  without reasoning and the Claude rows are with it. This is the comparison production can
+  run today, not a like-for-like reasoning comparison.
+- 43 of the OpenAI loop failures have one cause. `Classification.asset_class` has
+  `max_length=16`, OpenAI's strict schema does not enforce `maxLength`, and answers like
+  "Building or Building Component" fail pydantic in the provider (`ProviderBadResponse`)
+  before the loop's JSON retry can see them. gpt-5.2 lost 30 of 138 rows to this. On the
+  loops that answered, the four OpenAI models score 0.58 to 0.66. Not fixed here, so the
+  runs stay comparable; a follow-up is proposed.
+- The y5 rows decide the ranking, and they are mostly unreachable from this input. Every
+  model gets the y39 rows right. 10 of the 18 y5 rows (cabinets and millwork, fireplaces,
+  raised paneling, wood flooring, wall coverings, half walls, door and window guards, the
+  kitchen and utility sink, security and exterior lighting, access control) are wrong on
+  every repeat of all six models, almost always as y39 (172 of 180 answers). Those are the engineer's calls on decorative, removable or business-use
+  finishes, made with facts the row does not carry (the component name is the whole
+  input). The upper bound of this dataset is therefore well below 1. Models separate on the
+  y15 land improvements (driveway, fencing, retaining walls, pads: gpt-4o-mini 0.17,
+  Sonnet 0.94) and on the few y5 rows with a clear authority (appliances, carpet, window
+  treatments).
+- Evidence follows the accuracy. Claude's citations pass the production check 96% of the
+  time and nearly every row carries one. The OpenAI models are at 87% to 89%, gpt-4o-mini
+  at 66%. An unverified citation sends the row to review, so Opus flags 36% of rows,
+  Sonnet 46%, gpt-4o-mini 51% and gpt-5.2 75%.
+- In production the classifier only sees what the rules table misses. The rules table
+  classifies 4 of these 46 report rows (it is keyed on the vision vocabulary, not on report
+  captions), so per study the classifier cost lands on most components.
+
+### 17.3 Recommendations
+
+Rule: the cheapest model whose mean accuracy over three repeats is not significantly below
+the most accurate (paired bootstrap, 95%).
+
+- **Field extraction: `gpt-6-luna` at `low` effort.** It has the highest mean (0.924), every
+  critical field right on every repeat, and costs $0.0024 per study, the cheapest model
+  measured (gpt-4o-mini costs the same and scores 0.249). Wiring it needs `TEXT_MODEL=gpt-6-luna`
+  plus two things the extraction activity does not pass yet: `reasoning_effort` (the
+  pipeline sends none, so the model's default applies) and a larger
+  `EXTRACTION_FALLBACK_MAX_TOKENS` than 800, since a reasoning model spends output on
+  thinking (section 12). Both are in `basis/config.py` and the activity, which other
+  sessions own.
+- **Asset classification: `claude-sonnet-5-5` at `low` effort.** It is tied with Opus
+  (+0.014 [-0.04, 0.07]) at 65% of the price ($1.25 against $1.92 per 46 rows), and
+  significantly better than gpt-4o-mini (+0.11) with 0 loop failures and 96% verified
+  citations. gpt-6-luna is the cheap alternative ($0.05): 0.63, behind Opus significantly
+  and behind Sonnet at the boundary. Opus is the choice if review load counts more than
+  spend: 36% of rows flagged against 46%, pass^3 0.70 against 0.63, every row with a
+  verified citation. Ten points fewer flags is about 4.6 fewer rows per study for the
+  engineer, which is worth more than $0.67 at any engineering rate; Bryan's call.
+  `CLASSIFY_MODEL=claude-sonnet-5-5` works with the loop as it is (`ANTHROPIC_EFFORT` low,
+  the provider's thinking headroom over `LoopLimits.max_tokens`). Checked on 10 rows at the
+  production limits (1024 tokens, 60 s timeout): 0 failures, 6.1 s per row.
+- **Either way, the residual loop fix in this PR is what makes the classifier work at all.**
+  Before it, every model-path classification that searched fell back to y39.
+
+Follow-ups (not done here): an OpenAI Responses API path in the provider, so gpt-6.1-sol and
+the reasoning efforts can run tool loops; `asset_class` length tolerance (truncate, or a
+larger limit) so a long class name is not a loop failure; richer classifier input (material,
+attachment, room, use) before judging y5; the condition-suffix prompt line for extraction;
+and resolving the two disputed labels.
+
+Spend for this section: $14.21 for the runs ($6.12 Opus, $3.92 Sonnet, $2.80 gpt-5.2, $0.87
+gpt-5.4-mini, $0.23 gpt-4o-mini, $0.16 gpt-6-luna, $0.11 gpt-6.1-sol; classification $13.30,
+extraction $0.91), plus $1.10 of smoke, calibration and production-limit checks. Total
+about $15.31.
+Prediction directories: `text_fields_<model>` and `text_assets_<model>` under
+`$BASIS_EVAL_DATA_DIR/predictions`, each with `run.json` and the raw records. The tables come
+from `docs/review_2026-10-15/repro/text_step_table.py` (run from `backEnd/`).
