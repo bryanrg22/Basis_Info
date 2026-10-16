@@ -53,7 +53,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import cost_usd
 from basis.llm.errors import ProviderBadResponse
-from basis.llm.prompts import Prompt
+from basis.llm.prompts import Prompt, version_number
 from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision.prep import PreparedImage
 from basis.vision.schemas import (
@@ -76,9 +76,28 @@ INSTRUCTION: Final = (
     "physical object once, with its count and the numbers of the images where it is "
     "visible."
 )
+# room_inventory/v2 onward: the per-label accounting layout (render_by_label).
+PER_LABEL_FROM: Final = 2
+INSTRUCTION_V2: Final = (
+    "The images above all show the same room. Account for every per-photo count below: "
+    "for each label, decide which images show the same physical objects and which show "
+    "different ones, and list each group of images once with its count of distinct objects."
+)
 
 
 # --------------------------------------------------------------------------- schemas
+
+NOTE_MAX: Final = 200
+
+
+def clip_text(value: Any, limit: int = NOTE_MAX) -> Any:
+    """A free-text answer longer than ``limit`` cut to ``limit`` characters (ending in
+    ``...``). Strict structured output does not enforce ``maxLength`` on every provider, and
+    a long note is no reason to throw away a whole answer (EVAL_REPORT section 16: a quarter
+    of the v2 answers were refused for a note over 200 characters)."""
+    if isinstance(value, str) and len(value) > limit:
+        return value[: limit - 3].rstrip() + "..."
+    return value
 
 
 class ModelInventoryObject(BaseModel):
@@ -95,7 +114,12 @@ class ModelInventoryObject(BaseModel):
     material: Material
     attachment: Attachment
     confidence: float = Field(ge=0.0, le=1.0)
-    note: str | None = Field(max_length=200)
+    note: str | None = Field(max_length=NOTE_MAX)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def _clip_note(cls, value: Any) -> Any:
+        return clip_text(value)
 
     @model_validator(mode="before")
     @classmethod
@@ -225,6 +249,8 @@ class ReconcileContext:
     model: str
     max_tokens: int = MAX_TOKENS
     heartbeat: Callable[[str], None] = field(default=_no_heartbeat)
+    # Reasoning models only (ChatRequest.reasoning_effort); None = the provider's default.
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,8 +333,60 @@ def render_analysis(index: int, analysis: PhotoAnalysis | None) -> str:
     return f"Image {index}: {analysis.room_type.value}; {listed}"
 
 
-def build_request(photos: Sequence[RoomPhoto], ctx: ReconcileContext) -> ChatRequest:
-    """The request for one call: ``Image N:`` + image per photo, then the analyses."""
+def render_by_label(photos: Sequence[RoomPhoto]) -> str:
+    """The per-photo counts regrouped by label (prompt v2's accounting table), one line
+    per label in order of first appearance::
+
+        kitchen_cabinet: Image 1 x8 (wood, permanent); Image 2 x10 (wood, permanent)
+
+    A label one photo lists twice is summed for that photo (as in :func:`heuristic_merge`);
+    ``other`` keeps its note in the label so different unknown things stay apart. Images
+    without an analysis are named at the end."""
+    table: dict[str, dict[int, list[Any]]] = {}
+    missing: list[int] = []
+    for number, photo in enumerate(photos, start=1):
+        if photo.analysis is None:
+            missing.append(number)
+            continue
+        for c in photo.analysis.components:
+            key = c.label.value
+            if c.label is ComponentLabel.OTHER and c.note:
+                key = f"other [{c.note}]"
+            entry = table.setdefault(key, {}).setdefault(number, [0, c.material, c.attachment])
+            entry[0] += c.count
+    lines = [
+        f"{key}: "
+        + "; ".join(
+            f"Image {n} x{count} ({material.value}, {attachment.value})"
+            for n, (count, material, attachment) in sorted(seen.items())
+        )
+        for key, seen in table.items()
+    ]
+    rooms = "; ".join(
+        f"Image {n}: {p.analysis.room_type.value}"
+        for n, p in enumerate(photos, start=1)
+        if p.analysis is not None
+    )
+    text = "\n".join(lines) if lines else "no components reported"
+    if rooms:
+        text += f"\nRoom type per image: {rooms}"
+    if missing:
+        text += "\nNo per-photo analysis for: " + ", ".join(f"Image {n}" for n in missing)
+    return text
+
+
+def layout(prompt: Prompt) -> Literal["per_image", "per_label"]:
+    """How a prompt version wants the per-photo analyses: ``room_inventory/v1`` one line
+    per image, v2 and later the per-label accounting table (:func:`render_by_label`)."""
+    return "per_image" if version_number(prompt.version) < PER_LABEL_FROM else "per_label"
+
+
+def build_request(
+    photos: Sequence[RoomPhoto], ctx: ReconcileContext, hints: str | None = None
+) -> ChatRequest:
+    """The request for one call: ``Image N:`` + image per photo, then the analyses in the
+    prompt version's layout, then ``hints`` (an overlap judgment of the room's photos,
+    :mod:`basis.vision.overlap`) when given."""
     if not photos:
         raise ValueError("a reconciliation call needs at least one photo")
     if len(photos) > MAX_IMAGES_PER_CALL:
@@ -321,11 +399,19 @@ def build_request(photos: Sequence[RoomPhoto], ctx: ReconcileContext) -> ChatReq
         )
         for number, p in enumerate(photos, start=1)
     )
-    analyses = "\n".join(render_analysis(n, p.analysis) for n, p in enumerate(photos, start=1))
-    text = (
-        f"{INSTRUCTION}\n\nThere are {len(photos)} images. Per-photo analysis (each photo "
-        f"analyzed alone):\n{analyses}"
-    )
+    if layout(ctx.prompt) == "per_label":
+        text = (
+            f"{INSTRUCTION_V2}\n\nThere are {len(photos)} images. Per-photo counts by label "
+            f"(each photo analyzed alone):\n{render_by_label(photos)}"
+        )
+    else:
+        analyses = "\n".join(render_analysis(n, p.analysis) for n, p in enumerate(photos, start=1))
+        text = (
+            f"{INSTRUCTION}\n\nThere are {len(photos)} images. Per-photo analysis (each photo "
+            f"analyzed alone):\n{analyses}"
+        )
+    if hints:
+        text += f"\n\n{hints}"
     return ChatRequest(
         model=ctx.model,
         system=ctx.prompt.text,
@@ -333,6 +419,7 @@ def build_request(photos: Sequence[RoomPhoto], ctx: ReconcileContext) -> ChatReq
         response_model=ModelRoomInventory,
         max_tokens=ctx.max_tokens,
         temperature=0.0,
+        reasoning_effort=ctx.reasoning_effort,
         prompt_version=ctx.prompt.version_id,
         study_id=str(ctx.call.study_id),
         activity=ctx.call.activity,
@@ -375,10 +462,14 @@ def _check(
 
 
 async def _one_call(
-    photos: Sequence[RoomPhoto], offset: int, number: int, ctx: ReconcileContext
+    photos: Sequence[RoomPhoto],
+    offset: int,
+    number: int,
+    ctx: ReconcileContext,
+    hints: str | None = None,
 ) -> tuple[CallRecord, ModelRoomInventory | None]:
     record = CallRecord(files=[p.file for p in photos], first_index=offset + 1)
-    request = build_request(photos, ctx)
+    request = build_request(photos, ctx, hints)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         ctx.heartbeat(f"room inventory call {number} attempt {attempt}")
         record.attempts = attempt
@@ -444,16 +535,29 @@ def merge_calls(per_call: Sequence[Sequence[InventoryObject]]) -> list[Inventory
 
 
 async def reconcile_room(
-    room_id: str, photos: Sequence[RoomPhoto], ctx: ReconcileContext
+    room_id: str,
+    photos: Sequence[RoomPhoto],
+    ctx: ReconcileContext,
+    hints: Callable[[range], str | None] | None = None,
 ) -> RoomResult:
-    """The room's inventory from one call per slice of at most ten photos (module doc)."""
+    """The room's inventory from one call per slice of at most ten photos (module doc).
+
+    ``hints``, when given, is called with each call's slice of the room's photos (0-based
+    positions) and returns text appended to that call's request, numbered for the call's
+    own images (:func:`basis.vision.overlap.render_hints`), or ``None``."""
     if not photos:
         raise ValueError(f"room {room_id} has no photos")
     files = [p.file for p in photos]
     result = RoomResult(room_id=room_id, files=files, inventory=RoomInventory(), source="model")
     per_call: list[list[InventoryObject]] = []
     for number, indices in enumerate(chunks(len(photos)), start=1):
-        record, parsed = await _one_call([photos[i] for i in indices], indices.start, number, ctx)
+        record, parsed = await _one_call(
+            [photos[i] for i in indices],
+            indices.start,
+            number,
+            ctx,
+            hints(indices) if hints is not None else None,
+        )
         result.calls.append(record)
         if parsed is None:
             result.inventory = RoomInventory(objects=heuristic_merge([p.analysis for p in photos]))

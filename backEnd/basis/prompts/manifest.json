@@ -27,6 +27,38 @@
         "sha256": "bbd3f81342cf4b2d2481a00805a3205f6b9351b8c95d55c199e60692da1c93d0"
       }
     },
+    "photo_overlap": {
+      "v1": {
+        "sha256": "3eadd305b63ba15aa85c8a03c81561fc64fc6249a435dde98b5aa37a981eb1cc"
+      }
+    },
+    "photo_surfaces": {
+      "v1": {
+        "sha256": "344617b4b1dba18735f840cb3e8b42aa4eb86b11ad75ed335b1e2383043d6f10"
+      }
+    },
+    "room_inventory": {
+      "v1": {
+        "sha256": "36c0487fa5dcf3fd8f49309d17d4fc3043931d247e14c21f2c8de273597ffbf1"
+      },
+      "v2": {
+        "sha256": "1b09f9c21034d5f7dd1fb2ba571d5ed59ac2442718d787926954cc4fa7a52347"
+      },
+      "v3": {
+        "sha256": "aad11a33a4828d0243dfff16d0a9c650867dbf343630af54f5402e947374cb1e"
+      }
+    },
+    "surface_material": {
+      "v1": {
+        "sha256": "a1fb306f8d8c18cf3ca460a9aedd28e28e3f292e034255a1ce2f2673de1b671d"
+      },
+      "v2": {
+        "sha256": "13d73a73525de5f2962dcb2f3f9f6786968b856d08db608425c4464f500b95fb"
+      },
+      "v3": {
+        "sha256": "599877410cd7c1cfb048fe60ff8fb4c5f07377381da71005704f334435d53400"
+      }
+    },
     "photo_countables_joint": {
       "v1": {
         "sha256": "65fae5f9b741b0e8b1d614b614d0c00bdc5eb280a28de923a780c7655a66754b"
@@ -42,19 +74,9 @@
         "sha256": "c773ccfb3ce3127bcbb620dba4e8ddf6a303ef5992f7d3fcdb0e84ebcecab8ff"
       }
     },
-    "photo_surfaces": {
-      "v1": {
-        "sha256": "344617b4b1dba18735f840cb3e8b42aa4eb86b11ad75ed335b1e2383043d6f10"
-      }
-    },
     "photo_verify_box": {
       "v1": {
         "sha256": "6055e8ba3803fd133cf28bd8cc0ae6f47c995e8e6e72aa44ba24973dba3bab54"
-      }
-    },
-    "room_inventory": {
-      "v1": {
-        "sha256": "36c0487fa5dcf3fd8f49309d17d4fc3043931d247e14c21f2c8de273597ffbf1"
       }
     }
   }
