@@ -15,6 +15,7 @@ are all real; only SAM 3 is replaced.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import uuid
 from collections import Counter
@@ -163,6 +164,7 @@ async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(harness: Harne
             handle, sid = started.handle, started.study_id
             await run.approve(handle, "appraisal_review")
             await run.wait_awaiting(handle, "rooms_review", 1)
+            await wait_rows(run, PhotoLocalization, sid, 3, revision=1)  # SAM 3 runs behind
             kitchen, flagged = started.study.photo_ids[0], started.study.photo_ids[2]
             # An engineer's manual box on a kitchen photo, before the rejection.
             async with session_scope(run.sessionmaker) as session:
@@ -218,6 +220,18 @@ async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(harness: Harne
     statuses = {s.document_id: s for s in await rows(run, PhotoLocalization, sid, revision=2)}
     assert statuses[flagged].carried_from_revision is None
     assert {statuses[d].carried_from_revision for d in statuses if d != flagged} == {1}
+
+
+async def wait_rows(
+    harness: Harness, model: Any, study_id: uuid.UUID, count: int, **where: Any
+) -> list[Any]:
+    """The rows once there are ``count`` (localizations finish behind the rooms review)."""
+    for _ in range(150):
+        found = await rows(harness, model, study_id, **where)
+        if len(found) >= count:
+            return found
+        await asyncio.sleep(0.2)
+    raise AssertionError(f"fewer than {count} {model.__name__} rows")
 
 
 async def scheduled_ids(handle: Any) -> list[str]:

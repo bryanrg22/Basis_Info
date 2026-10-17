@@ -359,7 +359,7 @@ def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPat
     settings = load_settings()
     assert settings.replicate_api_token is None
     assert settings.sam3_replicate_version == SAM3_VERSION
-    assert settings.localizer_concurrency == 4
+    assert settings.localizer_concurrency == 3  # EVAL_REPORT 30
     clean_env.setenv("REPLICATE_API_TOKEN", "r8_fake-test-token")  # gitleaks:allow
     clean_env.setenv("SAM3_REPLICATE_VERSION", "abc123")
     clean_env.setenv("LOCALIZER_CONCURRENCY", "8")
@@ -369,6 +369,31 @@ def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPat
     assert (settings.sam3_replicate_version, settings.localizer_concurrency) == ("abc123", 8)
     for rendered in (repr(settings), str(settings), settings.model_dump_json()):
         assert "r8_fake-test-token" not in rendered
+
+
+def test_self_hosted_localizer_and_rooms_gate_settings(clean_env: pytest.MonkeyPatch) -> None:
+    """EVAL_REPORT 30: a self-hosted SAM 3 (LOCALIZER_URL and its credentials, billed per
+    instance second) and whether the rooms review waits for SAM 3 (default: no)."""
+    clean_env.setenv("BASIS_ENV", "test")
+    settings = load_settings()
+    assert settings.localizer_url is None and settings.localizer_token is None
+    assert settings.localizer_google_auth is False
+    assert settings.localizer_usd_per_second == pytest.approx(0.0002907)
+    assert settings.rooms_gate_waits_for_localization is False
+    clean_env.setenv("LOCALIZER_URL", "https://sam3.example.run.app")
+    clean_env.setenv("LOCALIZER_TOKEN", "id-token-x")  # gitleaks:allow
+    clean_env.setenv("LOCALIZER_GOOGLE_AUTH", "true")
+    clean_env.setenv("LOCALIZER_USD_PER_SECOND", "0.0004")
+    clean_env.setenv("ROOMS_GATE_WAITS_FOR_LOCALIZATION", "true")
+    settings = load_settings()
+    assert settings.localizer_url == "https://sam3.example.run.app"
+    assert isinstance(settings.localizer_token, SecretStr)
+    assert settings.localizer_google_auth and settings.rooms_gate_waits_for_localization
+    assert settings.localizer_usd_per_second == 0.0004
+    assert "id-token-x" not in repr(settings) and "id-token-x" not in settings.model_dump_json()
+    clean_env.setenv("LOCALIZER_USD_PER_SECOND", "0")
+    with pytest.raises(ValidationError):
+        load_settings()
 
 
 @pytest.mark.parametrize("value", ["0", "33", "many"])

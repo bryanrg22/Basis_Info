@@ -131,6 +131,10 @@ After a
 secondary provider per call, so a rate-limited primary silently mixes models into a run
 (only within a model family: a `claude-*` model is served by the Anthropic provider alone,
 with `ANTHROPIC_API_KEY` set, and never falls back to OpenAI; EVAL_REPORT section 12).
+An account error (no credit or quota, a bad key) never falls back: every runner that calls
+a model stops at the first one with exit code 3 and a `run.json` that says
+`"complete": false` and why (`evals/account_stop.py`, EVAL_REPORT 26.12); the files already
+written are partial.
 `--reasoning-effort` sets the OpenAI reasoning models' `reasoning_effort` and Claude's
 `output_config.effort` (`low`..`max`; without it Claude runs at `ANTHROPIC_EFFORT`, default
 `low`); `run.json` `reasoning_effort` records what ran.
@@ -407,6 +411,12 @@ Vision architecture alternatives (EVAL_REPORT section 26; `docs/review_2026-10-1
   labels (`--combine NAME=CROPS,PER_PHOTO`: crop answers, the per-photo surfaces elsewhere);
   crop materials put into a room run.
 - `evals.combine_rooms`: one room run's rooms (`--rooms`, `--exterior`) taken from another.
+- `evals.replay_rooms --per-photo DIR`: the production room step (`reconcile_rooms`'s
+  configuration, built from the settings: `ROOM_*`, `ROOM_STEP_MODE`, `ROOM_CALL_*`,
+  `MATERIALS_SECOND_LOOK`, `SURFACE_*`) on a stored per-photo run, grouped by file name and
+  `--aliases`; `room_inventory.json` / `room_raw.jsonl` (each room's path, step, fallback,
+  crops and cost) / `run.json`. EVAL_REPORT 29:
+  `ROOM_STEP_MODE=room_call python -m evals.replay_rooms --photos ... --per-photo ... --aliases ... --out ...`.
 - `evals.score_schedule`: row recall and precision against the engineer's schedule with
   distractor rows (`--template`), row quantities against the labelled room inventory (WAPE,
   cost-weighted relative error), room count error over every repeat, paired bootstraps over

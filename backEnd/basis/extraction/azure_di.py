@@ -11,9 +11,11 @@ The client is the async SDK client with ``AnalyzeDocumentRequest(bytes_source=..
 ``keyValuePairs`` add-on feature, which ``prebuilt-layout`` needs to return form
 key-value pairs. Errors are mapped to :mod:`basis.llm.errors` like the model providers:
 429 -> :class:`ProviderRateLimited`, 5xx/timeout/connection -> :class:`ProviderUnavailable`
-(retried by the activity), other 4xx -> :class:`ProviderBadResponse` (a document the
-service cannot read). The overall analysis is bounded by
-``settings.azure_di_timeout_seconds`` because the SDK poller otherwise waits indefinitely.
+(retried by the activity), 401/403 -> :class:`ProviderAccountError` (a wrong or revoked
+key, or a quota such as the F0 tier's call volume: not retried, it stops the stage), other
+4xx -> :class:`ProviderBadResponse` (a document the service cannot read). The overall
+analysis is bounded by ``settings.azure_di_timeout_seconds`` because the SDK poller
+otherwise waits indefinitely.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from basis.config import Settings
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderError,
     ProviderRateLimited,
@@ -176,6 +179,14 @@ def map_azure_error(exc: Exception) -> ProviderError:
         return ProviderUnavailable(f"analysis timed out: {exc}", provider=PROVIDER)
     if isinstance(exc, HttpResponseError):
         status = exc.status_code
+        if status in (401, 403):
+            error = getattr(exc, "error", None)
+            return ProviderAccountError(
+                str(getattr(exc, "message", None) or exc),
+                provider=PROVIDER,
+                status=status,
+                code=getattr(error, "code", None),
+            )
         if status == 429:
             return ProviderRateLimited(str(exc), provider=PROVIDER, status=429)
         if status is not None and status >= 500:

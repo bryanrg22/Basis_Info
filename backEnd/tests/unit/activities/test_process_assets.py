@@ -36,7 +36,8 @@ from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm.cost import cost_usd
-from basis.llm.provider import ScriptedProvider, Usage
+from basis.llm.errors import ProviderAccountError
+from basis.llm.provider import ScriptedProvider, ScriptedTurn, Usage
 from basis.workflow.contracts import (
     ApplyCorrectionsInput,
     CorrectionInput,
@@ -254,6 +255,20 @@ async def test_budget_too_small_writes_nothing(
     assert await count_rows(deps.sessionmaker, Asset, study_id=analyzed.study_id) == 0
     assert isinstance(deps.chat_provider, ScriptedProvider)
     assert deps.chat_provider.requests == []
+
+
+async def test_an_account_error_fails_the_activity_and_writes_nothing(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """The residual components would otherwise all be written ``provider_error`` rows."""
+    error = ProviderAccountError("quota", provider="openai", status=429, code="insufficient_quota")
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)])
+    broke = make_deps(deps.sessionmaker, deps.storage, deps.settings, chat_provider=provider)
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(ProcessAssets(broke).run, process(analyzed))
+    assert caught.value.type == "ProviderAccountError" and caught.value.non_retryable
+    assert "openai account error (HTTP 429, insufficient_quota)" in str(caught.value)
+    assert await count_rows(deps.sessionmaker, Asset, study_id=analyzed.study_id) == 0
 
 
 async def test_without_a_provider_nothing_is_reserved_and_residuals_are_flagged(

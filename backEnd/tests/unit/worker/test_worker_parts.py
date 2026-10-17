@@ -170,3 +170,118 @@ async def test_build_deps_fails_at_startup_when_a_pinned_prompt_is_not_released(
             build_deps(chosen, engine)
     finally:
         await engine.dispose()
+
+
+async def test_build_localizer_prefers_the_self_hosted_url(settings: Settings) -> None:
+    """``LOCALIZER_URL`` (SAM3_HOSTING.md) wins over Replicate; its credentials are a static
+    token, else a Google ID token when asked, else none; neither set: no localizer."""
+    from pydantic import SecretStr
+
+    from basis.vision.localize import CogSam3Localizer, ReplicateSam3Localizer
+    from basis.worker.main import build_localizer
+
+    none = settings.model_copy(update={"replicate_api_token": None, "localizer_url": None})
+    assert build_localizer(none) is None
+    replicate = build_localizer(
+        none.model_copy(
+            update={"replicate_api_token": SecretStr("r8_x"), "localizer_concurrency": 3}
+        )
+    )
+    assert isinstance(replicate, ReplicateSam3Localizer) and replicate.concurrency == 3
+    url = "https://sam3.example.run.app"
+    hosted = none.model_copy(
+        update={
+            "replicate_api_token": SecretStr("r8_x"),
+            "localizer_url": url,
+            "localizer_token": SecretStr("bearer-x"),
+            "localizer_usd_per_second": 0.001,
+        }
+    )
+    cog = build_localizer(hosted)
+    assert isinstance(cog, CogSam3Localizer)
+    assert (cog.url, cog.usd_per_second, cog.version) == (
+        url,
+        0.001,
+        settings.sam3_replicate_version,
+    )
+    assert cog.token_source is not None and await cog.token_source() == "bearer-x"
+    google = build_localizer(
+        hosted.model_copy(update={"localizer_token": None, "localizer_google_auth": True})
+    )
+    assert isinstance(google, CogSam3Localizer) and google.token_source is not None
+    open_ = build_localizer(hosted.model_copy(update={"localizer_token": None}))
+    assert isinstance(open_, CogSam3Localizer) and open_.token_source is None
+
+
+# --------------------------------------------------------------------------- room-stage options
+
+
+async def test_build_deps_at_the_defaults_logs_todays_room_step_and_builds_no_segmenter(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    chosen = settings.model_copy(update={"room_reconcile": True})
+    engine = offline_engine(chosen)
+    try:
+        with caplog.at_level("INFO", logger="basis.worker"):
+            deps = build_deps(chosen, engine)
+    finally:
+        await engine.dispose()
+    assert deps.segmenter is None
+    assert "second look sensitive (surface_material/v3 on claude-sonnet-5-5 at effort low)" in (
+        caplog.text
+    )
+    assert "room step mode: reconcile (every room)" in caplog.text
+    assert "materials second look: per_photo" in caplog.text
+
+
+async def test_build_deps_with_both_options_loads_their_prompts_and_the_local_segmenter(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    from basis.vision.surface_segmenter import LOCAL_CHECKPOINT, LocalMask2Former
+
+    chosen = settings.model_copy(
+        update={
+            "room_reconcile": True,
+            "room_step_mode": "room_call",
+            "materials_second_look": "surface_crops",
+        }
+    )
+    engine = offline_engine(chosen)
+    try:
+        with caplog.at_level("INFO", logger="basis.worker"):
+            deps = build_deps(chosen, engine)
+    finally:
+        await engine.dispose()
+    # Built, not loaded: the weights are read on the first photo.
+    assert isinstance(deps.segmenter, LocalMask2Former)
+    assert deps.segmenter.name == f"local:{LOCAL_CHECKPOINT}"
+    assert (
+        "room step mode room_call: interior rooms room_photos_inventory/v2 on claude-opus-5-5 "
+        "at effort high; exterior/mechanical/parking rooms keep the reconcile path"
+    ) in caplog.text
+    assert (
+        "materials second look: surface crops (surface_crop_material/v1 on claude-sonnet-5-5 "
+        "at effort low, segmenter local)"
+    ) in caplog.text
+
+
+async def test_the_segmenter_is_not_built_when_the_room_step_is_off(settings: Settings) -> None:
+    from basis.worker.main import build_surface_segmenter
+
+    off = settings.model_copy(
+        update={"room_reconcile": False, "materials_second_look": "surface_crops"}
+    )
+    assert build_surface_segmenter(off) is None
+
+
+async def test_build_deps_fails_at_startup_when_the_room_call_prompt_is_not_released(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("basis.vision.room_step.ROOM_CALL_PROMPT_VERSION", "v99")
+    chosen = settings.model_copy(update={"room_reconcile": True, "room_step_mode": "room_call"})
+    engine = offline_engine(chosen)
+    try:
+        with pytest.raises(PromptError, match="room_photos_inventory/v99"):
+            build_deps(chosen, engine)
+    finally:
+        await engine.dispose()

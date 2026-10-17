@@ -21,6 +21,7 @@ from basis.activities.analyze_photo import _raw_json
 from basis.llm import Budget, BudgetExceededError, ScriptedTurn, Usage
 from basis.llm.call import CallContext
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderNotConfigured,
     ProviderRateLimited,
@@ -312,6 +313,17 @@ async def test_a_failed_second_call_keeps_the_base_counts_and_flags(
     assert result.fusion.reason == reason and result.fusion.count_sources() == {}
     assert all(v["second"] is None for v in result.fusion.classes.values())
     assert result.errors  # the failures are recorded
+
+
+async def test_an_account_error_on_the_second_model_stops_the_photo() -> None:
+    """Unlike every other failure of the second call, an account error is not a fusion
+    fallback: the photo (and the run or the stage) stops, so the outage is not hidden as
+    ``count_fusion_fallback`` on every photo."""
+    credit = ProviderAccountError("credit balance is too low", provider="anthropic", status=400)
+    chat = provider([ScriptedTurn(raise_error=credit), turn(SECOND_COUNTABLES)])
+    with pytest.raises(ProviderAccountError) as caught:
+        await analyze_photo_decomposed(KITCHEN, context(chat))
+    assert caught.value is credit
 
 
 async def test_a_transient_error_is_retried_then_fused() -> None:

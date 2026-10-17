@@ -8,6 +8,14 @@ failed with HTTP 429 or 5xx after its own single retry. Any other error (a bad r
 a timeout, a 4xx) is raised as is: the secondary would get the same request and the same
 answer, or the activity's Temporal retry is the better place to wait.
 
+An account error (:class:`~basis.llm.errors.ProviderAccountError`: no credit or quota, a bad
+key) never falls back either. Every request names its model, so moving it to the other
+provider would answer it with a different account and, on Azure, possibly a different
+deployment than the model the run or study asked for (an evaluation pinned to ``gpt-4.1``
+was once answered by Azure that way when the OpenAI account ran dry); and the outage would
+stay hidden until the second account ran dry too. The error is raised at once so the run
+or the stage stops and someone fixes the account.
+
 Routing by model: a provider may declare ``accepts(model)`` (the Anthropic provider serves
 ``claude-*`` names, the OpenAI and Azure providers everything else). Each call considers only
 the providers that accept its model, in the pool's order: the first is its primary, the
@@ -27,7 +35,12 @@ import logging
 from collections.abc import Sequence
 
 from basis.config import Settings
-from basis.llm.errors import ProviderError, ProviderNotConfigured, is_retryable_status
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderError,
+    ProviderNotConfigured,
+    is_retryable_status,
+)
 from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse
 from basis.llm.providers import providers_from_settings
 
@@ -73,6 +86,11 @@ class ProviderPool:
             primary = candidates[0]
             try:
                 return await primary.complete(request)
+            except ProviderAccountError as error:
+                logger.error(
+                    "%s refused the account for %s: %s", primary.name, request.activity, error
+                )
+                raise
             except ProviderError as error:
                 if len(candidates) < 2 or not is_retryable_status(error):
                     raise

@@ -20,7 +20,7 @@ from llm_fakes import PHOTO_MODEL, FixtureVisionProvider, ModelKeyedProvider, Pr
 from basis.activities.analyze_photo import _raw_json
 from basis.llm import Budget, BudgetExceededError, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
-from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderUnavailable
 from basis.llm.prompts import PromptError
 from basis.llm.provider import ChatRequest, ChatResponse
 from basis.llm.recorder import MemoryRecorder
@@ -178,6 +178,31 @@ async def test_transient_provider_errors_propagate() -> None:
     )
     with pytest.raises(ProviderUnavailable):
         await analyze_photo_detailed(KITCHEN, context(provider))
+
+
+CREDIT = ProviderAccountError(
+    "Your credit balance is too low", provider="anthropic", status=400, code="invalid_request_error"
+)
+
+
+async def test_an_account_error_propagates_and_is_not_an_invalid_output() -> None:
+    """EVAL_REPORT 26.12: a credit rejection used to be retried as a bad answer and the
+    photo marked ``invalid_model_output``; now the first one stops the photo as itself."""
+    provider = ScriptedProvider([ScriptedTurn(raise_error=CREDIT), ScriptedTurn(parsed=kitchen())])
+    ctx = context(provider)
+    with pytest.raises(ProviderAccountError) as caught:
+        await analyze_photo_detailed(KITCHEN, ctx)
+    assert caught.value is CREDIT
+    assert len(provider.requests) == 1  # not retried as an unusable answer
+    assert records(ctx) == []  # nothing reached the model, nothing recorded or charged
+
+
+async def test_decomposed_account_error_fails_the_photo_not_one_half() -> None:
+    provider = ScriptedProvider(
+        [ScriptedTurn(raise_error=CREDIT), ScriptedTurn(raise_error=CREDIT)]
+    )
+    with pytest.raises(ProviderAccountError):  # the error itself, not an ambiguous photo
+        await analyze_photo_decomposed(KITCHEN, context(provider))
 
 
 async def test_an_unusable_image_never_reaches_the_model() -> None:

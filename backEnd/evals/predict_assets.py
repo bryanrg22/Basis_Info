@@ -58,6 +58,7 @@ from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider, ChatRequest, ChatResponse
 from basis.retrieval.chunk import split_text
 from evals import datasets as ds
+from evals.account_stop import guard, stops_on_account_error, track
 
 if TYPE_CHECKING:
     from basis.config import Settings
@@ -238,9 +239,10 @@ def fold(values: list[Any]) -> Any:
     return values[0] if len(values) == 1 else {"repeats": values}
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
-    configured = ProviderPool.from_settings(settings)
+    configured = guard(ProviderPool.from_settings(settings))
     if configured is None:
         print("no model provider configured", file=sys.stderr)
         return 2
@@ -258,6 +260,7 @@ async def run(args: argparse.Namespace) -> int:
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     limits = replace(DEFAULT_LIMITS, max_tokens=args.max_tokens, timeout_s=args.timeout_s)
     search = classifier_search(settings, args.search, store)
 

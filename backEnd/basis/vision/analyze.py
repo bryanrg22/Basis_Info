@@ -44,7 +44,9 @@ names (:func:`fuse_components`); labels, materials and room type stay the base m
 The second call never fails the photo: a transient provider error is retried
 (:data:`FUSION_RETRY_DELAYS_S`), and if it stays unavailable or unusable (or no provider
 serves the model, or the budget cannot cover it) the photo keeps the base model's counts
-and is flagged ``needs_review`` with reason ``count_fusion_fallback:<why>``. Both raw
+and is flagged ``needs_review`` with reason ``count_fusion_fallback:<why>``; an account
+error on the second model (no credit, a bad key) is the exception and propagates like one on
+the base model, so a run or a study stops instead of quietly losing the fusion. Both raw
 answers and the chosen source per class are in :class:`FusionOutcome`.
 
 Every attempt's raw provider response is returned in :class:`PhotoResult` for storage;
@@ -60,7 +62,7 @@ from typing import Any, Final, Literal, get_args
 
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
-from basis.llm.errors import TRANSIENT, ProviderBadResponse, ProviderError
+from basis.llm.errors import TRANSIENT, ProviderAccountError, ProviderBadResponse, ProviderError
 from basis.llm.prompts import Prompt
 from basis.llm.provider import BudgetExceededError, ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision import fusion
@@ -490,6 +492,8 @@ async def _fusion_attempts(
             attempts += 1
             errors.append(f"{label}{type(exc).__name__}: {exc}")
             continue
+        except ProviderAccountError:
+            raise
         except (ProviderError, BudgetExceededError) as exc:
             errors.append(f"{label}{type(exc).__name__}: {exc}")
             failed = CallOutcome(prompt.version_id, None, attempts + 1, errors=errors)

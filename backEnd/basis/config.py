@@ -257,11 +257,38 @@ class Settings(BaseSettings):
     room_reasoning_effort: Effort = "low"
     room_single_photo: Literal["per_photo", "reconcile"] = "per_photo"
     room_materials: Literal["none", "disagree", "sensitive"] = "sensitive"
+    # The material second look's own model and effort (EVAL_REPORT 28.2: a cheaper model
+    # reconciles rooms within the noise of Sonnet but reads materials worse, so the two can
+    # be set apart). Defaults: the second look as section 16.5 measured it, on Sonnet low.
+    room_materials_model: str = "claude-sonnet-5-5"
+    room_materials_reasoning_effort: Effort = "low"
     # How analyze_photo puts a photo in a room (EVAL_REPORT 23.3 and 27): "filename" groups
     # by the file name's room (basis.vision.rooms.group_photos, after the study's
     # room_aliases) and uses the model's room identity only for a name that says nothing
     # (IMG_1234.JPG); "model" always uses the model's room identity (before section 27).
     room_grouping: Literal["filename", "model"] = "filename"
+    # Measured but off (EVAL_REPORT 26.10, to be confirmed on a second client package):
+    # ROOM_STEP_MODE=room_call gives every interior room (a room whose voted type is not
+    # exterior, parking or mechanical: basis.vision.room_step.room_path) one
+    # room_photos_inventory/v2 call with all its photos on ROOM_CALL_MODEL at
+    # ROOM_CALL_REASONING_EFFORT, instead of the reconciliation call over per-photo lists
+    # (section 26.6: room count MAE 0.236 against 0.350); exterior, site and mechanical
+    # rooms keep the "reconcile" path (the ROOM_* settings above, 26.7).
+    room_step_mode: Literal["reconcile", "room_call"] = "reconcile"
+    room_call_model: str = "claude-opus-5-5"
+    room_call_reasoning_effort: Effort = "high"
+    # MATERIALS_SECOND_LOOK=surface_crops (EVAL_REPORT 26.3, measured but off): the wall,
+    # floor and ceiling masks of Mask2Former (SURFACE_SEGMENTER: "local" runs the measured
+    # Swin-L ADE20K panoptic checkpoint in the worker on the CPU; "replicate" a community
+    # Swin-S ADE20K semantic deployment, not measured), one surface_crop_material/v1 call
+    # per surface on SURFACE_CROP_MODEL, and the room's wall finish, wainscoting, tile and
+    # ceiling finish take the crops' majority answer where a crop answered; elsewhere the
+    # per-photo material stands (material hit 0.79 against 0.64). "per_photo" is today's.
+    materials_second_look: Literal["per_photo", "surface_crops"] = "per_photo"
+    surface_crop_model: str = "claude-sonnet-5-5"
+    surface_crop_reasoning_effort: Effort = "low"
+    surface_segmenter: Literal["local", "replicate"] = "local"
+    surface_segmenter_replicate_version: str = "95798aa39f0e174abceaa1235f757574c7c19feae0967602e1a0f1c2d7f816b1"  # pragma: allowlist secret  # noqa: E501
 
     # Classification and pricing (process_assets, S3_SPEC section 5). The residual
     # classifier is a tool loop: EVAL_REPORT section 17.2/17.3 chose claude-sonnet-5-5 at
@@ -283,8 +310,22 @@ class Settings(BaseSettings):
     # model is addressed by version id: it is not served at /v1/models/<owner>/<name>.
     replicate_api_token: SecretStr | None = None
     sam3_replicate_version: str = "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # pragma: allowlist secret  # noqa: E501
-    # Concurrent SAM 3 predictions per process (the localizer's semaphore).
-    localizer_concurrency: int = Field(default=4, ge=1, le=32)
+    # Concurrent SAM 3 predictions, per worker process (the localizer's semaphore) and per
+    # study (the workflow's localization slots). EVAL_REPORT section 30, 52 photos at once on
+    # Replicate: 3, 6 and 12 all take 55 to 63 s (the account's create rate limit is the
+    # bound), 3 with the fewest 429s; 1 takes 76 s.
+    localizer_concurrency: int = Field(default=3, ge=1, le=32)
+    # A self-hosted SAM 3 Cog server instead of Replicate (SAM3_HOSTING.md): its base URL,
+    # and its credentials: a static bearer token, or a Google ID token minted from the
+    # worker's service account (Cloud Run with authentication). Billed per instance second
+    # (Cloud Run us-east4: one L4, 4 vCPU, 16 GiB, no zonal redundancy).
+    localizer_url: str | None = None
+    localizer_token: SecretStr | None = None
+    localizer_google_auth: bool = False
+    localizer_usd_per_second: float = Field(default=0.0002907, gt=0)
+    # The rooms review opens once the photos are analyzed and the room step is done, with
+    # SAM 3 still localizing in the background (EVAL_REPORT 30); true waits for it first.
+    rooms_gate_waits_for_localization: bool = False
 
     @property
     def vision_output_budget(self) -> int:
@@ -350,6 +391,15 @@ class Settings(BaseSettings):
                 f"RETRIEVAL_CHUNK_OVERLAP ({self.retrieval_chunk_overlap}) must be smaller than "
                 f"RETRIEVAL_CHUNK_TOKENS ({self.retrieval_chunk_tokens})"
             )
+        if (
+            self.materials_second_look == "surface_crops"
+            and self.surface_segmenter == "replicate"
+            and not _is_set(self.replicate_api_token)
+        ):
+            raise ConfigError(
+                "MATERIALS_SECOND_LOOK=surface_crops with SURFACE_SEGMENTER=replicate needs "
+                "REPLICATE_API_TOKEN; set it or use SURFACE_SEGMENTER=local"
+            )
         self._check_models()
         return self
 
@@ -359,6 +409,9 @@ class Settings(BaseSettings):
             ("VISION_SURFACES", self.vision_surfaces_model, self.vision_reasoning_effort),
             ("VISION_FUSION", self.vision_fusion_model, self.vision_fusion_reasoning_effort),
             ("ROOM", self.room_model, self.room_reasoning_effort),
+            ("ROOM_MATERIALS", self.room_materials_model, self.room_materials_reasoning_effort),
+            ("ROOM_CALL", self.room_call_model, self.room_call_reasoning_effort),
+            ("SURFACE_CROP", self.surface_crop_model, self.surface_crop_reasoning_effort),
             ("CLASSIFY", self.classify_model, self.classify_reasoning_effort),
             ("EXTRACTION", self.text_model, self.extraction_reasoning_effort),
         ):

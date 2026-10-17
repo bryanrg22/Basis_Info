@@ -22,6 +22,7 @@ from basis.llm.provider import ChatProvider
 from basis.retrieval import Retrieval, default_retrieval
 from basis.storage import Storage
 from basis.vision.localize import Localizer
+from basis.vision.surface_segmenter import SurfaceSegmenter
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +56,11 @@ class Deps:
     # (no ``REPLICATE_API_TOKEN``): every photo's localization is recorded ``skipped``.
     # Tests pass a ``FakeLocalizer``.
     localizer: Localizer | None = None
+
+    # Wall, floor and ceiling masks for MATERIALS_SECOND_LOOK=surface_crops
+    # (``reconcile_rooms``; basis.vision.surface_segmenter). ``None``: not built (the option
+    # is off); with the option on, every room then keeps its per-photo materials, flagged.
+    segmenter: SurfaceSegmenter | None = None
 
     @property
     def faults_enabled(self) -> bool:

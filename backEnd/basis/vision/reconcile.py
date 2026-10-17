@@ -426,7 +426,7 @@ def build_request(
     )
 
 
-def _check(
+def check_objects(
     parsed: ModelRoomInventory, images: int, offset: int, call: int
 ) -> tuple[list[InventoryObject], list[DroppedObject]]:
     """Valid objects with global indices (``offset`` = photos before this call), and the
@@ -470,8 +470,19 @@ async def _one_call(
 ) -> tuple[CallRecord, ModelRoomInventory | None]:
     record = CallRecord(files=[p.file for p in photos], first_index=offset + 1)
     request = build_request(photos, ctx, hints)
+    return record, await attempt_inventory(request, record, ctx, f"room inventory call {number}")
+
+
+async def attempt_inventory(
+    request: ChatRequest, record: CallRecord, ctx: ReconcileContext, what: str
+) -> ModelRoomInventory | None:
+    """``request`` (structured as :class:`ModelRoomInventory`) with one retry of an unusable
+    answer; every attempt's raw answer, cost, model and error goes into ``record``. The
+    parsed answer, or None after :data:`MAX_ATTEMPTS` unusable ones. Transient provider
+    errors and an exhausted budget propagate. Shared by the reconciliation call and the
+    room call (:func:`basis.vision.room_step.room_call`)."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        ctx.heartbeat(f"room inventory call {number} attempt {attempt}")
+        ctx.heartbeat(f"{what} attempt {attempt}")
         record.attempts = attempt
         try:
             response = await call_model(ctx.provider, request, ctx.call)
@@ -489,8 +500,8 @@ async def _one_call(
             record.errors.append(f"attempt {attempt}: no structured inventory in the response")
             continue
         record.response = response.parsed.model_dump(mode="json")
-        return record, response.parsed
-    return record, None
+        return response.parsed
+    return None
 
 
 def merge_calls(per_call: Sequence[Sequence[InventoryObject]]) -> list[InventoryObject]:
@@ -565,7 +576,7 @@ async def reconcile_room(
             result.needs_review = True
             result.review_reason = INVALID_OUTPUT
             return result
-        kept, dropped = _check(parsed, len(indices), indices.start, number)
+        kept, dropped = check_objects(parsed, len(indices), indices.start, number)
         per_call.append(kept)
         result.dropped += dropped
     result.inventory = RoomInventory(objects=merge_calls(per_call))

@@ -50,6 +50,7 @@ from basis.retrieval.embed import HashEmbedder
 from basis.retrieval.parse import parse_pdf
 from basis.storage import Storage
 from basis.vision.localize import Localizer
+from basis.vision.surface_segmenter import SurfaceSegmenter
 
 TEST_BUCKET: Final = "basis-test"
 # Named like a real package (two views of one kitchen, one bathroom), so production's
@@ -250,6 +251,7 @@ def make_deps(
     chat_provider: ChatProvider | None | object = _DEFAULT,
     chunk_store: ChunkStore | None | object = _DEFAULT,
     localizer: Localizer | None = None,
+    segmenter: SurfaceSegmenter | None = None,
 ) -> Deps:
     """Deps for tests: hash embedder + fresh BM25 registry, the offline vision/Azure DI
     fixtures, a scripted classifier and an empty in-memory store by default. No localizer
@@ -267,6 +269,7 @@ def make_deps(
         chat_provider=provider,  # type: ignore[arg-type]
         chunk_store=store,  # type: ignore[arg-type]
         localizer=localizer,
+        segmenter=segmenter,
     )
 
 

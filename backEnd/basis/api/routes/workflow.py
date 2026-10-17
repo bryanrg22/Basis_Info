@@ -135,6 +135,8 @@ def workflow_input(study: Study, settings: Settings) -> StudyWorkflowInput:
         workflow_version=settings.git_sha,
         budget_usd=settings.study_budget_usd,
         photo_concurrency=settings.photo_concurrency,
+        localize_concurrency=settings.localizer_concurrency,
+        rooms_gate_waits_for_localization=settings.rooms_gate_waits_for_localization,
         review_reminder_days=settings.review_reminder_days,
         review_deadline_days=settings.review_deadline_days,
     )

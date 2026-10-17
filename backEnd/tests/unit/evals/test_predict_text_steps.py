@@ -18,10 +18,10 @@ import pytest
 
 from basis.classify.schemas import CitationClaim, Classification
 from basis.extraction.fallback import FallbackAnswer, FallbackValue
-from basis.llm.errors import ProviderBadResponse
+from basis.llm.errors import ProviderAccountError, ProviderBadResponse
 from basis.llm.provider import ScriptedProvider, ScriptedTurn, ToolCall
+from evals import account_stop, predict_assets, predict_fields
 from evals import datasets as ds
-from evals import predict_assets, predict_fields
 from evals.run import score_assets, score_fields
 
 PAGE_1 = "Subject Property Address 1290 Example Way City Montrose"
@@ -188,6 +188,25 @@ async def test_fields_provider_error_is_a_missing_repeat_not_a_crash(
     assert set(saved["inputs/appraisal.pdf"].values()) == {None}
 
 
+async def test_fields_account_error_stops_the_run(
+    fields_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unlike a bad response (a missing repeat), an account error ends the run."""
+    error = ProviderAccountError("bad key", provider="openai", status=401, code="invalid_api_key")
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error), answer()])
+    use(predict_fields, provider, monkeypatch)
+    out = tmp_path / "out"
+    code = await predict_fields.run(
+        predict_fields.parse_args(
+            ["--data-dir", str(fields_dir), "--out", str(out), "--model", "gpt-x", "--repeats", "2"]
+        )
+    )
+    assert code == account_stop.ACCOUNT_STOPPED and len(provider.requests) == 1
+    run = json.loads((out / "run.json").read_text())
+    assert run["complete"] is False and run["stopped"]["status"] == 401
+    assert not (out / "appraisal_fields.json").exists()
+
+
 # --------------------------------------------------------------------------- assets
 
 RULE_TEXT = (
@@ -341,6 +360,33 @@ async def test_assets_loop_failure_is_the_production_fallback_with_the_error_kep
         {"id": "r1", "repeat": 1, "reasons": ["provider_error:ProviderBadResponse"]}
     ]
     assert "not supported" in run["provider_errors"][0]["error"]
+
+
+async def test_assets_account_error_stops_the_run_instead_of_a_fallback_row(
+    assets_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    error = ProviderAccountError("Your credit balance is too low", provider="anthropic", status=400)
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)])
+    use(predict_assets, provider, monkeypatch)
+    out = tmp_path / "out"
+    code = await predict_assets.run(
+        predict_assets.parse_args(
+            [
+                "--data-dir",
+                str(assets_dir),
+                "--out",
+                str(out),
+                "--model",
+                "claude-x",
+                "--limit",
+                "1",
+            ]
+        )
+    )
+    assert code == account_stop.ACCOUNT_STOPPED and len(provider.requests) == 1
+    run = json.loads((out / "run.json").read_text())
+    assert run["complete"] is False and run["stopped"]["provider"] == "anthropic"
+    assert not (out / "assets.json").exists()  # no 1250/y39 fallback row was written
 
 
 async def test_assets_without_corpus_pdfs_stops_before_any_call(

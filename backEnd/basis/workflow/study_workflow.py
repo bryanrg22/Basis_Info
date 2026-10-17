@@ -11,7 +11,8 @@ Shape of a run::
                              photos only, reconcile_rooms)
     transition -> assets_processing ; process_assets
     gate assets_review      (reject: apply_corrections, process_assets again)
-    transition -> exporting ; export_report ; transition -> completed ; record_run_end
+    (every localize_photo done) ; transition -> exporting ; export_report ;
+    transition -> completed ; record_run_end
 
 Engineer decisions arrive through the ``decide`` update. Its validator rejects a decision
 for a gate the workflow is not waiting at, for a stale revision, for a gate that already
@@ -47,7 +48,8 @@ Patches in this file:
 
 * ``localize-photos-v1`` (v0.6): after a photo's ``analyze_photo`` returns, ``localize_photo``
   runs for it (outside the analysis slot, at most ``photo_concurrency`` at a time) and the
-  stage waits for every localization before the next gate. A localization that fails is
+  stage waits for every localization before the next gate (until
+  ``localize-background-v1``). A localization that fails is
   logged and ignored; it never flags the photo. Executions recorded before the patch
   replay without it (tests/lifecycle/histories).
 * ``reconcile-rooms-v1`` (EVAL_REPORT section 16.5): after a revision's photos are analyzed
@@ -75,6 +77,26 @@ Patches in this file:
   before it starts the next revision (the revision carries the photo outputs over, so
   they must be complete). Before the patch the appraisal review waited for the photo
   stage, which was 74% of the live run's wall time under Replicate's throttle.
+* ``provider-account-stop-v1`` (EVAL_REPORT section 26.12; only with ``stage-failure-retry-v1``):
+  a ``ProviderAccountError`` from ``analyze_photo`` or ``reconcile_rooms`` (the provider
+  refused the account: no credit or quota, a bad key) fails the study instead of flagging
+  the photo or the rooms review. The photo stage schedules no more photos, the ones already
+  running finish, and the failure is recorded at the study's current stage with the reason;
+  the ``retry`` update re-runs the photos the error stopped (activity ids with a
+  ``:retry<n>`` suffix) or the room step, and the stage continues. The appraisal review does
+  not open while such a failure is held (the stage change would hide the failed status),
+  and a failure is never recorded while a stage change is in flight. Before the patch every
+  photo after the account ran dry was flagged as a failed analysis and the study went on
+  to review with them (156 photos in one run).
+* ``localize-background-v1`` (EVAL_REPORT section 30): at most ``localize_concurrency``
+  localizations per study (before: ``photo_concurrency``), and, unless
+  ``rooms_gate_waits_for_localization``, they run behind the rooms review: the photo stage
+  is done when every photo is analyzed and the room step ran, and the rooms review opens
+  then (no step after it reads SAM 3's output; the masks appear in the review as each
+  photo's localization is recorded). A rejection at any gate first waits for the
+  localizations still running (the next revision carries the photos' objects over), so
+  does the drain after a failed extraction, and the study exports only once every
+  localization is recorded. Executions recorded before the patch replay without it.
 """
 
 from __future__ import annotations
@@ -94,6 +116,7 @@ with workflow.unsafe.imports_passed_through():
     from basis.workflow.activity_options import (
         ACTIVITY_CANCELLATION,
         BUDGET_EXCEEDED_ERROR,
+        PROVIDER_ACCOUNT_ERROR,
         VALIDATION_ERROR,
         options_for,
     )
@@ -152,6 +175,8 @@ LOCALIZE_PATCH: Final = "localize-photos-v1"
 RECONCILE_ROOMS_PATCH: Final = "reconcile-rooms-v1"
 STAGE_RETRY_PATCH: Final = "stage-failure-retry-v1"
 EARLY_GATE_PATCH: Final = "appraisal-gate-early-v1"
+ACCOUNT_STOP_PATCH: Final = "provider-account-stop-v1"
+LOCALIZE_BACKGROUND_PATCH: Final = "localize-background-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
@@ -166,6 +191,13 @@ def workflow_id_for(study_id: str) -> str:
 def _is_validation_error(error: ActivityError) -> bool:
     cause = error.cause
     return isinstance(cause, ApplicationError) and cause.type == VALIDATION_ERROR
+
+
+def is_account_error(error: BaseException) -> bool:
+    """True when an activity failed because a provider refused the account (no credit or
+    quota, a bad key): retrying is pointless until someone fixes the account."""
+    cause = error.cause if isinstance(error, ActivityError) else error
+    return isinstance(cause, ApplicationError) and cause.type == PROVIDER_ACCOUNT_ERROR
 
 
 def is_budget_exceeded(error: BaseException) -> bool:
@@ -206,6 +238,19 @@ class StudyWorkflow:
         # Set while the photo stage drains after a failed extraction: no photo activity
         # is scheduled any more; the ones already running finish and keep their rows.
         self._photos_stopping = False
+        # Patch provider-account-stop-v1: the first account error of the photo stage, the
+        # photos it stopped (run again after the retry), how many photo-stage failures are
+        # held, and whether a stage change is in flight (no failure is recorded meanwhile).
+        self._account_stop = False
+        self._account_error: ActivityError | None = None
+        self._account_retry: list[str] = []
+        self._photo_holds = 0
+        self._transitioning = False
+        # Patch localize-background-v1: SAM 3 slots for the study, whether localizations
+        # run behind the rooms review, and the ones started and not yet awaited.
+        self._localize_slots: asyncio.Semaphore | None = None
+        self._localize_background = False
+        self._localizations: list[asyncio.Task[None]] = []
 
     # ------------------------------------------------------------------ handlers
 
@@ -354,6 +399,10 @@ class StudyWorkflow:
             "list_photos", ListPhotosInput(study_id=study_id), ListPhotosOutput, "list_photos"
         )
         self._stage_retry = workflow.patched(STAGE_RETRY_PATCH)
+        self._account_stop = self._stage_retry and workflow.patched(ACCOUNT_STOP_PATCH)
+        if workflow.patched(LOCALIZE_BACKGROUND_PATCH):
+            self._localize_slots = asyncio.Semaphore(self._input.localize_concurrency)
+            self._localize_background = not self._input.rooms_gate_waits_for_localization
         photo_task: asyncio.Task[None] | None = None
         if self._stage_retry:
             document_id, photo_task = await self._extract_with_photos(list(photos.document_ids))
@@ -366,7 +415,10 @@ class StudyWorkflow:
             await self._reconcile_rooms(photo_revision)
             document_id = await appraisal_task
 
-        # Gate 1: appraisal review.
+        # Gate 1: appraisal review; not while the photo stage holds an account failure
+        # (moving the study to the gate would clear its failed status).
+        if self._account_stop:
+            await workflow.wait_condition(lambda: self._photo_holds == 0)
         while True:
             decision = await self._await_decision("appraisal_review")
             if decision.decision == "approve":
@@ -385,8 +437,7 @@ class StudyWorkflow:
                 break
             new_revision, corrections = await self._reject(decision, "extracting")
             flagged = [c.entity_id for c in corrections if c.entity_type == "photo"]
-            await self._analyze_photos(flagged, new_revision)
-            await self._reconcile_rooms(new_revision)
+            await self._photo_pass(flagged, new_revision)
 
         # Assets, then gate 3: assets review.
         await self._transition("assets_processing")
@@ -398,6 +449,7 @@ class StudyWorkflow:
             _, corrections = await self._reject(decision, "assets_processing")
             await self._process_assets(corrections)
 
+        await self._localized()  # the study ends with every localization recorded
         await self._transition("exporting")
         export = await self._held("exporting", self._export)
         await self._transition("completed")
@@ -437,19 +489,58 @@ class StudyWorkflow:
                 if isinstance(error.cause, CancelledError) or self._stopping:
                     raise
                 self._photos_stopping = True
-                await self._hold("extracting", error, photo_task)
+                await self._hold("extracting", error, self._spawn(self._drained(photo_task)))
                 attempt += 1
                 self._photos_stopping = False
                 self._pending_photos = 0
                 self._completed_photos = 0
+                self._account_error, self._account_retry = None, []
                 photo_task = self._spawn(self._photo_stage(photo_ids, revision))
         return document_id, photo_task
 
+    async def _drained(self, photo_task: asyncio.Task[None]) -> None:
+        """The photo stage and every localization it started have finished."""
+        await photo_task
+        await self._localized()
+
+    async def _localized(self) -> None:
+        """Wait for the localizations running behind the review (patch
+        ``localize-background-v1``); none are pending without it."""
+        while self._localizations:
+            await self._localizations.pop(0)
+
     async def _photo_stage(self, photo_ids: list[str], revision: int) -> None:
-        await self._analyze_photos(photo_ids, revision)
-        if self._photos_stopping:
-            return  # drained after a failed extraction; the retry runs the stage again
+        await self._photo_pass(photo_ids, revision)
+
+    async def _photo_pass(self, photo_ids: list[str], revision: int) -> None:
+        """Analyze ``photo_ids`` and run the room step. With patch
+        ``provider-account-stop-v1`` an account error stops the photos, is held for a
+        retry, and the photos it stopped run again (fresh activity ids) before the room
+        step; without it (or with no account error) this is analyze, then the room step."""
+        todo, attempt = photo_ids, 0
+        while True:
+            await self._analyze_photos(todo, revision, f":retry{attempt}" if attempt else "")
+            if self._photos_stopping:
+                return  # drained after a failed extraction; the retry runs the stage again
+            error = self._account_error
+            if error is None:
+                break
+            todo, self._account_error, self._account_retry = self._account_retry, None, []
+            await self._hold_photos(error)
+            if self._photos_stopping:
+                return  # the extraction failed meanwhile; its retry reruns the stage
+            attempt += 1
         await self._reconcile_rooms(revision)
+
+    async def _hold_photos(self, error: ActivityError) -> None:
+        """Hold a photo-stage failure at the study's current stage, once no stage change
+        is in flight; the appraisal gate waits while one is held."""
+        self._photo_holds += 1
+        try:
+            await workflow.wait_condition(lambda: not self._transitioning)
+            await self._hold(self._stage, error)
+        finally:
+            self._photo_holds -= 1
 
     async def _held(self, stage: StageName, run: Callable[[str], Awaitable[_T]]) -> _T:
         """Run a stage; with patch ``stage-failure-retry-v1`` a failure (not a
@@ -542,21 +633,26 @@ class StudyWorkflow:
             self._mark_needs_review("appraisal_review")
         return output
 
-    async def _analyze_photos(self, document_ids: list[str], revision: int) -> None:
+    async def _analyze_photos(
+        self, document_ids: list[str], revision: int, suffix: str = ""
+    ) -> None:
         """Analyze photos in parallel, at most ``photo_concurrency`` at a time.
 
         A photo that fails permanently (retries exhausted or a non-retryable error) or
-        that the budget cannot cover is flagged and the study continues. Budget accounting
+        that the budget cannot cover is flagged and the study continues (a provider account
+        error, with patch ``provider-account-stop-v1``, is not a photo failure: see
+        :meth:`_photo_pass`). ``suffix`` is appended to the analysis activity ids (a
+        retry after an account error). Budget accounting
         is optimistic: each activity is given the remaining budget when it starts, so the
         overspend is bounded by ``photo_concurrency`` times the cost of one photo.
         """
         if not document_ids:
             return
         semaphore = asyncio.Semaphore(self._input.photo_concurrency)
-        localizing = asyncio.Semaphore(self._input.photo_concurrency)
+        localizing = self._localize_slots or asyncio.Semaphore(self._input.photo_concurrency)
         self._pending_photos += len(document_ids)
         tasks = [
-            self._spawn(self._analyze_and_localize(semaphore, localizing, doc, revision))
+            self._spawn(self._analyze_and_localize(semaphore, localizing, doc, revision, suffix))
             for doc in document_ids
         ]
         for completed in workflow.as_completed(tasks):
@@ -568,10 +664,15 @@ class StudyWorkflow:
         localizing: asyncio.Semaphore,
         document_id: str,
         rev: int,
+        suffix: str = "",
     ) -> None:
-        analyzed = await self._analyze_one(analyzing, document_id, rev)
+        analyzed = await self._analyze_one(analyzing, document_id, rev, suffix)
         if analyzed and not self._photos_stopping and workflow.patched(LOCALIZE_PATCH):
-            await self._localize_one(localizing, document_id, rev)
+            if self._localize_background:
+                localize = self._localize_one(localizing, document_id, rev)
+                self._localizations.append(self._spawn(localize))
+            else:
+                await self._localize_one(localizing, document_id, rev)
 
     async def _localize_one(self, semaphore: asyncio.Semaphore, document_id: str, rev: int) -> None:
         """Localize one analyzed photo; a failure is logged, never flagged or raised."""
@@ -598,12 +699,19 @@ class StudyWorkflow:
                 return
             self._budget -= output.cost_usd
 
-    async def _analyze_one(self, semaphore: asyncio.Semaphore, document_id: str, rev: int) -> bool:
+    async def _analyze_one(
+        self, semaphore: asyncio.Semaphore, document_id: str, rev: int, suffix: str = ""
+    ) -> bool:
         """Analyze one photo; True when ``analyze_photo`` returned (even ``needs_review``)."""
+        activity_id = f"analyze_photo:{document_id}:r{rev}{suffix}"
         async with semaphore:
             try:
                 if self._photos_stopping:
                     return False  # draining after a failed extraction: not scheduled
+                if self._account_error is not None:
+                    self._account_retry.append(document_id)  # runs after the retry
+                    self._completed_photos -= 1  # not done: the finally counts it
+                    return False
                 if self._budget <= 0:
                     self._flag(document_id, budget=True)
                     return False
@@ -613,16 +721,23 @@ class StudyWorkflow:
                         study_id=self._input.study_id,
                         document_id=document_id,
                         revision=rev,
-                        idempotency_key=self._key(f"analyze_photo:{document_id}:r{rev}"),
+                        idempotency_key=self._key(activity_id),
                         budget_remaining_usd=self._budget,
                         simulate=self._input.simulate_photos.get(document_id),
                     ),
                     AnalyzePhotoOutput,
-                    f"analyze_photo:{document_id}:r{rev}",
+                    activity_id,
                 )
             except ActivityError as error:
                 if isinstance(error.cause, CancelledError):
                     raise  # the study is being cancelled; not a photo failure
+                if self._account_stop and is_account_error(error):
+                    workflow.logger.warning("photo %s stopped: %s", document_id, error.cause)
+                    if self._account_error is None:
+                        self._account_error = error
+                    self._account_retry.append(document_id)
+                    self._completed_photos -= 1  # not done: the finally counts it
+                    return False
                 workflow.logger.warning("photo %s flagged: %s", document_id, error.cause or error)
                 self._flag(document_id, budget=is_budget_exceeded(error))
                 return False
@@ -639,26 +754,36 @@ class StudyWorkflow:
         the rooms review and is otherwise ignored (the per-photo rows stand)."""
         if not workflow.patched(RECONCILE_ROOMS_PATCH):
             return
-        try:
-            output = await self._activity(
-                "reconcile_rooms",
-                ReconcileRoomsInput(
-                    study_id=self._input.study_id,
-                    revision=revision,
-                    idempotency_key=self._key(f"reconcile_rooms:r{revision}"),
-                    budget_remaining_usd=max(self._budget, 0.0),
-                ),
-                ReconcileRoomsOutput,
-                f"reconcile_rooms:r{revision}",
-            )
-        except ActivityError as error:
-            if isinstance(error.cause, CancelledError):
-                raise  # the study is being cancelled
-            workflow.logger.warning(
-                "rooms of revision %s not reconciled: %s", revision, error.cause or error
-            )
-            self._mark_needs_review("rooms_review")
-            return
+        attempt = 0
+        while True:
+            activity_id = f"reconcile_rooms:r{revision}" + (f":retry{attempt}" if attempt else "")
+            try:
+                output = await self._activity(
+                    "reconcile_rooms",
+                    ReconcileRoomsInput(
+                        study_id=self._input.study_id,
+                        revision=revision,
+                        idempotency_key=self._key(activity_id),
+                        budget_remaining_usd=max(self._budget, 0.0),
+                    ),
+                    ReconcileRoomsOutput,
+                    activity_id,
+                )
+                break
+            except ActivityError as error:
+                if isinstance(error.cause, CancelledError):
+                    raise  # the study is being cancelled
+                if self._account_stop and is_account_error(error) and not self._photos_stopping:
+                    await self._hold_photos(error)  # patch provider-account-stop-v1
+                    if self._photos_stopping:
+                        return  # the extraction failed meanwhile; its retry reruns the stage
+                    attempt += 1
+                    continue
+                workflow.logger.warning(
+                    "rooms of revision %s not reconciled: %s", revision, error.cause or error
+                )
+                self._mark_needs_review("rooms_review")
+                return
         self._budget -= output.cost_usd
         if output.needs_review:
             self._mark_needs_review("rooms_review")
@@ -711,6 +836,9 @@ class StudyWorkflow:
         without the database), the revision starts without them, the stage is flagged in
         ``needs_review_stages``, and the gate asks again; the study does not fail.
         """
+        # The new revision copies the localized objects of the photos it does not
+        # re-analyze, so every localization of this one must be recorded first.
+        await self._localized()
         old_revision = self._revision
         new_revision = old_revision + 1
         await self._transition(back_to, new_revision=new_revision)
@@ -809,6 +937,16 @@ class StudyWorkflow:
 
     async def _transition(self, to_stage: StageName, *, new_revision: int | None = None) -> None:
         revision = new_revision if new_revision is not None else self._revision
+        self._transitioning = True
+        try:
+            await self._transition_activity(to_stage, revision)
+        finally:
+            self._transitioning = False
+        self._stage = to_stage
+        self._revision = revision
+        workflow.upsert_search_attributes([STAGE_ATTR.value_set(to_stage)])
+
+    async def _transition_activity(self, to_stage: StageName, revision: int) -> None:
         await self._activity(
             "transition",
             TransitionInput(
@@ -822,9 +960,6 @@ class StudyWorkflow:
             None,
             f"transition:{to_stage}:r{revision}",
         )
-        self._stage = to_stage
-        self._revision = revision
-        workflow.upsert_search_attributes([STAGE_ATTR.value_set(to_stage)])
 
     @overload
     async def _activity(

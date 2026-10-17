@@ -1,0 +1,789 @@
+{
+ "eleven": {
+  "requests": [
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 4000,
+    "messages": [
+     {
+      "content": "Image 1:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 2:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 3:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 4:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 5:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 6:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "The images above all show the same room. Account for every per-photo count below: for each label, decide which images show the same physical objects and which show different ones, and list each group of images once with its count of distinct objects.\n\nThere are 6 images. Per-photo counts by label (each photo analyzed alone):\nwindow: Image 1 x2 (glass, permanent); Image 2 x2 (glass, permanent); Image 3 x2 (glass, permanent); Image 4 x2 (glass, permanent); Image 5 x2 (glass, permanent); Image 6 x2 (glass, permanent)\nRoom type per image: Image 1: kitchen; Image 2: kitchen; Image 3: kitchen; Image 4: kitchen; Image 5: kitchen; Image 6: kitchen",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "room_inventory/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelRoomInventory",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "aad11a33a4828d0243dfff16d0a9c650867dbf343630af54f5402e947374cb1e",
+    "temperature": 0.0
+   },
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 4000,
+    "messages": [
+     {
+      "content": "Image 1:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 2:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 3:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 4:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 5:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "The images above all show the same room. Account for every per-photo count below: for each label, decide which images show the same physical objects and which show different ones, and list each group of images once with its count of distinct objects.\n\nThere are 5 images. Per-photo counts by label (each photo analyzed alone):\nwindow: Image 1 x2 (glass, permanent); Image 2 x2 (glass, permanent); Image 3 x2 (glass, permanent); Image 4 x2 (glass, permanent); Image 5 x2 (glass, permanent)\nRoom type per image: Image 1: kitchen; Image 2: kitchen; Image 3: kitchen; Image 4: kitchen; Image 5: kitchen",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "room_inventory/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelRoomInventory",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "aad11a33a4828d0243dfff16d0a9c650867dbf343630af54f5402e947374cb1e",
+    "temperature": 0.0
+   }
+  ],
+  "result": {
+   "calls": [
+    {
+     "attempts": 1,
+     "cost_usd": 0.004,
+     "errors": [],
+     "files": [
+      "p00",
+      "p01",
+      "p02",
+      "p03",
+      "p04",
+      "p05"
+     ],
+     "first_index": 1,
+     "model": "claude-sonnet-5-5",
+     "provider": "model-keyed",
+     "raw": [
+      {
+       "keyed": [
+        "claude-sonnet-5-5",
+        "room_inventory"
+       ]
+      }
+     ],
+     "response": {
+      "objects": [
+       {
+        "attachment": "permanent",
+        "confidence": 0.8,
+        "count": 6,
+        "image_indices": [
+         1,
+         2,
+         3
+        ],
+        "label": "window",
+        "material": "glass",
+        "note": "seen"
+       }
+      ]
+     }
+    },
+    {
+     "attempts": 1,
+     "cost_usd": 0.004,
+     "errors": [],
+     "files": [
+      "p06",
+      "p07",
+      "p08",
+      "p09",
+      "p10"
+     ],
+     "first_index": 7,
+     "model": "claude-sonnet-5-5",
+     "provider": "model-keyed",
+     "raw": [
+      {
+       "keyed": [
+        "claude-sonnet-5-5",
+        "room_inventory"
+       ]
+      }
+     ],
+     "response": {
+      "objects": [
+       {
+        "attachment": "permanent",
+        "confidence": 0.8,
+        "count": 5,
+        "image_indices": [
+         1,
+         5
+        ],
+        "label": "window",
+        "material": "glass",
+        "note": "seen"
+       }
+      ]
+     }
+    }
+   ],
+   "dropped": [],
+   "files": [
+    "p00",
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05",
+    "p06",
+    "p07",
+    "p08",
+    "p09",
+    "p10"
+   ],
+   "looks": [],
+   "needs_review": false,
+   "objects": [
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 6,
+     "image_indices": [
+      1,
+      2,
+      3,
+      7,
+      11
+     ],
+     "label": "window",
+     "material": "glass",
+     "note": "seen"
+    }
+   ],
+   "review_reason": null,
+   "room_id": "eleven",
+   "seen_in": [
+    [
+     "p00",
+     "p01",
+     "p02",
+     "p06",
+     "p10"
+    ]
+   ],
+   "source": "model",
+   "step": "model"
+  },
+  "spent_usd": 0.008
+ },
+ "hall": {
+  "requests": [
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 4000,
+    "messages": [
+     {
+      "content": "Image 1:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 2:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "The images above all show the same room. Account for every per-photo count below: for each label, decide which images show the same physical objects and which show different ones, and list each group of images once with its count of distinct objects.\n\nThere are 2 images. Per-photo counts by label (each photo analyzed alone):\nwainscoting: Image 1 x1 (wood, permanent); Image 2 x1 (wood, permanent)\ntile: Image 1 x1 (unknown, permanent)\nwindow: Image 2 x2 (glass, permanent)\nRoom type per image: Image 1: kitchen; Image 2: kitchen",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "room_inventory/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelRoomInventory",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "aad11a33a4828d0243dfff16d0a9c650867dbf343630af54f5402e947374cb1e",
+    "temperature": 0.0
+   },
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 400,
+    "messages": [
+     {
+      "content": "Image:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Surface: wainscoting. The earlier analysis said its material is wood; check it against the image. What is this surface made of?",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "surface_material/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelSurfaceMaterial",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "599877410cd7c1cfb048fe60ff8fb4c5f07377381da71005704f334435d53400",
+    "temperature": 0.0
+   },
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 400,
+    "messages": [
+     {
+      "content": "Image:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Surface: tile. The earlier analysis said its material is unknown; check it against the image. What is this surface made of?",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "surface_material/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelSurfaceMaterial",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "599877410cd7c1cfb048fe60ff8fb4c5f07377381da71005704f334435d53400",
+    "temperature": 0.0
+   }
+  ],
+  "result": {
+   "calls": [
+    {
+     "attempts": 1,
+     "cost_usd": 0.004,
+     "errors": [],
+     "files": [
+      "a",
+      "b"
+     ],
+     "first_index": 1,
+     "model": "claude-sonnet-5-5",
+     "provider": "model-keyed",
+     "raw": [
+      {
+       "keyed": [
+        "claude-sonnet-5-5",
+        "room_inventory"
+       ]
+      }
+     ],
+     "response": {
+      "objects": [
+       {
+        "attachment": "permanent",
+        "confidence": 0.8,
+        "count": 1,
+        "image_indices": [
+         1,
+         2
+        ],
+        "label": "wainscoting",
+        "material": "wood",
+        "note": "seen"
+       },
+       {
+        "attachment": "permanent",
+        "confidence": 0.8,
+        "count": 1,
+        "image_indices": [
+         1
+        ],
+        "label": "tile",
+        "material": "unknown",
+        "note": "seen"
+       },
+       {
+        "attachment": "permanent",
+        "confidence": 0.8,
+        "count": 2,
+        "image_indices": [
+         2
+        ],
+        "label": "window",
+        "material": "glass",
+        "note": "seen"
+       },
+       {
+        "attachment": "permanent",
+        "confidence": 0.8,
+        "count": 1,
+        "image_indices": [
+         3
+        ],
+        "label": "light_fixture",
+        "material": "metal",
+        "note": "seen"
+       }
+      ]
+     }
+    }
+   ],
+   "dropped": [
+    {
+     "call": 1,
+     "object": {
+      "attachment": "permanent",
+      "confidence": 0.8,
+      "count": 1,
+      "image_indices": [
+       3
+      ],
+      "label": "light_fixture",
+      "material": "metal",
+      "note": "seen"
+     },
+     "reason": "image_index_out_of_range:[3] (images 1..2)"
+    }
+   ],
+   "files": [
+    "a",
+    "b"
+   ],
+   "looks": [
+    {
+     "answer": {
+      "confidence": 0.9,
+      "evidence": "looked",
+      "material": "wallpaper"
+     },
+     "applied": true,
+     "attempts": 1,
+     "before": "wood",
+     "cost_usd": 0.004,
+     "errors": [],
+     "file": "a",
+     "label": "wainscoting",
+     "model": "claude-sonnet-5-5"
+    },
+    {
+     "answer": {
+      "confidence": 0.9,
+      "evidence": "looked",
+      "material": "ceramic"
+     },
+     "applied": true,
+     "attempts": 1,
+     "before": "unknown",
+     "cost_usd": 0.004,
+     "errors": [],
+     "file": "a",
+     "label": "tile",
+     "model": "claude-sonnet-5-5"
+    }
+   ],
+   "needs_review": true,
+   "objects": [
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 1,
+     "image_indices": [
+      1,
+      2
+     ],
+     "label": "wainscoting",
+     "material": "wallpaper",
+     "note": "seen"
+    },
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 1,
+     "image_indices": [
+      1
+     ],
+     "label": "tile",
+     "material": "ceramic",
+     "note": "seen"
+    },
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 2,
+     "image_indices": [
+      2
+     ],
+     "label": "window",
+     "material": "glass",
+     "note": "seen"
+    }
+   ],
+   "review_reason": "dropped_objects:1",
+   "room_id": "hall",
+   "seen_in": [
+    [
+     "a",
+     "b"
+    ],
+    [
+     "a"
+    ],
+    [
+     "b"
+    ]
+   ],
+   "source": "model",
+   "step": "model"
+  },
+  "spent_usd": 0.012
+ },
+ "single": {
+  "requests": [],
+  "result": {
+   "calls": [],
+   "dropped": [],
+   "files": [
+    "a"
+   ],
+   "looks": [],
+   "needs_review": false,
+   "objects": [
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 6,
+     "image_indices": [
+      1
+     ],
+     "label": "kitchen_cabinet",
+     "material": "wood",
+     "note": "kitchen_cabinet note"
+    },
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 1,
+     "image_indices": [
+      1
+     ],
+     "label": "window",
+     "material": "glass",
+     "note": "window note"
+    }
+   ],
+   "review_reason": "single_photo",
+   "room_id": "single",
+   "seen_in": [
+    [
+     "a"
+    ],
+    [
+     "a"
+    ]
+   ],
+   "source": "heuristic",
+   "step": "per_photo"
+  },
+  "spent_usd": 0.0
+ },
+ "single_called": {
+  "requests": [
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 4000,
+    "messages": [
+     {
+      "content": "Image 1:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "The images above all show the same room. Account for every per-photo count below: for each label, decide which images show the same physical objects and which show different ones, and list each group of images once with its count of distinct objects.\n\nThere are 1 images. Per-photo counts by label (each photo analyzed alone):\nkitchen_cabinet: Image 1 x6 (wood, permanent)\nRoom type per image: Image 1: kitchen",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "room_inventory/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelRoomInventory",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "aad11a33a4828d0243dfff16d0a9c650867dbf343630af54f5402e947374cb1e",
+    "temperature": 0.0
+   }
+  ],
+  "result": {
+   "calls": [
+    {
+     "attempts": 1,
+     "cost_usd": 0.004,
+     "errors": [],
+     "files": [
+      "a"
+     ],
+     "first_index": 1,
+     "model": "claude-sonnet-5-5",
+     "provider": "model-keyed",
+     "raw": [
+      {
+       "keyed": [
+        "claude-sonnet-5-5",
+        "room_inventory"
+       ]
+      }
+     ],
+     "response": {
+      "objects": [
+       {
+        "attachment": "permanent",
+        "confidence": 0.8,
+        "count": 5,
+        "image_indices": [
+         1
+        ],
+        "label": "kitchen_cabinet",
+        "material": "wood",
+        "note": "seen"
+       }
+      ]
+     }
+    }
+   ],
+   "dropped": [],
+   "files": [
+    "a"
+   ],
+   "looks": [],
+   "needs_review": false,
+   "objects": [
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 5,
+     "image_indices": [
+      1
+     ],
+     "label": "kitchen_cabinet",
+     "material": "wood",
+     "note": "seen"
+    }
+   ],
+   "review_reason": null,
+   "room_id": "single_called",
+   "seen_in": [
+    [
+     "a"
+    ]
+   ],
+   "source": "model",
+   "step": "model"
+  },
+  "spent_usd": 0.004
+ },
+ "unusable": {
+  "requests": [
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 4000,
+    "messages": [
+     {
+      "content": "Image 1:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 2:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "The images above all show the same room. Account for every per-photo count below: for each label, decide which images show the same physical objects and which show different ones, and list each group of images once with its count of distinct objects.\n\nThere are 2 images. Per-photo counts by label (each photo analyzed alone):\nkitchen_cabinet: Image 1 x6 (wood, permanent); Image 2 x8 (wood, permanent)\nRoom type per image: Image 1: kitchen; Image 2: kitchen",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "room_inventory/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelRoomInventory",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "aad11a33a4828d0243dfff16d0a9c650867dbf343630af54f5402e947374cb1e",
+    "temperature": 0.0
+   },
+   {
+    "activity": "reconcile_rooms",
+    "max_tokens": 4000,
+    "messages": [
+     {
+      "content": "Image 1:",
+      "images": [
+       "78c38bcd6769f4d8883537474517a0fea7de20244907b7785f0f5bf925b4a65f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "Image 2:",
+      "images": [
+       "56b5212aa81b717247fd89472cef9d3b914aec5f755e049adee309757070441f"
+      ],
+      "role": "user"
+     },
+     {
+      "content": "The images above all show the same room. Account for every per-photo count below: for each label, decide which images show the same physical objects and which show different ones, and list each group of images once with its count of distinct objects.\n\nThere are 2 images. Per-photo counts by label (each photo analyzed alone):\nkitchen_cabinet: Image 1 x6 (wood, permanent); Image 2 x8 (wood, permanent)\nRoom type per image: Image 1: kitchen; Image 2: kitchen",
+      "images": [],
+      "role": "user"
+     }
+    ],
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "room_inventory/v3",
+    "reasoning_effort": "low",
+    "response_model": "ModelRoomInventory",
+    "study_id": "00000000-0000-0000-0000-000000000001",
+    "system_sha256": "aad11a33a4828d0243dfff16d0a9c650867dbf343630af54f5402e947374cb1e",
+    "temperature": 0.0
+   }
+  ],
+  "result": {
+   "calls": [
+    {
+     "attempts": 2,
+     "cost_usd": 0.008,
+     "errors": [
+      "attempt 1: unusable",
+      "attempt 2: unusable"
+     ],
+     "files": [
+      "a",
+      "b"
+     ],
+     "first_index": 1,
+     "model": null,
+     "provider": null,
+     "raw": [
+      {
+       "bad": true
+      },
+      {
+       "bad": true
+      }
+     ],
+     "response": null
+    }
+   ],
+   "dropped": [],
+   "files": [
+    "a",
+    "b"
+   ],
+   "looks": [],
+   "needs_review": true,
+   "objects": [
+    {
+     "attachment": "permanent",
+     "confidence": 0.8,
+     "count": 8,
+     "image_indices": [
+      1,
+      2
+     ],
+     "label": "kitchen_cabinet",
+     "material": "wood",
+     "note": "kitchen_cabinet note"
+    }
+   ],
+   "review_reason": "invalid_model_output",
+   "room_id": "unusable",
+   "seen_in": [
+    [
+     "a",
+     "b"
+    ]
+   ],
+   "source": "heuristic",
+   "step": "heuristic"
+  },
+  "spent_usd": 0.008
+ }
+}

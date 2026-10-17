@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import httpx2
+import openai as openai_sdk
 import pytest
 
 from basis.config import Settings
 from basis.llm import ChatProvider, ScriptedProvider, ScriptedTurn
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderNotConfigured,
     ProviderRateLimited,
@@ -17,6 +20,7 @@ from basis.llm.errors import (
 )
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import ChatRequest, ChatResponse, Message, Usage
+from basis.llm.providers import OpenAIProvider
 
 
 def request() -> ChatRequest:
@@ -258,3 +262,118 @@ def test_from_settings() -> None:
         )
     )
     assert both is not None and [p.name for p in both.providers] == ["azure", "openai"]
+
+
+# --------------------------------------------------------------------------- account errors
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ProviderAccountError("quota", provider="azure", status=429, code="insufficient_quota"),
+        ProviderAccountError("bad key", provider="azure", status=401, code="invalid_api_key"),
+        ProviderAccountError("no access", provider="azure", status=403),
+    ],
+)
+async def test_an_account_error_never_falls_back(error: ProviderAccountError) -> None:
+    """Not even a 429: the secondary would answer with another account (and, on Azure,
+    possibly another deployment than the model asked for), hiding the outage."""
+    primary = named("azure", [ScriptedTurn(raise_error=error), text("after the fix")])
+    secondary = named("openai", [text("must not answer")])
+    pool = ProviderPool([primary, secondary])
+    with pytest.raises(ProviderAccountError) as caught:
+        await pool.complete(request())
+    assert caught.value is error
+    assert secondary.requests == [] and pool.fallbacks == 0
+    # Nothing sticky: once the account is fixed the primary serves again.
+    assert (await pool.complete(request())).text == "after the fix"
+
+
+async def test_an_account_error_on_a_claude_request_stays_on_anthropic() -> None:
+    credit = ProviderAccountError("credit balance is too low", provider="anthropic", status=400)
+    claude = Family("anthropic", [ScriptedTurn(raise_error=credit)], claude=True)
+    openai = Family("openai", [text("gpt")], claude=False)
+    pool = ProviderPool([claude, openai])
+    with pytest.raises(ProviderAccountError):
+        await pool.complete(claude_request())
+    assert openai.requests == [] and pool.fallbacks == 0
+
+
+def sdk_provider(name: str, responses: list[httpx2.Response]) -> tuple[OpenAIProvider, list[int]]:
+    """A real :class:`OpenAIProvider` over a mock transport; returns it and its call log."""
+    calls: list[int] = []
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        calls.append(1)
+        return responses.pop(0) if len(responses) > 1 else responses[0]
+
+    client = openai_sdk.AsyncOpenAI(
+        api_key="test-key",  # pragma: allowlist secret
+        base_url="https://api.test/v1",
+        max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+    )
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    provider = OpenAIProvider(client, timeout_s=5.0, jitter=lambda: 0.0, sleep=no_wait)
+    provider.name = name
+    return provider, calls
+
+
+def completion_json(text_value: str) -> dict[str, Any]:
+    return {
+        "id": "c",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "gpt-4o-mini",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": text_value},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+
+
+async def test_out_of_quota_is_one_call_no_retry_no_fallback_end_to_end() -> None:
+    """Through the real SDK and mapping: OpenAI's out-of-quota 429 used to be retried once
+    and then sent to Azure; now it is one call and an account error."""
+    quota = httpx2.Response(
+        429,
+        json={
+            "error": {
+                "message": "You exceeded your current quota.",
+                "type": "insufficient_quota",
+                "code": "insufficient_quota",
+            }
+        },
+    )
+    primary, primary_calls = sdk_provider("openai", [quota])
+    secondary, secondary_calls = sdk_provider(
+        "azure", [httpx2.Response(200, json=completion_json("x"))]
+    )
+    pool = ProviderPool([primary, secondary])
+    with pytest.raises(ProviderAccountError) as caught:
+        await pool.complete(request())
+    assert (caught.value.provider, caught.value.code) == ("openai", "insufficient_quota")
+    assert len(primary_calls) == 1 and secondary_calls == [] and pool.fallbacks == 0
+
+
+async def test_rate_limits_and_5xx_still_retry_then_fall_back_end_to_end() -> None:
+    """Regression: a plain 429 or a 503 is retried once by the provider, then the call
+    falls back to the secondary, exactly as before."""
+    for status in (429, 503):
+        failing = httpx2.Response(
+            status, json={"error": {"message": "busy", "code": "rate_limit_exceeded"}}
+        )
+        primary, primary_calls = sdk_provider("openai", [failing])
+        secondary, secondary_calls = sdk_provider(
+            "azure", [httpx2.Response(200, json=completion_json("from azure"))]
+        )
+        pool = ProviderPool([primary, secondary])
+        assert (await pool.complete(request())).text == "from azure"
+        assert len(primary_calls) == 2 and len(secondary_calls) == 1 and pool.fallbacks == 1

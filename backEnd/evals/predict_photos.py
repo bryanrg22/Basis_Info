@@ -48,6 +48,7 @@ from basis.vision.analyze import (
     released_prompt,
 )
 from basis.vision.prep import ImageRejected
+from evals.account_stop import guard, stops_on_account_error, track
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -134,9 +135,10 @@ async def analyze_with_retries(
     return await analyze_photo_detailed(image_bytes, ctx)
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
-    pool = ProviderPool.from_settings(settings)
+    pool = guard(ProviderPool.from_settings(settings))
     if pool is None:
         print(
             "no model provider configured (OPENAI_API_KEY, ANTHROPIC_API_KEY or AZURE_OPENAI_*)",
@@ -149,6 +151,7 @@ async def run(args: argparse.Namespace) -> int:
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
     model = args.model or settings.vision_model
     ctx = VisionContext(

@@ -21,14 +21,14 @@ from fixtures import fixture_path
 from llm_fakes import PHOTO_MODEL, PHOTO_USAGE, FixtureVisionProvider, photo_labels
 
 from basis.llm import ScriptedProvider, ScriptedTurn, Usage
-from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderUnavailable
 from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse
 from basis.vision.overlap import ModelPairOverlap
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import ModelRoomInventory
 from basis.vision.schemas import ModelPhotoAnalysis
 from basis.vision.surface_material import ModelSurfaceMaterial
-from evals import predict_photos, predict_rooms
+from evals import account_stop, predict_photos, predict_rooms
 
 KITCHEN = "photos/01_kitchen.jpg"
 BATHROOM = "photos/02_bathroom.jpg"
@@ -452,6 +452,42 @@ async def test_a_persistent_provider_error_still_fails_the_run(
     # Every attempt failed: the retry happened, the error propagated, nothing was written.
     assert rooms.calls >= 2 and rooms.inner.requests == []
     assert not (tmp_path / "out" / "room_inventory.json").exists()
+
+
+@dataclass
+class RefusedRooms:
+    """Every room request is refused: the Anthropic credit rejection of EVAL_REPORT 26.12."""
+
+    calls: int = 0
+    name: str = "anthropic"
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        self.calls += 1
+        raise ProviderAccountError(
+            "Your credit balance is too low to access the Anthropic API.",
+            provider="anthropic",
+            status=400,
+            code="invalid_request_error",
+        )
+
+
+async def test_an_account_error_stops_the_room_step_at_the_first_room(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rooms = RefusedRooms()
+    use(monkeypatch, Router(FixtureVisionProvider(), rooms))
+    monkeypatch.setattr(predict_rooms, "RETRY_DELAYS_S", (0.0, 0.0))
+    out = tmp_path / "out"
+    code = await run("--photos", str(photo_dir), "--out", str(out), "--concurrency", "1")
+    assert code == account_stop.ACCOUNT_STOPPED
+    assert rooms.calls == 1  # not retried like an outage, no second room
+    run_json = json.loads((out / "run.json").read_text())
+    assert run_json["complete"] is False
+    assert run_json["stopped"]["provider"] == "anthropic"
+    assert "credit balance is too low" in run_json["stopped"]["message"]
+    # What ran before the stop is kept; nothing claims to be the room inventory.
+    assert {"photo_raw.jsonl", "rooms.json"} <= set(run_json["files_written"])
+    assert not (out / "room_inventory.json").exists()
 
 
 def test_argument_limits() -> None:
