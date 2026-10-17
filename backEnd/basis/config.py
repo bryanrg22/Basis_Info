@@ -17,12 +17,13 @@ Rules (BUILD_PLAN C1):
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Final, Literal, get_args
+from typing import Annotated, Final, Literal, get_args
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from basis.llm.families import (
     CLAUDE_EFFORTS,
@@ -50,6 +51,10 @@ VISION_MAX_TOKENS_DEFAULT: Final = 1200
 # 8000); otherwise the 800 the pipeline always used for the few critical fields.
 EXTRACTION_MAX_TOKENS_REASONING: Final = 8000
 EXTRACTION_MAX_TOKENS_DEFAULT: Final = 800
+
+# A browser origin as the Origin header carries it: scheme, host, optional port, nothing else.
+_ORIGIN: Final = re.compile(r"https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?")
+_LOCAL_ORIGIN: Final = re.compile(r"http://(?:localhost|127\.0\.0\.1)(?::\d{1,5})?")
 
 _REQUIRED_IN_DEPLOYED: Final = ("database_url", "gcs_bucket", "firebase_project_id")
 _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
@@ -110,6 +115,12 @@ class Settings(BaseSettings):
     firebase_project_id: str | None = None
     rate_limit_reads_per_min: int = Field(default=240, gt=0)
     rate_limit_mutations_per_min: int = Field(default=60, gt=0)
+    # Browser origins allowed to call the API (CORS), comma-separated, e.g.
+    # "https://cost-seg-basis.web.app,http://localhost:3000". Each is scheme://host[:port]
+    # with no path. Empty: no CORS headers, so only same-origin pages and non-browser
+    # clients can use the API. Outside dev and test "*" is refused, and so is plain http
+    # except for localhost (a local frontend pointed at staging).
+    cors_allowed_origins: Annotated[tuple[str, ...], NoDecode] = ()
     # Sentence-embedding model for the evidence corpora (recorded per corpus version).
     # "hash" selects the deterministic test embedder and is refused outside dev and test.
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -378,6 +389,24 @@ class Settings(BaseSettings):
     def _normalize_log_level(cls, value: object) -> object:
         return value.strip().upper() if isinstance(value, str) else value
 
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def _check_origins(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for origin in value:
+            if origin != "*" and not _ORIGIN.fullmatch(origin):
+                raise ConfigError(
+                    f"CORS_ALLOWED_ORIGINS entry {origin!r} is not an origin: use "
+                    "scheme://host[:port] with no path or trailing slash"
+                )
+        return value
+
     @model_validator(mode="after")
     def _check_required(self) -> Settings:
         missing = [name for name in required_in(self.env) if not _is_set(getattr(self, name))]
@@ -386,6 +415,18 @@ class Settings(BaseSettings):
             raise ConfigError(f"{ENV_VAR}={self.env} requires these settings to be set: {names}")
         if self.embedding_model == "hash" and self.env not in ("dev", "test"):
             raise ConfigError(f"EMBEDDING_MODEL=hash is for tests only, not {ENV_VAR}={self.env}")
+        if self.env not in ("dev", "test"):
+            for origin in self.cors_allowed_origins:
+                if origin == "*":
+                    raise ConfigError(
+                        f"CORS_ALLOWED_ORIGINS=* is for dev and test only, not {ENV_VAR}="
+                        f"{self.env}; list the frontend's origins"
+                    )
+                if origin.startswith("http://") and not _LOCAL_ORIGIN.fullmatch(origin):
+                    raise ConfigError(
+                        f"CORS_ALLOWED_ORIGINS entry {origin!r} is plain http; outside dev "
+                        "and test only https origins and http://localhost are allowed"
+                    )
         if self.retrieval_chunk_overlap >= self.retrieval_chunk_tokens:
             raise ConfigError(
                 f"RETRIEVAL_CHUNK_OVERLAP ({self.retrieval_chunk_overlap}) must be smaller than "

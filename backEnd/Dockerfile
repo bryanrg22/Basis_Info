@@ -1,5 +1,6 @@
 # Basis backend image: the API (default command) and the Temporal worker share one image;
-# Cloud Run runs the worker with `python -m basis.worker` (Stage 5 wires the services).
+# Cloud Run runs the worker with `python -m basis.worker` and the outbox relay with
+# `python -m basis.relay` (docs/deploy/STAGING.md).
 #
 # Build from backEnd/:  docker build -t basis-backend .
 # Run the API:          docker run --rm -e BASIS_ENV=staging ... basis-backend
@@ -31,6 +32,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Run as a non-root user; nothing is written inside the image at run time.
 RUN useradd --create-home --uid 10001 basis
 USER basis
+
+# The commit the image was built from (CI passes --build-arg GIT_SHA); /health reports it.
+# Last, so a new commit changes only this layer's metadata.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
 
 EXPOSE 8000
 
