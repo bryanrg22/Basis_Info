@@ -51,7 +51,13 @@ from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
 from basis.temporal.client import build_id, connect
 from basis.vision import fusion, room_step
 from basis.vision.analyze import prompts_for_mode
-from basis.vision.localize import Localizer, build_replicate_localizer
+from basis.vision.localize import (
+    Localizer,
+    build_cog_localizer,
+    build_replicate_localizer,
+    google_id_token,
+    static_token,
+)
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
 from basis.worker.search_attributes import ensure_search_attributes
@@ -153,7 +159,9 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         logger.warning("Azure DI not configured: appraisals use the text layer only")
     localizer = build_localizer(settings)
     if localizer is None:
-        logger.warning("REPLICATE_API_TOKEN not set: photo localization is skipped")
+        logger.warning(
+            "neither LOCALIZER_URL nor REPLICATE_API_TOKEN is set: photo localization is skipped"
+        )
     return Deps(
         sessionmaker=sessionmaker,
         storage=storage,
@@ -169,11 +177,25 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
 
 
 def build_localizer(settings: Settings) -> Localizer | None:
-    """SAM 3 on Replicate when ``REPLICATE_API_TOKEN`` is set, else None (skipped).
+    """SAM 3 on the self-hosted Cog server at ``LOCALIZER_URL`` when it is set, else on
+    Replicate when ``REPLICATE_API_TOKEN`` is set, else None (skipped).
 
     No budget is bound to the shared localizer: concurrent activities would share it. The
     activity charges each prediction's cost to the study budget instead.
     """
+    if settings.localizer_url:
+        token_source = None
+        if settings.localizer_token is not None and settings.localizer_token.get_secret_value():
+            token_source = static_token(settings.localizer_token.get_secret_value())
+        elif settings.localizer_google_auth:
+            token_source = google_id_token(settings.localizer_url)
+        return build_cog_localizer(
+            settings.localizer_url,
+            settings.sam3_replicate_version,
+            token_source=token_source,
+            concurrency=settings.localizer_concurrency,
+            usd_per_second=settings.localizer_usd_per_second,
+        )
     token = settings.replicate_api_token
     if token is None or not token.get_secret_value().strip():
         return None

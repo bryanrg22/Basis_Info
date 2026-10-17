@@ -275,8 +275,21 @@ class Settings(BaseSettings):
     # model is addressed by version id: it is not served at /v1/models/<owner>/<name>.
     replicate_api_token: SecretStr | None = None
     sam3_replicate_version: str = "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # pragma: allowlist secret  # noqa: E501
-    # Concurrent SAM 3 predictions per process (the localizer's semaphore).
-    localizer_concurrency: int = Field(default=4, ge=1, le=32)
+    # Concurrent SAM 3 predictions, per worker process (the localizer's semaphore) and per
+    # study (the workflow's localization slots). EVAL_REPORT section 29 measured 1 to 12 on
+    # Replicate with the 52 photos.
+    localizer_concurrency: int = Field(default=6, ge=1, le=32)
+    # A self-hosted SAM 3 Cog server instead of Replicate (SAM3_HOSTING.md): its base URL,
+    # and its credentials: a static bearer token, or a Google ID token minted from the
+    # worker's service account (Cloud Run with authentication). Billed per instance second
+    # (Cloud Run us-east4: one L4, 4 vCPU, 16 GiB, no zonal redundancy).
+    localizer_url: str | None = None
+    localizer_token: SecretStr | None = None
+    localizer_google_auth: bool = False
+    localizer_usd_per_second: float = Field(default=0.0002907, gt=0)
+    # The rooms review opens once the photos are analyzed and the room step is done, with
+    # SAM 3 still localizing in the background (EVAL_REPORT 29); true waits for it first.
+    rooms_gate_waits_for_localization: bool = False
 
     @property
     def vision_output_budget(self) -> int:

@@ -220,7 +220,8 @@ async def list_objects(
         "as is (200, `created: false`); an uncounted candidate becomes a manual instance "
         "with its mask (201); a box that resolves to nothing is stored as a manual box "
         "(201); a tap that resolves to nothing is 422. Only while the study waits at "
-        "`rooms_review`, on its current revision (409 otherwise)."
+        "`rooms_review`, on its current revision, once the photo's localization is "
+        "recorded (409 otherwise; `localization-pending` while SAM 3 still runs)."
     ),
     responses={
         200: {"description": "Resolved to an instance already counted; nothing added."},
@@ -239,6 +240,13 @@ async def add_object(
     await photo_of(session, study_id, document_id)
     revision = await editable_revision(session, study_id, document_id)
     repo = PhotoObjectRepository(session)
+    if await repo.localization(document_id, revision) is None:
+        # The rooms review opens with SAM 3 still running (EVAL_REPORT 29): until the
+        # photo's own instances are stored a tap cannot resolve against them.
+        raise Conflict(
+            "The photo is still being localized; its objects appear when that finishes.",
+            type_suffix="localization-pending",
+        )
     rows = await repo.active(study_id, revision, [document_id])
     match = resolve(rows, body)
     if match is not None and match.counted:

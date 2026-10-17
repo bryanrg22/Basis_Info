@@ -11,7 +11,8 @@ Shape of a run::
                              photos only, reconcile_rooms)
     transition -> assets_processing ; process_assets
     gate assets_review      (reject: apply_corrections, process_assets again)
-    transition -> exporting ; export_report ; transition -> completed ; record_run_end
+    (every localize_photo done) ; transition -> exporting ; export_report ;
+    transition -> completed ; record_run_end
 
 Engineer decisions arrive through the ``decide`` update. Its validator rejects a decision
 for a gate the workflow is not waiting at, for a stale revision, for a gate that already
@@ -47,7 +48,8 @@ Patches in this file:
 
 * ``localize-photos-v1`` (v0.6): after a photo's ``analyze_photo`` returns, ``localize_photo``
   runs for it (outside the analysis slot, at most ``photo_concurrency`` at a time) and the
-  stage waits for every localization before the next gate. A localization that fails is
+  stage waits for every localization before the next gate (until
+  ``localize-background-v1``). A localization that fails is
   logged and ignored; it never flags the photo. Executions recorded before the patch
   replay without it (tests/lifecycle/histories).
 * ``reconcile-rooms-v1`` (EVAL_REPORT section 16.5): after a revision's photos are analyzed
@@ -75,6 +77,15 @@ Patches in this file:
   before it starts the next revision (the revision carries the photo outputs over, so
   they must be complete). Before the patch the appraisal review waited for the photo
   stage, which was 74% of the live run's wall time under Replicate's throttle.
+* ``localize-background-v1`` (EVAL_REPORT section 29): at most ``localize_concurrency``
+  localizations per study (before: ``photo_concurrency``), and, unless
+  ``rooms_gate_waits_for_localization``, they run behind the rooms review: the photo stage
+  is done when every photo is analyzed and the room step ran, and the rooms review opens
+  then (no step after it reads SAM 3's output; the masks appear in the review as each
+  photo's localization is recorded). A rejection at any gate first waits for the
+  localizations still running (the next revision carries the photos' objects over), so
+  does the drain after a failed extraction, and the study exports only once every
+  localization is recorded. Executions recorded before the patch replay without it.
 """
 
 from __future__ import annotations
@@ -152,6 +163,7 @@ LOCALIZE_PATCH: Final = "localize-photos-v1"
 RECONCILE_ROOMS_PATCH: Final = "reconcile-rooms-v1"
 STAGE_RETRY_PATCH: Final = "stage-failure-retry-v1"
 EARLY_GATE_PATCH: Final = "appraisal-gate-early-v1"
+LOCALIZE_BACKGROUND_PATCH: Final = "localize-background-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
@@ -206,6 +218,11 @@ class StudyWorkflow:
         # Set while the photo stage drains after a failed extraction: no photo activity
         # is scheduled any more; the ones already running finish and keep their rows.
         self._photos_stopping = False
+        # Patch localize-background-v1: SAM 3 slots for the study, whether localizations
+        # run behind the rooms review, and the ones started and not yet awaited.
+        self._localize_slots: asyncio.Semaphore | None = None
+        self._localize_background = False
+        self._localizations: list[asyncio.Task[None]] = []
 
     # ------------------------------------------------------------------ handlers
 
@@ -354,6 +371,9 @@ class StudyWorkflow:
             "list_photos", ListPhotosInput(study_id=study_id), ListPhotosOutput, "list_photos"
         )
         self._stage_retry = workflow.patched(STAGE_RETRY_PATCH)
+        if workflow.patched(LOCALIZE_BACKGROUND_PATCH):
+            self._localize_slots = asyncio.Semaphore(self._input.localize_concurrency)
+            self._localize_background = not self._input.rooms_gate_waits_for_localization
         photo_task: asyncio.Task[None] | None = None
         if self._stage_retry:
             document_id, photo_task = await self._extract_with_photos(list(photos.document_ids))
@@ -398,6 +418,7 @@ class StudyWorkflow:
             _, corrections = await self._reject(decision, "assets_processing")
             await self._process_assets(corrections)
 
+        await self._localized()  # the study ends with every localization recorded
         await self._transition("exporting")
         export = await self._held("exporting", self._export)
         await self._transition("completed")
@@ -437,13 +458,24 @@ class StudyWorkflow:
                 if isinstance(error.cause, CancelledError) or self._stopping:
                     raise
                 self._photos_stopping = True
-                await self._hold("extracting", error, photo_task)
+                await self._hold("extracting", error, self._spawn(self._drained(photo_task)))
                 attempt += 1
                 self._photos_stopping = False
                 self._pending_photos = 0
                 self._completed_photos = 0
                 photo_task = self._spawn(self._photo_stage(photo_ids, revision))
         return document_id, photo_task
+
+    async def _drained(self, photo_task: asyncio.Task[None]) -> None:
+        """The photo stage and every localization it started have finished."""
+        await photo_task
+        await self._localized()
+
+    async def _localized(self) -> None:
+        """Wait for the localizations running behind the review (patch
+        ``localize-background-v1``); none are pending without it."""
+        while self._localizations:
+            await self._localizations.pop(0)
 
     async def _photo_stage(self, photo_ids: list[str], revision: int) -> None:
         await self._analyze_photos(photo_ids, revision)
@@ -553,7 +585,7 @@ class StudyWorkflow:
         if not document_ids:
             return
         semaphore = asyncio.Semaphore(self._input.photo_concurrency)
-        localizing = asyncio.Semaphore(self._input.photo_concurrency)
+        localizing = self._localize_slots or asyncio.Semaphore(self._input.photo_concurrency)
         self._pending_photos += len(document_ids)
         tasks = [
             self._spawn(self._analyze_and_localize(semaphore, localizing, doc, revision))
@@ -571,7 +603,11 @@ class StudyWorkflow:
     ) -> None:
         analyzed = await self._analyze_one(analyzing, document_id, rev)
         if analyzed and not self._photos_stopping and workflow.patched(LOCALIZE_PATCH):
-            await self._localize_one(localizing, document_id, rev)
+            if self._localize_background:
+                localize = self._localize_one(localizing, document_id, rev)
+                self._localizations.append(self._spawn(localize))
+            else:
+                await self._localize_one(localizing, document_id, rev)
 
     async def _localize_one(self, semaphore: asyncio.Semaphore, document_id: str, rev: int) -> None:
         """Localize one analyzed photo; a failure is logged, never flagged or raised."""
@@ -711,6 +747,9 @@ class StudyWorkflow:
         without the database), the revision starts without them, the stage is flagged in
         ``needs_review_stages``, and the gate asks again; the study does not fail.
         """
+        # The new revision copies the localized objects of the photos it does not
+        # re-analyze, so every localization of this one must be recorded first.
+        await self._localized()
         old_revision = self._revision
         new_revision = old_revision + 1
         await self._transition(back_to, new_revision=new_revision)

@@ -170,3 +170,44 @@ async def test_build_deps_fails_at_startup_when_a_pinned_prompt_is_not_released(
             build_deps(chosen, engine)
     finally:
         await engine.dispose()
+
+
+async def test_build_localizer_prefers_the_self_hosted_url(settings: Settings) -> None:
+    """``LOCALIZER_URL`` (SAM3_HOSTING.md) wins over Replicate; its credentials are a static
+    token, else a Google ID token when asked, else none; neither set: no localizer."""
+    from pydantic import SecretStr
+
+    from basis.vision.localize import CogSam3Localizer, ReplicateSam3Localizer
+    from basis.worker.main import build_localizer
+
+    none = settings.model_copy(update={"replicate_api_token": None, "localizer_url": None})
+    assert build_localizer(none) is None
+    replicate = build_localizer(
+        none.model_copy(
+            update={"replicate_api_token": SecretStr("r8_x"), "localizer_concurrency": 3}
+        )
+    )
+    assert isinstance(replicate, ReplicateSam3Localizer) and replicate.concurrency == 3
+    url = "https://sam3.example.run.app"
+    hosted = none.model_copy(
+        update={
+            "replicate_api_token": SecretStr("r8_x"),
+            "localizer_url": url,
+            "localizer_token": SecretStr("bearer-x"),
+            "localizer_usd_per_second": 0.001,
+        }
+    )
+    cog = build_localizer(hosted)
+    assert isinstance(cog, CogSam3Localizer)
+    assert (cog.url, cog.usd_per_second, cog.version) == (
+        url,
+        0.001,
+        settings.sam3_replicate_version,
+    )
+    assert cog.token_source is not None and await cog.token_source() == "bearer-x"
+    google = build_localizer(
+        hosted.model_copy(update={"localizer_token": None, "localizer_google_auth": True})
+    )
+    assert isinstance(google, CogSam3Localizer) and google.token_source is not None
+    open_ = build_localizer(hosted.model_copy(update={"localizer_token": None}))
+    assert isinstance(open_, CogSam3Localizer) and open_.token_source is None
