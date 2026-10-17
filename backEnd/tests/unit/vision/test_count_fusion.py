@@ -21,6 +21,7 @@ from basis.activities.analyze_photo import _raw_json
 from basis.llm import Budget, BudgetExceededError, ScriptedTurn, Usage
 from basis.llm.call import CallContext
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderNotConfigured,
     ProviderRateLimited,
@@ -380,6 +381,14 @@ async def test_a_base_provider_error_cancels_the_second_call_and_propagates() ->
     with pytest.raises(ProviderUnavailable):
         await analyze_photo_decomposed(KITCHEN, context(Mixed()))
     assert cancelled.is_set()
+
+
+async def test_an_account_error_on_the_second_call_stops_the_photo() -> None:
+    # Not a fusion fallback: every later photo's second call would fail the same way.
+    refused = ProviderAccountError("no credit", provider="anthropic", status=400)
+    chat = provider([ScriptedTurn(raise_error=refused)] * 3)
+    with pytest.raises(ProviderAccountError):
+        await analyze_photo_decomposed(KITCHEN, context(chat))
 
 
 async def test_fusion_off_is_the_two_call_step() -> None:

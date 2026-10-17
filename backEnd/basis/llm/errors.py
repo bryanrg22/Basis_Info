@@ -7,6 +7,11 @@
   unusable (invalid JSON for the schema, a refusal, truncation, or a 4xx such as a schema
   the API rejects). Retrying the same request elsewhere does not help; the caller decides
   (the vision call retries once, then returns a ``needs_review`` analysis).
+* :class:`ProviderAccountError` means the provider refused the account, not the request:
+  a bad or revoked key (401), a key without access (403), or no credit or quota left
+  (Anthropic's 400/402 "credit balance is too low", OpenAI's 429 ``insufficient_quota``).
+  Every later call would fail the same way, so nothing retries it and no caller treats it
+  as one unusable answer: it stops the activity (non-retryable) or the evaluation run.
 * :class:`ProviderNotConfigured` means no provider has credentials.
 """
 
@@ -52,6 +57,10 @@ class ProviderUnavailable(ProviderError):
 
 class ProviderBadResponse(ProviderError):
     """The call completed but its output cannot be used."""
+
+
+class ProviderAccountError(ProviderError):
+    """The provider rejected the credentials or the account (key, permission, credit)."""
 
 
 class ProviderNotConfigured(ProviderError):

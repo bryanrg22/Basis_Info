@@ -30,7 +30,7 @@ from basis.db.repositories.activity_result import COMPLETED
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm import ScriptedProvider, ScriptedTurn, Usage
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited
+from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderRateLimited
 from basis.workflow.contracts import AnalyzePhotoInput, SimulateFault
 
 from .conftest import Env
@@ -357,6 +357,23 @@ async def test_no_provider_configured_is_non_retryable(
     with pytest.raises(ApplicationError) as caught:
         await activity_env.run(AnalyzePhoto(with_llm(deps, None)).run, analyze(seeded, 0))
     assert caught.value.type == "ProviderNotConfigured" and caught.value.non_retryable
+
+
+async def test_an_account_error_is_non_retryable_and_flags_no_photo(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    refused = ProviderAccountError(
+        "anthropic rejected the account (HTTP 400): credit balance is too low",
+        provider="anthropic",
+        status=400,
+    )
+    provider = ScriptedProvider([ScriptedTurn(raise_error=refused)])
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(AnalyzePhoto(with_llm(deps, provider)).run, analyze(seeded, 0))
+    assert caught.value.type == "ProviderAccountError" and caught.value.non_retryable
+    assert "credit balance" in str(caught.value)
+    assert len(provider.requests) == 1  # not retried as an unusable answer
+    assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
 
 
 async def test_a_rate_limited_provider_is_retried_by_temporal(

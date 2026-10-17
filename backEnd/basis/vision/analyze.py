@@ -60,7 +60,7 @@ from typing import Any, Final, Literal, get_args
 
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
-from basis.llm.errors import TRANSIENT, ProviderBadResponse, ProviderError
+from basis.llm.errors import TRANSIENT, ProviderAccountError, ProviderBadResponse, ProviderError
 from basis.llm.prompts import Prompt
 from basis.llm.provider import BudgetExceededError, ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision import fusion
@@ -476,6 +476,8 @@ async def _fusion_attempts(
             attempts += 1
             errors.append(f"{label}{type(exc).__name__}: {exc}")
             continue
+        except ProviderAccountError:
+            raise  # every later call fails the same way: not a fusion fallback
         except (ProviderError, BudgetExceededError) as exc:
             errors.append(f"{label}{type(exc).__name__}: {exc}")
             failed = CallOutcome(prompt.version_id, None, attempts + 1, errors=errors)

@@ -22,7 +22,7 @@ from basis.extraction.field_mappings import CRITICAL_FIELDS, FIELDS
 from basis.extraction.results import Candidate, ExtractedField, ValidationIssue
 from basis.llm import Budget, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
-from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderUnavailable
 from basis.llm.prompts import latest
 from basis.llm.recorder import MemoryRecorder
 
@@ -221,6 +221,14 @@ async def test_provider_errors_do_not_fail_the_extraction(error: Exception) -> N
     # A bad response reached the model: its tokens are recorded and charged.
     expected = 1 if isinstance(error, ProviderBadResponse) else 0
     assert len(call.recorder.records) == expected  # type: ignore[attr-defined]
+
+
+async def test_an_account_error_stops_the_extraction() -> None:
+    # Not a failed fallback: the activity must stop with the account error.
+    refused = ProviderAccountError("no credit", provider="anthropic", status=400)
+    provider = ScriptedProvider([ScriptedTurn(raise_error=refused)])
+    with pytest.raises(ProviderAccountError):
+        await run(["improvements.year_built"], provider)
 
 
 def test_context_is_bounded() -> None:

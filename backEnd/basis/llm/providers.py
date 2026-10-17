@@ -14,7 +14,9 @@ What every call does (S3_SPEC sections 0 and 2):
   HTTP 429 and 5xx after a jittered delay (``Retry-After`` honoured up to a cap); timeouts
   and connection errors are not retried here (a second 60 s wait would eat the activity's
   budget; Temporal retries the activity instead). Every failure is mapped to
-  :mod:`basis.llm.errors` so no caller imports the SDK.
+  :mod:`basis.llm.errors` so no caller imports the SDK. An account refusal (401, 403, or
+  the 429 ``insufficient_quota``, which waiting does not clear) is
+  :class:`ProviderAccountError` and is not retried.
 * Timeouts come from ``settings.llm_request_timeout_seconds``; latency is measured around
   the HTTP call and returned in ``ChatResponse.latency_ms``.
 
@@ -45,6 +47,7 @@ from pydantic import BaseModel, ValidationError
 from basis.config import ConfigError, Settings
 from basis.llm.anthropic_provider import AnthropicProvider, is_anthropic_model
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderError,
     ProviderNotConfigured,
@@ -59,6 +62,8 @@ logger = logging.getLogger("basis.llm.providers")
 
 MIN_AZURE_API_VERSION: Final = date(2024, 8, 1)
 RETRY_AFTER_CAP_S: Final = 10.0
+ACCOUNT_STATUSES: Final = frozenset({401, 403})
+ACCOUNT_ERROR_CODES: Final = frozenset({"insufficient_quota", "billing_hard_limit_reached"})
 MALFORMED_ARGUMENTS: Final = "_malformed_arguments"
 # Dropped from strict schemas (pydantic still enforces them when the reply is validated).
 UNSUPPORTED_KEYWORDS: Final = ("default", "minLength", "maxLength", "uniqueItems")
@@ -290,10 +295,29 @@ def _retry_after(exc: openai.APIStatusError) -> float | None:
         return None
 
 
+def is_account_error(exc: openai.APIStatusError) -> bool:
+    """401 (bad key), 403 (no access to the model, project or region), or the 429 whose
+    ``code`` (and ``type``) is ``insufficient_quota`` ("You exceeded your current quota"):
+    unlike a rate limit it does not clear by waiting, so it must not be retried as one; and
+    the ``billing_hard_limit_reached`` code of an account past its billing limit."""
+    return (
+        exc.status_code in ACCOUNT_STATUSES
+        or exc.code in ACCOUNT_ERROR_CODES
+        or exc.type in ACCOUNT_ERROR_CODES
+    )
+
+
 def map_error(exc: Exception, provider: str) -> ProviderError:
     """An SDK exception as a :mod:`basis.llm.errors` error."""
     if isinstance(exc, ProviderError):
         return exc
+    if isinstance(exc, openai.APIStatusError) and is_account_error(exc):
+        return ProviderAccountError(
+            f"{provider} rejected the account (HTTP {exc.status_code}; check the API key, "
+            f"its permissions and the quota): {exc}",
+            provider=provider,
+            status=exc.status_code,
+        )
     if isinstance(exc, openai.RateLimitError):
         return ProviderRateLimited(str(exc), provider=provider, status=429)
     if isinstance(exc, openai.APIStatusError):

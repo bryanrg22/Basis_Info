@@ -40,9 +40,11 @@ from basis.llm.cost import (
     price_for,
 )
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderRateLimited,
     ProviderUnavailable,
+    is_retryable_status,
 )
 from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec, Usage
 from basis.llm.providers import providers_from_settings
@@ -493,12 +495,71 @@ async def test_overloaded_then_success() -> None:
     assert (await provider(server).complete(request())).parsed is not None
 
 
-@pytest.mark.parametrize("code", [400, 401, 403, 404, 413, 422])
+@pytest.mark.parametrize("code", [400, 404, 413, 422])
 async def test_4xx_is_a_bad_response_and_not_retried(code: int) -> None:
     server = Server(status(code))
     with pytest.raises(ProviderBadResponse) as caught:
         await provider(server).complete(request())
     assert server.call_count == 1 and caught.value.status == code
+
+
+def api_error(code: int, kind: str, text: str, **extra: Any) -> httpx2.Response:
+    """An error response in the API's documented shape."""
+    error = {"type": kind, "message": text, **extra}
+    return httpx2.Response(code, json={"type": "error", "error": error, "request_id": "req_1"})
+
+
+CREDIT = "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing."
+ACCOUNT_REFUSALS = {
+    # The 2026-10-16 eval run: 294 of these were recorded as invalid model output.
+    "credit balance 400": api_error(400, "invalid_request_error", CREDIT),
+    "own spend limit 400": api_error(
+        400, "invalid_request_error", "You have reached your specified API usage limits."
+    ),
+    "workspace spend limit 400": api_error(
+        400, "invalid_request_error", "You have reached your specified workspace API usage limits."
+    ),
+    "401": api_error(401, "authentication_error", "invalid x-api-key"),
+    "402": api_error(402, "billing_error", "There is an issue with your billing."),
+    "403": api_error(403, "permission_error", "Your API key does not have permission."),
+    "spend cap 429": api_error(
+        429,
+        "rate_limit_error",
+        "You have reached your API usage limits.",
+        details={"error_code": "enforced_spend_limit_reached"},
+    ),
+}
+
+
+@pytest.mark.parametrize("response", ACCOUNT_REFUSALS.values(), ids=ACCOUNT_REFUSALS.keys())
+async def test_account_refusals_are_account_errors_and_not_retried(
+    response: httpx2.Response,
+) -> None:
+    server = Server(response)
+    waits = Waits()
+    with pytest.raises(ProviderAccountError, match="rejected the account") as caught:
+        await provider(server, waits).complete(request())
+    assert server.call_count == 1 and waits.sleeps == []
+    assert caught.value.status == response.status_code and caught.value.provider == "anthropic"
+    assert not isinstance(caught.value, ProviderBadResponse | ProviderRateLimited)
+    assert not is_retryable_status(caught.value)
+
+
+async def test_a_real_invalid_request_is_still_a_bad_response() -> None:
+    server = Server(api_error(400, "invalid_request_error", "messages.0.content: Field required"))
+    with pytest.raises(ProviderBadResponse) as caught:
+        await provider(server).complete(request())
+    assert not isinstance(caught.value, ProviderAccountError)
+    assert server.call_count == 1 and caught.value.status == 400
+
+
+async def test_an_ordinary_rate_limit_is_still_retried() -> None:
+    limited = api_error(
+        429, "rate_limit_error", "Number of request tokens has exceeded your limit."
+    )
+    server = Server(limited, ok())
+    assert (await provider(server).complete(request())).parsed is not None
+    assert server.call_count == 2
 
 
 async def test_timeout_is_unavailable_and_not_retried_here() -> None:

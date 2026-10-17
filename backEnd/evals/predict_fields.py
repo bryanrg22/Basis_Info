@@ -55,7 +55,7 @@ from basis.extraction.pdf_text import read_pdf
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import is_anthropic_model
-from basis.llm.errors import ProviderError
+from basis.llm.errors import ProviderAccountError, ProviderError
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, Message
 from basis.llm.recorder import MemoryRecorder
@@ -205,6 +205,8 @@ async def run(args: argparse.Namespace) -> int:
                 calls_before = len(recorder.records)
                 try:
                     response = await call_model(pool, request, ctx)
+                except ProviderAccountError:
+                    raise  # every later call fails the same way: stop the run
                 except ProviderError as exc:
                     errors.append({"document": doc.document, "repeat": repeat, "error": str(exc)})
                     print(f"repeat {repeat}: {type(exc).__name__}: {exc}", file=sys.stderr)

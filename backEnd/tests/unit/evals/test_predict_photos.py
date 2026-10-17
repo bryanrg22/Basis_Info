@@ -17,7 +17,7 @@ from fixtures import fixture_path
 from llm_fakes import FixtureVisionProvider, photo_labels
 
 from basis.llm import prompts
-from basis.llm.errors import ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderUnavailable
 from evals import predict_photos
 
 pytestmark = pytest.mark.asyncio
@@ -235,6 +235,45 @@ async def test_transient_provider_errors_are_retried_then_recorded(
     assert [e["file"] for e in run["errors"]] == ["01_kitchen.jpg", "02_bathroom.jpg"]
     assert json.loads((out2 / "photo_rooms.json").read_text()) == {}
     assert hopeless.calls == 2 * (len(predict_photos.RETRY_DELAYS_S) + 1)
+
+
+class NoCreditProvider:
+    name = "anthropic"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, request: Any) -> Any:
+        self.calls += 1
+        raise ProviderAccountError(
+            "anthropic rejected the account (HTTP 400): Your credit balance is too low",
+            provider="anthropic",
+            status=400,
+        )
+
+
+def test_an_account_error_stops_the_run_once_with_a_clear_message(
+    photo_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # EVAL_REPORT 26.12: 294 of these were recorded as bad photos and the run carried on.
+    provider = NoCreditProvider()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    monkeypatch.setattr(predict_photos, "RETRY_DELAYS_S", (0.0, 0.0))
+    out = tmp_path / "out"
+    code = predict_photos.main(
+        ["--photos", str(photo_dir), "--out", str(out), "--repeats", "3", "--concurrency", "1"]
+    )
+    assert code == 3
+    assert "stopped: anthropic rejected the account" in capsys.readouterr().err
+    # Not retried; of the 6 photo-repeats only the first and the one already waiting on the
+    # semaphore are sent before asyncio.run cancels the rest (at most concurrency + 1).
+    assert provider.calls <= 2
+    assert not (out / "photo_rooms.json").exists() and not (out / "run.json").exists()
 
 
 async def test_prompt_family_option_selects_a_decomposed_prompt(

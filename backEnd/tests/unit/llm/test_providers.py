@@ -17,7 +17,13 @@ import pytest
 from pydantic import BaseModel, Field, SecretStr
 
 from basis.config import ConfigError, Settings
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderBadResponse,
+    ProviderRateLimited,
+    ProviderUnavailable,
+    is_retryable_status,
+)
 from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec
 from basis.llm.providers import (
     MALFORMED_ARGUMENTS,
@@ -380,12 +386,56 @@ async def test_5xx_then_success() -> None:
     assert (await provider(server).complete(request())).parsed is not None
 
 
-@pytest.mark.parametrize("code", [400, 401, 403, 404, 422])
+@pytest.mark.parametrize("code", [400, 404, 422])
 async def test_4xx_is_a_bad_response_and_not_retried(code: int) -> None:
     server = Server(status(code))
     with pytest.raises(ProviderBadResponse) as caught:
         await provider(server).complete(request())
     assert server.call_count == 1 and caught.value.status == code
+
+
+def api_error(code: int, text: str, kind: str | None, error_code: str | None) -> httpx2.Response:
+    error = {"message": text, "type": kind, "param": None, "code": error_code}
+    return httpx2.Response(code, json={"error": error})
+
+
+ACCOUNT_REFUSALS = {
+    "401": api_error(
+        401, "Incorrect API key provided.", "invalid_request_error", "invalid_api_key"
+    ),
+    "403": api_error(403, "Country, region, or territory not supported", "request_forbidden", None),
+    # Out of quota is a 429 that waiting does not clear: never retried as a rate limit.
+    "insufficient_quota 429": api_error(
+        429, "You exceeded your current quota.", "insufficient_quota", "insufficient_quota"
+    ),
+    "billing hard limit 400": api_error(
+        400,
+        "Billing hard limit has been reached",
+        "invalid_request_error",
+        "billing_hard_limit_reached",
+    ),
+}
+
+
+@pytest.mark.parametrize("response", ACCOUNT_REFUSALS.values(), ids=ACCOUNT_REFUSALS.keys())
+async def test_account_refusals_are_account_errors_and_not_retried(
+    response: httpx2.Response,
+) -> None:
+    server = Server(response)
+    waits = Recorder()
+    with pytest.raises(ProviderAccountError, match="rejected the account") as caught:
+        await provider(server, waits).complete(request())
+    assert server.call_count == 1 and waits.sleeps == []
+    assert caught.value.status == response.status_code
+    assert not isinstance(caught.value, ProviderBadResponse | ProviderRateLimited)
+    assert not is_retryable_status(caught.value)
+
+
+async def test_a_rate_limit_without_insufficient_quota_is_still_retried() -> None:
+    limited = api_error(429, "Rate limit reached for requests", "requests", "rate_limit_exceeded")
+    server = Server(limited, ok())
+    assert (await provider(server).complete(request())).parsed is not None
+    assert server.call_count == 2
 
 
 async def test_timeout_is_unavailable_and_not_retried_here() -> None:

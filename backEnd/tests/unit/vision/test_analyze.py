@@ -20,7 +20,7 @@ from llm_fakes import PHOTO_MODEL, FixtureVisionProvider, PromptKeyedProvider
 from basis.activities.analyze_photo import _raw_json
 from basis.llm import Budget, BudgetExceededError, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
-from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderUnavailable
 from basis.llm.prompts import PromptError
 from basis.llm.provider import ChatRequest, ChatResponse
 from basis.llm.recorder import MemoryRecorder
@@ -178,6 +178,26 @@ async def test_transient_provider_errors_propagate() -> None:
     )
     with pytest.raises(ProviderUnavailable):
         await analyze_photo_detailed(KITCHEN, context(provider))
+
+
+def no_credit() -> ScriptedTurn:
+    return ScriptedTurn(
+        raise_error=ProviderAccountError(
+            "anthropic rejected the account (HTTP 400): credit balance is too low",
+            provider="anthropic",
+            status=400,
+        )
+    )
+
+
+@pytest.mark.parametrize("mode", PHOTO_MODES)
+async def test_an_account_error_stops_the_photo_and_is_not_an_unusable_answer(mode: str) -> None:
+    # EVAL_REPORT 26.12: no credit was recorded as invalid output, retried, and flagged.
+    provider = ScriptedProvider([no_credit()], model="gpt-4o-mini")
+    with pytest.raises(ProviderAccountError, match="credit balance"):
+        await analyze_photo_in_mode(KITCHEN, context(provider), mode)
+    # One call per prompt of the mode, none of them retried.
+    assert len(provider.requests) == len(prompts_for_mode(mode))
 
 
 async def test_an_unusable_image_never_reaches_the_model() -> None:

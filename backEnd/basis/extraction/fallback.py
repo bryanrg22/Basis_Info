@@ -50,7 +50,7 @@ from basis.extraction.regex_fields import section_lines
 from basis.extraction.results import Candidate, ExtractedField, ValidationIssue
 from basis.extraction.validation import PER_FIELD_RULES, failed_critical_keys
 from basis.llm.call import CallContext, call_model
-from basis.llm.errors import ProviderError
+from basis.llm.errors import ProviderAccountError, ProviderError
 from basis.llm.prompts import Prompt
 from basis.llm.provider import BudgetExceededError, ChatProvider, ChatRequest, Message
 
@@ -247,6 +247,8 @@ async def fallback_fields(
     except BudgetExceededError as exc:
         logger.warning("extraction fallback skipped: %s", exc)
         return FallbackOutcome(status="budget_exceeded", asked=asked, error=str(exc))
+    except ProviderAccountError:
+        raise  # an account problem stops the activity; it is not a failed fallback
     except ProviderError as exc:
         logger.warning("extraction fallback failed: %s", exc)
         return FallbackOutcome(

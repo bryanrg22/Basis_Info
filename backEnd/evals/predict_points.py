@@ -49,6 +49,7 @@ from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.cost import is_anthropic_model
+from basis.llm.errors import ProviderAccountError
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, Message
 from basis.llm.recorder import MemoryRecorder
@@ -174,6 +175,8 @@ async def ask_chat(
             started = time.monotonic()
             try:
                 parsed, attempts, errors, reported = await ask_structured(pool, call, request)
+            except ProviderAccountError:
+                raise  # every later call fails the same way: stop the run
             except Exception as exc:  # noqa: BLE001 - transient after retries: photo missing
                 parsed, attempts, errors, reported = None, 0, [repr(exc)], None
             seconds = round(time.monotonic() - started, 2)

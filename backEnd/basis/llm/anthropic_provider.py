@@ -36,10 +36,13 @@ Sources (Anthropic docs, read 2026-10-15):
   sent, so older models (4.x) run without thinking, as they do by default.
 * Errors, https://platform.claude.com/docs/en/api/errors: 429 ``rate_limit_error``, 500
   ``api_error``, 504 ``timeout_error``, 529 ``overloaded_error``; 413 ``request_too_large``.
-  Mapped like the OpenAI providers: 429 -> :class:`ProviderRateLimited`, 5xx (529 included),
-  timeouts and connection failures -> :class:`ProviderUnavailable`, other 4xx and unusable
-  output -> :class:`ProviderBadResponse`. The SDK's own retries are off; the provider retries
-  once on 429/5xx (``retry-after`` honoured up to a cap), the pool and Temporal do the rest.
+  Mapped like the OpenAI providers: an account refusal (401, 402 ``billing_error``, 403, a
+  400 for no credit or a reached spend limit, the spend-cap 429; :func:`is_account_error`)
+  -> :class:`ProviderAccountError`, never retried; 429 -> :class:`ProviderRateLimited`, 5xx
+  (529 included), timeouts and connection failures -> :class:`ProviderUnavailable`, other 4xx
+  and unusable output -> :class:`ProviderBadResponse`. The SDK's own retries are off; the
+  provider retries once on 429/5xx (``retry-after`` honoured up to a cap), the pool and
+  Temporal do the rest.
 * Prices, https://platform.claude.com/docs/en/about-claude/pricing: rows in
   :mod:`basis.llm.cost`.
 
@@ -70,6 +73,7 @@ from pydantic import BaseModel, ValidationError
 from basis.config import Settings
 from basis.llm.cost import is_anthropic_model, output_ceiling
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderError,
     ProviderRateLimited,
@@ -84,6 +88,12 @@ PROVIDER_NAME: Final = "anthropic"
 RETRY_AFTER_CAP_S: Final = 10.0
 MALFORMED_ARGUMENTS: Final = "_malformed_arguments"
 EFFORT_LEVELS: Final = ("low", "medium", "high", "xhigh", "max")
+ACCOUNT_STATUSES: Final = frozenset({401, 402, 403})
+ACCOUNT_ERROR_TYPES: Final = frozenset(
+    {"authentication_error", "billing_error", "permission_error"}
+)
+ACCOUNT_MESSAGES: Final = ("credit balance is too low", "you have reached your specified")
+SPEND_CAP_ERROR_CODE: Final = "enforced_spend_limit_reached"
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -297,10 +307,46 @@ def _retry_after(exc: anthropic.APIStatusError) -> float | None:
         return None
 
 
+def _error_body(exc: anthropic.APIStatusError) -> dict[str, Any]:
+    """The ``error`` object of the response (``{"type", "message", "details"?}``), or ``{}``."""
+    body = exc.body.get("error") if isinstance(exc.body, dict) else None
+    return body if isinstance(body, dict) else {}
+
+
+def is_account_error(exc: anthropic.APIStatusError) -> bool:
+    """The API refused the account, not the request (every later call fails the same way).
+
+    401 ``authentication_error``, 402 ``billing_error``, 403 ``permission_error``; a 400
+    ``invalid_request_error`` whose message says the credit balance is too low (seen on
+    2026-10-16: "Your credit balance is too low to access the Anthropic API") or that a spend
+    limit set on the organization or workspace is reached ("You have reached your specified
+    [workspace] API usage limits"); and the monthly spend-cap 429, whose
+    ``details.error_code`` is ``enforced_spend_limit_reached`` (it has no ``retry-after`` and
+    fails until the next month, https://platform.claude.com/docs/en/api/rate-limits).
+    """
+    body = _error_body(exc)
+    if exc.status_code in ACCOUNT_STATUSES or body.get("type") in ACCOUNT_ERROR_TYPES:
+        return True
+    details = body.get("details")
+    if isinstance(details, dict) and details.get("error_code") == SPEND_CAP_ERROR_CODE:
+        return True
+    if exc.status_code != 400:
+        return False
+    message = str(body.get("message", exc)).lower()
+    return any(marker in message for marker in ACCOUNT_MESSAGES)
+
+
 def map_error(exc: Exception, provider: str = PROVIDER_NAME) -> ProviderError:
     """An SDK exception as a :mod:`basis.llm.errors` error."""
     if isinstance(exc, ProviderError):
         return exc
+    if isinstance(exc, anthropic.APIStatusError) and is_account_error(exc):
+        return ProviderAccountError(
+            f"{provider} rejected the account (HTTP {exc.status_code}; check the API key, "
+            f"its permissions, the credit balance and the spend limits): {exc}",
+            provider=provider,
+            status=exc.status_code,
+        )
     if isinstance(exc, anthropic.RateLimitError):
         return ProviderRateLimited(str(exc), provider=provider, status=429)
     if isinstance(exc, anthropic.APIStatusError):

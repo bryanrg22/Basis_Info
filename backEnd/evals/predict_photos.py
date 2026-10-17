@@ -37,7 +37,7 @@ from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.cost import is_anthropic_model
-from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderRateLimited, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.llm.recorder import MemoryRecorder
@@ -250,7 +250,13 @@ async def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    return asyncio.run(run(parse_args(argv)))
+    try:
+        return asyncio.run(run(parse_args(argv)))
+    except ProviderAccountError as exc:
+        # A bad key or no credit fails every call alike: one clear stop, not a run of
+        # photos recorded as unusable answers (EVAL_REPORT 26.12). No prediction files.
+        print(f"stopped: {exc}", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":
