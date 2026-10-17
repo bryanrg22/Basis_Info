@@ -411,6 +411,12 @@ Vision architecture alternatives (EVAL_REPORT section 26; `docs/review_2026-10-1
   labels (`--combine NAME=CROPS,PER_PHOTO`: crop answers, the per-photo surfaces elsewhere);
   crop materials put into a room run.
 - `evals.combine_rooms`: one room run's rooms (`--rooms`, `--exterior`) taken from another.
+- `evals.replay_rooms --per-photo DIR`: the production room step (`reconcile_rooms`'s
+  configuration, built from the settings: `ROOM_*`, `ROOM_STEP_MODE`, `ROOM_CALL_*`,
+  `MATERIALS_SECOND_LOOK`, `SURFACE_*`) on a stored per-photo run, grouped by file name and
+  `--aliases`; `room_inventory.json` / `room_raw.jsonl` (each room's path, step, fallback,
+  crops and cost) / `run.json`. EVAL_REPORT 29:
+  `ROOM_STEP_MODE=room_call python -m evals.replay_rooms --photos ... --per-photo ... --aliases ... --out ...`.
 - `evals.score_schedule`: row recall and precision against the engineer's schedule with
   distractor rows (`--template`), row quantities against the labelled room inventory (WAPE,
   cost-weighted relative error), room count error over every repeat, paired bootstraps over

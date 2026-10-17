@@ -1659,10 +1659,12 @@ choice should be re-measured on the held-out study before it is trusted further.
 | Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
 | Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
-| Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 (the room model) | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive` | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
+| Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive`, `ROOM_MATERIALS_MODEL`, `ROOM_MATERIALS_REASONING_EFFORT` (29.1; the room model before) | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
 | Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
 | Extraction fallback | gpt-6-luna | `appraisal_field_fallback/v1` | low | `TEXT_MODEL`, `EXTRACTION_REASONING_EFFORT`, budget 8000 (`EXTRACTION_FALLBACK_MAX_TOKENS`) | 17.1, 17.3 | 0.924 of 75 fields, 12 of 12 critical, $0.0024 per study | `TEXT_MODEL=gpt-4o-mini` (budget 800) |
 | Asset classification (residual tool loop) | claude-sonnet-5-5 | `classify/v1` | low | `CLASSIFY_MODEL`, `CLASSIFY_REASONING_EFFORT` | 17.2, 17.3 | 0.688 bucket accuracy, 96% verified citations, $1.25 per 46 rows | `CLASSIFY_MODEL=gpt-4o-mini` |
+| **Measured, off by default:** room inventory of interior rooms (one call with all the room's photos) | claude-opus-5-5 | `room_photos_inventory/v2` | high | `ROOM_STEP_MODE=reconcile` (default; `room_call` switches it on), `ROOM_CALL_MODEL`, `ROOM_CALL_REASONING_EFFORT`; exterior, parking and mechanical rooms keep the rows above | 26.4, 26.6, 26.7, 29 | room count MAE 0.272 against 0.358 through the wired code (29.2), $1.24 per study for the whole room step | (today: the two room-inventory rows above) |
+| **Measured, off by default:** material from segmentation-guided surface crops | claude-sonnet-5-5 (Mask2Former Swin-L ADE20K masks, local CPU) | `surface_crop_material/v1` | low | `MATERIALS_SECOND_LOOK=per_photo` (default; `surface_crops` switches it on), `SURFACE_CROP_MODEL`, `SURFACE_CROP_REASONING_EFFORT`, `SURFACE_SEGMENTER=local` (`replicate`: not measured) | 26.3, 29 | material hit 0.79 against 0.64 (26.3; 29.3 through the wired code); crop answer where a crop exists, the room's material elsewhere | (today: the per-photo and second-look materials) |
 
 Notes on the wiring (code, not measurement):
 
@@ -1686,6 +1688,10 @@ Notes on the wiring (code, not measurement):
   43 OpenAI loop failures in 17.2).
 - No new measurement was run for this section: the OpenAI account was out of credit, and the
   wiring is tested offline (unit, activity and workflow lifecycle tests with fake providers).
+- The two "measured, off by default" rows (section 29) were measured on this one study with
+  a rule chosen on it (26.7), so they ship switched off: confirming them on the second client
+  package is setting `ROOM_STEP_MODE=room_call` and `MATERIALS_SECOND_LOOK=surface_crops`
+  and re-running `evals.replay_rooms` there (29.5).
 
 ## 19. SAM 3 per class and vocabulary completion (2026-10-16)
 
@@ -3478,4 +3484,188 @@ uv run python ../docs/review_2026-10-15/repro/extraction_replay.py \
 # 27.6 review load
 uv run python ../docs/review_2026-10-15/repro/cost_review_load.py ASSETS_JSON \
     --cost-table ~/basis-eval-data/costs/unit_costs_rsmeans_2020.json
+```
+
+## 29. Room-stage options wired, measured, off by default (2026-10-16)
+
+Section 26.10 recommended two changes to the room stage and asked for them to be confirmed on
+a second client package before they become the default (the interior/exterior split was chosen
+on this study). They are now wired behind settings whose defaults keep today's behaviour, so
+that confirmation is a settings flip, and replayed through the wired code to check that it
+gives what the study measured.
+
+### 29.1 What was wired
+
+- `ROOM_STEP_MODE` (`reconcile` default | `room_call`), `ROOM_CALL_MODEL` (`claude-opus-5-5`),
+  `ROOM_CALL_REASONING_EFFORT` (`high`): in `reconcile_rooms`, a room whose voted type is not
+  exterior, parking or mechanical (`room_step.room_path`) gets one `room_photos_inventory/v2`
+  call with all its photos (`room_step.room_call`, the request of `multiview.build_request`,
+  scope `room`, answer budget 6,000), one-photo rooms included as 26.4 measured; its answer
+  is checked like the reconciliation call's (objects pointing at no image dropped, the room
+  flagged) and stored the same way (`step="room_call"`); no material second look follows it
+  (26.7 measured the room call's own materials). Exterior, parking and mechanical rooms keep
+  the section 16.5 path. An answer unusable twice falls back to that path; the failed call's
+  record and cost are kept and the room says `room_call_fallback`. Rows and the stored record
+  say which `path` every room took, the record the room's cost; the activity's output counts
+  `room_calls` and `room_call_fallbacks`. Transient errors still retry the activity, an
+  exhausted budget and a provider account error (PR 53) still stop it.
+- The rule is fixed on the room's voted type, not on the file names' no-floor token (`x_`)
+  the study used: on this study they pick the same three rooms (`x_property_front` and
+  `x_shed` voted exterior, `x_mechanicals` mechanical), and the type rule still works for a
+  package named without floors (`Kitchen 1.jpg` is `x_kitchen_1` by the file-name rule) or not
+  named at all. Fixed here, before the second package is seen.
+- `MATERIALS_SECOND_LOOK` (`per_photo` default | `surface_crops`), `SURFACE_CROP_MODEL`
+  (`claude-sonnet-5-5`), `SURFACE_CROP_REASONING_EFFORT` (`low`), `SURFACE_SEGMENTER`
+  (`local` | `replicate`): after a room's inventory, each photo is segmented, every wall,
+  floor and ceiling of at least 2% of the photo is asked about (`surface_crop_material/v1`,
+  the study's request, now shared by `evals.predict_surface_crops`), and the room's wall
+  finish, wainscoting, tile and ceiling finish take the crops' majority material
+  (`surface_crops.apply_crops`, the study's `apply`, checked equal by a test); objects no
+  crop speaks to keep their material. A segmenter failure, an answer unusable twice or a
+  provider outage leaves that photo or surface on its previous material and flags the room
+  (`surface_crops_flags`); an account error or an exhausted budget still stops the activity.
+- The segmenter: `local` is the study's checkpoint (`facebook/mask2former-swin-large-ade-panoptic`,
+  panoptic post-processing at 0.05, the union of each surface class), loaded in the worker
+  on first use and run on the CPU in a thread. On the 52 photos its masks equal the study's
+  stored masks exactly (IoU 1.000 on all 98 surface masks, the same "asked or not" decision
+  on all 156 photo-surfaces; 34 s for 52 photos after a 22 s load). `replicate` uses the only
+  Replicate deployment with a structured output, `oitoito/mask2former` (Swin-S ADE20K
+  *semantic*, a smaller checkpoint, so **not measured**): on the kitchen photo its masks
+  overlap the local ones at IoU 0.79 (wall), 0.98 (ceiling), 0.96 (floor), $0.0005, after a
+  99 s cold start; its segmentation arrives inline as a data URI. `MATERIALS_SECOND_LOOK=
+  surface_crops` with `replicate` and no token is refused at startup.
+- `ROOM_MATERIALS_MODEL` (`claude-sonnet-5-5`) and `ROOM_MATERIALS_REASONING_EFFORT`
+  (`low`): the material second look's own model and effort, which until now followed
+  `ROOM_MODEL`. Section 28.2 measured gpt-6-luna reconciling rooms within the noise of Sonnet
+  (paired +0.003 [-0.025, +0.030] over 33 rooms) but reading materials worse (14 of 20
+  labelled surfaces against 17), and luna reconciling with Sonnet looking at 16 of 20 for
+  $0.157 a run against $0.314. The defaults equal today's (both Sonnet low), so nothing
+  changes until `ROOM_MODEL=gpt-6-luna` is set; then the second look stays on Sonnet. Each
+  second look records the model that answered it, and an inventory row's `model` joins the
+  reconciler's and the looks' (`claude-sonnet-5-5+gpt-6-luna`), so no new row field.
+- `evals.replay_rooms` runs `room_step.inventory_room` and the crop look exactly as the
+  activity configures them, from the settings, on a stored per-photo run grouped by file
+  name and aliases (equal to the production grouping, 27.1).
+
+### 29.2 Room counts through the wired code
+
+One repeat of `evals.replay_rooms` with `ROOM_STEP_MODE=room_call` (everything else at the
+production defaults: the exterior groups get Sonnet 5.5 `room_inventory/v3` and the second
+look), scored with `evals.run` (`room_inventory`, repeat 1, current labels). Two per-photo
+inputs: the one the study's combination used (Opus 5.5 per-photo, `vision_decomposed_v3_opus55`,
+which the exterior groups reconcile) and the latest live run's (run 3, sol + Opus fusion,
+`live_e2e_v070_defaults_perphoto`). The interior rooms do not read the per-photo outputs.
+
+| Run | Per-photo input | Count MAE | Exact counts | Rooms exact | Label F1 | Report rows | $ | Wall s |
+|---|---|---|---|---|---|---|---|---|
+| **Wired, `room_call`** (`s29_replay_room_call_opus_input`) | study's (Opus) | **0.272** | 0.808 | 0.333 | 0.929 | **37 of 38** | 1.24 | 86 |
+| Study's combination f, repeats 1 / 2 / 3 (26.7) | study's (Opus) | 0.292 / 0.274 / 0.265 | 0.779 (r1) | | | 37 of 38 | ~1.35 | |
+| Current pipeline (`rooms19_v3_opus55`, r1) | study's (Opus) | 0.358 | 0.720 | | | 37 of 38 | | |
+| **Wired, `room_call`** (`s29_replay_room_call_defaults`) | live run 3 | **0.319** | 0.783 | 0.333 | 0.919 | 35 of 38 | 1.24 | 85 |
+| Current pipeline on the same input (27.1 replay) | live run 3 | 0.406 | 0.655 | | | 32 of 38 | 0.30 | |
+
+The 30 interior rooms took the room call and exactly `x_property_front`, `x_shed` and
+`x_mechanicals` the reconcile path, in both runs. Split by path (absolute count error summed
+over the (room, label) pairs):
+
+| Run | Interior (196 pairs) | Exterior (28 to 30 pairs) |
+|---|---|---|
+| Wired, study's input | 30 | 31 |
+| Wired, live input | 30 | 42 |
+| Study's room call at high effort, repeats 1 / 2 / 3 | 35 / 30 / 32 | |
+| Study's combination, repeats 1 / 2 / 3 (exterior from `rooms19_v3_opus55`) | 35 / 30 / 32 | 31 / 32 / 27 |
+| 27.1 replay (current path, live input) | 74 | 27 |
+
+Reading: the interior rooms, the part this change replaces, reproduce the study (30 against
+30 to 35). On the study's own per-photo input the whole room step reproduces section 26.7's
+combination (0.272 against 0.265 to 0.292, the 37 of 38 ceiling). On the live input the MAE is
+0.319, above the 0.26 to 0.29 expected, and all of the difference is the unchanged exterior
+path: the 12-photo property-front group's windows (30 labelled) came back 10 in this repeat;
+three more repeats of that one room through the same code gave 15, 21 and 21 (the
+reconciliation call splits the 12 photos into two calls and keeps the larger count), so the
+reconcile path's window count on that group moves by 10 from run to run. With a typical
+repeat (21) the run is about 0.27. Its two extra missed rows (Movable Shed, Exterior Equipment
+Concrete Pads) come from the shed group, which the live per-photo outputs describe without
+`shed` or `concrete_pad`; the 27.1 replay on that input misses them too, the study's Opus
+per-photo input does not.
+
+### 29.3 Materials through the wired code
+
+One repeat with both options on (`ROOM_STEP_MODE=room_call`, `MATERIALS_SECOND_LOOK=surface_crops`,
+`SURFACE_SEGMENTER=local`) on the study's per-photo input (`s29_replay_room_call_crops_opus_input`).
+The crops the room step asked were scored with `evals.predict_surface_crops score` (which now
+reads a replay run's crops) against the per-photo labels (58 labelled surfaces), next to
+section 26.3's Sonnet run:
+
+| Source | Floor hit / exact (32) | Wall (12) | Wainscot (3) | Ceiling (11) | All hit / exact | Answered |
+|---|---|---|---|---|---|---|
+| Per-photo surfaces call, Opus (today) | 0.78 / 0.75 | 0.58 | 1.00 | 0.18 | 0.64 / 0.62 | 0.69 |
+| Crops, wired | 0.66 / 0.62 | 0.83 | 0.67 | 0.64 | 0.69 / 0.67 | 0.74 |
+| Crops, study (26.3, Sonnet low) | 0.66 / 0.62 | 0.83 | 0.67 | 0.64 | 0.69 / 0.67 | 0.74 |
+| **Crops, else per-photo, wired** | 0.78 / 0.75 | 0.83 | 1.00 | 0.73 | **0.79 / 0.78** | 0.88 |
+| Crops, else per-photo, study (26.3) | 0.78 / 0.75 | 0.83 | 1.00 | 0.73 | 0.79 / 0.78 | 0.88 |
+
+The wired step asked the same 86 crops as the study's run (43 photos with a surface of at
+least 2%), all answered, no room flagged, and reproduces 26.3 surface for surface. In the
+rooms it changed 9 materials (wall finish, wainscoting, tile and ceiling finish objects). The
+same run is a second repeat of the room call: count MAE 0.269, report rows 37 of 38 (only Door
+& Window Guards, which no photo shows). $1.79 for the whole room step with crops (Opus room
+calls, Sonnet exterior reconciliation, second looks and crops), 164 s with the local segmenter
+on the CPU.
+
+### 29.4 Tests
+
+Settings (defaults, overrides, refused values and combinations); the room call in
+`room_step` (path rule per room type, the request, the checks, the fallbacks, the errors that
+propagate); a byte-for-byte regression of the reconcile path against a golden written by the
+same scenarios on `main` before this change (`test_room_step_unchanged.py`; it fails on a
+one-token change of the reconciliation call); the crop pipeline and both segmenters offline;
+`reconcile_rooms` on Postgres in both modes, with every fallback, the account-error stop and
+the budget stop, and the regression that rows and records at the defaults carry exactly their
+previous fields; `evals.replay_rooms` offline; the whole workflow at `room_call`, alone and
+with the crops (`tests/lifecycle/test_room_stage_options.py`); the production-defaults
+lifecycle now pins both settings at their defaults. `ROOM_MATERIALS_MODEL`: the settings, the
+second look on its own model in `room_step`, and `reconcile_rooms` with the reconciler on
+gpt-6-luna and the look on Sonnet (a test that fails when the activity does not pass the
+setting through).
+
+### 29.5 To confirm on the second package (manual)
+
+With the second client package's photos, per-photo run, room aliases and labels in the eval
+data directory:
+
+```bash
+cd backEnd
+ROOM_STEP_MODE=room_call python -m evals.replay_rooms --photos PHOTOS --per-photo PER_PHOTO \
+    --aliases ALIASES --out $P/s29_second_room_call --repeats 3
+python -m evals.replay_rooms --photos PHOTOS --per-photo PER_PHOTO --aliases ALIASES \
+    --out $P/s29_second_reconcile --repeats 3
+python -m evals.run --predictions $P/s29_second_room_call --repeats 3 --no-db
+python -m evals.run --predictions $P/s29_second_reconcile --repeats 3 --no-db
+```
+
+then the same with `MATERIALS_SECOND_LOOK=surface_crops` and the crop score of 29.3
+(`python -m evals.predict_surface_crops score --data-dir DATA --combine
+wired=REPLAY_DIR,PER_PHOTO`: the scorer reads a replay run's crops directly). Switch
+the defaults only if the room call still wins without the exterior rule being changed.
+
+### 29.6 Spend, data and commands
+
+Spend: $1.24 (room call, live input), $1.24 (room call, study's input), $0.19 (three repeats
+of the property-front group), $1.79 (room call and crops, study's input), $0.0005 Replicate (one
+segmentation); local segmentation $0. Predictions (private): `s29_replay_room_call_defaults`,
+`s29_replay_room_call_opus_input`, `s29_replay_room_call_crops_opus_input`, with logs.
+
+```bash
+P=~/basis-eval-data/predictions
+ROOM_STEP_MODE=room_call python -m evals.replay_rooms --photos ~/basis-eval-data/inputs/photos \
+    --per-photo $P/vision_decomposed_v3_opus55 --aliases ~/basis-eval-data/labels/room_aliases_v1.json \
+    --out $P/s29_replay_room_call_opus_input
+ROOM_STEP_MODE=room_call python -m evals.replay_rooms --photos ~/basis-eval-data/inputs/photos \
+    --per-photo $P/live_e2e_v070_defaults_perphoto --aliases ~/basis-eval-data/labels/room_aliases_v1.json \
+    --out $P/s29_replay_room_call_defaults
+ROOM_STEP_MODE=room_call MATERIALS_SECOND_LOOK=surface_crops python -m evals.replay_rooms \
+    --photos ~/basis-eval-data/inputs/photos --per-photo $P/vision_decomposed_v3_opus55 \
+    --aliases ~/basis-eval-data/labels/room_aliases_v1.json --out $P/s29_replay_room_call_crops_opus_input
+python -m evals.run --data-dir ~/basis-eval-data --predictions $P/s29_replay_room_call_opus_input --no-db
 ```
