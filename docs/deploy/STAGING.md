@@ -339,7 +339,7 @@ approval before each deploy: `REVIEWER=bryanrg22 infra/staging/scripts/github-en
 
 **Rollback:** API: `gcloud run services update-traffic staging-basis-api --to-revisions
 <previous revision>=100 --region us-central1`. Worker pool: redeploy the previous image,
-`gcloud run worker-pools deploy staging-basis-worker --container worker --image <old>
+`gcloud beta run worker-pools deploy staging-basis-worker --container worker --image <old>
 --container relay --image <old> --region us-central1`. A migration is not rolled back
 automatically; write its downgrade and run it deliberately.
 
@@ -405,7 +405,7 @@ uv run --project backEnd python infra/staging/scripts/load_secrets.py     # prov
 infra/staging/scripts/upload-private.sh            # corpus PDFs + cost table
 gcloud run jobs execute staging-basis-migrate --region us-central1 --wait
 infra/staging/scripts/ingest-corpus.sh
-gcloud run worker-pools update staging-basis-worker --region us-central1 --scaling 1
+gcloud beta run worker-pools update staging-basis-worker --region us-central1 --scaling 1
 infra/staging/scripts/github-environment.sh        # staging env: main only, WIF vars
 ```
 
@@ -455,7 +455,7 @@ gcloud compute ssh staging-temporal --zone us-central1-a --tunnel-through-iap --
 ### 5.3 Routine changes
 
 * New database credentials: `scripts/set-db-password.sh`, then redeploy (or
-  `gcloud run worker-pools update ... --scaling 1` and a new API revision).
+  `gcloud beta run worker-pools update ... --scaling 1` and a new API revision).
 * Rotate a provider key: update it locally, `load_secrets.py --only <secret>`, redeploy.
 * New cost table: `FORCE=1 scripts/upload-private.sh`, restart the worker pool.
 * Re-ingest the corpus: `scripts/ingest-corpus.sh`, restart the worker pool.

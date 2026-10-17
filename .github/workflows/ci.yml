@@ -400,6 +400,8 @@ jobs:
           service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
 
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          install_components: beta # `gcloud run worker-pools` is beta-track in gcloud 546
 
       - name: Docker credentials for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
@@ -429,7 +431,7 @@ jobs:
 
       - name: Deploy the worker pool (worker + relay)
         run: |
-          gcloud run worker-pools deploy staging-basis-worker \
+          gcloud beta run worker-pools deploy staging-basis-worker \
             --project "$PROJECT" --region "$REGION" --quiet \
             --container worker --image "$IMAGE" \
             --container relay --image "$IMAGE"
