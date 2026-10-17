@@ -3170,6 +3170,11 @@ or authentication rejection is therefore reported as 156 bad photos instead of o
 error, in the harness and in production alike (`basis/llm/anthropic_provider.py`, `map_error`).
 It belongs in its own small change: classify billing, authentication and permission errors as
 a non-retryable provider failure that stops the run or the activity, with a test.
+*Fixed in PR 51:* such rejections (and OpenAI's out-of-quota 429s, which were retried and
+sent to Azure) are now `ProviderAccountError` (`basis/llm/errors.py`): never retried, never
+sent to the other provider; the evaluation runners stop at the first one with
+`run.json` `complete: false` (`evals/account_stop.py`), and a study fails at its stage with
+the provider's reason until it is retried (workflow patch `provider-account-stop-v1`).
 
 **LLMDet.** The LLMDet-L run (Swin-L, CPU, three minutes per photo) scored mAP 0.027, which is
 not the model: its raw boxes are squashed vertically (on the kitchen photo a window predicted
