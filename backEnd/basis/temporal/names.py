@@ -15,6 +15,7 @@ STUDY_WORKFLOW: Final = "StudyWorkflow"
 DECIDE_UPDATE: Final = "decide"
 STATUS_QUERY: Final = "status"
 CANCEL_SIGNAL: Final = "cancel_study"
+RETRY_UPDATE: Final = "retry"
 WORKFLOW_ID_PREFIX: Final = "study-"
 
 

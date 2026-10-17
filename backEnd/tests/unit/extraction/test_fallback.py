@@ -7,14 +7,19 @@ from decimal import Decimal
 
 import pytest
 
+from basis.extraction.derived import DERIVED_KEYS
 from basis.extraction.fallback import (
     MAX_CONTEXT_CHARS,
     FallbackAnswer,
     FallbackValue,
+    appears_in,
     build_context,
     context_pages,
     fallback_fields,
+    fallback_keys,
 )
+from basis.extraction.field_mappings import CRITICAL_FIELDS, FIELDS
+from basis.extraction.results import Candidate, ExtractedField, ValidationIssue
 from basis.llm import Budget, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
@@ -231,3 +236,78 @@ def test_context_is_bounded() -> None:
 def test_context_pages_follow_sections() -> None:
     assert context_pages(["reconciliation.final_market_value"], PAGES) == [3]
     assert context_pages(["subject.property_address", "improvements.gla_sqft"], PAGES) == [1, 2]
+
+
+# --------------------------------------------------------------------------- scope (EVAL_REPORT 27)
+
+
+def field(key: str, raw: str) -> ExtractedField:
+    return ExtractedField.from_candidate(
+        Candidate(key=key, raw_text=raw, page=1, confidence=0.95, source="azure")
+    )
+
+
+def test_the_critical_scope_asks_only_failed_criticals() -> None:
+    fields = {key: field(key, "1") for key in CRITICAL_FIELDS if key != "improvements.bedrooms"}
+    assert fallback_keys(fields, [], "critical") == ["improvements.bedrooms"]
+
+
+def test_the_missing_scope_asks_every_empty_catalogue_field_in_order() -> None:
+    present = {"subject.city": field("subject.city", "Springfield")}
+    asked = fallback_keys(present, [], "missing")
+    catalogue = [spec.key for spec in FIELDS]
+    assert asked == [k for k in catalogue if k not in present and k not in DERIVED_KEYS]
+    assert "subject.city" not in asked
+    assert {"site.area", "site.area_acres"}.isdisjoint(asked)  # derived, never asked
+    assert set(CRITICAL_FIELDS) <= set(asked)
+
+
+def test_the_missing_scope_asks_a_field_that_failed_its_rule_again() -> None:
+    fields = {spec.key: field(spec.key, "x") for spec in FIELDS}
+    issue = ValidationIssue(rule="type", message="not a number", keys=("subject.tax_year",))
+    cross = ValidationIssue(rule="cross_field", message="disagree", keys=("subject.city",))
+    assert fallback_keys(fields, [issue, cross], "missing") == ["subject.tax_year"]
+    assert fallback_keys(fields, [issue], "critical") == []  # tax year is not critical
+
+
+async def test_the_whole_document_is_sent_up_to_the_limit() -> None:
+    provider = ScriptedProvider([answer(), answer()])
+    call = ctx()
+    common = {
+        "provider": provider,
+        "ctx": call,
+        "prompt": latest("appraisal_field_fallback"),
+        "model": "gpt-4o-mini",
+        "max_tokens": 800,
+    }
+    # One subject key: by sections only page 1 would be sent; the whole document sends all.
+    outcome = await fallback_fields(["subject.city"], PAGES, whole_document=True, **common)  # type: ignore[arg-type]
+    content = provider.requests[0].messages[0].content
+    assert all(f"<page number={n}>" in content for n in (1, 2, 3))
+    assert outcome.status == "called"
+    await fallback_fields(
+        ["subject.city"],
+        PAGES,
+        whole_document=True,
+        max_context_chars=120,
+        **common,  # type: ignore[arg-type]
+    )
+    short = provider.requests[1].messages[0].content
+    assert "<page number=1>" in short and "<page number=3>" not in short
+
+
+@pytest.mark.parametrize(
+    ("value", "context", "kept"),
+    [
+        ("$460,900", "DWELLING 3,200 Sq.Ft. @ $\n125.25\n=$\n460,900\n", True),
+        ("$ 682,000", "Indicated Value $682,000", True),
+        ("460,900", "=$\n460,900", True),
+        ("$460,901", "=$\n460,900", False),  # a different figure is still dropped
+        ("$460,900", "460 900", False),
+    ],
+)
+def test_the_guard_joins_a_currency_sign_to_its_amount(
+    value: str, context: str, kept: bool
+) -> None:
+    """EVAL_REPORT 27: Azure DI prints "=$" and the figure on separate lines."""
+    assert appears_in(value, context) is kept

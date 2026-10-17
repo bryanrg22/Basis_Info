@@ -38,6 +38,10 @@ class FieldSpec:
     type: FieldType = "text"
     aliases: tuple[str, ...] = ()
     critical: bool = False
+    # False for a box whose caption is not unique on the form ("Low", "Sq.Ft." in a table
+    # row): Azure DI pairs and the regex pass never map to it, only the model fallback
+    # (which is given the label and the key) fills it.
+    captioned: bool = True
 
     @property
     def section(self) -> str:
@@ -58,8 +62,14 @@ def F(  # noqa: N802 - a short constructor keeps the table readable
     type: FieldType = "text",
     *aliases: str,
     critical: bool = False,
+    captioned: bool = True,
 ) -> FieldSpec:
-    return FieldSpec(key, label, type, tuple(aliases), critical)
+    return FieldSpec(key, label, type, tuple(aliases), critical, captioned)
+
+
+def M(key: str, label: str, type: FieldType = "text") -> FieldSpec:  # noqa: N802
+    """A box only the model fallback reads (``captioned=False``)."""
+    return FieldSpec(key, label, type, (), False, False)
 
 
 # URAR sections in form order; the heading captions that open each one.
@@ -139,9 +149,20 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
     F("neighborhood.present_land_use_commercial", "Commercial", "percent"),
     F("neighborhood.present_land_use_other", "Other Land Use", "percent"),
     F("neighborhood.neighborhood_boundaries", "Neighborhood Boundaries"),
+    # One-unit housing price ($000) and age (yrs) ranges (EVAL_REPORT section 27).
+    M("neighborhood.price_low_thousands", "One-Unit Housing PRICE $(000) Low", "int"),
+    M("neighborhood.price_high_thousands", "One-Unit Housing PRICE $(000) High", "int"),
+    M("neighborhood.price_predominant_thousands", "One-Unit Housing PRICE $(000) Pred.", "int"),
+    M("neighborhood.age_low", "One-Unit Housing AGE (yrs) Low", "int"),
+    M("neighborhood.age_high", "One-Unit Housing AGE (yrs) High", "int"),
+    M("neighborhood.age_predominant", "One-Unit Housing AGE (yrs) Pred.", "int"),
     # Site
     F("site.dimensions", "Dimensions"),
     F("site.area_sqft", "Site Area", "int", "Area", "Lot Size"),
+    # The Area box as printed ("1.39 ac") and in acres when printed so; derived from the
+    # value read for site.area_sqft (basis.extraction.derived), never read on their own.
+    M("site.area", "Site Area (as printed, with its unit)"),
+    M("site.area_acres", "Site Area in acres", "float"),
     F("site.shape", "Shape"),
     F("site.view", "View"),
     F(
@@ -171,6 +192,11 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
     F("improvements.year_built", "Year Built", "int", critical=True),
     F("improvements.effective_age_years", "Effective Age", "int", "Effective Age (Yrs)"),
     F("improvements.foundation_type", "Foundation"),
+    # Exterior and interior description, "materials/condition" columns (the C1-C6
+    # condition rating printed after the material is not part of the value).
+    F("improvements.foundation_walls", "Foundation Walls"),
+    F("improvements.floors", "Floors"),
+    F("improvements.walls", "Walls"),
     F("improvements.basement_area_sqft", "Basement Area", "int"),
     F("improvements.basement_finish_percent", "Basement Finish", "percent"),
     F("improvements.exterior_walls", "Exterior Walls"),
@@ -184,9 +210,9 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
     F("improvements.patio_deck", "Patio/Deck"),
     F("improvements.car_storage", "Car Storage"),
     F("improvements.garage_cars", "Garage Cars", "int", "Garage # of Cars"),
-    F("improvements.total_rooms", "Rooms", "int"),
-    F("improvements.bedrooms", "Bedrooms", "int"),
-    F("improvements.bathrooms", "Bath(s)", "float"),
+    F("improvements.total_rooms", "Rooms", "int", critical=True),
+    F("improvements.bedrooms", "Bedrooms", "int", critical=True),
+    F("improvements.bathrooms", "Bath(s)", "float", critical=True),
     F(
         "improvements.gla_sqft",
         "Gross Living Area",
@@ -238,6 +264,34 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
     # Cost approach (the table rows are matched by caption, the value is the last amount)
     F("cost_approach.site_value", "Opinion of Site Value", "currency", "Site Value"),
     F("cost_approach.dwelling_cost", "Dwelling", "currency"),
+    # The quantity rows "<item> ___ Sq.Ft. @ $___ = $___" (EVAL_REPORT section 27).
+    M("cost_approach.dwelling_sqft", "Cost Approach Dwelling Sq.Ft.", "int"),
+    M(
+        "cost_approach.dwelling_cost_per_sqft",
+        "Cost Approach Dwelling cost per Sq.Ft. (@ $)",
+        "float",
+    ),
+    M("cost_approach.basement_sqft", "Cost Approach Basement Sq.Ft.", "int"),
+    M(
+        "cost_approach.basement_cost_per_sqft",
+        "Cost Approach Basement cost per Sq.Ft. (@ $)",
+        "float",
+    ),
+    M("cost_approach.basement_cost", "Cost Approach Basement cost (= $)", "currency"),
+    M("cost_approach.garage_sqft", "Cost Approach Garage/Carport Sq.Ft.", "int"),
+    M(
+        "cost_approach.garage_cost_per_sqft",
+        "Cost Approach Garage/Carport cost per Sq.Ft. (@ $)",
+        "float",
+    ),
+    M("cost_approach.garage_cost", "Cost Approach Garage/Carport cost (= $)", "currency"),
+    M(
+        "cost_approach.mechanicals_misc",
+        "Cost Approach Mechanicals/Misc. row cost (= $)",
+        "currency",
+    ),
+    M("cost_approach.quality_rating_from_cost_service", "Quality rating from cost service"),
+    M("cost_approach.effective_date_of_cost_data", "Effective date of cost data"),
     F("cost_approach.total_cost_new", "Total Estimate of Cost-New", "currency", "Total Cost New"),
     F("cost_approach.depreciation_physical", "Less Physical Depreciation", "currency"),
     F("cost_approach.depreciation_functional", "Less Functional Depreciation", "currency"),
@@ -275,6 +329,7 @@ COST_TABLE_ROWS: Final[tuple[str, ...]] = tuple(
     spec.key
     for spec in FIELDS
     if spec.section == "cost_approach"
+    and spec.captioned
     and spec.key not in ("cost_approach.remaining_economic_life", "cost_approach.cost_data_source")
 )
 
@@ -311,6 +366,8 @@ def _label_index() -> tuple[dict[tuple[str, str], str], dict[str, str]]:
     scoped: dict[tuple[str, str], str] = {}
     by_label: dict[str, set[str]] = {}
     for spec in FIELDS:
+        if not spec.captioned:
+            continue
         for label in spec.labels:
             norm = normalize_label(label)
             scoped.setdefault((spec.section, norm), spec.key)
@@ -324,7 +381,7 @@ _SCOPED, _UNIQUE = _label_index()
 
 def all_labels() -> list[str]:
     """Every caption and alias, longest first (for building the regex alternation)."""
-    labels = {label for spec in FIELDS for label in spec.labels}
+    labels = {label for spec in FIELDS if spec.captioned for label in spec.labels}
     return sorted(labels, key=lambda label: (-len(label), label))
 
 

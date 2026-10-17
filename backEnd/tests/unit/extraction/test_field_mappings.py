@@ -16,6 +16,7 @@ from fixtures import load_fixture_json
 from llm_fakes import load_azure_fixture
 
 from basis.extraction.field_mappings import (
+    COST_TABLE_ROWS,
     CRITICAL_FIELDS,
     FIELD_BY_KEY,
     FIELDS,
@@ -38,8 +39,13 @@ def test_every_critical_field_is_a_catalogue_key() -> None:
     assert set(CRITICAL_FIELDS) <= set(FIELD_BY_KEY)
 
 
-def test_critical_fields_are_the_six_the_golden_file_names() -> None:
-    assert list(CRITICAL_FIELDS) == GOLDEN["critical_fields"]
+# EVAL_REPORT section 27: the room, bedroom and bathroom counts are critical too (the
+# labelled critical fields the live run missed); the golden file names the S3 six.
+ROOM_COUNTS = ["improvements.total_rooms", "improvements.bedrooms", "improvements.bathrooms"]
+
+
+def test_critical_fields_are_the_golden_six_and_the_room_counts() -> None:
+    assert sorted(CRITICAL_FIELDS) == sorted([*GOLDEN["critical_fields"], *ROOM_COUNTS])
 
 
 def test_every_critical_field_is_produced_by_azure_di_and_by_the_text_layer() -> None:
@@ -122,4 +128,24 @@ def test_labels_longest_first() -> None:
 
 @pytest.mark.parametrize("key", CRITICAL_FIELDS)
 def test_critical_fields_have_typed_values(key: str) -> None:
-    assert FIELD_BY_KEY[key].type in ("text", "int", "currency", "date")
+    assert FIELD_BY_KEY[key].type in ("text", "int", "float", "currency", "date")
+
+
+def test_uncaptioned_boxes_are_read_only_by_the_model() -> None:
+    """EVAL_REPORT 27: boxes whose caption is not unique ("Low", "Sq.Ft." in a cost row) are
+    never matched from Azure DI or the regex pass, and never a cost-table row."""
+    uncaptioned = [spec for spec in FIELDS if not spec.captioned]
+    assert {spec.key for spec in uncaptioned} >= {
+        "neighborhood.price_low_thousands",
+        "cost_approach.dwelling_sqft",
+        "site.area",
+        "site.area_acres",
+    }
+    labels = set(all_labels())
+    for spec in uncaptioned:
+        assert spec.label not in labels
+        assert key_for_label(spec.label, spec.section) is None
+        assert spec.key not in COST_TABLE_ROWS
+    # The captioned additions are matched in their section.
+    assert key_for_label("Foundation Walls", "improvements") == "improvements.foundation_walls"
+    assert key_for_label("Floors", "improvements") == "improvements.floors"

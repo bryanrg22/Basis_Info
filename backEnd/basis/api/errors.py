@@ -50,6 +50,7 @@ from basis.db.errors import (
     DatabaseUnavailableError,
     DuplicateDocumentError,
     DuplicateKeyError,
+    GateNotOpenError,
     InvalidCursorError,
     NotVisibleError,
     RepositoryError,
@@ -327,6 +328,8 @@ def as_api_error(exc: BaseException) -> ApiError | None:
         return exc
     if isinstance(exc, NotVisibleError):
         return NotFound(str(exc))
+    if isinstance(exc, GateNotOpenError):
+        return Conflict(str(exc), type_suffix="gate-not-open")
     if isinstance(exc, StaleStateError):
         return Conflict(str(exc), type_suffix="stale-state")
     if isinstance(exc, DuplicateDocumentError):

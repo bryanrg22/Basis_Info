@@ -28,7 +28,13 @@ from basis.domain.takeoffs import (
         ("carpet", 135, "16.50", "SY"),  # 135 / 9 x 1.10 = 16.5
         ("tile", 75, "86.25", "SF"),  # 75 x 1.15
         ("tile", "0.3", "0.35", "SF"),  # 0.345 rounds half up (banker's would give 0.34)
-        ("kitchen_cabinet", 144, "48.00", "LF"),  # 4 x sqrt(144)
+        ("cabinet", 144, "48.00", "LF"),  # 4 x sqrt(144)
+        # v0.9 (EVAL_REPORT 27): finishes measured from the room area.
+        ("wall_finish", 100, "350.00", "SF"),  # 100 x 3.5
+        ("ceiling_finish", 100, "100.00", "SF"),
+        ("crown_molding", 100, "40.00", "LF"),  # 4 x sqrt(100)
+        ("wainscoting", 100, "120.00", "SF"),  # 40 LF x 3 ft
+        ("concrete_floor", 80, "80.00", "SF"),
         ("countertop", 144, "100.00", "SF"),  # 48 LF x 25/12 ft
         ("baseboard", 100, "40.00", "LF"),  # 4 x sqrt(100)
         ("paint", 100, "350.00", "SF"),  # 100 x 3.5
@@ -72,9 +78,15 @@ def test_formula_and_inputs_are_recorded() -> None:
         "per_sf": "1/9",
     }
     assert takeoff.assumptions == ("Add 10% for seams and waste",)
-    cabinet = estimate_quantity("kitchen_cabinet", 150, 1)
+    cabinet = estimate_quantity("cabinet", 150, 1)
     assert cabinet.formula == "4 x sqrt(150 SF)"
     assert "perimeter" in cabinet.assumptions[0]
+    units = estimate_quantity("kitchen_cabinet", 150, 18)  # v0.9: counted in units
+    assert (units.quantity, units.unit, units.formula) == (
+        Decimal("18.00"),
+        "EA",
+        "max(count=18, min_per_room=1)",
+    )
     counter = estimate_quantity("countertop", 150, 1)
     assert counter.inputs["depth_in"] == "25"
 
@@ -100,7 +112,7 @@ def test_count_below_one_is_refused() -> None:
 
 
 def test_takeoff_keys() -> None:
-    assert takeoff_key("kitchen_cabinet") == "cabinet"
+    assert takeoff_key("kitchen_cabinet") == "kitchen_cabinet"  # v0.9: units, its own row
     assert takeoff_key("Hardwood Floor") == "flooring"
     assert takeoff_key("carpet") == "carpet"
 
@@ -108,7 +120,7 @@ def test_takeoff_keys() -> None:
 def test_labor_hours_converts_square_yards() -> None:
     carpet = estimate_quantity("carpet", 150)  # 18.33 SY = 164.97 SF x 0.025 h
     assert labor_hours(carpet) == Decimal("4.12")
-    assert labor_hours(estimate_quantity("kitchen_cabinet", 144)) == Decimal("48.00")
+    assert labor_hours(estimate_quantity("cabinet", 144)) == Decimal("48.00")
     assert labor_hours(estimate_quantity("garage_door", 100)) is None
     odd = Takeoff(component="door", quantity=Decimal(10), unit="LF", formula="x")
     assert labor_hours(odd) is None

@@ -60,6 +60,12 @@ class WorkflowProgress(ResponseModel):
         default_factory=list,
         description="Stages whose output needs an engineer's attention because the budget ran out.",
     )
+    failed_stage: Stage | None = Field(
+        default=None,
+        description="The stage that failed, while the workflow waits for "
+        "`POST /v1/studies/{id}/retry`; null otherwise.",
+    )
+    failure: str | None = Field(default=None, description="Why that stage failed.")
 
 
 class WorkflowRunOut(ResponseModel):
@@ -90,6 +96,17 @@ class CancelIn(RequestModel):
     reason: Annotated[
         str, Field(min_length=1, max_length=MAX_CANCEL_REASON, pattern=NO_NUL_PATTERN)
     ] = "cancelled by owner"
+
+
+class RetryRequested(ResponseModel):
+    """202: the workflow accepted the retry and runs the failed stage again."""
+
+    workflow_id: str
+    stage: Stage = Field(description="The stage that runs again.")
+    revision: int
+    already_requested: bool = Field(
+        description="A retry was already accepted and the stage has not restarted yet."
+    )
 
 
 class CancelRequested(ResponseModel):

@@ -1,8 +1,15 @@
-"""Live end-to-end client: plays the frontend against the running API (v0.7.0-live).
+"""Live end-to-end client: plays the frontend against the running API (v0.7.0-live, v0.9).
 
 API only for every action. At each gate it also snapshots the database (read-only psql)
 for the record, then approves with no corrections. Outputs go to OUT (scratchpad; holds
 client data, never committed).
+
+v0.9 (EVAL_REPORT section 27): ``ROOM_ALIASES`` (a JSON file of ``{room id: room id}``)
+is sent with the study, as the engineer would; at each gate the gate's contents are read
+through the new routes (``/fields``, ``/rooms``, ``/assets``) and saved; the photo
+stage's progress when the appraisal gate opens is logged (the gate no longer waits for
+it); a decision answered 409 ``gate-not-open`` is retried; ``PG_DB`` names the database
+in the ``basis-live-pg`` container (default ``basis``).
 
 Run from ``backEnd/`` with the API, worker and relay up (docs/test-evidence/v0.7.0-live),
 ``FIREBASE_PROJECT_ID`` and ``FIREBASE_AUTH_EMULATOR_HOST`` set as for the API, ``API`` the
@@ -37,6 +44,8 @@ OUT = Path(sys.argv[1])
 OUT.mkdir(parents=True, exist_ok=True)
 DATA = Path.home() / "basis-eval-data" / "inputs"
 POLL = 5.0
+PG_DB = os.environ.get("PG_DB", "basis")
+ALIASES = os.environ.get("ROOM_ALIASES")
 
 T0 = time.monotonic()
 timeline = (OUT / "timeline.jsonl").open("a")
@@ -140,7 +149,7 @@ def psql_json(sql: str):
             "-U",
             "basis",
             "-d",
-            "basis",
+            PG_DB,
             "-At",
             "-c",
             f"select coalesce(json_agg(t), '[]'::json) from ({sql}) t",
@@ -161,7 +170,8 @@ def snapshot(gate: str, sid: str) -> None:
         f"needs_review, audit from extractions {by_study}",
         "extraction_fields": "select section, field, value_text, value_num, value_date, "
         f"confidence, source, page from extraction_fields {by_study} order by section, field",
-        "rooms": f"select id, revision, name, room_type, floor, source from rooms {by_study}",
+        "rooms": "select id, revision, name, room_type, floor, source, group_key "
+        f"from rooms {by_study}",
         "photo_rooms": f"select document_id, room_id, revision from photo_rooms {by_study}",
         "components": "select id, revision, document_id, room_id, label, material, attachment, "
         f"confidence, raw from components {by_study}",
@@ -184,8 +194,8 @@ def snapshot(gate: str, sid: str) -> None:
         f"where r.study_id = '{sid}' order by a.created_at",
         "outbox": "select id, kind, status, attempts, last_error, created_at from outbox "
         "order by created_at",
-        "study": "select id, status, current_stage, revision, workflow_id from studies "
-        f"where id = '{sid}'",
+        "study": "select id, status, current_stage, revision, workflow_id, room_aliases, "
+        f"failure_reason from studies where id = '{sid}'",
     }
     for name, sql in q.items():
         try:
@@ -202,8 +212,11 @@ if RESUME:
     log("resumed", study_id=sid)
 else:
     # ---------------------------------------------------------------- create + upload
-    sid = post("/v1/studies", {"property_name": "Live E2E study"}).json()["id"]
-    log("study_created", study_id=sid)
+    body: dict = {"property_name": "Live E2E study"}
+    if ALIASES:
+        body["room_aliases"] = json.loads(Path(ALIASES).read_text())
+    sid = post("/v1/studies", body).json()["id"]
+    log("study_created", study_id=sid, room_aliases=len(body.get("room_aliases", {})))
     storage = LocalStorage(LOCAL_STORAGE_DIR)
     uploads = [("appraisal", DATA / "appraisal.pdf", "application/pdf")]
     uploads += [
@@ -276,13 +289,38 @@ while True:
         dump("workflow_final.json", view)
         break
     gate = st.get("awaiting")
-    if gate in GATES and gate not in gate_seen:
+    # The gate is open once the workflow's transition is done (status.stage), not when
+    # it starts waiting (awaiting is set first): a decision before that is 409.
+    if gate in GATES and gate not in gate_seen and st.get("stage") == gate:
         waited_from = st.get("waiting_since")
-        log("gate_reached", gate=gate, waiting_since=waited_from)
+        log(
+            "gate_reached",
+            gate=gate,
+            waiting_since=waited_from,
+            pending_photos=st.get("pending_photos"),
+            completed_photos=st.get("completed_photos"),
+        )
         gate_seen[gate] = time.monotonic()
         dump(f"status_{gate}.json", view)
         dump(f"study_{gate}.json", get(f"/v1/studies/{sid}").json())
         snapshot(gate, sid)
+        for route in ("fields", "rooms", "assets"):
+            pages, cursor = [], None
+            while True:
+                params = {"limit": 200}
+                if cursor:
+                    params["cursor"] = cursor
+                page = get(f"/v1/studies/{sid}/{route}", **params)
+                if page.status_code != 200:
+                    log("read_route", route=route, status=page.status_code, body=page.text[:300])
+                    break
+                pages.append(page.json())
+                cursor = page.json().get("next_cursor")
+                if not cursor:
+                    break
+            items = sum(len(p["items"]) for p in pages)
+            dump(f"api_{route}_{gate}.json", pages)
+            log("read_route", gate=gate, route=route, pages=len(pages), items=items)
         if gate == "rooms_review":
             per_photo = {}
             for d in photos:
@@ -356,10 +394,17 @@ while True:
                     break
             dump("evidence_assets_review.json", pages)
         t_dec = time.monotonic()
-        acc = post(
-            f"/v1/studies/{sid}/decisions",
-            {"stage": gate, "revision": st["revision"], "decision": "approve"},
-        ).json()
+        while True:
+            answer = post(
+                f"/v1/studies/{sid}/decisions",
+                {"stage": gate, "revision": st["revision"], "decision": "approve"},
+                ok=(202, 409),
+            )
+            if answer.status_code == 202:
+                break
+            log("decision_refused", gate=gate, body=answer.text[:300])
+            time.sleep(POLL)
+        acc = answer.json()
         log(
             "decision_posted",
             gate=gate,

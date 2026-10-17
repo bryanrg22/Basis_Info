@@ -14,8 +14,10 @@ S3_SPEC section 2 (binding signature) and section 4. One call per appraisal revi
    instead of paying for a second analysis.
 3. Merge (Azure DI first; regex and tables only fill gaps; disagreement on a critical
    field is an issue), clean every value by its catalogue type, validate.
-4. One structured LLM call for the critical fields that are missing or failed a
-   per-field rule (:mod:`basis.extraction.fallback`), then validate again.
+4. One structured LLM call for the fields still empty or failed (every catalogue field
+   with ``EXTRACTION_FALLBACK_SCOPE=missing``, the default; only the critical ones with
+   ``critical``; :mod:`basis.extraction.fallback`), then the derived site-area fields
+   (:mod:`basis.extraction.derived`), then validate again.
 5. The review gate (:mod:`basis.extraction.confidence`).
 """
 
@@ -29,12 +31,13 @@ from typing import Any
 
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
-from basis.extraction.fallback import fallback_fields
+from basis.extraction.derived import derive_fields
+from basis.extraction.fallback import WHOLE_DOCUMENT_CHARS, Scope, fallback_fields, fallback_keys
 from basis.extraction.pdf_text import read_pdf
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
-from basis.extraction.validation import failed_critical_keys, validate_fields
+from basis.extraction.validation import validate_fields
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderBadResponse
 from basis.llm.prompts import Prompt
@@ -66,6 +69,11 @@ class ExtractionContext:
     fallback_reasoning_effort: str | None = None
     previous_azure: AzureDiResult | None = None
     heartbeat: Callable[[str], None] = field(default=_no_heartbeat)
+    # Which fields the fallback asks for and how much of the document it sends. The
+    # extract_fields activity passes EXTRACTION_FALLBACK_SCOPE (default "missing") and
+    # EXTRACTION_FALLBACK_CONTEXT_CHARS; a caller that sets nothing gets S3's "critical".
+    fallback_scope: Scope = "critical"
+    fallback_context_chars: int = WHOLE_DOCUMENT_CHARS
 
 
 async def extract_appraisal(
@@ -119,11 +127,12 @@ async def extract_appraisal(
 
     if rejected is not None:
         merge_issues.append(rejected)
+    fields = {**fields, **derive_fields(fields)}
     issues = merge_issues + validate_fields(fields)
-    failed = failed_critical_keys(fields, issues)
+    wanted = fallback_keys(fields, issues, ctx.fallback_scope)
     ctx.heartbeat("fallback")
     outcome = await fallback_fields(
-        failed,
+        wanted,
         context_pages,
         provider=ctx.provider,
         ctx=ctx.call,
@@ -131,11 +140,13 @@ async def extract_appraisal(
         model=ctx.text_model,
         max_tokens=ctx.fallback_max_tokens,
         reasoning_effort=ctx.fallback_reasoning_effort,
+        whole_document=ctx.fallback_scope == "missing",
+        max_context_chars=ctx.fallback_context_chars,
     )
     if outcome.fields:
         filled: dict[str, ExtractedField] = dict(fields)
         filled.update(outcome.fields)
-        fields = filled
+        fields = {**filled, **derive_fields(filled)}
         issues = merge_issues + validate_fields(fields)
 
     gate = review_gate(fields, issues, threshold=ctx.review_threshold)
@@ -150,6 +161,7 @@ async def extract_appraisal(
         "review_reasons": list(gate.reasons),
         "review_threshold": ctx.review_threshold,
         "fallback": outcome.summary(),
+        "fallback_scope": ctx.fallback_scope,
         "comparables": comparables,
     }
     if azure is not None:

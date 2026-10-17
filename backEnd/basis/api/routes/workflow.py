@@ -23,6 +23,13 @@
 * ``POST /v1/studies/{id}/cancel`` (owner): sends the ``cancel_study`` signal; the
   workflow cancels its activities and records the outcome. 404 when there is no
   workflow, 409 when it has already closed.
+* ``POST /v1/studies/{id}/retry`` (engineer; EVAL_REPORT section 27): a study whose stage
+  failed (``status = failed``: the extraction, assets or export) runs that stage again.
+  The ``retry`` update goes straight to the workflow (like the cancel signal), whose
+  validator refuses it unless a stage has failed (409 ``study-not-failed``); a second
+  retry before the stage restarts is accepted with ``already_requested``. 409
+  ``workflow-closed`` for an execution that has ended (one that failed before v0.9 cannot
+  be resumed: its history ended with the failure).
 
 Every route answers 503 when Temporal is not configured or unreachable. Decisions do not
 come through here: ``POST .../decisions`` writes an outbox row that ``basis.relay``
@@ -41,6 +48,7 @@ from basis.api.routes.common import problems, read_router, write_router
 from basis.api.schemas.workflow import (
     CancelIn,
     CancelRequested,
+    RetryRequested,
     StudyWorkflowOut,
     WorkflowProgress,
     WorkflowRunOut,
@@ -54,6 +62,7 @@ from basis.db.repositories import DocumentRepository, StudyRepository
 from basis.db.session import session_scope
 from basis.temporal.names import study_workflow_id
 from basis.temporal.service import (
+    RetryRefusedError,
     WorkflowNotFoundError,
     WorkflowNotRunningError,
     WorkflowRef,
@@ -67,6 +76,7 @@ from basis.workflow.contracts import StudyWorkflowInput
 START_ROLE: Final = OrgRole.ENGINEER
 READ_ROLE: Final = OrgRole.VIEWER
 CANCEL_ROLE: Final = OrgRole.OWNER
+RETRY_ROLE: Final = OrgRole.ENGINEER
 TEMPORAL_RETRY_AFTER_S: Final = 5
 DETAIL_NOT_CONFIGURED: Final = "Temporal is not configured."
 DETAIL_NO_WORKFLOW: Final = "The study has no workflow; start it first."
@@ -92,6 +102,8 @@ def as_problem(exc: WorkflowServiceError) -> Exception:
         return NotFound(DETAIL_NO_WORKFLOW)
     if isinstance(exc, WorkflowNotRunningError):
         return Conflict(str(exc), type_suffix="workflow-closed")
+    if isinstance(exc, RetryRefusedError):
+        return Conflict(str(exc), type_suffix="study-not-failed")
     if isinstance(exc, WorkflowUnavailableError):
         return ServiceUnavailable(str(exc), retry_after=TEMPORAL_RETRY_AFTER_S)
     return ServiceUnavailable("Temporal returned an unexpected error.")  # pragma: no cover
@@ -251,3 +263,39 @@ async def cancel_study(
         "workflow cancel requested", extra={"study_id": str(study_id), "workflow_id": workflow_id}
     )
     return CancelRequested(workflow_id=workflow_id)
+
+
+@writes.post(
+    "/studies/{study_id}/retry",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run a failed stage of the study's workflow again (engineer)",
+    responses=problems(403, 404),
+)
+async def retry_study(
+    study_id: StudyIdPath,
+    user: CurrentUserDep,
+    sessionmaker: SessionmakerDep,
+    workflows: WorkflowServiceDep,
+) -> RetryRequested:
+    async with session_scope(sessionmaker) as session:
+        study = (await require_study_access(session, user, study_id, RETRY_ROLE)).study
+        ensure_not_archived(study)
+        if study.workflow_id is None:
+            raise NotFound(DETAIL_NO_WORKFLOW)
+        workflow_id = study.workflow_id
+    # The workflow decides (its validator knows whether a stage failed); the study row may
+    # lag the workflow by one activity, so it is not checked here.
+    try:
+        accepted = await workflows.retry(workflow_id)
+    except WorkflowServiceError as exc:
+        raise as_problem(exc) from exc
+    logger.info(
+        "workflow retry requested",
+        extra={"study_id": str(study_id), "workflow_id": workflow_id, "stage": accepted.stage},
+    )
+    return RetryRequested(
+        workflow_id=workflow_id,
+        stage=Stage(accepted.stage),
+        revision=accepted.revision,
+        already_requested=accepted.already_requested,
+    )

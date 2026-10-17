@@ -15,8 +15,12 @@ from basis.vision.rooms import (
     PhotoInput,
     display_name,
     group_photos,
+    is_room_hint,
+    merge_alias,
+    name_group,
     name_hint,
     resolve_aliases,
+    vote_identity,
 )
 from basis.vision.schemas import PhotoAnalysis, RoomType
 
@@ -209,3 +213,131 @@ def test_synthetic_fixture_photos_are_each_their_own_room() -> None:
 
 def test_empty_input_gives_no_rooms() -> None:
     assert group_photos([]) == []
+
+
+# --------------------------------------------------------------------------- production grouping
+# (EVAL_REPORT section 27, item 1: analyze_photo groups by these functions.)
+
+# A package named like the client's (synthetic names, same conventions).
+NAMED_PACKAGE = (
+    "01_Ingress-Egress.JPG",
+    "04_Property Front.JPG",
+    "05_Property Front.JPG",
+    "14_1st Floor Front Entrance.JPG",
+    "15_1st Floor Breakfast Nook.JPG",
+    "21_1st Floor Kitchen photo 1.JPG",
+    "22_1st Floor Kitchen photo 2.JPG",
+    "29_2nd Floor Bed 2 .JPG",
+    "30_2nd Floor Bed 2 Seating Area.JPG",
+    "31_2nd Floor Bed 3.JPG",
+    "32_2nd Floor Bed 3 Shower.JPG",
+    "33_2nd Floor Bed 3 Bath.JPG",
+    "45_Basement Bath.JPG",
+    "46_Basement.JPG",
+    "49_Mechanicals.JPG",
+)
+PACKAGE_ALIASES = {
+    "1_breakfast_nook": "1_kitchen",
+    "2_bed_2_seating_area": "2_bed_2",
+    "2_bed_3_shower": "2_bed_3_bath",
+}
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "21_1st Floor Kitchen photo 1.JPG",
+        "49_Mechanicals.JPG",
+        "46_Basement.JPG",
+        "04_Property Front.JPG",
+        "kitchen_1.jpg",
+        "Kitchen photo 2.jpg",
+        "Bed 2.heic",
+        "photos/2nd floor hall.png",
+        "IMG_1234 kitchen.JPG",
+    ],
+)
+def test_names_that_name_a_room_are_hints(filename: str) -> None:
+    assert is_room_hint(filename)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "IMG_1234.JPG",
+        "IMG_20250129_100211.jpg",
+        "DSC01234.JPG",
+        "DSCN0042.jpg",
+        "PXL_20250101_120000123.jpg",
+        "MVIMG_20250101_120000.jpg",
+        "WhatsApp Image 2025-01-29 at 10.02.11.jpeg",
+        "Screenshot 2025-01-29 at 10.02.11 AM.png",
+        "3f2a9c1e-7b4d-4c1a-9e2f-0a1b2c3d4e5f.jpg",
+        "07_photo 2.jpg",
+        "image (3).png",
+        "IMG_1234 copy.JPG",
+        "1234.jpg",
+        "",
+    ],
+)
+def test_camera_and_app_names_are_not_hints(filename: str) -> None:
+    assert not is_room_hint(filename)
+
+
+def test_name_group_is_group_photos_for_every_photo() -> None:
+    """The production assignment (one photo at a time, from the file names alone) puts
+    every photo in the room group_photos puts it in, with the same id, name and floor."""
+    expected = {
+        p.file: g
+        for g in group_photos([PhotoInput(f) for f in sorted(NAMED_PACKAGE)], PACKAGE_ALIASES)
+        for p in g.photos
+    }
+    for filename in NAMED_PACKAGE:
+        group = name_group(filename, NAMED_PACKAGE, PACKAGE_ALIASES)
+        want = expected[filename]
+        assert (group.room_id, group.name, group.floor) == (want.room_id, want.name, want.floor)
+    assert name_group("15_1st Floor Breakfast Nook.JPG", NAMED_PACKAGE, PACKAGE_ALIASES).name == (
+        "1st Floor Kitchen"
+    )
+    assert (
+        name_group("32_2nd Floor Bed 3 Shower.JPG", NAMED_PACKAGE, PACKAGE_ALIASES).room_id
+        == "2_bed_3_bath"
+    )
+    # Without aliases each view is its own room.
+    assert (
+        name_group("15_1st Floor Breakfast Nook.JPG", NAMED_PACKAGE).room_id == "1_breakfast_nook"
+    )
+
+
+def test_name_group_order_does_not_depend_on_the_input_order() -> None:
+    forward = name_group("22_1st Floor Kitchen photo 2.JPG", NAMED_PACKAGE, PACKAGE_ALIASES)
+    backward = name_group("22_1st Floor Kitchen photo 2.JPG", NAMED_PACKAGE[::-1], PACKAGE_ALIASES)
+    assert forward == backward
+    # A file not in the list is grouped as if it were.
+    alone = name_group("23_1st Floor Kitchen photo 3.JPG", NAMED_PACKAGE, PACKAGE_ALIASES)
+    assert (alone.room_id, alone.name) == ("1_kitchen", "1st Floor Kitchen")
+
+
+def test_vote_identity_follows_group_photos() -> None:
+    assert vote_identity(["kitchen", "kitchen", "bathroom"], [1, None, 2]) == (
+        RoomType.KITCHEN,
+        1,
+    )
+    # ambiguous abstains; ties go to the earliest; unknown strings vote other.
+    assert vote_identity(["ambiguous", "bedroom", "office"], [None, 2, 2]) == (
+        RoomType.BEDROOM,
+        2,
+    )
+    assert vote_identity(["ambiguous"], [None]) == (RoomType.AMBIGUOUS, None)
+    assert vote_identity(["not-a-type"], [3]) == (RoomType.OTHER, 3)
+    assert vote_identity([], []) == (RoomType.OTHER, None)
+
+
+def test_merge_alias() -> None:
+    merged = merge_alias({"a": "b"}, "b", "c")
+    assert resolve_aliases(merged) == {"a": "c", "b": "c"}
+    # The target becomes canonical: its own alias is dropped, so nothing loops.
+    assert merge_alias({"c": "b"}, "b", "c") == {"b": "c"}
+    assert merge_alias({}, "x_a", "x_b") == {"x_a": "x_b"}
+    with pytest.raises(AliasCycleError):
+        merge_alias({}, "a", "a")

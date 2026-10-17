@@ -69,9 +69,10 @@ async def test_decision_commits_review_transition_and_signal_together(
         )
 
     stored = await load_study(committed, study.id)
+    # v0.9: the rooms gate is processing until the workflow opens it.
     assert (stored.current_stage, stored.status, stored.revision) == (
         Stage.ROOMS_REVIEW,
-        StudyStatus.WAITING_REVIEW,
+        StudyStatus.PROCESSING,
         1,
     )
     async with committed() as session:

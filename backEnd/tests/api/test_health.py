@@ -134,6 +134,10 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "POST /v1/studies/{study_id}/start",
         "GET /v1/studies/{study_id}/workflow",
         "POST /v1/studies/{study_id}/cancel",
+        "POST /v1/studies/{study_id}/retry",
+        "GET /v1/studies/{study_id}/fields",
+        "GET /v1/studies/{study_id}/rooms",
+        "GET /v1/studies/{study_id}/assets",
     }
 
 

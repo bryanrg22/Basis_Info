@@ -65,7 +65,7 @@ def fields_dir(tmp_path: Path) -> Path:
                             },
                             {"field": "improvements.year_built", "expected": 1998, "type": "int"},
                             {"field": "improvements.fireplaces", "expected": 4, "type": "int"},
-                            {"field": "site.area_acres", "expected": 1.39, "type": "float"},
+                            {"field": "site.frontage_feet", "expected": 1.39, "type": "float"},
                         ],
                     }
                 ]
@@ -87,7 +87,7 @@ def answer(**values: str | None) -> ScriptedTurn:
 
 def test_caption_is_the_catalogue_label_or_the_key_in_words() -> None:
     assert predict_fields.caption("improvements.year_built") == "Year Built"
-    assert predict_fields.caption("site.area_acres") == "site: area acres"
+    assert predict_fields.caption("site.frontage_feet") == "site: frontage feet"
 
 
 def test_accept_applies_the_production_guards() -> None:
@@ -119,7 +119,7 @@ async def test_fields_run_writes_guarded_predictions_with_repeats(
                     "subject.property_address": "1290 Example Way",
                     "improvements.year_built": "1998",
                     "improvements.fireplaces": "four",  # not printed so: dropped
-                    "site.area_acres": None,
+                    "site.frontage_feet": None,
                 }
             ),
             answer(**{"subject.property_address": "1290 Example Way"}),
@@ -137,7 +137,7 @@ async def test_fields_run_writes_guarded_predictions_with_repeats(
     assert request.reasoning_effort == "low" and request.max_tokens == 8000
     content = request.messages[0].content
     assert '- improvements.year_built: printed as "Year Built" (int)' in content
-    assert '- site.area_acres: printed as "site: area acres" (float)' in content
+    assert '- site.frontage_feet: printed as "site: frontage feet" (float)' in content
     assert "<page number=1>" in content and "<page number=2>" in content  # whole document
 
     saved = json.loads((out / "appraisal_fields.json").read_text())["inputs/appraisal.pdf"]
@@ -153,7 +153,7 @@ async def test_fields_run_writes_guarded_predictions_with_repeats(
     raw = [json.loads(line) for line in (out / "fields_raw.jsonl").read_text().splitlines()]
     assert raw[0]["dropped"] == {
         "improvements.fireplaces": "not_in_text",
-        "site.area_acres": "not_found",
+        "site.frontage_feet": "not_found",
     }
 
     data = ds.AppraisalFields.model_validate_json(

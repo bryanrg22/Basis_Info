@@ -29,6 +29,7 @@ from basis.activities.mark_stalled import MarkStalled
 from basis.activities.notify_review_pending import NotifyReviewPending
 from basis.activities.process_assets import ProcessAssets
 from basis.activities.reconcile_rooms import ReconcileRooms
+from basis.activities.record_failure import RecordFailure
 from basis.activities.record_run_end import RecordRunEnd
 from basis.activities.record_run_start import RecordRunStart
 from basis.activities.transition import Transition
@@ -50,6 +51,7 @@ ACTIVITY_CLASSES: Final[dict[str, type[Any]]] = {
     "export_report": ExportReport,
     "notify_review_pending": NotifyReviewPending,
     "mark_stalled": MarkStalled,
+    "record_failure": RecordFailure,
 }
 ACTIVITY_NAMES: Final = tuple(ACTIVITY_CLASSES)
 

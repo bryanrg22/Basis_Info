@@ -35,6 +35,7 @@ network; CI has no provider credentials and real-provider evaluation is run sepa
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import PurePosixPath
@@ -43,6 +44,7 @@ from typing import Any, Final
 from fixtures import fixture_path, load_fixture_json
 
 from basis.extraction.azure_di import AzureDiResult
+from basis.extraction.fallback import FallbackAnswer, FallbackValue
 from basis.llm.cost import cost_usd
 from basis.llm.provider import ChatRequest, ChatResponse, ScriptedTurn, Usage
 from basis.vision import localize
@@ -175,13 +177,17 @@ def fixture_second_look(request: ChatRequest) -> ModelSurfaceMaterial:
 
 @dataclass
 class FixtureVisionProvider:
-    """Answers photo requests from the fixture labels; anything else fails the test."""
+    """Answers photo requests from the fixture labels, and the extraction fallback (every
+    asked field "not found": the synthetic form prints none of the boxes Azure DI leaves
+    empty); anything else fails the test."""
 
     name: str = "fixture"
     requests: list[ChatRequest] = field(default_factory=list)
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
+        if request.response_model is FallbackAnswer:
+            return fixture_field_fallback(request, self.name)
         digest = _image_sha256(request)
         answer: ModelRoomInventory | ModelSurfaceMaterial | None = None
         if digest is not None and request.response_model is ModelRoomInventory:
@@ -215,6 +221,27 @@ class FixtureVisionProvider:
             latency_ms=1,
             raw={"fixture": True, "image_sha256": digest},
         )
+
+
+_ASKED_KEY = re.compile(r"^- ([a-z_]+\.[a-z0-9_]+): printed as ", re.MULTILINE)
+
+
+def fixture_field_fallback(request: ChatRequest, provider: str) -> ChatResponse:
+    """The extraction fallback's answer: each asked key, ``null`` (not printed)."""
+    content = request.messages[0].content if request.messages else ""
+    asked = _ASKED_KEY.findall(content.split("Page text", 1)[0])
+    answer = FallbackAnswer(
+        fields=[FallbackValue(key=key, value=None, page=None, confidence=0.0) for key in asked]
+    )
+    return ChatResponse(
+        parsed=answer,
+        text=answer.model_dump_json(),
+        usage=PHOTO_USAGE,
+        model=request.model,
+        provider=provider,
+        latency_ms=1,
+        raw={"fixture": True, "asked": len(asked)},
+    )
 
 
 @dataclass
