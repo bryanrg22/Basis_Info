@@ -123,8 +123,8 @@ jobs:
           persist-credentials: false
 
       # sentence-transformers pulls torch; the uv cache keyed on uv.lock keeps
-      # repeat installs fast. If Linux resolution needs the CPU-only torch index,
-      # that belongs in backEnd/pyproject.toml ([tool.uv.sources] /
+      # repeat installs fast. Linux gets the CPU-only torch wheel from the
+      # pytorch-cpu index set in backEnd/pyproject.toml ([tool.uv.sources] /
       # [[tool.uv.index]]), not in this workflow.
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         if: env.BACKEND_CHANGED == 'true'
