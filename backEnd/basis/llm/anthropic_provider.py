@@ -40,6 +40,14 @@ Sources (Anthropic docs, read 2026-10-15):
   timeouts and connection failures -> :class:`ProviderUnavailable`, other 4xx and unusable
   output -> :class:`ProviderBadResponse`. The SDK's own retries are off; the provider retries
   once on 429/5xx (``retry-after`` honoured up to a cap), the pool and Temporal do the rest.
+  Account errors come first and are :class:`ProviderAccountError` (never retried, never
+  sent elsewhere): 401 ``authentication_error``, 402 ``billing_error``, 403
+  ``permission_error``; a 400 whose message says the credit balance is too low (what the
+  API returned when the account ran dry, EVAL_REPORT section 26.12) or that a spend limit
+  set in the Console was reached ("You have reached your specified ... API usage limits",
+  https://platform.claude.com/docs/en/api/rate-limits); and the tier spend-cap 429, which
+  carries ``error.details.error_code`` ``enforced_spend_limit_reached`` and no
+  ``retry-after`` and "keeps failing until access resumes".
 * Prices, https://platform.claude.com/docs/en/about-claude/pricing: rows in
   :mod:`basis.llm.cost`.
 
@@ -60,6 +68,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Final
@@ -70,6 +79,7 @@ from pydantic import BaseModel, ValidationError
 from basis.config import Settings
 from basis.llm.cost import is_anthropic_model, output_ceiling
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderError,
     ProviderRateLimited,
@@ -84,6 +94,14 @@ PROVIDER_NAME: Final = "anthropic"
 RETRY_AFTER_CAP_S: Final = 10.0
 MALFORMED_ARGUMENTS: Final = "_malformed_arguments"
 EFFORT_LEVELS: Final = ("low", "medium", "high", "xhigh", "max")
+ACCOUNT_STATUSES: Final = frozenset({401, 402, 403})
+ACCOUNT_TYPES: Final = frozenset({"authentication_error", "billing_error", "permission_error"})
+SPEND_CAP_CODE: Final = "enforced_spend_limit_reached"
+# 400 invalid_request_error messages that are about the account, not the request.
+_ACCOUNT_400 = re.compile(
+    r"credit balance is too low|reached your specified (?:workspace )?API usage limits",
+    re.IGNORECASE,
+)
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -92,6 +110,7 @@ __all__ = [
     "EFFORT_LEVELS",
     "build_request_body",
     "is_anthropic_model",
+    "account_error",
     "map_error",
     "output_schema",
     "parse_message",
@@ -297,10 +316,43 @@ def _retry_after(exc: anthropic.APIStatusError) -> float | None:
         return None
 
 
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def account_error(exc: Exception, provider: str = PROVIDER_NAME) -> ProviderAccountError | None:
+    """The :class:`ProviderAccountError` an Anthropic status error means, if any.
+
+    ``exc.body`` is the whole response (``{"type": "error", "error": {"type", "message",
+    "details"?}}``) and ``exc.type`` the SDK's parse of ``error.type``.
+    """
+    if not isinstance(exc, anthropic.APIStatusError):
+        return None
+    body = exc.body if isinstance(exc.body, dict) else {}
+    error = _dict(body.get("error"))
+    message = str(error.get("message") or exc.message or f"HTTP {exc.status_code}")
+    details = _dict(error.get("details"))
+    kind = exc.type or error.get("type")
+    status = exc.status_code
+    if status in ACCOUNT_STATUSES or kind in ACCOUNT_TYPES:
+        code = kind
+    elif status == 400 and _ACCOUNT_400.search(message):
+        code = kind or "invalid_request_error"
+    elif status == 429 and details.get("error_code") == SPEND_CAP_CODE:
+        code = SPEND_CAP_CODE
+    else:
+        return None
+    return ProviderAccountError(message, provider=provider, status=status, code=code)
+
+
 def map_error(exc: Exception, provider: str = PROVIDER_NAME) -> ProviderError:
-    """An SDK exception as a :mod:`basis.llm.errors` error."""
+    """An SDK exception as a :mod:`basis.llm.errors` error (account errors first: a
+    credit-balance 400 is not a bad request, a spend-cap 429 is not a rate limit)."""
     if isinstance(exc, ProviderError):
         return exc
+    account = account_error(exc, provider)
+    if account is not None:
+        return account
     if isinstance(exc, anthropic.RateLimitError):
         return ProviderRateLimited(str(exc), provider=provider, status=429)
     if isinstance(exc, anthropic.APIStatusError):

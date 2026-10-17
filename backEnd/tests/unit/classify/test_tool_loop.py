@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
 from classifytest_support import (
     STRUCTURAL_CHUNK,
     answer_turn,
@@ -25,6 +26,7 @@ from classifytest_support import (
 from basis.classify.residual import LoopLimits, run_residual
 from basis.classify.router import RESIDUAL_ALLOWLIST, classify
 from basis.classify.tools import build_tools
+from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import (
     Budget,
     ChatRequest,
@@ -170,6 +172,15 @@ async def test_provider_error_is_needs_review() -> None:
     result = await classify(component(), make_ctx(provider))
     assert result.review_reasons == ("provider_error:RuntimeError",)
     assert result.method == "llm" and result.confidence == 0.0
+
+
+async def test_an_account_error_is_not_a_needs_review_row() -> None:
+    """Every residual component would otherwise be written ``provider_error`` while the
+    account has no credit; the error propagates so the assets stage fails instead."""
+    error = ProviderAccountError("bad key", provider="openai", status=401, code="invalid_api_key")
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)])
+    with pytest.raises(ProviderAccountError):
+        await classify(component(), make_ctx(provider))
 
 
 class SlowProvider:

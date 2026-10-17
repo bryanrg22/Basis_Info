@@ -18,7 +18,12 @@ from basis.extraction.azure_di import (
     from_sdk,
     map_azure_error,
 )
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderBadResponse,
+    ProviderRateLimited,
+    ProviderUnavailable,
+)
 
 SDK_PAYLOAD: dict[str, Any] = {
     "apiVersion": "2024-11-30",
@@ -124,7 +129,9 @@ def _http_error(status: int) -> HttpResponseError:
         (_http_error(429), ProviderRateLimited, 429),
         (_http_error(503), ProviderUnavailable, 503),
         (_http_error(400), ProviderBadResponse, 400),
-        (_http_error(401), ProviderBadResponse, 401),
+        (_http_error(401), ProviderAccountError, 401),
+        (_http_error(403), ProviderAccountError, 403),
+        (_http_error(404), ProviderBadResponse, 404),
         (ServiceRequestError("dns"), ProviderUnavailable, None),
         (TimeoutError(), ProviderUnavailable, None),
         (RuntimeError("?"), ProviderUnavailable, None),

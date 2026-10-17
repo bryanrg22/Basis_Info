@@ -5,7 +5,9 @@
 * :func:`provider_failure` turns provider and storage errors into Temporal errors:
   transient ones (429, 5xx, timeouts) stay retryable; a bad response from Azure DI (4xx)
   or a missing file is a non-retryable ``ValidationError``; no provider configured is a
-  non-retryable ``ProviderNotConfigured``.
+  non-retryable ``ProviderNotConfigured``; a provider account error (no credit or quota,
+  a bad key) is a non-retryable ``ProviderAccountError`` naming the provider, so the
+  workflow fails the stage with that reason and waits for a retry (EVAL_REPORT 26.12).
 * :func:`run_pk` finds the ``runs`` row so ``llm_calls`` can reference it.
 """
 
@@ -22,7 +24,13 @@ from temporalio.exceptions import ApplicationError
 
 from basis.activities._support import heartbeat, validation_error, workflow_execution
 from basis.db.repositories.run import RunRepository
-from basis.llm.errors import ProviderBadResponse, ProviderError, ProviderNotConfigured
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderBadResponse,
+    ProviderError,
+    ProviderNotConfigured,
+)
+from basis.workflow.activity_options import PROVIDER_ACCOUNT_ERROR
 
 PROVIDER_UNAVAILABLE: Final = "ProviderUnavailable"
 PROVIDER_NOT_CONFIGURED: Final = "ProviderNotConfigured"
@@ -46,6 +54,12 @@ async def heartbeating(detail: str, every_s: float = HEARTBEAT_EVERY_S) -> Async
 
 
 def provider_failure(error: ProviderError, what: str) -> ApplicationError:
+    if isinstance(error, ProviderAccountError):
+        return ApplicationError(
+            f"{what}: {error}; fix the account, then retry the study",
+            type=PROVIDER_ACCOUNT_ERROR,
+            non_retryable=True,
+        )
     if isinstance(error, ProviderNotConfigured):
         return ApplicationError(
             f"{what}: {error}", type=PROVIDER_NOT_CONFIGURED, non_retryable=True

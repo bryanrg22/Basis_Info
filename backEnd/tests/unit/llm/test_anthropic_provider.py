@@ -40,6 +40,7 @@ from basis.llm.cost import (
     price_for,
 )
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderRateLimited,
     ProviderUnavailable,
@@ -493,7 +494,7 @@ async def test_overloaded_then_success() -> None:
     assert (await provider(server).complete(request())).parsed is not None
 
 
-@pytest.mark.parametrize("code", [400, 401, 403, 404, 413, 422])
+@pytest.mark.parametrize("code", [400, 404, 413, 422])
 async def test_4xx_is_a_bad_response_and_not_retried(code: int) -> None:
     server = Server(status(code))
     with pytest.raises(ProviderBadResponse) as caught:
@@ -582,3 +583,144 @@ def test_providers_from_settings_includes_anthropic_and_orders_by_primary() -> N
     assert [p.name for p in providers_from_settings(both)] == ["openai", "anthropic"]
     claude_first = settings(openai_api_key=SecretStr("sk-test"), llm_primary="anthropic")
     assert [p.name for p in providers_from_settings(claude_first)] == ["anthropic", "openai"]
+
+
+# --------------------------------------------------------------------------- account errors
+# Shapes from https://platform.claude.com/docs/en/api/errors and .../api/rate-limits (read
+# 2026-10-16); the 400 credit message is what the API returned in EVAL_REPORT 26.12.
+
+CREDIT_LOW = (
+    "Your credit balance is too low to access the Anthropic API. Please go to Plans & "
+    "Billing to upgrade or purchase credits."
+)
+SPEND_CAP = (
+    "You have reached your API usage limits: your organization has crossed its monthly API "
+    "usage threshold, set based on your organization's API tier. You will regain access on "
+    "2026-11-01 at 00:00 UTC."
+)
+
+
+def error_response(
+    code: int, kind: str, text: str, details: dict[str, Any] | None = None
+) -> httpx2.Response:
+    error: dict[str, Any] = {"type": kind, "message": text}
+    if details is not None:
+        error["details"] = details
+    return httpx2.Response(
+        code, json={"type": "error", "error": error, "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("response", "code", "expected_code"),
+    [
+        (error_response(400, "invalid_request_error", CREDIT_LOW), 400, "invalid_request_error"),
+        (
+            error_response(
+                400,
+                "invalid_request_error",
+                "You have reached your specified API usage limits. You will regain access on "
+                "2026-11-01 at 00:00 UTC.",
+            ),
+            400,
+            "invalid_request_error",
+        ),
+        (
+            error_response(
+                400,
+                "invalid_request_error",
+                "You have reached your specified workspace API usage limits.",
+            ),
+            400,
+            "invalid_request_error",
+        ),
+        (
+            error_response(401, "authentication_error", "invalid x-api-key"),
+            401,
+            "authentication_error",
+        ),
+        (
+            error_response(402, "billing_error", "There is an issue with your billing."),
+            402,
+            "billing_error",
+        ),
+        (
+            error_response(403, "permission_error", "Your API key does not have permission."),
+            403,
+            "permission_error",
+        ),
+        (
+            error_response(
+                429, "rate_limit_error", SPEND_CAP, {"error_code": "enforced_spend_limit_reached"}
+            ),
+            429,
+            "enforced_spend_limit_reached",
+        ),
+        (httpx2.Response(401, text="Unauthorized"), 401, None),
+    ],
+)
+async def test_account_errors_are_not_retried(
+    response: httpx2.Response, code: int, expected_code: str | None
+) -> None:
+    server = Server(response)
+    waits = Waits()
+    with pytest.raises(ProviderAccountError) as caught:
+        await provider(server, waits).complete(request())
+    error = caught.value
+    assert server.call_count == 1 and waits.sleeps == []  # no retry, no wait
+    assert (error.provider, error.status, error.code) == ("anthropic", code, expected_code)
+    assert str(error).startswith(f"anthropic account error (HTTP {code}")
+    assert error.usage is None  # nothing reached the model: nothing to charge
+
+
+def test_the_credit_message_is_kept_and_a_key_is_not() -> None:
+    error = map_error(
+        anthropic.AuthenticationError(
+            "Error code: 401",
+            response=httpx2.Response(401, request=httpx2.Request("POST", BASE)),
+            body={
+                "type": "error",
+                "error": {
+                    "type": "authentication_error",
+                    "message": "invalid x-api-key sk-ant-api03-SECRETSECRET-abc",
+                },
+            },
+        )
+    )
+    assert isinstance(error, ProviderAccountError)
+    assert "SECRETSECRET" not in str(error) and "[redacted]" in str(error)
+    credit = map_error(
+        anthropic.BadRequestError(
+            "Error code: 400",
+            response=httpx2.Response(400, request=httpx2.Request("POST", BASE)),
+            body={
+                "type": "error",
+                "error": {"type": "invalid_request_error", "message": CREDIT_LOW},
+            },
+        )
+    )
+    assert isinstance(credit, ProviderAccountError) and CREDIT_LOW in str(credit)
+
+
+async def test_a_plain_400_stays_a_bad_response() -> None:
+    server = Server(error_response(400, "invalid_request_error", "messages: field required"))
+    with pytest.raises(ProviderBadResponse):
+        await provider(server).complete(request())
+
+
+async def test_a_rate_limit_429_is_still_retried() -> None:
+    """Regression: only the spend-cap 429 is an account error; a rate limit keeps its retry
+    (with or without details that are not the spend-cap code)."""
+    for details in (None, {"error_code": "something_else"}):
+        server = Server(
+            error_response(
+                429,
+                "rate_limit_error",
+                "Number of request tokens has exceeded your per-minute rate limit",
+                details,
+            ),
+            ok(),
+        )
+        waits = Waits()
+        assert (await provider(server, waits).complete(request())).parsed is not None
+        assert server.call_count == 2 and waits.sleeps == [0.7]

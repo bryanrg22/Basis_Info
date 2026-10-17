@@ -80,6 +80,7 @@ from basis.vision.reconcile import (
 )
 from basis.vision.rooms import AliasCycleError, PhotoInput, RoomGroup, group_photos
 from basis.vision.schemas import PhotoAnalysis
+from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, photo_files
 
 
@@ -277,6 +278,7 @@ async def reconcile_with_retries(
     )
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     try:
         aliases = load_aliases(args.aliases)
@@ -288,7 +290,7 @@ async def run(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     settings = load_settings()
-    pool = ProviderPool.from_settings(settings)
+    pool = guard(ProviderPool.from_settings(settings))
     if pool is None:
         print(
             "no model provider configured (OPENAI_API_KEY, ANTHROPIC_API_KEY or AZURE_OPENAI_*)",
@@ -301,6 +303,7 @@ async def run(args: argparse.Namespace) -> int:
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
 
     def call_context(activity: str) -> CallContext:

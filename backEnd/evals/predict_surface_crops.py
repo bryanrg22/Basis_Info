@@ -53,6 +53,7 @@ from basis.llm.recorder import MemoryRecorder
 from basis.vision import surface_crops as sc
 from basis.vision.localize import Rle
 from basis.vision.prep import prepare_image
+from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_multiview import call_with_retries
 
 KINDS: tuple[sc.Kind, ...] = ("floor", "wall", "wall_lower", "ceiling")
@@ -122,10 +123,11 @@ def surfaces_to_ask(record: Mapping[str, Any]) -> list[tuple[sc.Surface, np.ndar
     return found
 
 
+@stops_on_account_error
 async def predict(args: argparse.Namespace, provider: ChatProvider | None = None) -> int:
     settings = load_settings()
     if provider is None:
-        provider = ProviderPool.from_settings(settings)
+        provider = guard(ProviderPool.from_settings(settings))
         if provider is None:
             print("no model provider configured", file=sys.stderr)
             return 2
@@ -136,6 +138,7 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
     ]
     prompt = prompts.load(sc.PROMPT_NAME, args.prompt)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
     ctx = CallContext(
         study_id=uuid.uuid4(),

@@ -54,6 +54,7 @@ from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.cost import is_anthropic_model
+from basis.llm.errors import ProviderAccountError
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, ImagePart, Message
 from basis.llm.recorder import MemoryRecorder
@@ -61,6 +62,7 @@ from basis.vision import marks as mk
 from basis.vision.localize import Instance, Point
 from basis.vision.prep import PreparedImage, prepare_image
 from basis.vision.schemas import ComponentLabel
+from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import photo_files
 from evals.predict_tiles import ask_structured
 
@@ -321,6 +323,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     photos = {p.name: p for p in photo_files(args.photos)}
     if args.only:
@@ -395,12 +398,13 @@ async def ask_all(
     args: argparse.Namespace, photos: Mapping[str, Path], marks: Mapping[str, list[mk.Mark]]
 ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
     settings = load_settings()
-    pool = ProviderPool.from_settings(settings)
+    pool = guard(ProviderPool.from_settings(settings))
     if pool is None:
         print("no model provider configured", file=sys.stderr)
         return None
     prompt = prompts.load(PROMPT, args.prompt)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
     call = CallContext(
         study_id=uuid.uuid4(),
@@ -442,6 +446,8 @@ async def ask_all(
             started = time.monotonic()
             try:
                 parsed, attempts, errors, reported = await ask_structured(pool, call, request)
+            except ProviderAccountError:
+                raise  # stops the run (evals.account_stop)
             except Exception as exc:  # noqa: BLE001 - transient after retries: photo missing
                 parsed, attempts, errors, reported = None, 0, [repr(exc)], None
             seconds = round(time.monotonic() - started, 2)

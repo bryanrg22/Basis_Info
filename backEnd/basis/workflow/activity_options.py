@@ -7,8 +7,9 @@ S2_SPEC section 1 and BUILD_PLAN 13.1:
   activity cannot retry forever even if ``maximum_attempts`` were raised.
 * ``maximum_attempts`` is explicit: 5 for activities that only touch the database, 3 for
   activities that will call providers (Azure DI, OpenAI, Replicate) from Stage 3 on.
-* ``ValidationError`` and ``BudgetExceededError`` never retry: retrying cannot fix a bad
-  input or an exhausted budget. Activities also raise them with ``non_retryable=True``;
+* ``ValidationError``, ``BudgetExceededError`` and ``ProviderAccountError`` never retry:
+  retrying cannot fix a bad input, an exhausted budget, or a provider account with no
+  credit or a bad key. Activities also raise them with ``non_retryable=True``;
   the list here is the backstop for an error raised without that flag.
 * Cancellation waits for the activity to acknowledge (``WAIT_CANCELLATION_COMPLETED``):
   when a study is cancelled, ``record_run_end`` runs only after every in-flight activity
@@ -34,7 +35,8 @@ from temporalio.workflow import ActivityCancellationType
 
 VALIDATION_ERROR: Final = "ValidationError"
 BUDGET_EXCEEDED_ERROR: Final = "BudgetExceededError"
-NON_RETRYABLE_ERROR_TYPES: Final = (VALIDATION_ERROR, BUDGET_EXCEEDED_ERROR)
+PROVIDER_ACCOUNT_ERROR: Final = "ProviderAccountError"
+NON_RETRYABLE_ERROR_TYPES: Final = (VALIDATION_ERROR, BUDGET_EXCEEDED_ERROR, PROVIDER_ACCOUNT_ERROR)
 
 ACTIVITY_CANCELLATION: Final = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
 

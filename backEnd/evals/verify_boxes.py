@@ -53,6 +53,7 @@ from basis.llm.provider import Budget, ChatRequest, ImagePart, Message
 from basis.llm.recorder import MemoryRecorder
 from basis.vision.fusion import CLASS_LABELS
 from basis.vision.prep import JPEG_QUALITY, PreparedImage, prepare_image
+from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import photo_files
 from evals.predict_tiles import ask_structured
 
@@ -187,9 +188,10 @@ def _image(prepared: PreparedImage) -> ImagePart:
     return ImagePart(media_type="image/jpeg", data_base64=prepared.base64, detail="high")
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
-    pool = ProviderPool.from_settings(settings)
+    pool = guard(ProviderPool.from_settings(settings))
     if pool is None:
         print("no model provider configured", file=sys.stderr)
         return 2
@@ -206,6 +208,7 @@ async def run(args: argparse.Namespace) -> int:
     }
     prompt = prompts.load("photo_verify_box", args.prompt)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
     call = CallContext(
         study_id=uuid.uuid4(),
