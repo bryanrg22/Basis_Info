@@ -1,0 +1,12 @@
+{
+  "totals": {
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "passed": 6,
+  "skipped": [],
+  "xfailed": [],
+  "failed": []
+}
