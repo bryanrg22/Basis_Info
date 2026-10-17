@@ -18,7 +18,7 @@ Changes from legacy, each a bug fix:
 Known limits, recorded in each takeoff's ``assumptions`` for the reviewer: the room area
 is the legacy typical area when nothing was measured, and the perimeter is 4 x sqrt(area).
 
-v0.9 (EVAL_REPORT section 27): kitchen cabinets are counted in units (the photo and room
+v0.9 (EVAL_REPORT section 26): kitchen cabinets are counted in units (the photo and room
 labels count cabinet boxes since section 16.1), not as the legacy perimeter run, so they
 are priced per cabinet; wall and ceiling finishes, crown molding, wainscoting and
 concrete floors are measured from the room area instead of counted.
@@ -95,7 +95,7 @@ QUANTITY_ESTIMATES: Final[dict[str, QuantitySpec]] = {
         per_sf=COUNTERTOP_DEPTH_IN / Decimal(12),
         note="Cabinet run (perimeter estimate) x 25-inch depth",
     ),
-    # v0.9 (EVAL_REPORT section 27): the finishes the live run could not price.
+    # v0.9 (EVAL_REPORT section 26): the finishes the live run could not price.
     "kitchen_cabinet": QuantitySpec(
         "EA",
         "count",

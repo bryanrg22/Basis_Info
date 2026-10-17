@@ -1,5 +1,5 @@
 """Re-price a live study's stored assets with a cost table and count the review load
-(EVAL_REPORT section 27, item 6).
+(EVAL_REPORT section 26, item 6).
 
 Run from ``backEnd/``::
 

@@ -238,7 +238,7 @@ def test_context_pages_follow_sections() -> None:
     assert context_pages(["subject.property_address", "improvements.gla_sqft"], PAGES) == [1, 2]
 
 
-# --------------------------------------------------------------------------- scope (EVAL_REPORT 27)
+# --------------------------------------------------------------------------- scope (EVAL_REPORT 26)
 
 
 def field(key: str, raw: str) -> ExtractedField:
@@ -309,5 +309,5 @@ async def test_the_whole_document_is_sent_up_to_the_limit() -> None:
 def test_the_guard_joins_a_currency_sign_to_its_amount(
     value: str, context: str, kept: bool
 ) -> None:
-    """EVAL_REPORT 27: Azure DI prints "=$" and the figure on separate lines."""
+    """EVAL_REPORT 26: Azure DI prints "=$" and the figure on separate lines."""
     assert appears_in(value, context) is kept

@@ -2851,12 +2851,11 @@ separately); after merging main the test passes 6 of 6: the same counts, citatio
 near-exact vector and hybrid agreement 50 of 50, and 43 of 50 at the production setting
 (recorded, not asserted).
 
-## 27. Live-run follow-ups (2026-10-16)
+## 26. Live-run follow-ups (2026-10-16)
 
 Section 23 ran the client study through the running system and found six gaps the harness
 could not see. Each is fixed in its own commit with tests (branch
-`claude/quizzical-saha-e892c3`); this section gives before and after for each. Section
-numbers 24 to 26 were taken by other work while this branch was open, hence 27.
+`claude/quizzical-saha-e892c3`); this section gives before and after for each.
 
 | # | Gap (section 23) | Before | After |
 |---|---|---|---|
@@ -2872,9 +2871,9 @@ account ran out of credit on 2026-10-16 (a probe answered "credit balance is too
 the defaults use Claude for the count fusion, the room step and the classifier. A run
 without them would not measure what section 23 measured, so the client was stopped before
 the study started (no model spend). The numbers above are offline replays on the live
-run's stored outputs; 27.7 says how to run the live study once the account is topped up.
+run's stored outputs; 26.7 says how to run the live study once the account is topped up.
 
-### 27.1 Rooms: file names first, the engineer's aliases, the model's identity as a fallback
+### 26.1 Rooms: file names first, the engineer's aliases, the model's identity as a fallback
 
 Production now groups photos the way section 16 measured (`ROOM_GROUPING=filename`, the
 default; `model` is the previous behaviour):
@@ -2915,7 +2914,7 @@ are the engineer's merges; without them each view of a room is its own room and 
 are counted twice (23.3: +0.51 bias), which is why the product takes them at creation and
 at the rooms review.
 
-### 27.2 Extraction: every empty field, room counts critical, the site area as printed
+### 26.2 Extraction: every empty field, room counts critical, the site area as printed
 
 - `EXTRACTION_FALLBACK_SCOPE=missing` (default): one model call for every catalogue field
   that Azure DI and the regex pass left empty or that failed its per-field rule, with the
@@ -2961,7 +2960,7 @@ One finding on the way: a dev `.env` that sets `OPENAI_MODEL` and Azure-first ro
 silently ran the first replay on Azure's gpt-5-nano (36 to 61 right, 3 to 5 wrong). The
 worker logs the model in effect at start; the replays here were re-run on the defaults.
 
-### 27.3 Fail fast and restart
+### 26.3 Fail fast and restart
 
 Workflow patch `stage-failure-retry-v1` (histories recorded before it replay unchanged):
 the photo stage runs in the background while the appraisal is ingested and extracted. A
@@ -2980,7 +2979,7 @@ any photo finishes, nothing is scheduled until the retry, the retried study comp
 its history replays; later-stage failures are held and retried; a held study can be
 cancelled.
 
-### 27.4 Gate timing
+### 26.4 Gate timing
 
 Workflow patch `appraisal-gate-early-v1`: the appraisal review opens as soon as the
 extraction is done; the rooms review opens after the photo stage (analysis, SAM 3
@@ -2993,9 +2992,9 @@ workflow has not opened is 409 `gate-not-open`. The lifecycle test holds one pho
 analysis to make the timing deterministic: in history order, extraction done < appraisal
 gate open < last analysis done, and every analysis, localization and the room step < rooms
 gate. On live run 3's timings the appraisal gate would open at about +90 s (the extraction was
-done at +87 s) instead of +681 s; not measured live (27.7).
+done at +87 s) instead of +681 s; not measured live (26.7).
 
-### 27.5 Read routes
+### 26.5 Read routes
 
 `GET /v1/studies/{id}/fields`, `/rooms` and `/assets` (viewer): the current revision or
 `?revision=`, keyset pages with an opaque cursor that stays on its revision, one query per
@@ -3005,7 +3004,7 @@ in, or the per-photo rows of a room without one); assets their component, room, 
 cost, citation counts and review reasons (`needs_review` filter). The ids are the
 correction `entity_id`s. OpenAPI regenerated; the Schemathesis contract test covers them.
 
-### 27.6 Cost rows
+### 26.6 Cost rows
 
 Cost segregation prices each component from a published unit cost (the IRS Cost
 Segregation Audit Techniques Guide, chapter 4: quantity takeoffs priced from a cost source
@@ -3049,7 +3048,7 @@ factor is still the legacy escalation table on the 2020 base, not RSMeans' Histo
 Index (Building 2020 has one; Residential does not), and the location factor is still the
 setting; both are follow-ups.
 
-### 27.7 Not done, and how to finish
+### 26.7 Not done, and how to finish
 
 - **The live re-run.** After the Anthropic account is topped up: start a stack (Postgres,
   `temporal server start-dev`, `alembic upgrade head`, the reference corpus,
@@ -3059,7 +3058,7 @@ setting; both are follow-ups.
   `evals.run` as in section 23 (about $6, 15 minutes). The client now sends the aliases,
   reads each gate through the new routes, and logs the photo progress when the appraisal
   gate opens.
-- Not measured live: the gate timing (27.4), the extraction on a fresh Azure DI analysis,
+- Not measured live: the gate timing (26.4), the extraction on a fresh Azure DI analysis,
   the review load with live classification.
 - Follow-ups: price `COST_NEEDS_QUANTITY` items from measured quantities (site area from
   the appraisal, roof area); the RSMeans Historical Cost Index and City Cost Index for the
@@ -3074,17 +3073,17 @@ RSMeans extraction made no model calls.
 Commands (from `backEnd/`; the predictions, labels and cost table are private):
 
 ```bash
-# 27.1 room step on the stored live per-photo outputs, production grouping = group_photos
+# 26.1 room step on the stored live per-photo outputs, production grouping = group_photos
 python -m evals.predict_rooms --photos ~/basis-eval-data/inputs/photos \
     --out ~/basis-eval-data/predictions/s25_rooms_replay_defaults \
     --aliases ~/basis-eval-data/labels/room_aliases_v1.json \
     --per-photo ~/basis-eval-data/predictions/live_e2e_v070_defaults_perphoto --repeats 1 \
     --room-prompt v3 --model claude-sonnet-5-5 --reasoning-effort low \
     --single-photo-rooms per-photo --materials sensitive
-# 27.2 extraction on the stored Azure DI analysis
+# 26.2 extraction on the stored Azure DI analysis
 uv run python ../docs/review_2026-10-15/repro/extraction_replay.py \
     ~/basis-eval-data/inputs/appraisal.pdf AZURE_DI_JSON LABELS_JSON OUT --scope missing --repeats 3
-# 27.6 review load
+# 26.6 review load
 uv run python ../docs/review_2026-10-15/repro/cost_review_load.py ASSETS_JSON \
     --cost-table ~/basis-eval-data/costs/unit_costs_rsmeans_2020.json
 ```

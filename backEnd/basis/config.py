@@ -221,11 +221,11 @@ class Settings(BaseSettings):
     # Unset: the family default (see ``extraction_output_budget``). Read the value in effect
     # through ``extraction_output_budget``.
     extraction_fallback_max_tokens: int | None = Field(default=None, ge=64, le=16384)
-    # Which appraisal fields the extraction fallback asks the model for (EVAL_REPORT 27):
+    # Which appraisal fields the extraction fallback asks the model for (EVAL_REPORT 26):
     # "missing" every catalogue field Azure DI and the regex pass left empty or failed,
     # with the whole document (up to EXTRACTION_FALLBACK_CONTEXT_CHARS) as context, as
     # section 17.1 measured; "critical" only the critical ones, with their sections' pages
-    # (before section 27).
+    # (before section 26).
     extraction_fallback_scope: Literal["missing", "critical"] = "missing"
     extraction_fallback_context_chars: int = Field(default=60_000, ge=4_000, le=400_000)
     azure_document_intelligence_endpoint: str | None = None
@@ -249,10 +249,10 @@ class Settings(BaseSettings):
     room_reasoning_effort: Effort = "low"
     room_single_photo: Literal["per_photo", "reconcile"] = "per_photo"
     room_materials: Literal["none", "disagree", "sensitive"] = "sensitive"
-    # How analyze_photo puts a photo in a room (EVAL_REPORT 23.3 and 27): "filename" groups
+    # How analyze_photo puts a photo in a room (EVAL_REPORT 23.3 and 26): "filename" groups
     # by the file name's room (basis.vision.rooms.group_photos, after the study's
     # room_aliases) and uses the model's room identity only for a name that says nothing
-    # (IMG_1234.JPG); "model" always uses the model's room identity (before section 27).
+    # (IMG_1234.JPG); "model" always uses the model's room identity (before section 26).
     room_grouping: Literal["filename", "model"] = "filename"
 
     # Classification and pricing (process_assets, S3_SPEC section 5). The residual
@@ -267,7 +267,7 @@ class Settings(BaseSettings):
     cost_year: int = Field(default=2026, ge=2020, le=2026)  # the cost table's range
     cost_location_factor: float = Field(default=1.0, gt=0, le=3)
     # The engineer's unit-cost table (basis.domain.cost_table: JSON, licensed data, never
-    # in the repository); unset: only the six legacy rows price (EVAL_REPORT 27, item 6).
+    # in the repository); unset: only the six legacy rows price (EVAL_REPORT 26, item 6).
     cost_table_path: str | None = None
 
     # Object localization (basis.vision.localize): SAM 3 on Replicate, for trials only

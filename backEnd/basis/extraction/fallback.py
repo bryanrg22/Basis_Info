@@ -2,13 +2,13 @@
 
 Which fields are asked (:func:`fallback_keys`, ``EXTRACTION_FALLBACK_SCOPE``):
 
-* ``missing`` (the default since EVAL_REPORT section 27): every catalogue field that is
+* ``missing`` (the default since EVAL_REPORT section 26): every catalogue field that is
   missing or empty after the merge, and every field that failed a per-field validation
   rule, with the whole document as context (up to ``EXTRACTION_FALLBACK_CONTEXT_CHARS``).
   Section 17.1 measured the model reading all 75 labelled fields this way (gpt-6-luna
   0.924, 12 of 12 critical); asking only the critical fields left 36 of 75 empty live
   (section 23.4).
-* ``critical`` (S3_SPEC section 4, before section 27): only the critical fields that are
+* ``critical`` (S3_SPEC section 4, before section 26): only the critical fields that are
   missing or failed a per-field rule, with the page text of their sections as context.
 
 Values come back with ``source="llm"`` and a confidence equal to the model's self-report

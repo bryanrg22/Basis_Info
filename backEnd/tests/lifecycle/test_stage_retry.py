@@ -1,4 +1,4 @@
-"""A failed stage fails fast and is retried in place (EVAL_REPORT section 27, item 3).
+"""A failed stage fails fast and is retried in place (EVAL_REPORT section 26, item 3).
 
 Before v0.9 an extraction failure surfaced only after the photo stage (17 minutes and
 $2.67 on the live run) and failed the whole execution, which could not be restarted. With

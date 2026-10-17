@@ -1,4 +1,4 @@
-"""Unit costs per component label, loaded from a file (EVAL_REPORT section 27, item 6).
+"""Unit costs per component label, loaded from a file (EVAL_REPORT section 26, item 6).
 
 Cost segregation prices each component with a published unit cost (the IRS Cost
 Segregation Audit Techniques Guide, chapter 4, describes the detailed engineering

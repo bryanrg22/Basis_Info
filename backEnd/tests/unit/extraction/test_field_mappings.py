@@ -39,7 +39,7 @@ def test_every_critical_field_is_a_catalogue_key() -> None:
     assert set(CRITICAL_FIELDS) <= set(FIELD_BY_KEY)
 
 
-# EVAL_REPORT section 27: the room, bedroom and bathroom counts are critical too (the
+# EVAL_REPORT section 26: the room, bedroom and bathroom counts are critical too (the
 # labelled critical fields the live run missed); the golden file names the S3 six.
 ROOM_COUNTS = ["improvements.total_rooms", "improvements.bedrooms", "improvements.bathrooms"]
 
@@ -132,7 +132,7 @@ def test_critical_fields_have_typed_values(key: str) -> None:
 
 
 def test_uncaptioned_boxes_are_read_only_by_the_model() -> None:
-    """EVAL_REPORT 27: boxes whose caption is not unique ("Low", "Sq.Ft." in a cost row) are
+    """EVAL_REPORT 26: boxes whose caption is not unique ("Low", "Sq.Ft." in a cost row) are
     never matched from Azure DI or the regex pass, and never a cost-table row."""
     uncaptioned = [spec for spec in FIELDS if not spec.captioned]
     assert {spec.key for spec in uncaptioned} >= {

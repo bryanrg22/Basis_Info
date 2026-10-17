@@ -98,7 +98,7 @@ class StudyStatusView(_Frozen):
     flagged_photos: tuple[str, ...] = ()
     # Stages whose output needs an engineer's attention because the budget ran out.
     needs_review_stages: tuple[str, ...] = ()
-    # v0.9 (EVAL_REPORT 27): the stage that failed and why, while the workflow waits for
+    # v0.9 (EVAL_REPORT 26): the stage that failed and why, while the workflow waits for
     # a retry (the ``retry`` update); null otherwise.
     failed_stage: StageName | None = None
     failure: str | None = None

@@ -84,7 +84,7 @@ def dump_json(data: Any) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-# A unit-cost table in basis.domain.cost_table's schema (EVAL_REPORT section 27). Invented
+# A unit-cost table in basis.domain.cost_table's schema (EVAL_REPORT section 26). Invented
 # numbers: the engineer's RSMeans table is licensed and never in the repository.
 COST_TABLE: Final[dict[str, Any]] = {
     "schema_version": 1,

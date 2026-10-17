@@ -597,7 +597,7 @@ async def test_documents_order_the_photos_by_file_name(
 
 
 # --------------------------------------------------------------------------- file-name rooms
-# EVAL_REPORT section 27, item 1: a room grouped by file name gets its type and floor voted
+# EVAL_REPORT section 26, item 1: a room grouped by file name gets its type and floor voted
 # from its photos (group_photos's rules) before the plan, and is planned even when every
 # photo answered ambiguous.
 

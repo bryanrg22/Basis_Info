@@ -28,7 +28,7 @@ os.environ.setdefault("VISION_COUNT_FUSION", "off")
 os.environ.setdefault("ROOM_RECONCILE", "false")
 # And the extraction fallback asks only for the critical fields (S3_SPEC section 4), the
 # baseline the extraction and lifecycle tests count calls against; the "missing" scope
-# (EVAL_REPORT section 27, the production default) has its own unit tests and runs in
+# (EVAL_REPORT section 26, the production default) has its own unit tests and runs in
 # test_production_defaults.py.
 os.environ.setdefault("EXTRACTION_FALLBACK_SCOPE", "critical")
 

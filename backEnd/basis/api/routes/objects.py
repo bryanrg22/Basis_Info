@@ -165,7 +165,7 @@ async def editable_revision(
         )
     if study.status not in (StudyStatus.WAITING_REVIEW, StudyStatus.STALLED):
         # At rooms_review but the gate is not open yet: the photos are still being
-        # analyzed and localized behind the appraisal review (EVAL_REPORT 27).
+        # analyzed and localized behind the appraisal review (EVAL_REPORT 26).
         raise Conflict(
             f"The rooms review is not open yet (status {study.status.value}): the photos "
             "are still being analyzed.",
