@@ -1657,7 +1657,7 @@ choice should be re-measured on the held-out study before it is trusted further.
 | Per-photo countables | gpt-6.1-sol | `photo_countables/v3` (19; v2 before) | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
 | Per-photo surfaces and room type | gpt-6-luna (28.1; gpt-6.1-sol before) | `photo_surfaces/v2` (19; v1 before) | low | `VISION_SURFACES_MODEL`; effort and budget as above | 11, 12.1, 28.1 | merged with the countables call (`basis/vision/merge.py`); room accuracy and surface F1 equal to gpt-6.1-sol, $0.019 against $0.336 per 52 photos (28.1) | `VISION_SURFACES_MODEL=gpt-6.1-sol` |
 | Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
-| Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5, 28.2 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input); 28.2: gpt-6-luna matches on counts, not on the second look's materials, so kept | `ROOM_RECONCILE=false` (per-photo rows become assets) |
+| Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5, 28.2 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input); 28.2: recommended split, gpt-6-luna reconciling and Sonnet for the second look (materials decide IRS buckets), once `ROOM_MATERIALS_MODEL` exists | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
 | Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 (the room model) | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive` | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
 | Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
@@ -3639,13 +3639,19 @@ Reading:
   repeats of this run and `ceramic` on Sonnet's),
   half the price ($0.157 against $0.314 per run, of which the second looks are $0.148).
 
-Recommendation: **no change to the default in this section's PR**. The production room step
-runs the reconciler and the second look on one model (`ROOM_MODEL`), so the configuration that
-matches needs a `ROOM_MATERIALS_MODEL` setting in the room step, which another session is
-rewriting at the same time (the room-call stage of 26.10); moving `ROOM_MODEL` to gpt-6-luna
-alone would save $0.30 per study but lose three of the 17 right materials. The split is a
-follow-up: one setting, default `claude-sonnet-5-5`, with `ROOM_MODEL=gpt-6-luna`, saving
-about $0.16 per study.
+Materials fall under the accuracy exception, with component identification and counting: the
+material decides the IRS bucket of a row (a painted wall read as wallpaper moves it from the
+39-year building to a 5-year wall covering). So the material second look stays on Sonnet 5.5
+whatever it costs, and only the reconciliation is open to the cost rule.
+
+Recommended configuration: **gpt-6-luna low for the reconciliation, Sonnet 5.5 low for the
+material second look** (16 of 20 materials, counts within the noise, $0.157 against $0.314 per
+run, about $0.16 less per study). It needs a `ROOM_MATERIALS_MODEL` setting: the production room
+step runs both calls on `ROOM_MODEL`. The room-call-wiring session (the room-call stage of 26.10)
+adds that setting in its PR, so the room step's settings change in one place, and the split
+becomes the default there. Until then **this PR leaves the room step on Sonnet 5.5 for both
+calls**. Moving `ROOM_MODEL` to gpt-6-luna alone would save $0.30 per study but lose three of
+the 17 right materials, and is not recommended.
 
 ### 28.3 Asset classification
 
@@ -3726,14 +3732,14 @@ reasoning, which none of these rows had.
 |---|---|---|---|---|
 | Per-photo countables and count fusion | gpt-6.1-sol low + Opus 5.5 medium per class | unchanged (accuracy binds) | 12.1, 15 | unchanged |
 | **Per-photo surfaces and room type** | gpt-6.1-sol low | **gpt-6-luna low** (`VISION_SURFACES_MODEL`) | 28.1 | $0.336 → **$0.019** per 52 photos |
-| Room step, reconciliation | Sonnet 5.5 low | unchanged; gpt-6-luna matches once the second look has its own setting (follow-up) | 28.2 | $0.314 per run (→ $0.157 with the follow-up) |
-| Room step, material second look | Sonnet 5.5 low | unchanged (best measured) | 28.2 | (in the row above) |
+| Room step, reconciliation | Sonnet 5.5 low | **recommended gpt-6-luna low**, pending `ROOM_MATERIALS_MODEL` (added by the room-call-wiring PR); Sonnet until then | 28.2 | $0.314 per run (→ $0.157 with the split) |
+| Room step, material second look | Sonnet 5.5 low | unchanged: materials decide IRS buckets (accuracy exception), and Sonnet is the best measured | 28.2 | (in the row above) |
 | Extraction fallback | gpt-6-luna low | unchanged (17.1: cheapest and best) | 17.1 | $0.0024 |
 | Asset classification | Sonnet 5.5 low | unchanged (no cheaper model matched) | 28.3 | $1.28 per 46 rows ($3.99 live, 27.8) |
 
 On the live study of 27.8 ($6.75), the surfaces change saves about $0.32 (the gpt-6.1-sol
-surfaces calls on 52 photos), so about $6.43 per study, and about $6.27 with the room-step
-follow-up. These are offline per-step costs applied to the live total, not a new live run.
+surfaces calls on 52 photos), so about $6.43 per study, and about $6.27 once the room step's
+split lands. These are offline per-step costs applied to the live total, not a new live run.
 The steps that cost the most per study (count fusion on Opus and the classifier on Sonnet) are
 the ones where accuracy binds or where no cheaper model matched.
 
