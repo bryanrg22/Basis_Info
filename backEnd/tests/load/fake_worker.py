@@ -16,7 +16,8 @@ section 6).
 Environment: ``LOAD_LATENCY_SCALE`` (default 1.0) multiplies every fake latency;
 ``LOAD_LATENCY_PROFILE`` names another profile JSON (default: the 27.8 live study);
 ``LOAD_PROVIDER_LIMITS`` (a ``tooling/load/provider_limits.py`` JSON) emulates our accounts'
-rate limits (``rate_limits.py``).
+rate limits (``rate_limits.py``); ``LOAD_EMBEDDER=real`` uses the production embedder
+(local CPU) instead of the hash embedder.
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ from basis.api.app import default_storage  # noqa: E402
 from basis.config import Settings  # noqa: E402
 from basis.db.session import create_sessionmaker  # noqa: E402
 from basis.llm.pool import ProviderPool  # noqa: E402
-from basis.retrieval import Retrieval  # noqa: E402
+from basis.retrieval import Retrieval, default_retrieval  # noqa: E402
 from basis.retrieval.bm25 import Bm25Registry  # noqa: E402
 from basis.retrieval.embed import HashEmbedder  # noqa: E402
 from basis.retrieval.store import PostgresChunkStore  # noqa: E402
@@ -68,7 +69,12 @@ def load_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     latency = latency_model()
     sessionmaker = create_sessionmaker(engine)
     storage, bucket = default_storage(settings)
-    registry = Bm25Registry()
+    # The embedder is local CPU, not a paid provider: LOAD_EMBEDDER=real loads the
+    # production one (EMBEDDING_MODEL) so ingest_appraisal does its real work under load.
+    if os.environ.get("LOAD_EMBEDDER") == "real":
+        retrieval = default_retrieval(settings)
+    else:
+        retrieval = Retrieval(embedder=HashEmbedder(), registry=Bm25Registry())
     limits_file = os.environ.get("LOAD_PROVIDER_LIMITS")
     limits = (
         RateLimits.from_file(Path(limits_file), scale=latency.scale or 1.0) if limits_file else None
@@ -90,11 +96,11 @@ def load_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         storage=storage,
         bucket=bucket,
         settings=settings,
-        retrieval=Retrieval(embedder=HashEmbedder(), registry=registry),
+        retrieval=retrieval,
         llm=pool,
         azure_di=LatencyAzureDi(latency),
         chat_provider=pool,
-        chunk_store=PostgresChunkStore(sessionmaker, registry=registry),
+        chunk_store=PostgresChunkStore(sessionmaker, registry=retrieval.registry),
         localizer=LatencyLocalizer(latency, concurrency=settings.localizer_concurrency),
     )
 

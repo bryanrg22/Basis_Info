@@ -83,6 +83,13 @@ health server, the Prometheus metrics, the drain.
   The reference corpus is the lifecycle tests' synthetic chunks (`setup_db.py`).
 - **Calibration**: one fake study against the live one is EVAL_REPORT 31.2 (call counts,
   assets, cost, stage timings).
+- **Provider rate limits** (optional, `LOAD_PROVIDER_LIMITS=<provider_limits.json>`):
+  `backEnd/tests/load/rate_limits.py` turns our accounts' limits (read from the providers'
+  response headers by `tooling/load/provider_limits.py`) into one token bucket per model
+  and limit (RPM / ITPM / OTPM for Claude, RPM / TPM for OpenAI). A spent bucket answers
+  as the real provider does: one retry after the Retry-After (capped at 10 s), then a 429
+  `ProviderRateLimited`, which the callers handle as in production. Off by default, so a
+  step measures our own limits first; on, it shows what the providers' ceilings do to it.
 - **The switch**: `fake_worker.py --providers real` (`stack.sh up DIR real`) runs the
   production composition root unchanged (real providers, real spend).
 

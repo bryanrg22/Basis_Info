@@ -58,7 +58,7 @@ def summarize_studies(rows: list[dict[str, Any]], scale: float) -> dict[str, Any
     starts = [r["started_at"] for r in rows if "started_at" in r]
     ends = [r["finished_at"] for r in rows if "finished_at" in r]
     makespan = (max(ends) - min(starts)) if starts and ends else None
-    run_s = [r["run_s"] for r in done]
+    run_s = [r["run_s"] for r in done if "run_s" in r]
     out: dict[str, Any] = {
         "studies": len(rows),
         "completed": len(done),
@@ -109,6 +109,19 @@ def _num(value: str) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def aggregate(path: Path) -> dict[str, Any]:
+    """Locust's ``Aggregated`` row: requests, failures, requests per second, p95, p99."""
+    if not path.exists():
+        return {}
+    with path.open() as f:
+        for row in csv.DictReader(f):
+            if row["Name"] == "Aggregated":
+                return {"count": int(row["Request Count"]), "failures": int(row["Failure Count"]),
+                        "rps": _num(row["Requests/s"]), "p95": _num(row["95%"]),
+                        "p99": _num(row["99%"])}
+    return {}
 
 
 def failures(path: Path) -> list[dict[str, Any]]:
@@ -279,6 +292,8 @@ def render(summary: dict[str, Any]) -> str:
             f"- processes {json.dumps(smp['procs'])}",
         ]
     lines.append(f"- logs {json.dumps(summary['logs'])}")
+    if summary.get("aggregate"):
+        lines.append(f"- all requests {json.dumps(summary['aggregate'])}")
     lines += ["", "| Route | Requests | Failures | p50 ms | p95 ms | p99 ms | max ms |",
               "|---|---|---|---|---|---|---|"]
     for r in summary["routes"]:
@@ -312,6 +327,7 @@ def main() -> None:
         if (run_dir / "settings.env").exists() else [],
         "studies": summarize_studies(studies, args.scale),
         "routes": summarize_routes(run_dir / "locust_stats.csv"),
+        "aggregate": aggregate(run_dir / "locust_stats.csv"),
         "failures": failures(run_dir / "locust_failures.csv"),
         "samples": summarize_samples(load_jsonl(run_dir / "samples.jsonl")),
         "logs": scan_logs(run_dir),

@@ -56,6 +56,7 @@ from plan import APPRAISAL, FIXTURES, emulator_token, photo_plan, scaled, unique
 
 GATES = ("appraisal_review", "rooms_review", "assets_review")
 POLL_S = 5.0  # the frontend's (and the live client's) workflow poll interval
+CSV_FLUSH_S = 2.5
 
 _lock = threading.Lock()
 _ids = itertools.count()
@@ -238,6 +239,10 @@ class StudyEngineer(Engineer, HttpUser):
             with _lock, self.log_path.open("a") as f:
                 f.write(json.dumps(record, default=str) + "\n")
         if last:
+            # Locust writes --csv every CSV_STATS_INTERVAL_SEC (1 s) and quitting from a user
+            # skips a last write, so let one more interval pass first (a 3-s upload-only step
+            # otherwise lost a third of its requests from the CSV).
+            time.sleep(CSV_FLUSH_S)
             self.environment.runner.quit()
         if _state["started"] >= self._opts().target_studies:
             raise StopUser()
@@ -403,6 +408,8 @@ class ReviewReader(Engineer, HttpUser):
         r = self.call("GET", "/v1/studies", "GET /v1/studies", params={"limit": 50})
         items = r.json().get("items", []) if r.status_code == 200 else []
         self.studies: List[str] = [s["id"] for s in items]
+        # Only a started study has a workflow to poll (a draft answers 404, as it should).
+        self.started: List[str] = [s["id"] for s in items if s.get("status") != "draft"]
         self.photos: Dict[str, List[str]] = {}
         self.turn = 0
 
@@ -414,8 +421,9 @@ class ReviewReader(Engineer, HttpUser):
 
     @task(10)
     def poll_workflow(self) -> None:
-        sid = self._study()
-        if sid:
+        if self.started:
+            sid = self.started[self.turn % len(self.started)]
+            self.turn += 1
             self.call("GET", f"/v1/studies/{sid}/workflow", "GET /v1/studies/{id}/workflow")
 
     @task(3)
