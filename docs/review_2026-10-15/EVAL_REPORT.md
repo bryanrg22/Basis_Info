@@ -3160,7 +3160,7 @@ could not see. Each is fixed in its own commit with tests (branch
 `claude/quizzical-saha-e892c3`); this section gives before and after for each (section 26, the vision architecture study,
 landed first).
 
-| # | Gap (section 23) | Before | After |
+| # | Gap (section 23) | Before | After (offline replays on the stored live outputs; live run in 27.8) |
 |---|---|---|---|
 | 1 | Rooms grouped by the model's room identity | 14 rooms of 33, count MAE 0.60 (live, defaults) | file name + the engineer's aliases, model identity only for names that say nothing: 33 rooms, count MAE **0.37** on the same live per-photo outputs (one repeat) |
 | 2 | Extraction asked the model only for 6 critical fields | 23 right / 0 wrong / 52 not extracted of 75 | **72 right / 2 wrong / 1 not extracted** on every one of 3 repeats, 12 of 12 critical, $0.0024 per study |
@@ -3169,12 +3169,10 @@ landed first).
 | 5 | No read routes for fields, rooms, assets | the client read the database | `GET /fields`, `/rooms` (with inventories), `/assets`, paginated |
 | 6 | 166 of 203 assets `COST_ROW_MISSING` (106 for that alone) | 186 of 203 need review | **24** `COST_ROW_MISSING` (22 unidentified `other`), **94** need review |
 
-The live re-run of the whole study (`repro/live_client.py`) is **not done**: the Anthropic
-account ran out of credit on 2026-10-16 (a probe answered "credit balance is too low"), and
-the defaults use Claude for the count fusion, the room step and the classifier. A run
-without them would not measure what section 23 measured, so the client was stopped before
-the study started (no model spend). The numbers above are offline replays on the live
-run's stored outputs; 27.7 says how to run the live study once the account is topped up.
+The client study was then run live again on the real defaults, through the running system
+(27.8): it completed in 9 min 56 s from `start` for $6.75, with 33 rooms, 72 of 75 fields,
+the appraisal gate open at +93 s while 39 photos were still being analyzed, and half the
+assets needing review instead of 91%.
 
 ### 27.1 Rooms: file names first, the engineer's aliases, the model's identity as a fallback
 
@@ -3295,7 +3293,7 @@ workflow has not opened is 409 `gate-not-open`. The lifecycle test holds one pho
 analysis to make the timing deterministic: in history order, extraction done < appraisal
 gate open < last analysis done, and every analysis, localization and the room step < rooms
 gate. On live run 3's timings the appraisal gate would open at about +90 s (the extraction was
-done at +87 s) instead of +681 s; not measured live (27.7).
+done at +87 s) instead of +681 s; live it opened at +93 s with 39 photos still in flight (27.8).
 
 ### 27.5 Read routes
 
@@ -3351,27 +3349,80 @@ factor is still the legacy escalation table on the 2020 base, not RSMeans' Histo
 Index (Building 2020 has one; Residential does not), and the location factor is still the
 setting; both are follow-ups.
 
-### 27.7 Not done, and how to finish
+### 27.7 Still open
 
-- **The live re-run.** After the Anthropic account is topped up: start a stack (Postgres,
-  `temporal server start-dev`, `alembic upgrade head`, the reference corpus,
-  worker/relay/API with `COST_TABLE_PATH` set to the private table and the real defaults),
-  then `ROOM_ALIASES=~/basis-eval-data/labels/room_aliases_v1.json PG_DB=<db> API=<url>
-  python ../docs/review_2026-10-15/repro/live_client.py OUT`, `live_export.py` and
-  `evals.run` as in section 23 (about $6, 15 minutes). The client now sends the aliases,
-  reads each gate through the new routes, and logs the photo progress when the appraisal
-  gate opens.
-- Not measured live: the gate timing (27.4), the extraction on a fresh Azure DI analysis,
-  the review load with live classification.
 - Follow-ups: price `COST_NEEDS_QUANTITY` items from measured quantities (site area from
-  the appraisal, roof area); the RSMeans Historical Cost Index and City Cost Index for the
-  year and location factors; a room-merge UI at the rooms review (the API takes
-  `merge_into`); whether the heating check box needs Azure DI's selection-mark structure
-  rather than its text.
+  the appraisal, roof area); price FF&E (`furniture`) from purchase records, which RSMeans
+  does not cover; the RSMeans Historical Cost Index and City Cost Index for the year and
+  location factors; a room-merge UI at the rooms review (the API takes `merge_into`);
+  whether the heating check box needs Azure DI's selection-mark structure rather than its
+  text.
+- One live run is one repeat; Replicate was not throttled on this run (its credit was
+  above the throttling threshold), so the photo stage is faster than in section 23 for a
+  reason unrelated to this work.
 
-Spend for this section: $0.30 Anthropic (the room replay), about $0.03 OpenAI (the
-extraction replays), about $0.01 Azure OpenAI (the gpt-5-nano replay by mistake); the
-RSMeans extraction made no model calls.
+### 27.8 The live re-run
+
+The client study (the appraisal and 52 photos) through the running stack on the branch
+(`c7b53d4`), the defaults of section 18 unchanged (gpt-6.1-sol decomposed with per-class
+fusion on Opus 5.5, gpt-6-luna extraction, Sonnet 5.5 room step and classifier, SAM 3 on
+Replicate), `PROPERTY_CLASS=nonresidential`, the private RSMeans table at
+`COST_TABLE_PATH`, the engineer's 16 room aliases sent with the study, each gate approved
+through the API with no corrections. Scored with `live_export.py` and `evals.run` on the
+pinned label set, as in section 23 (one repeat):
+
+| Step | Metric | Section 23 (run 3, defaults) | **Live, this branch** | Offline reference |
+|---|---|---|---|---|
+| Timing | appraisal gate open, from `start` | +681 s | **+93 s** (39 of 52 photos still in flight) | |
+| | rooms gate / assets gate / completed | +685 s / +869 s / 874 s | +397 s / +587 s / **596 s** | |
+| Per-photo counts (312 pairs) | count MAE / exact | 0.135 / 0.897 | **0.135 / 0.891** | 0.124 (15.1 4c) |
+| Rooms | rooms made / count MAE / exact / bias | 14 / 0.60 / 0.51 / -0.23 | **33 / 0.44 / 0.66 / +0.04** | 0.43 (16.5) |
+| | label F1 / report rows | 0.69 / 32 of 39 | **0.84 / 33 of 39** | 0.85 / 32 |
+| Appraisal fields (75) | right / wrong / not extracted | 23 / 0 / 52 | **72 / 2 / 1** | 0.924 (17.1) |
+| | critical (12) | 8 of 12 | **12 of 12** | 12 of 12 |
+| Assets | assets / needing review | 192 / 175 (91%) | **280 / 140 (50%)** | |
+| | `COST_ROW_MISSING` / priced | 156 / 36 | **51 / 214** | |
+| | schedule rows answered right | 23 of 32 | **23 of 33** (bucket accuracy 0.50 of 46) | 0.688 (17.2) |
+| | citations verified | 263 of 263 | **379 of 379** | |
+| Cost | the study | $5.74 | **$6.75** | |
+
+Reading:
+
+- Every fix shows live. The appraisal gate opens with the extraction; the rooms gate waits
+  for the photo stage. Production made the 33 labelled rooms, and the room step scored as the
+  offline evaluation did (0.44 against 0.43). The extraction read 72 of 75 fields, the same
+  three misses as 27.2. The review load halved.
+- The per-photo step is unchanged (0.135, as in section 23), as expected: nothing in it
+  changed.
+- More assets (280 against 192): with 33 rooms instead of 14, objects that the model's
+  identity had merged across rooms are now counted in their own rooms. So the classifier
+  made 359 calls ($3.99, against $3.08), which is most of the cost difference.
+- What still has no cost row live: 30 unidentified `other`, 17 `furniture` (FF&E, a label
+  added after section 23, which cost segregation prices from purchase records, not from
+  RSMeans), two half walls (the only RSMeans figure is an assembly, left out), one generic
+  appliance, one porch. Fifteen site items are `COST_NEEDS_QUANTITY`. The other review
+  reasons: `rule_contested` 84, the classifier's own doubts 39,
+  `SECTION_1245_SF_LARGE` 14, `STRUCTURAL_AS_PERSONAL` 4, `citation_unverified` 2. Only 2
+  assets were flagged for a missing cost row alone (section 23: 105).
+- The photo stage was faster than in section 23 (SAM 3 not throttled), so the absolute
+  timings are not a like-for-like comparison. The appraisal gate's +93 s is independent of
+  that: it no longer waits for the photos at all.
+
+Commands (from `backEnd/`, a stack as in section 23 with `COST_TABLE_PATH` set):
+
+```bash
+ROOM_ALIASES=~/basis-eval-data/labels/room_aliases_v1.json PG_DB=basis_s25 API=http://127.0.0.1:8210 \
+    python ../docs/review_2026-10-15/repro/live_client.py OUT
+BASIS_EVAL_DATA_DIR=~/basis-eval-data/work/labels_pre_2026-10-16 \
+    python ../docs/review_2026-10-15/repro/live_export.py OUT/db_final OUT/documents.json PRED
+BASIS_EVAL_DATA_DIR=~/basis-eval-data/work/labels_pre_2026-10-16 python -m evals.run \
+    --predictions PRED --no-db
+```
+
+Spend for this section: $6.75 for the live run ($5.79 Anthropic, $0.85 OpenAI, $0.12
+Replicate; Azure DI not recorded), $0.30 Anthropic for the room replay, about $0.03 OpenAI
+for the extraction replays, about $0.01 Azure OpenAI (the gpt-5-nano replay by mistake);
+the RSMeans extraction made no model calls.
 
 Commands (from `backEnd/`; the predictions, labels and cost table are private):
 
