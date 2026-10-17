@@ -56,7 +56,6 @@ from plan import APPRAISAL, FIXTURES, emulator_token, photo_plan, scaled, unique
 
 GATES = ("appraisal_review", "rooms_review", "assets_review")
 POLL_S = 5.0  # the frontend's (and the live client's) workflow poll interval
-STUDY_TIMEOUT_S = 3 * 3600.0  # real seconds; scaled by --time-scale
 
 _lock = threading.Lock()
 _ids = itertools.count()
@@ -69,6 +68,9 @@ def _options(parser: Any) -> None:
     parser.add_argument("--photos", type=int, default=52, help="photos per study")
     parser.add_argument("--time-scale", type=float, default=1.0, help="= LOAD_LATENCY_SCALE")
     parser.add_argument("--gate-think-s", type=float, default=0.0, help="review time per gate")
+    parser.add_argument(
+        "--study-timeout-s", type=float, default=6 * 3600.0, help="real seconds; x --time-scale"
+    )
     parser.add_argument("--run-dir", default="", help="studies.jsonl goes here")
     parser.add_argument(
         "--firebase-project",
@@ -147,7 +149,8 @@ class Engineer:
                     response.success()
                     return response
                 else:
-                    response.failure(f"{response.status_code} {response.text[:200]}")
+                    detail = response.text[:200] if response.status_code else repr(response.error)
+                    response.failure(f"{response.status_code} {detail[:200]}")
                     return response
             time.sleep(wait)
 
@@ -312,7 +315,7 @@ class StudyEngineer(Engineer, HttpUser):
         record["started_at"] = time.time()
         seen: Dict[str, float] = {}
         polls = 0
-        deadline = t0 + STUDY_TIMEOUT_S * scale
+        deadline = t0 + opts.study_timeout_s * scale
         while True:
             if time.monotonic() > deadline:
                 raise RuntimeError("study timed out")

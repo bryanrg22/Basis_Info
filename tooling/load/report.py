@@ -39,7 +39,10 @@ LOG_PATTERNS = {
     "pool_timeout": re.compile(r"QueuePool limit|pool.*timed out|TimeoutError: QueuePool"),
     "traceback": re.compile(r"^Traceback"),
     "error_lines": re.compile(r"\bERROR\b"),
-    "status_429": re.compile(r"\" 429\b| 429 Too Many|RateLimit"),
+    "api_429": re.compile(r"\" 429\b"),
+    "provider_429": re.compile(r"returned 429"),
+    "provider_5xx": re.compile(r"returned 5\d\d"),
+    "pool_fallback": re.compile(r"this call falls back to"),
     "activity_failed": re.compile(r"Completing activity as failed|activity failed", re.I),
 }
 
