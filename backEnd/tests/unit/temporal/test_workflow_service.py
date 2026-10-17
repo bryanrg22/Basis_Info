@@ -218,7 +218,7 @@ async def test_cancel() -> None:
 
 
 async def test_retry() -> None:
-    """EVAL_REPORT 26: the ``retry`` update; a refusal by the validator is 409-able."""
+    """EVAL_REPORT 27: the ``retry`` update; a refusal by the validator is 409-able."""
     client = StubClient()
     accepted = await service(client).retry("study-s1")
     assert client.calls[-1] == ("update", "retry", RetryAck)

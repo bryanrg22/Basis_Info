@@ -1,5 +1,5 @@
 """``record_failure``: a stage failed (``status = failed`` and the reason), or a retry
-cleared it (EVAL_REPORT section 26, item 3).
+cleared it (EVAL_REPORT section 27, item 3).
 
 The workflow records the failure only while the study is at the failed stage and
 revision; the API's ``POST /v1/studies/{id}/retry`` accepts a retry only for a failed

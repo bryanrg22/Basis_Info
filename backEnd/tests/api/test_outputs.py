@@ -1,6 +1,6 @@
 """``GET /v1/studies/{id}/fields``, ``/rooms``, ``/assets``: the revision's outputs.
 
-EVAL_REPORT section 23 finding 5 / section 26 item 5: the review gates' contents through
+EVAL_REPORT section 23 finding 5 / section 27 item 5: the review gates' contents through
 the API (the live client had to read the database). Real Postgres; synthetic rows.
 """
 
@@ -263,7 +263,7 @@ async def test_fields_of_the_current_revision(
         "azure",
     )
     assert year["document_id"] == str(seeded.photos["appraisal.pdf"])
-    assert by_key["improvements.bedrooms"]["critical"] is True  # section 26
+    assert by_key["improvements.bedrooms"]["critical"] is True  # section 27
     assert by_key["reconciliation.effective_date_of_appraisal"]["value_date"] == "2025-01-29"
     price = by_key["neighborhood.price_low_thousands"]
     assert (price["label"], price["critical"]) == ("One-Unit Housing PRICE $(000) Low", False)

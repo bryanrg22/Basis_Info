@@ -592,7 +592,7 @@ async def test_decomposed_replay_makes_no_new_calls(
 
 
 # --------------------------------------------------------------------------- file-name rooms
-# EVAL_REPORT section 26, item 1: ROOM_GROUPING=filename (the default) puts a photo in the
+# EVAL_REPORT section 27, item 1: ROOM_GROUPING=filename (the default) puts a photo in the
 # room its file name names (basis.vision.rooms.group_photos, after the study's aliases).
 
 

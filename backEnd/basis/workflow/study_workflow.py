@@ -56,7 +56,7 @@ Patches in this file:
   it is logged and flags the rooms review; the study continues on the per-photo rows.
   The activity itself is a no-op when ``ROOM_RECONCILE`` is off, so the command sequence
   does not depend on settings.
-* ``stage-failure-retry-v1`` (EVAL_REPORT section 26, item 3): the photo stage runs in the
+* ``stage-failure-retry-v1`` (EVAL_REPORT section 27, item 3): the photo stage runs in the
   background while the appraisal is ingested and extracted, and an extraction that fails
   is noticed at once: ``record_failure`` sets the study ``failed`` with the reason, the
   photo stage schedules nothing more (the few photo activities already running finish
@@ -68,7 +68,7 @@ Patches in this file:
   held the same way instead of failing the execution.
   Before the patch an extraction failure surfaced only after the photo stage and failed
   the whole execution, which could not be restarted.
-* ``appraisal-gate-early-v1`` (EVAL_REPORT section 26, item 4; only with the patch above):
+* ``appraisal-gate-early-v1`` (EVAL_REPORT section 27, item 4; only with the patch above):
   the appraisal review opens as soon as the extraction is done, while the photo stage
   (analysis, SAM 3 localization, the room step) continues in the background; the rooms
   review opens only after it. A rejection of the appraisal waits for the photo stage

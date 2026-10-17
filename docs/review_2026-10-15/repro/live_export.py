@@ -50,7 +50,7 @@ from evals.predict_photos import label_counts
 BUCKETS = {5: "y5", 7: "y7", 15: "y15", 27.5: "y27_5", 39: "y39"}
 # The same URAR box under the production field catalogue's key and the label file's key
 # (basis.extraction.field_mappings against appraisal_fields_v1); nothing else is renamed.
-# The second group (EVAL_REPORT section 26) are boxes the catalogue already had under
+# The second group (EVAL_REPORT section 27) are boxes the catalogue already had under
 # another name: the URAR caption is given with each.
 CATALOGUE_TO_LABEL = {
     "subject.assessors_parcel": "subject.assessor_parcel",

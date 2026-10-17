@@ -23,7 +23,7 @@
 * ``POST /v1/studies/{id}/cancel`` (owner): sends the ``cancel_study`` signal; the
   workflow cancels its activities and records the outcome. 404 when there is no
   workflow, 409 when it has already closed.
-* ``POST /v1/studies/{id}/retry`` (engineer; EVAL_REPORT section 26): a study whose stage
+* ``POST /v1/studies/{id}/retry`` (engineer; EVAL_REPORT section 27): a study whose stage
   failed (``status = failed``: the extraction, assets or export) runs that stage again.
   The ``retry`` update goes straight to the workflow (like the cancel signal), whose
   validator refuses it unless a stage has failed (409 ``study-not-failed``); a second

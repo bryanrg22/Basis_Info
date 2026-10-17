@@ -417,7 +417,7 @@ async def test_cancel_errors(
     problem(await api.post("alice", f"/v1/studies/{sid}/cancel"), 503, "service-unavailable")
 
 
-# --------------------------------------------------------------------------- retry (EVAL_REPORT 26)
+# --------------------------------------------------------------------------- retry (EVAL_REPORT 27)
 
 
 def failed_view(stage: str = "extracting") -> StudyStatusView:

@@ -26,7 +26,7 @@ after the engineer's aliases, with the room type voted by the per-photo model. I
 deterministic and makes no model call; the per-room reconciliation call
 (:mod:`basis.vision.reconcile`) runs on its groups.
 
-Production grouping (EVAL_REPORT sections 23.3 and 26): with ``ROOM_GROUPING=filename``
+Production grouping (EVAL_REPORT sections 23.3 and 27): with ``ROOM_GROUPING=filename``
 (the default) ``analyze_photo`` puts a photo whose file name names a room
 (:func:`is_room_hint`) in the room :func:`group_photos` gives it among the study's photos,
 after the study's ``room_aliases`` (:func:`assign_room_by_name`; the room's ``group_key``

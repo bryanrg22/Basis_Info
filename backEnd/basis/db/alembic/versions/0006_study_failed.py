@@ -5,7 +5,7 @@ Revises: 0005
 Create Date: 2026-10-16
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it). EVAL_REPORT
-section 26, item 3: when a stage fails (the appraisal extraction, assets, export), the
+section 27, item 3: when a stage fails (the appraisal extraction, assets, export), the
 workflow records ``status = failed`` and the reason and waits for ``POST .../retry``.
 
 ``ALTER TYPE ... ADD VALUE`` is allowed in a transaction on PostgreSQL 12+ (the value is

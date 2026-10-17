@@ -183,7 +183,7 @@ async def test_a_gate_the_workflow_has_not_opened_is_409(
     sessionmaker: async_sessionmaker[AsyncSession],
     status: StudyStatus,
 ) -> None:
-    """EVAL_REPORT 26: the study is at rooms_review (the appraisal was approved) but the
+    """EVAL_REPORT 27: the study is at rooms_review (the appraisal was approved) but the
     photo stage still runs, so the workflow has not opened that gate: no decision."""
     sid = await study_at(api, seed, Stage.ROOMS_REVIEW)
     async with session_scope(sessionmaker) as session:
