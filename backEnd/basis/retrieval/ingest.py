@@ -50,6 +50,7 @@ from basis.retrieval.embed import Embedder
 from basis.retrieval.parse import (
     REFERENCE_MAX_PAGES,
     STUDY_MAX_PAGES,
+    ParsedDocument,
     PdfError,
     parse_pdf,
 )
@@ -125,29 +126,38 @@ def _noop(_: str) -> None:
     return None
 
 
-async def ingest_documents(
+@dataclass(frozen=True, slots=True)
+class PreparedIngest:
+    """Sources parsed, chunked and embedded (:func:`prepare_documents`), ready for
+    :func:`write_prepared`. Holds no database state, so the work that takes seconds (PDF
+    parsing, embedding) can run with no connection checked out."""
+
+    corpus: CorpusName
+    study_id: uuid.UUID | None
+    doc_ids: list[str]
+    carry_forward: bool
+    embedding_model: str
+    parsed: list[ParsedDocument]
+    drafts_per_doc: list[list[ChunkDraft]]
+    embeddings: list[list[float]]
+    chunker: str
+    started: float
+
+
+async def prepare_documents(
     sources: Sequence[SourcePdf],
     *,
     corpus: CorpusName,
     study_id: uuid.UUID | None,
-    store: CorpusWriter,
     embedder: Embedder,
-    version: int | None = None,
     carry_forward: bool | None = None,
     max_pages: int | None = None,
     progress: Progress = _noop,
     chunk_tokens: int = CHUNK_TOKENS,
     overlap_tokens: int = OVERLAP_TOKENS,
-) -> IngestResult:
-    """Parse, chunk, embed and store ``sources`` as a new published corpus version.
-
-    Every write goes through ``store``; give it a session-bound store so the whole
-    version commits or rolls back as one unit. Raises :class:`PdfError` subclasses for
-    unusable PDFs before anything is written. ``chunk_tokens`` / ``overlap_tokens`` are
-    the chunk window (``RETRIEVAL_CHUNK_TOKENS`` / ``RETRIEVAL_CHUNK_OVERLAP``). Carried
-    forward documents keep the chunks they were ingested with: every chunk is a slice of
-    one page either way, so a version may mix window sizes, but not embedders.
-    """
+) -> PreparedIngest:
+    """Parse, chunk and embed ``sources`` (the first half of :func:`ingest_documents`);
+    raises :class:`PdfError` subclasses for unusable PDFs. Touches no store."""
     if not sources:
         raise ValueError("nothing to ingest")
     doc_ids = [source.doc_id for source in sources]
@@ -174,23 +184,50 @@ async def ingest_documents(
     ]
     all_drafts = [draft for drafts in drafts_per_doc for draft in drafts]
     embeddings = await _embed(embedder, [d.text for d in all_drafts], progress)
+    return PreparedIngest(
+        corpus=corpus,
+        study_id=study_id,
+        doc_ids=doc_ids,
+        carry_forward=carry_forward,
+        embedding_model=embedder.name,
+        parsed=parsed,
+        drafts_per_doc=drafts_per_doc,
+        embeddings=embeddings,
+        chunker=chunker_version(chunk_tokens, overlap_tokens),
+        started=started,
+    )
 
-    previous = await store.latest_version(corpus, study_id) if carry_forward else None
-    if previous is not None and previous.embedding_model != embedder.name:
+
+async def write_prepared(
+    prepared: PreparedIngest,
+    store: CorpusWriter,
+    *,
+    version: int | None = None,
+    progress: Progress = _noop,
+) -> IngestResult:
+    """Store a prepared ingest as a new published corpus version (the second half of
+    :func:`ingest_documents`). Every write goes through ``store``; give it a session-bound
+    store so the whole version commits or rolls back as one unit."""
+    corpus, study_id = prepared.corpus, prepared.study_id
+    previous = await store.latest_version(corpus, study_id) if prepared.carry_forward else None
+    if previous is not None and previous.embedding_model != prepared.embedding_model:
         raise ValueError(
             f"cannot carry forward version {previous.version} embedded with "
-            f"{previous.embedding_model!r} into a {embedder.name!r} version; use --fresh"
+            f"{previous.embedding_model!r} into a {prepared.embedding_model!r} version; "
+            "use --fresh"
         )
-    info = await store.create_version(corpus, study_id, embedder.name, version)
+    info = await store.create_version(corpus, study_id, prepared.embedding_model, version)
     carried = 0
     if previous is not None:
-        carried = await store.copy_documents(previous.id, info.id, exclude=doc_ids)
+        carried = await store.copy_documents(previous.id, info.id, exclude=prepared.doc_ids)
+    parsed = prepared.parsed
     table_ids = await store.insert_tables(info.id, [t for doc in parsed for t in doc.tables])
+    all_drafts = [draft for drafts in prepared.drafts_per_doc for draft in drafts]
     await store.insert_chunks(
         info.id,
         [
             _new_chunk(draft, vector, table_ids)
-            for draft, vector in zip(all_drafts, embeddings, strict=True)
+            for draft, vector in zip(all_drafts, prepared.embeddings, strict=True)
         ],
     )
     await store.publish_version(info.id)
@@ -205,22 +242,62 @@ async def ingest_documents(
             table_chunks=sum(1 for d in drafts if d.table_key is not None),
             tables=len(document.tables),
         )
-        for document, drafts in zip(parsed, drafts_per_doc, strict=True)
+        for document, drafts in zip(parsed, prepared.drafts_per_doc, strict=True)
     ]
     result = IngestResult(
         corpus_version_id=info.id,
         version=info.version,
         corpus=corpus,
         study_id=study_id,
-        embedding_model=embedder.name,
+        embedding_model=prepared.embedding_model,
         documents=stats,
         carried_forward_chunks=carried,
-        seconds=time.perf_counter() - started,
+        seconds=time.perf_counter() - prepared.started,
         scanned_docs=[document.doc_id for document in parsed if document.scanned],
-        chunker=chunker_version(chunk_tokens, overlap_tokens),
+        chunker=prepared.chunker,
     )
     logger.info("corpus version ingested", extra=result.summary())
     return result
+
+
+async def ingest_documents(
+    sources: Sequence[SourcePdf],
+    *,
+    corpus: CorpusName,
+    study_id: uuid.UUID | None,
+    store: CorpusWriter,
+    embedder: Embedder,
+    version: int | None = None,
+    carry_forward: bool | None = None,
+    max_pages: int | None = None,
+    progress: Progress = _noop,
+    chunk_tokens: int = CHUNK_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
+) -> IngestResult:
+    """Parse, chunk, embed and store ``sources`` as a new published corpus version:
+    :func:`prepare_documents` then :func:`write_prepared`.
+
+    Every write goes through ``store``; give it a session-bound store so the whole
+    version commits or rolls back as one unit. Raises :class:`PdfError` subclasses for
+    unusable PDFs before anything is written. ``chunk_tokens`` / ``overlap_tokens`` are
+    the chunk window (``RETRIEVAL_CHUNK_TOKENS`` / ``RETRIEVAL_CHUNK_OVERLAP``). Carried
+    forward documents keep the chunks they were ingested with: every chunk is a slice of
+    one page either way, so a version may mix window sizes, but not embedders. A caller
+    that holds a database transaction (``ingest_appraisal``) prepares first and writes in
+    the transaction, so the parsing and embedding do not hold a pooled connection.
+    """
+    prepared = await prepare_documents(
+        sources,
+        corpus=corpus,
+        study_id=study_id,
+        embedder=embedder,
+        carry_forward=carry_forward,
+        max_pages=max_pages,
+        progress=progress,
+        chunk_tokens=chunk_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+    return await write_prepared(prepared, store, version=version, progress=progress)
 
 
 async def ingest_pdf(

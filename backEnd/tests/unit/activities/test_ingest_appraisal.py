@@ -268,3 +268,30 @@ async def test_a_cited_stub_leftover_is_not_retried(
     assert caught.value.type == "ValidationError" and caught.value.non_retryable
     async with session_scope(deps.sessionmaker) as session:
         assert await session.get(CorpusVersion, leftover) is not None
+
+
+@pytest.mark.regression
+async def test_no_connection_is_held_while_the_appraisal_is_embedded(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT 31.4: the download, parsing and embedding (seconds of CPU on the
+    production embedder) ran inside run_once's transaction, holding a pooled connection;
+    ten studies starting together starved the worker's pool. Now they run before it."""
+    engine = deps.sessionmaker.kw["bind"]
+    checked_out: list[int] = []
+
+    class Watching(HashEmbedder):
+        def embed(self, texts: Any) -> list[list[float]]:
+            checked_out.append(engine.sync_engine.pool.checkedout())
+            return super().embed(texts)
+
+    watched = Deps(
+        sessionmaker=deps.sessionmaker,
+        storage=deps.storage,
+        bucket=deps.bucket,
+        settings=deps.settings,
+        retrieval=Retrieval(embedder=Watching(), registry=Bm25Registry()),
+    )
+    output = await activity_env.run(IngestAppraisal(watched).run, ingest(seeded.study_id))
+    assert output.chunks > 0
+    assert checked_out and set(checked_out) == {0}
