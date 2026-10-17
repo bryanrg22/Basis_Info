@@ -246,19 +246,48 @@ def photo_class(image: DetectionImage, label: str, boxes: Sequence[PredictedBox]
     return PhotoClass(ordered, positives, sum(1 for b in gold if not b.group_of))
 
 
+def observed_candidates(
+    pool: Mapping[str, Sequence[Instance]], label: ComponentLabel, max_phrases: int
+) -> list[Candidate]:
+    """Every subset of at most ``max_phrases`` of the phrases ``pool`` used for ``label``
+    (sorted), for detectors whose phrases are not the SAM 3 pool: a trained segmenter's
+    class names (``evals.predict_detector``). A label with no instance gets one empty
+    candidate (no detections)."""
+    phrases = sorted({i.phrase for found in pool.values() for i in found if i.label == label})
+    found: list[Candidate] = []
+    for size in range(1, min(max_phrases, len(phrases)) + 1):
+        found += list(itertools.combinations(phrases, size))
+    return found or [()]
+
+
 def build(
     images: Sequence[DetectionImage],
     pool: Mapping[str, Sequence[Instance]],
     labels: Sequence[ComponentLabel],
     max_phrases: int,
     progress: Callable[[str], None] | None = None,
+    candidates: Callable[[ComponentLabel], list[Candidate]] | None = None,
 ) -> list[ClassData]:
+    """The scored table of every candidate phrase subset per class; ``candidates`` gives
+    a label's subsets (default :func:`candidates_for`, the SAM 3 phrase pool). With
+    ``candidates`` only the instances carrying the class's label are read (one class name,
+    for example a segmenter's ``light``, can stand for an interior or an exterior label)."""
     out: list[ClassData] = []
     for label in labels:
-        data = ClassData(label.value, candidates_for(label, max_phrases))
+        data = ClassData(
+            label.value,
+            candidates(label) if candidates is not None else candidates_for(label, max_phrases),
+        )
         phrases = {p for c in data.candidates for p in c}
         dedupers = {
-            image.file: Deduper([i for i in pool.get(image.file, ()) if i.phrase in phrases], label)
+            image.file: Deduper(
+                [
+                    i
+                    for i in pool.get(image.file, ())
+                    if i.phrase in phrases and (candidates is None or i.label == label)
+                ],
+                label,
+            )
             for image in images
             if image.scores(label.value)
         }
@@ -492,6 +521,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="lowest count threshold tried (below 0.3 needs a lower candidate threshold)",
     )
     select.add_argument("--split", default="dev")
+    select.add_argument(
+        "--candidates",
+        choices=("pool", "observed"),
+        default="pool",
+        help="phrase subsets per class: the SAM 3 phrase pool (default), or the phrases the "
+        "pool run used for the class (a trained segmenter's class names)",
+    )
     score = sub.add_parser("score", help="score a predict_boxes run at per-class thresholds")
     score.add_argument("--predictions", type=Path, required=True)
     score.add_argument("--dataset", type=Path, required=True)
@@ -520,7 +556,15 @@ def run_select(args: argparse.Namespace) -> int:
         return 2
     files = [i.file for i in images]
     labels = labelled_classes(images)
-    classes = build(images, pool, labels, args.max_phrases, lambda m: print(m, file=sys.stderr))
+    observed = args.candidates == "observed"
+    classes = build(
+        images,
+        pool,
+        labels,
+        args.max_phrases,
+        lambda m: print(m, file=sys.stderr),
+        (lambda label: observed_candidates(pool, label, args.max_phrases)) if observed else None,
+    )
     thresholds = grid(args.grid_min)
     loo, folds = leave_one_out(classes, files, thresholds)
     final = {data.label: choose(data, files, thresholds) for data in classes}
@@ -538,7 +582,7 @@ def run_select(args: argparse.Namespace) -> int:
         ("v1_at_0.5", "v1", at_one_half),
         ("v2_at_0.5", "v2", at_one_half),
     ]
-    for name, phrase_set, rule in rules:
+    for name, phrase_set, rule in [] if observed else rules:
         fixed = {
             data.label: Choice(
                 tuple(
@@ -571,6 +615,7 @@ def run_select(args: argparse.Namespace) -> int:
         "pool": str(args.pool),
         "photos": len(files),
         "max_phrases": args.max_phrases,
+        "candidates": args.candidates,
         "grid": list(thresholds),
         "rule": "phrases: max AP@0.5 on training photos (ties: fewer phrases); threshold: "
         "min total |count error| on training photos (ties: F1, then nearest 0.5)",
