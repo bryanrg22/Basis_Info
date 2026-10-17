@@ -3668,4 +3668,182 @@ ROOM_STEP_MODE=room_call MATERIALS_SECOND_LOOK=surface_crops python -m evals.rep
     --photos ~/basis-eval-data/inputs/photos --per-photo $P/vision_decomposed_v3_opus55 \
     --aliases ~/basis-eval-data/labels/room_aliases_v1.json --out $P/s29_replay_room_call_crops_opus_input
 python -m evals.run --data-dir ~/basis-eval-data --predictions $P/s29_replay_room_call_opus_input --no-db
+
+## 30. SAM 3 throughput (2026-10-17)
+
+Question: SAM 3 was 72 to 74% of a study's wall time in sections 23 and 27. How do we cut
+that, and where should SAM 3 run? The decision document is `SAM3_HOSTING.md`; this section
+has the measurements. All of them use the client study's 52 photos, each prompted as the
+product step does: `object_labels` of the photo's labels from live run 3, the v3 phrase
+set, 13 phrases a photo on average, threshold 0.25. Commands:
+`repro/sam3_throughput.py`.
+
+### 30.1 Where the time went
+
+The share was Replicate's low-credit throttle, not SAM 3. Run 3 of section 23 ran at 6
+creates a minute: its last localization finished 339 s after its last analysis. The 27.8
+re-run was not throttled, and SAM 3 trailed the last analysis by 3 s. In both runs the
+rooms gate waited for the last localization, then for the room step. When the throttle is
+on, every second of it lands on the rooms gate.
+
+### 30.2 Replicate: per call, concurrency, 429s, cost
+
+Per prediction, from Replicate's own timestamps:
+
+* **Queue** is 0.01 to 0.03 s when a worker is free. A cold worker takes 78 to 96 s; in
+  27.8 the first localizations also waited 89 to 92 s. When the shared pool is busy the
+  p95 rises to 13 to 56 s.
+* **Compute** (billed `predict_time`) with full masks: p50 about 1.9 s, mean 1.9 to 5.1 s.
+
+During this section the account had under $10 of credit. Every 429 said so: creates are
+"reduced to 60 requests per minute with a burst of 5". That tier bounds any client to
+about 1 photo a second.
+
+Wall time for all 52 photos submitted at once (each value one repeat, repeats interleaved):
+
+| Concurrency | Before (full masks) | 429s | After (compact output) | 429s |
+|---|---|---|---|---|
+| 1 | 362 / 175 / 192 s | 0 | 76 s | 0 |
+| 3 | 175 / 65 / 80 s | 0 | 63 / 56 s | 13 / 0 |
+| 6 | 82 / 64 / 139 s | 1 / 10 / 6 | 59 / 59 s | 23 / 22 |
+| 12 | 102 / 58 / 118 s | 10 / 33 / 25 | 60 / 57 s | 39 / 35 |
+| Replicate cost of the 52 | $0.098 to $0.251 | | $0.028 to $0.031 | |
+
+The repeats differ because the pool warmed up over the night: the first full-mask repeat
+had a predict mean of 5.1 s against 1.9 s later. After the change every concurrency of 3
+or more is at the tier's bound. `LOCALIZER_CONCURRENCY` therefore defaults to 3: it is as
+fast as 6 or 12 with the fewest 429s.
+
+### 30.3 Batching and compact output
+
+* **Images per prediction: one.** The model's input schema takes a single `image`.
+* **Phrases per prediction: all of them already.** `prompts` is a list, so one call per
+  photo is already the minimum number of predictions.
+* **Output size: this is where the time and money were.** The default output is a dense
+  `1 x H x W` mask per instance, written as JSON, one file per prompt. The input options
+  `offset_masks` (each mask cut to its box, with the box's corner) and `split_output: false`
+  (one file) change that. The pasted-back masks are identical pixel for pixel (50 of 50
+  instances on one photo).
+
+Over the 52 photos, compact output against full masks:
+
+| | Full masks | Compact | Ratio |
+|---|---|---|---|
+| Result per photo | 20.6 MB | 0.75 MB | 27x smaller |
+| Download | 1.0 s | 0.24 s | 4x shorter |
+| Billed predict time, mean (warm runs) | 2.1 s | 0.57 s | 3.7x shorter |
+| Cost per study | about $0.11 | $0.03 | |
+
+The predict time falls because the model spends most of its "predict" time writing JSON.
+The localizer now asks for compact output (`model_input`). It also retries a result file
+that answers 404 right after its prediction succeeded: this happened once in 52 photos,
+and that photo was recorded as failed before the change.
+
+### 30.4 The rooms gate no longer waits for SAM 3
+
+Workflow patch `localize-background-v1` makes three changes:
+
+* The photo stage is done once every photo is analyzed and the room step has run, so the
+  rooms review opens then. No step after the gate reads SAM 3's output. Each photo's masks
+  appear in the review when its localization is recorded; the objects endpoint already
+  reports the per-photo status.
+* A selection on a photo that has no localization yet answers 409 `localization-pending`.
+* A rejection at any gate waits for the localizations still running, because the next
+  revision carries the objects over. So does the drain after a failed extraction, and the
+  export waits until every localization is recorded.
+
+`ROOMS_GATE_WAITS_FOR_LOCALIZATION=true` restores the wait. Executions recorded before the
+patch replay without it.
+
+Tests, in `tests/lifecycle/test_localize_background.py`, with one localization held by the
+test:
+
+* the gate opens while the held localization is still running;
+* the export waits for it;
+* the setting restores the wait;
+* a rooms rejection waits for it and carries its objects into revision 2;
+* at most `localize_concurrency` localizations run at once.
+
+The gate test fails with the background mode turned off, and the concurrency test fails
+with the old semaphore.
+
+### 30.5 Arrival replay: SAM 3 at the workflow's pace
+
+In the workflow SAM 3 is fed one photo at a time, as each analysis finishes, not 52 at
+once. The 27.8 run's analysis completion times (15 to 358 s) were replayed against each
+target, every photo localized at the second its analysis had finished:
+
+| Target | Lag after each analysis (mean / max) | Done after the last analysis | 429s | Cost |
+|---|---|---|---|---|
+| Replicate, full masks, c=4 (before) | 4.2 / 12.5 s | 2.4 s | 0 | $0.103 |
+| Replicate, compact, c=3 (after) | 1.6 / 2.8 s | 1.4 s | 0 | $0.029 |
+| Cloud Run L4, compact, c=3 | 2.0 / 3.6 s | 1.4 s | 0 | $0.030 busy time |
+
+All three were warm (the cold boot of 30.2 is in addition). At the workflow's pace,
+Replicate's tier is not the bound, even under $10.
+
+### 30.6 Study wall time, before and after
+
+These are projections from recorded runs. Each recorded run's activity timings are kept,
+and the gate is moved to "last analysis, then the room step". The engineer's review time
+is excluded, since the gates were approved at once. No new live end-to-end run was made:
+it needs the OpenAI and Anthropic accounts, which this session did not check.
+
+| Recorded run | Account state | Rooms gate before | Rooms gate after | Completed before | Completed after |
+|---|---|---|---|---|---|
+| 27.8 (branch of PR 49) | not throttled | +397 s | +394 s | 596 s | about 593 s |
+| 23, run 3 | throttled, 6 a minute | +685 s | +342 s | 874 s | about 650 s |
+
+* **Unthrottled** (27.8), the change is a few seconds: SAM 3 already trailed the analysis
+  by 3 s. The study is bound by the photo analysis (358 s), the room step (36 s) and the
+  assets (about 190 s).
+* **Throttled** (run 3), the rooms gate opens 343 s (50%) earlier. The completion moves
+  less because the export still waits for the throttled SAM 3 (about 649 s).
+
+SAM 3's share of the time to the rooms gate is now 0 in both cases; its share of the
+completed run is 0 unthrottled. Its cost per study is $0.03, down from $0.10 to $0.25.
+
+### 30.7 Hosting
+
+The public Cog image was deployed to Cloud Run as `staging-sam3` in us-east4, with one
+L4, scale to zero and authentication on. us-central1 had no GPU quota for the project.
+
+| | Replicate, compact | Cloud Run L4 |
+|---|---|---|
+| 52 photos at once | 56 to 63 s at c=3 (rate tier) | 88 s at c=1, 40.5 s at c=3 (3 instances) |
+| Predict per photo, mean / p95 | 0.57 / 0.85 s (L40S) | 1.25 / 1.9 s (L4) |
+| Cold start | 78 to 96 s | 32 s (two 409s while Cog loads; retried) |
+| Cost of a lone study | $0.03 | $0.03 busy, plus 6 to 10 min of idle billing per instance used ($0.10 to $0.17 each) |
+
+AWS was not deployed: the configured account's G-instance quota is 0 vCPUs. Its prices
+and shape are in `SAM3_HOSTING.md`.
+
+**Recommendation: Replicate**, with compact output, the gate change, `LOCALIZER_CONCURRENCY`
+3 and credit kept at $20 or more (auto-reload). The cheapest throughput fix is credit:
+under $5 the account drops to 6 creates a minute. Cloud Run stays one setting away
+(`LOCALIZER_URL`, `LOCALIZER_GOOGLE_AUTH`) for volume, residency, or if the tier cannot be
+kept.
+
+Spend for this section:
+
+* Replicate: about $2.00 (19 sweeps, 2 replays, a smoke run and probes; 429s are not billed).
+* Cloud Run: about $0.95 of instance time, idle tails included (Cloud Monitoring
+  `billable_instance_time`: 2,562 s by the cold-start test, plus that instance's tail).
+* Cloud Build: under 2 minutes.
+* No language-model calls.
+
+Commands (from `backEnd/`; the photos and labels are private):
+
+```bash
+# a concurrency sweep point (add --full-masks for the code before this section)
+uv run --no-sync python ../docs/review_2026-10-15/repro/sam3_throughput.py \
+    --photos ~/basis-eval-data/inputs/photos \
+    --components ~/basis-eval-data/predictions/live_e2e_v070_defaults/photo_components.json \
+    --concurrency 3 --out OUT
+# the 27.8 arrival replay (ARRIVALS: {file: seconds when its analysis finished})
+uv run --no-sync python ../docs/review_2026-10-15/repro/sam3_throughput.py ... \
+    --arrivals ARRIVALS.json --concurrency 3 --out OUT
+# Cloud Run
+LOCALIZER_TOKEN=$(gcloud auth print-identity-token) uv run --no-sync python \
+    ../docs/review_2026-10-15/repro/sam3_throughput.py ... --target url --url SERVICE_URL
 ```

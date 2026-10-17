@@ -1734,7 +1734,7 @@
           "objects"
         ],
         "summary": "Add an engineer's selection (a tap or a box) at rooms_review",
-        "description": "Resolved against the photo's stored instances of the label: the instance under the tap, or the one the box overlaps at IoU >= 0.5. A counted instance is returned as is (200, `created: false`); an uncounted candidate becomes a manual instance with its mask (201); a box that resolves to nothing is stored as a manual box (201); a tap that resolves to nothing is 422. Only while the study waits at `rooms_review`, on its current revision (409 otherwise).",
+        "description": "Resolved against the photo's stored instances of the label: the instance under the tap, or the one the box overlaps at IoU >= 0.5. A counted instance is returned as is (200, `created: false`); an uncounted candidate becomes a manual instance with its mask (201); a box that resolves to nothing is stored as a manual box (201); a tap that resolves to nothing is 422. Only while the study waits at `rooms_review`, on its current revision, once the photo's localization is recorded (409 otherwise; `localization-pending` while SAM 3 still runs).",
         "operationId": "add_object_v1_studies__study_id__photos__document_id__objects_post",
         "security": [
           {

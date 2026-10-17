@@ -28,6 +28,14 @@ in, every matching instance out, each with a mask, a box and a score) and counts
   retries; a poll or download error re-polls or re-downloads, never re-creates). The
   token is sent only to ``api.replicate.com`` (result files on
   ``replicate.delivery`` are fetched without it) and is never logged or put in an error.
+* The input asks for compact output (:func:`model_input`): masks cut to their boxes with
+  offsets (``offset_masks``) in one result file (``split_output`` off). Pasted back by
+  :func:`parse_result` they are the same masks, pixel for pixel (EVAL_REPORT 30: 50 of
+  50 instances); the result is 27x smaller (0.75 MB against 20.6 MB a photo) and the
+  billed predict time 3 to 4x shorter (the model writes less JSON).
+* :class:`CogSam3Localizer` calls the same Cog container served by us (``LOCALIZER_URL``,
+  e.g. Cloud Run with an L4: SAM3_HOSTING.md) with the same input, one synchronous
+  request per photo; the output comes back inline. :func:`build_cog_localizer` makes one.
 * Cost: Replicate bills public models by predict seconds on the hardware (an L40S at
   :data:`L40S_USD_PER_SECOND`). ``metrics.predict_time`` of every finished prediction is
   recorded in :class:`LocalizeCall` and charged to the :class:`~basis.llm.provider.Budget`;
@@ -62,10 +70,13 @@ overlapping each drawn box); that holds whichever way the hosted model reads the
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import io
 import json
 import logging
 import math
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol, runtime_checkable
@@ -89,10 +100,14 @@ MergeMetric = Literal["iou", "ios"]
 
 REPLICATE_API: Final = "https://api.replicate.com/v1"
 L40S_USD_PER_SECOND: Final = 0.000975
+# Cloud Run, us-east4, instance-based billing, no zonal redundancy: one L4 ($0.0001867/s)
+# with the 4 vCPU ($0.000018 each) and 16 GiB ($0.000002 each) it requires (SAM3_HOSTING.md).
+CLOUD_RUN_L4_USD_PER_SECOND: Final = 0.0001867 + 4 * 0.000018 + 16 * 0.000002
 RESERVE_SECONDS: Final = 30.0
 PREFER_WAIT_S: Final = 60
 POLL_INTERVAL_S: Final = 1.0
 PREDICTION_DEADLINE_S: Final = 300.0
+COG_TIMEOUT_S: Final = 300.0
 RETRY_DELAYS_S: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0, 120.0)  # Replicate 429s last minutes
 MAX_RETRY_AFTER_S: Final = 60.0
 PHRASE_DEDUPE_IOU: Final = 0.8
@@ -728,24 +743,91 @@ def _retry_after(response: httpx.Response) -> float | None:
         return None
 
 
+def _paste(cutout: npt.NDArray[Any], offset: Any, width: int, height: int) -> npt.NDArray[Any]:
+    """An ``offset_masks`` cut-out (``h x w``, upper-left corner ``[x, y]`` in pixels of
+    the input image) placed on an empty ``height x width`` mask; what falls outside the
+    image is dropped (the model's cut-outs lie inside it, measured in EVAL_REPORT 30)."""
+    try:
+        x, y = (int(v) for v in offset)
+    except (TypeError, ValueError):
+        raise LocalizerBadResponse(f"bad mask offset {offset!r}") from None
+    full = np.zeros((height, width), dtype=np.uint8)
+    h, w = cutout.shape
+    top, left = max(0, y), max(0, x)
+    bottom, right = min(height, y + h), min(width, x + w)
+    if bottom > top and right > left:
+        full[top:bottom, left:right] = cutout[top - y : bottom - y, left - x : right - x]
+    return full
+
+
+async def _send(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    json_body: Any,
+    delays: Sequence[float],
+    sleep: Callable[[float], Awaitable[None]],
+    also_retry: frozenset[int] = frozenset(),
+) -> httpx.Response:
+    """One request, retried after ``delays`` on 429, 5xx, timeouts, connection failures
+    and the statuses in ``also_retry`` (``Retry-After`` honoured up to
+    :data:`MAX_RETRY_AFTER_S`); any other 4xx raises :class:`LocalizerError` at once and
+    the last transient failure :class:`LocalizerUnavailable`. Errors carry the URL
+    without its query, never the headers."""
+    last: str = ""
+    for attempt in range(len(delays) + 1):
+        delay = delays[attempt] if attempt < len(delays) else None
+        try:
+            response = await client.request(method, url, json=json_body, headers=dict(headers))
+        except httpx.TimeoutException:
+            last, status = f"{method} {_safe(url)} timed out", None
+        except httpx.TransportError as exc:
+            last, status = f"{method} {_safe(url)} failed: {type(exc).__name__}", None
+        else:
+            status = response.status_code
+            if status < 400:
+                return response
+            if status != 429 and status < 500 and status not in also_retry:
+                raise LocalizerError(
+                    f"{method} {_safe(url)} returned {status}: {_detail(response)}",
+                    status=status,
+                )
+            last = f"{method} {_safe(url)} returned {status}"
+            after = _retry_after(response)
+            if delay is not None and after is not None:
+                delay = max(delay, after)
+        if delay is None:
+            raise LocalizerUnavailable(f"{last} (after {attempt + 1} attempts)", status=status)
+        logger.warning("transient localizer error, retrying in %gs: %s", delay, last)
+        await sleep(delay)
+    raise AssertionError("unreachable")
+
+
 def parse_result(
     data: Mapping[str, Any], phrase: Phrase, width: int, height: int, threshold: float
 ) -> list[Instance]:
     """One prompt's result JSON -> instances at or above ``threshold``.
 
     ``boxes`` are ``[x1, y1, x2, y2]`` pixels of the input image; ``masks`` are
-    ``1 x H x W`` 0/1 arrays, one per box, in the same order as ``scores``. A mask that is
-    not that shape is dropped (the instance keeps its box); a length mismatch between
-    boxes and scores is a bad response.
+    ``1 x H x W`` 0/1 arrays, one per box, in the same order as ``scores``, or with
+    ``masks_offset`` (the model's ``offset_masks`` input) ``h x w`` cut-outs whose
+    upper-left corner is the matching ``[x, y]``, pasted back onto the full image. A mask
+    that is not that shape is dropped (the instance keeps its box); a length mismatch
+    between boxes, scores, masks and offsets is a bad response.
     """
     boxes, scores = data.get("boxes"), data.get("scores")
     masks = data.get("masks") or []
+    offsets = data.get("masks_offset")
     if not isinstance(boxes, list) or not isinstance(scores, list) or len(boxes) != len(scores):
         raise LocalizerBadResponse(f"result for {phrase.text!r} has no matching boxes and scores")
     if masks and len(masks) != len(boxes):
         raise LocalizerBadResponse(
             f"result for {phrase.text!r}: {len(masks)} masks, {len(boxes)} boxes"
         )
+    if offsets is not None and (not isinstance(offsets, list) or len(offsets) != len(masks)):
+        raise LocalizerBadResponse(f"result for {phrase.text!r}: mask offsets do not match")
     instances: list[Instance] = []
     for i, (raw_box, raw_score) in enumerate(zip(boxes, scores, strict=True)):
         score = float(raw_score)
@@ -761,6 +843,8 @@ def parse_result(
             array = np.asarray(masks[i])
             if array.ndim == 3 and array.shape[0] == 1:
                 array = array[0]
+            if offsets is not None and array.ndim == 2 and array.size:
+                array = _paste(array, offsets[i], width, height)
             if array.ndim == 2 and array.size:
                 rle = Rle.encode(array)
             else:
@@ -798,6 +882,7 @@ class ReplicateSam3Localizer:
     deadline_s: float = PREDICTION_DEADLINE_S
     retry_delays: tuple[float, ...] | None = None
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    compact: bool = True
     _semaphore: asyncio.Semaphore = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -817,39 +902,28 @@ class ReplicateSam3Localizer:
         )
 
     async def _request(
-        self, method: str, url: str, *, json_body: Any = None, wait: bool = False
+        self,
+        method: str,
+        url: str,
+        *,
+        json_body: Any = None,
+        wait: bool = False,
+        retry_not_found: bool = False,
     ) -> httpx.Response:
-        delays = RETRY_DELAYS_S if self.retry_delays is None else self.retry_delays
         headers = self._headers(url)
         if wait:
             headers["Prefer"] = f"wait={PREFER_WAIT_S}"
-        last: str = ""
-        for attempt in range(len(delays) + 1):
-            delay = delays[attempt] if attempt < len(delays) else None
-            try:
-                response = await self.client.request(method, url, json=json_body, headers=headers)
-            except httpx.TimeoutException:
-                last, status = f"{method} {_safe(url)} timed out", None
-            except httpx.TransportError as exc:
-                last, status = f"{method} {_safe(url)} failed: {type(exc).__name__}", None
-            else:
-                status = response.status_code
-                if status < 400:
-                    return response
-                if status != 429 and status < 500:
-                    raise LocalizerError(
-                        f"{method} {_safe(url)} returned {status}: {_detail(response)}",
-                        status=status,
-                    )
-                last = f"{method} {_safe(url)} returned {status}"
-                after = _retry_after(response)
-                if delay is not None and after is not None:
-                    delay = max(delay, after)
-            if delay is None:
-                raise LocalizerUnavailable(f"{last} (after {attempt + 1} attempts)", status=status)
-            logger.warning("transient localizer error, retrying in %gs: %s", delay, last)
-            await self.sleep(delay)
-        raise AssertionError("unreachable")
+        retry = frozenset({404}) if retry_not_found else frozenset()
+        return await _send(
+            self.client,
+            method,
+            url,
+            headers=headers,
+            json_body=json_body,
+            delays=RETRY_DELAYS_S if self.retry_delays is None else self.retry_delays,
+            sleep=self.sleep,
+            also_retry=retry,
+        )
 
     @staticmethod
     async def _json(response: httpx.Response) -> dict[str, Any]:
@@ -920,17 +994,22 @@ class ReplicateSam3Localizer:
     async def _results(self, prediction: Mapping[str, Any], expected: int) -> list[dict[str, Any]]:
         output = prediction.get("output") or {}
         urls = output.get("results") if isinstance(output, Mapping) else None
-        if not isinstance(urls, list) or len(urls) != expected:
-            raise LocalizerBadResponse(
-                f"prediction {prediction.get('id')} returned "
-                f"{len(urls) if isinstance(urls, list) else 'no'} results for {expected} prompts"
-            )
-        responses = await asyncio.gather(*(self._request("GET", str(u)) for u in urls))
-        return list(await asyncio.gather(*(self._json(r) for r in responses)))
+        if not isinstance(urls, list) or not urls:
+            raise LocalizerBadResponse(f"prediction {prediction.get('id')} returned no results")
+        # A result file is sometimes not served yet right after the prediction succeeds
+        # (one 404 in 52 photos, EVAL_REPORT 30): retried like a transient error.
+        responses = await asyncio.gather(
+            *(self._request("GET", str(u), retry_not_found=True) for u in urls)
+        )
+        documents = await asyncio.gather(*(_json_document(r) for r in responses))
+        return per_prompt(documents, expected, f"prediction {prediction.get('id')}")
 
-    @staticmethod
-    def _data_uri(image: PreparedImage) -> str:
-        return f"data:image/jpeg;base64,{image.base64}"
+    async def _run(
+        self, input_: dict[str, Any], prompts: tuple[str, ...]
+    ) -> tuple[list[dict[str, Any]], LocalizeCall]:
+        async with self._semaphore:
+            prediction, call = await self._predict(input_, prompts)
+            return await self._results(prediction, len(prompts)), call
 
     async def localize(
         self,
@@ -943,30 +1022,7 @@ class ReplicateSam3Localizer:
         """Every phrase in one prediction; with ``dedupe`` (the pipeline) same-label
         instances found by two phrases are kept once, without it every phrase's instances
         are kept as returned (the phrase-pool experiment, EVAL_REPORT section 19)."""
-        if not phrases:
-            return Localization(image_sha256=image.sha256, width=image.width, height=image.height)
-        prompts = tuple(json.dumps({"text": p.text}) for p in phrases)
-        input_ = {
-            "image": self._data_uri(image),
-            "prompts": list(prompts),
-            "confidence_threshold": threshold,
-            "visualize": False,
-        }
-        async with self._semaphore:
-            prediction, call = await self._predict(input_, tuple(p.text for p in phrases))
-            results = await self._results(prediction, len(phrases))
-        found: list[Instance] = []
-        for phrase, data in zip(phrases, results, strict=True):
-            found += await asyncio.to_thread(
-                parse_result, data, phrase, image.width, image.height, threshold
-            )
-        return Localization(
-            image_sha256=image.sha256,
-            width=image.width,
-            height=image.height,
-            instances=tuple(suppress(found, PHRASE_DEDUPE_IOU) if dedupe else found),
-            calls=(call,),
-        )
+        return await _localize(self._run, image, phrases, threshold, dedupe, self.compact)
 
     async def segment_prompt(
         self,
@@ -978,29 +1034,223 @@ class ReplicateSam3Localizer:
         negative_points: Sequence[Point] = (),
         threshold: float = DEFAULT_THRESHOLD,
     ) -> list[Instance]:
-        if not points and not boxes:
-            raise ValueError("a prompt needs at least one point or box")
-        phrase = Phrase(label=label, text=PHRASES.get(label, (label.value.replace("_", " "),))[0])
-        prompt: dict[str, Any] = {"text": phrase.text}
-        if points:
-            prompt["positive_points"] = [[p.x, p.y] for p in points]
-        if negative_points:
-            prompt["negative_points"] = [[p.x, p.y] for p in negative_points]
-        if boxes:
-            prompt["positive_boxes"] = [_center_box(b) for b in boxes]
-        input_ = {
-            "image": self._data_uri(image),
-            "prompts": [json.dumps(prompt)],
-            "confidence_threshold": threshold,
-            "visualize": False,
-        }
+        return await _segment_prompt(
+            self._run, image, label, points, boxes, negative_points, threshold, self.compact
+        )
+
+
+# --------------------------------------------------------------------------- self-hosted
+
+
+@dataclass
+class CogSam3Localizer:
+    """The same SAM 3 Cog container served by us at ``url`` (``LOCALIZER_URL``), e.g. on
+    Cloud Run with an L4 (SAM3_HOSTING.md): ``POST {url}/predictions`` with ``{"input":
+    ...}`` answers when the prediction is done, output files inline as ``data:`` URIs.
+
+    A Cog server runs one prediction at a time and answers 409 while busy; Cloud Run
+    answers 429 when every instance is busy and no new one can start. Both are retried as
+    transient, with 5xx, timeouts and connection failures (:data:`RETRY_DELAYS_S`). The
+    bearer token (``token_source``, called before each request: a Cloud Run ID token
+    expires after an hour) goes to ``url``'s host only and is never logged. Cost: the
+    request's wall time at ``usd_per_second`` (an instance is billed while it serves;
+    its idle time before it scales to zero is not charged to any study).
+    """
+
+    client: httpx.AsyncClient
+    url: str
+    version: str
+    token_source: Callable[[], Awaitable[str | None]] | None = field(default=None, repr=False)
+    concurrency: int = 4
+    usd_per_second: float = CLOUD_RUN_L4_USD_PER_SECOND
+    compact: bool = True
+    retry_delays: tuple[float, ...] | None = None
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    clock: Callable[[], float] = time.monotonic
+    _semaphore: asyncio.Semaphore = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        parts = urlsplit(self.url)
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            raise LocalizerError("LOCALIZER_URL must be an http(s) URL")
+        self.url = self.url.rstrip("/")
+        self._semaphore = asyncio.Semaphore(self.concurrency)
+
+    async def _run(
+        self, input_: dict[str, Any], prompts: tuple[str, ...]
+    ) -> tuple[list[dict[str, Any]], LocalizeCall]:
+        endpoint = f"{self.url}/predictions"
         async with self._semaphore:
-            prediction, _ = await self._predict(input_, (phrase.text,))
-            [data] = await self._results(prediction, 1)
-        candidates = await asyncio.to_thread(
+            headers: dict[str, str] = {}
+            token = await self.token_source() if self.token_source is not None else None
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            started = self.clock()
+            response = await _send(
+                self.client,
+                "POST",
+                endpoint,
+                headers=headers,
+                json_body={"input": input_},
+                delays=RETRY_DELAYS_S if self.retry_delays is None else self.retry_delays,
+                sleep=self.sleep,
+                also_retry=frozenset({409}),
+            )
+            elapsed = self.clock() - started
+        prediction = await _json_document(response)
+        if not isinstance(prediction, dict):
+            raise LocalizerBadResponse(f"{_safe(endpoint)} did not return a JSON object")
+        status = str(prediction.get("status"))
+        seconds = float((prediction.get("metrics") or {}).get("predict_time") or 0.0)
+        call = LocalizeCall(
+            prompts=prompts,
+            predict_seconds=seconds,
+            cost_usd=round(elapsed * self.usd_per_second, 6),
+            status=status,
+        )
+        if status != "succeeded":
+            raise LocalizerBadResponse(f"prediction {status}: {str(prediction.get('error'))[:300]}")
+        output = prediction.get("output") or {}
+        uris = output.get("results") if isinstance(output, Mapping) else None
+        if not isinstance(uris, list) or not uris:
+            raise LocalizerBadResponse("the prediction returned no results")
+        documents = await asyncio.gather(*(asyncio.to_thread(_from_data_uri, u) for u in uris))
+        return per_prompt(documents, len(prompts), "the prediction"), call
+
+    async def localize(
+        self,
+        image: PreparedImage,
+        phrases: Sequence[Phrase],
+        *,
+        threshold: float,
+        dedupe: bool = True,
+    ) -> Localization:
+        return await _localize(self._run, image, phrases, threshold, dedupe, self.compact)
+
+    async def segment_prompt(
+        self,
+        image: PreparedImage,
+        *,
+        label: ComponentLabel,
+        points: Sequence[Point] = (),
+        boxes: Sequence[Box] = (),
+        negative_points: Sequence[Point] = (),
+        threshold: float = DEFAULT_THRESHOLD,
+    ) -> list[Instance]:
+        return await _segment_prompt(
+            self._run, image, label, points, boxes, negative_points, threshold, self.compact
+        )
+
+
+# --------------------------------------------------------------------------- shared steps
+
+_Run = Callable[
+    [dict[str, Any], tuple[str, ...]], Awaitable[tuple[list[dict[str, Any]], LocalizeCall]]
+]
+
+
+def model_input(
+    image: PreparedImage, prompts: Sequence[str], threshold: float, compact: bool
+) -> dict[str, Any]:
+    """The SAM 3 Cog model's input. ``compact`` asks for masks cut to their boxes with
+    offsets (``offset_masks``, pasted back by :func:`parse_result`, lossless) in one result
+    file (``split_output`` off): on the 52 photos 15x less to transfer (EVAL_REPORT 30)."""
+    input_: dict[str, Any] = {
+        "image": f"data:image/jpeg;base64,{image.base64}",
+        "prompts": list(prompts),
+        "confidence_threshold": threshold,
+        "visualize": False,
+    }
+    if compact:
+        input_ |= {"offset_masks": True, "split_output": False}
+    return input_
+
+
+async def _localize(
+    run: _Run,
+    image: PreparedImage,
+    phrases: Sequence[Phrase],
+    threshold: float,
+    dedupe: bool,
+    compact: bool,
+) -> Localization:
+    if not phrases:
+        return Localization(image_sha256=image.sha256, width=image.width, height=image.height)
+    prompts = tuple(json.dumps({"text": p.text}) for p in phrases)
+    results, call = await run(
+        model_input(image, prompts, threshold, compact), tuple(p.text for p in phrases)
+    )
+    found: list[Instance] = []
+    for phrase, data in zip(phrases, results, strict=True):
+        found += await asyncio.to_thread(
             parse_result, data, phrase, image.width, image.height, threshold
         )
-        return pick_prompted(candidates, points, boxes)
+    return Localization(
+        image_sha256=image.sha256,
+        width=image.width,
+        height=image.height,
+        instances=tuple(suppress(found, PHRASE_DEDUPE_IOU) if dedupe else found),
+        calls=(call,),
+    )
+
+
+async def _segment_prompt(
+    run: _Run,
+    image: PreparedImage,
+    label: ComponentLabel,
+    points: Sequence[Point],
+    boxes: Sequence[Box],
+    negative_points: Sequence[Point],
+    threshold: float,
+    compact: bool,
+) -> list[Instance]:
+    if not points and not boxes:
+        raise ValueError("a prompt needs at least one point or box")
+    phrase = Phrase(label=label, text=PHRASES.get(label, (label.value.replace("_", " "),))[0])
+    prompt: dict[str, Any] = {"text": phrase.text}
+    if points:
+        prompt["positive_points"] = [[p.x, p.y] for p in points]
+    if negative_points:
+        prompt["negative_points"] = [[p.x, p.y] for p in negative_points]
+    if boxes:
+        prompt["positive_boxes"] = [_center_box(b) for b in boxes]
+    [data], _ = await run(
+        model_input(image, [json.dumps(prompt)], threshold, compact), (phrase.text,)
+    )
+    candidates = await asyncio.to_thread(
+        parse_result, data, phrase, image.width, image.height, threshold
+    )
+    return pick_prompted(candidates, points, boxes)
+
+
+def per_prompt(documents: Sequence[Any], expected: int, what: str) -> list[dict[str, Any]]:
+    """The output files as one result per prompt: a file per prompt (``split_output``)
+    or one file holding the list of them."""
+    if len(documents) == 1 and isinstance(documents[0], list):
+        results = documents[0]
+    else:
+        results = list(documents)
+    if len(results) != expected or not all(isinstance(r, dict) for r in results):
+        raise LocalizerBadResponse(f"{what} returned {len(results)} results for {expected} prompts")
+    return results
+
+
+async def _json_document(response: httpx.Response) -> Any:
+    """The body as JSON, parsed off the event loop (a result is megabytes)."""
+    try:
+        return await asyncio.to_thread(json.loads, response.content)
+    except ValueError:
+        raise LocalizerBadResponse(f"{_safe(str(response.url))} did not return JSON") from None
+
+
+def _from_data_uri(uri: Any) -> Any:
+    """A Cog output file returned inline: ``data:<type>;base64,<JSON>``."""
+    if not isinstance(uri, str) or not uri.startswith("data:") or ";base64," not in uri:
+        raise LocalizerBadResponse("a result is not an inline data URI")
+    try:
+        return json.loads(base64.b64decode(uri.split(";base64,", 1)[1], validate=True))
+    except (ValueError, binascii.Error):
+        raise LocalizerBadResponse("a result data URI is not base64 JSON") from None
 
 
 def _safe(url: str) -> str:
@@ -1025,6 +1275,73 @@ def build_replicate_localizer(
     client = httpx.AsyncClient(timeout=httpx.Timeout(PREFER_WAIT_S + 30.0, connect=10.0))
     return ReplicateSam3Localizer(
         client=client, token=token, version=version, concurrency=concurrency, budget=budget
+    )
+
+
+TokenSource = Callable[[], Awaitable[str | None]]
+ID_TOKEN_LIFETIME_S: Final = 3600.0  # Google ID tokens expire after an hour
+ID_TOKEN_REFRESH_S: Final = 300.0
+
+
+def static_token(token: str) -> TokenSource:
+    """Always the same bearer token (``LOCALIZER_TOKEN``)."""
+
+    async def source() -> str | None:
+        return token
+
+    return source
+
+
+def google_id_token(
+    audience: str,
+    *,
+    fetch: Callable[[str], str] | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> TokenSource:
+    """A Google ID token for ``audience`` (a Cloud Run service URL), fetched with the
+    process's service-account credentials (the metadata server on Google Cloud, or
+    ``GOOGLE_APPLICATION_CREDENTIALS``) and refreshed :data:`ID_TOKEN_REFRESH_S` before it
+    expires. User credentials cannot mint one; use ``LOCALIZER_TOKEN`` locally."""
+
+    def default_fetch(aud: str) -> str:
+        from google.auth.transport.requests import Request
+        from google.oauth2 import id_token
+
+        return str(id_token.fetch_id_token(Request(), aud))  # type: ignore[no-untyped-call]
+
+    get = fetch or default_fetch
+    cached: list[tuple[str, float]] = []
+    lock = asyncio.Lock()
+
+    async def source() -> str | None:
+        async with lock:
+            if not cached or clock() > cached[0][1]:
+                token = await asyncio.to_thread(get, audience)
+                cached[:] = [(token, clock() + ID_TOKEN_LIFETIME_S - ID_TOKEN_REFRESH_S)]
+            return cached[0][0]
+
+    return source
+
+
+def build_cog_localizer(
+    url: str,
+    version: str,
+    *,
+    token_source: TokenSource | None = None,
+    concurrency: int = 4,
+    usd_per_second: float = CLOUD_RUN_L4_USD_PER_SECOND,
+) -> CogSam3Localizer:
+    """A client of a self-hosted SAM 3 Cog server; a cold Cloud Run instance takes minutes
+    to answer the first request (SAM3_HOSTING.md), so the read timeout is the request
+    timeout Cloud Run is deployed with."""
+    client = httpx.AsyncClient(timeout=httpx.Timeout(COG_TIMEOUT_S, connect=10.0))
+    return CogSam3Localizer(
+        client=client,
+        url=url,
+        version=version,
+        token_source=token_source,
+        concurrency=concurrency,
+        usd_per_second=usd_per_second,
     )
 
 
@@ -1292,6 +1609,7 @@ __all__ = [
     "LocalizerUnavailable",
     "Phrase",
     "Point",
+    "CogSam3Localizer",
     "ReplicateSam3Localizer",
     "Rle",
     "Tile",

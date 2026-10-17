@@ -1,7 +1,8 @@
 """``localize_photo``: every instance of the photo's countable objects, as box and mask.
 
 Runs after ``analyze_photo`` succeeded for the photo and revision (the workflow schedules
-it). What it does, following EVAL_REPORT section 10:
+it, at most ``LOCALIZER_CONCURRENCY`` per study, behind the rooms review since EVAL_REPORT
+section 30). What it does, following EVAL_REPORT section 10:
 
 * Labels: the photo's component labels at this revision without the surfaces
   (:func:`basis.vision.localize.object_labels`), always with the countable set; phrases
@@ -19,7 +20,8 @@ it). What it does, following EVAL_REPORT section 10:
 Outcome, one ``photo_localizations`` row per photo and revision:
 
 * ``done``: the localizer answered (``instances`` rows written, possibly none);
-* ``skipped``: no localizer configured (``REPLICATE_API_TOKEN`` unset) or no budget left;
+* ``skipped``: no localizer configured (neither ``LOCALIZER_URL``, a self-hosted SAM 3
+  Cog server, nor ``REPLICATE_API_TOKEN`` set) or no budget left;
 * ``failed``: the localizer did not answer. Rate limits, 5xx and timeouts are first retried
   inside the localizer (bounded backoff, ``Retry-After`` honoured: the Replicate throttle
   answers 429 for minutes), then by Temporal (``LocalizerUnavailable`` is retryable) while
@@ -30,9 +32,10 @@ Outcome, one ``photo_localizations`` row per photo and revision:
 
 Heartbeats every few seconds while the prediction is awaited, so a lost worker is noticed
 within the heartbeat timeout even while the localizer sleeps between retries. The cost
-(Replicate predict seconds) is returned and the workflow charges it to the study budget;
-the localizer is shared by concurrent activities, so the budget is checked here rather
-than reserved inside it. Idempotent per photo and revision: an existing row is returned.
+(Replicate predict seconds, or a self-hosted server's request seconds) is returned and
+the workflow charges it to the study budget; the localizer is shared by concurrent
+activities, so the budget is checked here rather than reserved inside it. Idempotent per
+photo and revision: an existing row is returned.
 """
 
 from __future__ import annotations
@@ -74,7 +77,7 @@ from basis.workflow.contracts import LocalizePhotoInput, LocalizePhotoOutput
 ACTIVITY: Final = "localize_photo"
 LOCALIZER_UNAVAILABLE: Final = "LocalizerUnavailable"
 PHRASE_SET: Final = DEFAULT_PHRASE_SET
-NO_LOCALIZER: Final = "no localizer configured (REPLICATE_API_TOKEN)"
+NO_LOCALIZER: Final = "no localizer configured (LOCALIZER_URL or REPLICATE_API_TOKEN)"
 NO_BUDGET: Final = "the study budget is exhausted"
 MAX_REASON: Final = 500
 

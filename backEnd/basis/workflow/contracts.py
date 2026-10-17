@@ -41,6 +41,10 @@ class StudyWorkflowInput(_Frozen):
     workflow_version: str
     budget_usd: float = Field(gt=0)
     photo_concurrency: int = Field(default=5, ge=1, le=32)
+    # Patch localize-background-v1 (EVAL_REPORT 30): SAM 3 predictions in flight per study,
+    # and whether the rooms review waits for every localization (else they finish behind it).
+    localize_concurrency: int = Field(default=3, ge=1, le=32)
+    rooms_gate_waits_for_localization: bool = False
     review_reminder_days: int = Field(default=7, ge=1)
     review_deadline_days: int = Field(default=30, ge=1)
     # Test-only fault injection per photo document id. The API never sets it, and the

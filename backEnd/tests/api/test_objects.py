@@ -290,6 +290,25 @@ async def test_edits_before_the_rooms_gate_opens_are_409(
     assert await object_rows(sessionmaker) == 3
 
 
+async def test_a_selection_before_the_photo_is_localized_is_409(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """EVAL_REPORT 30: the rooms review is open while SAM 3 still runs; a photo with no
+    localization row yet cannot take a selection (it would not resolve against the
+    instances about to arrive), and the GET says it is pending (no localization)."""
+    study = await api.create_study("alice")
+    sid = str(study["id"])
+    outputs = await seed.outputs(sid)
+    await seed.stage(sid, Stage.ROOMS_REVIEW)
+    photo = outputs["photo"]
+    response = await api.post("alice", path(sid, photo), box("window", 0.1, 0.1, 0.2, 0.2))
+    assert response.status_code == 409
+    assert response.json()["type"].endswith("localization-pending")
+    assert await object_rows(sessionmaker) == 0
+    listed = (await api.get("alice", path(sid, photo))).json()
+    assert listed["localization"] is None and listed["items"] == []
+
+
 async def test_an_archived_study_is_409(
     api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:

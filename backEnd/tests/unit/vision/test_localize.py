@@ -4,6 +4,7 @@ per-photo pipeline with the fake localizer."""
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import logging
@@ -860,3 +861,288 @@ def test_class_counts_use_each_classes_threshold() -> None:
     )
     assert loc.class_counts(found) == {"outdoor_lighting": 1, "window": 1}
     assert loc.class_counts(found, "v1") == {"window": 2}
+
+
+# --------------------------------------------------------------------------- compact output
+
+
+def offset_result(
+    *items: tuple[tuple[int, int, int, int], float], size: tuple[int, int]
+) -> dict[str, Any]:
+    """The model's ``offset_masks`` answer: each mask cut to its box, with the cut-out's
+    upper-left corner (what vufinder/sam3 returns, EVAL_REPORT 30)."""
+    width, height = size
+    full = result(*items, size=size)
+    cutouts, offsets = [], []
+    for rect, _ in items:
+        x1, y1, x2, y2 = rect
+        cutouts.append(rect_mask(height, width, x1, y1, x2, y2)[y1:y2, x1:x2].tolist())
+        offsets.append([x1, y1])
+    return {**full, "masks": cutouts, "masks_offset": offsets}
+
+
+def test_offset_masks_paste_back_to_the_full_mask_exactly() -> None:
+    items = (((8, 6, 24, 30), 0.9), ((0, 0, 5, 3), 0.8), ((70, 50, 80, 60), 0.7))
+    phrase = Phrase(label=L.WINDOW, text="window")
+    full = loc.parse_result(result(*items, size=SIZE), phrase, *SIZE, 0.5)
+    cut = loc.parse_result(offset_result(*items, size=SIZE), phrase, *SIZE, 0.5)
+    assert cut == full
+    assert [i.mask.bbox() for i in cut if i.mask] == [
+        (8, 6, 24, 30),
+        (0, 0, 5, 3),
+        (70, 50, 80, 60),
+    ]
+
+
+def test_an_offset_cutout_past_the_border_is_clipped() -> None:
+    data = {
+        "boxes": [[70, 50, 80, 60]],
+        "scores": [0.9],
+        "masks": [np.ones((20, 20), dtype=int).tolist()],
+        "masks_offset": [[70, 50]],
+    }
+    [only] = loc.parse_result(data, Phrase(label=L.WINDOW, text="window"), *SIZE, 0.5)
+    assert only.mask is not None and only.mask.bbox() == (70, 50, 80, 60)
+    assert only.mask.area() == 10 * 10
+
+
+@pytest.mark.parametrize(
+    "offsets", [[[1, 2], [3, 4]], [["a", 2]], [[1]], "0,0"], ids=["count", "nan", "short", "str"]
+)
+def test_malformed_offsets_are_bad_responses(offsets: Any) -> None:
+    data = {"boxes": [[0, 0, 2, 2]], "scores": [0.9], "masks": [[[1, 1], [1, 1]]]}
+    with pytest.raises(LocalizerBadResponse):
+        loc.parse_result(
+            {**data, "masks_offset": offsets}, Phrase(label=L.WINDOW, text="window"), *SIZE, 0.5
+        )
+
+
+class CompactReplicate(FakeReplicate):
+    """Answers as the model does with ``split_output`` off: one file, a list of results."""
+
+    def prediction(self, status: str) -> dict[str, Any]:
+        body = super().prediction(status)
+        if body.get("output"):
+            body["output"]["results"] = ["https://replicate.delivery/xezq/abc/prompt_0001.json"]
+        return body
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if str(request.url).startswith("https://replicate.delivery/"):
+            self.requests.append(request)
+            return httpx.Response(200, content=json.dumps(self.results).encode())
+        return super().__call__(request)
+
+
+async def test_compact_output_is_requested_and_one_file_holds_every_prompt() -> None:
+    fake = CompactReplicate(
+        [offset_result(((8, 6, 24, 30), 0.9), size=SIZE), EMPTY], predict_time=1.0
+    )
+    phrases = [Phrase(label=L.WINDOW, text="window"), Phrase(label=L.SINK, text="sink")]
+    found = await localizer(fake).localize(image_of(*SIZE), phrases, threshold=0.5)
+    sent = json.loads(fake.requests[0].content)["input"]
+    assert (sent["offset_masks"], sent["split_output"]) == (True, False)
+    assert [r.url.host for r in fake.requests].count("replicate.delivery") == 1
+    [window] = found.instances
+    assert window.mask is not None and window.mask.bbox() == (8, 6, 24, 30)
+
+    # compact=False sends the input as before section 30: full masks, a file per prompt.
+    plain = FakeReplicate([result(((8, 6, 24, 30), 0.9), size=SIZE), EMPTY])
+    client = localizer(plain)
+    client.compact = False
+    again = await client.localize(image_of(*SIZE), phrases, threshold=0.5)
+    sent = json.loads(plain.requests[0].content)["input"]
+    assert "offset_masks" not in sent and "split_output" not in sent
+    assert again.instances == found.instances
+
+
+async def test_a_result_file_not_served_yet_is_fetched_again() -> None:
+    """Live, one result file of 52 photos answered 404 right after its prediction
+    succeeded (EVAL_REPORT 30); it is retried instead of failing the photo."""
+    fake = FakeReplicate([result(((8, 6, 24, 30), 0.9), size=SIZE)])
+    misses = [1]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "replicate.delivery" and misses:
+            misses.pop()
+            fake.requests.append(request)
+            return httpx.Response(404, json={"detail": "requested file not found"})
+        return fake(request)
+
+    found = await localizer(handler).localize(
+        image_of(*SIZE), [Phrase(label=L.WINDOW, text="window")], threshold=0.5
+    )
+    assert len(found.instances) == 1
+    assert [r.url.host for r in fake.requests].count("replicate.delivery") == 2
+    # Only the result files: a 404 from the API (an unknown version) still fails at once.
+    with pytest.raises(LocalizerError) as caught:
+        await localizer(FakeReplicate([EMPTY], create_failures=[404])).localize(
+            image_of(*SIZE), [Phrase(label=L.WINDOW, text="window")], threshold=0.5
+        )
+    assert not isinstance(caught.value, LocalizerUnavailable)
+
+
+# --------------------------------------------------------------------------- self-hosted Cog
+
+COG = "https://sam3-test.a.run.app"
+ID_TOKEN = "id-token-never-logged"  # pragma: allowlist secret
+
+
+def data_uri(document: Any) -> str:
+    return (
+        "data:application/json;base64," + base64.b64encode(json.dumps(document).encode()).decode()
+    )
+
+
+class FakeCog:
+    """A Cog HTTP server: ``POST /predictions`` answers when done, files as data URIs."""
+
+    def __init__(
+        self,
+        results: list[dict[str, Any]],
+        *,
+        failures: Sequence[int | str] = (),
+        status: str = "succeeded",
+        split: bool = False,
+        output: Any = None,
+    ) -> None:
+        self.results = results
+        self.failures = list(failures)
+        self.status = status
+        self.split = split
+        self.output = output
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if self.failures:
+            failure = self.failures.pop(0)
+            if failure == "timeout":
+                raise httpx.ReadTimeout("read timed out", request=request)
+            return httpx.Response(int(failure), json={"detail": "busy"})
+        files = [data_uri(r) for r in self.results] if self.split else [data_uri(self.results)]
+        body: dict[str, Any] = {
+            "status": self.status,
+            "output": self.output if self.output is not None else {"results": files},
+            "metrics": {"predict_time": 1.25},
+            "error": "CUDA error" if self.status != "succeeded" else None,
+        }
+        return httpx.Response(200, json=body)
+
+
+def cog(
+    fake: Callable[[httpx.Request], httpx.Response],
+    *,
+    token: str | None = ID_TOKEN,
+    seconds: float = 2.0,
+) -> loc.CogSam3Localizer:
+    ticks = iter([100.0, 100.0 + seconds] * 10)
+    return loc.CogSam3Localizer(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(fake)),
+        url=COG + "/",
+        version=VERSION,
+        token_source=loc.static_token(token) if token else None,
+        concurrency=2,
+        retry_delays=(0.0, 0.0, 0.0),
+        clock=lambda: next(ticks),
+    )
+
+
+async def test_cog_localizes_in_one_request_with_the_bearer_and_charges_wall_time() -> None:
+    image = image_of(*SIZE)
+    fake = FakeCog([offset_result(((8, 6, 24, 30), 0.9), size=SIZE), EMPTY])
+    phrases = [Phrase(label=L.WINDOW, text="window"), Phrase(label=L.SINK, text="sink")]
+    found = await cog(fake, seconds=2.0).localize(image, phrases, threshold=0.4)
+    [request] = fake.requests
+    assert (request.method, str(request.url)) == ("POST", f"{COG}/predictions")
+    assert request.headers["authorization"] == f"Bearer {ID_TOKEN}"
+    sent = json.loads(request.content)["input"]
+    assert sent["image"] == "data:image/jpeg;base64," + image.base64
+    assert sent["prompts"] == ['{"text": "window"}', '{"text": "sink"}']
+    assert (sent["confidence_threshold"], sent["offset_masks"], sent["split_output"]) == (
+        0.4,
+        True,
+        False,
+    )
+    [window] = found.instances
+    assert window.mask is not None and window.mask.bbox() == (8, 6, 24, 30)
+    [call] = found.calls
+    assert call.predict_seconds == 1.25 and call.prediction_id is None
+    assert call.cost_usd == pytest.approx(2.0 * loc.CLOUD_RUN_L4_USD_PER_SECOND, abs=1e-6)
+    # A file per prompt (split_output on) reads the same.
+    split = FakeCog([offset_result(((8, 6, 24, 30), 0.9), size=SIZE), EMPTY], split=True)
+    assert (await cog(split).localize(image, phrases, threshold=0.4)).instances == found.instances
+
+
+@pytest.mark.parametrize("failures", [[409], [429], [503], ["timeout"], [409, 429, 500]])
+async def test_cog_retries_busy_throttled_and_transient(failures: list[int | str]) -> None:
+    fake = FakeCog([EMPTY], failures=failures)
+    found = await cog(fake).localize(
+        image_of(*SIZE), [Phrase(label=L.WINDOW, text="window")], threshold=0.5
+    )
+    assert found.calls[0].status == "succeeded" and len(fake.requests) == len(failures) + 1
+
+
+async def test_cog_errors_are_typed_and_never_carry_the_token(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    one = [Phrase(label=L.WINDOW, text="window")]
+    with pytest.raises(LocalizerUnavailable) as busy:
+        await cog(FakeCog([EMPTY], failures=[409] * 10)).localize(
+            image_of(*SIZE), one, threshold=0.5
+        )
+    with pytest.raises(LocalizerError) as denied:
+        await cog(FakeCog([EMPTY], failures=[403])).localize(image_of(*SIZE), one, threshold=0.5)
+    assert denied.value.status == 403 and not isinstance(denied.value, LocalizerUnavailable)
+    with pytest.raises(LocalizerBadResponse, match="CUDA error"):
+        await cog(FakeCog([EMPTY], status="failed")).localize(image_of(*SIZE), one, threshold=0.5)
+    with pytest.raises(LocalizerBadResponse, match="data URI"):
+        await cog(FakeCog([EMPTY], output={"results": ["https://x/1.json"]})).localize(
+            image_of(*SIZE), one, threshold=0.5
+        )
+    with pytest.raises(LocalizerBadResponse, match="1 results for 2 prompts"):
+        await cog(FakeCog([EMPTY])).localize(
+            image_of(*SIZE), [*one, Phrase(label=L.SINK, text="sink")], threshold=0.5
+        )
+    for error in (busy.value, denied.value):
+        assert ID_TOKEN not in str(error)
+    assert ID_TOKEN not in caplog.text
+    assert ID_TOKEN not in repr(cog(FakeCog([EMPTY])))
+
+
+async def test_cog_without_a_token_sends_no_authorization_and_no_phrases_no_call() -> None:
+    fake = FakeCog([EMPTY])
+    client = cog(fake, token=None)
+    await client.localize(image_of(*SIZE), [Phrase(label=L.WINDOW, text="window")], threshold=0.5)
+    assert "authorization" not in fake.requests[0].headers
+    found = await client.localize(image_of(*SIZE), [], threshold=0.5)
+    assert found.calls == () and len(fake.requests) == 1
+    with pytest.raises(LocalizerError, match="http"):
+        loc.CogSam3Localizer(client=httpx.AsyncClient(), url="sam3:5000", version=VERSION)
+
+
+async def test_cog_segment_prompt_keeps_the_tapped_instance() -> None:
+    fake = FakeCog([offset_result(((8, 6, 24, 30), 0.6), ((40, 30, 70, 50), 0.9), size=SIZE)])
+    found = await cog(fake).segment_prompt(
+        image_of(*SIZE), label=L.ELECTRICAL_OUTLET, points=[Point(x=0.2, y=0.3)]
+    )
+    assert [(i.score, i.source) for i in found] == [(0.6, "manual")]
+    prompt = json.loads(json.loads(fake.requests[0].content)["input"]["prompts"][0])
+    assert prompt == {"text": "electrical outlet", "positive_points": [[0.2, 0.3]]}
+
+
+async def test_google_id_tokens_are_cached_and_refreshed_before_expiry() -> None:
+    fetched: list[str] = []
+    now = [0.0]
+
+    def fetch(audience: str) -> str:
+        fetched.append(audience)
+        return f"token-{len(fetched)}"
+
+    source = loc.google_id_token(COG, fetch=fetch, clock=lambda: now[0])
+    assert await source() == "token-1"
+    now[0] = loc.ID_TOKEN_LIFETIME_S - loc.ID_TOKEN_REFRESH_S - 1
+    assert await source() == "token-1"
+    now[0] += 2
+    assert await source() == "token-2"
+    assert fetched == [COG, COG]
