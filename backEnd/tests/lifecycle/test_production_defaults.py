@@ -53,9 +53,12 @@ STEP_FIELDS = (
     "room_reasoning_effort",
     "room_single_photo",
     "room_materials",
+    "room_grouping",
     "text_model",
     "extraction_reasoning_effort",
     "extraction_fallback_max_tokens",
+    "extraction_fallback_scope",
+    "extraction_fallback_context_chars",
     "classify_model",
     "classify_reasoning_effort",
 )
@@ -118,7 +121,12 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
         ("gpt-6.1-sol", "photo_surfaces/v2"): 3,
         ("claude-opus-5-5", "photo_countables/v3"): 3,
         ("claude-sonnet-5-5", "room_inventory/v3"): 1,  # the two-photo Kitchen only
+        # EVAL_REPORT 27: the fallback asks for every box Azure DI left empty, once.
+        ("gpt-6-luna", "appraisal_field_fallback/v1"): 1,
     }
+    [fallback] = [r for r in provider.requests if r.prompt_version.startswith("appraisal_")]
+    asked = fallback.messages[0].content.split("Page text")[0]
+    assert "neighborhood.price_low_thousands" in asked and "subject.city" not in asked
     components = await rows(run, Component, sid, 1)
     per_photo = [c for c in components if not is_inventory(c)]
     assert {c.raw["fusion"]["status"] for c in per_photo} == {"fused"}

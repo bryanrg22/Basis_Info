@@ -163,6 +163,14 @@ async def editable_revision(
             f"at {study.current_stage.value}.",
             type_suffix="stale-state",
         )
+    if study.status not in (StudyStatus.WAITING_REVIEW, StudyStatus.STALLED):
+        # At rooms_review but the gate is not open yet: the photos are still being
+        # analyzed and localized behind the appraisal review (EVAL_REPORT 27).
+        raise Conflict(
+            f"The rooms review is not open yet (status {study.status.value}): the photos "
+            "are still being analyzed.",
+            type_suffix="gate-not-open",
+        )
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
         {"k": f"photo-objects:{document_id}:{study.revision}"},

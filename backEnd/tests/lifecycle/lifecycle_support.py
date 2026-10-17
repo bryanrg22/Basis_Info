@@ -171,6 +171,15 @@ class Harness:
             f"{stage} (revision {revision})",
         )
 
+    async def wait_photos(self, handle: WorkflowHandle[Any, Any], count: int) -> StudyStatusView:
+        """The photo stage done: ``count`` photos completed and none pending. Since v0.9
+        (patch ``appraisal-gate-early-v1``) the appraisal review opens before it is."""
+        return await self.wait_for(
+            handle,
+            lambda s: s.completed_photos == count and s.pending_photos == 0,
+            f"{count} photos done",
+        )
+
     # ------------------------------------------------------------------ decisions
 
     @staticmethod

@@ -13,7 +13,8 @@ count an object once per photo it is in; every other room its per-photo rows):
    are measured once per room and takeoff row: a second photo of the same kitchen floor
    gets quantity 0 with a formula naming the component that carries the area;
 3. price it (:func:`basis.domain.costs.estimate_cost`, cost year and location factor from
-   settings); a missing cost row writes a ``cost_estimates`` row with no amounts;
+   settings; the six legacy rows, else the ``COST_TABLE_PATH`` table's row for the
+   component's label); a missing cost row writes a ``cost_estimates`` row with no amounts;
 4. cross-validate classification, takeoff and cost; warnings and errors set
    ``needs_review`` and every reason is kept in ``review_reason``;
 5. write ``assets``, ``takeoffs``, ``cost_estimates``, ``citations`` (verified ones only)
@@ -71,7 +72,8 @@ from basis.db.models import Asset, Component, CorpusVersion, LlmCall, Room
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.run import RunRepository
-from basis.domain.costs import CostError, CostEstimate, estimate_cost
+from basis.domain.cost_table import CostTable, cost_table_for
+from basis.domain.costs import CostError, CostEstimate, NeedsQuantity, estimate_cost
 from basis.domain.cross_validation import cross_validate
 from basis.domain.rooms import guidance_for, typical_area_sf
 from basis.domain.rules import RECOVERY_YEARS, lookup
@@ -174,6 +176,7 @@ async def _process(
             )
 
     results = await _classify_all(list(views.values()), ctx, settings.classify_concurrency)
+    table = cost_table_for(settings.cost_table_path)
     measured: dict[tuple[uuid.UUID | None, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
     calls: list[CallRecord] = []
@@ -196,11 +199,17 @@ async def _process(
             rule_key, extra_inputs = result.rule_key, {}
             citations = result.citations
         takeoff = _takeoff(component, room, rule_key, property_class, measured, asset.id)
-        cost = _cost(takeoff, settings.cost_year, settings.cost_location_factor)
+        cost, priced_per = _cost(
+            takeoff, settings.cost_year, settings.cost_location_factor, table, component.label
+        )
         issues = [
             i
             for i in cross_validate(
-                section=asset.irs_section, bucket=asset.bucket, takeoff=takeoff, cost=cost
+                section=asset.irs_section,
+                bucket=asset.bucket,
+                takeoff=takeoff,
+                cost=cost,
+                priced_per=priced_per,
             )
             if i.needs_review
         ]
@@ -434,11 +443,24 @@ def _fields(takeoff: Takeoff) -> dict[str, Any]:
     }
 
 
-def _cost(takeoff: Takeoff, cost_year: int, location_factor: float) -> CostEstimate | None:
+def _cost(
+    takeoff: Takeoff,
+    cost_year: int,
+    location_factor: float,
+    table: CostTable | None,
+    label: str,
+) -> tuple[CostEstimate | None, str | None]:
+    """The estimate, or ``None`` and the unit a table row prices the label in when the
+    takeoff is in another unit (``NeedsQuantity``)."""
     try:
-        return estimate_cost(takeoff, cost_year, Decimal(str(location_factor)))
+        estimate = estimate_cost(
+            takeoff, cost_year, Decimal(str(location_factor)), table=table, label=label
+        )
+    except NeedsQuantity as exc:
+        return None, exc.unit
     except CostError:
-        return None
+        return None, None
+    return estimate, None
 
 
 def _source_row(takeoff: Takeoff, cost: CostEstimate | None) -> str:

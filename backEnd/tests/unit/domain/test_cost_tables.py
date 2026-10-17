@@ -34,10 +34,20 @@ def test_carpet_in_square_yards_uses_the_per_sf_row_times_nine() -> None:
 
 
 def test_cabinets_per_linear_foot() -> None:
-    takeoff = estimate_quantity("kitchen_cabinet", 144)  # 48 LF
+    """The legacy per-LF cabinet row still prices a ``cabinet`` run."""
+    takeoff = estimate_quantity("cabinet", 144)  # 48 LF
     cost = estimate_cost(takeoff, 2026, "1.0")
     assert cost.unit_cost == Decimal("314.76")  # 258 x 1.22
     assert cost.total == Decimal("15108.48")
+
+
+def test_kitchen_cabinets_are_units_with_no_legacy_row() -> None:
+    """v0.9 (EVAL_REPORT 27): kitchen cabinets are counted in units, which only a cost
+    table row prices (tests/unit/domain/test_cost_table.py)."""
+    takeoff = estimate_quantity("kitchen_cabinet", 144, 18)
+    assert (takeoff.quantity, takeoff.unit) == (Decimal("18.00"), "EA")
+    with pytest.raises(MissingCostRow):
+        estimate_cost(takeoff, 2026, "1.0")
 
 
 def test_location_and_year_factors_multiply() -> None:

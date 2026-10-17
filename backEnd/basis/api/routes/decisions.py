@@ -3,7 +3,11 @@
 One transaction records the review, the corrections, the stage transition
 (``DECISION_TRANSITIONS``) and a ``workflow_signal`` outbox row; the workflow is signalled
 asynchronously from the outbox, hence 202. A decision for a stage the study is not at, or
-for a revision that is not its current one, is 409 (stale). ``Idempotency-Key`` is
+for a revision that is not its current one, is 409 (stale). A decision for a gate the
+workflow has not opened yet (the study is at the stage but ``processing``: since v0.9 the
+photos run behind the appraisal review, so the rooms review opens later; or ``failed``) is
+409 ``gate-not-open``; an approval that lands on the next review stage leaves the study
+``processing`` until the workflow opens that gate. ``Idempotency-Key`` is
 required: a retry with the same key and body replays the 202, and the key is also stored
 on the review row as a second guard.
 
@@ -119,7 +123,9 @@ def check_no_corrections_on_approve(decision: str, corrections: Sequence[Correct
     summary="Approve or reject the current review stage",
     description=(
         "Records the decision and queues it for the workflow (202). A stage the study is "
-        "not at, or a revision that is not its current one, is 409. Each correction's "
+        "not at, or a revision that is not its current one, is 409; so is a gate the "
+        "workflow has not opened yet (`gate-not-open`: the study is at the stage but "
+        "`processing` or `failed`). Each correction's "
         "`entity_type` must be one the stage accepts (appraisal_review: extraction_field; "
         "rooms_review: room, component, photo; assets_review: asset) and its `entity_id` "
         "must exist in the study at the decided revision (a photo: a photo document of the "

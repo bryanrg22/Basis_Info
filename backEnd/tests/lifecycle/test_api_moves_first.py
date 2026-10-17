@@ -113,11 +113,14 @@ async def test_workflow_follows_a_row_the_api_already_moved(harness: Harness) ->
         # Gate 1: approve. The workflow put the row at appraisal_review; the API moves it on.
         await harness.wait_awaiting(handle, "appraisal_review", 1)
         review = await api_decide(harness, sid, reviewer, "appraisal_review", 1, "approve")
-        assert await row(harness, sid) == (Stage.ROOMS_REVIEW, 1, StudyStatus.WAITING_REVIEW)
+        # v0.9: the rooms gate is not open until the workflow opens it (the photo stage
+        # may still be running behind the appraisal review), so the row is processing.
+        assert await row(harness, sid) == (Stage.ROOMS_REVIEW, 1, StudyStatus.PROCESSING)
         await relay_deliver(harness, handle, review, "appraisal_review", 1, "approve")
 
         # Gate 2: reject with a flagged photo. The API moves the row to extracting r2.
         await harness.wait_awaiting(handle, "rooms_review", 1)
+        assert await row(harness, sid) == (Stage.ROOMS_REVIEW, 1, StudyStatus.WAITING_REVIEW)
         flag = (CorrectionInput(entity_type="photo", entity_id=str(study.photo_ids[0]), after={}),)
         review = await api_decide(harness, sid, reviewer, "rooms_review", 1, "reject", flag)
         assert await row(harness, sid) == (Stage.EXTRACTING, 2, StudyStatus.PROCESSING)

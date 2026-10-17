@@ -5,8 +5,9 @@ vision call(s) through the provider pool (:func:`basis.vision.analyze.analyze_ph
 one ``photo_analysis`` call when ``Settings.vision_photo_mode`` is ``single``, the
 ``photo_countables`` + ``photo_surfaces`` pair merged into one analysis when it is
 ``decomposed``) charged to the remaining budget the workflow passes in, stores the raw
-analysis next to the photo in storage, and writes the room (shared by every photo with the
-same identity in the revision), the ``photo_rooms`` assignment and one ``components`` row
+analysis next to the photo in storage, and writes the room (shared by every photo of the
+same room in the revision: by file name, or by the model's room identity when the name
+says nothing or ``ROOM_GROUPING=model``), the ``photo_rooms`` assignment and one ``components`` row
 per component kind (:mod:`basis.vision.rooms`). Each component row's ``raw.prompt_version``
 names every prompt that produced the analysis (``+``-joined in the decomposed mode); each
 call has its own ``llm_calls`` row and the activity's cost is their sum.
@@ -66,6 +67,7 @@ from basis.config import Settings
 from basis.db.enums import DocumentKind
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
+from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderError
@@ -80,7 +82,8 @@ from basis.vision.analyze import (
     released_prompt,
 )
 from basis.vision.prep import ImageRejected
-from basis.vision.rooms import assign_room, write_photo
+from basis.vision.rooms import assign_room, assign_room_by_name, is_room_hint, write_photo
+from basis.vision.schemas import PhotoAnalysis
 from basis.workflow.contracts import AnalyzePhotoInput, AnalyzePhotoOutput, SimulateFault
 
 ACTIVITY: Final = "analyze_photo"
@@ -131,6 +134,7 @@ class AnalyzePhoto:
             existing = await RoomRepository(session).photo_room(document_id, input.revision)
             run_id = await run_pk(session)
             gcs_uri = document.gcs_uri
+            filename = document.filename
 
         result: PhotoResult | None = None
         cost = 0.0
@@ -151,9 +155,7 @@ class AnalyzePhoto:
             if result is None:  # pragma: no cover - only if the row vanished meanwhile
                 raise RuntimeError("photo assignment disappeared between the check and the write")
             analysis = result.analysis
-            room_id, _ = await assign_room(
-                session, study_id=study_id, revision=input.revision, analysis=analysis
-            )
+            room_id = await self._room(session, study_id, input.revision, filename, analysis)
             if simulate is not None and simulate.sleep_seconds > 0:
                 await sleep_heartbeating(simulate.sleep_seconds)
             count = await write_photo(
@@ -190,6 +192,35 @@ class AnalyzePhoto:
             output_type=AnalyzePhotoOutput,
             work=work,
         )
+
+    async def _room(
+        self,
+        session: AsyncSession,
+        study_id: uuid.UUID,
+        revision: int,
+        filename: str,
+        analysis: PhotoAnalysis,
+    ) -> uuid.UUID:
+        """The photo's room: by file name when ``ROOM_GROUPING=filename`` and the name names
+        a room, else by the model's room identity (:mod:`basis.vision.rooms`)."""
+        if self._deps.settings.room_grouping == "filename" and is_room_hint(filename):
+            study = await StudyRepository(session).get(study_id)
+            aliases = dict(study.room_aliases or {}) if study is not None else {}
+            photos = await DocumentRepository(session).list_for_study(study_id)
+            room_id, _ = await assign_room_by_name(
+                session,
+                study_id=study_id,
+                revision=revision,
+                filename=filename,
+                photo_files=[d.filename for d in photos if d.kind is DocumentKind.PHOTO],
+                aliases=aliases,
+                analysis=analysis,
+            )
+            return room_id
+        room_id, _ = await assign_room(
+            session, study_id=study_id, revision=revision, analysis=analysis
+        )
+        return room_id
 
     async def _analyze(
         self,

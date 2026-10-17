@@ -33,6 +33,11 @@ class StaleStateError(ConflictError):
     """
 
 
+class GateNotOpenError(StaleStateError):
+    """The study is at a review stage but the workflow has not opened its gate yet (the
+    work the gate reviews is still running, or a stage failed): no decision is accepted."""
+
+
 class DuplicateDocumentError(ConflictError):
     """A document with the same sha256 (or storage URI) already exists in the study."""
 

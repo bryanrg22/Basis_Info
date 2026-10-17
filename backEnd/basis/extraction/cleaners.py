@@ -49,6 +49,23 @@ _DATE_MDY_SHORT = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2})\b")
 # A site area printed in acres ("1.39 ac", "0.25 acre"); one acre is 43,560 square feet.
 _ACRES = re.compile(r"\b(?:ac|acres?)\b\.?", re.IGNORECASE)
 SQUARE_FEET_PER_ACRE: Final = Decimal(43560)
+# The URAR's "materials/condition" boxes print the UAD condition rating after the material
+# ("Concrete C3"); the field is the material, the rating is the C1-C6 suffix.
+MATERIAL_CONDITION_FIELDS: Final = frozenset(
+    {
+        "improvements.foundation_walls",
+        "improvements.exterior_walls",
+        "improvements.roof_surface",
+        "improvements.gutters_downspouts",
+        "improvements.window_type",
+        "improvements.floors",
+        "improvements.walls",
+    }
+)
+_CONDITION_SUFFIX = re.compile(r"[\s/;,]+C[1-6]$")
+# A month printed MM/YYYY or M/YYYY ("Effective date of cost data": 01/2025).
+_MONTH_YEAR = re.compile(r"^(\d{1,2})/(\d{4})$")
+MONTH_FIELDS: Final = frozenset({"cost_approach.effective_date_of_cost_data"})
 _NOT_A_VALUE: Final = frozenset({"", "-", "--", "n/a", "na", "not applicable"})
 
 
@@ -311,6 +328,11 @@ def clean_value(kind: FieldType, raw: Any) -> CleanValue:
     return CleanValue(text=text, num=amount, error=None if amount is not None else "not a number")
 
 
+def printed_in_acres(text: str) -> bool:
+    """Whether a printed area names acres ("1.39 ac", "0.25 acre")."""
+    return _ACRES.search(text) is not None
+
+
 def clean_site_area(raw: Any) -> CleanValue:
     """``site.area_sqft`` in square feet: a value printed in acres is converted (the URAR
     box holds either unit), anything else is read as square feet."""
@@ -324,6 +346,27 @@ def clean_site_area(raw: Any) -> CleanValue:
     return CleanValue(text=value.text, num=Decimal(whole))
 
 
+def clean_material(raw: Any) -> CleanValue:
+    """A "materials/condition" box: the material without its trailing condition rating
+    (``"Concrete C3"`` -> ``"Concrete"``); a value that is only a rating is kept."""
+    value = clean_value("text", raw)
+    if value.text is None:
+        return value
+    material = _CONDITION_SUFFIX.sub("", value.text).strip()
+    return CleanValue(text=material or value.text)
+
+
+def clean_month(raw: Any) -> CleanValue:
+    """A month as ``YYYY-MM`` (ISO 8601) when printed ``MM/YYYY``; other text as is."""
+    value = clean_value("text", raw)
+    if value.text is None:
+        return value
+    match = _MONTH_YEAR.match(value.text)
+    if match is None or not 1 <= int(match.group(1)) <= 12:
+        return value
+    return CleanValue(text=f"{match.group(2)}-{int(match.group(1)):02d}")
+
+
 def clean_field(key: str, raw: Any) -> CleanValue:
     """Clean ``raw`` as the catalogue field ``key`` (unknown keys are cleaned as text)."""
     spec = FIELD_BY_KEY.get(key)
@@ -331,6 +374,10 @@ def clean_field(key: str, raw: Any) -> CleanValue:
         return clean_value("text", clean_address(raw))
     if spec is not None and spec.key == "site.area_sqft":
         return clean_site_area(raw)
+    if key in MATERIAL_CONDITION_FIELDS:
+        return clean_material(raw)
+    if key in MONTH_FIELDS:
+        return clean_month(raw)
     return clean_value(spec.type if spec is not None else "text", raw)
 
 

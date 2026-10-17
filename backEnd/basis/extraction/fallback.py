@@ -1,10 +1,22 @@
-"""Single-shot structured LLM call for critical fields that are missing or failed.
+"""Single-shot structured LLM call for the fields Azure DI and the regex pass left empty.
 
-S3_SPEC section 4: only the critical fields that are missing or failed a per-field
-validation rule are asked for, in one call, with the page text of their sections as
-context; values come back with ``source="llm"`` and a confidence equal to the model's
-self-report capped at :data:`LLM_CONFIDENCE_CAP` (0.6), so a fallback value is always
-below the review threshold: it is a suggestion for the reviewer, never an accepted value.
+Which fields are asked (:func:`fallback_keys`, ``EXTRACTION_FALLBACK_SCOPE``):
+
+* ``missing`` (the default since EVAL_REPORT section 27): every catalogue field that is
+  missing or empty after the merge, and every field that failed a per-field validation
+  rule, with the whole document as context (up to ``EXTRACTION_FALLBACK_CONTEXT_CHARS``).
+  Section 17.1 measured the model reading all 75 labelled fields this way (gpt-6-luna
+  0.924, 12 of 12 critical); asking only the critical fields left 36 of 75 empty live
+  (section 23.4).
+* ``critical`` (S3_SPEC section 4, before section 27): only the critical fields that are
+  missing or failed a per-field rule, with the page text of their sections as context.
+
+Values come back with ``source="llm"`` and a confidence equal to the model's self-report
+capped at :data:`LLM_CONFIDENCE_CAP` (0.6), so a fallback value is always below the review
+threshold: it is a suggestion for the reviewer, never an accepted value. The model only
+fills fields that were asked; a value Azure DI or the regex pass read is replaced only when
+it failed its per-field rule (a critical one under either scope). Derived fields
+(:mod:`basis.extraction.derived`) are never asked.
 
 Replaces the legacy ``vision_fallback.py`` (GPT-4o over rendered page images) and the
 ``AppraisalMultiAgent`` extract/verify/correct loop, which made several calls per document
@@ -29,13 +41,14 @@ import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from basis.extraction.field_mappings import FIELD_BY_KEY, LLM_CONFIDENCE_CAP
+from basis.extraction.field_mappings import FIELD_BY_KEY, FIELDS, LLM_CONFIDENCE_CAP
 from basis.extraction.regex_fields import section_lines
-from basis.extraction.results import Candidate, ExtractedField
+from basis.extraction.results import Candidate, ExtractedField, ValidationIssue
+from basis.extraction.validation import PER_FIELD_RULES, failed_critical_keys
 from basis.llm.call import CallContext, call_model
 from basis.llm.errors import ProviderError
 from basis.llm.prompts import Prompt
@@ -45,7 +58,14 @@ logger = logging.getLogger("basis.extraction.fallback")
 
 PROMPT_NAME: Final = "appraisal_field_fallback"
 MAX_CONTEXT_CHARS: Final = 24_000
+# The whole-document context of the ``missing`` scope: section 17.1's 60,000 characters
+# (the client appraisal is about 28,000).
+WHOLE_DOCUMENT_CHARS: Final = 60_000
+Scope = Literal["missing", "critical"]
+# Keys filled from another field's reading (basis.extraction.derived), never asked.
+_DERIVED: Final = frozenset({"site.area", "site.area_acres"})
 _SPACES = re.compile(r"\s+")
+_CURRENCY_GAP = re.compile(r"\$ ")
 
 
 class FallbackValue(BaseModel):
@@ -84,7 +104,25 @@ class FallbackOutcome:
 
 
 def _norm(text: str) -> str:
-    return _SPACES.sub(" ", text).strip().lower()
+    """Whitespace collapsed, lowercased, and a currency sign joined to its amount: forms
+    print "=$" and the figure on separate lines ("$\n460,900"), the model "$460,900"."""
+    return _CURRENCY_GAP.sub("$", _SPACES.sub(" ", text).strip().lower())
+
+
+def fallback_keys(
+    fields: Mapping[str, ExtractedField], issues: Sequence[ValidationIssue], scope: Scope
+) -> list[str]:
+    """The fields to ask the model for, in catalogue order (module doc)."""
+    critical = failed_critical_keys(fields, list(issues))
+    if scope == "critical":
+        return critical
+    failed = {key for issue in issues if issue.rule in PER_FIELD_RULES for key in issue.keys}
+    wanted = set(critical) | failed
+    for spec in FIELDS:
+        item = fields.get(spec.key)
+        if item is None or item.is_empty:
+            wanted.add(spec.key)
+    return [spec.key for spec in FIELDS if spec.key in wanted and spec.key not in _DERIVED]
 
 
 def context_pages(keys: Sequence[str], pages: Sequence[str]) -> list[int]:
@@ -123,7 +161,8 @@ def page_context(
 
 
 def appears_in(value: str, context: str) -> bool:
-    """The verbatim guard: ``value`` is in ``context`` (whitespace-normalised, any case)."""
+    """The verbatim guard: ``value`` is in ``context`` (whitespace-normalised, any case, a
+    currency sign separated from its amount by whitespace counted as joined)."""
     return _norm(value) in _norm(context)
 
 
@@ -175,14 +214,22 @@ async def fallback_fields(
     model: str,
     max_tokens: int,
     reasoning_effort: str | None = None,
+    whole_document: bool = False,
+    max_context_chars: int = WHOLE_DOCUMENT_CHARS,
 ) -> FallbackOutcome:
-    """Ask the model for ``keys`` once; return the values that pass the guards."""
+    """Ask the model for ``keys`` once; return the values that pass the guards.
+
+    ``whole_document`` sends every page (up to ``max_context_chars``) instead of the pages
+    of the keys' sections (up to :data:`MAX_CONTEXT_CHARS`)."""
     if not keys:
         return FallbackOutcome(status="not_needed")
     asked = [key for key in keys if key in FIELD_BY_KEY]
     if provider is None:
         return FallbackOutcome(status="no_provider", asked=asked)
-    context, used = build_context(asked, pages)
+    if whole_document:
+        context, used = page_context(pages, range(1, len(pages) + 1), max_context_chars)
+    else:
+        context, used = build_context(asked, pages)
     if not context:
         return FallbackOutcome(status="no_page_text", asked=asked)
     request = build_request(

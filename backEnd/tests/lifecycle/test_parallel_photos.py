@@ -51,9 +51,9 @@ async def test_permanent_failure_is_flagged_and_a_transient_one_is_retried(
     async with harness.worker():
         started = await harness.start(study, simulate_photos=faults)
         handle = started.handle
-        status = await harness.wait_awaiting(handle, "appraisal_review", 1)
+        await harness.wait_awaiting(handle, "appraisal_review", 1)
+        status = await harness.wait_photos(handle, 4)
         assert status.flagged_photos == (broken,)
-        assert (status.completed_photos, status.pending_photos) == (4, 0)
 
         tries = await attempts(handle)
         # The history records only the final attempt of a retried activity.
@@ -87,7 +87,7 @@ async def test_retries_exhausted_flags_the_photo(harness: Harness) -> None:
         started = await harness.start(
             study, simulate_photos={hopeless: SimulateFault(fail_attempts=10)}
         )
-        status = await harness.wait_awaiting(started.handle, "appraisal_review", 1)
+        status = await harness.wait_photos(started.handle, 2)
         assert status.flagged_photos == (hopeless,)
         tries = await attempts(started.handle)
         assert tries[f"analyze_photo:{hopeless}:r1"] == [3]  # maximum_attempts=3
@@ -111,6 +111,7 @@ async def test_photo_fan_out_is_bounded_by_photo_concurrency(harness: Harness) -
     study = await harness.seed(photos=[f"room_{i}.jpg" for i in range(8)])
     async with harness.worker(analyze_photo=counting_analyze_photo):
         started = await harness.start(study, photo_concurrency=3)
-        status = await harness.wait_awaiting(started.handle, "appraisal_review", 1)
+        await harness.wait_awaiting(started.handle, "appraisal_review", 1)
+        status = await harness.wait_photos(started.handle, 8)
     assert status.completed_photos == 8
     assert peak == 3

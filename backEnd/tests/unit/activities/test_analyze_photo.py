@@ -18,14 +18,14 @@ from typing import Any
 
 import pytest
 from fixtures import fixture_path
-from lifecycletest_support import SeededStudy, count_rows, make_deps
+from lifecycletest_support import SeededStudy, count_rows, make_deps, seed_run, seed_study
 from llm_fakes import PHOTO_COST_USD, FixtureVisionProvider, PromptKeyedProvider
 from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
 from basis.activities.analyze_photo import SIMULATED_FAILURE, AnalyzePhoto, analysis_uri
-from basis.db.models import ActivityResult, Component, Document, LlmCall, PhotoRoom, Room
+from basis.db.models import ActivityResult, Component, Document, LlmCall, PhotoRoom, Room, Study
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
@@ -61,6 +61,13 @@ def analyze(
 
 def with_llm(deps: Deps, llm: Any) -> Deps:
     return make_deps(deps.sessionmaker, deps.storage, deps.settings, llm=llm)
+
+
+def by_identity(deps: Deps) -> Deps:
+    """The same deps with ``ROOM_GROUPING=model``: rooms by the model's room identity (the
+    fallback for a file name that names no room), whatever the seeded file names say."""
+    settings = deps.settings.model_copy(update={"room_grouping": "model"})
+    return make_deps(deps.sessionmaker, deps.storage, settings, llm=deps.llm)
 
 
 def decomposed(deps: Deps, llm: Any = None) -> Deps:
@@ -180,7 +187,7 @@ async def test_two_photos_of_one_room_share_it_even_concurrently(
     from temporalio.testing import ActivityEnvironment
 
     activity = AnalyzePhoto(deps)
-    # kitchen_1.jpg and kitchen_2.jpg, analyzed at the same time by two "workers"
+    # "Kitchen photo 1.jpg" and "Kitchen photo 2.jpg", analyzed at once by two "workers"
     await asyncio.gather(
         activity_env.run(activity.run, analyze(seeded, 0)),
         ActivityEnvironment().run(activity.run, analyze(seeded, 1)),
@@ -202,7 +209,9 @@ async def test_a_renamed_room_is_reused_in_the_next_revision(
             floor="1",
             source="manual",
         )
-    output = await activity_env.run(AnalyzePhoto(deps).run, analyze(seeded, 0, revision=2))
+    output = await activity_env.run(
+        AnalyzePhoto(by_identity(deps)).run, analyze(seeded, 0, revision=2)
+    )
     assert output.room_id == str(renamed.id)
     assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id, revision=2) == 1
 
@@ -283,7 +292,9 @@ async def test_invalid_output_twice_is_ambiguous_and_needs_review(
     deps: Deps, seeded: SeededStudy, activity_env: Env
 ) -> None:
     provider = ScriptedProvider([invalid_turn(), ScriptedTurn(text="I think it is a kitchen")])
-    output = await activity_env.run(AnalyzePhoto(with_llm(deps, provider)).run, analyze(seeded, 0))
+    output = await activity_env.run(
+        AnalyzePhoto(with_llm(by_identity(deps), provider)).run, analyze(seeded, 0)
+    )
     assert output.needs_review and output.components == 0
     [room] = await rows(deps, Room, study_id=seeded.study_id)
     assert (room.name, room.room_type) == ("Unassigned", "ambiguous")
@@ -300,7 +311,7 @@ async def test_an_ambiguous_photo_is_flagged(
     await put_photo(
         deps, seeded.photo_ids[0], fixture_path("photos", "08_ambiguous.jpg").read_bytes()
     )
-    output = await activity_env.run(AnalyzePhoto(deps).run, analyze(seeded, 0))
+    output = await activity_env.run(AnalyzePhoto(by_identity(deps)).run, analyze(seeded, 0))
     assert output.needs_review
     [room] = await rows(deps, Room, study_id=seeded.study_id)
     assert room.name == "Unassigned"
@@ -440,7 +451,7 @@ async def test_decomposed_makes_two_recorded_calls_and_writes_one_merged_analysi
     )
     provider = FixtureVisionProvider()
     output = await activity_env.run(
-        AnalyzePhoto(decomposed(deps, provider)).run, analyze(seeded, 0)
+        AnalyzePhoto(decomposed(by_identity(deps), provider)).run, analyze(seeded, 0)
     )
     assert (output.components, output.needs_review) == (2, False)
     assert output.cost_usd == pytest.approx(2 * PHOTO_COST_USD)  # both calls charged
@@ -539,7 +550,7 @@ async def test_decomposed_one_call_unusable_twice_is_ambiguous_with_the_call_nam
         }
     )
     output = await activity_env.run(
-        AnalyzePhoto(decomposed(deps, provider)).run, analyze(seeded, 0)
+        AnalyzePhoto(decomposed(by_identity(deps), provider)).run, analyze(seeded, 0)
     )
     assert output.needs_review and output.components == 0
     [room] = await rows(deps, Room, study_id=seeded.study_id)
@@ -578,3 +589,98 @@ async def test_decomposed_replay_makes_no_new_calls(
     again = await activity_env.run(activity.run, analyze(seeded, 0, key="k-new"))
     assert again.room_id == first.room_id and again.cost_usd == 0
     assert len(provider.requests) == 2
+
+
+# --------------------------------------------------------------------------- file-name rooms
+# EVAL_REPORT section 27, item 1: ROOM_GROUPING=filename (the default) puts a photo in the
+# room its file name names (basis.vision.rooms.group_photos, after the study's aliases).
+
+
+async def seed_named(
+    deps: Deps, storage: Any, names: tuple[str, ...], aliases: dict[str, str] | None = None
+) -> SeededStudy:
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    if aliases:
+        async with session_scope(deps.sessionmaker) as session:
+            row = await session.get(Study, study.study_id)
+            assert row is not None
+            row.room_aliases = aliases
+    return study
+
+
+NAMED = (
+    "15_1st Floor Breakfast Nook.JPG",
+    "21_1st Floor Kitchen photo 1.JPG",
+    "22_1st Floor Kitchen photo 2.JPG",
+    "45_Basement Bath.JPG",
+    "IMG_0001.JPG",
+)
+
+
+async def test_photos_are_grouped_by_file_name_and_aliases(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    study = await seed_named(deps, storage, NAMED, {"1_breakfast_nook": "1_kitchen"})
+    activity = AnalyzePhoto(deps)
+    outputs = [
+        await activity_env.run(activity.run, analyze(study, index)) for index in range(len(NAMED))
+    ]
+    rooms = {r.id: r for r in await rows(deps, Room, study_id=study.study_id)}
+    by_photo = {NAMED[i]: rooms[uuid.UUID(o.room_id)] for i, o in enumerate(outputs)}
+    kitchen = by_photo["21_1st Floor Kitchen photo 1.JPG"]
+    # The nook (aliased) and both kitchen views are one room, named and floored by the file.
+    assert by_photo["15_1st Floor Breakfast Nook.JPG"] is kitchen
+    assert by_photo["22_1st Floor Kitchen photo 2.JPG"] is kitchen
+    assert (kitchen.group_key, kitchen.name, kitchen.floor) == (
+        "1_kitchen",
+        "1st Floor Kitchen",
+        "1",
+    )
+    bath = by_photo["45_Basement Bath.JPG"]
+    assert (bath.group_key, bath.name, bath.floor) == ("b_bath", "Basement Bath", "0")
+    # A camera name says nothing: the model's room identity (the bedroom scene) is used.
+    fallback = by_photo["IMG_0001.JPG"]
+    assert (fallback.group_key, fallback.name, fallback.room_type) == (None, "Bedroom", "bedroom")
+    assert len(rooms) == 3
+
+
+async def test_without_aliases_each_named_view_is_its_own_room(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    study = await seed_named(deps, storage, NAMED[:2])
+    activity = AnalyzePhoto(deps)
+    for index in range(2):
+        await activity_env.run(activity.run, analyze(study, index))
+    keys = sorted(r.group_key for r in await rows(deps, Room, study_id=study.study_id))
+    assert keys == ["1_breakfast_nook", "1_kitchen"]
+
+
+async def test_an_ambiguous_photo_with_a_room_name_joins_its_named_room(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    study = await seed_named(deps, storage, ("Kitchen photo 1.jpg", "Kitchen photo 2.jpg"))
+    await put_photo(
+        deps, study.photo_ids[1], fixture_path("photos", "08_ambiguous.jpg").read_bytes()
+    )
+    activity = AnalyzePhoto(deps)
+    first = await activity_env.run(activity.run, analyze(study, 0))
+    second = await activity_env.run(activity.run, analyze(study, 1))
+    assert second.needs_review  # still flagged for the reviewer
+    assert first.room_id == second.room_id
+    [room] = await rows(deps, Room, study_id=study.study_id)
+    assert (room.group_key, room.room_type) == ("x_kitchen", "kitchen")
+
+
+async def test_model_grouping_ignores_file_names(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    # Two file-name rooms, both the kitchen scene: one room by the model's identity.
+    study = await seed_named(
+        deps, storage, ("21_1st Floor Kitchen photo 1.JPG", "Kitchen Island.JPG")
+    )
+    activity = AnalyzePhoto(by_identity(deps))
+    for index in range(2):
+        await activity_env.run(activity.run, analyze(study, index))
+    [room] = await rows(deps, Room, study_id=study.study_id)
+    assert (room.group_key, room.name) == (None, "Kitchen")

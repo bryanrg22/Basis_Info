@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from basis.api.routes import decisions, documents, evidence, objects, studies, workflow
+from basis.api.routes import decisions, documents, evidence, objects, outputs, studies, workflow
 
 
 def api_routers() -> list[APIRouter]:
@@ -14,6 +14,7 @@ def api_routers() -> list[APIRouter]:
         documents.writes,
         decisions.writes,
         evidence.reads,
+        outputs.reads,
         objects.reads,
         objects.writes,
         workflow.writes,

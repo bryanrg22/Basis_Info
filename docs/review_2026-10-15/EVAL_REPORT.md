@@ -3152,3 +3152,292 @@ uv run python -m evals.score_schedule --data-dir ~/basis-eval-data \
     --baseline current=$P/rooms19_v3_opus55 --system room_high=$P/arch26_room_v2_opus55_high
 ```
 (For the property-wide calls set `LLM_REQUEST_TIMEOUT=600`.)
+
+## 27. Live-run follow-ups (2026-10-16)
+
+Section 23 ran the client study through the running system and found six gaps the harness
+could not see. Each is fixed in its own commit with tests (branch
+`claude/quizzical-saha-e892c3`); this section gives before and after for each (section 26, the vision architecture study,
+landed first).
+
+| # | Gap (section 23) | Before | After (offline replays on the stored live outputs; live run in 27.8) |
+|---|---|---|---|
+| 1 | Rooms grouped by the model's room identity | 14 rooms of 33, count MAE 0.60 (live, defaults) | file name + the engineer's aliases, model identity only for names that say nothing: 33 rooms, count MAE **0.37** on the same live per-photo outputs (one repeat) |
+| 2 | Extraction asked the model only for 6 critical fields | 23 right / 0 wrong / 52 not extracted of 75 | **72 right / 2 wrong / 1 not extracted** on every one of 3 repeats, 12 of 12 critical, $0.0024 per study |
+| 3 | An extraction failure surfaced after the photo stage, failed the study, no restart | 17 min and $2.67 spent, study dead | failure recorded at once (no new photo work), status `failed`, `POST /v1/studies/{id}/retry` resumes the stage |
+| 4 | The appraisal gate waited for SAM 3 | gate at +681 s after start (live run 3; extraction done at +87 s); SAM 3 was 74% of run 2's wall time | gate opens when the extraction is done; photos and SAM 3 continue behind it; the rooms gate waits for them |
+| 5 | No read routes for fields, rooms, assets | the client read the database | `GET /fields`, `/rooms` (with inventories), `/assets`, paginated |
+| 6 | 166 of 203 assets `COST_ROW_MISSING` (106 for that alone) | 186 of 203 need review | **24** `COST_ROW_MISSING` (22 unidentified `other`), **94** need review |
+
+The client study was then run live again on the real defaults, through the running system
+(27.8): it completed in 9 min 56 s from `start` for $6.75, with 33 rooms, 72 of 75 fields,
+the appraisal gate open at +93 s while 39 photos were still being analyzed, and half the
+assets needing review instead of 91%.
+
+### 27.1 Rooms: file names first, the engineer's aliases, the model's identity as a fallback
+
+Production now groups photos the way section 16 measured (`ROOM_GROUPING=filename`, the
+default; `model` is the previous behaviour):
+
+- `analyze_photo` puts a photo whose file name names a room (`is_room_hint`: a word of three
+  or more letters that is not a camera, phone or app word, so `IMG_1234.JPG`,
+  `PXL_20250101_120000.jpg`, a UUID or a bare `photo 2` are not) in the room `group_photos`
+  gives it among the study's photo names, after the study's room aliases. The room is keyed
+  by its canonical file-name room id (`rooms.group_key`, migration 0005) under an advisory
+  lock, so concurrent photos of one room share it.
+- A photo whose name says nothing falls back to the model's room identity, as before.
+- `reconcile_rooms` re-votes each file-name room's type and floor from its photos' stored
+  answers with `group_photos`'s rules (ambiguous abstains, a floor in the file name wins), keeps a
+  room the reviewer corrected, and reconciles a file-name room even when every photo
+  answered ambiguous (by name it is one room).
+- The engineer's aliases are a study field (`room_aliases` on `POST /v1/studies`, returned on
+  the study) and can be extended at the rooms review: a `room` correction
+  `{"merge_into": <room id>}` moves the room's photos and per-photo rows into the target in
+  the next revision, rebuilds the merged inventory, and records the merge as an alias, so a
+  photo re-analyzed later joins the target.
+
+On the 52 real file names the production assignment (`name_group`, one photo at a time)
+equals `group_photos` for every photo: 33 rooms with the 16 aliases, 49 without.
+
+The room step replayed on run 3's stored per-photo outputs (sol + Opus fusion) with that
+grouping, Sonnet 5.5 at its production settings, one repeat ($0.30):
+
+| Grouping | count MAE | exact | bias | label F1 | report rows |
+|---|---|---|---|---|---|
+| Model room identity (production before; live run 3) | 0.60 | 0.51 | -0.23 | 0.69 | 32 of 39 |
+| File name + aliases (section 23.3, same input) | 0.45 | 0.65 | +0.05 | 0.85 | 32 of 39 |
+| **File name + aliases, production grouping (this replay)** | **0.37** | **0.68** | **+0.05** | **0.86** | 32 of 39 |
+| Offline reference (16.5, sol input, mean of 3) | 0.43 | 0.63 | +0.10 | 0.85 | |
+
+The two file-name rows are two repeats of the same grouping (section 16 treats differences
+under about 0.1 as noise); the gain over the model's identity is the grouping. The aliases
+are the engineer's merges; without them each view of a room is its own room and its objects
+are counted twice (23.3: +0.51 bias), which is why the product takes them at creation and
+at the rooms review.
+
+### 27.2 Extraction: every empty field, room counts critical, the site area as printed
+
+- `EXTRACTION_FALLBACK_SCOPE=missing` (default): one model call for every catalogue field
+  that Azure DI and the regex pass left empty or that failed its per-field rule, with the
+  whole document as context (`EXTRACTION_FALLBACK_CONTEXT_CHARS`, 60,000, section 17.1's)
+  and 8,000 output tokens; `critical` is the previous behaviour. Fields Azure DI read are
+  never replaced; the verbatim guard and the 0.6 confidence cap stay.
+- The catalogue gained the boxes the labels have and it did not (one-unit price and age
+  ranges, Foundation Walls, Floors, Walls, the cost approach's quantity rows, the cost
+  service's quality and date); ambiguous captions ("Low", "Sq.Ft." in a cost row) are
+  model-only (`captioned=False`), never matched from Azure DI or the regex pass.
+- Room, bedroom and bathroom counts are critical.
+- The site area is kept three ways from one reading: `site.area_sqft` (converted),
+  `site.area` (as printed, "1.39 ac") and `site.area_acres` (when printed in acres).
+- Cleaners: the materials/condition boxes drop the UAD rating the form prints after the
+  material ("Concrete C3" -> "Concrete"); the cost-data month is `YYYY-MM`.
+- The verbatim guard joins a currency sign to its amount: Azure DI's text prints "=$" and
+  the figure on separate lines, and every cost-approach value the model returned
+  ("$460,900") had been dropped as not in the text.
+
+Measured on the real appraisal with the live run's stored Azure DI analysis (reused, as
+the pipeline reuses an earlier revision's) and gpt-6-luna at low effort, scored with the
+section 23.4 exporter's mapping (`repro/extraction_replay.py`; the exporter now maps 14
+more catalogue keys to the label file's names for the same boxes, each listed with its URAR
+caption):
+
+| Fallback scope | right | wrong | not extracted | critical right | cost per study |
+|---|---|---|---|---|---|
+| Live run 3 (before) | 23 | 0 | 52 | 8 of 12 | $0.0004 |
+| `critical` (this branch, 3 repeats) | 28 | 0 | 47 | 12 of 12 | $0.0006 |
+| **`missing` (default, 3 repeats)** | **72** | **2** | **1** | **12 of 12** | **$0.0024** |
+
+The same three fields on every repeat: `reconciliation.indicated_value_cost_approach` is the
+disputed label of section 17.1 (the reconciliation prints 682,831, the cost approach
+692,831; the model copies the reconciliation figure, which is what the box says);
+`improvements.heating` reads FWA where the form checks "Other: Infloor" (Azure DI's text
+interleaves the check-box marks with the options); `subject.property_rights` is answered
+"not found". So 72 of 75 with one wrong value that is the model's (heating) and one the label's.
+A prompt line on check-box marks (tried as `appraisal_field_fallback/v2`, 3 repeats)
+changed nothing and was not released. Every model value is capped at confidence 0.6, so it
+reaches the appraisal review as a suggestion.
+
+One finding on the way: a dev `.env` that sets `OPENAI_MODEL` and Azure-first routing
+silently ran the first replay on Azure's gpt-5-nano (36 to 61 right, 3 to 5 wrong). The
+worker logs the model in effect at start; the replays here were re-run on the defaults.
+
+### 27.3 Fail fast and restart
+
+Workflow patch `stage-failure-retry-v1` (histories recorded before it replay unchanged):
+the photo stage runs in the background while the appraisal is ingested and extracted. A
+permanent extraction failure is recorded at once (`record_failure`: `status = failed`,
+`studies.failure_reason`, migration 0006; the status query carries `failed_stage` and
+`failure`), the photo stage schedules nothing more (the analyses already running finish
+and keep their rows), and the workflow waits for the `retry` update, which
+`POST /v1/studies/{id}/retry` (engineer) sends: 409 `study-not-failed` while nothing failed,
+409 `workflow-closed` for an execution that has ended. The failure is cleared and the stage
+runs again with fresh activity ids; analyzed photos are reused. `process_assets` and
+`export_report` failures are held and retried the same way. A first version cancelled the
+photo activities in flight; a cancel that crossed an activity's completion made the test
+server refuse the workflow task and the worker's eviction hung (1 run in 4), so the stage
+drains instead (15 consecutive green runs). Lifecycle tests: the failure is recorded before
+any photo finishes, nothing is scheduled until the retry, the retried study completes and
+its history replays; later-stage failures are held and retried; a held study can be
+cancelled.
+
+### 27.4 Gate timing
+
+Workflow patch `appraisal-gate-early-v1`: the appraisal review opens as soon as the
+extraction is done; the rooms review opens after the photo stage (analysis, SAM 3
+localization, the room step). An appraisal rejection waits for the photo stage before it
+starts the next revision, which carries the photo outputs over. Because the API moves the
+study on a decision before the workflow does, an approval that lands on the next review
+stage now leaves the study `processing` until the workflow opens that gate (its transition
+converges the status to `waiting_review`), and a decision or an object edit on a gate the
+workflow has not opened is 409 `gate-not-open`. The lifecycle test holds one photo in its
+analysis to make the timing deterministic: in history order, extraction done < appraisal
+gate open < last analysis done, and every analysis, localization and the room step < rooms
+gate. On live run 3's timings the appraisal gate would open at about +90 s (the extraction was
+done at +87 s) instead of +681 s; live it opened at +93 s with 39 photos still in flight (27.8).
+
+### 27.5 Read routes
+
+`GET /v1/studies/{id}/fields`, `/rooms` and `/assets` (viewer): the current revision or
+`?revision=`, keyset pages with an opaque cursor that stays on its revision, one query per
+table per page. Fields carry the catalogue label and critical flag; rooms their photos (in
+file-name order) and inventory (the reconciled rows with the photos each object was seen
+in, or the per-photo rows of a room without one); assets their component, room, takeoff,
+cost, citation counts and review reasons (`needs_review` filter). The ids are the
+correction `entity_id`s. OpenAPI regenerated; the Schemathesis contract test covers them.
+
+### 27.6 Cost rows
+
+Cost segregation prices each component from a published unit cost (the IRS Cost
+Segregation Audit Techniques Guide, chapter 4: quantity takeoffs priced from a cost source
+such as RSMeans, adjusted to the year and the location). The product now loads the
+engineer's unit-cost table from `COST_TABLE_PATH` (`basis.domain.cost_table`, JSON by
+component label: the takeoff unit, a factor from the source unit, bare material, labor and
+equipment, Total Incl O&P for reference, the source line and any assumption), validated
+when the worker starts. RSMeans line items are licensed, so the table is not in this
+public repository: it was built privately from RSMeans Residential 2020 (60 labels) and
+Building 2020 (signage, shed, window guard), each number read from the rendered page (the
+PDFs' text layer is poor OCR), two of them spot-checked against the page images here.
+Choices: bare costs, the basis of the six legacy rows (O&P is kept per row); the legacy rows
+still win where they exist; kitchen cabinets are priced per unit (24-inch base cabinet), as
+the room labels count them since 16.1, instead of the legacy perimeter run; wall and ceiling
+finishes are painting lines (drywall is the wall's line) measured from the room area;
+conversions such as per square to per SF or a 24-inch countertop per LF to per SF are row
+factors. A row in another unit than the takeoff (site items priced per area or length that
+the takeoff only counts) is reported as `COST_NEEDS_QUANTITY`, not `COST_ROW_MISSING`.
+
+Re-priced on the live runs' stored assets, classification and other reasons as stored
+(`repro/cost_review_load.py`):
+
+| Reason | run 2: before | after | run 3: before | after |
+|---|---|---|---|---|
+| assets needing review | 186 of 203 | **94** | 175 of 192 | **82** |
+| `cross:COST_ROW_MISSING` | 166 | **24** | 156 | **21** |
+| ... flagged for that alone | 106 | | 105 | |
+| `cross:COST_NEEDS_QUANTITY` | 0 | 13 | 0 | 10 |
+| `model:` (the classifier's own doubts) | 34 | 34 | 28 | 28 |
+| `rule_contested:*` | 43 | 43 | 42 | 42 |
+| `cross:SECTION_1245_SF_LARGE` | 15 | 15 | 11 | 11 |
+| other (`citation_unverified`, `validation:*`, `missing_evidence`) | 7 | 7 | 3 | 3 |
+| assets priced | 37 | 166 | 36 | 161 |
+
+What still has no row: 22 and 19 unidentified `other` components (nothing to price until
+the engineer names them), a porch or two (the only RSMeans porch figure is a square-foot
+model cost, left out), one generic `appliance`. The 13 and 10 `COST_NEEDS_QUANTITY` are roof,
+siding, gutter, patio, driveway, sidewalk, fence, retaining wall and landscaping: their
+quantity has to be measured (site area, roof area) before they can be priced. The year
+factor is still the legacy escalation table on the 2020 base, not RSMeans' Historical Cost
+Index (Building 2020 has one; Residential does not), and the location factor is still the
+setting; both are follow-ups.
+
+### 27.7 Still open
+
+- Follow-ups: price `COST_NEEDS_QUANTITY` items from measured quantities (site area from
+  the appraisal, roof area); price FF&E (`furniture`) from purchase records, which RSMeans
+  does not cover; the RSMeans Historical Cost Index and City Cost Index for the year and
+  location factors; a room-merge UI at the rooms review (the API takes `merge_into`);
+  whether the heating check box needs Azure DI's selection-mark structure rather than its
+  text.
+- One live run is one repeat; Replicate was not throttled on this run (its credit was
+  above the throttling threshold), so the photo stage is faster than in section 23 for a
+  reason unrelated to this work.
+
+### 27.8 The live re-run
+
+The client study (the appraisal and 52 photos) through the running stack on the branch
+(`c7b53d4`), the defaults of section 18 unchanged (gpt-6.1-sol decomposed with per-class
+fusion on Opus 5.5, gpt-6-luna extraction, Sonnet 5.5 room step and classifier, SAM 3 on
+Replicate), `PROPERTY_CLASS=nonresidential`, the private RSMeans table at
+`COST_TABLE_PATH`, the engineer's 16 room aliases sent with the study, each gate approved
+through the API with no corrections. Scored with `live_export.py` and `evals.run` on the
+pinned label set, as in section 23 (one repeat):
+
+| Step | Metric | Section 23 (run 3, defaults) | **Live, this branch** | Offline reference |
+|---|---|---|---|---|
+| Timing | appraisal gate open, from `start` | +681 s | **+93 s** (39 of 52 photos still in flight) | |
+| | rooms gate / assets gate / completed | +685 s / +869 s / 874 s | +397 s / +587 s / **596 s** | |
+| Per-photo counts (312 pairs) | count MAE / exact | 0.135 / 0.897 | **0.135 / 0.891** | 0.124 (15.1 4c) |
+| Rooms | rooms made / count MAE / exact / bias | 14 / 0.60 / 0.51 / -0.23 | **33 / 0.44 / 0.66 / +0.04** | 0.43 (16.5) |
+| | label F1 / report rows | 0.69 / 32 of 39 | **0.84 / 33 of 39** | 0.85 / 32 |
+| Appraisal fields (75) | right / wrong / not extracted | 23 / 0 / 52 | **72 / 2 / 1** | 0.924 (17.1) |
+| | critical (12) | 8 of 12 | **12 of 12** | 12 of 12 |
+| Assets | assets / needing review | 192 / 175 (91%) | **280 / 140 (50%)** | |
+| | `COST_ROW_MISSING` / priced | 156 / 36 | **51 / 214** | |
+| | schedule rows answered right | 23 of 32 | **23 of 33** (bucket accuracy 0.50 of 46) | 0.688 (17.2) |
+| | citations verified | 263 of 263 | **379 of 379** | |
+| Cost | the study | $5.74 | **$6.75** | |
+
+Reading:
+
+- Every fix shows live. The appraisal gate opens with the extraction; the rooms gate waits
+  for the photo stage. Production made the 33 labelled rooms, and the room step scored as the
+  offline evaluation did (0.44 against 0.43). The extraction read 72 of 75 fields, the same
+  three misses as 27.2. The review load halved.
+- The per-photo step is unchanged (0.135, as in section 23), as expected: nothing in it
+  changed.
+- More assets (280 against 192): with 33 rooms instead of 14, objects that the model's
+  identity had merged across rooms are now counted in their own rooms. So the classifier
+  made 359 calls ($3.99, against $3.08), which is most of the cost difference.
+- What still has no cost row live: 30 unidentified `other`, 17 `furniture` (FF&E, a label
+  added after section 23, which cost segregation prices from purchase records, not from
+  RSMeans), two half walls (the only RSMeans figure is an assembly, left out), one generic
+  appliance, one porch. Fifteen site items are `COST_NEEDS_QUANTITY`. The other review
+  reasons: `rule_contested` 84, the classifier's own doubts 39,
+  `SECTION_1245_SF_LARGE` 14, `STRUCTURAL_AS_PERSONAL` 4, `citation_unverified` 2. Only 2
+  assets were flagged for a missing cost row alone (section 23: 105).
+- The photo stage was faster than in section 23 (SAM 3 not throttled), so the absolute
+  timings are not a like-for-like comparison. The appraisal gate's +93 s is independent of
+  that: it no longer waits for the photos at all.
+
+Commands (from `backEnd/`, a stack as in section 23 with `COST_TABLE_PATH` set):
+
+```bash
+ROOM_ALIASES=~/basis-eval-data/labels/room_aliases_v1.json PG_DB=basis_s25 API=http://127.0.0.1:8210 \
+    python ../docs/review_2026-10-15/repro/live_client.py OUT
+BASIS_EVAL_DATA_DIR=~/basis-eval-data/work/labels_pre_2026-10-16 \
+    python ../docs/review_2026-10-15/repro/live_export.py OUT/db_final OUT/documents.json PRED
+BASIS_EVAL_DATA_DIR=~/basis-eval-data/work/labels_pre_2026-10-16 python -m evals.run \
+    --predictions PRED --no-db
+```
+
+Spend for this section: $6.75 for the live run ($5.79 Anthropic, $0.85 OpenAI, $0.12
+Replicate; Azure DI not recorded), $0.30 Anthropic for the room replay, about $0.03 OpenAI
+for the extraction replays, about $0.01 Azure OpenAI (the gpt-5-nano replay by mistake);
+the RSMeans extraction made no model calls.
+
+Commands (from `backEnd/`; the predictions, labels and cost table are private):
+
+```bash
+# 27.1 room step on the stored live per-photo outputs, production grouping = group_photos
+python -m evals.predict_rooms --photos ~/basis-eval-data/inputs/photos \
+    --out ~/basis-eval-data/predictions/s25_rooms_replay_defaults \
+    --aliases ~/basis-eval-data/labels/room_aliases_v1.json \
+    --per-photo ~/basis-eval-data/predictions/live_e2e_v070_defaults_perphoto --repeats 1 \
+    --room-prompt v3 --model claude-sonnet-5-5 --reasoning-effort low \
+    --single-photo-rooms per-photo --materials sensitive
+# 27.2 extraction on the stored Azure DI analysis
+uv run python ../docs/review_2026-10-15/repro/extraction_replay.py \
+    ~/basis-eval-data/inputs/appraisal.pdf AZURE_DI_JSON LABELS_JSON OUT --scope missing --repeats 3
+# 27.6 review load
+uv run python ../docs/review_2026-10-15/repro/cost_review_load.py ASSETS_JSON \
+    --cost-table ~/basis-eval-data/costs/unit_costs_rsmeans_2020.json
+```

@@ -1,18 +1,19 @@
 """What the API asks of Temporal, behind a protocol (S2_SPEC section 7).
 
 :class:`WorkflowService` is the API's only view of Temporal: start a study's workflow,
-describe it, query its progress, ask it to cancel, and check that Temporal answers.
+describe it, query its progress, ask it to cancel or to retry a failed stage, and check
+that Temporal answers.
 :class:`TemporalWorkflowService` implements it with a ``temporalio`` client; API tests use
 an in-memory fake (``tests/workflowtest_support.py``), so they run without a server.
 
 Decisions are deliberately not here: the API never sends them to Temporal. It writes the
 review and an outbox row in one transaction, and ``basis.relay`` delivers the update.
 
-Errors are reduced to three exceptions the routes map to problems:
-:class:`WorkflowNotFoundError` (404), :class:`WorkflowNotRunningError` (409) and
-:class:`WorkflowUnavailableError` (503). Every call is bounded by ``call_timeout``: the
-SDK retries ``UNAVAILABLE`` internally for about ten seconds (measured against the dev
-server), which is too long to hold an API request.
+Errors are reduced to four exceptions the routes map to problems:
+:class:`WorkflowNotFoundError` (404), :class:`WorkflowNotRunningError` (409),
+:class:`RetryRefusedError` (409) and :class:`WorkflowUnavailableError` (503). Every call
+is bounded by ``call_timeout``: the SDK retries ``UNAVAILABLE`` internally for about ten
+seconds (measured against the dev server), which is too long to hold an API request.
 """
 
 from __future__ import annotations
@@ -23,13 +24,24 @@ from datetime import timedelta
 from typing import Final, Protocol
 
 from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
-from temporalio.client import Client, WorkflowHandle, WorkflowQueryFailedError
+from temporalio.client import (
+    Client,
+    WorkflowHandle,
+    WorkflowQueryFailedError,
+    WorkflowUpdateFailedError,
+)
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
-from basis.temporal.names import CANCEL_SIGNAL, STATUS_QUERY, STUDY_WORKFLOW, study_workflow_id
-from basis.workflow.contracts import StudyStatusView, StudyWorkflowInput
+from basis.temporal.names import (
+    CANCEL_SIGNAL,
+    RETRY_UPDATE,
+    STATUS_QUERY,
+    STUDY_WORKFLOW,
+    study_workflow_id,
+)
+from basis.workflow.contracts import RetryAck, StudyStatusView, StudyWorkflowInput
 
 DEFAULT_CALL_TIMEOUT_S: Final = 5.0
 # Closed executions that did not complete. REJECT_DUPLICATE never re-runs them, so a start
@@ -51,6 +63,17 @@ class WorkflowNotRunningError(WorkflowServiceError):
 
 class WorkflowUnavailableError(WorkflowServiceError):
     """Temporal could not be reached or did not answer in time."""
+
+
+class RetryRefusedError(WorkflowServiceError):
+    """The workflow refused the ``retry`` update: no stage has failed (409)."""
+
+
+@dataclass(frozen=True, slots=True)
+class RetryAccepted:
+    stage: str
+    revision: int
+    already_requested: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +111,11 @@ class WorkflowService(Protocol):
 
     async def cancel(self, workflow_id: str, reason: str) -> None:
         """Signal ``cancel_study``; ``WorkflowNotRunningError`` if it has closed."""
+        ...
+
+    async def retry(self, workflow_id: str) -> RetryAccepted:
+        """Update ``retry``: run the failed stage again. ``RetryRefusedError`` when no
+        stage has failed, ``WorkflowNotRunningError`` if the workflow has closed."""
         ...
 
     async def check(self) -> None:
@@ -178,6 +206,29 @@ class TemporalWorkflowService:
             raise WorkflowNotRunningError(
                 f"Workflow {workflow_id} is {described.status.lower()}, not running."
             ) from exc
+
+    async def retry(self, workflow_id: str) -> RetryAccepted:
+        handle = self.client.get_workflow_handle(workflow_id)
+        try:
+            async with asyncio.timeout(self.call_timeout):
+                ack: RetryAck = await handle.execute_update(
+                    RETRY_UPDATE, result_type=RetryAck, rpc_timeout=self._rpc_timeout
+                )
+        except WorkflowUpdateFailedError as exc:
+            cause = exc.cause
+            message = cause.message if isinstance(cause, ApplicationError) else str(exc)
+            raise RetryRefusedError(f"The study cannot be retried: {message}.") from exc
+        except Exception as exc:
+            mapped = _mapped(exc, workflow_id)
+            if not isinstance(mapped, WorkflowNotFoundError):
+                raise mapped from exc
+            described = await self.describe(workflow_id)
+            raise WorkflowNotRunningError(
+                f"Workflow {workflow_id} is {described.status.lower()}, not running."
+            ) from exc
+        return RetryAccepted(
+            stage=ack.stage, revision=ack.revision, already_requested=ack.already_requested
+        )
 
     async def check(self) -> None:
         try:

@@ -99,3 +99,35 @@ class WorkflowStateRepository:
             .execution_options(synchronize_session=False)
         )
         return bool(getattr(result, "rowcount", 0))
+
+    async def mark_failed(
+        self, study_id: uuid.UUID, stage: Stage, revision: int, reason: str
+    ) -> bool:
+        """Set ``status = failed`` and the reason while the study is at ``stage``/
+        ``revision`` (not archived). False when it is elsewhere."""
+        result = await self._session.execute(
+            update(Study)
+            .where(
+                Study.id == study_id,
+                Study.current_stage == stage,
+                Study.revision == revision,
+                Study.status != StudyStatus.ARCHIVED,
+            )
+            .values(status=StudyStatus.FAILED, failure_reason=reason)
+            .execution_options(synchronize_session=False)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    async def clear_failure(self, study_id: uuid.UUID) -> bool:
+        """A failed study goes back to its stage's status, the reason cleared (a retry).
+        False when it is not failed."""
+        study = await self._session.get(Study, study_id, populate_existing=True)
+        if study is None or study.status is not StudyStatus.FAILED:
+            return False
+        await self._session.execute(
+            update(Study)
+            .where(Study.id == study_id, Study.status == StudyStatus.FAILED)
+            .values(status=status_for_stage(study.current_stage), failure_reason=None)
+            .execution_options(synchronize_session=False)
+        )
+        return True

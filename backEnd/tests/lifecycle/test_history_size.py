@@ -54,8 +54,9 @@ async def test_three_hundred_photos_fit_in_one_history(harness: Harness) -> None
         localize_photo=instant_localization,
     ):
         started = await harness.start(budget_usd=25.0)
-        status = await harness.wait_awaiting(started.handle, "appraisal_review", 1)
-        assert status.completed_photos == PHOTOS and status.flagged_photos == ()
+        await harness.wait_awaiting(started.handle, "appraisal_review", 1)
+        status = await harness.wait_photos(started.handle, PHOTOS)
+        assert status.flagged_photos == ()
         assert status.budget_remaining_usd == pytest.approx(25.0 - PHOTOS * 0.01)
         await harness.approve_all(started.handle)
         result = await harness.result(started.handle)

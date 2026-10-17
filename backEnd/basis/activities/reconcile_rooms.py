@@ -11,7 +11,10 @@ Input of a room: its photos (``photo_rooms``, in file-name order), each photo's 
 rebuilt from its ``components`` rows (so a reviewer's corrections carried into the revision
 are what is reconciled), and the photos' prepared images (read from storage again;
 preparation is deterministic). The Unassigned room (ambiguous photos, which are not one
-room) and rooms whose photos list nothing are skipped: their per-photo rows stand.
+room) and rooms whose photos list nothing are skipped: their per-photo rows stand. A room
+grouped by file name (``rooms.group_key``) first gets its type and floor re-voted from its
+photos' answers (:func:`vote_room`, ``group_photos``'s rules), and is reconciled even when
+every photo answered ``ambiguous`` (its photos are one room by name).
 
 Output rows: one ``components`` row per inventory object with no document and
 ``raw.source = "room_inventory"`` (:data:`basis.vision.rooms.ROOM_INVENTORY_SOURCE`); its
@@ -77,7 +80,14 @@ from basis.storage import ObjectNotFound
 from basis.vision import room_step
 from basis.vision.prep import ImageRejected, prepare_image
 from basis.vision.reconcile import RoomPhoto
-from basis.vision.rooms import ROOM_INVENTORY_SOURCE, is_room_inventory, optional_value
+from basis.vision.rooms import (
+    ROOM_INVENTORY_SOURCE,
+    SOURCE,
+    is_room_inventory,
+    name_hint,
+    optional_value,
+    vote_identity,
+)
 from basis.vision.schemas import RoomType
 from basis.workflow.contracts import ReconcileRoomsInput, ReconcileRoomsOutput
 
@@ -123,8 +133,41 @@ def _row(component: Component) -> dict[str, Any]:
     }
 
 
+def vote_room(room: Room, files: list[str], rows: list[list[dict[str, Any]]]) -> bool:
+    """Re-vote a file-name room's type and floor from its photos (``group_photos``'s rules:
+    :func:`basis.vision.rooms.vote_identity`; a floor a file name gives wins). ``files`` are
+    the room's photos in file-name order, ``rows`` each photo's per-photo component rows
+    (their ``raw`` keeps the photo's answer). A room a reviewer corrected (``source`` is not
+    ``vision``) or keyed by the model's identity is left alone. True when it changed."""
+    if room.group_key is None or room.source != SOURCE:
+        return False
+    answered = [a for a in map(_answer, rows) if a is not None]
+    if not answered:
+        return False
+    room_type, model_floor = vote_identity([t for t, _ in answered], [f for _, f in answered])
+    hint_floor = next((h.floor for h in map(name_hint, files) if h.floor is not None), None)
+    floor = hint_floor if hint_floor is not None else model_floor
+    new = (room_type.value, None if floor is None else str(floor))
+    if (room.room_type, room.floor) == new:
+        return False
+    room.room_type, room.floor = new
+    return True
+
+
+def _answer(rows: list[dict[str, Any]]) -> tuple[str, int | None] | None:
+    """The photo's room type and floor as its component rows recorded them."""
+    for row in rows:
+        raw = row["raw"]
+        if isinstance(raw.get("room_type"), str):
+            floor = raw.get("floor")
+            ok = isinstance(floor, int) and not isinstance(floor, bool)
+            return raw["room_type"], floor if ok else None
+    return None
+
+
 async def plan_rooms(session: AsyncSession, study_id: uuid.UUID, revision: int) -> Plan:
-    """Which rooms of the revision need an inventory built (module doc)."""
+    """Which rooms of the revision need an inventory built (module doc). File-name rooms
+    are re-voted first (:func:`vote_room`)."""
     repo = RoomRepository(session)
     rooms = await repo.list_for_revision(study_id, revision)
     assignments = await repo.photo_rooms(study_id, revision)
@@ -141,9 +184,19 @@ async def plan_rooms(session: AsyncSession, study_id: uuid.UUID, revision: int) 
                 inventory_of.setdefault(component.room_id, []).append(component)
         elif component.document_id is not None:
             rows_of.setdefault(component.document_id, []).append(component)
+    for room in rooms:
+        members = sorted(photos_of.get(room.id, []), key=lambda d: (documents[d].filename, str(d)))
+        vote_room(
+            room,
+            [documents[d].filename for d in members],
+            [[_row(c) for c in rows_of.get(d, [])] for d in members],
+        )
+    await session.flush()
     plan = Plan()
     for room in rooms:
-        if room.room_type == RoomType.AMBIGUOUS.value or room.id not in photos_of:
+        if room.id not in photos_of:
+            continue
+        if room.room_type == RoomType.AMBIGUOUS.value and room.group_key is None:
             continue
         ids = sorted(photos_of[room.id], key=lambda d: (documents[d].filename, str(d)))
         if not any(rows_of.get(d) for d in ids):

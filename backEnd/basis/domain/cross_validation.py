@@ -14,6 +14,9 @@ Changes from legacy, each a bug fix:
   estimate at all; the legacy check fired on every static estimate because the static
   path never set a line item.
 * Cost ranges are looked up by the takeoff row, not by substring of the label.
+* v0.9: ``COST_NEEDS_QUANTITY`` (a warning) when the cost table prices the component per
+  area or length but the takeoff only counts it (site and exterior items), apart from a
+  missing row.
 """
 
 from __future__ import annotations
@@ -101,7 +104,20 @@ def check_classification_takeoff(
     return issues
 
 
-def check_takeoff_cost(takeoff: Takeoff, cost: CostEstimate | None) -> list[Issue]:
+def check_takeoff_cost(
+    takeoff: Takeoff, cost: CostEstimate | None, priced_per: str | None = None
+) -> list[Issue]:
+    """``priced_per``: the unit a cost-table row prices the component in, when it is not
+    the takeoff's (``NeedsQuantity``)."""
+    if cost is None and priced_per is not None:
+        return [
+            Issue(
+                "COST_NEEDS_QUANTITY",
+                "warning",
+                f"{takeoff.component!r} is priced per {priced_per}, but the takeoff counts "
+                f"{takeoff.quantity} {takeoff.unit}; measure the {priced_per} to price it",
+            )
+        ]
     if cost is None:
         return [
             Issue(
@@ -164,9 +180,10 @@ def cross_validate(
     bucket: Bucket,
     takeoff: Takeoff,
     cost: CostEstimate | None,
+    priced_per: str | None = None,
 ) -> list[Issue]:
     """Every cross-stage check for one asset, in a fixed order."""
     return [
         *check_classification_takeoff(section, bucket, takeoff),
-        *check_takeoff_cost(takeoff, cost),
+        *check_takeoff_cost(takeoff, cost, priced_per),
     ]

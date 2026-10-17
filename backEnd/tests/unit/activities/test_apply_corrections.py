@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 import pytest
-from lifecycletest_support import SeededStudy, count_rows
+from lifecycletest_support import SeededStudy, count_rows, seed_run, seed_study
 from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
 
@@ -15,8 +15,17 @@ from basis.activities.analyze_photo import AnalyzePhoto
 from basis.activities.apply_corrections import ApplyCorrections
 from basis.activities.extract_fields import ExtractFields
 from basis.activities.process_assets import ProcessAssets
-from basis.db.models import Asset, Component, Extraction, ExtractionField, PhotoRoom, Room
+from basis.db.models import (
+    Asset,
+    Component,
+    Extraction,
+    ExtractionField,
+    PhotoRoom,
+    Room,
+    Study,
+)
 from basis.db.session import session_scope
+from basis.vision.rooms import resolve_aliases
 from basis.workflow.contracts import (
     AnalyzePhotoInput,
     ApplyCorrectionsInput,
@@ -254,3 +263,189 @@ async def test_asset_corrections_are_checked_for_consistency_before_anything_is_
     )
     assert output.applied == 0
     assert len(await rows(deps, Component, sid, 2)) == 6
+
+
+# --------------------------------------------------------------------------- room merges
+# EVAL_REPORT section 27, item 1: the engineer merges rooms at the rooms review.
+
+
+def merge(source: Room, target: Room | str) -> CorrectionInput:
+    into = target if isinstance(target, str) else str(target.id)
+    return CorrectionInput(entity_type="room", entity_id=str(source.id), after={"merge_into": into})
+
+
+async def add_inventory_row(deps: Deps, room: Room) -> None:
+    """A reconciled inventory row in ``room`` (no document), as ``reconcile_rooms`` writes."""
+    async with session_scope(deps.sessionmaker) as session:
+        session.add(
+            Component(
+                study_id=room.study_id,
+                revision=1,
+                document_id=None,
+                room_id=room.id,
+                label="kitchen_cabinet",
+                raw={"source": "room_inventory", "count": 6},
+            )
+        )
+
+
+async def test_a_merge_moves_photos_and_rows_and_records_an_alias(
+    deps: Deps, revision_one: SeededStudy, activity_env: Env
+) -> None:
+    sid = revision_one.study_id
+    rooms = {r.name: r for r in await rows(deps, Room, sid, 1)}
+    kitchen, bathroom = rooms["Kitchen"], rooms["Bathroom"]
+    assert (kitchen.group_key, bathroom.group_key) == ("x_kitchen", "x_bathroom")
+    await add_inventory_row(deps, kitchen)
+    output = await activity_env.run(
+        ApplyCorrections(deps).run, apply(revision_one, "rooms_review", (merge(bathroom, kitchen),))
+    )
+    assert output.applied == 1
+    [only] = await rows(deps, Room, sid, 2)  # the bathroom is merged into the kitchen
+    assert (only.name, only.group_key, only.source) == ("Kitchen", "x_kitchen", "vision")
+    assignments = await rows(deps, PhotoRoom, sid, 2)
+    assert {a.document_id for a in assignments} == set(revision_one.photo_ids)
+    assert {a.room_id for a in assignments} == {only.id}
+    components = await rows(deps, Component, sid, 2)
+    assert len(components) == 6 and {c.room_id for c in components} == {only.id}
+    # Neither room's inventory is carried: reconcile_rooms rebuilds the merged room.
+    assert all(c.document_id is not None for c in components)
+    async with session_scope(deps.sessionmaker) as session:
+        study = await session.get(Study, sid)
+        assert study is not None and study.room_aliases == {"x_bathroom": "x_kitchen"}
+    # Revision 1 is history.
+    assert {r.name for r in await rows(deps, Room, sid, 1)} == {"Kitchen", "Bathroom"}
+
+
+async def test_a_merged_room_is_rebuilt_by_the_room_step_and_reanalysis_joins_it(
+    deps: Deps, revision_one: SeededStudy, activity_env: Env
+) -> None:
+    """After the merge a photo of the merged room re-analyzed in revision 2 joins the
+    target (the alias), instead of recreating the merged room."""
+    sid = revision_one.study_id
+    rooms = {r.name: r for r in await rows(deps, Room, sid, 1)}
+    flagged = revision_one.photo_ids[2]  # the bathroom photo, re-analyzed
+    corrections = (
+        merge(rooms["Bathroom"], rooms["Kitchen"]),
+        CorrectionInput(entity_type="photo", entity_id=str(flagged), after={}),
+    )
+    await activity_env.run(
+        ApplyCorrections(deps).run, apply(revision_one, "rooms_review", corrections)
+    )
+    output = await activity_env.run(
+        AnalyzePhoto(deps).run,
+        AnalyzePhotoInput(
+            study_id=str(sid),
+            document_id=str(flagged),
+            revision=2,
+            idempotency_key="k-p-again",
+            budget_remaining_usd=1.0,
+        ),
+    )
+    [only] = await rows(deps, Room, sid, 2)
+    assert output.room_id == str(only.id)
+
+
+async def test_merge_chains_are_followed(deps: Deps, activity_env: Env, storage: Any) -> None:
+    names = ("Den.jpg", "Nook.jpg", "Kitchen.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    for index, photo in enumerate(study.photo_ids):
+        await activity_env.run(
+            AnalyzePhoto(deps).run,
+            AnalyzePhotoInput(
+                study_id=str(study.study_id),
+                document_id=str(photo),
+                revision=1,
+                idempotency_key=f"k-chain-{index}",
+                budget_remaining_usd=1.0,
+            ),
+        )
+    by_key = {r.group_key: r for r in await rows(deps, Room, study.study_id, 1)}
+    corrections = (
+        merge(by_key["x_den"], by_key["x_nook"]),
+        merge(by_key["x_nook"], by_key["x_kitchen"]),
+    )
+    output = await activity_env.run(
+        ApplyCorrections(deps).run, apply(study, "rooms_review", corrections)
+    )
+    assert output.applied == 2
+    [only] = await rows(deps, Room, study.study_id, 2)
+    assert only.group_key == "x_kitchen"
+    assert len(await rows(deps, PhotoRoom, study.study_id, 2)) == 3
+    async with session_scope(deps.sessionmaker) as session:
+        row = await session.get(Study, study.study_id)
+        assert row is not None
+        assert resolve_aliases(row.room_aliases) == {"x_den": "x_kitchen", "x_nook": "x_kitchen"}
+
+
+async def test_a_target_keyed_by_the_model_adopts_the_merged_file_name_key(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    study = await seed_study(deps.sessionmaker, photos=("IMG_0001.jpg", "Den.jpg"), storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    for index, photo in enumerate(study.photo_ids):
+        await activity_env.run(
+            AnalyzePhoto(deps).run,
+            AnalyzePhotoInput(
+                study_id=str(study.study_id),
+                document_id=str(photo),
+                revision=1,
+                idempotency_key=f"k-adopt-{index}",
+                budget_remaining_usd=1.0,
+            ),
+        )
+    by_key = {r.group_key: r for r in await rows(deps, Room, study.study_id, 1)}
+    await activity_env.run(
+        ApplyCorrections(deps).run,
+        apply(study, "rooms_review", (merge(by_key["x_den"], by_key[None]),)),
+    )
+    [only] = await rows(deps, Room, study.study_id, 2)
+    assert (only.name, only.group_key) == ("Bedroom", "x_den")
+    async with session_scope(deps.sessionmaker) as session:
+        row = await session.get(Study, study.study_id)
+        assert row is not None and row.room_aliases == {}  # nothing to alias it to
+
+
+@pytest.mark.parametrize(
+    ("make", "message"),
+    [
+        (lambda k, b: (merge(k, k),), "into itself"),
+        (lambda k, b: (merge(k, b), merge(b, k)), "loop"),
+        (lambda k, b: (merge(k, str(uuid.uuid4())),), "not in the rejected revision"),
+        (
+            lambda k, b: (
+                CorrectionInput(
+                    entity_type="room",
+                    entity_id=str(k.id),
+                    after={"merge_into": str(b.id), "name": "x"},
+                ),
+            ),
+            "no other field",
+        ),
+        (
+            lambda k, b: (
+                CorrectionInput(
+                    entity_type="room", entity_id=str(k.id), after={"merge_into": "nope"}
+                ),
+            ),
+            "merge_into",
+        ),
+    ],
+)
+async def test_bad_merges_are_refused_before_anything_is_written(
+    deps: Deps, revision_one: SeededStudy, activity_env: Env, make: Any, message: str
+) -> None:
+    sid = revision_one.study_id
+    rooms = {r.name: r for r in await rows(deps, Room, sid, 1)}
+    with pytest.raises(ApplicationError) as raised:
+        await activity_env.run(
+            ApplyCorrections(deps).run,
+            apply(revision_one, "rooms_review", make(rooms["Kitchen"], rooms["Bathroom"])),
+        )
+    assert raised.value.type == "ValidationError" and raised.value.non_retryable
+    assert message in str(raised.value)
+    assert await rows(deps, Room, sid, 2) == []
+    async with session_scope(deps.sessionmaker) as session:
+        study = await session.get(Study, sid)
+        assert study is not None and study.room_aliases == {}

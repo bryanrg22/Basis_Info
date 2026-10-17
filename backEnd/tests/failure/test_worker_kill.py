@@ -78,11 +78,11 @@ pytestmark = [
 TASK_QUEUE = "basis-studies-kill-test"
 # The production worker with the offline providers composed in (see its docstring).
 KILL_WORKER = Path(__file__).with_name("kill_worker.py")
-PHOTOS = ("kitchen_1.jpg", "bathroom_1.jpg", "kitchen_2.jpg")
+PHOTOS = ("Kitchen photo 1.jpg", "Bathroom photo 1.jpg", "Kitchen photo 2.jpg")
 # The slowed photo is the only one of its room, so its transaction inserts the room row
 # (it has written when the worker dies) and the room's advisory lock it holds while
 # sleeping does not make the kitchen photos wait for it.
-SLOW_PHOTO = "bathroom_1.jpg"
+SLOW_PHOTO = "Bathroom photo 1.jpg"
 DRAIN_LINE = "shutdown requested; draining for up to 8s"
 
 

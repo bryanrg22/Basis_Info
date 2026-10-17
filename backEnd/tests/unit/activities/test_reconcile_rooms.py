@@ -16,7 +16,8 @@ import uuid
 from typing import Any
 
 import pytest
-from lifecycletest_support import SeededStudy, make_deps
+from fixtures import fixture_path
+from lifecycletest_support import SeededStudy, make_deps, seed_run, seed_study
 from llm_fakes import PHOTO_COST_USD, FixtureVisionProvider, ModelKeyedProvider
 from sqlalchemy import select
 from temporalio.exceptions import ApplicationError
@@ -25,7 +26,7 @@ from basis.activities import Deps
 from basis.activities.analyze_photo import AnalyzePhoto
 from basis.activities.apply_corrections import ApplyCorrections
 from basis.activities.process_assets import ProcessAssets
-from basis.activities.reconcile_rooms import ReconcileRooms, room_uri
+from basis.activities.reconcile_rooms import ReconcileRooms, plan_rooms, room_uri, vote_room
 from basis.db.models import ActivityResult, Asset, Component, Document, LlmCall, PhotoRoom, Room
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.repositories.room import RoomRepository
@@ -593,3 +594,128 @@ async def test_documents_order_the_photos_by_file_name(
         key=lambda d: names[uuid.UUID(d)],
     )
     assert cabinet.raw["photos"] == expected
+
+
+# --------------------------------------------------------------------------- file-name rooms
+# EVAL_REPORT section 27, item 1: a room grouped by file name gets its type and floor voted
+# from its photos (group_photos's rules) before the plan, and is planned even when every
+# photo answered ambiguous.
+
+
+async def analyze_all(deps: Deps, study: SeededStudy, activity_env: Env) -> None:
+    for photo in study.photo_ids:
+        await activity_env.run(
+            AnalyzePhoto(deps).run,
+            AnalyzePhotoInput(
+                study_id=str(study.study_id),
+                document_id=str(photo),
+                revision=1,
+                idempotency_key=f"k-p-{photo}",
+                budget_remaining_usd=1.0,
+            ),
+        )
+
+
+async def put_scene(deps: Deps, document_id: uuid.UUID, scene: str) -> None:
+    async with session_scope(deps.sessionmaker) as session:
+        document = await session.get(Document, document_id)
+        assert document is not None
+        uri = document.gcs_uri
+    await deps.storage.put(uri, fixture_path("photos", scene).read_bytes(), "image/jpeg")
+
+
+async def test_a_file_name_room_is_voted_from_its_photos(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    names = ("Den photo 1.jpg", "Den photo 2.jpg", "Den photo 3.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    # Photo 1 is the bedroom scene (floor 2) and creates the room; 2 and 3 the kitchen.
+    for photo in study.photo_ids[1:]:
+        await put_scene(deps, photo, "01_kitchen.jpg")
+    await analyze_all(deps, study, activity_env)
+    [before] = await rows(deps, Room, study.study_id)
+    assert (before.group_key, before.room_type, before.floor) == ("x_den", "bedroom", "2")
+    async with session_scope(deps.sessionmaker) as session:
+        plan = await plan_rooms(session, study.study_id, 1)
+    assert plan.rooms == 1 and len(plan.todo) == 1
+    [after] = await rows(deps, Room, study.study_id)
+    assert (after.room_type, after.floor, after.name) == ("kitchen", "1", "Den")
+
+
+async def test_a_floor_from_the_file_name_wins_and_manual_rooms_are_kept(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    names = ("2nd Floor Den photo 1.jpg", "2nd Floor Den photo 2.jpg", "Office.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    for photo in study.photo_ids[:2]:
+        await put_scene(deps, photo, "01_kitchen.jpg")  # the kitchen scene says floor 1
+    await analyze_all(deps, study, activity_env)
+    async with session_scope(deps.sessionmaker) as session:
+        office = (await session.scalars(select(Room).where(Room.group_key == "x_office"))).one()
+        office.source, office.room_type = "manual", "office"
+    async with session_scope(deps.sessionmaker) as session:
+        await plan_rooms(session, study.study_id, 1)
+    by_key = {r.group_key: r for r in await rows(deps, Room, study.study_id)}
+    assert (by_key["2_den"].room_type, by_key["2_den"].floor) == ("kitchen", "2")
+    assert by_key["x_office"].room_type == "office"  # the reviewer's answer stands
+
+
+def test_vote_room_needs_a_file_name_room_with_answers() -> None:
+    room = Room(name="Kitchen", room_type="kitchen", floor="1", source="vision", group_key=None)
+    rows_ = [[{"raw": {"room_type": "bedroom", "floor": 2}}]]
+    assert not vote_room(room, ["Kitchen.jpg"], rows_)  # keyed by the model's identity
+    room.group_key = "x_kitchen"
+    assert not vote_room(room, ["Kitchen.jpg"], [[]])  # no photo answered
+    assert vote_room(room, ["Kitchen.jpg"], rows_)
+    assert (room.room_type, room.floor) == ("bedroom", "2")
+    assert not vote_room(room, ["Kitchen.jpg"], rows_)  # unchanged the second time
+    room.source = "manual"
+    assert not vote_room(room, ["Kitchen.jpg"], [[{"raw": {"room_type": "garage"}}]])
+
+
+async def test_a_file_name_room_of_ambiguous_photos_is_still_planned(
+    deps: Deps, storage: Any
+) -> None:
+    """Photos answered ``ambiguous`` but listed objects (a close-up): by name they are one
+    room, so the room is planned; an ambiguous room keyed by the model's identity (the
+    Unassigned room, mixed photos) is not."""
+    names = ("Den photo 1.jpg", "Den photo 2.jpg", "IMG_0001.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    async with session_scope(deps.sessionmaker) as session:
+        repo = RoomRepository(session)
+        den = await repo.create(
+            study_id=study.study_id,
+            revision=1,
+            name="Den",
+            room_type="ambiguous",
+            source="vision",
+            group_key="x_den",
+        )
+        unassigned = await repo.create(
+            study_id=study.study_id,
+            revision=1,
+            name="Unassigned",
+            room_type="ambiguous",
+            source="vision",
+        )
+        for photo, room in zip(study.photo_ids, (den, den, unassigned), strict=True):
+            await repo.assign_photo(
+                study_id=study.study_id, document_id=photo, room_id=room.id, revision=1
+            )
+            await repo.add_component(
+                study_id=study.study_id,
+                revision=1,
+                document_id=photo,
+                room_id=room.id,
+                label="electrical_outlet",
+                material=None,
+                attachment=None,
+                confidence=0.9,
+                raw={"source": "vision", "count": 1, "room_type": "ambiguous", "floor": None},
+            )
+    async with session_scope(deps.sessionmaker) as session:
+        plan = await plan_rooms(session, study.study_id, 1)
+    assert [p.room.id for p in plan.todo] == [den.id]
+    assert plan.rooms == 1

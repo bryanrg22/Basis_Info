@@ -1,7 +1,7 @@
 """Helpers shared by the workflow lifecycle tests and the activity tests.
 
 Imported as a top-level module (``tests/`` is on ``sys.path``, see ``dbtest_support``).
-Everything here writes synthetic rows only: file names like ``kitchen_1.jpg``, random
+Everything here writes synthetic rows only: file names like ``Kitchen photo 1.jpg``, random
 sha256 values, and ``gs://basis-test/...`` URIs. With ``storage`` given, ``seed_study``
 writes bytes at those URIs so the Stage 3 activities, which read the files, have something
 real to read: the appraisal gets ``appraisal_bytes`` (default the synthetic
@@ -52,7 +52,9 @@ from basis.storage import Storage
 from basis.vision.localize import Localizer
 
 TEST_BUCKET: Final = "basis-test"
-DEFAULT_PHOTOS: Final = ("kitchen_1.jpg", "kitchen_2.jpg", "bathroom_1.jpg")
+# Named like a real package (two views of one kitchen, one bathroom), so production's
+# file-name grouping (ROOM_GROUPING=filename) and the model's room identity agree.
+DEFAULT_PHOTOS: Final = ("Kitchen photo 1.jpg", "Kitchen photo 2.jpg", "Bathroom photo 1.jpg")
 DEFAULT_APPRAISAL: Final = "appraisal_12_main_st.pdf"
 
 
