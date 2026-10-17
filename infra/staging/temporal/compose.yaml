@@ -1,0 +1,129 @@
+# Self-hosted Temporal for staging (docs/deploy/STAGING.md, "Temporal").
+#
+# One VM (staging-temporal) runs this file with `docker compose up -d`: PostgreSQL 16 as
+# Temporal's own persistence and visibility store, a one-shot schema job, the Temporal
+# server (all four roles in one process), a one-shot namespace job and the Web UI.
+#
+# What listens where:
+#   temporal:7233   gRPC frontend, published on the VM's internal IP; the VPC firewall lets
+#                   only the Cloud Run subnet reach it (no public IP on the VM).
+#   temporal-ui     127.0.0.1:8080 on the VM only; reach it through an IAP SSH tunnel.
+#   postgresql      not published; only the containers on this compose network reach it.
+#
+# State lives on the VM's separate data disk (DATA_DIR), so the VM can be recreated without
+# losing workflow history. TEMPORAL_DB_PASSWORD is generated on the VM at first boot
+# (startup.sh) and never leaves it.
+#
+# The same file runs locally for a check before deploying:
+#   DATA_DIR=$PWD/.data TEMPORAL_DB_PASSWORD=local BIND_ADDRESS=127.0.0.1 docker compose up -d
+#
+# Image tags are pinned; upgrade Temporal one minor version at a time (its schema tool
+# migrates the databases in the temporal-schema job below).
+
+name: temporal
+
+x-db-env: &db-env
+  DB: postgres12
+  DB_PORT: "5432"
+  POSTGRES_SEEDS: postgresql
+  POSTGRES_USER: temporal
+  POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD}
+
+services:
+  postgresql:
+    image: postgres:16.15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD}
+      POSTGRES_DB: postgres
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=256MB"]
+    volumes:
+      - ${DATA_DIR:?set DATA_DIR}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # Creates the two databases on first boot and applies any newer schema versions on an
+  # upgrade; every step is idempotent, so it runs on every `up`.
+  temporal-schema:
+    image: temporalio/admin-tools:1.31.4
+    restart: "no"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      SQL_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD}
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        tool() { temporal-sql-tool --plugin postgres12 --ep postgresql -p 5432 -u temporal "$$@"; }
+        S=/etc/temporal/schema/postgresql/v12
+        for db in temporal temporal_visibility; do
+          tool --db "$$db" create-database 2>/dev/null || echo "database $$db exists"
+        done
+        tool --db temporal setup-schema -v 0.0 2>/dev/null || echo "temporal schema initialized"
+        tool --db temporal update-schema -d "$$S/temporal/versioned"
+        tool --db temporal_visibility setup-schema -v 0.0 2>/dev/null || echo "visibility schema initialized"
+        tool --db temporal_visibility update-schema -d "$$S/visibility/versioned"
+
+  temporal:
+    image: temporalio/server:1.31.4
+    restart: unless-stopped
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-env
+      BIND_ON_IP: 0.0.0.0
+      # Fixed when the cluster is created and never changeable afterwards. Each study is a
+      # few workflow tasks a minute (its time goes to model calls), so 8 shards leave room
+      # for the load tests; real scale is Temporal Cloud's job (STAGING.md).
+      NUM_HISTORY_SHARDS: "8"
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamicconfig/staging.yaml
+      LOG_LEVEL: warn
+    volumes:
+      - ./dynamicconfig.yaml:/etc/temporal/dynamicconfig/staging.yaml:ro
+    ports:
+      - "${BIND_ADDRESS:?set BIND_ADDRESS}:7233:7233"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "7233"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+
+  # The namespace the workers and the API use, with 7 days of closed-workflow retention.
+  temporal-namespace:
+    image: temporalio/admin-tools:1.31.4
+    restart: "no"
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      NAMESPACE: ${TEMPORAL_NAMESPACE:-basis-staging}
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        for i in $$(seq 1 30); do
+          temporal operator cluster health >/dev/null 2>&1 && break
+          sleep 2
+        done
+        temporal operator namespace describe --namespace "$$NAMESPACE" >/dev/null 2>&1 \
+          || temporal operator namespace create --namespace "$$NAMESPACE" --retention 7d
+        temporal operator namespace describe --namespace "$$NAMESPACE" | head -5
+
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    restart: unless-stopped
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_DEFAULT_NAMESPACE: ${TEMPORAL_NAMESPACE:-basis-staging}
+      TEMPORAL_CORS_ORIGINS: http://localhost:8080
+    ports:
+      - "127.0.0.1:8080:8080"
