@@ -95,12 +95,16 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     """
     vision_prompts = prompts_for_mode(settings.vision_photo_mode)
     logger.info(
-        "photo analysis: %s, mode %s (%s), reasoning effort %s, output budget %d",
+        "photo analysis: %s, mode %s (%s), reasoning effort %s, output budget %d%s",
         settings.vision_model,
         settings.vision_photo_mode,
         ", ".join(p.version_id for p in vision_prompts),
         settings.vision_reasoning_effort,
         settings.vision_output_budget,
+        f"; surfaces call {settings.vision_surfaces_model} (budget "
+        f"{settings.vision_surfaces_output_budget})"
+        if settings.vision_photo_mode == "decomposed"
+        else "",
     )
     logger.info(
         "count fusion: %s%s (%s at effort %s, table %s)",

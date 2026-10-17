@@ -160,10 +160,12 @@ async def test_the_image_sent_is_prepared(
 async def test_the_production_vision_settings_reach_every_call(
     deps: Deps, seeded: SeededStudy, activity_env: Env
 ) -> None:
-    """EVAL_REPORT 12.1 defaults: sol, decomposed, effort low, budget 6000 on both calls."""
+    """EVAL_REPORT 12.1 and 28.1 defaults: decomposed, the countables call on sol and the
+    surfaces call on gpt-6-luna, effort low and budget 6000 on both."""
     settings = deps.settings.model_copy(
         update={
             "vision_model": "gpt-6.1-sol",
+            "vision_surfaces_model": "gpt-6-luna",
             "vision_photo_mode": "decomposed",
             "vision_reasoning_effort": "low",
             "vision_max_tokens": None,
@@ -172,13 +174,12 @@ async def test_the_production_vision_settings_reach_every_call(
     provider = FixtureVisionProvider()
     chosen = make_deps(deps.sessionmaker, deps.storage, settings, llm=provider)
     await activity_env.run(AnalyzePhoto(chosen).run, analyze(seeded, 0, budget=5.0))
-    assert len(provider.requests) == 2
-    for request in provider.requests:
-        assert (request.model, request.max_tokens, request.reasoning_effort) == (
-            "gpt-6.1-sol",
-            6000,
-            "low",
-        )
+    assert sorted(
+        (r.prompt_version, r.model, r.max_tokens, r.reasoning_effort) for r in provider.requests
+    ) == [
+        ("photo_countables/v3", "gpt-6.1-sol", 6000, "low"),
+        ("photo_surfaces/v2", "gpt-6-luna", 6000, "low"),
+    ]
 
 
 async def test_two_photos_of_one_room_share_it_even_concurrently(

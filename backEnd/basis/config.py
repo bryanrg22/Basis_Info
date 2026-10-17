@@ -142,6 +142,7 @@ class Settings(BaseSettings):
     #   OPENAI_API_KEY                       -> openai_api_key
     #   OPENAI_MODEL | TEXT_MODEL            -> text_model   (extraction fallback model)
     #   VISION_MODEL                         -> vision_model (model for photos)
+    #   VISION_SURFACES_MODEL                -> vision_surfaces_model (decomposed surfaces call)
     #   VISION_REASONING_EFFORT              -> vision_reasoning_effort (photos, default low)
     #   VISION_MAX_TOKENS                    -> vision_max_tokens (photo output budget)
     #   AZURE_OPENAI_ENDPOINT / _API_KEY     -> azure_openai_endpoint / azure_openai_api_key
@@ -166,6 +167,13 @@ class Settings(BaseSettings):
     # decision: gpt-6.1-sol, two-call (decomposed) prompts, reasoning effort low, output
     # budget 6000 (Claude Opus 5.5 decomposed is the fallback: VISION_MODEL=claude-opus-5-5).
     vision_model: str = "gpt-6.1-sol"
+    # The decomposed step's surfaces-and-room-type call (photo_surfaces) runs on its own
+    # model: EVAL_REPORT section 28.1 measured gpt-6-luna equal to gpt-6.1-sol on room type,
+    # surface F1 and report rows at an eighteenth of the price (it lists fewer surfaces per
+    # photo, with fewer false ones). VISION_MODEL stays the countables call (and the
+    # single-call step), so the Opus fallback above needs both settings;
+    # VISION_REASONING_EFFORT and VISION_MAX_TOKENS apply to both calls.
+    vision_surfaces_model: str = "gpt-6-luna"
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: SecretStr | None = None
     azure_openai_api_version: str = "2024-10-21"
@@ -330,6 +338,16 @@ class Settings(BaseSettings):
         return VISION_MAX_TOKENS_DEFAULT
 
     @property
+    def vision_surfaces_output_budget(self) -> int:
+        """The surfaces call's output budget: ``VISION_MAX_TOKENS`` when set, else the
+        default for the surfaces model's family."""
+        if self.vision_max_tokens is not None:
+            return self.vision_max_tokens
+        if is_reasoning_model(self.vision_surfaces_model):
+            return VISION_MAX_TOKENS_REASONING
+        return VISION_MAX_TOKENS_DEFAULT
+
+    @property
     def vision_count_fusion_active(self) -> bool:
         """Whether the per-photo step fuses counts (``per_class`` and the decomposed mode)."""
         return self.vision_count_fusion != "off" and self.vision_photo_mode == "decomposed"
@@ -388,6 +406,7 @@ class Settings(BaseSettings):
     def _check_models(self) -> None:
         """Refuse model and effort combinations that would fail on the first call."""
         for name, model, effort in (
+            ("VISION_SURFACES", self.vision_surfaces_model, self.vision_reasoning_effort),
             ("VISION_FUSION", self.vision_fusion_model, self.vision_fusion_reasoning_effort),
             ("ROOM", self.room_model, self.room_reasoning_effort),
             ("ROOM_MATERIALS", self.room_materials_model, self.room_materials_reasoning_effort),

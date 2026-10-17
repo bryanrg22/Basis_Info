@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from fixtures import fixture_path
-from llm_fakes import PHOTO_MODEL, FixtureVisionProvider, PromptKeyedProvider
+from llm_fakes import PHOTO_MODEL, FixtureVisionProvider, ModelKeyedProvider, PromptKeyedProvider
 
 from basis.activities.analyze_photo import _raw_json
 from basis.llm import Budget, BudgetExceededError, ScriptedProvider, ScriptedTurn, Usage
@@ -415,6 +415,39 @@ async def test_decomposed_sends_both_prompts_on_the_prepared_image_and_merges() 
         "vision photo_countables attempt 1",
         "vision photo_surfaces attempt 1",
     }
+
+
+async def test_decomposed_surfaces_call_runs_on_its_own_model_and_budget() -> None:
+    # VISION_SURFACES_MODEL (EVAL_REPORT 28.1): only the surfaces call moves; the countables
+    # call keeps VISION_MODEL and its budget, and both keep the reasoning effort.
+    provider = ModelKeyedProvider(
+        {
+            ("gpt-6.1-sol", "photo_countables"): [ok(countables_answer([part("window", 2)]))],
+            ("gpt-6-luna", "photo_surfaces"): [ok(surfaces_answer([part("carpet")], "bedroom"))],
+        }
+    )
+    ctx = context(provider)
+    ctx.model, ctx.max_tokens, ctx.reasoning_effort = "gpt-6.1-sol", 6000, "low"
+    ctx.surfaces_model, ctx.surfaces_max_tokens = "gpt-6-luna", 4000
+    result = await analyze_photo_decomposed(KITCHEN, ctx)
+    by_prompt = {r.prompt_version: r for r in provider.requests}
+    assert (by_prompt[COUNTABLES].model, by_prompt[COUNTABLES].max_tokens) == ("gpt-6.1-sol", 6000)
+    assert (by_prompt[SURFACES].model, by_prompt[SURFACES].max_tokens) == ("gpt-6-luna", 4000)
+    assert {r.reasoning_effort for r in provider.requests} == {"low"}
+    assert result.model == "gpt-6-luna+gpt-6.1-sol"  # distinct models, sorted
+    assert [c.model for c in result.calls] == ["gpt-6.1-sol", "gpt-6-luna"]
+    assert result.analysis.room_type is RoomType.BEDROOM  # the room still comes from surfaces
+    assert {c.label.value for c in result.analysis.components} == {"window", "carpet"}
+    # every call is recorded under its own model, so its cost is priced as that model
+    assert sorted(r.model for r in records(ctx)) == ["gpt-6-luna", "gpt-6.1-sol"]
+
+
+async def test_decomposed_surfaces_model_unset_uses_the_vision_model() -> None:
+    provider = keyed(countables=[ok(countables_answer([]))], surfaces=[ok(surfaces_answer([]))])
+    ctx = context(provider)
+    assert ctx.surfaces_model is None and ctx.surfaces_max_tokens is None
+    await analyze_photo_decomposed(KITCHEN, ctx)
+    assert {(r.model, r.max_tokens) for r in provider.requests} == {("gpt-4o-mini", 1200)}
 
 
 async def test_decomposed_matches_the_single_call_on_the_fixture_labels() -> None:

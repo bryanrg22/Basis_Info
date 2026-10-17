@@ -27,7 +27,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")
 
 PHOTO_CALLS = {
     ("gpt-6.1-sol", "photo_countables/v3"): 3,
-    ("gpt-6.1-sol", "photo_surfaces/v2"): 3,
+    ("gpt-6-luna", "photo_surfaces/v2"): 3,  # VISION_SURFACES_MODEL (EVAL_REPORT 28.1)
     ("claude-opus-5-5", "photo_countables/v3"): 3,
     ("gpt-6-luna", "appraisal_field_fallback/v1"): 1,
 }

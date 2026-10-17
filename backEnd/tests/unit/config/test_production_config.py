@@ -22,6 +22,8 @@ STEP_VARS = (
     "VISION_MODEL",
     "VISION_PHOTO_MODE",
     "VISION_MAX_TOKENS",
+    "VISION_REASONING_EFFORT",
+    "VISION_SURFACES_MODEL",
     "VISION_COUNT_FUSION",
     "VISION_FUSION_MODEL",
     "VISION_FUSION_REASONING_EFFORT",
@@ -65,6 +67,15 @@ def test_count_fusion_defaults_are_section_15(env: pytest.MonkeyPatch) -> None:
     assert settings.vision_fusion_reasoning_effort == "medium"
     # Claude's answer budget; the Anthropic provider adds its thinking allowance.
     assert settings.vision_fusion_output_budget == 1200
+
+
+def test_surfaces_call_default_is_section_28(env: pytest.MonkeyPatch) -> None:
+    settings = load_settings()
+    # The countables call stays on VISION_MODEL; the surfaces call moved to gpt-6-luna.
+    assert (settings.vision_model, settings.vision_surfaces_model) == ("gpt-6.1-sol", "gpt-6-luna")
+    assert settings.vision_reasoning_effort == "low"
+    # gpt-6-luna is a reasoning model: the same budget section 28.1 ran it at.
+    assert settings.vision_surfaces_output_budget == 6000
 
 
 def test_room_step_defaults_are_section_16(env: pytest.MonkeyPatch) -> None:
@@ -121,6 +132,22 @@ def test_an_openai_reasoning_fusion_model_gets_the_reasoning_budget(
     env.setenv("VISION_FUSION_MODEL", "gpt-6.1-sol")
     env.setenv("VISION_FUSION_REASONING_EFFORT", "low")
     assert load_settings().vision_fusion_output_budget == 6000
+
+
+def test_surfaces_call_overrides_are_read(env: pytest.MonkeyPatch) -> None:
+    env.setenv("VISION_SURFACES_MODEL", "gpt-6.1-sol")  # the configuration before 28
+    assert load_settings().vision_surfaces_model == "gpt-6.1-sol"
+    env.setenv("VISION_SURFACES_MODEL", "claude-opus-5-5")
+    assert load_settings().vision_surfaces_output_budget == 1200  # Claude's answer budget
+    env.setenv("VISION_MAX_TOKENS", "2500")
+    assert load_settings().vision_surfaces_output_budget == 2500  # applies to every call
+
+
+def test_a_claude_surfaces_model_refuses_an_openai_only_effort(env: pytest.MonkeyPatch) -> None:
+    env.setenv("VISION_SURFACES_MODEL", "claude-sonnet-5-5")
+    env.setenv("VISION_REASONING_EFFORT", "minimal")
+    with pytest.raises(ConfigError, match="VISION_SURFACES"):
+        load_settings()
 
 
 def test_room_step_overrides_are_read(env: pytest.MonkeyPatch) -> None:

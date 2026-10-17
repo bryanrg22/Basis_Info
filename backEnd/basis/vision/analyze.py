@@ -168,6 +168,10 @@ class VisionContext:
     reasoning_effort: str | None = None
     # Per-class count fusion in the decomposed step; ``None`` = off.
     fusion: FusionConfig | None = None
+    # The decomposed step's surfaces call (``VISION_SURFACES_MODEL``, EVAL_REPORT section
+    # 28.1) and its output budget; ``None`` = ``model`` / ``max_tokens``.
+    surfaces_model: str | None = None
+    surfaces_max_tokens: int | None = None
 
 
 @dataclass
@@ -368,7 +372,8 @@ async def analyze_photo_decomposed(
     on the same prepared image, concurrently, merged by :mod:`basis.vision.merge`.
 
     ``countables`` and ``surfaces`` default to :func:`decomposed_prompts`; ``ctx.prompt``
-    is not sent.
+    is not sent. The surfaces call runs on ``ctx.surfaces_model`` (with
+    ``ctx.surfaces_max_tokens``) when set, else on ``ctx.model``.
     """
     default_countables, default_surfaces = decomposed_prompts()
     countables = countables or default_countables
@@ -382,7 +387,16 @@ async def analyze_photo_decomposed(
     try:
         calls = await _all_or_none(
             call_until_usable(image, replace(ctx, prompt=countables), label=f"{countables.name} "),
-            call_until_usable(image, replace(ctx, prompt=surfaces), label=f"{surfaces.name} "),
+            call_until_usable(
+                image,
+                replace(
+                    ctx,
+                    prompt=surfaces,
+                    model=ctx.surfaces_model or ctx.model,
+                    max_tokens=ctx.surfaces_max_tokens or ctx.max_tokens,
+                ),
+                label=f"{surfaces.name} ",
+            ),
         )
     except BaseException:
         if second_task is not None:

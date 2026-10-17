@@ -42,6 +42,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")
 # Every setting of the three wirings and the photo step, at the class default.
 STEP_FIELDS = (
     "vision_model",
+    "vision_surfaces_model",
     "vision_photo_mode",
     "vision_reasoning_effort",
     "vision_count_fusion",
@@ -123,7 +124,7 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
     by_prompt = Counter((r.model, r.prompt_version) for r in provider.requests)
     assert by_prompt == {
         ("gpt-6.1-sol", "photo_countables/v3"): 3,
-        ("gpt-6.1-sol", "photo_surfaces/v2"): 3,
+        ("gpt-6-luna", "photo_surfaces/v2"): 3,  # EVAL_REPORT 28.1
         ("claude-opus-5-5", "photo_countables/v3"): 3,
         ("claude-sonnet-5-5", "room_inventory/v3"): 1,  # the two-photo Kitchen only
         # EVAL_REPORT 27: the fallback asks for every box Azure DI left empty, once.
