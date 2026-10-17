@@ -7,6 +7,7 @@ fixture photos and writes rooms, component sets, the raw records and the run sum
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 from pathlib import Path
@@ -17,8 +18,8 @@ from fixtures import fixture_path
 from llm_fakes import FixtureVisionProvider, photo_labels
 
 from basis.llm import prompts
-from basis.llm.errors import ProviderUnavailable
-from evals import predict_photos
+from basis.llm.errors import ProviderAccountError, ProviderUnavailable
+from evals import account_stop, predict_photos
 
 pytestmark = pytest.mark.asyncio
 
@@ -235,6 +236,110 @@ async def test_transient_provider_errors_are_retried_then_recorded(
     assert [e["file"] for e in run["errors"]] == ["01_kitchen.jpg", "02_bathroom.jpg"]
     assert json.loads((out2 / "photo_rooms.json").read_text()) == {}
     assert hopeless.calls == 2 * (len(predict_photos.RETRY_DELAYS_S) + 1)
+
+
+QUOTA = ProviderAccountError(
+    "You exceeded your current quota.", provider="openai", status=429, code="insufficient_quota"
+)
+
+
+class BrokeAfter:
+    """Answers the first ``answers`` calls, then refuses the account on every call."""
+
+    name = "broke"
+
+    def __init__(self, answers: int) -> None:
+        self.inner = FixtureVisionProvider()
+        self.answers = answers
+        self.calls = 0
+
+    async def complete(self, request: Any) -> Any:
+        self.calls += 1
+        if self.calls > self.answers:
+            raise QUOTA
+        return await self.inner.complete(request)
+
+
+async def test_the_first_account_error_stops_the_run_with_a_partial_run_json(
+    photo_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """EVAL_REPORT 26.12: the run used to go on, record every later photo as
+    ``invalid_model_output`` and exit 0. Now: one refused call, then stop."""
+    provider = BrokeAfter(answers=2)  # repeat 1 (two photos) answers, repeat 2 is refused
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    monkeypatch.setattr(predict_photos, "RETRY_DELAYS_S", (0.0, 0.0))
+    out = tmp_path / "out"
+    (out).mkdir()
+    (out / "run.json").write_text(json.dumps({"complete": True, "stale": "an earlier run"}))
+    code = await predict_photos.run(
+        predict_photos.parse_args(
+            ["--photos", str(photo_dir), "--out", str(out), "--repeats", "2", "--concurrency", "1"]
+        )
+    )
+    assert code == account_stop.ACCOUNT_STOPPED
+    assert provider.calls == 3  # the refused call is not retried and nothing follows it
+    run = json.loads((out / "run.json").read_text())
+    assert run["complete"] is False and "stale" not in run
+    assert run["stopped"] == {
+        "reason": "provider_account_error",
+        "provider": "openai",
+        "status": 429,
+        "code": "insufficient_quota",
+        "message": str(QUOTA),
+    }
+    assert run["spent_usd"] > 0  # repeat 1's two calls
+    assert "photo_raw.jsonl" in run["files_written"]
+    raw = (out / "photo_raw.jsonl").read_text().splitlines()
+    assert [json.loads(line)["repeat"] for line in raw] == [1, 1]  # repeat 1 only
+    assert not (out / "photo_rooms.json").exists()  # no prediction file looks complete
+    err = capsys.readouterr().err
+    assert "STOPPED: openai account error (HTTP 429, insufficient_quota)" in err
+
+
+class HangThenRefuse:
+    """The first photo's call hangs; the second is refused. Records the cancel."""
+
+    name = "hang"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.cancelled = False
+
+    async def complete(self, request: Any) -> Any:
+        self.calls += 1
+        if self.calls == 1:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+        raise QUOTA
+
+
+async def test_an_account_error_cancels_the_calls_still_in_flight(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = HangThenRefuse()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    out = tmp_path / "out"
+    code = await asyncio.wait_for(
+        predict_photos.run(
+            predict_photos.parse_args(
+                ["--photos", str(photo_dir), "--out", str(out), "--concurrency", "2"]
+            )
+        ),
+        timeout=10,
+    )
+    assert code == account_stop.ACCOUNT_STOPPED
+    assert provider.cancelled and provider.calls == 2
+    assert json.loads((out / "run.json").read_text())["complete"] is False
 
 
 async def test_prompt_family_option_selects_a_decomposed_prompt(

@@ -29,6 +29,9 @@ non-retryable ``BudgetExceededError`` is raised up front and nothing is written 
 workflow flags the stage and continues to review). The output's ``cost_usd`` is what the
 model calls actually cost. Without a wired provider (``Deps.chat_provider is None``)
 nothing is reserved and residual components are written ``classifier_unavailable``.
+A provider account error (no credit, a bad key) stops the classification at once (the
+other components' calls are cancelled) and is the non-retryable ``ProviderAccountError``;
+nothing is written, and the workflow fails the stage with the reason until a retry.
 
 ``asset`` corrections (an assets rejection) name an asset of the rejected revision; the
 new revision's component carried from it (``carried_from``, written by
@@ -51,6 +54,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
+from basis.activities._model_calls import provider_failure
 from basis.activities._support import (
     budget_exceeded,
     heartbeat,
@@ -80,6 +84,7 @@ from basis.domain.rules import RECOVERY_YEARS, lookup
 from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
 from basis.llm.cost import cost_usd
+from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import Budget
 from basis.vision.rooms import is_room_inventory
 from basis.workflow.contracts import CorrectionInput, ProcessAssetsInput, ProcessAssetsOutput
@@ -175,7 +180,10 @@ async def _process(
                 f"${input.budget_remaining_usd:.4f} remains"
             )
 
-    results = await _classify_all(list(views.values()), ctx, settings.classify_concurrency)
+    try:
+        results = await _classify_all(list(views.values()), ctx, settings.classify_concurrency)
+    except ProviderAccountError as exc:
+        raise provider_failure(exc, f"assets of study {study_id}") from exc
     table = cost_table_for(settings.cost_table_path)
     measured: dict[tuple[uuid.UUID | None, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
@@ -332,7 +340,16 @@ async def _classify_all(
             heartbeat(view.component_id)
             return uuid.UUID(view.component_id), result
 
-    return dict(await asyncio.gather(*(one(v) for v in views)))
+    tasks = [asyncio.ensure_future(one(v)) for v in views]
+    try:
+        return dict(await asyncio.gather(*tasks))
+    except BaseException:
+        # An account error (or a cancel) stops the rest instead of letting every queued
+        # component make a call that fails the same way.
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 async def _write_classified(

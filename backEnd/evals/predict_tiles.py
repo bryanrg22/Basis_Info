@@ -59,6 +59,7 @@ from basis.llm.provider import Budget, ChatProvider, ChatRequest, ImagePart, Mes
 from basis.llm.recorder import MemoryRecorder
 from basis.vision.prep import JPEG_QUALITY, PreparedImage, prepare_image
 from basis.vision.schemas import ModelPhotoAnalysis
+from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, label_counts, photo_files
 
 MODES: Final = ("separate", "joint")
@@ -230,9 +231,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
-    pool = ProviderPool.from_settings(settings)
+    pool = guard(ProviderPool.from_settings(settings))
     if pool is None:
         print("no model provider configured", file=sys.stderr)
         return 2
@@ -242,6 +244,7 @@ async def run(args: argparse.Namespace) -> int:
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
     s = Settings(
         provider=pool,

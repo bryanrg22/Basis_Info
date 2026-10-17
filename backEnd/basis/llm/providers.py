@@ -14,7 +14,9 @@ What every call does (S3_SPEC sections 0 and 2):
   HTTP 429 and 5xx after a jittered delay (``Retry-After`` honoured up to a cap); timeouts
   and connection errors are not retried here (a second 60 s wait would eat the activity's
   budget; Temporal retries the activity instead). Every failure is mapped to
-  :mod:`basis.llm.errors` so no caller imports the SDK.
+  :mod:`basis.llm.errors` so no caller imports the SDK. Account failures (401/402/403, and
+  a 429 whose code says the credit or quota is gone) are :class:`ProviderAccountError`
+  and are not retried (:func:`account_error`).
 * Timeouts come from ``settings.llm_request_timeout_seconds``; latency is measured around
   the HTTP call and returned in ``ChatResponse.latency_ms``.
 
@@ -45,6 +47,7 @@ from pydantic import BaseModel, ValidationError
 from basis.config import ConfigError, Settings
 from basis.llm.anthropic_provider import AnthropicProvider, is_anthropic_model
 from basis.llm.errors import (
+    ProviderAccountError,
     ProviderBadResponse,
     ProviderError,
     ProviderNotConfigured,
@@ -59,6 +62,24 @@ logger = logging.getLogger("basis.llm.providers")
 
 MIN_AZURE_API_VERSION: Final = date(2024, 8, 1)
 RETRY_AFTER_CAP_S: Final = 10.0
+# 429 ``error.code``/``error.type`` values that mean the account has no credit or quota left
+# rather than a rate limit (OpenAI's error-codes guide, read 2026-10-16: retrying "won't
+# restore access until credits or limits are updated"). ``insufficient_quota`` is the type
+# OpenAI documents for billing errors; ``credit_balance_exhausted`` is the code the shared
+# account returned when it ran dry (EVAL_REPORT sections 14 and 16).
+OPENAI_BILLING_CODES: Final = frozenset(
+    {
+        "insufficient_quota",
+        "credit_balance_exhausted",
+        "organization_spend_limit_exceeded",
+        "project_spend_limit_exceeded",
+        "organization_usage_limit_exceeded",
+    }
+)
+# 401 (invalid, revoked or missing key; not a member of an organization; IP not allowed),
+# 402 (payment required) and 403 (permission, unsupported region; Azure: key or network
+# access denied) are about the account whatever the request was.
+ACCOUNT_STATUSES: Final = frozenset({401, 402, 403})
 MALFORMED_ARGUMENTS: Final = "_malformed_arguments"
 # Dropped from strict schemas (pydantic still enforces them when the reply is validated).
 UNSUPPORTED_KEYWORDS: Final = ("default", "minLength", "maxLength", "uniqueItems")
@@ -290,10 +311,32 @@ def _retry_after(exc: openai.APIStatusError) -> float | None:
         return None
 
 
+def account_error(exc: Exception, provider: str) -> ProviderAccountError | None:
+    """The :class:`ProviderAccountError` an OpenAI or Azure status error means, if any.
+
+    The SDK parses the response's ``error`` object into ``exc.body`` (a dict), ``exc.code``
+    and ``exc.type``; the message is the provider's ``error.message`` when there is one.
+    """
+    if not isinstance(exc, openai.APIStatusError):
+        return None
+    codes = {str(c) for c in (exc.code, exc.type) if c}
+    billing = codes & OPENAI_BILLING_CODES
+    if exc.status_code not in ACCOUNT_STATUSES and not (exc.status_code == 429 and billing):
+        return None
+    body = exc.body if isinstance(exc.body, dict) else {}
+    message = str(body.get("message") or exc.message or f"HTTP {exc.status_code}")
+    code = next(iter(sorted(billing)), None) or exc.code or exc.type
+    return ProviderAccountError(message, provider=provider, status=exc.status_code, code=code)
+
+
 def map_error(exc: Exception, provider: str) -> ProviderError:
-    """An SDK exception as a :mod:`basis.llm.errors` error."""
+    """An SDK exception as a :mod:`basis.llm.errors` error (account errors first: an
+    out-of-quota 429 is not a rate limit)."""
     if isinstance(exc, ProviderError):
         return exc
+    account = account_error(exc, provider)
+    if account is not None:
+        return account
     if isinstance(exc, openai.RateLimitError):
         return ProviderRateLimited(str(exc), provider=provider, status=429)
     if isinstance(exc, openai.APIStatusError):

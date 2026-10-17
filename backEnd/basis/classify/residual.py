@@ -8,7 +8,10 @@ the next request offers no tools; a model that still asks for one ends the loop.
 Every way the loop can fail ends in an outcome with ``classification=None`` and a
 ``reason`` (``tool_cap_exceeded``, ``iteration_cap``, ``invalid_output``, ``timeout``,
 ``budget_exceeded``, ``provider_error:<type>``): the caller writes the component as
-``needs_review``; nothing is retried behind its back and nothing raises.
+``needs_review``; nothing is retried behind its back and nothing raises, except an account
+error (:class:`~basis.llm.errors.ProviderAccountError`: no credit, a bad key), which would
+otherwise turn every residual component of the study into ``provider_error`` rows; it
+propagates so the assets stage fails with the reason.
 
 Tool results go back as ``Message(role="tool", name=<tool>, tool_call_id=<id>)`` with the
 JSON payload as content. The assistant's tool-call turn is replayed as an assistant
@@ -36,6 +39,7 @@ from pydantic import ValidationError
 
 from basis.classify.schemas import Classification, ComponentView
 from basis.classify.tools import BoundTool, ToolOutcome, refusal
+from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import (
     Budget,
     BudgetExceededError,
@@ -281,7 +285,7 @@ async def run_residual(
         outcome.classification, outcome.reason = None, "timeout"
     except BudgetExceededError:
         outcome.classification, outcome.reason = None, "budget_exceeded"
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, ProviderAccountError):
         raise
     except Exception as exc:  # a provider failure must not fail the whole revision
         outcome.classification, outcome.reason = None, f"provider_error:{type(exc).__name__}"

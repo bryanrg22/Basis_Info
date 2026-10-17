@@ -30,7 +30,7 @@ from basis.db.repositories.activity_result import COMPLETED
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm import ScriptedProvider, ScriptedTurn, Usage
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited
+from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderRateLimited
 from basis.workflow.contracts import AnalyzePhotoInput, SimulateFault
 
 from .conftest import Env
@@ -369,6 +369,29 @@ async def test_a_rate_limited_provider_is_retried_by_temporal(
         await activity_env.run(AnalyzePhoto(with_llm(deps, provider)).run, analyze(seeded, 0))
     assert caught.value.type == "ProviderUnavailable" and not caught.value.non_retryable
     assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
+
+
+async def test_an_account_error_is_non_retryable_and_names_the_provider(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """Not a bad photo (EVAL_REPORT 26.12): the activity fails with the non-retryable
+    ``ProviderAccountError`` and writes nothing, so the workflow fails the stage with the
+    provider's reason instead of flagging this photo and every one after it."""
+    error = ProviderAccountError(
+        "Your credit balance is too low to access the Anthropic API.",
+        provider="anthropic",
+        status=400,
+        code="invalid_request_error",
+    )
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)])
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(AnalyzePhoto(with_llm(deps, provider)).run, analyze(seeded, 0))
+    assert caught.value.type == "ProviderAccountError" and caught.value.non_retryable
+    assert "anthropic account error (HTTP 400" in str(caught.value)
+    assert "credit balance is too low" in str(caught.value)
+    assert len(provider.requests) == 1  # not retried as an unusable answer
+    assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
+    assert await count_rows(deps.sessionmaker, PhotoRoom, study_id=seeded.study_id) == 0
 
 
 async def test_fail_attempts_fails_early_attempts_then_succeeds(
