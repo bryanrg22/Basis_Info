@@ -11,7 +11,8 @@ fetched once from the named checkpoint, safetensors only, no remote code):
   exterior view (:func:`basis.vision.ade20k.is_exterior`); the wall, floor and ceiling
   segments are written to ``surfaces_raw.jsonl`` for the surface crops.
 * ``owlv2`` (``google/owlv2-large-patch14-ensemble``), ``gdino``
-  (``IDEA-Research/grounding-dino-base``), ``llmdet`` (``iSEE-Laboratory/llmdet_large``)
+  (``IDEA-Research/grounding-dino-base``), ``llmdet`` (``iSEE-Laboratory/llmdet_base``;
+  the Swin-L checkpoints mis-scale boxes, EVAL_REPORT 26.12)
   and ``mmgdino`` (``openmmlab-community/mm_grounding_dino_large_all``): open-vocabulary
   detectors prompted with SAM 3's phrase pool (:data:`basis.vision.localize.PHRASE_SETS`
   ``pool``), each phrase on its own as SAM 3 answers each phrase on its own, so
@@ -61,7 +62,9 @@ SEGMENTERS: Final[dict[str, str]] = {
 OPEN_VOCABULARY: Final[dict[str, str]] = {
     "owlv2": "google/owlv2-large-patch14-ensemble",
     "gdino": "IDEA-Research/grounding-dino-base",
-    "llmdet": "iSEE-Laboratory/llmdet_large",
+    # The Swin-L checkpoints (llmdet_large, mm_grounding_dino_large_*) give vertically squashed
+    # boxes under transformers 5.19 (EVAL_REPORT 26.12); the Swin-B one is correct.
+    "llmdet": "iSEE-Laboratory/llmdet_base",
     "mmgdino": "openmmlab-community/mm_grounding_dino_large_all",
 }
 # Mask2Former's post-processing reads OneFormer's outputs too (same query/mask heads, same
