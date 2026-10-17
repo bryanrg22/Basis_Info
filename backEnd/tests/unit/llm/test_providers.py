@@ -22,6 +22,7 @@ from basis.llm.errors import (
     ProviderBadResponse,
     ProviderRateLimited,
     ProviderUnavailable,
+    is_retryable_status,
 )
 from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec
 from basis.llm.providers import (
@@ -387,6 +388,7 @@ async def test_5xx_then_success() -> None:
 
 @pytest.mark.parametrize("code", [400, 404, 409, 422])
 async def test_4xx_is_a_bad_response_and_not_retried(code: int) -> None:
+    """A 4xx without an account status or a billing code (``status`` sends none)."""
     server = Server(status(code))
     with pytest.raises(ProviderBadResponse) as caught:
         await provider(server).complete(request())
@@ -537,7 +539,21 @@ BAD_KEY = (
                 type="insufficient_quota",
                 code="project_spend_limit_exceeded",
             ),
-            "insufficient_quota",
+            "project_spend_limit_exceeded",
+        ),
+        (
+            400,
+            error_body(
+                "Billing hard limit has been reached",
+                type="invalid_request_error",
+                code="billing_hard_limit_reached",
+            ),
+            "billing_hard_limit_reached",
+        ),
+        (
+            403,
+            error_body("Country, region, or territory not supported", type="request_forbidden"),
+            "request_forbidden",
         ),
         (
             429,
@@ -584,6 +600,7 @@ async def test_account_errors_are_not_retried(
     assert (error.provider, error.status, error.code) == ("openai", code, expected_code)
     assert body["error"]["message"][:20] in str(error)
     assert not isinstance(error, ProviderBadResponse | ProviderRateLimited | ProviderUnavailable)
+    assert not is_retryable_status(error)
 
 
 async def test_an_account_error_never_carries_the_key() -> None:

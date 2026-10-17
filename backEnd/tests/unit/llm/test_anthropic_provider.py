@@ -44,6 +44,7 @@ from basis.llm.errors import (
     ProviderBadResponse,
     ProviderRateLimited,
     ProviderUnavailable,
+    is_retryable_status,
 )
 from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec, Usage
 from basis.llm.providers import providers_from_settings
@@ -671,6 +672,7 @@ async def test_account_errors_are_not_retried(
     assert (error.provider, error.status, error.code) == ("anthropic", code, expected_code)
     assert str(error).startswith(f"anthropic account error (HTTP {code}")
     assert error.usage is None  # nothing reached the model: nothing to charge
+    assert not is_retryable_status(error)
 
 
 def test_the_credit_message_is_kept_and_a_key_is_not() -> None:

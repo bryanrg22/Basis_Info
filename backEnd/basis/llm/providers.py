@@ -62,11 +62,13 @@ logger = logging.getLogger("basis.llm.providers")
 
 MIN_AZURE_API_VERSION: Final = date(2024, 8, 1)
 RETRY_AFTER_CAP_S: Final = 10.0
-# 429 ``error.code``/``error.type`` values that mean the account has no credit or quota left
-# rather than a rate limit (OpenAI's error-codes guide, read 2026-10-16: retrying "won't
-# restore access until credits or limits are updated"). ``insufficient_quota`` is the type
-# OpenAI documents for billing errors; ``credit_balance_exhausted`` is the code the shared
-# account returned when it ran dry (EVAL_REPORT sections 14 and 16).
+# ``error.code``/``error.type`` values that mean the account has no credit or quota left,
+# on any 4xx (OpenAI's error-codes guide, read 2026-10-16: retrying "won't restore access
+# until credits or limits are updated"). Most come as a 429, which without them is a rate
+# limit; ``insufficient_quota`` is the type OpenAI documents for billing errors;
+# ``credit_balance_exhausted`` is the code the shared account returned when it ran dry
+# (EVAL_REPORT sections 14 and 16); ``billing_hard_limit_reached`` is the older code for an
+# account past its billing limit, sent with a 400 ("Billing hard limit has been reached").
 OPENAI_BILLING_CODES: Final = frozenset(
     {
         "insufficient_quota",
@@ -74,6 +76,7 @@ OPENAI_BILLING_CODES: Final = frozenset(
         "organization_spend_limit_exceeded",
         "project_spend_limit_exceeded",
         "organization_usage_limit_exceeded",
+        "billing_hard_limit_reached",
     }
 )
 # 401 (invalid, revoked or missing key; not a member of an organization; IP not allowed),
@@ -321,11 +324,14 @@ def account_error(exc: Exception, provider: str) -> ProviderAccountError | None:
         return None
     codes = {str(c) for c in (exc.code, exc.type) if c}
     billing = codes & OPENAI_BILLING_CODES
-    if exc.status_code not in ACCOUNT_STATUSES and not (exc.status_code == 429 and billing):
+    if exc.status_code not in ACCOUNT_STATUSES and not (400 <= exc.status_code < 500 and billing):
         return None
     body = exc.body if isinstance(exc.body, dict) else {}
     message = str(body.get("message") or exc.message or f"HTTP {exc.status_code}")
-    code = next(iter(sorted(billing)), None) or exc.code or exc.type
+    # The code is the more specific of the two (type insufficient_quota, code
+    # project_spend_limit_exceeded); a code that is not a billing one (invalid_api_key) still
+    # names a 401.
+    code = exc.code or exc.type
     return ProviderAccountError(message, provider=provider, status=exc.status_code, code=code)
 
 
