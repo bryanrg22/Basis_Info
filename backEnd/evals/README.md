@@ -391,6 +391,28 @@ Detector and model orderings (EVAL_REPORT section 21; shared rules in `basis.vis
   system and the paired bootstrap over photos of its per-photo count error against the
   baseline's.
 
+Vision architecture alternatives (EVAL_REPORT section 26; `docs/review_2026-10-15/VISION_ARCHITECTURE_SURVEY.md`):
+
+- `evals.predict_detector --detector mask2former|oneformer|owlv2|gdino|llmdet|mmgdino`: a
+  trained ADE20K segmenter or an open-vocabulary detector, run locally through `transformers`,
+  written in SAM 3's pool format (`instances_raw.jsonl`; segmenters also `surfaces_raw.jsonl`
+  with the wall, floor and ceiling masks); `evals.sam3_select select --candidates observed`
+  chooses a segmenter's class names per class, `--grid-min 0.05` lets a detector's lower
+  scores be chosen.
+- `evals.predict_multiview --scope room|house|schedule`: one call per room with all its photos,
+  one call for the whole property, or the schedule rows directly (`--template FILE`);
+  `room_inventory.json` / `room_raw.jsonl` or `schedule.json`.
+- `evals.predict_surface_crops predict|score|apply`: segmentation-guided surface crops with a
+  closed-choice material question; material accuracy per surface against the per-photo
+  labels (`--combine NAME=CROPS,PER_PHOTO`: crop answers, the per-photo surfaces elsewhere);
+  crop materials put into a room run.
+- `evals.combine_rooms`: one room run's rooms (`--rooms`, `--exterior`) taken from another.
+- `evals.score_schedule`: row recall and precision against the engineer's schedule with
+  distractor rows (`--template`), row quantities against the labelled room inventory (WAPE,
+  cost-weighted relative error), room count error over every repeat, paired bootstraps over
+  rows and rooms against `--baseline`. The engineer's report gives costs per row, no
+  quantities, so the labelled inventory is the quantity reference.
+
 ### `rule_citations` (derived, no file)
 
 Every `(doc_id, page, excerpt)` citation of the rules table (`basis.domain.rules.RULES`),

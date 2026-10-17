@@ -2850,3 +2850,305 @@ now compares at `hnsw.ef_search = 1000` and records the production-setting agree
 separately); after merging main the test passes 6 of 6: the same counts, citations and sentence rates,
 near-exact vector and hybrid agreement 50 of 50, and 43 of 50 at the production setting
 (recorded, not asserted).
+
+## 26. Vision architecture: alternatives measured (2026-10-16)
+
+Question (Bryan): do not be biased toward the pipeline we have. Find how the problem "a
+property's photos to the engineer's component schedule" is solved elsewhere and test the
+credible alternatives on the real study; the target is the vision output closest to the
+engineer's report, as the best automatic first pass for the engineer to edit. The survey
+behind the experiments, with sources, is `VISION_ARCHITECTURE_SURVEY.md` in this folder. Its
+short version: no insurance, real-estate or cost-segregation vendor publishes count or
+material accuracy from ordinary photos, and all of them keep a human reviewer; trained
+indoor segmenters (ADE20K) know about a third of our countable classes and no materials;
+SAM 3 leads every open-vocabulary detector on the published benchmarks; cross-view counting
+by vision-language models is a known weak spot, but small image groups are its least
+degraded regime; one long call tends to lose recall; more thinking does not reliably help
+perception.
+
+Current pipeline (the baseline throughout): per photo, `photo_countables/v3` and
+`photo_surfaces/v2` on Opus 5.5, rooms from file names and aliases, the Sonnet 5.5 room step
+of section 16.5 (`rooms19_v3_opus55`, 37 of 38 rows); for per-photo counts, the per-class
+fusion 4c of section 15 (sol low + Opus medium, count MAE 0.124). Three repeats everywhere a
+model is called; detectors are deterministic, so one pass. Nothing is fitted except the
+detectors' phrases and thresholds, which are chosen leave one photo out exactly as SAM 3's
+were (section 19).
+
+### 26.1 How closeness to the engineer's report is scored
+
+`report_rows` (section 13) is at its ceiling for most systems here (37 of 38 photo-derivable
+rows; the miss, Door & Window Guards, is not visible in any photo), so it cannot separate
+them. What the engineer's report provides: a cost per row (46 rows) and a recovery period;
+no quantities (no units, linear feet or square feet per row; pages 4 to 12 are the photos).
+So a quantity metric against the report itself is not possible. The new scorer
+`evals.score_schedule` measures what can be measured:
+
+- **Row set**: recall over the 38 photo-derivable rows, and precision against a schedule
+  template of the engineer's 46 row names plus 20 *distractor* rows the engineer did not use
+  (countertops, mirrors, ceiling fans, decks, vinyl flooring, pool, elevators...; private file
+  `work/schedule_template_v1.json`). A room-inventory system lists a row when its
+  `report_rows` rule is met (a distractor: when one of its labels is present); a schedule
+  system lists the rows it writes. Even the human inventory lists 5 distractors (precision
+  0.88): the engineer folds ceiling fans into Electrical, countertops into millwork.
+- **Row quantities**: for the 17 rows that need a count, the reference is the hand-labelled
+  room inventory put through the same rule (distinct objects of the row's labels in the rooms
+  the rule allows). Reported: MAE, WAPE (sum |error| / sum reference) and the cost-weighted
+  relative error (each row's |error| / reference, capped at 1, weighted by the row's share of
+  the study's cost: the share of the engineer's dollars on count rows a quantity would misstate
+  if unit costs were uniform within a row).
+- **Room counts over every repeat**: `evals.run` scores the room inventory on repeat 1 only;
+  the scorer averages the per-(room, label) error over all three repeats and compares systems
+  by a paired bootstrap over the 33 rooms (5,000 resamples).
+- Materials: a per-surface material accuracy against the materials written in the per-photo
+  labels (`evals.predict_surface_crops score`, 58 labelled photo surfaces: 32 floors, 12
+  walls, 3 wainscot bands, 11 ceilings).
+
+### 26.2 Trained segmentation and open-vocabulary detectors (experiments a and b)
+
+`evals.predict_detector` runs each model locally through `transformers` (safetensors, no
+remote code) and writes SAM 3's pool format; `evals.sam3_select` then picks phrases and a
+count threshold per class leaving one photo out. The segmenters' candidate phrases are their
+own ADE20K class names (`--candidates observed`; `basis.vision.ade20k` maps 39 classes, with
+door and light classes split interior/exterior by the share of sky and outdoor classes in the
+photo); the detectors are prompted with SAM 3's phrase pool, one phrase per pass.
+
+| System (191 verified boxes, 52 photos) | mAP@0.5 (LOO) | Count MAE, per-photo yardstick | Diff vs 4c [95% CI] | Count P / R | Label F1 (photo) | s / photo | Cost |
+|---|---|---|---|---|---|---|---|
+| **Current best counts (4c, VLM)** | n/a | **0.124** | 0 | 0.92 / 0.87 | 0.73 | 11 | $1.87 / 52 |
+| SAM 3 v3, per class LOO (section 19) | 0.763 | 0.260 | +0.136 [+0.062, +0.225] | 0.77 / 0.82 | n/a | 3.2 | ~$0.15 |
+| Mask2Former Swin-L, ADE20K panoptic | 0.219 | 0.542 | +0.418 [+0.287, +0.567] | 0.60 / 0.36 | 0.39 | 0.15 (MPS) | $0 local |
+| OneFormer Swin-L, ADE20K panoptic | 0.189 | 0.526 | +0.402 [+0.268, +0.556] | 0.62 / 0.36 | 0.32 | 1.3 (CPU) | $0 local |
+| OWLv2-L (SAM 3 phrase pool) | 0.663 | 0.407 | +0.283 [+0.187, +0.392] | 0.67 / 0.65 | n/a | 1.7 (MPS) | $0 local |
+| Grounding DINO-B (SAM 3 phrase pool) | 0.439 | 0.452 | +0.328 [+0.204, +0.478] | 0.70 / 0.46 | n/a | 24 (MPS) | $0 local |
+| LLMDet-L (SAM 3 phrase pool) | LLMDET_MAP | LLMDET_MAE | LLMDET_DIFF | LLMDET_PR | n/a | ~180 (CPU) | $0 local |
+
+No detector wins a class against the VLM counts (per class: OWLv2 ties on light fixtures,
+0.12 MAE; OneFormer 0.15 there; every other class is worse by 0.2 to 0.9). The segmenters
+never fire on outlets (not an ADE20K class) or exterior lights (outdoor fixtures are not
+segmented as "light"), find under a third of the windows (exterior windows are absorbed into
+"building" and "house"), and merge a run of cabinet doors into one "cabinet" segment, where
+the engineer counts units. Their label sets (F1 0.32 to 0.39) cover only the classes ADE20K
+has. SAM 3 stays the best detector on our photos, as on the published benchmarks.
+MM-Grounding-DINO-L was not run: LLMDet is its stronger successor on the same architecture,
+and LLMDet-L already takes about three minutes per photo on the CPU (it hangs on MPS).
+
+### 26.3 Materials from segmentation-guided crops (experiment c)
+
+`evals.predict_surface_crops`: Mask2Former's wall, floor and ceiling masks (at least 2% of
+the photo), the surface cropped to its box, enlarged to 768 px, the rest blended to grey; one
+call per surface with the whole photo first and the crop second, closed-choice prompt
+`surface_crop_material/v1` (a wall also gets its lower band: wainscot or chair-rail
+wallpaper). Three repeats on Sonnet 5.5 (low) and gpt-6.1-sol (low); 86 crops per repeat.
+
+| Source | Floor hit (32) | Wall hit (12) | Wainscot (3) | Ceiling (11) | All hit / exact (58) | Answered | Diff vs per-photo [95% CI] | $ / study |
+|---|---|---|---|---|---|---|---|---|
+| Per-photo surfaces call, Opus (current) | 0.78 | 0.58 | 1.00 | 0.18 | 0.64 / 0.62 | 0.69 | 0 | (in the per-photo cost) |
+| Crops, Sonnet low | 0.66 | 0.83 | 0.67 | 0.64 | 0.69 / 0.67 | 0.74 | +0.052 [-0.103, +0.207] | $0.58 |
+| Crops, sol low | 0.69 | 0.78 | 0.67 | 0.64 | 0.70 / 0.68 | 0.79 | +0.057 [-0.098, +0.207] | $0.38 |
+| **Crops, else per-photo (Sonnet)** | 0.78 | 0.83 | 1.00 | 0.73 | **0.79 / 0.78** | 0.88 | **+0.155 [+0.034, +0.276]** | $0.58 |
+| Crops, else per-photo (sol) | 0.79 | 0.78 | 1.00 | 0.73 | 0.79 / 0.77 | 0.90 | +0.149 [+0.023, +0.276] | $0.38 |
+
+The crops read walls and ceilings better (painted block, plank walls; the per-photo call
+rarely lists a ceiling at all). Their floor loss is coverage, not reading: 10 of the 11
+missed floors were never asked (the floor region was under 2% of the photo, or segmented as
+"rug"), one was answered wrongly (hardwood read as carpet). Taking the crop's answer where a
+crop exists and the per-photo answer elsewhere is the significant gain. On the report rows
+nothing changes: put into the current room run (`arch26_rooms19_crops_sonnet`, 22 materials
+changed) the rows stay 37 of 38; every material-dependent row was already evidenced. The
+gain is in material accuracy per surface, which the engineer's area takeoff needs and the
+rows cannot see on this study. Apple's DMS46 material model was not run (TorchScript, GPU-only
+sample code, model licence not read, CC-BY-NC labels).
+
+### 26.4 One call per room with all its photos (experiment d)
+
+`evals.predict_multiview --scope room`: every photo of a room (file names and the aliases,
+as the pipeline groups them; 33 rooms, 1 to 13 photos) in one call, no per-photo analysis;
+the prompt (`room_photos_inventory/v2`) carries the counting rules of `room_inventory/v3` and
+the label definitions of `photo_countables/v3` and `photo_surfaces/v2`. The first version
+(v1) copied `room_inventory/v3`'s outdated rule that files furniture and bath accessories as
+`other` and lost FF&E and Bathroom Accessories; it is kept in the table as a loss.
+
+Per label (absolute room-count error per repeat, summed over rooms; gold totals in brackets),
+Opus high against the current pipeline: windows [50] 10.0 against 17.0, wall finishes [9] 1.3
+against 8.0 (the current per-photo call lists plain painted walls), kitchen cabinet units [23]
+0.3 against 5.0, light fixtures [15] 1.3 against 5.7, bath accessories [9] 1.3 against 5.0,
+mirrors 1.7 against 3.0; worse on baseboards (3.3 against 1.0), outlets (4.0 against 3.0),
+interior doors (5.3 against 4.3) and the exterior site items (retaining wall, sidewalk) of
+the 13-photo exterior group, which the call drops in some repeats. On objects alone (surfaces
+and site work left out) the room count MAE is 0.230 against 0.360 (paired over rooms
+-0.085 [-0.153, -0.020]); at medium effort 0.288 (-0.054 [-0.112, +0.007]).
+
+What does not improve: the per-row totals on the rows the engineer prices. The WAPE gain
+(0.175 to 0.086) is almost all FF&E, a low-cost row: the current pipeline counts 40 loose
+furniture pieces against 68 labelled, the room call 70 to 74. Without FF&E both sit near 0.10,
+and the cost-weighted error is 0.062 to 0.079 against 0.064. Per-room errors of opposite sign
+cancel in a whole-house total (a window counted in the wrong room is still one window).
+
+### 26.5 The whole property in one call, and the schedule in one call (experiment d)
+
+`--scope house`: all 52 photos, captioned with their room, and the room list in one call
+(`house_inventory/v2`), returning every room's inventory. `--scope schedule`: all 52 photos
+and the schedule template in one call (`house_schedule/v2`), returning rows with recovery
+period, quantity, unit and evidence images. Both are worse than one call per room: the
+property call under-lists (room label recall 0.83 to 0.85; on sol it misses four rows) and
+the schedule call misstates quantities badly (cost-weighted error 0.42 to 0.50 against
+0.064), lists 1.7 to 2.7 rows photos cannot establish (Foundations-type rows) and misses three
+to four photo-derivable rows. Its recovery periods agree with the engineer's on 75 to 80% of
+the rows it lists. This is what the survey predicted (recall falls when everything is asked
+at once; MM-NIAH, extraction studies), and it rules out "photos straight to schedule" as the
+first pass. The house calls needed a 600 s request timeout (the default 60 s timed out every
+property-wide Opus call; the first attempts were stopped and are not in any table).
+
+### 26.6 Reasoning effort (experiment e)
+
+Opus 5.5 at high effort on the countables prompt was already measured (section 15, 1d: 0.144
+against 0.150 at medium, alone; no gain inside the fusion, 4d). New:
+
+- `photo_countables/v2` at **max** effort (output budget 4,000 + 4,096 thinking headroom):
+  149 of 156 answers were cut off at the output limit (each attempt about 100 s of
+  thinking) and became `invalid_model_output`, so the counts score 0.583 (recall 0.05). Max
+  effort is **untestable at the current output budget**: it does not finish a per-photo count
+  inside the pipeline's budget, as Anthropic's effort documentation warns (stated there for an
+  earlier Opus) for structured output. The 0.583 is not a measurement of its accuracy, and
+  it is deliberately not re-run with a larger budget.
+- The room call at **high** effort (the experiment the survey suggests: cross-view
+  de-duplication is where thinking might help): room count MAE 0.236 against 0.269 at medium
+  and 0.350 for the current pipeline (-0.112 [-0.187, -0.048] against the current), label F1
+  0.92, for $1.35 per study against $1.18. Report rows 36 of 38 (pass^3 0.95).
+
+### 26.7 Combinations (experiment f)
+
+- **Room calls for the interior, the current pipeline for the exterior group** (`x_` rooms:
+  the 13-photo property group, the shed, the mechanicals; `evals.combine_rooms --exterior`).
+  The rule came from looking at the room calls' misses on this study (exterior site items), so
+  it is in-sample. High effort: rows 37 of 38 (the ceiling), room count MAE 0.277 (-0.067
+  [-0.110, -0.023]), objects 0.271 (-0.062 [-0.113, -0.006]), WAPE 0.090, cost-weighted 0.085.
+  Medium: 0.284 (-0.061 [-0.107, -0.010]).
+- Crop materials on top of the room calls (`arch26_room_v2_opus55_med_crops`): rows unchanged.
+
+### 26.8 Every architecture against the current pipeline
+
+Counts = per-photo count MAE on the 191 verified objects (section 15 yardstick; n/a where the
+architecture has no per-photo counts). Room counts = room-inventory count MAE over three
+repeats, with the paired difference over rooms. Rows = report rows evidenced of 38 (repeat
+1) and pass^3. Quantities = WAPE and cost-weighted relative error of the 17 count rows
+against the labelled inventory. Cost per study (52 photos, one prediction) for the vision
+step it replaces; seconds = wall time of one study's calls in this harness (concurrency 4).
+
+| Architecture | Counts (photo) | Label F1 (room) | Room counts [Diff, 95% CI] | Rows (pass^3) | Row precision | Qty WAPE / cost-weighted | Materials hit | $ / study | Wall s |
+|---|---|---|---|---|---|---|---|---|---|
+| **Current pipeline** (per photo Opus + room step; 4c counts) | **0.124** | 0.900 | 0.350 | **37 (0.97)** | 0.86 | 0.175 / **0.064** | 0.64 | ~$2.65 (+$1.87 for 4c counts) | not re-measured |
+| a. ADE20K segmenter as counter (best: OneFormer) | 0.526 | n/a | n/a | n/a | n/a | n/a | n/a | $0 | 68 |
+| b. Open-vocabulary detector (best: OWLv2) | 0.407 | n/a | n/a | n/a | n/a | n/a | n/a | $0 | 88 |
+| c. Crop materials, else per-photo, on the current rooms | 0.124 | 0.900 | 0.350 | 37 (0.97) | 0.86 | 0.175 / 0.064 | **0.79** | +$0.38 to $0.58 | +50 to 80 |
+| d1. Room call v1, Opus medium (old furniture rule) | n/a | 0.821 | 0.420 [+0.114: +0.066, +0.163] | 36 (0.92) | 0.87 | 0.335 / 0.081 | n/a | $1.03 | 63 |
+| d2. Room call v2, Opus medium | n/a | 0.917 | 0.269 [-0.068: -0.115, -0.017] | 36 (0.92) | 0.90 | **0.086** / 0.062 | n/a | $1.18 | 79 |
+| d3. Room call v2, sol low | n/a | 0.868 | 0.341 [-0.015: -0.079, +0.050] | 36 (0.95) | 0.89 | 0.096 / 0.111 | n/a | $0.39 | 115 |
+| d4. Whole property, Opus medium | n/a | 0.888 | 0.335 [-0.032: -0.125, +0.049] | 36 (0.92) | 0.90 | 0.137 / 0.155 | n/a | $0.49 | 126 |
+| d5. Whole property, sol low | n/a | 0.884 | 0.451 [+0.026: -0.058, +0.118] | 34 (0.89) | 0.88 | 0.199 / 0.210 | n/a | $0.17 | 189 |
+| d6. Photos to schedule, Opus medium | n/a | n/a | n/a | 34.7 (avg) | 0.85 | 0.345 / 0.424 | n/a | $0.34 | 82 |
+| d7. Photos to schedule, sol low | n/a | n/a | n/a | 34.3 (avg) | 0.85 | 0.608 / 0.501 | n/a | $0.10 | 80 |
+| e1. Countables at max effort, Opus (untestable at the current output budget) | 0.583 (149/156 truncated) | n/a | n/a | n/a | n/a | n/a | n/a | $0.57 recorded (see spend) | ~200 / photo |
+| **e2. Room call v2, Opus high** | n/a | **0.923** | **0.236 [-0.112: -0.187, -0.048]** | 36 (0.95) | 0.89 | 0.086 / 0.079 | n/a | $1.35 | 90 |
+| **f. e2 inside, current pipeline outside** (in-sample rule) | n/a | 0.898 | 0.277 [-0.067: -0.110, -0.023] | **37 (0.97)** | 0.86 | 0.090 / 0.085 | n/a | ~$1.35 + exterior per-photo | ~90 |
+
+Many systems are compared with one baseline on
+one study, so a single interval that just excludes zero is weak evidence; e2's (-0.187 to
+-0.048) and c's material gain are the ones that clear it comfortably.
+
+### 26.9 Reading
+
+1. **Per-photo-then-reconcile is not the best way to count a room.** Giving the model every
+   photo of one room at once, with no per-photo answers to reconcile, counts the room's
+   objects better (objects 0.230 against 0.360 at high effort) and costs half as much. The
+   pixels, not lists from separate photos, are what de-duplicating needs; the reconciliation
+   call of section 16 sees per-photo lists and inherits their conventions (the painted-wall
+   listings, the furniture undercount).
+2. **But a better room count is not yet a closer schedule.** On the rows the engineer prices,
+   the per-row totals are as close as the current pipeline's (cost-weighted 0.06 to 0.08
+   against 0.064); the visible gain is FF&E. Room calls also drop exterior site items in the
+   big exterior group, which is why the interior-only combination is needed to keep 37 of 38
+   rows.
+3. **Bigger calls lose.** One call for the property, or for the schedule, under-lists and
+   miscounts, and the schedule call invents rows photos cannot show. Small groups of images are
+   the working regime.
+4. **Trained detectors are not the missing piece.** Neither ADE20K segmenters nor
+   open-vocabulary detectors approach the frontier VLMs' counts on any class, and SAM 3 remains
+   the best detector, so it stays for highlights only.
+5. **Materials improve with focus.** A crop of the segmented surface reads walls and ceilings
+   better than the per-photo call; with the per-photo answer as fallback it is a significant
+   gain (+0.155) at $0.4 to $0.6 per study, but it changes no report row on this study.
+6. **Effort.** Medium to high helps the room call; max does not fit the budget.
+
+### 26.10 Recommendation
+
+**Change a stage, not the architecture.** Keep the per-photo calls (they give the per-photo
+counts, label sets and room types the highlights and the review screen use, and the exterior
+inventory), keep SAM 3 for masks only, keep the rules table. Replace the room step: for every
+interior room (file-name grouping and aliases, as today), one Opus 5.5 call at high effort
+with all the room's photos (`room_photos_inventory/v2`) produces the room inventory, instead
+of the reconciliation call over per-photo lists; exterior and site groups keep today's
+per-photo + room step. Add the crop material second look (Mask2Former surface masks, crop
+answer where one exists, per-photo surface otherwise). Do not adopt the whole-property or
+photos-to-schedule calls, the trained segmenters or the open-vocabulary detectors.
+
+What this buys on this study: room object counts 0.27 against 0.36 (paired over rooms), row
+coverage at the ceiling, surface materials 0.79 against 0.64. What it does not: the per-row
+totals the engineer prices are as close as today's except FF&E. Before wiring it: the
+interior/exterior split was chosen on this study; re-measure on the second client package
+with the rule fixed in advance; settle the baseboard and outlet conventions where the room
+call is worse; the pipeline owner wires it (the room step is `basis/vision/room_step.py`,
+owned by the live-run follow-ups session).
+
+### 26.11 Spend, data and commands
+
+Spend recorded by the runners: $19.81 (Anthropic $16.61: room calls v1 $3.08, v2 medium
+$3.55, v2 high $4.04, property call $1.47, schedule call $1.02, Sonnet crops $1.74, max-effort
+countables $1.72; OpenAI $3.14: room $1.18, property $0.51, schedule $0.31, crops $1.14; a
+smoke test $0.06; local detectors $0). Not in it: the first property and schedule attempts
+stopped at the 60 s timeout (Opus, about six calls) and a stopped sol v1 room run. Caveat: the
+max-effort run recorded only $0.0055 per attempt for about 300 attempts of about 100 s each,
+which looks like the input cost alone; if the output tokens of truncated answers were not
+recorded, that run cost much more than recorded. The Anthropic account returned "credit
+balance is too low" right after it, so this could not be checked; the recorded total may
+understate the Anthropic spend. The code path was checked offline: a truncated Anthropic
+response (`stop_reason` max_tokens) raises `ProviderBadResponse` carrying the message's usage,
+and `call_model` records and charges it (a simulated truncated answer with 1,400 input and
+8,096 output tokens is charged $0.168, the list price). So the runner charged whatever usage
+the API reported; whether the API reported the thinking tokens of those answers is to be
+checked with one probe call once there is credit.
+
+Prediction directories under `$BASIS_EVAL_DATA_DIR/predictions` (private): detectors
+`arch26_det_{mask2former,oneformer,owlv2,gdino,llmdet}` with `_select` (the leave-one-photo-out
+choice, `detection_boxes.json`, `photo_counts.json`); crops `arch26_crops_m2f_{sonnet55,gpt61sol}_low`
+(with `material_accuracy.json`); multi-image `arch26_{room_v1,room_v2,house_v2,schedule_v2}_*`,
+`arch26_room_v2_opus55_high`; effort `arch26_countables_v2_opus55_max`; combinations
+`arch26_combo_roomscope{,_high}_interior_current_exterior`, `arch26_rooms19_crops_sonnet`,
+`arch26_room_v2_opus55_med_crops`; the scores `arch26_schedule_scores.{md,json}`. The
+schedule template is `work/schedule_template_v1.json`.
+
+Commands (from `backEnd/`):
+
+```bash
+P=~/basis-eval-data/predictions
+uv run python -m evals.predict_detector --photos ~/basis-eval-data/inputs/photos \
+    --out $P/arch26_det_oneformer --detector oneformer
+uv run python -m evals.sam3_select select --pool $P/arch26_det_oneformer \
+    --dataset ~/basis-eval-data/detection --out $P/arch26_det_oneformer_select \
+    --candidates observed --grid-min 0.05
+uv run python -m evals.predict_multiview --photos ~/basis-eval-data/inputs/photos \
+    --out $P/arch26_room_v2_opus55_high --scope room --prompt v2 --model claude-opus-5-5 \
+    --reasoning-effort high --repeats 3 --aliases ~/basis-eval-data/labels/room_aliases_v1.json
+uv run python -m evals.predict_surface_crops predict --surfaces $P/arch26_det_mask2former \
+    --photos ~/basis-eval-data/inputs/photos --out $P/arch26_crops_m2f_sonnet55_low \
+    --model claude-sonnet-5-5 --reasoning-effort low --repeats 3
+uv run python -m evals.predict_surface_crops score --data-dir ~/basis-eval-data \
+    --per-photo opus=$P/vision_decomposed_v3_opus55 \
+    --combine crops_else_photo=$P/arch26_crops_m2f_sonnet55_low,$P/vision_decomposed_v3_opus55
+uv run python -m evals.combine_rooms --base $P/arch26_room_v2_opus55_high \
+    --override $P/rooms19_v3_opus55 --exterior --out $P/arch26_combo_roomscope_high_interior_current_exterior
+uv run python -m evals.score_schedule --data-dir ~/basis-eval-data \
+    --template ~/basis-eval-data/work/schedule_template_v1.json \
+    --baseline current=$P/rooms19_v3_opus55 --system room_high=$P/arch26_room_v2_opus55_high
+```
+(For the property-wide calls set `LLM_REQUEST_TIMEOUT=600`.)

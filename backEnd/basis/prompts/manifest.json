@@ -94,6 +94,35 @@
       "v1": {
         "sha256": "649d436e7db540026b79bfdefce8633b5070076bdbb22d1490feeaaf2f5be541"
       }
+    },
+    "room_photos_inventory": {
+      "v1": {
+        "sha256": "af5fe5ab35fcc548b9c627b8894243d90441703871341eba6418b9bcca6d064b"
+      },
+      "v2": {
+        "sha256": "1aca6ee2c21fd39b7a5a879dfb9a2ee202b2a6d8d61682915fd891dd98e0f939"
+      }
+    },
+    "house_inventory": {
+      "v1": {
+        "sha256": "e35a86c1dc6f45e11b57a3ab6e6514610daa71fa9bdaa17a0bdd0f8ea32d0dbf"
+      },
+      "v2": {
+        "sha256": "e6dca39a1eb4a0963d056a0733dd02a4e48cbfeef1d60267e1d04c3b71395e51"
+      }
+    },
+    "house_schedule": {
+      "v1": {
+        "sha256": "4ebac344acdf45e899f2705509ee0f83227f9291e16d53cb8b881a137d0602a7"
+      },
+      "v2": {
+        "sha256": "68d304e5a867aa3694040c4925100575a2fb4a73ff4bec752bd20f79fdfa1886"
+      }
+    },
+    "surface_crop_material": {
+      "v1": {
+        "sha256": "6db5fa15beaafbe192f068304440dc624e9633bf27ef60016d086e85d13ae3e5"
+      }
     }
   }
 }
