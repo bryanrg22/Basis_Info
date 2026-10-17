@@ -2920,7 +2920,7 @@ photo); the detectors are prompted with SAM 3's phrase pool, one phrase per pass
 | OneFormer Swin-L, ADE20K panoptic | 0.189 | 0.526 | +0.402 [+0.268, +0.556] | 0.62 / 0.36 | 0.32 | 1.3 (CPU) | $0 local |
 | OWLv2-L (SAM 3 phrase pool) | 0.663 | 0.407 | +0.283 [+0.187, +0.392] | 0.67 / 0.65 | n/a | 1.7 (MPS) | $0 local |
 | Grounding DINO-B (SAM 3 phrase pool) | 0.439 | 0.452 | +0.328 [+0.204, +0.478] | 0.70 / 0.46 | n/a | 24 (MPS) | $0 local |
-| LLMDet-L (SAM 3 phrase pool) | LLMDET_MAP | LLMDET_MAE | LLMDET_DIFF | LLMDET_PR | n/a | ~180 (CPU) | $0 local |
+| LLMDet-B (SAM 3 phrase pool; 26.12) | 0.279 | 0.529 | +0.405 [+0.275, +0.565] | 0.66 / 0.28 | n/a | 22 (MPS) | $0 local |
 
 No detector wins a class against the VLM counts (per class: OWLv2 ties on light fixtures,
 0.12 MAE; OneFormer 0.15 there; every other class is worse by 0.2 to 0.9). The segmenters
@@ -2929,8 +2929,8 @@ segmented as "light"), find under a third of the windows (exterior windows are a
 "building" and "house"), and merge a run of cabinet doors into one "cabinet" segment, where
 the engineer counts units. Their label sets (F1 0.32 to 0.39) cover only the classes ADE20K
 has. SAM 3 stays the best detector on our photos, as on the published benchmarks.
-MM-Grounding-DINO-L was not run: LLMDet is its stronger successor on the same architecture,
-and LLMDet-L already takes about three minutes per photo on the CPU (it hangs on MPS).
+The Swin-L checkpoints of LLMDet and MM-Grounding-DINO give vertically squashed boxes under
+`transformers` 5.19 (26.12), so the LLMDet row is the Swin-B checkpoint.
 
 ### 26.3 Materials from segmentation-guided crops (experiment c)
 
@@ -3005,12 +3005,14 @@ Opus 5.5 at high effort on the countables prompt was already measured (section 1
 against 0.150 at medium, alone; no gain inside the fusion, 4d). New:
 
 - `photo_countables/v2` at **max** effort (output budget 4,000 + 4,096 thinking headroom):
-  149 of 156 answers were cut off at the output limit (each attempt about 100 s of
-  thinking) and became `invalid_model_output`, so the counts score 0.583 (recall 0.05). Max
-  effort is **untestable at the current output budget**: it does not finish a per-photo count
-  inside the pipeline's budget, as Anthropic's effort documentation warns (stated there for an
-  earlier Opus) for structured output. The 0.583 is not a measurement of its accuracy, and
-  it is deliberately not re-run with a larger budget.
+  **untestable at the current output budget, and not measured.** Corrected after the fact
+  (26.12): the account ran out of credit during the run's first repeat, so 294 of its 306
+  attempts were rejected by the API ("credit balance is too low", HTTP 400) and only 12 reached
+  the model: 7 answered, 5 were cut off at the output limit. The 0.583 it scores is the
+  rejections, not max effort; the earlier reading of this run ("149 of 156 truncated") was
+  wrong. Five truncations in twelve still say max effort does not reliably finish a per-photo
+  count inside the pipeline's budget (Anthropic's effort documentation warns that max can
+  overthink structured output), so it is not re-run.
 - The room call at **high** effort (the experiment the survey suggests: cross-view
   de-duplication is where thinking might help): room count MAE 0.236 against 0.269 at medium
   and 0.350 for the current pipeline (-0.112 [-0.187, -0.048] against the current), label F1
@@ -3048,7 +3050,7 @@ step it replaces; seconds = wall time of one study's calls in this harness (conc
 | d5. Whole property, sol low | n/a | 0.884 | 0.451 [+0.026: -0.058, +0.118] | 34 (0.89) | 0.88 | 0.199 / 0.210 | n/a | $0.17 | 189 |
 | d6. Photos to schedule, Opus medium | n/a | n/a | n/a | 34.7 (avg) | 0.85 | 0.345 / 0.424 | n/a | $0.34 | 82 |
 | d7. Photos to schedule, sol low | n/a | n/a | n/a | 34.3 (avg) | 0.85 | 0.608 / 0.501 | n/a | $0.10 | 80 |
-| e1. Countables at max effort, Opus (untestable at the current output budget) | 0.583 (149/156 truncated) | n/a | n/a | n/a | n/a | n/a | n/a | $0.57 recorded (see spend) | ~200 / photo |
+| e1. Countables at max effort, Opus (untestable at the current output budget; see 26.12) | not measured (294/306 attempts rejected for credit, 5/12 truncated) | n/a | n/a | n/a | n/a | n/a | n/a | $0.57 recorded (real: 26.12) | not measured |
 | **e2. Room call v2, Opus high** | n/a | **0.923** | **0.236 [-0.112: -0.187, -0.048]** | 36 (0.95) | 0.89 | 0.086 / 0.079 | n/a | $1.35 | 90 |
 | **f. e2 inside, current pipeline outside** (in-sample rule) | n/a | 0.898 | 0.277 [-0.067: -0.110, -0.023] | **37 (0.97)** | 0.86 | 0.090 / 0.085 | n/a | ~$1.35 + exterior per-photo | ~90 |
 
@@ -3078,7 +3080,7 @@ one study, so a single interval that just excludes zero is weak evidence; e2's (
 5. **Materials improve with focus.** A crop of the segmented surface reads walls and ceilings
    better than the per-photo call; with the per-photo answer as fallback it is a significant
    gain (+0.155) at $0.4 to $0.6 per study, but it changes no report row on this study.
-6. **Effort.** Medium to high helps the room call; max does not fit the budget.
+6. **Effort.** Medium to high helps the room call; max was not measurable (26.12).
 
 ### 26.10 Recommendation
 
@@ -3106,17 +3108,8 @@ Spend recorded by the runners: $19.81 (Anthropic $16.61: room calls v1 $3.08, v2
 $3.55, v2 high $4.04, property call $1.47, schedule call $1.02, Sonnet crops $1.74, max-effort
 countables $1.72; OpenAI $3.14: room $1.18, property $0.51, schedule $0.31, crops $1.14; a
 smoke test $0.06; local detectors $0). Not in it: the first property and schedule attempts
-stopped at the 60 s timeout (Opus, about six calls) and a stopped sol v1 room run. Caveat: the
-max-effort run recorded only $0.0055 per attempt for about 300 attempts of about 100 s each,
-which looks like the input cost alone; if the output tokens of truncated answers were not
-recorded, that run cost much more than recorded. The Anthropic account returned "credit
-balance is too low" right after it, so this could not be checked; the recorded total may
-understate the Anthropic spend. The code path was checked offline: a truncated Anthropic
-response (`stop_reason` max_tokens) raises `ProviderBadResponse` carrying the message's usage,
-and `call_model` records and charges it (a simulated truncated answer with 1,400 input and
-8,096 output tokens is charged $0.168, the list price). So the runner charged whatever usage
-the API reported; whether the API reported the thinking tokens of those answers is to be
-checked with one probe call once there is credit.
+stopped at the 60 s timeout (Opus, about six calls) and a stopped sol v1 room run. The
+recorded total is the real spend: see 26.12 for the check.
 
 Prediction directories under `$BASIS_EVAL_DATA_DIR/predictions` (private): detectors
 `arch26_det_{mask2former,oneformer,owlv2,gdino,llmdet}` with `_select` (the leave-one-photo-out
@@ -3152,3 +3145,44 @@ uv run python -m evals.score_schedule --data-dir ~/basis-eval-data \
     --baseline current=$P/rooms19_v3_opus55 --system room_high=$P/arch26_room_v2_opus55_high
 ```
 (For the property-wide calls set `LLM_REQUEST_TIMEOUT=600`.)
+
+### 26.12 Follow-up: the cost check, the max-effort run, LLMDet (2026-10-16, later)
+
+**Cost recording is correct.** Once the account was topped up, one probe call reproduced a
+truncated max-effort answer (`photo_countables/v2`, Opus 5.5, effort max, the kitchen photo,
+answer budget 200 so the wire limit is 4,296): the API returned `stop_reason` max_tokens, a
+single thinking block, and usage of 4,264 input and 4,296 output tokens (`output_tokens_details`:
+4,296 thinking), and the recorder charged exactly that ($0.103). Truncated answers and their
+thinking tokens are recorded and charged; nothing needs fixing there. (A comparison against the
+Anthropic console was not possible from this session: the console needs Bryan's login.)
+
+**What the max-effort run really was.** Its raw records show 294 of 306 attempts rejected with
+HTTP 400 "Your credit balance is too low", 7 usable answers and 5 truncations; the mean time per
+photo was 7 s, not the 200 s of the one photo first looked at. The account ran out during the
+run's first repeat (the high-effort room run was going at the same time), and the run's
+recorded $1.72 is the real cost of the 12 attempts that reached the model. Section 26.6 and the
+26.8 table are corrected: max effort was not measured, and is not re-run.
+
+**A different defect this exposed (not fixed here).** The Anthropic provider maps every 4xx
+other than 429 to `ProviderBadResponse`, which the vision step treats as an unusable model
+answer: it retries once and marks the photo `invalid_model_output` / `needs_review`. A billing
+or authentication rejection is therefore reported as 156 bad photos instead of one account
+error, in the harness and in production alike (`basis/llm/anthropic_provider.py`, `map_error`).
+It belongs in its own small change: classify billing, authentication and permission errors as
+a non-retryable provider failure that stops the run or the activity, with a test.
+
+**LLMDet.** The LLMDet-L run (Swin-L, CPU, three minutes per photo) scored mAP 0.027, which is
+not the model: its raw boxes are squashed vertically (on the kitchen photo a window predicted
+0.34 to 0.38 high where the verified box is 0.23 to 0.46), already in `pred_boxes` before
+post-processing, with the preprocessing identical to Grounding DINO's, no weight-loading
+warnings, and the same squash from MM-Grounding-DINO-L, while LLMDet-B returns the right box
+(score 0.68). So the two Swin-L checkpoints do not run correctly under `transformers` 5.19
+here; the run is kept as `arch26_det_llmdet_large_invalid_boxes` and not scored. LLMDet-B
+(54.3 LVIS minival AP against 56.6 for L) on MPS, 22 s per photo, selected per class leaving
+one photo out like the others: mAP 0.279, count MAE 0.529 (+0.405 [+0.275, +0.565] against the
+current best), below OWLv2 (0.663 / 0.407) and SAM 3 (0.763 / 0.260); it wins no class (best:
+interior doors, AP 0.53). The conclusion of 26.2 stands: no open-vocabulary detector replaces
+SAM 3 or the VLM counts on these photos.
+
+Spend for this follow-up: the probe $0.10; no other Claude run was needed (every room-call and
+crop-material run of section 26 had completed its three repeats); LLMDet-base local, $0.
