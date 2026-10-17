@@ -20,21 +20,21 @@ POOL=staging-basis-worker
 
 case "${1:-status}" in
   down)
-    gcloud run worker-pools update "$POOL" --project "$PROJECT" --region "$REGION" --scaling 0
+    gcloud beta run worker-pools update "$POOL" --project "$PROJECT" --region "$REGION" --scaling 0
     gcloud compute instances stop "$VM" --project "$PROJECT" --zone "$ZONE"
     gcloud sql instances patch "$SQL" --project "$PROJECT" --activation-policy NEVER --quiet
     ;;
   up)
     gcloud sql instances patch "$SQL" --project "$PROJECT" --activation-policy ALWAYS --quiet
     gcloud compute instances start "$VM" --project "$PROJECT" --zone "$ZONE"
-    gcloud run worker-pools update "$POOL" --project "$PROJECT" --region "$REGION" --scaling 1
+    gcloud beta run worker-pools update "$POOL" --project "$PROJECT" --region "$REGION" --scaling 1
     ;;
   status)
     gcloud sql instances describe "$SQL" --project "$PROJECT" \
       --format='value(name,state,settings.activationPolicy)'
     gcloud compute instances describe "$VM" --project "$PROJECT" --zone "$ZONE" \
       --format='value(name,status)'
-    gcloud run worker-pools describe "$POOL" --project "$PROJECT" --region "$REGION" \
+    gcloud beta run worker-pools describe "$POOL" --project "$PROJECT" --region "$REGION" \
       --format='value(metadata.name,metadata.annotations."run.googleapis.com/manualInstanceCount")'
     ;;
   *)
