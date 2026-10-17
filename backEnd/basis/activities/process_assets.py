@@ -22,7 +22,7 @@ count an object once per photo it is in; every other room its per-photo rows):
 
 Step 1 runs with no database connection held: the revision is read in a short session
 first, the model calls run, then steps 2 to 5 are written and the activity key completed
-in one transaction (EVAL_REPORT section 31.4: the classification used to run inside that
+in one transaction (EVAL_REPORT section 32.4: the classification used to run inside that
 transaction, holding a pooled connection for minutes).
 
 Idempotent per revision: when assets already exist for the revision (an earlier execution,
@@ -122,11 +122,11 @@ class ProcessAssets:
 
         The classification is minutes of model calls (EVAL_REPORT 27.8: 359 calls, about
         three minutes). It runs between two short sessions, as ``analyze_photo`` and
-        ``extract_fields`` run their model calls: before EVAL_REPORT section 31 it ran
+        ``extract_fields`` run their model calls: before EVAL_REPORT section 32 it ran
         inside ``run_once``'s transaction, which held a pooled connection (and the
         activity key's row lock) for the whole classification, while every classifier
         search needed a second connection from the same pool (``DB_POOL_SIZE``, no
-        overflow); under load the worker's pool ran dry (section 31.4).
+        overflow); under load the worker's pool ran dry (section 32.4).
         """
         study_id = parse_uuid(input.study_id, "study_id")
         prepared: _Prepared | None = None

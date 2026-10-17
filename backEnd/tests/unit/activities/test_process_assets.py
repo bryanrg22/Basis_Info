@@ -510,7 +510,7 @@ class PoolWatchingClassifier:
 async def test_no_connection_is_held_while_the_model_classifies(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
-    """EVAL_REPORT 31.4: the classification (minutes of model calls on a live study) ran
+    """EVAL_REPORT 32.4: the classification (minutes of model calls on a live study) ran
     inside run_once's transaction, holding a pooled connection and the activity key's row
     lock throughout while each classifier search needed a second connection. Now the
     revision is read first, the model runs with nothing checked out, then everything is

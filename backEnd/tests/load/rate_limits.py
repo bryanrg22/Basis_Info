@@ -3,7 +3,7 @@
 ``LOAD_PROVIDER_LIMITS=<provider_limits.json>`` (the headers ``tooling/load/provider_limits.py``
 read from the real providers) makes :class:`load_fakes.LoadProvider` answer 429 the way the
 real providers do when a model's limits are spent, so a load step on fake providers meets
-the ceilings it would meet on real ones (EVAL_REPORT 31.6).
+the ceilings it would meet on real ones (EVAL_REPORT 32.6).
 
 Model: one token bucket per model and limit, as Anthropic documents its limits ("capacity
 is continuously replenished up to your maximum limit"; OpenAI's per-minute limits behave

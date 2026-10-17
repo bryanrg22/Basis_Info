@@ -71,7 +71,7 @@ class IngestAppraisal:
         write the version in ``run_once``'s transaction.
 
         The embedding takes seconds of CPU (8 s a study with ten ingesting at once on the
-        production embedder, EVAL_REPORT 31.4); inside the transaction it held a pooled
+        production embedder, EVAL_REPORT 32.4); inside the transaction it held a pooled
         connection all along, and ten studies starting together starved the worker's pool
         (21 failed attempts, mostly ``analyze_photo``). A failure of the preparation is
         raised inside ``run_once``, so it is recorded on the activity key as before.
@@ -120,7 +120,7 @@ class IngestAppraisal:
             ready = prepared
             if ready is None or ready.doc_ids != [str(document.id)]:
                 # Only when the first read saw nothing to do and this one does (a race):
-                # prepare here, holding the transaction, as before EVAL_REPORT 31.
+                # prepare here, holding the transaction, as before EVAL_REPORT 32.
                 ready = await self._prepare(document, study_id)
             result = await write_prepared(
                 ready, store, version=input.revision, progress=lambda step: heartbeat(step)

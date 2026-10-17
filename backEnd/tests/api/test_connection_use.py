@@ -1,4 +1,4 @@
-"""A request holds at most one pooled connection (EVAL_REPORT section 31.3).
+"""A request holds at most one pooled connection (EVAL_REPORT section 32.3).
 
 The load test found every POST/DELETE holding two connections at once: the request's
 transaction (``SessionDep``) was still open when ``IdempotentRoute`` stored the response

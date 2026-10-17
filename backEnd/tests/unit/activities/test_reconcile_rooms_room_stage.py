@@ -49,7 +49,9 @@ from .test_reconcile_rooms import (
 
 pytestmark = pytest.mark.integration
 
-ROOM_MODEL = "claude-sonnet-5-5"
+# Production defaults (EVAL_REPORT 31): luna reconciles, Sonnet does the material second look.
+RECONCILER = "gpt-6-luna"
+LOOK_MODEL = "claude-sonnet-5-5"
 CALL_MODEL = "claude-opus-5-5"
 CROP_MODEL = "claude-sonnet-5-5"
 USAGE = Usage(input_tokens=1000, output_tokens=200)
@@ -328,7 +330,7 @@ async def test_surface_crops_set_the_rooms_surface_materials(
     await place_hall(deps, seeded)
     llm = ModelKeyedProvider(
         turns={
-            (ROOM_MODEL, "room_inventory"): [hall_inventory()],
+            (RECONCILER, "room_inventory"): [hall_inventory()],
             (CROP_MODEL, "surface_crop_material"): wall_turns(),
         }
     )
@@ -367,7 +369,7 @@ async def test_a_segmenter_failure_keeps_the_per_photo_materials_flagged(
     deps: Deps, seeded: SeededStudy, activity_env: Env
 ) -> None:
     await place_hall(deps, seeded)
-    llm = ModelKeyedProvider(turns={(ROOM_MODEL, "room_inventory"): [hall_inventory()]})
+    llm = ModelKeyedProvider(turns={(RECONCILER, "room_inventory"): [hall_inventory()]})
     step = crops_on(deps, llm, FakeSegmenter(fail=True))
     output = await activity_env.run(ReconcileRooms(step).run, reconcile(seeded))
     assert (output.built, output.surface_crop_rooms, output.surface_crop_fallbacks) == (1, 1, 1)
@@ -381,7 +383,7 @@ async def test_no_segmenter_keeps_the_per_photo_materials_flagged(
     deps: Deps, seeded: SeededStudy, activity_env: Env
 ) -> None:
     await place_hall(deps, seeded)
-    llm = ModelKeyedProvider(turns={(ROOM_MODEL, "room_inventory"): [hall_inventory()]})
+    llm = ModelKeyedProvider(turns={(RECONCILER, "room_inventory"): [hall_inventory()]})
     step = crops_on(deps, llm, None)
     output = await activity_env.run(ReconcileRooms(step).run, reconcile(seeded))
     assert output.surface_crop_fallbacks == 1
@@ -415,7 +417,7 @@ async def test_a_failed_crop_falls_back_without_failing_the_room(
     turns[1:2] = [failure() for _ in range(retries)]
     llm = ModelKeyedProvider(
         turns={
-            (ROOM_MODEL, "room_inventory"): [hall_inventory()],
+            (RECONCILER, "room_inventory"): [hall_inventory()],
             (CROP_MODEL, "surface_crop_material"): turns,
         }
     )
@@ -436,7 +438,7 @@ async def test_an_account_error_in_a_crop_stops_the_activity(
     )
     llm = ModelKeyedProvider(
         turns={
-            (ROOM_MODEL, "room_inventory"): [hall_inventory()],
+            (RECONCILER, "room_inventory"): [hall_inventory()],
             (CROP_MODEL, "surface_crop_material"): [refused],
         }
     )
@@ -503,7 +505,7 @@ async def test_the_reconciler_and_the_second_look_can_run_on_different_models(
     llm = ModelKeyedProvider(
         turns={
             ("gpt-6-luna", "room_inventory"): [hall_inventory()],
-            (ROOM_MODEL, "surface_material"): [
+            (LOOK_MODEL, "surface_material"): [
                 ScriptedTurn(
                     parsed=ModelSurfaceMaterial(
                         material=SurfaceMaterial.WALLPAPER, confidence=0.9, evidence="seams"
@@ -515,17 +517,17 @@ async def test_the_reconciler_and_the_second_look_can_run_on_different_models(
     )
     step = stage_deps(deps, llm, room_model="gpt-6-luna", room_reasoning_effort="low")
     assert (step.settings.room_materials_model, step.settings.room_materials_reasoning_effort) == (
-        ROOM_MODEL,
+        LOOK_MODEL,
         "low",
     )
     await activity_env.run(ReconcileRooms(step).run, reconcile(seeded))
     assert [(r.model, r.prompt_version, r.reasoning_effort) for r in llm.requests] == [
         ("gpt-6-luna", "room_inventory/v3", "low"),
-        (ROOM_MODEL, "surface_material/v3", "low"),
+        (LOOK_MODEL, "surface_material/v3", "low"),
     ]
     rows_now = {c.label: c for c in await inventory(step, seeded.study_id)}
     wainscot = rows_now["wainscoting"]
     assert wainscot.material == "wallpaper"
     assert wainscot.raw["model"] == "claude-sonnet-5-5+gpt-6-luna"
-    assert [look["model"] for look in wainscot.raw["second_look"]] == [ROOM_MODEL]
+    assert [look["model"] for look in wainscot.raw["second_look"]] == [LOOK_MODEL]
     assert set(wainscot.raw) - {"second_look"} == RAW_BEFORE  # no new row fields

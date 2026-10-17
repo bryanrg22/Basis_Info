@@ -1657,7 +1657,7 @@ choice should be re-measured on the held-out study before it is trusted further.
 | Per-photo countables | gpt-6.1-sol | `photo_countables/v3` (19; v2 before) | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
 | Per-photo surfaces and room type | gpt-6-luna (28.1; gpt-6.1-sol before) | `photo_surfaces/v2` (19; v1 before) | low | `VISION_SURFACES_MODEL`; effort and budget as above | 11, 12.1, 28.1 | merged with the countables call (`basis/vision/merge.py`); room accuracy and surface F1 equal to gpt-6.1-sol, $0.019 against $0.336 per 52 photos (28.1) | `VISION_SURFACES_MODEL=gpt-6.1-sol` |
 | Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
-| Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5, 28.2 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input); 28.2: recommended split, gpt-6-luna reconciling and Sonnet for the second look (materials decide IRS buckets): `ROOM_MODEL=gpt-6-luna`, the second look staying on `ROOM_MATERIALS_MODEL` (29.1) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
+| Room inventory, multi-photo rooms | gpt-6-luna (31; claude-sonnet-5-5 before) | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5, 28.2 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input); 28.2: recommended split, gpt-6-luna reconciling and Sonnet for the second look (materials decide IRS buckets): `ROOM_MODEL=gpt-6-luna`, the second look staying on `ROOM_MATERIALS_MODEL` (29.1) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
 | Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive`, `ROOM_MATERIALS_MODEL`, `ROOM_MATERIALS_REASONING_EFFORT` (29.1; the room model before) | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
 | Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
@@ -4164,40 +4164,64 @@ LOCALIZER_TOKEN=$(gcloud auth print-identity-token) uv run --no-sync python \
     ../docs/review_2026-10-15/repro/sam3_throughput.py ... --target url --url SERVICE_URL
 ```
 
-## 31. Load and capacity (2026-10-17)
+## 31. Room reconciler on gpt-6-luna (2026-10-17)
+
+Section 28.2 measured gpt-6-luna as the room-step reconciler within the noise of Sonnet 5.5
+(paired over the 33 rooms, luna minus Sonnet +0.003 [-0.025, +0.030] on count error) but
+worse as the material reader (14 of 20 labelled surfaces against 17), and recommended the
+split: luna reconciles, Sonnet keeps the material second look. PR 56 added
+`ROOM_MATERIALS_MODEL`, so the split is expressible. Before changing the default, the exact
+production configuration was run again: luna at low effort with the reconciler's production
+output budget (4,000 tokens; the section 28.2 runs used 6,000), Sonnet 5.5 low for the
+second look, the same Opus per-photo input as section 16, three repeats, scored by
+`evals.run` on the current labels.
+
+| Room step | Room count MAE | Exact | Rooms exact | Label F1 | Report rows (of 38) | Materials present | Cost per study |
+|---|---|---|---|---|---|---|---|
+| Sonnet reconciles and looks (default before) | 0.392 | 0.678 | 5 of 33 | 0.872 | 30, the same rows | 1.000 | $0.31 |
+| luna reconciles, Sonnet looks (default now) | 0.401 | 0.659 | 4 of 33 | 0.860 | 30, the same rows | 1.000 | $0.14 |
+
+No answer was truncated or rejected at the 4,000-token budget, the two configurations
+evidence and miss exactly the same report rows, and the count difference is inside section
+28.2's interval. The rows here are 30 of 38 rather than 37 because this per-photo input
+predates the section 19 vocabulary; both rows use the same input. `ROOM_MODEL` now defaults
+to `gpt-6-luna`; `ROOM_MODEL=claude-sonnet-5-5` restores the previous behaviour. Spend: $0.43.
+Predictions: `rooms_split_luna_sonnet_prod` (private).
+
+## 32. Load and capacity (2026-10-17)
 
 Question: how much load does Basis take before launch, what breaks first, and what do the
 model providers allow? The method (tool, metrics, SLOs, commands) is
 `docs/perf/LOAD_TESTING.md`; the harness is `tooling/load/` and
-`backEnd/tests/load/`. Everything below ran on fake providers except 31.8 (one capped
+`backEnd/tests/load/`. Everything below ran on fake providers except 32.8 (one capped
 real-provider probe). The run summaries are in `docs/perf/runs/`.
 
 Answer, in short:
 
 - **The first bottleneck was a defect, not a limit**: every POST and DELETE held two database
   connections at once, so five concurrent mutations on one API process deadlocked its pool and
-  were answered 503 (31.3). The same class of defect, a connection held through seconds of
+  were answered 503 (32.3). The same class of defect, a connection held through seconds of
   work, was in the worker twice: `process_assets` (minutes of classification) and
   `ingest_appraisal` (embedding). With five to ten concurrent studies they starved the
   worker's pool, failed and retried attempts (each retry paying its model calls again), and
-  held studies failed (31.4). All three are fixed in this branch, with regression tests that
+  held studies failed (32.4). All three are fixed in this branch, with regression tests that
   fail on the old code.
 - **Capacity at the production defaults**: one worker process completes about **6.6 studies an
   hour**, whatever the load, because `LLM_CONCURRENCY=4` runs four model calls at a time and a
   study is about 2,200 call-seconds; N concurrent studies all finish after about N x 9 minutes
-  (31.5). Temporal does not show it until its slots fill at 25 studies.
+  (32.5). Temporal does not show it until its slots fill at 25 studies.
 - **Tuned**: `LLM_CONCURRENCY=64` and `CLASSIFY_CONCURRENCY=16` give about **55 an hour**, then
   `LOCALIZER_CONCURRENCY=3` (SAM 3) binds; with 12, **104 an hour**, bound by the 64-call cap
-  per process (31.6). The providers are far from binding: our accounts allow about **337
+  per process (32.6). The providers are far from binding: our accounts allow about **337
   studies an hour**, the tightest being Anthropic Sonnet input tokens (classifier), then
   Replicate's 600 creates a minute (692 an hour; 69 while the credit is under $10, which is
-  where the account is now) (31.9). A capped real probe of three studies saw throttling only
-  from Replicate (31.8).
+  where the account is now) (32.9). A capped real probe of three studies saw throttling only
+  from Replicate (32.8).
 - **The read path**: Postgres-backed reads stay under 160 ms p95 at 200 readers on one API
   process; the status poll of finished studies does not (p95 4.4 s at 200), because each one
-  is a Temporal query that the worker answers by replaying the study's history (31.7).
+  is a Temporal query that the worker answers by replaying the study's history (32.7).
 
-### 31.1 Setup
+### 32.1 Setup
 
 - **Stack**: `tooling/load/compose.load.yml` (Postgres 16 + pgvector with
   `pg_stat_statements`, Temporal dev server 1.32), and as host processes one API
@@ -4213,10 +4237,17 @@ Answer, in short:
   calls, 52 SAM 3 predictions and the Azure DI analyses of the live study (27.8), behind
   the real provider pool. The study is synthetic: 52 fixture photos named like the client
   package (33 rooms), the synthetic URAR.
+- **Configuration**: the production defaults of the day (main at v0.10.0). Section 31 (PR 58,
+  merged while these runs went on) has since moved the room reconciler from Sonnet to
+  gpt-6-luna. The room step is about 2% of a study's model call-seconds (9 of 550 calls), so
+  the capacity numbers below stand; the recorded cost per study falls by about $0.2 (the
+  fake's `room_inventory` cost was $0.22 on Sonnet), and the Sonnet ceiling of 32.9 rises from
+  337 to 348 studies an hour (54 k fewer Sonnet input tokens a study; `ceilings.py
+  --room-model gpt-6-luna`).
 - **Time scale**: steps ran at `LOAD_LATENCY_SCALE=0.1` (and the clients' `--time-scale
   0.1`): ten times faster, same proportions. "Real" times below are measured / 0.1.
 
-### 31.2 Calibration: one fake study against the live one
+### 32.2 Calibration: one fake study against the live one
 
 | | Live study (27.8) | Fake worker, scale 1.0 | Fake, scale 0.1 (x10) |
 |---|---|---|---|
@@ -4233,11 +4264,11 @@ The fake study is within 5% of the live one end to end (the appraisal gate opens
 because the fake samples Azure DI from the 72 to 82 s range). Inside, `analyze_photo`
 averaged 32 s against about 13 s of its own calls, and the photo stage kept 3.8 model calls
 in flight on average, live and fake alike: `LLM_CONCURRENCY=4` already binds one study
-(31.5). At scale 0.1 the same study takes 609 s x 10 against 564 s at real speed (8% longer):
+(32.5). At scale 0.1 the same study takes 609 s x 10 against 564 s at real speed (8% longer):
 the compression holds, and what it adds (uncompressed HTTP, Postgres, Temporal work)
 makes the compressed steps slightly pessimistic.
 
-### 31.3 First bottleneck: every mutation held two database connections (fixed)
+### 32.3 First bottleneck: every mutation held two database connections (fixed)
 
 The first step with more than one study failed before any study started: five studies
 created at once on a freshly started API were all answered **503** after 10 s ("database
@@ -4271,7 +4302,7 @@ mutation; 8 concurrent creates on a pool of 2 all 201 within the pool timeout; a
 commit answers 500 and releases the key, and the retry with the same key creates the study
 once.
 
-### 31.4 Second and third: connections held through model calls and embedding (fixed)
+### 32.4 Second and third: connections held through model calls and embedding (fixed)
 
 With the API fixed and every worker setting at its default, five concurrent studies ran
 into the worker's pool. `process_assets` ran the whole classification (334 model calls,
@@ -4292,7 +4323,7 @@ held failed at `assets_processing` until `POST /retry`:
 The money of a failed attempt is invisible: `process_assets` writes its `llm_calls` rows in
 the transaction that rolled back, so a held study shows $2.36 recorded (photos and rooms)
 whatever its failed attempts spent on the classifier, and the study budget never sees that
-spend (follow-up 31.12).
+spend (follow-up 32.12).
 
 Fix (`basis/activities/process_assets.py`), the pattern `analyze_photo` and
 `extract_fields` already follow: the revision is read in a short session, the model
@@ -4303,7 +4334,7 @@ recomputing). Test: `test_no_connection_is_held_while_the_model_classifies` (0
 connections checked out at each model call; 1 before the fix); the 23 existing
 `process_assets` tests and the lifecycle and database-outage suites pass unchanged.
 
-The same pattern, found by the real-provider probe (31.8: a transaction open for 26 s):
+The same pattern, found by the real-provider probe (32.8: a transaction open for 26 s):
 `ingest_appraisal` downloaded, parsed and embedded the appraisal inside `run_once`'s
 transaction. The fake worker had used the hash embedder, so it never showed; with the
 production embedder (`LOAD_EMBEDDER=real`, local CPU, no spend) and 10 studies starting
@@ -4316,12 +4347,12 @@ failed preparation inside it so the key records the failure as before. Test:
 `test_no_connection_is_held_while_the_appraisal_is_embedded` (1 before). The same step
 after the fix: 0 failed attempts, longest transaction 0.7 s (8 s before).
 
-| Real embedder, 10 studies (tuned settings of 31.6) | Failed attempts | Longest transaction | Studies/hour |
+| Real embedder, 10 studies (tuned settings of 32.6) | Failed attempts | Longest transaction | Studies/hour |
 |---|---|---|---|
 | Before the `ingest_appraisal` fix | 21 (pool timeouts) | 8.0 s | 64.8 |
 | After | 0 | 0.7 s | 72.3 |
 
-### 31.5 Capacity at the production defaults (after the fixes)
+### 32.5 Capacity at the production defaults (after the fixes)
 
 The API and `process_assets` fixes (the hash embedder of these steps never held the pool in
 `ingest_appraisal`), every setting at its default (`LLM_CONCURRENCY=4`,
@@ -4335,7 +4366,7 @@ one worker process:
 | c-s10 | 10 | 10 | 0 | 0 | 90.9 | 6.6 | 5,451 | 5,455 | 489 | 5,435 | 62 / 0 | 100% | 11 / 5 | 24 / 67 | 430 | $6.07 |
 | c-s25 | 25 | 25 | 0 | 0 | 226.9 | 6.6 | 13,590 | 13,602 | 1,545 | 13,593 | 100 / 102 | 20% | 11 / 6 | 25 / 108 | 537 | $6.07 |
 
-API latency in the same steps, with the tuned steps of 31.6 for comparison (the clients poll
+API latency in the same steps, with the tuned steps of 32.6 for comparison (the clients poll
 every 0.5 s at scale 0.1, so the API sees ten times the real polling rate of N engineers):
 
 | Run | Polls | Poll p50 ms | Poll p95 ms | Poll p99 ms | Reads | Reads worst p95 ms | Reads worst p99 ms | Mutations | Mutations worst p95 ms | Mutations worst p99 ms | 429s | Other errors |
@@ -4350,7 +4381,7 @@ every 0.5 s at scale 0.1, so the API sees ten times the real polling rate of N e
 Reading:
 
 - **Every study completes, and throughput stops at about 6.6 studies an hour per worker
-  process from 5 studies on.** A study is about 2,200 seconds of model calls (31.2); the
+  process from 5 studies on.** A study is about 2,200 seconds of model calls (32.2); the
   provider pool runs 4 at a time per process, so one process finishes at most
   4 x 3,600 / 2,200 = 6.5 studies an hour, whatever the number of studies waiting. More
   studies only wait longer: N concurrent studies finish together after about N x 9 minutes
@@ -4371,7 +4402,7 @@ Reading:
   real poll rate.
 - It is a setting, not a ceiling of the design: the next section raises it.
 
-### 31.6 Raising the pool: the next limits
+### 32.6 Raising the pool: the next limits
 
 `LLM_CONCURRENCY=64` (its maximum: `Settings` caps it at 64; 256 is refused at startup) and
 `CLASSIFY_CONCURRENCY=16`, everything else at its default, one worker process. `blim`, `h`
@@ -4424,7 +4455,7 @@ Reading:
   3.6 s per prediction is the 27.8 timing; compact output (section 30.3) is faster, so the
   real headroom at 3 is somewhat larger than shown here.
 
-### 31.7 The read path: engineers reviewing and polling
+### 32.7 The read path: engineers reviewing and polling
 
 `ReviewReader` users on one API process (one Cloud Run instance) over the studies the steps
 above created (25 engineers, completed studies), 3 minutes per step, wait 2 to 5 s between
@@ -4458,12 +4489,12 @@ read limit was raised for this test only (`RATE_LIMIT_READS_PER_MIN`); the worke
 - `GET /v1/studies` (an engineer's list) is p95 930 ms at 200 readers while its
   p50 stays at 43 ms: requests queued behind the slow polls on the one event loop.
 
-### 31.8 One real-provider probe
+### 32.8 One real-provider probe
 
 Three concurrent studies of 20 synthetic photos each on the real providers, every model
 default unchanged (gpt-6.1-sol decomposed with Opus fusion, gpt-6-luna surfaces and
 extraction, Sonnet room step and classifier, Azure DI, SAM 3 on Replicate), the pool
-raised as in 31.6 (`LLM_CONCURRENCY=64`, `CLASSIFY_CONCURRENCY=16`; `LOCALIZER_CONCURRENCY`
+raised as in 32.6 (`LLM_CONCURRENCY=64`, `CLASSIFY_CONCURRENCY=16`; `LOCALIZER_CONCURRENCY`
 at its default 3) so the providers see concurrency, and `STUDY_BUDGET_USD=4` as the hard cap
 of each study (`tooling/load/stack.sh up DIR real`; worker log: `llm_providers=openai+anthropic
 localizer=ReplicateSam3Localizer azure_di=True`):
@@ -4491,16 +4522,16 @@ localizer=ReplicateSam3Localizer azure_di=True`):
 
   (The synthetic photos are simpler than the client's, which likely explains part of the
   faster per-photo calls.)
-- It found the third held transaction (31.4): `ingest_appraisal` 28 s with the real
+- It found the third held transaction (32.4): `ingest_appraisal` 28 s with the real
   embedder, the longest open transaction 26 s.
 - The status polls at real speed met six connection errors in 93 ("remote end closed",
   "reset by peer"): uvicorn closes an idle keep-alive connection after 5 s by default and the
   client polls every 5 s, so it sometimes reuses a connection the server is closing (the
   compressed steps poll every 0.5 s and never meet it). A browser retries such a request; still,
   `--timeout-keep-alive` above the poll interval (and, behind Google's front end, above its
-  idle timeout) removes it. Tuning item, not changed here (31.12).
+  idle timeout) removes it. Tuning item, not changed here (32.12).
 
-### 31.9 Provider ceilings
+### 32.9 Provider ceilings
 
 Our accounts' limits, read from the response headers (`provider_limits.py`, one request
 of a few tokens per model; `docs/perf/runs/provider_limits_2026-10-17.json`), against
@@ -4526,14 +4557,14 @@ gpt-6-luna; `ceilings.py`):
   three minutes, so a burst of studies that classify together meets the limit sooner:
   at the live classification speed (about 0.55 M input tokens a minute per study) 10 M ITPM
   is about 18 studies classifying in the same minute, and fewer with a faster classifier
-  (31.6 ran 25 at once on the emulated limits without a 429).
+  (32.6 ran 25 at once on the emulated limits without a 429).
 - OpenAI counts the tokens a request actually uses, not its `max_completion_tokens`
   (measured: a sol request with a 6,000-token budget took 4 to 17 tokens off
   `x-ratelimit-remaining-tokens`), so the 6,000-token reasoning budget costs no TPM.
 - Replicate's under-$10 throttle (EVAL_REPORT 30) is the one limit we can fall into by
   accident: keep the credit auto-reloaded above $20.
 
-### 31.10 Uploads are throttled by the per-engineer limit
+### 32.10 Uploads are throttled by the per-engineer limit
 
 One study's upload is 108 mutations (create, 53 x register and confirm, start); the
 per-engineer limit is 60 mutations a minute (`RATE_LIMIT_MUTATIONS_PER_MIN`, S1). So every
@@ -4551,12 +4582,12 @@ Setting `RATE_LIMIT_MUTATIONS_PER_MIN=300` keeps the abuse guard (a client is st
 product's API contract (S1_SPEC section 5), so the default is a decision to take with the
 frontend, which must keep honoring `Retry-After` either way.
 
-### 31.11 What to rerun on staging, and how
+### 32.11 What to rerun on staging, and how
 
 Staging (PR 59, session staging-deploy) is not deployed yet. Its planned shape makes the
 fixes above matter immediately: Cloud Run sends up to 80 concurrent requests to one API
-instance whose pool is 5 (the 31.3 deadlock), and one worker instance with a pool of 5 (the
-31.4 exhaustion). The steps, in order, once it exists:
+instance whose pool is 5 (the 32.3 deadlock), and one worker instance with a pool of 5 (the
+32.4 exhaustion). The steps, in order, once it exists:
 
 1. Mint tokens for 25 test users (creates `load-eng-0..24` in the staging Firebase project):
 
@@ -4584,7 +4615,7 @@ instance whose pool is 5 (the 31.3 deadlock), and one worker instance with a poo
    ```
 
 4. Whole studies on the real providers, capped: 1 then 3 concurrent studies of 20 photos
-   with `STUDY_BUDGET_USD=4` set on the staging worker (about $1.30 a study as in 31.8, at
+   with `STUDY_BUDGET_USD=4` set on the staging worker (about $1.30 a study as in 32.8, at
    most $12 for the step):
 
    ```bash
@@ -4594,16 +4625,16 @@ instance whose pool is 5 (the 31.3 deadlock), and one worker instance with a poo
    ```
 
    With `PG_DSN` (through the Cloud SQL proxy) and `TEMPORAL_ADDRESS` set the sampler records
-   Cloud SQL connections and the Temporal backlog too. Compare with 31.5 (pool-bound at
-   about 6.5 studies an hour per worker process) and 31.8 (latencies on real providers).
+   Cloud SQL connections and the Temporal backlog too. Compare with 32.5 (pool-bound at
+   about 6.5 studies an hour per worker process) and 32.8 (latencies on real providers).
 
 5. For the worker at 10 and 25 studies on staging, without the model spend, the
    fake-provider worker has to run there: a `load` image target with `tests/load` (follow-up)
    deployed as a second worker pool on its own task queue. Until then, the local numbers
-   (31.5, 31.6) are the worker's capacity.
+   (32.5, 32.6) are the worker's capacity.
 
 
-### 31.12 Against the objectives, what to set before launch, follow-ups
+### 32.12 Against the objectives, what to set before launch, follow-ups
 
 The proposed SLOs (LOAD_TESTING.md section 5) at 25 concurrent studies on one worker and one
 API process, after the fixes:
@@ -4611,63 +4642,63 @@ API process, after the fixes:
 | SLO | Objective | Defaults (`c-s25`) | Tuned (`l12-s25`) |
 |---|---|---|---|
 | Status poll, studies running | p95 < 200 ms | 66 ms, met | 52 ms, met |
-| Status poll, finished studies (reviewers) | p95 < 200 ms | 240 ms at 25 readers, 4.4 s at 200: **missed** (31.7) | same route |
+| Status poll, finished studies (reviewers) | p95 < 200 ms | 240 ms at 25 readers, 4.4 s at 200: **missed** (32.7) | same route |
 | Other reads | p95 < 300 ms | 250 ms, met | 95 ms, met |
 | Mutations | p95 < 500 ms | 180 ms, met | 180 ms, met |
-| A study's upload without a 429 | every study | 2 per study: **missed** (31.10) | met with `RATE_LIMIT_MUTATIONS_PER_MIN=300` |
+| A study's upload without a 429 | every study | 2 per study: **missed** (32.10) | met with `RATE_LIMIT_MUTATIONS_PER_MIN=300` |
 | Appraisal gate | p95 < 3 min | 26 min: **missed** | 3.6 min: missed narrowly (Azure DI is 72 to 82 s of it) |
 | Assets gate | p95 < 20 min | 3.8 h: **missed** | 14.3 min, met |
-| Activity schedule-to-start | p95 < 1 s | 20% within 1 s: **missed** | 25% within 1 s: **missed** (slots full, 31.6) |
+| Activity schedule-to-start | p95 < 1 s | 20% within 1 s: **missed** | 25% within 1 s: **missed** (slots full, 32.6) |
 | Cost per study | < $8 | $6.06, met | $6.06, met |
 
 What to set for launch (settings only; the three fixes are in this branch):
 
 1. `LLM_CONCURRENCY=64` and `CLASSIFY_CONCURRENCY=16` on the worker: one process goes from 6.6
-   to about 55 studies an hour with no provider throttling (31.6).
+   to about 55 studies an hour with no provider throttling (32.6).
 2. `LOCALIZER_CONCURRENCY=12` with the Replicate account kept above $20 (auto-reload), or
    SAM 3 on the self-hosted service of section 30: the next factor of two (104 an hour).
 3. More worker processes beyond that, not a larger pool: one process is capped at 64 calls
    (`Settings`) and 100 activity slots (the SDK's default; full at 25 studies). The
-   providers allow about 337 studies an hour (Sonnet input tokens, 31.9), so about three
+   providers allow about 337 studies an hour (Sonnet input tokens, 32.9), so about three
    processes at 104 an hour reach that ceiling before prompt caching. `DB_POOL_SIZE=5` per process was enough
    for every step once the three fixes were in (11 connections for the whole stack).
-4. `RATE_LIMIT_MUTATIONS_PER_MIN=300`, with the frontend (31.10).
-5. The API's uvicorn `--timeout-keep-alive` above the 5 s poll interval (31.8).
+4. `RATE_LIMIT_MUTATIONS_PER_MIN=300`, with the frontend (32.10).
+5. The API's uvicorn `--timeout-keep-alive` above the 5 s poll interval (32.8).
 
 Follow-ups, not done here:
 
-- **Status of finished studies from Postgres**, not a Temporal query (31.7): the read path's
+- **Status of finished studies from Postgres**, not a Temporal query (32.7): the read path's
   first bottleneck, and it lands on the worker.
 - **A metric for the provider pool's wait** (time from `complete()` to holding the
-  semaphore), so the bottleneck of 31.5 is visible on a dashboard; Temporal's own metrics
+  semaphore), so the bottleneck of 32.5 is visible on a dashboard; Temporal's own metrics
   show it only once the slots are full.
 - **A setting for the worker's activity slots** (`max_concurrent_activities`), and with it a
   separate task queue or slot budget for `localize_photo`, whose waits hold slots that
-  `analyze_photo` needs (31.6).
+  `analyze_photo` needs (32.6).
 - **Prompt caching on the classifier** (`cache_control` on its system prompt and tools): the
-  tightest provider ceiling (31.9) and about two thirds of a study's model cost.
+  tightest provider ceiling (32.9) and about two thirds of a study's model cost.
 - **Record the model calls of failed attempts**: `process_assets` writes its `llm_calls` in the
   transaction that a failure rolls back, so retried spend is invisible to the cost record and
-  to the study budget (31.4).
+  to the study budget (32.4).
 - **A load image target** (`tests/load` in a `load` stage of the Dockerfile) so the
-  fake-provider worker can run on staging (31.11, step 5).
+  fake-provider worker can run on staging (32.11, step 5).
 
-### 31.13 Commands and data
+### 32.13 Commands and data
 
 From the repository root (`backEnd/.venv` from `uv sync --group dev --group load`):
 
 ```bash
 docker compose -p basis-load -f tooling/load/compose.load.yml up -d
-tooling/load/run_step.sh RUN_DIR/c-s25 25 0.1                                   # 31.5
-LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 tooling/load/run_step.sh RUN_DIR/b-s25 25 0.1   # 31.6
+tooling/load/run_step.sh RUN_DIR/c-s25 25 0.1                                   # 32.5
+LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 tooling/load/run_step.sh RUN_DIR/b-s25 25 0.1   # 32.6
 LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 LOCALIZER_CONCURRENCY=12 \
   LOAD_PROVIDER_LIMITS=docs/perf/runs/provider_limits_2026-10-17.json \
-  tooling/load/run_step.sh RUN_DIR/l12-s25 25 0.5                                  # 31.6
+  tooling/load/run_step.sh RUN_DIR/l12-s25 25 0.5                                  # 32.6
 LOAD_EMBEDDER=real LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 LOCALIZER_CONCURRENCY=12 \
-  tooling/load/run_step.sh RUN_DIR/emb2-s10 10 0.1                                 # 31.4
-RATE_LIMIT_MUTATIONS_PER_MIN=300 LOCUST_ARGS=--upload-only tooling/load/run_step.sh RUN_DIR/u300 5  # 31.10
+  tooling/load/run_step.sh RUN_DIR/emb2-s10 10 0.1                                 # 32.4
+RATE_LIMIT_MUTATIONS_PER_MIN=300 LOCUST_ARGS=--upload-only tooling/load/run_step.sh RUN_DIR/u300 5  # 32.10
 python3 tooling/load/compare.py RUN_DIR/c-s1 RUN_DIR/c-s5 RUN_DIR/c-s10 RUN_DIR/c-s25    # the tables
-python3 tooling/load/ceilings.py docs/perf/runs/provider_limits_2026-10-17.json         # 31.9
+python3 tooling/load/ceilings.py docs/perf/runs/provider_limits_2026-10-17.json         # 32.9
 ```
 
 The read steps and the probe are in LOAD_TESTING.md section 6. Every run's summary

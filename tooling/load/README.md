@@ -2,7 +2,7 @@
 
 The method, the metrics, the proposed SLOs and every command are in
 [docs/perf/LOAD_TESTING.md](../../docs/perf/LOAD_TESTING.md); the first capacity report is
-EVAL_REPORT section 31.
+EVAL_REPORT section 32.
 
 | File | What it is |
 |---|---|

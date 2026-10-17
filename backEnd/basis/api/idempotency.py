@@ -374,7 +374,7 @@ class IdempotentRoute(APIRoute):
     transaction has ended and before the response is sent**: a callback on FastAPI's
     function-scoped exit stack (``fastapi_function_astack``), registered before the
     route's dependencies are solved, so it exits after them (last in, first out), after
-    ``SessionDep`` committed or rolled back. Two reasons (EVAL_REPORT section 31.3):
+    ``SessionDep`` committed or rolled back. Two reasons (EVAL_REPORT section 32.3):
 
     * one pooled connection per request. Storing from inside the handler ran while the
       request's session still held its connection, so every POST and DELETE held two at

@@ -3,7 +3,7 @@
 How Basis is load-tested before launch: the tool, what is measured and against which
 objectives, how the system is loaded without spending model money, and the commands. The
 first capacity report (numbers, the bottleneck, the provider ceilings) is EVAL_REPORT
-section 31 (`docs/review_2026-10-15/EVAL_REPORT.md`).
+section 32 (`docs/review_2026-10-15/EVAL_REPORT.md`).
 
 Code: `tooling/load/` (the Locust harness, the sampler, the report, the local stack) and
 `backEnd/tests/load/` (the fake-provider worker and its latency profile; it lives next to
@@ -81,7 +81,7 @@ health server, the Prometheus metrics, the drain.
   trailer after the JPEG end marker (the API refuses a second document with the same
   sha256 in a study; the decoded image is unchanged); the appraisal is the synthetic URAR.
   The reference corpus is the lifecycle tests' synthetic chunks (`setup_db.py`).
-- **Calibration**: one fake study against the live one is EVAL_REPORT 31.2 (call counts,
+- **Calibration**: one fake study against the live one is EVAL_REPORT 32.2 (call counts,
   assets, cost, stage timings).
 - **Provider rate limits** (optional, `LOAD_PROVIDER_LIMITS=<provider_limits.json>`):
   `backEnd/tests/load/rate_limits.py` turns our accounts' limits (read from the providers'
@@ -103,7 +103,7 @@ the whole timeline shrinks by `s`. Real-equivalent times are measured times divi
 system's own work (HTTP, Postgres, Temporal) is not compressed, so it takes a larger
 share and the API sees `1/s` times the real request rate. A step that passes compressed
 passes at real speed; one that fails compressed is re-run at a larger scale before it is
-called a defect. Section 31.2 checks the compression on one study (scale 1.0 vs 0.1).
+called a defect. Section 32.2 checks the compression on one study (scale 1.0 vs 0.1).
 
 ## 5. What we measure, and the objectives
 
@@ -126,7 +126,7 @@ the worker process. That wait is invisible to Temporal: the activity has a slot 
 started, so schedule-to-start stays near zero and the backlog empty while studies crawl.
 Saturation of the pool shows as activity execution latency far above the work's own
 latency with slots still free. There is no metric for the pool wait yet (follow-up in
-EVAL_REPORT 31.12).
+EVAL_REPORT 32.12).
 
 Proposed SLOs (for production; the load steps are judged against them):
 
@@ -168,7 +168,7 @@ and prints `report.py`'s summary (also `summary.json`, the Locust CSVs, `studies
 
 The read-heavy scenario, after a study step has created studies for `load-eng-0..N`
 (start the stack with `RATE_LIMIT_READS_PER_MIN` raised when more readers than engineers
-share those identities, as in EVAL_REPORT 31.7; `ReviewReader` polls only started studies):
+share those identities, as in EVAL_REPORT 32.7; `ReviewReader` polls only started studies):
 
 ```bash
 cd backEnd && .venv/bin/python -m locust -f ../tooling/load/locustfile.py --headless ReviewReader \
@@ -191,7 +191,7 @@ workflow terminate --address 127.0.0.1:7261 --query "ExecutionStatus='Running'"`
 real worker would otherwise pick up a leftover study on the same task queue and spend on it.
 
 Against staging (no local processes; the stack is Cloud Run + Cloud SQL + Temporal):
-`tooling/load/run_remote.sh` (EVAL_REPORT 31.11 has the exact commands). Staging needs real
+`tooling/load/run_remote.sh` (EVAL_REPORT 32.11 has the exact commands). Staging needs real
 Firebase ID tokens (`TOKEN_FILE`, a JSON `{uid: token}` minted by
 `tooling/load/mint_tokens.py`, which creates the `load-eng-<n>` test users in the
 project) because the API refuses the auth emulator outside dev and test, and uploads go

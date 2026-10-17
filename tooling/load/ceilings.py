@@ -10,7 +10,7 @@ accounts' own, read from the providers' response headers by ``provider_limits.py
 The ceiling of one dimension is ``limit per minute x 60 / use per study``; a provider's
 ceiling is its tightest dimension. It is the sustained rate: the limits are token
 buckets (Anthropic) or per-minute windows refilled continuously (OpenAI), so a burst of
-studies that all classify in the same minute meets the limit sooner (EVAL_REPORT 31.5).
+studies that all classify in the same minute meets the limit sooner (EVAL_REPORT 32.9).
 OpenAI counts the tokens actually used, not ``max_tokens`` (measured: a request with
 ``max_completion_tokens=6000`` took 4 to 17 tokens off ``x-ratelimit-remaining-tokens``).
 """
@@ -35,13 +35,17 @@ AZURE_DI_ANALYZE_PER_SECOND = 15
 SAM3_PREDICTIONS_PER_STUDY = 52  # one per photo
 
 
-def per_study(profile: Dict[str, Any], surfaces_model: str) -> Dict[str, Dict[str, float]]:
+def per_study(
+    profile: Dict[str, Any], surfaces_model: str, room_model: str = "claude-sonnet-5-5"
+) -> Dict[str, Dict[str, float]]:
     """``{model: {requests, input_tokens, output_tokens}}`` for one live-shaped study."""
     use: Dict[str, Dict[str, float]] = {}
     for key, entry in profile["llm"].items():
         family, model = key.split("@", 1)
         if family == "photo_surfaces":
             model = surfaces_model
+        elif family == "room_inventory":
+            model = room_model
         row = use.setdefault(model, {"requests": 0, "input_tokens": 0, "output_tokens": 0})
         row["requests"] += entry["calls"]
         row["input_tokens"] += entry["calls"] * entry["input_tokens"]
@@ -103,9 +107,15 @@ def main() -> None:
     parser.add_argument("limits", type=Path, help="provider_limits.py output")
     parser.add_argument("--profile", type=Path, default=PROFILE)
     parser.add_argument("--surfaces-model", default="gpt-6-luna")
+    parser.add_argument(
+        "--room-model",
+        default="claude-sonnet-5-5",
+        help="the room reconciler (gpt-6-luna since EVAL_REPORT 31; the profile measured Sonnet)",
+    )
     args = parser.parse_args()
     profile = json.loads(args.profile.read_text())
-    rows = ceilings(per_study(profile, args.surfaces_model), json.loads(args.limits.read_text()))
+    use = per_study(profile, args.surfaces_model, args.room_model)
+    rows = ceilings(use, json.loads(args.limits.read_text()))
     print("| Provider / model | Per study | Our limit | Ceiling (studies/hour) | Binding |")
     print("|---|---|---|---|---|")
     for r in rows:

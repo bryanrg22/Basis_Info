@@ -274,7 +274,7 @@ async def test_a_cited_stub_leftover_is_not_retried(
 async def test_no_connection_is_held_while_the_appraisal_is_embedded(
     deps: Deps, seeded: SeededStudy, activity_env: Env
 ) -> None:
-    """EVAL_REPORT 31.4: the download, parsing and embedding (seconds of CPU on the
+    """EVAL_REPORT 32.4: the download, parsing and embedding (seconds of CPU on the
     production embedder) ran inside run_once's transaction, holding a pooled connection;
     ten studies starting together starved the worker's pool. Now they run before it."""
     engine = deps.sessionmaker.kw["bind"]
