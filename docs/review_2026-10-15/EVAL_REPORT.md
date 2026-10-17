@@ -3588,7 +3588,7 @@ the labels' free text, such as `painted_block`, to the enum, `painted_masonry`);
 |---|---|---|---|---|---|---|---|---|---|
 | **claude-sonnet-5-5** (16.5, baseline) | 0.388 | 0.68 | +0.00 | 0.87 | 0.56 / 0.61 / -0.09 | 30, 0.79 | 8 | **17** | $0.314 |
 | gpt-6.1-sol | 0.390 | 0.66 | +0.10 | 0.87 | 0.55 / 0.57 / +0.20 | 33, 0.82 | 8 | 14 | $0.263 |
-| gpt-5.6-terra | 0.426 | 0.67 | +0.03 | 0.85 | 0.65 / 0.59 / -0.02 | 31, 0.79 | 8 | 12 | $1.597 |
+| gpt-5.6-terra | 0.426 | 0.67 | +0.03 | 0.85 | 0.65 / 0.59 / -0.02 | 31, 0.79 | 8 | 12 | about $0.36 (repriced; see below) |
 | gpt-6-luna | 0.393 | 0.66 | +0.08 | 0.86 | 0.56 / 0.57 / +0.14 | 30, 0.79 | 8 | 14 | **$0.014** |
 | gpt-6-luna, second look on Sonnet 5.5 | 0.437 | 0.65 | +0.05 | 0.86 | 0.69 / 0.53 / +0.05 | 30, 0.79 | 8 | 16 | $0.157 |
 | gpt-5.6-luna | 0.401 | 0.67 | +0.05 | 0.86 | 0.59 / 0.59 / +0.04 | 30, 0.79 | 8 | 12 | $0.030 |
@@ -3615,10 +3615,14 @@ Reading:
   every repeat against 19 to 21; 18 in the labels) and the exterior's windows at 20 to 26 on
   five of its six repeats (Sonnet 20; 30 in the labels), with one repeat at 11, the run-to-run
   noise above. gpt-5.6-luna counts the kitchen at 12 on every repeat. gpt-5.6-terra is the
-  worst reconciler (exterior windows 11 to 16) and the most expensive: $1.60 per run, five
-  times Sonnet, from its price ($12 per million output tokens) and 26,600 reasoning tokens
-  over the three repeats' reconciliation calls against 13,200 for gpt-6-luna and 4,600 for
-  gpt-6.1-sol.
+  worst reconciler (exterior windows 11 to 16) and the most expensive: about $0.36 per run,
+  more than Sonnet, with 26,600 reasoning tokens over the three repeats' reconciliation calls
+  against 13,200 for gpt-6-luna and 4,600 for gpt-6.1-sol. Its `run.json` records $4.79 for
+  three repeats ($1.60 per run) because it ran before the gpt-5.6 price rows existed, so every
+  call was charged at the unknown-model rate ($10 / $50). Repriced at $2 / $12: the
+  reconciliation calls' recorded tokens (106,029 in, 46,385 out) cost $0.77 instead of $3.38.
+  The second looks record a cost but no tokens, so their $1.41 reprices to between $0.28
+  (all input) and $0.34 (all output). Total: $1.05 to $1.11, about $0.36 per run.
 - **Materials: Sonnet's second look is the best measured.** 17 of 20 labelled surfaces right,
   against 14 for gpt-6.1-sol and gpt-6-luna and 12 for the gpt-5.6 models. The cheaper
   models' errors are the ones section 16 named as the trap: painted walls called `wallpaper`
@@ -3738,8 +3742,9 @@ gpt-5.6-terra $1.92, gpt-5.6-luna $0.25, gpt-6-luna $0.16; surfaces gpt-6.1-sol 
 gpt-5.6-luna $0.11 + $0.11, gpt-6-luna $0.05 + $0.06; rooms gpt-5.6-luna $0.09 and
 gpt-6-luna $0.03 of the split run; Anthropic $4.29: the Sonnet assets re-run $3.85 and the
 split run's second looks $0.44), plus about $0.05 of one-row and one-photo smoke checks. The
-three `rooms_cmp_*` runs (gpt-6.1-sol $0.79, gpt-6-luna $0.04, gpt-5.6-terra $4.79) were made
-by the orchestrating session and are reused here.
+three `rooms_cmp_*` runs (gpt-6.1-sol $0.79, gpt-6-luna $0.04, gpt-5.6-terra about $1.08
+repriced, $4.79 as recorded at the unknown-model rate) were made by the orchestrating session
+and are reused here.
 
 Commands (from `backEnd/`, `BASIS_ENV=dev`, OpenAI and Anthropic keys as in section 14,
 Azure unset):
