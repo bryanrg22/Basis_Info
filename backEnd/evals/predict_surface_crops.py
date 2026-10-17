@@ -15,9 +15,10 @@ and the enlarged, greyed-around crop (prompt ``surface_crop_material``)::
 against the per-photo labels (``photo_components_v1``), for crop runs (``--crops NAME=DIR``)
 per-photo runs (``--per-photo NAME=DIR``, the surfaces in their ``photo_raw.jsonl``) and
 crops with the per-photo surfaces where no crop answered (``--combine NAME=CROPS,PHOTOS``),
-per repeat, averaged. Over the (photo, kind) pairs with a labelled class: *hit* = some
-predicted class is a labelled one; *exact* = the predicted classes are the labelled ones;
-*answered* = something was predicted.
+per repeat, averaged (a ``--crops`` directory may also be an ``evals.replay_rooms`` run with
+surface crops on: the crops the room step asked). Over the (photo, kind) pairs with a
+labelled class: *hit* = some predicted class is a labelled one; *exact* = the predicted
+classes are the labelled ones; *answered* = something was predicted.
 
 ``apply``: a room run (``evals.predict_rooms``) with the materials of its wall_finish,
 wainscoting, tile and ceiling_finish objects replaced by the crops' majority answer over
@@ -35,7 +36,6 @@ import statistics
 import sys
 import time
 import uuid
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -48,11 +48,10 @@ from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.cost import is_anthropic_model
 from basis.llm.pool import ProviderPool
-from basis.llm.provider import Budget, ChatProvider, ChatRequest, ImagePart, Message
+from basis.llm.provider import Budget, ChatProvider, ChatRequest
 from basis.llm.recorder import MemoryRecorder
 from basis.vision import surface_crops as sc
 from basis.vision.localize import Rle
-from basis.vision.prep import prepare_image
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_multiview import call_with_retries
 
@@ -71,42 +70,16 @@ def build_request(
     ctx: CallContext,
     effort: str | None,
 ) -> ChatRequest:
-    images = (
-        Message(
-            role="user",
-            content="Image 1 (the whole photo):",
-            images=(
-                ImagePart(
-                    media_type="image/jpeg",
-                    data_base64=prepare_image(photo).base64,
-                    detail="high",
-                ),
-            ),
-        ),
-        Message(
-            role="user",
-            content=f"Image 2 (the {surface}, cropped and enlarged, the rest greyed out):",
-            images=(
-                ImagePart(
-                    media_type="image/jpeg", data_base64=prepare_image(crop).base64, detail="high"
-                ),
-            ),
-        ),
-    )
-    text = f"The surface is the {surface}. What is it made of" + (
-        ", and what covers its lower part when that differs?" if surface == "wall" else "?"
-    )
-    return ChatRequest(
+    """:func:`basis.vision.surface_crops.build_request` (the pipeline's request)."""
+    return sc.build_request(
+        surface,
+        photo,
+        crop,
         model=model,
-        system=prompt.text,
-        messages=(*images, Message(role="user", content=text)),
-        response_model=sc.CropAnswer,
-        max_tokens=sc.MAX_TOKENS,
-        temperature=0.0,
-        reasoning_effort=effort,
-        prompt_version=prompt.version_id,
+        prompt=prompt,
         study_id=str(ctx.study_id),
         activity=ctx.activity,
+        effort=effort,
     )
 
 
@@ -236,9 +209,31 @@ def truth_classes(components_file: Path) -> dict[str, dict[sc.Kind, set[str]]]:
     return {photo["file"]: sc.component_classes(photo["components"]) for photo in data["photos"]}
 
 
+def replay_crops(directory: Path) -> dict[str, dict[str, dict[str, list[Any]]]]:
+    """The crops an ``evals.replay_rooms`` run asked (``room_raw.jsonl``, surface crops on),
+    in this module's ``surface_crops.json`` shape, repeat by repeat."""
+    data: dict[str, dict[str, dict[str, list[Any]]]] = {}
+    for line in (directory / "room_raw.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        looked = record.get("surface_crops") or {}
+        for photo in looked.get("photos", []):
+            for crop in photo["crops"]:
+                surfaces = data.setdefault(photo["file"], {})
+                surfaces.setdefault(crop["surface"], {"repeats": []})["repeats"].append(
+                    crop["answer"]
+                )
+    return data
+
+
 def crop_predictions(directory: Path) -> list[dict[str, dict[sc.Kind, set[str]]]]:
-    """Per repeat: file -> kind -> classes from a crop run."""
-    data = json.loads((directory / "surface_crops.json").read_text(encoding="utf-8"))
+    """Per repeat: file -> kind -> classes from a crop run, or from the crops of an
+    ``evals.replay_rooms`` run with ``MATERIALS_SECOND_LOOK=surface_crops``."""
+    path = directory / "surface_crops.json"
+    data: dict[str, Any] = (
+        json.loads(path.read_text(encoding="utf-8")) if path.is_file() else replay_crops(directory)
+    )
     repeats = max(len(v["repeats"]) for s in data.values() for v in s.values())
     out: list[dict[str, dict[sc.Kind, set[str]]]] = []
     for r in range(repeats):
@@ -372,35 +367,10 @@ def score(args: argparse.Namespace) -> int:
 
 # --------------------------------------------------------------------------- apply
 
-# crop class -> the component Material the room objects carry
-TO_MATERIAL: dict[str, str] = {
-    "painted_drywall": "drywall",
-    "wallpaper": "wallpaper",
-    "wood": "wood",
-    "painted_masonry": "painted_masonry",
-    "ceramic_tile": "ceramic",
-    "stone": "stone",
-    "vinyl": "vinyl",
-    "fiberglass": "fiberglass",
-    "brick": "brick",
-    "fabric": "fabric",
-    "concrete": "concrete",
-}
-# room object label -> the crop kind its material comes from
-LABEL_KIND: dict[str, sc.Kind] = {
-    "wall_finish": "wall",
-    "wainscoting": "wall_lower",
-    "tile": "floor",
-    "ceiling_finish": "ceiling",
-}
-
-
-def majority(classes: Sequence[str], allowed: set[str] | None = None) -> str | None:
-    pool = [c for c in classes if allowed is None or c in allowed]
-    if not pool:
-        return None
-    counts = Counter(pool)
-    return sorted(counts, key=lambda c: (-counts[c], pool.index(c)))[0]
+# The pipeline's tables and rule (basis.vision.surface_crops), so ``apply`` is what runs.
+TO_MATERIAL = sc.TO_MATERIAL
+LABEL_KIND = sc.LABEL_KIND
+majority = sc.majority
 
 
 def apply(args: argparse.Namespace) -> int:
@@ -424,7 +394,7 @@ def apply(args: argparse.Namespace) -> int:
             if kind is None:
                 continue
             seen = [c for f in files for c in sorted(predicted.get(f, {}).get(kind, set()))]
-            allowed = {"ceramic_tile", "stone", "vinyl"} if kind == "floor" else None
+            allowed = sc.FLOOR_TILE_CLASSES if kind == "floor" else None
             choice = majority(seen, allowed)
             if choice is None or choice not in TO_MATERIAL:
                 continue

@@ -38,6 +38,26 @@ per-photo rows, the behaviour before the room step. An unusable reconciliation a
 not an error: the room falls back to the heuristic merge and is flagged.
 
 ``ROOM_RECONCILE=false`` writes nothing but its completion (``enabled=False``).
+
+Measured but off by default (EVAL_REPORT 26.10; flip after the second client package):
+
+* ``ROOM_STEP_MODE=room_call``: each room :func:`basis.vision.room_step.room_path` sends
+  down the ``room_call`` path (an interior room by its voted type) gets one
+  ``room_photos_inventory/v2`` call with all its photos on ``ROOM_CALL_MODEL`` instead
+  (``step="room_call"``); exterior, parking and mechanical rooms keep the reconcile path. An
+  unusable room-call answer falls back to the reconcile path (``room_call_fallback``). Rows
+  and the record say which ``path`` each room took and what it cost.
+* ``MATERIALS_SECOND_LOOK=surface_crops``: after the inventory, each photo of the room is
+  segmented (``Deps.segmenter``) and its wall, floor and ceiling crops are asked about
+  (:func:`basis.vision.surface_crops.photo_crops`); the room's wall finish, wainscoting,
+  tile and ceiling finish take the crops' majority material
+  (:func:`basis.vision.surface_crops.apply_crops`), the rest keep theirs. A failure leaves
+  that photo on its per-photo material and flags the room (``surface_crops_flags``), never
+  fails it.
+
+Both share the activity's budget (the study's remaining budget, every call reserved and
+charged) and its error handling: an exhausted budget or a provider account error stops the
+activity as before.
 """
 
 from __future__ import annotations
@@ -72,14 +92,17 @@ from basis.db.models import Component, Room
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
+from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderError
+from basis.llm.prompts import Prompt
 from basis.llm.provider import Budget, BudgetExceededError
 from basis.llm.recorder import LlmCallRecorder
 from basis.storage import ObjectNotFound
 from basis.vision import room_step
+from basis.vision import surface_crops as crops
 from basis.vision.prep import ImageRejected, prepare_image
-from basis.vision.reconcile import RoomPhoto
+from basis.vision.reconcile import RoomInventory, RoomPhoto
 from basis.vision.rooms import (
     ROOM_INVENTORY_SOURCE,
     SOURCE,
@@ -114,6 +137,18 @@ class PlannedRoom:
     @property
     def photo_ids(self) -> list[str]:
         return [str(p.document_id) for p in self.photos]
+
+
+@dataclass
+class RoomOutcome:
+    """One built room: its inventory and, with surface crops on, the crops."""
+
+    step: room_step.RoomStepResult
+    crops: crops.RoomCrops | None = None
+
+    @property
+    def cost_usd(self) -> float:
+        return self.step.cost_usd + (self.crops.cost_usd if self.crops is not None else 0.0)
 
 
 @dataclass
@@ -257,6 +292,14 @@ class ReconcileRooms:
             reasoning_effort=settings.room_reasoning_effort,
             single_photo=settings.room_single_photo,
             materials=settings.room_materials,
+            mode=settings.room_step_mode,
+            room_call_model=settings.room_call_model,
+            room_call_reasoning_effort=settings.room_call_reasoning_effort,
+        )
+        crop_prompt = (
+            prompts.load(crops.PROMPT_NAME, crops.PROMPT_VERSION)
+            if settings.materials_second_look == "surface_crops"
+            else None
         )
         async with session_scope(self._deps.sessionmaker) as session:
             plan = await plan_rooms(session, study_id, input.revision)
@@ -271,9 +314,11 @@ class ReconcileRooms:
         )
         gate = asyncio.Semaphore(settings.photo_concurrency)
 
-        async def one(planned: PlannedRoom) -> room_step.RoomStepResult:
+        async def one(planned: PlannedRoom) -> RoomOutcome:
             async with gate:
-                return await self._room(study_id, input.revision, planned, config, call)
+                return await self._room(
+                    study_id, input.revision, planned, config, call, crop_prompt
+                )
 
         try:
             async with heartbeating("reconciling rooms"):
@@ -286,8 +331,12 @@ class ReconcileRooms:
             rooms=plan.rooms,
             built=len(results),
             current=plan.current,
-            needs_review=sum(r.needs_review for r in results),
+            needs_review=sum(r.step.needs_review for r in results),
             cost_usd=round(budget.spent_usd, 6),
+            room_calls=sum(r.step.step == "room_call" for r in results),
+            room_call_fallbacks=sum(r.step.room_call_fallback is not None for r in results),
+            surface_crop_rooms=sum(r.crops is not None for r in results),
+            surface_crop_fallbacks=sum(bool(r.crops and r.crops.flags) for r in results),
         )
 
         return await self._complete(input, output)
@@ -316,13 +365,17 @@ class ReconcileRooms:
         planned: PlannedRoom,
         config: room_step.RoomStepConfig,
         call: CallContext,
-    ) -> room_step.RoomStepResult:
+        crop_prompt: Prompt | None = None,
+    ) -> RoomOutcome:
         assert self._deps.llm is not None
         heartbeat(f"room {planned.room.id}")
         photos = []
+        originals: list[bytes] = []
         for photo in planned.photos:
             try:
-                image = prepare_image(await self._deps.storage.read(photo.gcs_uri))
+                original = await self._deps.storage.read(photo.gcs_uri)
+                originals.append(original)
+                image = prepare_image(original)
             except ObjectNotFound:
                 raise validation_error(f"photo file {photo.gcs_uri} is missing") from None
             except ImageRejected as exc:  # pragma: no cover - it was analyzed before
@@ -331,14 +384,18 @@ class ReconcileRooms:
                 planned.room.room_type, photo.rows, _room_confidence(photo.rows)
             )
             photos.append(RoomPhoto(file=str(photo.document_id), image=image, analysis=analysis))
-        outcome = await room_step.inventory_room(
+        step = await room_step.inventory_room(
             str(planned.room.id),
             photos,
             config,
             call=call,
             provider=self._deps.llm,
             heartbeat=heartbeat,
+            room_type=planned.room.room_type,
         )
+        outcome = RoomOutcome(step=step)
+        if crop_prompt is not None:
+            outcome.crops = await self._crops(planned, originals, step, call, crop_prompt)
         uri = room_uri(self._deps.bucket, study_id, planned.room.id, revision)
         await self._deps.storage.put(
             uri, _record_json(planned, outcome, config, revision), "application/json"
@@ -347,6 +404,35 @@ class ReconcileRooms:
             await _write(session, study_id, revision, planned, outcome, config, uri)
         heartbeat(f"room {planned.room.id} written")
         return outcome
+
+    async def _crops(
+        self,
+        planned: PlannedRoom,
+        originals: list[bytes],
+        step: room_step.RoomStepResult,
+        call: CallContext,
+        prompt: Prompt,
+    ) -> crops.RoomCrops:
+        """The surface-crop material look on the room's photos (module doc); replaces the
+        inventory's surface materials in place."""
+        assert self._deps.llm is not None
+        settings = self._deps.settings
+        ctx = crops.CropContext(
+            call=call,
+            provider=self._deps.llm,
+            prompt=prompt,
+            model=settings.surface_crop_model,
+            reasoning_effort=settings.surface_crop_reasoning_effort,
+            heartbeat=heartbeat,
+        )
+        objects, found = await crops.look_at_room(
+            [(str(p.document_id), o) for p, o in zip(planned.photos, originals, strict=True)],
+            step.result.inventory.objects,
+            self._deps.segmenter,
+            ctx,
+        )
+        step.result.inventory = RoomInventory(objects=objects)
+        return found
 
 
 async def _all_or_none[T](
@@ -370,16 +456,42 @@ def _model_of(outcome: room_step.RoomStepResult) -> str | None:
     return "+".join(sorted(models)) if models else None
 
 
+def _prompt_of(outcome: room_step.RoomStepResult, config: room_step.RoomStepConfig) -> str | None:
+    """The inventory prompt of the path the room took (none for a one-photo room)."""
+    if outcome.step == "per_photo":
+        return None
+    if outcome.step == "room_call" and config.room_call is not None:
+        return config.room_call.prompt.version_id
+    return config.room_prompt.version_id
+
+
+def _path_raw(outcome: RoomOutcome, config: room_step.RoomStepConfig) -> dict[str, Any]:
+    """What a row records of the path and the measured-but-off options (absent when they
+    are off, so ROOM_STEP_MODE=reconcile rows are exactly the rows before them)."""
+    raw: dict[str, Any] = {}
+    step = outcome.step
+    if config.room_call is not None:
+        raw["path"] = step.path
+        raw["room_call_fallback"] = step.room_call_fallback
+    if outcome.crops is not None:
+        raw["materials_second_look"] = "surface_crops"
+        raw["surface_crops_flags"] = outcome.crops.flags
+    return raw
+
+
 async def _write(
     session: AsyncSession,
     study_id: uuid.UUID,
     revision: int,
     planned: PlannedRoom,
-    outcome: room_step.RoomStepResult,
+    built: RoomOutcome,
     config: room_step.RoomStepConfig,
     uri: str,
 ) -> None:
-    """Replace the room's inventory rows with ``outcome``'s objects (one transaction)."""
+    """Replace the room's inventory rows with ``built``'s objects (one transaction)."""
+    outcome = built.step
+    changed = {c["index"]: c for c in (built.crops.changes if built.crops is not None else [])}
+    extra = _path_raw(built, config)
     current = (
         await session.scalars(
             select(Component).where(
@@ -398,7 +510,7 @@ async def _write(
     for look in outcome.looks:
         looks.setdefault(look.label, []).append(look.record())
     repo = RoomRepository(session)
-    for obj in result.inventory.objects:
+    for index, obj in enumerate(result.inventory.objects):
         await repo.add_component(
             study_id=study_id,
             revision=revision,
@@ -417,29 +529,32 @@ async def _write(
                 "photos": planned.photo_ids,
                 "seen_in": result.files_for(obj),
                 "step": outcome.step,
-                "prompt_version": (
-                    config.room_prompt.version_id if outcome.step != "per_photo" else None
-                ),
+                "prompt_version": _prompt_of(outcome, config),
                 "materials_prompt_version": (
-                    config.materials_prompt.version_id if config.materials_prompt else None
+                    config.materials_prompt.version_id
+                    if config.materials_prompt and outcome.step != "room_call"
+                    else None
                 ),
                 "model": _model_of(outcome),
                 "room_needs_review": result.needs_review,
                 "room_review_reason": result.review_reason,
                 "record_uri": uri,
                 **({"second_look": looks[obj.label.value]} if obj.label.value in looks else {}),
+                **extra,
+                **({"material_before_crops": changed[index]["before"]} if index in changed else {}),
             },
         )
 
 
 def _record_json(
     planned: PlannedRoom,
-    outcome: room_step.RoomStepResult,
+    built: RoomOutcome,
     config: room_step.RoomStepConfig,
     revision: int,
 ) -> bytes:
+    outcome = built.step
     result = outcome.result
-    payload = {
+    payload: dict[str, Any] = {
         "room_id": str(planned.room.id),
         "revision": revision,
         "photos": planned.photo_ids,
@@ -476,6 +591,19 @@ def _record_json(
         ],
         "second_looks": [look.record() for look in outcome.looks],
     }
+    if config.room_call is not None:
+        # Only when the room call is on, so ROOM_STEP_MODE=reconcile records are unchanged.
+        payload |= {
+            "path": outcome.path,
+            "room_call_fallback": outcome.room_call_fallback,
+            "room_call_prompt_version": config.room_call.prompt.version_id,
+            "room_call_model": config.room_call.model,
+            "room_call_reasoning_effort": config.room_call.reasoning_effort,
+            "cost_usd": round(built.cost_usd, 6),
+        }
+    if built.crops is not None:
+        payload["surface_crops"] = built.crops.record()
+        payload["cost_usd"] = round(built.cost_usd, 6)
     return json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
 
 

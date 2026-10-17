@@ -54,6 +54,9 @@ STEP_FIELDS = (
     "room_single_photo",
     "room_materials",
     "room_grouping",
+    # Measured but off (EVAL_REPORT 26.10): the defaults are today's room step.
+    "room_step_mode",
+    "materials_second_look",
     "text_model",
     "extraction_reasoning_effort",
     "extraction_fallback_max_tokens",

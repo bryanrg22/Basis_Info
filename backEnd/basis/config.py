@@ -254,6 +254,28 @@ class Settings(BaseSettings):
     # room_aliases) and uses the model's room identity only for a name that says nothing
     # (IMG_1234.JPG); "model" always uses the model's room identity (before section 27).
     room_grouping: Literal["filename", "model"] = "filename"
+    # Measured but off (EVAL_REPORT 26.10, to be confirmed on a second client package):
+    # ROOM_STEP_MODE=room_call gives every interior room (a room whose voted type is not
+    # exterior, parking or mechanical: basis.vision.room_step.room_path) one
+    # room_photos_inventory/v2 call with all its photos on ROOM_CALL_MODEL at
+    # ROOM_CALL_REASONING_EFFORT, instead of the reconciliation call over per-photo lists
+    # (section 26.6: room count MAE 0.236 against 0.350); exterior, site and mechanical
+    # rooms keep the "reconcile" path (the ROOM_* settings above, 26.7).
+    room_step_mode: Literal["reconcile", "room_call"] = "reconcile"
+    room_call_model: str = "claude-opus-5-5"
+    room_call_reasoning_effort: Effort = "high"
+    # MATERIALS_SECOND_LOOK=surface_crops (EVAL_REPORT 26.3, measured but off): the wall,
+    # floor and ceiling masks of Mask2Former (SURFACE_SEGMENTER: "local" runs the measured
+    # Swin-L ADE20K panoptic checkpoint in the worker on the CPU; "replicate" a community
+    # Swin-S ADE20K semantic deployment, not measured), one surface_crop_material/v1 call
+    # per surface on SURFACE_CROP_MODEL, and the room's wall finish, wainscoting, tile and
+    # ceiling finish take the crops' majority answer where a crop answered; elsewhere the
+    # per-photo material stands (material hit 0.79 against 0.64). "per_photo" is today's.
+    materials_second_look: Literal["per_photo", "surface_crops"] = "per_photo"
+    surface_crop_model: str = "claude-sonnet-5-5"
+    surface_crop_reasoning_effort: Effort = "low"
+    surface_segmenter: Literal["local", "replicate"] = "local"
+    surface_segmenter_replicate_version: str = "95798aa39f0e174abceaa1235f757574c7c19feae0967602e1a0f1c2d7f816b1"  # pragma: allowlist secret  # noqa: E501
 
     # Classification and pricing (process_assets, S3_SPEC section 5). The residual
     # classifier is a tool loop: EVAL_REPORT section 17.2/17.3 chose claude-sonnet-5-5 at
@@ -332,6 +354,15 @@ class Settings(BaseSettings):
                 f"RETRIEVAL_CHUNK_OVERLAP ({self.retrieval_chunk_overlap}) must be smaller than "
                 f"RETRIEVAL_CHUNK_TOKENS ({self.retrieval_chunk_tokens})"
             )
+        if (
+            self.materials_second_look == "surface_crops"
+            and self.surface_segmenter == "replicate"
+            and not _is_set(self.replicate_api_token)
+        ):
+            raise ConfigError(
+                "MATERIALS_SECOND_LOOK=surface_crops with SURFACE_SEGMENTER=replicate needs "
+                "REPLICATE_API_TOKEN; set it or use SURFACE_SEGMENTER=local"
+            )
         self._check_models()
         return self
 
@@ -340,6 +371,8 @@ class Settings(BaseSettings):
         for name, model, effort in (
             ("VISION_FUSION", self.vision_fusion_model, self.vision_fusion_reasoning_effort),
             ("ROOM", self.room_model, self.room_reasoning_effort),
+            ("ROOM_CALL", self.room_call_model, self.room_call_reasoning_effort),
+            ("SURFACE_CROP", self.surface_crop_model, self.surface_crop_reasoning_effort),
             ("CLASSIFY", self.classify_model, self.classify_reasoning_effort),
             ("EXTRACTION", self.text_model, self.extraction_reasoning_effort),
         ):

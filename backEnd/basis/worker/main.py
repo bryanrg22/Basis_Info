@@ -44,14 +44,16 @@ from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
 from basis.domain.cost_table import cost_table_for
 from basis.extraction.azure_di import AzureDocumentIntelligence
+from basis.llm import prompts
 from basis.llm.pool import ProviderPool
 from basis.obs.logging import configure_logging
 from basis.retrieval import default_retrieval
 from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
 from basis.temporal.client import build_id, connect
-from basis.vision import fusion, room_step
+from basis.vision import fusion, room_step, surface_crops
 from basis.vision.analyze import prompts_for_mode
 from basis.vision.localize import Localizer, build_replicate_localizer
+from basis.vision.surface_segmenter import SurfaceSegmenter, build_segmenter
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
 from basis.worker.search_attributes import ensure_search_attributes
@@ -111,6 +113,9 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
             reasoning_effort=settings.room_reasoning_effort,
             single_photo=settings.room_single_photo,
             materials=settings.room_materials,
+            mode=settings.room_step_mode,
+            room_call_model=settings.room_call_model,
+            room_call_reasoning_effort=settings.room_call_reasoning_effort,
         )
         logger.info(
             "room step: %s on %s at effort %s, one-photo rooms %s, second look %s (%s)",
@@ -121,6 +126,28 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
             rooms.materials,
             rooms.materials_prompt.version_id if rooms.materials_prompt else "-",
         )
+        if rooms.room_call is not None:
+            logger.info(
+                "room step mode room_call: interior rooms %s on %s at effort %s; %s rooms "
+                "keep the reconcile path",
+                rooms.room_call.prompt.version_id,
+                rooms.room_call.model,
+                rooms.room_call.reasoning_effort,
+                "/".join(sorted(room_step.RECONCILE_ROOM_TYPES)),
+            )
+        else:
+            logger.info("room step mode: reconcile (every room)")
+        if settings.materials_second_look == "surface_crops":
+            crop_prompt = prompts.load(surface_crops.PROMPT_NAME, surface_crops.PROMPT_VERSION)
+            logger.info(
+                "materials second look: surface crops (%s on %s at effort %s, segmenter %s)",
+                crop_prompt.version_id,
+                settings.surface_crop_model,
+                settings.surface_crop_reasoning_effort,
+                settings.surface_segmenter,
+            )
+        else:
+            logger.info("materials second look: per_photo")
     else:
         logger.info("room step: off (assets from the per-photo components)")
     logger.info(
@@ -165,6 +192,21 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         chat_provider=llm,
         chunk_store=PostgresChunkStore(sessionmaker, registry=retrieval.registry),
         localizer=localizer,
+        segmenter=build_surface_segmenter(settings),
+    )
+
+
+def build_surface_segmenter(settings: Settings) -> SurfaceSegmenter | None:
+    """The ``SURFACE_SEGMENTER`` backend when ``MATERIALS_SECOND_LOOK=surface_crops`` and
+    the room step is on, else None. The local model is loaded on first use, not here."""
+    if not settings.room_reconcile or settings.materials_second_look != "surface_crops":
+        return None
+    token = settings.replicate_api_token
+    return build_segmenter(
+        settings.surface_segmenter,
+        token=token.get_secret_value() if token is not None else None,
+        version=settings.surface_segmenter_replicate_version,
+        concurrency=settings.localizer_concurrency,
     )
 
 
