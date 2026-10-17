@@ -28,6 +28,10 @@ Schemathesis setup, and why:
   schema cannot describe (existence is state; the type depends on ``stage``), so a
   generated correction is (correctly) 422. Correction targets are tested in
   ``test_decisions.py``.
+* ``room_aliases`` is emptied in valid-data cases (v0.9): an alias map must not loop
+  (``{"a": "b", "b": "a"}`` or ``{"a": "a"}``), a relation between keys and values that
+  JSON Schema cannot express, so a generated map can be schema-valid and (correctly) 422.
+  Loops, self-aliases and the accepted forms are tested in ``test_studies.py``.
 * The engine uses ``NullPool``: Schemathesis's ASGI client runs the app on its own event
   loop, and pooled asyncpg connections cannot move between loops.
 
@@ -197,6 +201,8 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         del case.query["cursor"]
     if isinstance(case.body, dict) and case.body.get("corrections"):
         case.body["corrections"] = []
+    if isinstance(case.body, dict) and case.body.get("room_aliases"):
+        case.body["room_aliases"] = {}
 
 
 @pytest.mark.integration

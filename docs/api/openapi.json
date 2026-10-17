@@ -4952,7 +4952,7 @@
             "type": "object",
             "maxProperties": 500,
             "title": "Room Aliases",
-            "description": "Rooms to merge when photos are grouped by file name: `{room id: room id}`, where a room id is the photo file name's room (`1_kitchen` for \"21_1st Floor Kitchen photo 1.JPG\", `b_bath` for \"Basement Bath.JPG\", `x_mechanicals` for \"Mechanicals.JPG\"). `{\"1_breakfast_nook\": \"1_kitchen\"}` puts the breakfast nook's photos in the kitchen. Chains are followed; a loop is refused. Rooms can also be merged at the rooms review (a `room` correction with `merge_into`)."
+            "description": "Rooms to merge when photos are grouped by file name: `{room id: room id}`, where a room id is the photo file name's room (`1_kitchen` for \"21_1st Floor Kitchen photo 1.JPG\", `b_bath` for \"Basement Bath.JPG\", `x_mechanicals` for \"Mechanicals.JPG\"). `{\"1_breakfast_nook\": \"1_kitchen\"}` puts the breakfast nook's photos in the kitchen. Chains are followed; a loop (including a room aliased to itself) is a 422 validation problem. Rooms can also be merged at the rooms review (a `room` correction with `merge_into`)."
           }
         },
         "additionalProperties": false,

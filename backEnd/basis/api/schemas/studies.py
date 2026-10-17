@@ -48,7 +48,8 @@ class StudyCreate(RequestModel):
         "id}`, where a room id is the photo file name's room (`1_kitchen` for "
         '"21_1st Floor Kitchen photo 1.JPG", `b_bath` for "Basement Bath.JPG", '
         '`x_mechanicals` for "Mechanicals.JPG"). `{"1_breakfast_nook": "1_kitchen"}` puts '
-        "the breakfast nook's photos in the kitchen. Chains are followed; a loop is refused. "
+        "the breakfast nook's photos in the kitchen. Chains are followed; a loop (including a "
+        "room aliased to itself) is a 422 validation problem. "
         "Rooms can also be merged at the rooms review (a `room` correction with "
         "`merge_into`).",
         json_schema_extra={"propertyNames": {"pattern": ROOM_ID_PATTERN}},
