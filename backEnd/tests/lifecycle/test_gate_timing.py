@@ -7,7 +7,7 @@ Replicate's throttle) although it reviews only the extraction, done at +94 s. Wi
 * the appraisal review opens while the photos are still being analyzed and localized
   (timing: in history order, the gate's transition completes before any photo finishes);
 * the rooms review opens only after every analysis and the room step (SAM 3 localization
-  no longer holds it since patch ``localize-background-v1``, EVAL_REPORT 29:
+  no longer holds it since patch ``localize-background-v1``, EVAL_REPORT 30:
   ``test_localize_background.py``);
 * an appraisal rejection while photos are in flight waits for them, so the next revision
   carries every photo's outputs.

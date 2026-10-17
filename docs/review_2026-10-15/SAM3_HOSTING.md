@@ -6,7 +6,7 @@ deployment of the same container works (deployed, measured) and stays one settin
 (`LOCALIZER_URL`) as the fallback, and as the default once volume or Replicate's limits
 make it pay.**
 
-The measurements behind it are in EVAL_REPORT section 29; the commands are at the end.
+The measurements behind it are in EVAL_REPORT section 30; the commands are at the end.
 Every number below was measured on the client study's 52 photos on 2026-10-17 unless it
 cites a source.
 

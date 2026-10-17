@@ -125,7 +125,7 @@ def test_a_payload_without_the_additive_fields_still_validates() -> None:
     old = {"study_id": "s", "org_id": "o", "input_revision": 1, "workflow_version": "v"}
     parsed = c.StudyWorkflowInput.model_validate({**old, "budget_usd": 5})
     assert parsed.simulate_photos == {} and parsed.photo_concurrency == 5
-    # EVAL_REPORT 29: an input recorded before the SAM 3 fields gets their defaults (the
+    # EVAL_REPORT 30: an input recorded before the SAM 3 fields gets their defaults (the
     # workflow uses them only under patch localize-background-v1).
     assert (parsed.localize_concurrency, parsed.rooms_gate_waits_for_localization) == (3, False)
     transition = c.TransitionInput(

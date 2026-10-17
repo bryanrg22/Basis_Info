@@ -30,7 +30,7 @@ in, every matching instance out, each with a mask, a box and a score) and counts
   ``replicate.delivery`` are fetched without it) and is never logged or put in an error.
 * The input asks for compact output (:func:`model_input`): masks cut to their boxes with
   offsets (``offset_masks``) in one result file (``split_output`` off). Pasted back by
-  :func:`parse_result` they are the same masks, pixel for pixel (EVAL_REPORT 29: 50 of
+  :func:`parse_result` they are the same masks, pixel for pixel (EVAL_REPORT 30: 50 of
   50 instances); the result is 27x smaller (0.75 MB against 20.6 MB a photo) and the
   billed predict time 3 to 4x shorter (the model writes less JSON).
 * :class:`CogSam3Localizer` calls the same Cog container served by us (``LOCALIZER_URL``,
@@ -746,7 +746,7 @@ def _retry_after(response: httpx.Response) -> float | None:
 def _paste(cutout: npt.NDArray[Any], offset: Any, width: int, height: int) -> npt.NDArray[Any]:
     """An ``offset_masks`` cut-out (``h x w``, upper-left corner ``[x, y]`` in pixels of
     the input image) placed on an empty ``height x width`` mask; what falls outside the
-    image is dropped (the model's cut-outs lie inside it, measured in EVAL_REPORT 29)."""
+    image is dropped (the model's cut-outs lie inside it, measured in EVAL_REPORT 30)."""
     try:
         x, y = (int(v) for v in offset)
     except (TypeError, ValueError):
@@ -997,7 +997,7 @@ class ReplicateSam3Localizer:
         if not isinstance(urls, list) or not urls:
             raise LocalizerBadResponse(f"prediction {prediction.get('id')} returned no results")
         # A result file is sometimes not served yet right after the prediction succeeds
-        # (one 404 in 52 photos, EVAL_REPORT 29): retried like a transient error.
+        # (one 404 in 52 photos, EVAL_REPORT 30): retried like a transient error.
         responses = await asyncio.gather(
             *(self._request("GET", str(u), retry_not_found=True) for u in urls)
         )
@@ -1154,7 +1154,7 @@ def model_input(
 ) -> dict[str, Any]:
     """The SAM 3 Cog model's input. ``compact`` asks for masks cut to their boxes with
     offsets (``offset_masks``, pasted back by :func:`parse_result`, lossless) in one result
-    file (``split_output`` off): on the 52 photos 15x less to transfer (EVAL_REPORT 29)."""
+    file (``split_output`` off): on the 52 photos 15x less to transfer (EVAL_REPORT 30)."""
     input_: dict[str, Any] = {
         "image": f"data:image/jpeg;base64,{image.base64}",
         "prompts": list(prompts),

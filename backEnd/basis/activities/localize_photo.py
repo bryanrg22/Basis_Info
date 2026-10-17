@@ -2,7 +2,7 @@
 
 Runs after ``analyze_photo`` succeeded for the photo and revision (the workflow schedules
 it, at most ``LOCALIZER_CONCURRENCY`` per study, behind the rooms review since EVAL_REPORT
-section 29). What it does, following EVAL_REPORT section 10:
+section 30). What it does, following EVAL_REPORT section 10:
 
 * Labels: the photo's component labels at this revision without the surfaces
   (:func:`basis.vision.localize.object_labels`), always with the countable set; phrases

@@ -17,7 +17,11 @@ network; CI has no provider credentials and real-provider evaluation is run sepa
   keep their arithmetic).
   It also answers the room step's calls: a ``room_inventory`` request gets the heuristic
   merge of its images' fixture labels (largest count per label, the images listing it), and
-  a ``surface_material`` request :data:`SECOND_LOOK_MATERIALS` for the surface it names.
+  so does a ``room_photos_inventory`` room call (same response shape); a
+  ``surface_material`` request gets :data:`SECOND_LOOK_MATERIALS` for the surface it names,
+  and a ``surface_crop_material`` request :data:`CROP_MATERIALS` for the surface it names.
+* :class:`FakeSegmenter` gives every photo a ceiling (top quarter), wall (middle half) and
+  floor (bottom quarter) mask, or raises :class:`SegmenterError` when told to fail.
 * :class:`PromptKeyedProvider` replays scripted turns per prompt family (``photo_countables``,
   ``photo_surfaces``, ...), so the decomposed step's two concurrent calls each get their own
   script whatever order the event loop runs them in; a family without turns raises.
@@ -51,7 +55,9 @@ from basis.vision import localize
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import ModelInventoryObject, ModelRoomInventory
 from basis.vision.schemas import Component, ModelPhotoAnalysis
+from basis.vision.surface_crops import CropAnswer, CropMaterial, LowerFinish
 from basis.vision.surface_material import ModelSurfaceMaterial, SurfaceMaterial
+from basis.vision.surface_segmenter import SegmenterError, SurfaceMasks
 
 PHOTO_MODEL: Final = "gpt-4.1-nano"
 PHOTO_USAGE: Final = Usage(input_tokens=20_000, output_tokens=20_000)
@@ -138,6 +144,45 @@ SECOND_LOOK_MATERIALS: Final = {
 }
 
 
+# What the fixture crop look answers per surface: (material, lower finish).
+CROP_MATERIALS: Final = {
+    "floor": (CropMaterial.CERAMIC_TILE, LowerFinish.NONE),
+    "wall": (CropMaterial.PAINTED_DRYWALL, LowerFinish.WALLPAPER),
+    "ceiling": (CropMaterial.PAINTED_DRYWALL, LowerFinish.NONE),
+}
+
+
+def fixture_crop(request: ChatRequest) -> CropAnswer:
+    text = request.messages[-1].content
+    surface = text.split("The surface is the ", 1)[1].split(".", 1)[0]
+    material, lower = CROP_MATERIALS[surface]
+    return CropAnswer(material=material, lower_finish=lower, confidence=0.9, evidence="fixture")
+
+
+@dataclass
+class FakeSegmenter:
+    """Every photo: ceiling = top quarter, wall = middle half, floor = bottom quarter (each
+    above the crops' 2% floor); ``fail`` raises :class:`SegmenterError` instead."""
+
+    fail: bool = False
+    name: str = "fake-segmenter"
+    calls: int = 0
+
+    async def segment(self, image: Any, *, budget: Any = None) -> SurfaceMasks:
+        import numpy as np
+
+        self.calls += 1
+        if self.fail:
+            raise SegmenterError("fake segmenter failure")
+        rows = np.arange(image.height)[:, None] * np.ones((1, image.width), dtype=bool)
+        quarter = image.height // 4
+        return {
+            "ceiling": rows < quarter,
+            "wall": (rows >= quarter) & (rows < image.height - quarter),
+            "floor": rows >= image.height - quarter,
+        }
+
+
 def fixture_room_inventory(request: ChatRequest) -> ModelRoomInventory:
     """The heuristic merge of the request's images' fixture analyses (Image N = Nth)."""
     fallback = analysis_for(photo_labels()["photos/08_ambiguous.jpg"])
@@ -189,11 +234,13 @@ class FixtureVisionProvider:
         if request.response_model is FallbackAnswer:
             return fixture_field_fallback(request, self.name)
         digest = _image_sha256(request)
-        answer: ModelRoomInventory | ModelSurfaceMaterial | None = None
+        answer: ModelRoomInventory | ModelSurfaceMaterial | CropAnswer | None = None
         if digest is not None and request.response_model is ModelRoomInventory:
             answer = fixture_room_inventory(request)
         elif digest is not None and request.response_model is ModelSurfaceMaterial:
             answer = fixture_second_look(request)
+        elif digest is not None and request.response_model is CropAnswer:
+            answer = fixture_crop(request)
         if answer is not None:
             return ChatResponse(
                 parsed=answer,

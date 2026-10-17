@@ -1,4 +1,4 @@
-"""SAM 3 throughput on a study's photos (EVAL_REPORT section 29, SAM3_HOSTING.md).
+"""SAM 3 throughput on a study's photos (EVAL_REPORT section 30, SAM3_HOSTING.md).
 
 Runs the product's localization step (:func:`basis.vision.localize.object_labels` of each
 photo's component labels, the default phrase set, :data:`CANDIDATE_THRESHOLD`, one
@@ -282,7 +282,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     parser.add_argument("--tag", default="")
     parser.add_argument(
-        "--full-masks", action="store_true", help="ask for full-image masks (the code before 29)"
+        "--full-masks", action="store_true", help="ask for full-image masks (the code before 30)"
     )
     args = parser.parse_args(argv)
     print(json.dumps(asyncio.run(run(args)), indent=1))

@@ -359,7 +359,7 @@ def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPat
     settings = load_settings()
     assert settings.replicate_api_token is None
     assert settings.sam3_replicate_version == SAM3_VERSION
-    assert settings.localizer_concurrency == 3  # EVAL_REPORT 29
+    assert settings.localizer_concurrency == 3  # EVAL_REPORT 30
     clean_env.setenv("REPLICATE_API_TOKEN", "r8_fake-test-token")  # gitleaks:allow
     clean_env.setenv("SAM3_REPLICATE_VERSION", "abc123")
     clean_env.setenv("LOCALIZER_CONCURRENCY", "8")
@@ -372,7 +372,7 @@ def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPat
 
 
 def test_self_hosted_localizer_and_rooms_gate_settings(clean_env: pytest.MonkeyPatch) -> None:
-    """EVAL_REPORT 29: a self-hosted SAM 3 (LOCALIZER_URL and its credentials, billed per
+    """EVAL_REPORT 30: a self-hosted SAM 3 (LOCALIZER_URL and its credentials, billed per
     instance second) and whether the rooms review waits for SAM 3 (default: no)."""
     clean_env.setenv("BASIS_ENV", "test")
     settings = load_settings()

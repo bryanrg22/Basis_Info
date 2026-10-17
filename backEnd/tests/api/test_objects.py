@@ -293,7 +293,7 @@ async def test_edits_before_the_rooms_gate_opens_are_409(
 async def test_a_selection_before_the_photo_is_localized_is_409(
     api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """EVAL_REPORT 29: the rooms review is open while SAM 3 still runs; a photo with no
+    """EVAL_REPORT 30: the rooms review is open while SAM 3 still runs; a photo with no
     localization row yet cannot take a selection (it would not resolve against the
     instances about to arrive), and the GET says it is pending (no localization)."""
     study = await api.create_study("alice")

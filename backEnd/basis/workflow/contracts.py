@@ -41,7 +41,7 @@ class StudyWorkflowInput(_Frozen):
     workflow_version: str
     budget_usd: float = Field(gt=0)
     photo_concurrency: int = Field(default=5, ge=1, le=32)
-    # Patch localize-background-v1 (EVAL_REPORT 29): SAM 3 predictions in flight per study,
+    # Patch localize-background-v1 (EVAL_REPORT 30): SAM 3 predictions in flight per study,
     # and whether the rooms review waits for every localization (else they finish behind it).
     localize_concurrency: int = Field(default=3, ge=1, le=32)
     rooms_gate_waits_for_localization: bool = False
@@ -227,6 +227,14 @@ class ReconcileRoomsOutput(_Frozen):
     current: int = 0  # inventories already up to date (carried over or written before)
     needs_review: int = 0  # rooms whose inventory is flagged
     cost_usd: float = 0.0
+    # ROOM_STEP_MODE=room_call: rooms built by the room call, and rooms sent down that path
+    # that fell back to the reconcile path (an unusable answer).
+    room_calls: int = 0
+    room_call_fallbacks: int = 0
+    # MATERIALS_SECOND_LOOK=surface_crops: rooms whose crops ran, and rooms where some photo
+    # or surface fell back to the per-photo material (segmenter or call failure).
+    surface_crop_rooms: int = 0
+    surface_crop_fallbacks: int = 0
 
 
 LocalizationStatus = Literal["done", "failed", "skipped"]

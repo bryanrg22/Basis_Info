@@ -88,7 +88,7 @@ Patches in this file:
   and a failure is never recorded while a stage change is in flight. Before the patch every
   photo after the account ran dry was flagged as a failed analysis and the study went on
   to review with them (156 photos in one run).
-* ``localize-background-v1`` (EVAL_REPORT section 29): at most ``localize_concurrency``
+* ``localize-background-v1`` (EVAL_REPORT section 30): at most ``localize_concurrency``
   localizations per study (before: ``photo_concurrency``), and, unless
   ``rooms_gate_waits_for_localization``, they run behind the rooms review: the photo stage
   is done when every photo is analyzed and the room step ran, and the rooms review opens

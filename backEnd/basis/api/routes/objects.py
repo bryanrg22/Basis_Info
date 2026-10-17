@@ -241,7 +241,7 @@ async def add_object(
     revision = await editable_revision(session, study_id, document_id)
     repo = PhotoObjectRepository(session)
     if await repo.localization(document_id, revision) is None:
-        # The rooms review opens with SAM 3 still running (EVAL_REPORT 29): until the
+        # The rooms review opens with SAM 3 still running (EVAL_REPORT 30): until the
         # photo's own instances are stored a tap cannot resolve against them.
         raise Conflict(
             "The photo is still being localized; its objects appear when that finishes.",

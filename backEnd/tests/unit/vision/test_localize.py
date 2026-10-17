@@ -870,7 +870,7 @@ def offset_result(
     *items: tuple[tuple[int, int, int, int], float], size: tuple[int, int]
 ) -> dict[str, Any]:
     """The model's ``offset_masks`` answer: each mask cut to its box, with the cut-out's
-    upper-left corner (what vufinder/sam3 returns, EVAL_REPORT 29)."""
+    upper-left corner (what vufinder/sam3 returns, EVAL_REPORT 30)."""
     width, height = size
     full = result(*items, size=size)
     cutouts, offsets = [], []
@@ -945,7 +945,7 @@ async def test_compact_output_is_requested_and_one_file_holds_every_prompt() -> 
     [window] = found.instances
     assert window.mask is not None and window.mask.bbox() == (8, 6, 24, 30)
 
-    # compact=False sends the input as before section 29: full masks, a file per prompt.
+    # compact=False sends the input as before section 30: full masks, a file per prompt.
     plain = FakeReplicate([result(((8, 6, 24, 30), 0.9), size=SIZE), EMPTY])
     client = localizer(plain)
     client.compact = False
@@ -957,7 +957,7 @@ async def test_compact_output_is_requested_and_one_file_holds_every_prompt() -> 
 
 async def test_a_result_file_not_served_yet_is_fetched_again() -> None:
     """Live, one result file of 52 photos answered 404 right after its prediction
-    succeeded (EVAL_REPORT 29); it is retried instead of failing the photo."""
+    succeeded (EVAL_REPORT 30); it is retried instead of failing the photo."""
     fake = FakeReplicate([result(((8, 6, 24, 30), 0.9), size=SIZE)])
     misses = [1]
 

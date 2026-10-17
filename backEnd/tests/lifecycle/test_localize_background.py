@@ -1,4 +1,4 @@
-"""SAM 3 behind the rooms review (EVAL_REPORT section 29, patch ``localize-background-v1``).
+"""SAM 3 behind the rooms review (EVAL_REPORT section 30, patch ``localize-background-v1``).
 
 Live, the rooms review waited for every SAM 3 localization although nothing it shows but
 the masks comes from them (the room step, the assets and the export read the per-photo

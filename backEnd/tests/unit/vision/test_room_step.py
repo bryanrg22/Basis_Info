@@ -311,3 +311,41 @@ def test_without_any_inventory_every_per_photo_row_is_an_asset() -> None:
     room = uuid.uuid4()
     rows = [row(room, uuid.uuid4(), "kitchen_cabinet"), row(room, uuid.uuid4(), "countertop")]
     assert asset_components(rows) == rows
+
+
+# --------------------------------------------------------------------------- second-look model
+
+
+async def test_the_second_look_runs_on_its_own_model_when_set() -> None:
+    """EVAL_REPORT 28.2's split: the reconciliation call on a cheaper model, the material
+    second look kept on Sonnet at its own effort."""
+    reconciler = "gpt-6-luna"
+    chat = ModelKeyedProvider(
+        turns={
+            (reconciler, "room_inventory"): [inventory(("wainscoting", 1, [1, 2], "wood"))],
+            (MODEL, "surface_material"): [look(SurfaceMaterial.WALLPAPER)],
+        }
+    )
+    photos = [
+        photo("a", comp("wainscoting", 1, "wood")),
+        photo("b", comp("wainscoting", 1, "wood")),
+    ]
+    split = config(
+        model=reconciler,
+        reasoning_effort="minimal",
+        materials_model=MODEL,
+        materials_reasoning_effort="medium",
+    )
+    assert (split.look_model, split.look_reasoning_effort) == (MODEL, "medium")
+    out = await room_step.inventory_room("r", photos, split, call=call(), provider=chat)
+    [reconciled, looked] = chat.requests
+    assert (reconciled.model, reconciled.reasoning_effort) == (reconciler, "minimal")
+    assert (looked.model, looked.reasoning_effort) == (MODEL, "medium")
+    assert looked.prompt_version == "surface_material/v3"
+    assert out.result.inventory.objects[0].material is Material.WALLPAPER
+    assert [x.model for x in out.looks] == [MODEL]
+
+
+def test_without_a_second_look_model_the_look_follows_the_reconciler() -> None:
+    plain = config(model="gpt-6-luna", reasoning_effort="minimal")
+    assert (plain.look_model, plain.look_reasoning_effort) == ("gpt-6-luna", "minimal")
