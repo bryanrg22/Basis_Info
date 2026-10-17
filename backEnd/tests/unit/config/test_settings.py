@@ -359,7 +359,7 @@ def test_localizer_settings_defaults_and_environment(clean_env: pytest.MonkeyPat
     settings = load_settings()
     assert settings.replicate_api_token is None
     assert settings.sam3_replicate_version == SAM3_VERSION
-    assert settings.localizer_concurrency == 4
+    assert settings.localizer_concurrency == 3  # EVAL_REPORT 29
     clean_env.setenv("REPLICATE_API_TOKEN", "r8_fake-test-token")  # gitleaks:allow
     clean_env.setenv("SAM3_REPLICATE_VERSION", "abc123")
     clean_env.setenv("LOCALIZER_CONCURRENCY", "8")

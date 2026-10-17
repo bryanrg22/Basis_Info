@@ -276,9 +276,10 @@ class Settings(BaseSettings):
     replicate_api_token: SecretStr | None = None
     sam3_replicate_version: str = "1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650"  # pragma: allowlist secret  # noqa: E501
     # Concurrent SAM 3 predictions, per worker process (the localizer's semaphore) and per
-    # study (the workflow's localization slots). EVAL_REPORT section 29 measured 1 to 12 on
-    # Replicate with the 52 photos.
-    localizer_concurrency: int = Field(default=6, ge=1, le=32)
+    # study (the workflow's localization slots). EVAL_REPORT section 29, 52 photos at once on
+    # Replicate: 3, 6 and 12 all take 55 to 63 s (the account's create rate limit is the
+    # bound), 3 with the fewest 429s; 1 takes 76 s.
+    localizer_concurrency: int = Field(default=3, ge=1, le=32)
     # A self-hosted SAM 3 Cog server instead of Replicate (SAM3_HOSTING.md): its base URL,
     # and its credentials: a static bearer token, or a Google ID token minted from the
     # worker's service account (Cloud Run with authentication). Billed per instance second

@@ -43,7 +43,7 @@ class StudyWorkflowInput(_Frozen):
     photo_concurrency: int = Field(default=5, ge=1, le=32)
     # Patch localize-background-v1 (EVAL_REPORT 29): SAM 3 predictions in flight per study,
     # and whether the rooms review waits for every localization (else they finish behind it).
-    localize_concurrency: int = Field(default=6, ge=1, le=32)
+    localize_concurrency: int = Field(default=3, ge=1, le=32)
     rooms_gate_waits_for_localization: bool = False
     review_reminder_days: int = Field(default=7, ge=1)
     review_deadline_days: int = Field(default=30, ge=1)
