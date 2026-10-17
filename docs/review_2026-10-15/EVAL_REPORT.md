@@ -1657,7 +1657,7 @@ choice should be re-measured on the held-out study before it is trusted further.
 | Per-photo countables | gpt-6.1-sol | `photo_countables/v3` (19; v2 before) | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
 | Per-photo surfaces and room type | gpt-6-luna (28.1; gpt-6.1-sol before) | `photo_surfaces/v2` (19; v1 before) | low | `VISION_SURFACES_MODEL`; effort and budget as above | 11, 12.1, 28.1 | merged with the countables call (`basis/vision/merge.py`); room accuracy and surface F1 equal to gpt-6.1-sol, $0.019 against $0.336 per 52 photos (28.1) | `VISION_SURFACES_MODEL=gpt-6.1-sol` |
 | Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
-| Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5, 28.2 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input); 28.2: recommended split, gpt-6-luna reconciling and Sonnet for the second look (materials decide IRS buckets): `ROOM_MODEL=gpt-6-luna`, the second look staying on `ROOM_MATERIALS_MODEL` (29.1) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
+| Room inventory, multi-photo rooms | gpt-6-luna (31; claude-sonnet-5-5 before) | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5, 28.2 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input); 28.2: recommended split, gpt-6-luna reconciling and Sonnet for the second look (materials decide IRS buckets): `ROOM_MODEL=gpt-6-luna`, the second look staying on `ROOM_MATERIALS_MODEL` (29.1) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
 | Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive`, `ROOM_MATERIALS_MODEL`, `ROOM_MATERIALS_REASONING_EFFORT` (29.1; the room model before) | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
 | Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
@@ -4163,3 +4163,27 @@ uv run --no-sync python ../docs/review_2026-10-15/repro/sam3_throughput.py ... \
 LOCALIZER_TOKEN=$(gcloud auth print-identity-token) uv run --no-sync python \
     ../docs/review_2026-10-15/repro/sam3_throughput.py ... --target url --url SERVICE_URL
 ```
+
+## 31. Room reconciler on gpt-6-luna (2026-10-17)
+
+Section 28.2 measured gpt-6-luna as the room-step reconciler within the noise of Sonnet 5.5
+(paired over the 33 rooms, luna minus Sonnet +0.003 [-0.025, +0.030] on count error) but
+worse as the material reader (14 of 20 labelled surfaces against 17), and recommended the
+split: luna reconciles, Sonnet keeps the material second look. PR 56 added
+`ROOM_MATERIALS_MODEL`, so the split is expressible. Before changing the default, the exact
+production configuration was run again: luna at low effort with the reconciler's production
+output budget (4,000 tokens; the section 28.2 runs used 6,000), Sonnet 5.5 low for the
+second look, the same Opus per-photo input as section 16, three repeats, scored by
+`evals.run` on the current labels.
+
+| Room step | Room count MAE | Exact | Rooms exact | Label F1 | Report rows (of 38) | Materials present | Cost per study |
+|---|---|---|---|---|---|---|---|
+| Sonnet reconciles and looks (default before) | 0.392 | 0.678 | 5 of 33 | 0.872 | 30, the same rows | 1.000 | $0.31 |
+| luna reconciles, Sonnet looks (default now) | 0.401 | 0.659 | 4 of 33 | 0.860 | 30, the same rows | 1.000 | $0.14 |
+
+No answer was truncated or rejected at the 4,000-token budget, the two configurations
+evidence and miss exactly the same report rows, and the count difference is inside section
+28.2's interval. The rows here are 30 of 38 rather than 37 because this per-photo input
+predates the section 19 vocabulary; both rows use the same input. `ROOM_MODEL` now defaults
+to `gpt-6-luna`; `ROOM_MODEL=claude-sonnet-5-5` restores the previous behaviour. Spend: $0.43.
+Predictions: `rooms_split_luna_sonnet_prod` (private).

@@ -82,8 +82,10 @@ def test_room_step_defaults_are_section_16(env: pytest.MonkeyPatch) -> None:
     settings = load_settings()
     assert settings.room_reconcile is True
     assert settings.room_prompt_version == "v3"
-    assert settings.room_model == "claude-sonnet-5-5"
+    # EVAL_REPORT 28.2 / 31: luna reconciles, Sonnet keeps the material second look.
+    assert settings.room_model == "gpt-6-luna"
     assert settings.room_reasoning_effort == "low"
+    assert settings.room_materials_model == "claude-sonnet-5-5"
     assert settings.room_single_photo == "per_photo"
     assert settings.room_materials == "sensitive"
     # EVAL_REPORT section 27: photos are grouped by file name and the study's aliases.

@@ -285,12 +285,11 @@ async def test_the_activitys_default_configuration_is_reconcile_mode() -> None:
         materials_reasoning_effort=settings.room_materials_reasoning_effort,
     )
     assert config.room_call is None
-    # ROOM_MATERIALS_MODEL's default is the reconciler's model and effort, so the second
-    # looks of the golden are what the defaults send.
-    assert (config.look_model, config.look_reasoning_effort) == (
-        config.model,
-        config.reasoning_effort,
-    )
+    # EVAL_REPORT 31: by default luna reconciles and Sonnet keeps the material second look.
+    # The golden pins the reconcile path's behaviour with its own explicit model (MODEL for
+    # both calls); the split itself is covered by the room-stage activity tests.
+    assert (config.model, config.reasoning_effort) == ("gpt-6-luna", "low")
+    assert (config.look_model, config.look_reasoning_effort) == ("claude-sonnet-5-5", "low")
     assert {room_step.room_path(config, t.value) for t in RoomType} == {"reconcile"}
 
 

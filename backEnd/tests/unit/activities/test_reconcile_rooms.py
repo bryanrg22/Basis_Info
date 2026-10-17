@@ -58,7 +58,9 @@ from .conftest import Env
 
 pytestmark = pytest.mark.integration
 
-MODEL = "claude-sonnet-5-5"
+# Production defaults (EVAL_REPORT 31): luna reconciles, Sonnet does the material second look.
+MODEL = "gpt-6-luna"
+MATERIALS_MODEL = "claude-sonnet-5-5"
 USAGE = Usage(input_tokens=1000, output_tokens=200)
 
 
@@ -374,7 +376,7 @@ async def test_the_second_look_corrects_a_wallpaper_wainscot(
     chat = ModelKeyedProvider(
         turns={
             (MODEL, "room_inventory"): [hall_inventory()],
-            (MODEL, "surface_material"): [
+            (MATERIALS_MODEL, "surface_material"): [
                 ScriptedTurn(
                     parsed=ModelSurfaceMaterial(
                         material=SurfaceMaterial.WALLPAPER, confidence=0.9, evidence="seams"
