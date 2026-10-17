@@ -253,7 +253,11 @@ class Settings(BaseSettings):
     # per-photo components, as before section 16.
     room_reconcile: bool = True
     room_prompt_version: str = Field(default="v3", pattern=r"^v[1-9]\d*$")
-    room_model: str = "claude-sonnet-5-5"
+    # gpt-6-luna reconciles within the noise of Sonnet at about half the room step's cost
+    # (EVAL_REPORT 28.2 and 31; the production configuration, luna at the reconciler's 4000
+    # token budget with Sonnet keeping the second look, was re-run and matched). Materials
+    # stay on ROOM_MATERIALS_MODEL because they decide IRS buckets.
+    room_model: str = "gpt-6-luna"
     room_reasoning_effort: Effort = "low"
     room_single_photo: Literal["per_photo", "reconcile"] = "per_photo"
     room_materials: Literal["none", "disagree", "sensitive"] = "sensitive"

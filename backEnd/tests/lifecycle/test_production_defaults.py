@@ -4,7 +4,7 @@ The suite's baseline (tests/conftest.py) pins the pre-12.1 photo step with fusio
 room step off, so the other lifecycle tests keep their arithmetic. Here the settings are
 the defaults ``Settings`` ships (checked field by field against the class defaults):
 gpt-6.1-sol decomposed photos with per-class count fusion on claude-opus-5-5 (EVAL_REPORT
-15), the room step on claude-sonnet-5-5 with room_inventory/v3 (16), and the text steps on
+15), the room step on gpt-6-luna with room_inventory/v3 (16, 31), and the text steps on
 gpt-6-luna and claude-sonnet-5-5 (17). Providers are the offline fixtures; rows, storage,
 the Temporal server and the activities are real.
 
@@ -126,7 +126,7 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
         ("gpt-6.1-sol", "photo_countables/v3"): 3,
         ("gpt-6-luna", "photo_surfaces/v2"): 3,  # EVAL_REPORT 28.1
         ("claude-opus-5-5", "photo_countables/v3"): 3,
-        ("claude-sonnet-5-5", "room_inventory/v3"): 1,  # the two-photo Kitchen only
+        ("gpt-6-luna", "room_inventory/v3"): 1,  # the two-photo Kitchen only (EVAL_REPORT 31)
         # EVAL_REPORT 27: the fallback asks for every box Azure DI left empty, once.
         ("gpt-6-luna", "appraisal_field_fallback/v1"): 1,
     }
