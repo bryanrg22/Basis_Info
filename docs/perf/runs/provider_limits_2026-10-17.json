@@ -1,0 +1,50 @@
+{
+ "claude-opus-5-5": {
+  "anthropic-ratelimit-input-tokens-limit": "10000000",
+  "anthropic-ratelimit-input-tokens-remaining": "10000000",
+  "anthropic-ratelimit-input-tokens-reset": "2026-10-17T17:27:42Z",
+  "anthropic-ratelimit-output-tokens-limit": "2000000",
+  "anthropic-ratelimit-output-tokens-remaining": "2000000",
+  "anthropic-ratelimit-output-tokens-reset": "2026-10-17T17:27:42Z",
+  "anthropic-ratelimit-requests-limit": "10000",
+  "anthropic-ratelimit-requests-remaining": "9999",
+  "anthropic-ratelimit-requests-reset": "2026-10-17T17:27:41Z",
+  "anthropic-ratelimit-tokens-limit": "12000000",
+  "anthropic-ratelimit-tokens-remaining": "12000000",
+  "anthropic-ratelimit-tokens-reset": "2026-10-17T17:27:42Z",
+  "status": 200
+ },
+ "claude-sonnet-5-5": {
+  "anthropic-ratelimit-input-tokens-limit": "10000000",
+  "anthropic-ratelimit-input-tokens-remaining": "10000000",
+  "anthropic-ratelimit-input-tokens-reset": "2026-10-17T17:27:42Z",
+  "anthropic-ratelimit-output-tokens-limit": "2000000",
+  "anthropic-ratelimit-output-tokens-remaining": "2000000",
+  "anthropic-ratelimit-output-tokens-reset": "2026-10-17T17:27:43Z",
+  "anthropic-ratelimit-requests-limit": "10000",
+  "anthropic-ratelimit-requests-remaining": "9999",
+  "anthropic-ratelimit-requests-reset": "2026-10-17T17:27:42Z",
+  "anthropic-ratelimit-tokens-limit": "12000000",
+  "anthropic-ratelimit-tokens-remaining": "12000000",
+  "anthropic-ratelimit-tokens-reset": "2026-10-17T17:27:42Z",
+  "status": 200
+ },
+ "gpt-6-luna": {
+  "status": 200,
+  "x-ratelimit-limit-requests": "10000",
+  "x-ratelimit-limit-tokens": "10000000",
+  "x-ratelimit-remaining-requests": "9999",
+  "x-ratelimit-remaining-tokens": "9999996",
+  "x-ratelimit-reset-requests": "6ms",
+  "x-ratelimit-reset-tokens": "0s"
+ },
+ "gpt-6.1-sol": {
+  "status": 200,
+  "x-ratelimit-limit-requests": "10000",
+  "x-ratelimit-limit-tokens": "4000000",
+  "x-ratelimit-remaining-requests": "9999",
+  "x-ratelimit-remaining-tokens": "3999996",
+  "x-ratelimit-reset-requests": "6ms",
+  "x-ratelimit-reset-tokens": "0s"
+ }
+}

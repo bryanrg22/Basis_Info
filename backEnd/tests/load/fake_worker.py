@@ -14,7 +14,9 @@ unchanged: real providers, real spend. Use it only for the capped probe (LOAD_TE
 section 6).
 
 Environment: ``LOAD_LATENCY_SCALE`` (default 1.0) multiplies every fake latency;
-``LOAD_LATENCY_PROFILE`` names another profile JSON (default: the 27.8 live study).
+``LOAD_LATENCY_PROFILE`` names another profile JSON (default: the 27.8 live study);
+``LOAD_PROVIDER_LIMITS`` (a ``tooling/load/provider_limits.py`` JSON) emulates our accounts'
+rate limits (``rate_limits.py``).
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from load_fakes import (  # noqa: E402
     LatencyModel,
     LoadProvider,
 )
+from rate_limits import RateLimits  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: E402
 
 from basis.activities import Deps  # noqa: E402
@@ -66,12 +69,19 @@ def load_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     sessionmaker = create_sessionmaker(engine)
     storage, bucket = default_storage(settings)
     registry = Bm25Registry()
-    pool = ProviderPool([LoadProvider(latency)], concurrency=settings.llm_concurrency)
+    limits_file = os.environ.get("LOAD_PROVIDER_LIMITS")
+    limits = (
+        RateLimits.from_file(Path(limits_file), scale=latency.scale or 1.0) if limits_file else None
+    )
+    pool = ProviderPool(
+        [LoadProvider(latency, limits=limits)], concurrency=settings.llm_concurrency
+    )
     logger.warning(
-        "LOAD-TEST WORKER: fake providers (profile %s, latency scale %s, llm_concurrency %d, "
-        "localizer_concurrency %d)",
+        "LOAD-TEST WORKER: fake providers (profile %s, latency scale %s, provider limits %s, "
+        "llm_concurrency %d, localizer_concurrency %d)",
         latency.profile.get("source"),
         latency.scale,
+        limits_file or "off",
         settings.llm_concurrency,
         settings.localizer_concurrency,
     )

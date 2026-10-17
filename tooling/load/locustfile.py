@@ -86,6 +86,11 @@ def _options(parser: Any) -> None:
         help="LocalStorage root of the API (local-upload:// URLs); default as the API's",
     )
     parser.add_argument("--reader-pool", type=int, default=25, help="engineers readers act as")
+    parser.add_argument(
+        "--upload-only",
+        action="store_true",
+        help="create and upload, never start (no model spend on a real-provider stack)",
+    )
     parser.add_argument("--uid-prefix", default="load-eng", help="engineer uid prefix")
 
 
@@ -307,6 +312,10 @@ class StudyEngineer(Engineer, HttpUser):
             self._upload(sid, "photo", photo.filename, "image/jpeg", data)
         record["uploads_s"] = round(time.monotonic() - t_create, 2)
         milestone(self.environment, "uploads", record["uploads_s"])
+        if opts.upload_only:
+            record["execution"] = "COMPLETED"  # the step's work is the upload
+            record["upload_only"] = True
+            return
 
         r = self.call("POST", f"/v1/studies/{sid}/start", "POST /v1/studies/{id}/start", ok=(202,))
         if r.status_code != 202:

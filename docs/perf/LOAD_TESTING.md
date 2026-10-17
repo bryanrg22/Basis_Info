@@ -176,9 +176,13 @@ STUDY_BUDGET_USD=4 LLM_CONCURRENCY=64 LOCUST_ARGS="--photos 20" \
 ```
 
 Against staging (no local processes; the stack is Cloud Run + Cloud SQL + Temporal):
-`tooling/load/run_remote.sh` (EVAL_REPORT 31.7 has the exact command). Staging needs real
-Firebase ID tokens (`--token-file`, a JSON `{uid: token}` for test users) because the API
-refuses the auth emulator outside dev and test, and uploads go to the GCS signed URLs.
+`tooling/load/run_remote.sh` (EVAL_REPORT 31.11 has the exact commands). Staging needs real
+Firebase ID tokens (`TOKEN_FILE`, a JSON `{uid: token}` minted by
+`tooling/load/mint_tokens.py`, which creates the `load-eng-<n>` test users in the
+project) because the API refuses the auth emulator outside dev and test, and uploads go
+to the GCS signed URLs. The staging worker runs the real providers, so a study step there
+costs about $6.40 a study: run the API steps with `--upload-only` (create, upload,
+confirm; never start) at any concurrency, and the study steps small and capped.
 
 Provider limits for our accounts (one tiny request per model, headers only):
 

@@ -272,3 +272,41 @@ def test_unique_bytes_keep_the_prepared_image() -> None:
     assert a != b
     assert prepare_image(a).sha256 == prepare_image(b).sha256 == prepare_image(data).sha256
     assert analysis_for_image(prepare_image(a).sha256).room_type.value == "kitchen"
+
+
+async def test_with_limits_a_spent_model_answers_429_through_the_pool() -> None:
+    from rate_limits import RateLimits
+
+    from basis.llm.errors import ProviderRateLimited
+
+    profile = {
+        **PROFILE_DATA,
+        "llm": {
+            "classify@claude-sonnet-5-5": {
+                "activity": "a",
+                "calls": 1,
+                "latency_ms": [0],
+                "input_tokens": 600,
+                "output_tokens": 1,
+            }
+        },
+    }
+    limits = RateLimits.from_headers(
+        {"claude-sonnet-5-5": {"anthropic-ratelimit-input-tokens-limit": "1000"}}
+    )
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    limits.sleep = no_wait
+    pool = ProviderPool([LoadProvider(LatencyModel(profile), limits=limits)], concurrency=4)
+    req = request(
+        "classify/v1",
+        "claude-sonnet-5-5",
+        Classification,
+        messages=(Message(role="user", content="c"),),
+    )
+    await pool.complete(req)  # 600 of 1,000
+    with pytest.raises(ProviderRateLimited):
+        await pool.complete(req)  # 600 more do not fit, still not after the one retry
+    assert limits.throttled == {"claude-sonnet-5-5": 1}

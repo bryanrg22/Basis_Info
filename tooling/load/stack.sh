@@ -42,7 +42,7 @@ start() {  # name, command...
 case "$cmd" in
   up)
     (cd "$BACKEND" && "$PY" tests/load/setup_db.py) | tee "$run_dir/setup.log"
-    env | grep -E '^(LLM_CONCURRENCY|CLASSIFY_CONCURRENCY|PHOTO_CONCURRENCY|LOCALIZER_CONCURRENCY|DB_POOL_SIZE|LOAD_LATENCY_SCALE|STUDY_BUDGET_USD|RATE_LIMIT_[A-Z_]+|VISION_[A-Z_]+|LLM_PRIMARY)=' \
+    env | grep -E '^(LLM_CONCURRENCY|CLASSIFY_CONCURRENCY|PHOTO_CONCURRENCY|LOCALIZER_CONCURRENCY|DB_POOL_SIZE|LOAD_LATENCY_SCALE|LOAD_PROVIDER_LIMITS|STUDY_BUDGET_USD|RATE_LIMIT_[A-Z_]+|VISION_[A-Z_]+|LLM_PRIMARY)=' \
       >"$run_dir/settings.env" || true
     echo "MODE=$mode" >>"$run_dir/settings.env"
     start api "$PY" -m uvicorn basis.api.main:app --host 127.0.0.1 --port "$API_PORT"

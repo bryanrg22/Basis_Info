@@ -51,6 +51,7 @@ from llm_fakes import (
     photo_labels,
 )
 from pydantic import BaseModel
+from rate_limits import RateLimits
 
 from basis.classify.schemas import CitationClaim, Classification
 from basis.extraction.azure_di import AzureDiResult
@@ -314,11 +315,17 @@ def classifier_turn(request: ChatRequest) -> tuple[Classification | None, tuple[
 
 @dataclass
 class LoadProvider:
-    """A :class:`~basis.llm.provider.ChatProvider` for every call the worker makes."""
+    """A :class:`~basis.llm.provider.ChatProvider` for every call the worker makes.
+
+    With ``limits`` (``rate_limits.RateLimits``, ``LOAD_PROVIDER_LIMITS``) a call first takes
+    its share of the model's emulated rate limits, and a spent limit answers 429 as the real
+    provider does (one retry after the Retry-After, then ``ProviderRateLimited``).
+    """
 
     latency: LatencyModel
     name: str = "load-fake"
     calls: Counter[str] = field(default_factory=Counter)
+    limits: RateLimits | None = None
 
     def answer(self, request: ChatRequest) -> tuple[BaseModel | None, tuple[ToolCall, ...]]:
         model = request.response_model
@@ -342,6 +349,9 @@ class LoadProvider:
         family = request.prompt_version.split("/", 1)[0]
         seconds, usage = self.latency.llm_call(family, request.model)
         parsed, tool_calls = self.answer(request)
+        if self.limits is not None:
+            vendor = "anthropic" if request.model.startswith("claude-") else "openai"
+            await self.limits.acquire(request.model, usage, vendor)
         self.calls[f"{family}@{request.model}"] += 1
         await asyncio.sleep(seconds)
         return ChatResponse(

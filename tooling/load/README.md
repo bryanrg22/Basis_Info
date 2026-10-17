@@ -13,6 +13,7 @@ EVAL_REPORT section 31.
 | `run_remote.sh` | one step against a deployed stack (staging) |
 | `sampler.py` | Temporal backlog, worker slots and schedule-to-start, Postgres, CPU/RSS every 5 s |
 | `report.py` | the summary of a run directory |
+| `mint_tokens.py` | Firebase ID tokens for the `load-eng-<n>` users on a deployed stack (creates them) |
 | `provider_limits.py`, `ceilings.py` | our accounts' rate limits and the studies/hour each provider allows |
 
 The fake-provider worker and its latency profile are in `backEnd/tests/load/`.
