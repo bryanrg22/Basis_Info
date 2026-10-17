@@ -257,6 +257,8 @@ class AnalyzePhoto:
             heartbeat=heartbeat,
             reasoning_effort=settings.vision_reasoning_effort,
             fusion=fusion_config(settings),
+            surfaces_model=settings.vision_surfaces_model,
+            surfaces_max_tokens=settings.vision_surfaces_output_budget,
         )
         try:
             async with heartbeating("analyzing"):

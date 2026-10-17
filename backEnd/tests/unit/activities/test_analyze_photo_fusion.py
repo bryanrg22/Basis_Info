@@ -32,6 +32,7 @@ from .conftest import Env
 pytestmark = pytest.mark.integration
 
 BASE = "gpt-6.1-sol"
+SURFACES_MODEL = "gpt-6-luna"  # EVAL_REPORT 28.1
 SECOND = "claude-opus-5-5"
 USAGE = Usage(input_tokens=1000, output_tokens=200)
 
@@ -41,6 +42,7 @@ def production(deps: Deps, llm: Any = None) -> Deps:
     settings = deps.settings.model_copy(
         update={
             "vision_model": BASE,
+            "vision_surfaces_model": SURFACES_MODEL,
             "vision_photo_mode": "decomposed",
             "vision_count_fusion": "per_class",
         }
@@ -102,7 +104,7 @@ def keyed(second: list[ScriptedTurn]) -> ModelKeyedProvider:
     return ModelKeyedProvider(
         turns={
             (BASE, "photo_countables"): [ScriptedTurn(parsed=kitchen(6, 2), usage=USAGE)],
-            (BASE, "photo_surfaces"): [ScriptedTurn(parsed=SURFACES, usage=USAGE)],
+            (SURFACES_MODEL, "photo_surfaces"): [ScriptedTurn(parsed=SURFACES, usage=USAGE)],
             (SECOND, "photo_countables"): second,
         }
     )
@@ -131,7 +133,7 @@ async def test_the_production_default_fuses_three_calls(
     fixture = FixtureVisionProvider()
     prod = production(deps, fixture)
     output = await activity_env.run(AnalyzePhoto(prod).run, photo_input(seeded))
-    assert sorted(r.model for r in fixture.requests) == sorted([BASE, BASE, SECOND])
+    assert sorted(r.model for r in fixture.requests) == sorted([BASE, SURFACES_MODEL, SECOND])
     assert output.cost_usd == pytest.approx(3 * PHOTO_COST_USD)
     assert not output.needs_review
     assert len(await calls(prod, seeded)) == 3
@@ -169,7 +171,7 @@ async def test_fused_counts_are_written_and_both_answers_stored(
     }
     assert stored["fusion"]["classes"]["electrical_outlet"]["model"] == BASE
     assert stored["fusion"]["second_answer"]["components"][0]["count"] == 10
-    assert [c["model"] for c in stored["calls"]] == [BASE, BASE, SECOND]
+    assert [c["model"] for c in stored["calls"]] == [BASE, SURFACES_MODEL, SECOND]
     assert len(stored["responses"]) == 3
 
 

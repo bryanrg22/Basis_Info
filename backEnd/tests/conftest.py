@@ -21,6 +21,10 @@ os.environ["GIT_SHA"] = "test-sha"  # tests are hermetic: CI exports the real sh
 # tests, and tests/unit/config proves the production defaults with these unset.
 os.environ.setdefault("VISION_PHOTO_MODE", "single")
 os.environ.setdefault("VISION_MODEL", "gpt-4o-mini")
+# Before EVAL_REPORT 28.1 both decomposed calls ran on VISION_MODEL; the baseline keeps that
+# (the surfaces call on the baseline's vision model), and the gpt-6-luna default has its own
+# tests (tests/unit/config, test_production_defaults.py and the production activity tests).
+os.environ.setdefault("VISION_SURFACES_MODEL", "gpt-4o-mini")
 # Likewise the count fusion (EVAL_REPORT section 15) and the room step (16.5) are off in the
 # baseline; tests/lifecycle/test_production_defaults.py runs the whole workflow with every
 # production default, and each step has its own unit and activity tests.

@@ -1655,17 +1655,22 @@ choice should be re-measured on the held-out study before it is trusted further.
 | Step | Model | Prompt | Effort | Settings (default) | Section | Measured | Previous behaviour |
 |---|---|---|---|---|---|---|---|
 | Per-photo countables | gpt-6.1-sol | `photo_countables/v3` (19; v2 before) | low | `VISION_MODEL`, `VISION_PHOTO_MODE=decomposed`, `VISION_REASONING_EFFORT=low`, budget 6000 | 11.2, 12.1 | (see the fusion row) | `VISION_PHOTO_MODE=single`, `VISION_MODEL=gpt-4o-mini` |
-| Per-photo surfaces and room type | gpt-6.1-sol | `photo_surfaces/v2` (19; v1 before) | low | as above | 11, 12.1 | merged with the countables call (`basis/vision/merge.py`) | as above |
+| Per-photo surfaces and room type | gpt-6-luna (28.1; gpt-6.1-sol before) | `photo_surfaces/v2` (19; v1 before) | low | `VISION_SURFACES_MODEL`; effort and budget as above | 11, 12.1, 28.1 | merged with the countables call (`basis/vision/merge.py`); room accuracy and surface F1 equal to gpt-6.1-sol, $0.019 against $0.336 per 52 photos (28.1) | `VISION_SURFACES_MODEL=gpt-6.1-sol` |
 | Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
-| Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
+| Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5, 28.2 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input); 28.2: gpt-6-luna matches on counts, not on the second look's materials, so kept | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
 | Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 (the room model) | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive` | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
 | Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
 | Extraction fallback | gpt-6-luna | `appraisal_field_fallback/v1` | low | `TEXT_MODEL`, `EXTRACTION_REASONING_EFFORT`, budget 8000 (`EXTRACTION_FALLBACK_MAX_TOKENS`) | 17.1, 17.3 | 0.924 of 75 fields, 12 of 12 critical, $0.0024 per study | `TEXT_MODEL=gpt-4o-mini` (budget 800) |
-| Asset classification (residual tool loop) | claude-sonnet-5-5 | `classify/v1` | low | `CLASSIFY_MODEL`, `CLASSIFY_REASONING_EFFORT` | 17.2, 17.3 | 0.688 bucket accuracy, 96% verified citations, $1.25 per 46 rows | `CLASSIFY_MODEL=gpt-4o-mini` |
+| Asset classification (residual tool loop) | claude-sonnet-5-5 | `classify/v1` | low | `CLASSIFY_MODEL`, `CLASSIFY_REASONING_EFFORT` | 17.2, 17.3, 28.3 | 0.688 bucket accuracy, 96% verified citations, $1.25 per 46 rows; 28.3: no cheaper model matched (gpt-6-luna, gpt-5.6-luna, gpt-5.6-terra), so kept | `CLASSIFY_MODEL=gpt-4o-mini` |
 
 Notes on the wiring (code, not measurement):
 
+- Since 28.1 the decomposed step's surfaces call has its own model (`VISION_SURFACES_MODEL`,
+  `basis.vision.analyze.VisionContext.surfaces_model`); `VISION_MODEL` is the countables call
+  and the single-call step. Switching to the Opus 5.5 fallback of 12.1 therefore takes both
+  settings (`VISION_MODEL=claude-opus-5-5`, `VISION_SURFACES_MODEL=claude-opus-5-5`); with
+  `VISION_MODEL` alone, the surfaces call stays on gpt-6-luna.
 - Fusion is a third call in the decomposed step, concurrent with the other two. If Opus stays
   unavailable after retries (or is unusable, not configured, over budget, or slower than 80 s),
   the photo keeps gpt-6.1-sol's counts and is flagged `count_fusion_fallback:<why>`; it never
@@ -3474,3 +3479,303 @@ uv run python ../docs/review_2026-10-15/repro/extraction_replay.py \
 uv run python ../docs/review_2026-10-15/repro/cost_review_load.py ASSETS_JSON \
     --cost-table ~/basis-eval-data/costs/unit_costs_rsmeans_2020.json
 ```
+
+## 28. Cost sweep: the cheapest model that matches, step by step (2026-10-16)
+
+Question (Bryan's rule): at every step where accuracy is not the binding constraint, which is
+the cheapest model whose measured accuracy is not below the best? The exception is the
+per-photo identification and counting of components (the countables call on gpt-6.1-sol and
+the per-class fusion call on Opus 5.5, sections 12.1 and 15), which was not touched. Three
+steps were re-run: the per-photo surfaces-and-room-type call, the room step's reconciler and
+material second look, and the asset classifier. Candidates: the models of sections 12 to 17
+plus three new on the account, gpt-5.6-luna ($0.20 / $1.20 per million tokens in / out),
+gpt-5.6-terra ($2 / $12) and gpt-5.6-sol ($4 / $20) (developers.openai.com/api/docs/pricing,
+standard tier, short context, checked 2026-10-16; now rows of `basis.llm.cost` with tests).
+gpt-5.6-sol was not run: it costs twice gpt-6.1-sol, which is already the most expensive
+OpenAI model in each comparison below.
+
+Rule, as in 17.3: three repeats per configuration, one change at a time, a paired bootstrap
+(10,000 resamples, 95% interval) over the step's items against the current default, and the
+cheapest candidate whose interval on every measure the product depends on includes zero or
+favours it. One property, so "within the noise" means within the noise of 52 photos, 33 rooms
+or 46 asset rows; every recommendation below needs the held-out study before it is trusted
+further. Every run's `run.json` `models_reported` names only the requested model (Azure
+unset, so nothing fell back), with no provider errors. The tables are
+`docs/review_2026-10-15/repro/cost_sweep_table.py` over the run directories (`cost28_*` and
+`rooms_cmp_*` under `$BASIS_EVAL_DATA_DIR/predictions`).
+
+### 28.1 Surfaces and room type (the decomposed step's second call)
+
+The countables call is fixed (`vision_countables_v2b_gpt61sol`, the run of 12.1); only the
+surfaces call changes, and the room type comes from it (`merge_photo_runs --room-from 2`).
+Measured on both releases of the surfaces prompt: `photo_surfaces/v1` (the prompt of 12.1, so
+the existing gpt-6.1-sol run is the baseline) and `photo_surfaces/v2` (the released prompt
+since section 19; gpt-6.1-sol re-run for the baseline). Low effort, output budget 6000.
+"Surfaces" are the labels of `basis.vision.localize.SURFACE_LABELS` (floors, wall and ceiling
+finishes, trim, roof, siding, site surfaces); report rows and material present are scored on
+the deterministic heuristic room inventory built from each per-photo repeat (no room call, so
+only the surfaces call differs); room-level P / R is that inventory's surface labels against
+the room labels.
+
+| Surfaces call | Room accuracy, mean of 3 | Room pass^3 | Surfaces P / R / F1, per photo | All labels P / R / F1 (repeat 1) | Room-level surfaces P / R | Report rows evidenced (of 38), mean of 3 | Material present (of 8) | Cost per 52 photos | Seconds per photo |
+|---|---|---|---|---|---|---|---|---|---|
+| **v1**: gpt-6.1-sol (12.1, baseline) | 0.891 | 0.865 | 0.580 / 0.772 / 0.663 | 0.66 / 0.82 / 0.73 | 0.707 / 0.869 | 30.3 | 7.3 | $0.329 | 7.7 |
+| v1: gpt-6-luna | 0.897 | 0.846 | 0.655 / 0.719 / 0.685 | 0.70 / 0.79 / 0.75 | 0.788 / 0.820 | 31.3 | 8.0 | **$0.018** | 4.1 |
+| v1: gpt-5.6-luna | 0.885 | 0.846 | 0.607 / 0.746 / 0.669 | 0.68 / 0.80 / 0.73 | 0.725 / 0.865 | 32.0 | 8.0 | $0.036 | 3.6 |
+| **v2**: gpt-6.1-sol (baseline) | 0.872 | 0.865 | 0.588 / 0.804 / 0.679 | 0.66 / 0.83 / 0.74 | 0.721 / 0.919 | 33.0 | 8.0 | $0.336 | 6.8 |
+| **v2: gpt-6-luna** | 0.878 | 0.846 | 0.650 / 0.731 / 0.688 | 0.69 / 0.80 / 0.74 | 0.783 / 0.860 | 32.7 | 8.0 | **$0.019** | 4.1 |
+| v2: gpt-5.6-luna | 0.885 | 0.846 | 0.616 / 0.754 / 0.678 | 0.68 / 0.82 / 0.74 | 0.717 / 0.878 | 33.0 | 8.0 | $0.038 | 3.8 |
+
+Paired differences against gpt-6.1-sol on the same prompt (photos for room accuracy, F1 and
+per-photo P / R; rooms for room-level P / R):
+
+| | Room accuracy | Surfaces F1 per photo | Precision, per photo | Recall, per photo | Room-level precision | Room-level recall |
+|---|---|---|---|---|---|---|
+| v1, gpt-6-luna | +0.006 [-0.058, +0.071] | +0.012 [-0.035, +0.058] | **+0.074** [+0.029, +0.123] | **-0.053** [-0.102, -0.003] | **+0.081** [+0.015, +0.138] | -0.050 [-0.127, +0.018] |
+| v1, gpt-5.6-luna | -0.006 [-0.064, +0.058] | +0.013 [-0.031, +0.057] | +0.027 [-0.018, +0.070] | -0.026 [-0.075, +0.025] | +0.018 [-0.034, +0.072] | -0.005 [-0.059, +0.063] |
+| v2, gpt-6-luna | +0.006 [-0.064, +0.077] | -0.001 [-0.037, +0.034] | **+0.062** [+0.024, +0.103] | **-0.073** [-0.116, -0.032] | **+0.062** [+0.016, +0.101] | -0.059 [-0.139, +0.004] |
+| v2, gpt-5.6-luna | +0.013 [-0.045, +0.077] | -0.021 [-0.079, +0.033] | +0.028 [-0.021, +0.076] | **-0.050** [-0.102, -0.003] | -0.004 [-0.064, +0.054] | -0.041 [-0.095, +0.013] |
+
+Reading:
+
+- gpt-6-luna matches gpt-6.1-sol on room type, on surface F1, on the product measures (report
+  rows 32.7 against 33.0 of 38 on v2, material present 8 of 8) at one eighteenth of the price
+  and in about 60% of the time. It answers 52 photos for $0.019 against $0.336.
+- It is not the same model with a discount: it lists fewer surfaces. Per photo it trades
+  recall for precision, significantly both ways on both prompts (v2: precision +0.06, recall
+  -0.07). The extra misses are ceiling finishes (33 against 24 of 156 records), gutters (9
+  answers over four exterior photos, none for sol) and a few carpets and railings; the false
+  positives it no longer makes are baseboards, sidewalks and stairs listed in photos the
+  labels do not list them for. At the room level, where several photos of one room fill each
+  other's gaps and where the assets come from, the recall loss is -0.06 with an interval that
+  reaches zero ([-0.139, +0.004]), while the precision gain stays significant. The one
+  product-level difference: on one of the three v2 repeats the heuristic inventory has no
+  sidewalk, so the Sidewalks / Curbs row is missed there (pass^3 32 against 33 rows).
+- gpt-5.6-luna is not the safer cheap choice it looked like on v1: on v2 it also loses
+  recall significantly (-0.05) without gpt-6-luna's precision gain, at twice its price.
+- Room type: 19 (gpt-6-luna) and 18 (gpt-5.6-luna) wrong answers of 156 against 20 for sol
+  on v2, of the same kind: the basement bedrooms (as living room, basement or ambiguous) and
+  the mechanical room (as ambiguous; the luna models also say basement there on three
+  answers).
+
+Recommendation: **the surfaces call on gpt-6-luna** (low effort, budget 6000), with the
+countables call kept on gpt-6.1-sol. New setting `VISION_SURFACES_MODEL` (default
+`gpt-6-luna`; `gpt-6.1-sol` restores the previous behaviour); `VISION_REASONING_EFFORT` and
+`VISION_MAX_TOKENS` apply to both calls, and the surfaces call's budget follows its model's
+family when `VISION_MAX_TOKENS` is unset (`Settings.vision_surfaces_output_budget`). The
+recall trade is the thing to watch on the held-out study: if it shows missed surface rows
+there, `VISION_SURFACES_MODEL=gpt-6.1-sol` is one setting away.
+
+### 28.2 Room step: reconciler and material second look
+
+Input: repeat 1 of `vision_decomposed_v2_opus55` for every run, as in 16.5;
+`--room-prompt v3 --single-photo-rooms per-photo --materials sensitive`, low effort, three
+repeats; the reconciler and the second look on the same model unless the row says otherwise.
+The baseline is the recommended run of 16.5 (`rooms16_final_v2_opus55`, Sonnet 5.5). Its count
+MAE is 0.388 here, not section 16's 0.34, because the room labels have since gained the six
+labels of section 19 (half walls, bathroom accessories and the rest), which no per-photo input
+of section 16 lists; every row below is scored against the same current labels, so the
+comparison is like for like (against the label set pinned before that change,
+`work/labels_pre_2026-10-16`, the baseline is 0.342 and gpt-6-luna 0.348, the same paired
+difference). Count measures are the harness's (`other` and loose furniture
+left out on both sides). "Labelled surfaces with the right material": the 20 (room, wall
+finish / wainscoting / tile) pairs whose photos' labels record a material, right when the
+run's most common answer over the repeats is that material (`GOLD_MATERIAL` in the script maps
+the labels' free text, such as `painted_block`, to the enum, `painted_masonry`); three of the
+20 are not listed by any run (the per-photo input misses them).
+
+| Reconciler (= material model) | Count MAE | Exact-count rate | Signed bias | Label F1 | 8 multi-photo rooms: MAE / exact / bias | Report rows (of 38), pass^3 | Material present (of 8) | Labelled surfaces with the right material (of 20) | Cost per run |
+|---|---|---|---|---|---|---|---|---|---|
+| **claude-sonnet-5-5** (16.5, baseline) | 0.388 | 0.68 | +0.00 | 0.87 | 0.56 / 0.61 / -0.09 | 30, 0.79 | 8 | **17** | $0.314 |
+| gpt-6.1-sol | 0.390 | 0.66 | +0.10 | 0.87 | 0.55 / 0.57 / +0.20 | 33, 0.82 | 8 | 14 | $0.263 |
+| gpt-5.6-terra | 0.426 | 0.67 | +0.03 | 0.85 | 0.65 / 0.59 / -0.02 | 31, 0.79 | 8 | 12 | $1.597 |
+| gpt-6-luna | 0.393 | 0.66 | +0.08 | 0.86 | 0.56 / 0.57 / +0.14 | 30, 0.79 | 8 | 14 | **$0.014** |
+| gpt-6-luna, second look on Sonnet 5.5 | 0.437 | 0.65 | +0.05 | 0.86 | 0.69 / 0.53 / +0.05 | 30, 0.79 | 8 | 16 | $0.157 |
+| gpt-5.6-luna | 0.401 | 0.67 | +0.05 | 0.86 | 0.59 / 0.59 / +0.04 | 30, 0.79 | 8 | 12 | $0.030 |
+
+Paired bootstrap over rooms of the per-room count MAE (each room's mean absolute error over
+its labels, averaged over the repeats), candidate minus Sonnet: gpt-6.1-sol +0.016 [-0.024,
++0.067] (multi-photo rooms +0.064 [-0.100, +0.270]); gpt-5.6-terra +0.023 [-0.001, +0.052]
+(multi +0.094 [+0.005, +0.188]); gpt-6-luna +0.003 [-0.025, +0.030] (multi +0.012 [-0.106,
++0.124]); gpt-6-luna with the Sonnet second look +0.021 [-0.003, +0.054] (multi +0.086
+[-0.009, +0.204]); gpt-5.6-luna +0.001 [-0.031, +0.037] (multi +0.005 [-0.129, +0.150]). The
+two gpt-6-luna rows run the same reconciler (the second look changes materials, never
+counts), so their difference is the reconciler's run-to-run noise: 0.393 against 0.437 overall
+and 0.56 against 0.69 on the multi-photo rooms. Pooled over its six repeats, gpt-6-luna minus
+Sonnet is +0.012 [-0.012, +0.040] over all rooms and +0.049 [-0.052, +0.157] over the 8
+multi-photo rooms.
+
+Reading:
+
+- **Counts: every candidate but gpt-5.6-terra is within the noise of Sonnet.** The call only
+  touches the 8 multi-photo rooms (the 25 one-photo rooms take the per-photo analysis), and
+  on 8 rooms the interval is about ±0.15 MAE, so "within the noise" is weak evidence. Section
+  16's finding that a small model makes the inventory worse (gpt-4.1-mini, 0.62 against 0.42)
+  does not repeat with gpt-6-luna: it counts the kitchen's cabinet units as Sonnet does (21 on
+  every repeat against 19 to 21; 18 in the labels) and the exterior's windows at 20 to 26 on
+  five of its six repeats (Sonnet 20; 30 in the labels), with one repeat at 11, the run-to-run
+  noise above. gpt-5.6-luna counts the kitchen at 12 on every repeat. gpt-5.6-terra is the
+  worst reconciler (exterior windows 11 to 16) and the most expensive: $1.60 per run, five
+  times Sonnet, from its price ($12 per million output tokens) and 26,600 reasoning tokens
+  over the three repeats' reconciliation calls against 13,200 for gpt-6-luna and 4,600 for
+  gpt-6.1-sol.
+- **Materials: Sonnet's second look is the best measured.** 17 of 20 labelled surfaces right,
+  against 14 for gpt-6.1-sol and gpt-6-luna and 12 for the gpt-5.6 models. The cheaper
+  models' errors are the ones section 16 named as the trap: painted walls called `wallpaper`
+  (the front entrance and the stair hall on sol, the stair hall on luna), which would evidence
+  Wall Coverings on a painted wall; the painted block bedroom as `brick` (sol) or `other`
+  (luna); the basement bath's painted wainscot as `ceramic` (luna). The hall's wallpaper
+  wainscot, the surface behind the Wall Coverings row, is right on every model but
+  gpt-5.6-luna, which calls it `wood`, the error gpt-4.1-mini made in section 16. Report rows
+  evidenced do not separate the runs (presence is checked, not the material's correctness),
+  which is why the material column is the one to read here.
+- **The cheapest configuration that matches on both is gpt-6-luna for the reconciliation and
+  Sonnet 5.5 for the second look**: counts within the noise (above), 16 of 20 materials (the
+  one difference from Sonnet's 17: the upstairs access-stair tile, answered `fabric` on most
+  repeats of this run and `ceramic` on Sonnet's),
+  half the price ($0.157 against $0.314 per run, of which the second looks are $0.148).
+
+Recommendation: **no change to the default in this section's PR**. The production room step
+runs the reconciler and the second look on one model (`ROOM_MODEL`), so the configuration that
+matches needs a `ROOM_MATERIALS_MODEL` setting in the room step, which another session is
+rewriting at the same time (the room-call stage of 26.10); moving `ROOM_MODEL` to gpt-6-luna
+alone would save $0.30 per study but lose three of the 17 right materials. The split is a
+follow-up: one setting, default `claude-sonnet-5-5`, with `ROOM_MODEL=gpt-6-luna`, saving
+about $0.16 per study.
+
+### 28.3 Asset classification
+
+`evals.predict_assets --repeats 3 --max-tokens 6000`, the 46 rows of `assets`, the production
+model path (residual tool loop, `classify/v1`, citation verification, review policy) with the
+rules table and cache bypassed, as in 17.2. The baseline was re-run (Sonnet 5.5, low effort) on
+this branch's code, since the classifier, the retrieval code and `asset_class` (section 24)
+changed after 17.2; its numbers reproduce 17.2 (bucket 0.696 against 0.688, citation validity
+over three repeats 0.964 against 0.970). OpenAI models run at reasoning effort `none`:
+gpt-5.6-luna, like gpt-6-luna and gpt-5.4-mini in 17.2, answers 400 "Function tools with
+reasoning_effort are not supported ... in /v1/chat/completions" at `low` (checked on one row),
+so effort `none` is the only configuration production can run without the Responses API.
+
+The harness's `citation_validity` and `rows_with_verified_citation` are repeat 1 (as in 17.2);
+both are shown over the three repeats too, and the paired comparisons use the three-repeat
+values.
+
+| Model | effort | Bucket right, repeat 1 | mean of 3 | pass^3 | macro-F1, repeat 1 | Citations verified, repeat 1 / all 3 | Rows with a verified citation, repeat 1 / mean of 3 | Needs review, mean of 3 | Loop failures (of 138) | Cost per study (46 rows) | Seconds per row |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **claude-sonnet-5-5** (re-run, baseline) | low | 0.717 | 0.696 | 0.652 | 0.704 | 0.942 / **0.964** | 0.913 / 0.942 | **0.43** | 0 | $1.282 | 5.1 |
+| claude-sonnet-5-5 (17.2) | low | 0.674 | 0.688 | 0.630 | 0.600 | 0.964 / 0.970 | 0.957 / 0.957 | 0.46 | 0 | $1.247 | 5.9 |
+| claude-opus-5-5 (17.2) | low | 0.696 | 0.703 | 0.696 | 0.541 | 0.959 / 0.982 | 1.000 / 1.000 | 0.36 | 0 | $1.919 | 9.1 |
+| gpt-6-luna (with 24's fix) | none | 0.674 | 0.652 | 0.630 | 0.522 | 0.914 / 0.946 | 0.935 / 0.957 | 0.55 | **0** | **$0.052** | 6.2 |
+| gpt-5.6-luna | none | 0.739 | **0.717** | 0.674 | 0.584 | 0.932 / 0.884 | 0.957 / 0.957 | 0.43 | 0 | $0.083 | 5.2 |
+| gpt-5.6-terra | none | 0.696 | 0.696 | 0.652 | 0.651 | 0.924 / 0.933 | 0.935 / 0.957 | 0.51 | 0 | $0.639 | 5.2 |
+
+Paired over the 46 rows, candidate minus the Sonnet re-run (bucket right, rows with a
+verified citation and needs review as per-row means over the repeats; citation validity as
+verified / claimed pooled over the resampled rows):
+
+| | Bucket right | Citation validity | Rows with a verified citation | Needs review |
+|---|---|---|---|---|
+| gpt-6-luna | -0.043 [-0.109, +0.000] | -0.018 [-0.061, +0.024] | +0.014 [-0.036, +0.065] | **+0.123** [+0.014, +0.239] |
+| gpt-5.6-luna | +0.022 [-0.022, +0.072] | **-0.080** [-0.132, -0.029] | +0.014 [-0.043, +0.072] | +0.007 [-0.116, +0.138] |
+| gpt-5.6-terra | -0.000 [-0.058, +0.058] | -0.031 [-0.076, +0.013] | +0.014 [-0.036, +0.072] | +0.080 [-0.029, +0.188] |
+| claude-opus-5-5 (17.2) | +0.007 [-0.051, +0.072] | +0.017 [-0.015, +0.053] | **+0.058** [+0.014, +0.109] | -0.065 [-0.145, +0.007] |
+| claude-sonnet-5-5 (17.2), same configuration | -0.007 [-0.036, +0.014] | +0.006 [-0.026, +0.043] | +0.014 [-0.036, +0.072] | +0.036 [-0.014, +0.087] |
+
+Reading:
+
+- **gpt-6-luna with section 24's fix**: 0 loop failures (6 in 17.2), as expected; bucket
+  accuracy 0.652, at the edge of significance below Sonnet (-0.043 [-0.109, +0.000]), and it
+  sends significantly more rows to review (55% against 43%, +12 points, about 34 more of the
+  280 assets of a live study, 27.8). Its own doubts drive that: 69 of its 138 answers flag
+  themselves, against Sonnet's 54 (unverified citations 10 against 9). Cheapest by far
+  ($0.05 per 46 rows) but not matching.
+- **gpt-5.6-luna has the best bucket accuracy measured (0.717) and fails on citations.** 88%
+  of its citations pass the production check against Sonnet's 96%, significantly lower: 28
+  of its 138 answers carry an unverified citation (Sonnet 9); of the 27 citations dropped, 16
+  quote an excerpt that is not on the cited chunk and 7 one too short to check. An unverified
+  citation is never shown as verified (it sends the row to review), so the risk is review
+  work and a weaker evidence pack rather than a wrong citation reaching the engineer; but the
+  citation is the product's defence of every asset, so a model that cites less reliably does
+  not match.
+- **gpt-5.6-terra is within the noise of Sonnet on every measure, at half the price** ($0.64
+  against $1.28 per 46 rows), and its point estimates are worse on both product measures:
+  citation validity 0.933 against 0.964 (unverified citations 18 against 9) and needs review
+  51% against 43%. The interval on review load is mostly positive ([-0.03, +0.19]); its point
+  estimate is about 22 more rows to review on a live study's 280 assets, against about $2
+  saved at the live study's classifier spend (27.8: $3.99), so the switch pays only if an
+  engineer reviews a row for less than about $0.09.
+- Sonnet's re-run reproduces 17.2 within the noise (17.2 minus the re-run: bucket -0.007,
+  citation validity +0.006), so the comparison is not distorted by the code that changed
+  since.
+
+Recommendation: **keep claude-sonnet-5-5 at low effort.** No cheaper model matched on the
+measures the product depends on: gpt-6-luna on review load, gpt-5.6-luna on citation validity,
+and gpt-5.6-terra is not shown to be worse but is worse on both product measures' point
+estimates at a saving smaller than its review cost. If spend comes to matter more than review
+load, gpt-5.6-terra (`CLASSIFY_MODEL=gpt-5.6-terra`, `CLASSIFY_REASONING_EFFORT=none`) is the
+candidate to re-measure on the held-out study. The other lever is the Responses API in the
+OpenAI provider (17.3's follow-up): it would let the OpenAI models run the loop with
+reasoning, which none of these rows had.
+
+### 28.4 Recommended default per step, and the cost per study
+
+| Step | Before | After | Section | Cost per study, before → after |
+|---|---|---|---|---|
+| Per-photo countables and count fusion | gpt-6.1-sol low + Opus 5.5 medium per class | unchanged (accuracy binds) | 12.1, 15 | unchanged |
+| **Per-photo surfaces and room type** | gpt-6.1-sol low | **gpt-6-luna low** (`VISION_SURFACES_MODEL`) | 28.1 | $0.336 → **$0.019** per 52 photos |
+| Room step, reconciliation | Sonnet 5.5 low | unchanged; gpt-6-luna matches once the second look has its own setting (follow-up) | 28.2 | $0.314 per run (→ $0.157 with the follow-up) |
+| Room step, material second look | Sonnet 5.5 low | unchanged (best measured) | 28.2 | (in the row above) |
+| Extraction fallback | gpt-6-luna low | unchanged (17.1: cheapest and best) | 17.1 | $0.0024 |
+| Asset classification | Sonnet 5.5 low | unchanged (no cheaper model matched) | 28.3 | $1.28 per 46 rows ($3.99 live, 27.8) |
+
+On the live study of 27.8 ($6.75), the surfaces change saves about $0.32 (the gpt-6.1-sol
+surfaces calls on 52 photos), so about $6.43 per study, and about $6.27 with the room-step
+follow-up. These are offline per-step costs applied to the live total, not a new live run.
+The steps that cost the most per study (count fusion on Opus and the classifier on Sonnet) are
+the ones where accuracy binds or where no cheaper model matched.
+
+Spend for this section: $8.07 recorded in the runs' `run.json` (OpenAI $3.78: assets
+gpt-5.6-terra $1.92, gpt-5.6-luna $0.25, gpt-6-luna $0.16; surfaces gpt-6.1-sol v2 $1.01,
+gpt-5.6-luna $0.11 + $0.11, gpt-6-luna $0.05 + $0.06; rooms gpt-5.6-luna $0.09 and
+gpt-6-luna $0.03 of the split run; Anthropic $4.29: the Sonnet assets re-run $3.85 and the
+split run's second looks $0.44), plus about $0.05 of one-row and one-photo smoke checks. The
+three `rooms_cmp_*` runs (gpt-6.1-sol $0.79, gpt-6-luna $0.04, gpt-5.6-terra $4.79) were made
+by the orchestrating session and are reused here.
+
+Commands (from `backEnd/`, `BASIS_ENV=dev`, OpenAI and Anthropic keys as in section 14,
+Azure unset):
+
+```bash
+P=~/basis-eval-data/predictions
+# 28.1 surfaces call (v1 and v2), then merged with the fixed countables run
+python -m evals.predict_photos --photos ~/basis-eval-data/inputs/photos \
+    --out $P/cost28_surfaces_v2_gpt6luna --repeats 3 --concurrency 4 \
+    --prompt-name photo_surfaces --prompt v2 --model gpt-6-luna --reasoning-effort low --max-tokens 6000
+python -m evals.merge_photo_runs --runs $P/vision_countables_v2b_gpt61sol \
+    $P/cost28_surfaces_v2_gpt6luna --room-from 2 --out $P/cost28_decomposed_v2b_sol_surfv2_gpt6luna
+# 28.2 room step (the split run; the others drop --materials-model)
+python -m evals.predict_rooms --photos ~/basis-eval-data/inputs/photos \
+    --out $P/cost28_rooms_gpt6luna_matsonnet --aliases ~/basis-eval-data/labels/room_aliases_v1.json \
+    --per-photo $P/vision_decomposed_v2_opus55 --per-photo-repeat 1 --repeats 3 --concurrency 2 \
+    --room-prompt v3 --model gpt-6-luna --reasoning-effort low --single-photo-rooms per-photo \
+    --materials sensitive --materials-model claude-sonnet-5-5
+# 28.3 classification (Claude at low; OpenAI at none)
+python -m evals.predict_assets --out $P/cost28_assets_gpt56terra --model gpt-5.6-terra \
+    --reasoning-effort none --max-tokens 6000 --repeats 3 --concurrency 4
+# tables
+BASIS_ENV=test python ../docs/review_2026-10-15/repro/cost_sweep_table.py photos \
+    --photos ~/basis-eval-data/inputs/photos --aliases ~/basis-eval-data/labels/room_aliases_v1.json \
+    $P/cost28_decomposed_v2b_sol_surfv2_gpt61sol $P/cost28_decomposed_v2b_sol_surfv2_gpt6luna \
+    $P/cost28_decomposed_v2b_sol_surfv2_gpt56luna
+BASIS_ENV=test python ../docs/review_2026-10-15/repro/cost_sweep_table.py rooms \
+    $P/rooms16_final_v2_opus55 $P/rooms_cmp_gpt61sol $P/rooms_cmp_gpt56terra $P/rooms_cmp_gpt6luna \
+    $P/cost28_rooms_gpt6luna_matsonnet $P/cost28_rooms_gpt56luna
+BASIS_ENV=test python ../docs/review_2026-10-15/repro/cost_sweep_table.py assets \
+    $P/cost28_assets_claudesonnet55 $P/cost28_assets_gpt6luna $P/cost28_assets_gpt56luna \
+    $P/cost28_assets_gpt56terra $P/text_assets_claude-sonnet-5-5 $P/text_assets_claude-opus-5-5
+```
+
+Wiring note (code, not measurement): with Azure OpenAI configured, the Azure provider maps a
+request's model name to a deployment by `VISION_MODEL` and `TEXT_MODEL` only, so a
+`gpt-6-luna` request (the extraction fallback today, and now the surfaces call) goes to the
+text deployment, whatever model that deployment is. This is the routing gotcha of 27.2, not new
+here; the measured configuration and the live runs have Azure unset.
