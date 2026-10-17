@@ -295,6 +295,8 @@ class ReconcileRooms:
             mode=settings.room_step_mode,
             room_call_model=settings.room_call_model,
             room_call_reasoning_effort=settings.room_call_reasoning_effort,
+            materials_model=settings.room_materials_model,
+            materials_reasoning_effort=settings.room_materials_reasoning_effort,
         )
         crop_prompt = (
             prompts.load(crops.PROMPT_NAME, crops.PROMPT_VERSION)

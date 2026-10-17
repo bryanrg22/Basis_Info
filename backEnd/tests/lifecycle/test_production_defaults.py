@@ -57,6 +57,8 @@ STEP_FIELDS = (
     # Measured but off (EVAL_REPORT 26.10): the defaults are today's room step.
     "room_step_mode",
     "materials_second_look",
+    "room_materials_model",
+    "room_materials_reasoning_effort",
     "text_model",
     "extraction_reasoning_effort",
     "extraction_fallback_max_tokens",

@@ -281,8 +281,16 @@ async def test_the_activitys_default_configuration_is_reconcile_mode() -> None:
         mode=settings.room_step_mode,
         room_call_model=settings.room_call_model,
         room_call_reasoning_effort=settings.room_call_reasoning_effort,
+        materials_model=settings.room_materials_model,
+        materials_reasoning_effort=settings.room_materials_reasoning_effort,
     )
     assert config.room_call is None
+    # ROOM_MATERIALS_MODEL's default is the reconciler's model and effort, so the second
+    # looks of the golden are what the defaults send.
+    assert (config.look_model, config.look_reasoning_effort) == (
+        config.model,
+        config.reasoning_effort,
+    )
     assert {room_step.room_path(config, t.value) for t in RoomType} == {"reconcile"}
 
 

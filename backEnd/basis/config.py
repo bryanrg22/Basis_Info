@@ -249,6 +249,11 @@ class Settings(BaseSettings):
     room_reasoning_effort: Effort = "low"
     room_single_photo: Literal["per_photo", "reconcile"] = "per_photo"
     room_materials: Literal["none", "disagree", "sensitive"] = "sensitive"
+    # The material second look's own model and effort (EVAL_REPORT 28.2: a cheaper model
+    # reconciles rooms within the noise of Sonnet but reads materials worse, so the two can
+    # be set apart). Defaults: the second look as section 16.5 measured it, on Sonnet low.
+    room_materials_model: str = "claude-sonnet-5-5"
+    room_materials_reasoning_effort: Effort = "low"
     # How analyze_photo puts a photo in a room (EVAL_REPORT 23.3 and 27): "filename" groups
     # by the file name's room (basis.vision.rooms.group_photos, after the study's
     # room_aliases) and uses the model's room identity only for a name that says nothing
@@ -371,6 +376,7 @@ class Settings(BaseSettings):
         for name, model, effort in (
             ("VISION_FUSION", self.vision_fusion_model, self.vision_fusion_reasoning_effort),
             ("ROOM", self.room_model, self.room_reasoning_effort),
+            ("ROOM_MATERIALS", self.room_materials_model, self.room_materials_reasoning_effort),
             ("ROOM_CALL", self.room_call_model, self.room_call_reasoning_effort),
             ("SURFACE_CROP", self.surface_crop_model, self.surface_crop_reasoning_effort),
             ("CLASSIFY", self.classify_model, self.classify_reasoning_effort),

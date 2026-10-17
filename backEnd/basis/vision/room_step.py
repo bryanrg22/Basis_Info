@@ -10,8 +10,9 @@ Per room, in the configuration section 16.5 measured best (the ``ROOM_*`` settin
    ``"heuristic"`` when the call stayed unusable and the room fell back to the heuristic
    merge, flagged);
 3. the surface material second look (:mod:`basis.vision.surface_material`) on the
-   inventory's wainscoting, wall finish and tile (``materials="sensitive"``), on the same
-   model.
+   inventory's wainscoting, wall finish and tile (``materials="sensitive"``), on
+   ``materials_model`` at ``materials_reasoning_effort`` (``ROOM_MATERIALS_MODEL``) when
+   given, else on the reconciliation call's model and effort.
 
 The same code path as ``evals.predict_rooms`` with ``--single-photo-rooms per-photo
 --materials sensitive``, so what the evaluation scored is what runs. Transient provider
@@ -112,6 +113,21 @@ class RoomStepConfig:
     materials_prompt: Prompt | None = None
     # None: ROOM_STEP_MODE=reconcile, every room takes the reconcile path.
     room_call: RoomCallConfig | None = None
+    # The second look's model and effort; None: the reconciliation call's.
+    materials_model: str | None = None
+    materials_reasoning_effort: str | None = None
+
+    @property
+    def look_model(self) -> str:
+        """The model of the material second look."""
+        return self.model if self.materials_model is None else self.materials_model
+
+    @property
+    def look_reasoning_effort(self) -> str | None:
+        """The effort of the material second look (with its model)."""
+        if self.materials_model is None:
+            return self.reasoning_effort
+        return self.materials_reasoning_effort
 
     @property
     def mode(self) -> StepMode:
@@ -128,10 +144,13 @@ def load_config(
     mode: StepMode = "reconcile",
     room_call_model: str = "claude-opus-5-5",
     room_call_reasoning_effort: str | None = "high",
+    materials_model: str | None = None,
+    materials_reasoning_effort: str | None = None,
 ) -> RoomStepConfig:
     """The step's configuration with its prompts loaded and checked against the manifest
     (the worker calls this at startup, so a missing release fails there). ``mode``
-    ``room_call`` adds the room call on ``room_call_model`` (``ROOM_CALL_*``)."""
+    ``room_call`` adds the room call on ``room_call_model`` (``ROOM_CALL_*``);
+    ``materials_model`` (``ROOM_MATERIALS_MODEL``) puts the second look on its own model."""
     return RoomStepConfig(
         room_prompt=prompts.load(PROMPT_NAME, prompt_version),
         model=model,
@@ -152,6 +171,8 @@ def load_config(
             if mode == "room_call"
             else None
         ),
+        materials_model=materials_model,
+        materials_reasoning_effort=materials_reasoning_effort,
     )
 
 
@@ -323,8 +344,8 @@ async def _reconcile_path(
                 call=call,
                 provider=provider,
                 prompt=config.materials_prompt,
-                model=config.model,
-                reasoning_effort=config.reasoning_effort,
+                model=config.look_model,
+                reasoning_effort=config.look_reasoning_effort,
             ),
             config.materials,
         )

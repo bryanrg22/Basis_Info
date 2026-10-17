@@ -186,6 +186,9 @@ async def test_build_deps_at_the_defaults_logs_todays_room_step_and_builds_no_se
     finally:
         await engine.dispose()
     assert deps.segmenter is None
+    assert "second look sensitive (surface_material/v3 on claude-sonnet-5-5 at effort low)" in (
+        caplog.text
+    )
     assert "room step mode: reconcile (every room)" in caplog.text
     assert "materials second look: per_photo" in caplog.text
 

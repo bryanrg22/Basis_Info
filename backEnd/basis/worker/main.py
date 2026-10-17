@@ -116,15 +116,20 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
             mode=settings.room_step_mode,
             room_call_model=settings.room_call_model,
             room_call_reasoning_effort=settings.room_call_reasoning_effort,
+            materials_model=settings.room_materials_model,
+            materials_reasoning_effort=settings.room_materials_reasoning_effort,
         )
         logger.info(
-            "room step: %s on %s at effort %s, one-photo rooms %s, second look %s (%s)",
+            "room step: %s on %s at effort %s, one-photo rooms %s, second look %s (%s on %s "
+            "at effort %s)",
             rooms.room_prompt.version_id,
             rooms.model,
             rooms.reasoning_effort,
             rooms.single_photo,
             rooms.materials,
             rooms.materials_prompt.version_id if rooms.materials_prompt else "-",
+            rooms.look_model,
+            rooms.look_reasoning_effort,
         )
         if rooms.room_call is not None:
             logger.info(

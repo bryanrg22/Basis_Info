@@ -1659,7 +1659,7 @@ choice should be re-measured on the held-out study before it is trusted further.
 | Count fusion: second countables call | claude-opus-5-5 | `photo_countables/v3` (19) | medium | `VISION_COUNT_FUSION=per_class`, `VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`; table `section15.4/2026-10-16` (`basis/vision/fusion.py`) | 15.4 | count MAE 0.124 vs 0.180 (LOO), $2.20 per 52 photos | `VISION_COUNT_FUSION=off` |
 | Room inventory, multi-photo rooms | claude-sonnet-5-5 | `room_inventory/v3` | low | `ROOM_RECONCILE=true`, `ROOM_PROMPT_VERSION=v3`, `ROOM_MODEL`, `ROOM_REASONING_EFFORT` | 16.5 | room count MAE 0.72 to 0.43 (sol input), 0.34 (Opus input) | `ROOM_RECONCILE=false` (per-photo rows become assets) |
 | Room inventory, one-photo rooms | none (the photo's analysis) | - | - | `ROOM_SINGLE_PHOTO=per_photo` | 16.5 | part of the row above | `ROOM_SINGLE_PHOTO=reconcile` (a call per room) |
-| Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 (the room model) | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive` | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
+| Material second look on wainscoting, wall finish, tile | claude-sonnet-5-5 | `surface_material/v3` | low | `ROOM_MATERIALS=sensitive`, `ROOM_MATERIALS_MODEL`, `ROOM_MATERIALS_REASONING_EFFORT` (29.1; the room model before) | 16.5 | material present on 9 of 9 report rows that need one; $0.33 per run with the row above | `ROOM_MATERIALS=none` |
 | Object localization | SAM 3 (Replicate) | phrase set `v3` | - | `REPLICATE_API_TOKEN`; per-class phrases and count thresholds (`basis/vision/localize.py`, `DEFAULT_PHRASE_SET`) | 10.2, 19 | instance masks for review; counts not fused (15.3); mAP@0.5 0.76 out of sample (19) | token unset: skipped; phrase set v1 before 19 |
 | Extraction fallback | gpt-6-luna | `appraisal_field_fallback/v1` | low | `TEXT_MODEL`, `EXTRACTION_REASONING_EFFORT`, budget 8000 (`EXTRACTION_FALLBACK_MAX_TOKENS`) | 17.1, 17.3 | 0.924 of 75 fields, 12 of 12 critical, $0.0024 per study | `TEXT_MODEL=gpt-4o-mini` (budget 800) |
 | Asset classification (residual tool loop) | claude-sonnet-5-5 | `classify/v1` | low | `CLASSIFY_MODEL`, `CLASSIFY_REASONING_EFFORT` | 17.2, 17.3 | 0.688 bucket accuracy, 96% verified citations, $1.25 per 46 rows | `CLASSIFY_MODEL=gpt-4o-mini` |
@@ -3534,6 +3534,15 @@ gives what the study measured.
   overlap the local ones at IoU 0.79 (wall), 0.98 (ceiling), 0.96 (floor), $0.0005, after a
   99 s cold start; its segmentation arrives inline as a data URI. `MATERIALS_SECOND_LOOK=
   surface_crops` with `replicate` and no token is refused at startup.
+- `ROOM_MATERIALS_MODEL` (`claude-sonnet-5-5`) and `ROOM_MATERIALS_REASONING_EFFORT`
+  (`low`): the material second look's own model and effort, which until now followed
+  `ROOM_MODEL`. Section 28.2 measured gpt-6-luna reconciling rooms within the noise of Sonnet
+  (paired +0.003 [-0.025, +0.030] over 33 rooms) but reading materials worse (14 of 20
+  labelled surfaces against 17), and luna reconciling with Sonnet looking at 16 of 20 for
+  $0.157 a run against $0.314. The defaults equal today's (both Sonnet low), so nothing
+  changes until `ROOM_MODEL=gpt-6-luna` is set; then the second look stays on Sonnet. Each
+  second look records the model that answered it, and an inventory row's `model` joins the
+  reconciler's and the looks' (`claude-sonnet-5-5+gpt-6-luna`), so no new row field.
 - `evals.replay_rooms` runs `room_step.inventory_room` and the crop look exactly as the
   activity configures them, from the settings, on a stored per-photo run grouped by file
   name and aliases (equal to the production grouping, 27.1).
@@ -3615,7 +3624,10 @@ one-token change of the reconciliation call); the crop pipeline and both segment
 the budget stop, and the regression that rows and records at the defaults carry exactly their
 previous fields; `evals.replay_rooms` offline; the whole workflow at `room_call`, alone and
 with the crops (`tests/lifecycle/test_room_stage_options.py`); the production-defaults
-lifecycle now pins both settings at their defaults.
+lifecycle now pins both settings at their defaults. `ROOM_MATERIALS_MODEL`: the settings, the
+second look on its own model in `room_step`, and `reconcile_rooms` with the reconciler on
+gpt-6-luna and the look on Sonnet (a test that fails when the activity does not pass the
+setting through).
 
 ### 29.5 To confirm on the second package (manual)
 

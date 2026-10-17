@@ -94,6 +94,8 @@ def step_config(settings: Settings) -> room_step.RoomStepConfig:
         mode=settings.room_step_mode,
         room_call_model=settings.room_call_model,
         room_call_reasoning_effort=settings.room_call_reasoning_effort,
+        materials_model=settings.room_materials_model,
+        materials_reasoning_effort=settings.room_materials_reasoning_effort,
     )
 
 
@@ -277,6 +279,8 @@ async def run(
                     "reasoning_effort": config.reasoning_effort,
                     "single_photo": config.single_photo,
                     "materials": config.materials,
+                    "materials_model": config.look_model,
+                    "materials_reasoning_effort": config.look_reasoning_effort,
                 },
                 "materials_second_look": settings.materials_second_look,
                 "surface_crop_model": settings.surface_crop_model if surface_crops_on else None,

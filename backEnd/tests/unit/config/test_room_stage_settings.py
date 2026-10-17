@@ -28,6 +28,10 @@ VARS = (
     "SURFACE_SEGMENTER",
     "SURFACE_SEGMENTER_REPLICATE_VERSION",
     "REPLICATE_API_TOKEN",
+    "ROOM_MATERIALS_MODEL",
+    "ROOM_MATERIALS_REASONING_EFFORT",
+    "ROOM_MODEL",
+    "ROOM_REASONING_EFFORT",
 )
 
 
@@ -116,6 +120,38 @@ def test_an_openai_only_effort_on_a_claude_model_is_refused(
     env.setenv(f"{prefix}_MODEL", model)
     env.setenv(f"{prefix}_REASONING_EFFORT", "minimal")
     with pytest.raises(ConfigError, match=prefix):
+        load_settings()
+
+
+def test_the_second_look_has_its_own_model_defaulting_to_section_16s(
+    env: pytest.MonkeyPatch,
+) -> None:
+    """EVAL_REPORT 28.2: the reconciler and the material second look can be set apart; by
+    default the second look stays where 16.5 measured it, Sonnet 5.5 at low effort."""
+    settings = load_settings()
+    assert (settings.room_materials_model, settings.room_materials_reasoning_effort) == (
+        "claude-sonnet-5-5",
+        "low",
+    )
+    # The sweep's split: a cheaper reconciler, the second look kept on Sonnet.
+    env.setenv("ROOM_MODEL", "gpt-6-luna")
+    split = load_settings()
+    assert (split.room_model, split.room_materials_model) == ("gpt-6-luna", "claude-sonnet-5-5")
+    env.setenv("ROOM_MATERIALS_MODEL", "claude-opus-5-5")
+    env.setenv("ROOM_MATERIALS_REASONING_EFFORT", "medium")
+    moved = load_settings()
+    assert (moved.room_materials_model, moved.room_materials_reasoning_effort) == (
+        "claude-opus-5-5",
+        "medium",
+    )
+
+
+def test_bad_second_look_settings_are_refused(env: pytest.MonkeyPatch) -> None:
+    env.setenv("ROOM_MATERIALS_REASONING_EFFORT", "extreme")
+    with pytest.raises(ValidationError):
+        load_settings()
+    env.setenv("ROOM_MATERIALS_REASONING_EFFORT", "minimal")  # OpenAI only, on a Claude model
+    with pytest.raises(ConfigError, match="ROOM_MATERIALS"):
         load_settings()
 
 

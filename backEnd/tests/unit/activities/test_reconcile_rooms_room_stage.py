@@ -487,3 +487,45 @@ async def test_at_the_defaults_rows_and_records_carry_only_the_fields_they_had(
         assert set(row.raw) - {"second_look"} == RAW_BEFORE
     for name in ("Kitchen", "Bathroom"):
         assert set(await record_of(step, revision_one, name)) == RECORD_BEFORE
+
+
+# --------------------------------------------------------------------------- second-look model
+
+
+async def test_the_reconciler_and_the_second_look_can_run_on_different_models(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT 28.2's recommendation, set by settings: the room reconciled on gpt-6-luna,
+    the material second look left on its default, Sonnet 5.5 at low effort."""
+    from basis.vision.surface_material import ModelSurfaceMaterial, SurfaceMaterial
+
+    await place_hall(deps, seeded)
+    llm = ModelKeyedProvider(
+        turns={
+            ("gpt-6-luna", "room_inventory"): [hall_inventory()],
+            (ROOM_MODEL, "surface_material"): [
+                ScriptedTurn(
+                    parsed=ModelSurfaceMaterial(
+                        material=SurfaceMaterial.WALLPAPER, confidence=0.9, evidence="seams"
+                    ),
+                    usage=USAGE,
+                )
+            ],
+        }
+    )
+    step = stage_deps(deps, llm, room_model="gpt-6-luna", room_reasoning_effort="low")
+    assert (step.settings.room_materials_model, step.settings.room_materials_reasoning_effort) == (
+        ROOM_MODEL,
+        "low",
+    )
+    await activity_env.run(ReconcileRooms(step).run, reconcile(seeded))
+    assert [(r.model, r.prompt_version, r.reasoning_effort) for r in llm.requests] == [
+        ("gpt-6-luna", "room_inventory/v3", "low"),
+        (ROOM_MODEL, "surface_material/v3", "low"),
+    ]
+    rows_now = {c.label: c for c in await inventory(step, seeded.study_id)}
+    wainscot = rows_now["wainscoting"]
+    assert wainscot.material == "wallpaper"
+    assert wainscot.raw["model"] == "claude-sonnet-5-5+gpt-6-luna"
+    assert [look["model"] for look in wainscot.raw["second_look"]] == [ROOM_MODEL]
+    assert set(wainscot.raw) - {"second_look"} == RAW_BEFORE  # no new row fields
