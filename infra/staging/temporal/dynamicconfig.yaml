@@ -1,0 +1,9 @@
+# Temporal dynamic config for staging (re-read every 60 s; a change needs no restart).
+# Keys: https://docs.temporal.io/references/dynamic-configuration
+
+# The worker registers the study search attributes at startup
+# (basis.worker.search_attributes); refreshing the cache on read makes them usable at once
+# instead of after the cache's own refresh, as in Temporal's docker development config.
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}
