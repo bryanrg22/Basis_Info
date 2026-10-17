@@ -55,11 +55,12 @@ from basis.extraction.pdf_text import read_pdf
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import is_anthropic_model
-from basis.llm.errors import ProviderError
+from basis.llm.errors import ProviderAccountError, ProviderError
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, Message
 from basis.llm.recorder import MemoryRecorder
 from evals import datasets as ds
+from evals.account_stop import guard, stops_on_account_error, track
 
 DEFAULT_MAX_CONTEXT_CHARS = 60_000
 DEFAULT_MAX_TOKENS = 8_000
@@ -154,9 +155,10 @@ def fold(values: list[Any]) -> Any:
     return values[0] if len(values) == 1 else {"repeats": values}
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
-    pool = ProviderPool.from_settings(settings)
+    pool = guard(ProviderPool.from_settings(settings))
     if pool is None:
         print("no model provider configured", file=sys.stderr)
         return 2
@@ -171,6 +173,7 @@ async def run(args: argparse.Namespace) -> int:
     prompt = prompts.load(PROMPT_NAME, args.prompt or prompts.versions(PROMPT_NAME)[-1])
     args.out.mkdir(parents=True, exist_ok=True)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
     ctx = CallContext(
         study_id=uuid.uuid4(),
@@ -205,6 +208,8 @@ async def run(args: argparse.Namespace) -> int:
                 calls_before = len(recorder.records)
                 try:
                     response = await call_model(pool, request, ctx)
+                except ProviderAccountError:
+                    raise  # stops the run (evals.account_stop)
                 except ProviderError as exc:
                     errors.append({"document": doc.document, "repeat": repeat, "error": str(exc)})
                     print(f"repeat {repeat}: {type(exc).__name__}: {exc}", file=sys.stderr)

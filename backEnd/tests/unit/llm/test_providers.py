@@ -17,7 +17,12 @@ import pytest
 from pydantic import BaseModel, Field, SecretStr
 
 from basis.config import ConfigError, Settings
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderBadResponse,
+    ProviderRateLimited,
+    ProviderUnavailable,
+)
 from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec
 from basis.llm.providers import (
     MALFORMED_ARGUMENTS,
@@ -380,7 +385,7 @@ async def test_5xx_then_success() -> None:
     assert (await provider(server).complete(request())).parsed is not None
 
 
-@pytest.mark.parametrize("code", [400, 401, 403, 404, 422])
+@pytest.mark.parametrize("code", [400, 404, 409, 422])
 async def test_4xx_is_a_bad_response_and_not_retried(code: int) -> None:
     server = Server(status(code))
     with pytest.raises(ProviderBadResponse) as caught:
@@ -490,3 +495,165 @@ def test_openai_provider_from_settings_uses_the_timeout() -> None:
     )
     assert configured is not None and configured._timeout_s == 7
     assert configured._client.max_retries == 0  # our single retry replaces the SDK's
+
+
+# --------------------------------------------------------------------------- account errors
+# Bodies as OpenAI documents them (developers.openai.com/api/docs/guides/error-codes, read
+# 2026-10-16) and as the shared account returned them (EVAL_REPORT sections 14, 16).
+
+
+def error_body(message: str, *, type: str | None = None, code: str | None = None) -> dict[str, Any]:
+    return {"error": {"message": message, "type": type, "param": None, "code": code}}
+
+
+QUOTA = "You exceeded your current quota, please check your plan and billing details."
+BAD_KEY = (
+    "Incorrect API key provided: sk-proj-abcdEFGH1234****************wxyz. You can find "
+    "your API key at https://platform.openai.com/account/api-keys."
+)
+
+
+@pytest.mark.parametrize(
+    ("code", "body", "expected_code"),
+    [
+        (
+            429,
+            error_body(QUOTA, type="insufficient_quota", code="insufficient_quota"),
+            "insufficient_quota",
+        ),
+        (
+            429,
+            error_body(
+                "Your credit balance is exhausted.",
+                type="insufficient_quota",
+                code="credit_balance_exhausted",
+            ),
+            "credit_balance_exhausted",
+        ),
+        (
+            429,
+            error_body(
+                "Spend limit reached.",
+                type="insufficient_quota",
+                code="project_spend_limit_exceeded",
+            ),
+            "insufficient_quota",
+        ),
+        (
+            429,
+            error_body("Spend limit reached.", code="organization_spend_limit_exceeded"),
+            "organization_spend_limit_exceeded",
+        ),
+        (
+            429,
+            error_body("Usage limit reached.", code="organization_usage_limit_exceeded"),
+            "organization_usage_limit_exceeded",
+        ),
+        (
+            401,
+            error_body(BAD_KEY, type="invalid_request_error", code="invalid_api_key"),
+            "invalid_api_key",
+        ),
+        (
+            401,
+            error_body(
+                "You must be a member of an organization to use the API.", code="no_organization"
+            ),
+            "no_organization",
+        ),
+        (
+            403,
+            error_body(
+                "Country, region, or territory not supported",
+                code="unsupported_country_region_territory",
+            ),
+            "unsupported_country_region_territory",
+        ),
+        (402, error_body("Payment required."), None),
+    ],
+)
+async def test_account_errors_are_not_retried(
+    code: int, body: dict[str, Any], expected_code: str | None
+) -> None:
+    server = Server(httpx2.Response(code, json=body))
+    waits = Recorder()
+    with pytest.raises(ProviderAccountError) as caught:
+        await provider(server, waits).complete(request())
+    error = caught.value
+    assert server.call_count == 1 and waits.sleeps == []  # no retry, no wait
+    assert (error.provider, error.status, error.code) == ("openai", code, expected_code)
+    assert body["error"]["message"][:20] in str(error)
+    assert not isinstance(error, ProviderBadResponse | ProviderRateLimited | ProviderUnavailable)
+
+
+async def test_an_account_error_never_carries_the_key() -> None:
+    server = Server(httpx2.Response(401, json=error_body(BAD_KEY, code="invalid_api_key")))
+    with pytest.raises(ProviderAccountError) as caught:
+        await provider(server).complete(request())
+    text = f"{caught.value} {caught.value.args}"
+    assert "sk-proj" not in text and "abcdEFGH" not in text and "wxyz" not in text
+    assert "[redacted]" in text
+    assert str(caught.value).startswith("openai account error (HTTP 401, invalid_api_key): ")
+
+
+async def test_an_account_error_without_a_json_body_still_maps() -> None:
+    server = Server(httpx2.Response(401, text="Unauthorized"))
+    with pytest.raises(ProviderAccountError) as caught:
+        await provider(server).complete(request())
+    assert caught.value.status == 401 and server.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        error_body(
+            "Rate limit reached for gpt-4o-mini in organization org-x on tokens per min.",
+            type="tokens",
+            code="rate_limit_exceeded",
+        ),
+        error_body("Slow down", type="rate_limit_error", code="slow_down"),
+        {"error": {"message": "x"}},
+    ],
+)
+async def test_a_429_that_is_a_rate_limit_is_still_retried(body: dict[str, Any]) -> None:
+    """Regression: only the billing codes are account errors; rate limits keep their retry."""
+    server = Server(httpx2.Response(429, json=body), ok())
+    waits = Recorder()
+    response = await provider(server, waits).complete(request())
+    assert server.call_count == 2 and waits.sleeps == [0.7] and response.parsed is not None
+
+
+AZURE_BAD_KEY = (
+    "Access denied due to invalid subscription key or wrong API endpoint. Make sure to "
+    "provide a valid key for an active subscription and use a correct regional API endpoint "
+    "for your resource."
+)
+
+
+@pytest.mark.parametrize("code", [401, 403])
+async def test_azure_key_and_permission_errors_are_account_errors(code: int) -> None:
+    server = Server(
+        httpx2.Response(code, json={"error": {"code": str(code), "message": AZURE_BAD_KEY}})
+    )
+    azure = AzureOpenAIProvider.from_settings(azure_settings(), http_client=server.client())
+    assert azure is not None
+    with pytest.raises(ProviderAccountError) as caught:
+        await azure.complete(request())
+    assert (caught.value.provider, caught.value.status) == ("azure", code)
+    assert "Access denied" in str(caught.value) and server.call_count == 1
+
+
+async def test_an_azure_token_rate_limit_is_still_retried() -> None:
+    body = {
+        "error": {
+            "code": "429",
+            "message": "Requests to the ChatCompletions_Create Operation have exceeded the "
+            "token rate limit.",
+        }
+    }
+    server = Server(httpx2.Response(429, json=body), ok())
+    azure = AzureOpenAIProvider.from_settings(
+        azure_settings(), http_client=server.client(), jitter=lambda: 0.0, sleep=Recorder().sleep
+    )
+    assert azure is not None
+    assert (await azure.complete(request())).parsed is not None and server.call_count == 2

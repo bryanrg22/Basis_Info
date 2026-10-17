@@ -84,8 +84,12 @@ def test_retry_policy_is_explicit(name: str) -> None:
         assert options.heartbeat is None
 
 
-def test_non_retryable_types_are_validation_and_budget() -> None:
-    assert set(NON_RETRYABLE_ERROR_TYPES) == {"ValidationError", "BudgetExceededError"}
+def test_non_retryable_types_are_validation_budget_and_account() -> None:
+    assert set(NON_RETRYABLE_ERROR_TYPES) == {
+        "ValidationError",
+        "BudgetExceededError",
+        "ProviderAccountError",
+    }
 
 
 def test_cancellation_waits_for_the_activity() -> None:

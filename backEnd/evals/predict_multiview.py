@@ -52,6 +52,7 @@ from basis.vision.multiview import CallSettings, Checked, Photo, Scope
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import ModelRoomInventory
 from basis.vision.rooms import name_hint, resolve_aliases
+from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, photo_files
 
 MAX_ATTEMPTS = 2
@@ -152,10 +153,11 @@ def raw_objects(checked: Checked, room: str, files: Sequence[str]) -> list[dict[
     ]
 
 
+@stops_on_account_error
 async def run(args: argparse.Namespace, provider: ChatProvider | None = None) -> int:
     settings = load_settings()
     if provider is None:
-        provider = ProviderPool.from_settings(settings)
+        provider = guard(ProviderPool.from_settings(settings))
         if provider is None:
             print("no model provider configured", file=sys.stderr)
             return 2
@@ -173,6 +175,7 @@ async def run(args: argparse.Namespace, provider: ChatProvider | None = None) ->
     photos = [Photo(f.name, room_of(f.name, aliases), prepare_image(f.read_bytes())) for f in files]
     prompt = prompts.load(multiview.PROMPTS[scope], args.prompt)
     budget = Budget(remaining_usd=args.budget_usd)
+    track(args, budget)
     recorder = MemoryRecorder()
     ctx = CallContext(
         study_id=uuid.uuid4(),

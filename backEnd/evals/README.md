@@ -131,6 +131,10 @@ After a
 secondary provider per call, so a rate-limited primary silently mixes models into a run
 (only within a model family: a `claude-*` model is served by the Anthropic provider alone,
 with `ANTHROPIC_API_KEY` set, and never falls back to OpenAI; EVAL_REPORT section 12).
+An account error (no credit or quota, a bad key) never falls back: every runner that calls
+a model stops at the first one with exit code 3 and a `run.json` that says
+`"complete": false` and why (`evals/account_stop.py`, EVAL_REPORT 26.12); the files already
+written are partial.
 `--reasoning-effort` sets the OpenAI reasoning models' `reasoning_effort` and Claude's
 `output_config.effort` (`low`..`max`; without it Claude runs at `ANTHROPIC_EFFORT`, default
 `low`); `run.json` `reasoning_effort` records what ran.
