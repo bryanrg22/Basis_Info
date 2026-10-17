@@ -37,7 +37,7 @@ Researched first (k6, Locust, JMeter; Temporal's own `omes`):
   study's milestones as `STUDY` requests so Locust's percentiles cover turnaround too).
 - **k6** (AGPL, JavaScript on a Go runtime). More virtual users per load generator
   (tens of thousands) and built-in pass/fail thresholds. Neither matters here: the
-  heaviest step is 25 concurrent studies plus a few hundred readers, a few requests per
+  heaviest step is 25 concurrent studies or 200 readers, under 100 requests a
   second, far below one Locust process's capacity; and our team, client logic and
   helpers are Python.
 - **JMeter**: GUI-first XML plans; no advantage for API flows written by a Python team.
@@ -126,7 +126,7 @@ the worker process. That wait is invisible to Temporal: the activity has a slot 
 started, so schedule-to-start stays near zero and the backlog empty while studies crawl.
 Saturation of the pool shows as activity execution latency far above the work's own
 latency with slots still free. There is no metric for the pool wait yet (follow-up in
-EVAL_REPORT 31.8).
+EVAL_REPORT 31.12).
 
 Proposed SLOs (for production; the load steps are judged against them):
 
@@ -166,7 +166,9 @@ the sampler, runs Locust until the target number of studies finished, stops ever
 and prints `report.py`'s summary (also `summary.json`, the Locust CSVs, `studies.jsonl`,
 `samples.jsonl`, `pg_statements.json`, the process logs, in RUN_DIR).
 
-The read-heavy scenario, after a study step has created studies for `load-eng-0..N`:
+The read-heavy scenario, after a study step has created studies for `load-eng-0..N`
+(start the stack with `RATE_LIMIT_READS_PER_MIN` raised when more readers than engineers
+share those identities, as in EVAL_REPORT 31.7; `ReviewReader` polls only started studies):
 
 ```bash
 cd backEnd && .venv/bin/python -m locust -f ../tooling/load/locustfile.py --headless ReviewReader \
@@ -178,9 +180,15 @@ Real-provider probe (the only step that spends; cap it): the provider keys in th
 environment, `STUDY_BUDGET_USD` as the hard per-study cap, few photos:
 
 ```bash
-STUDY_BUDGET_USD=4 LLM_CONCURRENCY=64 LOCUST_ARGS="--photos 20" \
-  tooling/load/run_step.sh RUN_DIR 3 1.0 real
+# OPENAI_API_KEY, ANTHROPIC_API_KEY, REPLICATE_API_TOKEN and AZURE_DOCUMENT_INTELLIGENCE_*
+# exported; Azure OpenAI left unset so no call can fall back to another deployment.
+LLM_PRIMARY=openai STUDY_BUDGET_USD=4 LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 \
+  LOCUST_ARGS="--photos 20" tooling/load/run_step.sh RUN_DIR 3 1.0 real
 ```
+
+Before a real-provider step, terminate every open workflow of earlier steps (`temporal
+workflow terminate --address 127.0.0.1:7261 --query "ExecutionStatus='Running'"`): the
+real worker would otherwise pick up a leftover study on the same task queue and spend on it.
 
 Against staging (no local processes; the stack is Cloud Run + Cloud SQL + Temporal):
 `tooling/load/run_remote.sh` (EVAL_REPORT 31.11 has the exact commands). Staging needs real

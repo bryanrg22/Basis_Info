@@ -4163,3 +4163,515 @@ uv run --no-sync python ../docs/review_2026-10-15/repro/sam3_throughput.py ... \
 LOCALIZER_TOKEN=$(gcloud auth print-identity-token) uv run --no-sync python \
     ../docs/review_2026-10-15/repro/sam3_throughput.py ... --target url --url SERVICE_URL
 ```
+
+## 31. Load and capacity (2026-10-17)
+
+Question: how much load does Basis take before launch, what breaks first, and what do the
+model providers allow? The method (tool, metrics, SLOs, commands) is
+`docs/perf/LOAD_TESTING.md`; the harness is `tooling/load/` and
+`backEnd/tests/load/`. Everything below ran on fake providers except 31.8 (one capped
+real-provider probe). The run summaries are in `docs/perf/runs/`.
+
+Answer, in short:
+
+- **The first bottleneck was a defect, not a limit**: every POST and DELETE held two database
+  connections at once, so five concurrent mutations on one API process deadlocked its pool and
+  were answered 503 (31.3). The same class of defect, a connection held through seconds of
+  work, was in the worker twice: `process_assets` (minutes of classification) and
+  `ingest_appraisal` (embedding). With five to ten concurrent studies they starved the
+  worker's pool, failed and retried attempts (each retry paying its model calls again), and
+  held studies failed (31.4). All three are fixed in this branch, with regression tests that
+  fail on the old code.
+- **Capacity at the production defaults**: one worker process completes about **6.6 studies an
+  hour**, whatever the load, because `LLM_CONCURRENCY=4` runs four model calls at a time and a
+  study is about 2,200 call-seconds; N concurrent studies all finish after about N x 9 minutes
+  (31.5). Temporal does not show it until its slots fill at 25 studies.
+- **Tuned**: `LLM_CONCURRENCY=64` and `CLASSIFY_CONCURRENCY=16` give about **55 an hour**, then
+  `LOCALIZER_CONCURRENCY=3` (SAM 3) binds; with 12, **104 an hour**, bound by the 64-call cap
+  per process (31.6). The providers are far from binding: our accounts allow about **337
+  studies an hour**, the tightest being Anthropic Sonnet input tokens (classifier), then
+  Replicate's 600 creates a minute (692 an hour; 69 while the credit is under $10, which is
+  where the account is now) (31.9). A capped real probe of three studies saw throttling only
+  from Replicate (31.8).
+- **The read path**: Postgres-backed reads stay under 160 ms p95 at 200 readers on one API
+  process; the status poll of finished studies does not (p95 4.4 s at 200), because each one
+  is a Temporal query that the worker answers by replaying the study's history (31.7).
+
+### 31.1 Setup
+
+- **Stack**: `tooling/load/compose.load.yml` (Postgres 16 + pgvector with
+  `pg_stat_statements`, Temporal dev server 1.32), and as host processes one API
+  (`uvicorn`, one process, like one Cloud Run instance), one worker and the relay
+  (`tooling/load/stack.sh`). One laptop (Apple silicon), so absolute CPU numbers are the
+  laptop's; the shape of the curves is what transfers.
+- **Load**: Locust (`StudyEngineer`) plays the frontend for whole studies, each user its
+  own engineer: create, 53 x (register, upload to the signed URL, confirm), start, poll
+  every 5 s, read each gate's screen, approve. A step of N studies starts N engineers at
+  once (a burst: the worst case for every shared resource) and ends when all N finished.
+- **The worker on fake providers** (`fake_worker.py`): the production worker with the
+  providers, Azure DI and SAM 3 replaced by fakes that sleep the latencies of the 550 model
+  calls, 52 SAM 3 predictions and the Azure DI analyses of the live study (27.8), behind
+  the real provider pool. The study is synthetic: 52 fixture photos named like the client
+  package (33 rooms), the synthetic URAR.
+- **Time scale**: steps ran at `LOAD_LATENCY_SCALE=0.1` (and the clients' `--time-scale
+  0.1`): ten times faster, same proportions. "Real" times below are measured / 0.1.
+
+### 31.2 Calibration: one fake study against the live one
+
+| | Live study (27.8) | Fake worker, scale 1.0 | Fake, scale 0.1 (x10) |
+|---|---|---|---|
+| Appraisal gate open | +93 s | +121 s | +130 s |
+| Rooms gate open | +397 s | +382 s | +362 s |
+| Assets gate open | +587 s | +558 s | +584 s |
+| Completed | 596 s | 564 s | 609 s |
+| Model calls (photo / room + looks / classifier / fallback) | 156 / 34 / 359 / 1 | 156 / 32 / 334 / 1 | |
+| Rooms / assets (classifier share) | 33 / 280 (55%) | 33 / 310 (54%) | |
+| Verified citations | 379 | 364 | |
+| Recorded cost | $6.75 ($6.43 with surfaces on gpt-6-luna) | $6.25 ($6.06 models + $0.19 fake SAM 3) | |
+
+The fake study is within 5% of the live one end to end (the appraisal gate opens later
+because the fake samples Azure DI from the 72 to 82 s range). Inside, `analyze_photo`
+averaged 32 s against about 13 s of its own calls, and the photo stage kept 3.8 model calls
+in flight on average, live and fake alike: `LLM_CONCURRENCY=4` already binds one study
+(31.5). At scale 0.1 the same study takes 609 s x 10 against 564 s at real speed (8% longer):
+the compression holds, and what it adds (uncompressed HTTP, Postgres, Temporal work)
+makes the compressed steps slightly pessimistic.
+
+### 31.3 First bottleneck: every mutation held two database connections (fixed)
+
+The first step with more than one study failed before any study started: five studies
+created at once on a freshly started API were all answered **503** after 10 s ("database
+pool checkout timed out"); ten at once, 10 of 10. One `POST /v1/studies` on an API with
+`DB_POOL_SIZE=1` is a 503 by itself, while a `GET` works: a mutation needs two
+connections at the same time.
+
+Traced (pool checkout events with the session that took them): the request's own
+transaction (`SessionDep`) was still open, holding connection 1, when `IdempotentRoute`
+stored the response for the `Idempotency-Key` in the store's own transaction
+(connection 2). FastAPI closes function-scoped dependencies only after the route handler
+returns, and the route class stored the response inside the handler. So every POST and
+DELETE held two connections, and `DB_POOL_SIZE` concurrent mutations on one API process
+(5 by default) each held one and waited for a second: a pool deadlock until
+`pool_timeout`. This is the classic nested-checkout deadlock (HikariCP's pool sizing
+note: with C connections per task the pool needs T x (C - 1) + 1 for T tasks; only C = 1
+is safe at any concurrency). It is not a load-test artefact: Cloud Run sends up to 80
+concurrent requests to one instance, and a browser that uploads photos six at a time
+would hit it with a single engineer.
+
+The same ordering was also a correctness bug: the stored 201 committed before the request's
+own data, so a commit that failed afterwards left a 201 to replay for a study that did not
+exist.
+
+Fix (`basis/api/idempotency.py`): the response is stored from a callback on FastAPI's
+function-scoped exit stack, registered before the dependencies are solved, so it runs
+after `SessionDep` commits (or, on a failed commit, releases the key) and before the
+response is sent. Every mutation now holds one connection at a time. Tests
+(`tests/api/test_connection_use.py`, all three fail on the old code): one connection per
+mutation; 8 concurrent creates on a pool of 2 all 201 within the pool timeout; a failed
+commit answers 500 and releases the key, and the retry with the same key creates the study
+once.
+
+### 31.4 Second and third: connections held through model calls and embedding (fixed)
+
+With the API fixed and every worker setting at its default, five concurrent studies ran
+into the worker's pool. `process_assets` ran the whole classification (334 model calls,
+about three minutes at real speed) inside `run_once`'s transaction: one pooled connection
+and the activity key's row lock held throughout, while each classifier search needs a
+second connection from the same pool (`DB_POOL_SIZE=5`, no overflow). When five studies
+reached the assets stage together, their five transactions held the pool and the searches
+timed out ("QueuePool limit of size 5 overflow 0 reached"). Each failed attempt is retried
+from scratch, paying for its classification again, and a study whose three attempts fail is
+held failed at `assets_processing` until `POST /retry`:
+
+| Concurrent studies (defaults, before this fix) | Completed | Held failed at assets | Failed `process_assets` attempts | Studies/hour (real) |
+|---|---|---|---|---|
+| 5 | 4 | 1 | 9 | 4.1 |
+| 10 | 4 | 6 | 30 | 2.7 |
+| 25 | 0 by the clients' 18-minute cutoff (5 still running) | 23 | 105 timeouts, also in `reconcile_rooms`, `transition` and `record_failure` | - |
+
+The money of a failed attempt is invisible: `process_assets` writes its `llm_calls` rows in
+the transaction that rolled back, so a held study shows $2.36 recorded (photos and rooms)
+whatever its failed attempts spent on the classifier, and the study budget never sees that
+spend (follow-up 31.12).
+
+Fix (`basis/activities/process_assets.py`), the pattern `analyze_photo` and
+`extract_fields` already follow: the revision is read in a short session, the model
+classifies with no connection held, then the assets, takeoffs, costs, citations and calls
+are written and the key completed in one transaction (a revision that already has assets,
+a replay or a concurrent attempt that won the key, is still returned as stored without
+recomputing). Test: `test_no_connection_is_held_while_the_model_classifies` (0
+connections checked out at each model call; 1 before the fix); the 23 existing
+`process_assets` tests and the lifecycle and database-outage suites pass unchanged.
+
+The same pattern, found by the real-provider probe (31.8: a transaction open for 26 s):
+`ingest_appraisal` downloaded, parsed and embedded the appraisal inside `run_once`'s
+transaction. The fake worker had used the hash embedder, so it never showed; with the
+production embedder (`LOAD_EMBEDDER=real`, local CPU, no spend) and 10 studies starting
+together, the ingests held the pool for 8 s each and 21 attempts timed out waiting for a
+connection, 17 of them `analyze_photo` (each retried photo pays its model calls again). Fix:
+`basis.retrieval.ingest` splits `ingest_documents` into `prepare_documents` (parse, chunk,
+embed; no store) and `write_prepared` (every write, unchanged order); the activity prepares
+with nothing checked out and writes the version in `run_once`'s transaction, raising a
+failed preparation inside it so the key records the failure as before. Test:
+`test_no_connection_is_held_while_the_appraisal_is_embedded` (1 before). The same step
+after the fix: 0 failed attempts, longest transaction 0.7 s (8 s before).
+
+| Real embedder, 10 studies (tuned settings of 31.6) | Failed attempts | Longest transaction | Studies/hour |
+|---|---|---|---|
+| Before the `ingest_appraisal` fix | 21 (pool timeouts) | 8.0 s | 64.8 |
+| After | 0 | 0.7 s | 72.3 |
+
+### 31.5 Capacity at the production defaults (after the fixes)
+
+The API and `process_assets` fixes (the hash embedder of these steps never held the pool in
+`ingest_appraisal`), every setting at its default (`LLM_CONCURRENCY=4`,
+`CLASSIFY_CONCURRENCY=4`, `PHOTO_CONCURRENCY=5`, `LOCALIZER_CONCURRENCY=3`, `DB_POOL_SIZE=5`),
+one worker process:
+
+| Run | Studies | Completed | Held failed | Failed attempts | Makespan (min, real) | Studies/hour | Run p50 (s) | Run p95 (s) | Appraisal gate p95 (s) | Assets gate p95 (s) | Activity slots max / backlog max | Schedule-to-start <= 1 s | PG conns max / idle in tx | Worker CPU % p95 / max | Worker RSS MB | Cost / completed study |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| c-s1 | 1 | 1 | 0 | 0 | 10.2 | 5.9 | 609 | 609 | 130 | 584 | 7 / 0 | 100% | 7 / 1 | 20 / 29 | 415 | $6.07 |
+| c-s5 | 5 | 5 | 0 | 0 | 45.8 | 6.6 | 2,745 | 2,746 | 288 | 2,737 | 32 / 0 | 100% | 11 / 3 | 21 / 51 | 463 | $6.07 |
+| c-s10 | 10 | 10 | 0 | 0 | 90.9 | 6.6 | 5,451 | 5,455 | 489 | 5,435 | 62 / 0 | 100% | 11 / 5 | 24 / 67 | 430 | $6.07 |
+| c-s25 | 25 | 25 | 0 | 0 | 226.9 | 6.6 | 13,590 | 13,602 | 1,545 | 13,593 | 100 / 102 | 20% | 11 / 6 | 25 / 108 | 537 | $6.07 |
+
+API latency in the same steps, with the tuned steps of 31.6 for comparison (the clients poll
+every 0.5 s at scale 0.1, so the API sees ten times the real polling rate of N engineers):
+
+| Run | Polls | Poll p50 ms | Poll p95 ms | Poll p99 ms | Reads | Reads worst p95 ms | Reads worst p99 ms | Mutations | Mutations worst p95 ms | Mutations worst p99 ms | 429s | Other errors |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| c-s1 | 111 | 31 | 49 | 95 | 64 | 65 | 65 | 112 | 61 | 76 | 1 | 0 |
+| c-s5 | 2,533 | 34 | 41 | 91 | 315 | 100 | 100 | 558 | 77 | 190 | 5 | 0 |
+| c-s10 | 9,987 | 39 | 49 | 84 | 642 | 120 | 120 | 1,120 | 110 | 210 | 10 | 0 |
+| c-s25 | 62,341 | 42 | 66 | 100 | 1,622 | 250 | 290 | 2,825 | 180 | 240 | 50 | 0 |
+| b-s25 | 7,333 | 23 | 90 | 200 | 1,621 | 100 | 150 | 2,825 | 170 | 220 | 50 | 0 |
+| l12-s25 | 4,207 | 30 | 52 | 130 | 1,625 | 95 | 130 | 2,834 | 180 | 250 | 59 | 0 |
+
+Reading:
+
+- **Every study completes, and throughput stops at about 6.6 studies an hour per worker
+  process from 5 studies on.** A study is about 2,200 seconds of model calls (31.2); the
+  provider pool runs 4 at a time per process, so one process finishes at most
+  4 x 3,600 / 2,200 = 6.5 studies an hour, whatever the number of studies waiting. More
+  studies only wait longer: N concurrent studies finish together after about N x 9 minutes
+  (the pool serves them all at once, so the first does not finish early).
+- **This is the bottleneck of the system as configured, and Temporal does not show it.**
+  The calls wait in the pool's semaphore inside the worker: the activity has its slot and
+  has started, so activity schedule-to-start stays under 100 ms and the task-queue backlog
+  at 0 while `analyze_photo` takes 32 s (1 study), 160 s (5), 315 s (10) and 620 s (25) of
+  execution, real time, for about 13 s of its own calls. The slots fill only at 25 studies (100 of 100 used), where
+  photo activities queue behind the pool while holding slots. The signal to alert on is
+  activity execution time against its intrinsic time, which needs a pool-wait metric
+  (follow-up).
+- Nothing else is near a limit at this rate: the worker's CPU is 20-25% (p95) of one core
+  even compressed ten times, Postgres CPU under 17%, 11 connections, no transaction open
+  longer than about a second; the
+  slowest statements are the inserts of photo objects and components (0.1 ms mean). The API
+  answers the status poll at p95 41-49 ms and every other read under 120 ms at ten times the
+  real poll rate.
+- It is a setting, not a ceiling of the design: the next section raises it.
+
+### 31.6 Raising the pool: the next limits
+
+`LLM_CONCURRENCY=64` (its maximum: `Settings` caps it at 64; 256 is refused at startup) and
+`CLASSIFY_CONCURRENCY=16`, everything else at its default, one worker process. `blim`, `h`
+and `l12` also emulate our accounts' rate limits (`LOAD_PROVIDER_LIMITS`, section 3 of
+LOAD_TESTING.md); `h` and `l12` run at scale 0.5 instead of 0.1:
+
+| Run | Studies | Completed | Held failed | Failed attempts | Makespan (min, real) | Studies/hour | Run p50 (s) | Run p95 (s) | Appraisal gate p95 (s) | Assets gate p95 (s) | Activity slots max / backlog max | Schedule-to-start <= 1 s | PG conns max / idle in tx | Worker CPU % p95 / max | Worker RSS MB | Cost / completed study |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| b-s5 | 5 | 5 | 0 | 0 | 5.7 | 52.3 | 333 | 344 | 123 | 282 | 45 / 0 | 100% | 11 / 4 | 58 / 58 | 473 | $6.07 |
+| b-s10 | 10 | 10 | 0 | 0 | 11.1 | 54.2 | 653 | 664 | 145 | 429 | 87 / 0 | 100% | 11 / 5 | 78 / 86 | 508 | $6.07 |
+| b-s25 | 25 | 25 | 0 | 0 | 26.9 | 55.7 | 1,586 | 1,608 | 290 | 979 | 100 / 123 | 56% | 11 / 7 | 102 / 104 | 519 | $6.07 |
+| blim-s25 | 25 | 25 | 0 | 0 | 26.9 | 55.7 | 1,586 | 1,606 | 282 | 965 | 100 / 129 | 53% | 11 / 6 | 100 / 103 | 515 | $6.07 |
+| h-s25 | 25 | 25 | 0 | 0 | 26.1 | 57.4 | 1,536 | 1,566 | 208 | 848 | 100 / 125 | 41% | 12 / 5 | 39 / 81 | 532 | $6.15 |
+| l12-s25 | 25 | 25 | 0 | 0 | 14.4 | 104.0 | 854 | 864 | 218 | 858 | 100 / 126 | 25% | 11 / 5 | 42 / 88 | 535 | $6.15 |
+
+Reading:
+
+- **Eight to nine times the throughput from one setting**: 52 to 57 studies an hour per
+  worker process instead of 6.6, every study completed, no failed attempt, the same $6.07
+  recorded per study. At 25 concurrent studies the assets gate opens at p95 14 to 16 minutes
+  (defaults: 3.8 hours), inside the proposed 20-minute objective.
+- **The providers do not throttle it**: with our accounts' limits emulated, 25 studies at
+  once never spent a bucket (0 emulated 429s). At 57 studies an hour the classifier sends
+  about 1.7 M Sonnet input tokens a minute on average against our 10 M.
+- **Worker CPU is not the limit either.** At scale 0.1 the worker sat at one core (p95
+  102%), but the compression inflates the system's own work ten times; at scale 0.5 the
+  same step used 39% (p95) and finished as fast (57.4 against 55.7 studies an hour). At
+  real speed the worker would use about 20% of a core at this rate.
+- **What binds is SAM 3: `LOCALIZER_CONCURRENCY=3` per process.** 25 studies are 1,300
+  predictions; at 3 in flight and about 3.6 s each that is 26 minutes, which is the
+  makespan (a study exports only once every photo is localized). The waiting localizations
+  also hold Temporal activity slots (up to 3 per study, 75 of the worker's 100 at 25 studies), so
+  `analyze_photo` tasks queue in Temporal: the activity backlog reaches 125 and only about
+  40% of activities start within 1 s. This is the first time Temporal itself shows the
+  load, and it is not a Temporal limit.
+- **Checked by changing only that setting** (`l12`: `LOCALIZER_CONCURRENCY=12`, scale 0.5):
+  104 studies an hour, the makespan falls from 26 to 14 minutes, `localize_photo` from 37 s
+  to 1.9 s, and completion follows the assets gate within seconds. 104 is the 64-call
+  pool's own bound (64 x 3,600 / 2,200 = 105): the provider pool binds again, and the
+  Temporal slots stay full as its symptom (activities wait in the pool holding slots).
+  Twelve localizations in flight are about 90 Replicate creates a minute at this rate:
+  inside the documented 600 a minute, above the under-$10 tier's 60.
+- At 5 and 10 studies the rate is the study's own length (about 5.5 minutes each with
+  nothing waiting), not a capacity: those steps did not fill the pool.
+- The model spend is $6.055 per study in every step, before and after tuning: nothing is
+  retried under load. (The fake SAM 3 prices its scaled sleep, so the recorded SAM 3 cost
+  varies with the time scale, $0.02 to $0.19 a study; the real one is about $0.03.)
+- The 3 was chosen in section 30 for Replicate's under-$10 tier (60 creates a minute,
+  burst 5). With the account above $10 the documented limit is 600 a minute, and the fake's
+  3.6 s per prediction is the 27.8 timing; compact output (section 30.3) is faster, so the
+  real headroom at 3 is somewhat larger than shown here.
+
+### 31.7 The read path: engineers reviewing and polling
+
+`ReviewReader` users on one API process (one Cloud Run instance) over the studies the steps
+above created (25 engineers, completed studies), 3 minutes per step, wait 2 to 5 s between
+actions (a status poll, opening a study, paging its assets, rooms, fields and evidence,
+opening photos' objects). Readers share the 25 engineers' identities, so the per-engineer
+read limit was raised for this test only (`RATE_LIMIT_READS_PER_MIN`); the worker ran idle
+(no study in flight):
+
+| Readers | Requests/s | Status poll p50 / p95 / p99 ms | Other reads, worst p95 ms | List p95 ms | API CPU p95 | Idle worker CPU p95 | Errors |
+|---|---|---|---|---|---|---|---|
+| 25 | 11 | 130 / 240 / 540 | 97 | 120 | 14% | 34% | 0 |
+| 100 | 43 | 200 / 640 / 1,600 | 87 | 410 | 39% | 104% | 2 connection resets |
+| 200 | 75 | 1,700 / 4,400 / 5,100 | 160 | 930 | 71% | 129% | 9 connection resets (0.07%) |
+
+- **Every read that comes from Postgres stays fast** at 200 readers and 75 requests a
+  second on one process: assets, rooms, fields, evidence and objects p95 86 to 160 ms; the
+  API process at 71% of a core (p95), Postgres at 7 connections. One instance serves
+  about 200 reviewing engineers; Cloud Run adds instances beyond that.
+- **The status poll does not**: `GET .../workflow` is p95 240 ms at 25 readers,
+  640 ms at 100 and 4,400 ms at 200, and it took the idle worker to 1.3
+  cores. The route asks Temporal for the execution (`describe`) and then queries the
+  workflow (`status` query), and a query is answered by a worker. A completed study's
+  workflow is no longer in the worker's cache, so each query replays its history (760
+  events, 164 KB) on the worker: about 75 ms of the worker's CPU per poll at every reader
+  count (2.8, 10.8 and 17.7 polls a second), so the cost is linear in the poll rate. During the study
+  steps the same route was p95 41 to 66 ms at 46 polls a second, because running workflows
+  are cached. So the read path's first bottleneck is polling finished studies, and it lands
+  on the process that runs the studies. Proposed (follow-up): answer the status of a closed
+  execution from Postgres (the study row already has its stage and status) instead of a
+  query, and query only running ones.
+- `GET /v1/studies` (an engineer's list) is p95 930 ms at 200 readers while its
+  p50 stays at 43 ms: requests queued behind the slow polls on the one event loop.
+
+### 31.8 One real-provider probe
+
+Three concurrent studies of 20 synthetic photos each on the real providers, every model
+default unchanged (gpt-6.1-sol decomposed with Opus fusion, gpt-6-luna surfaces and
+extraction, Sonnet room step and classifier, Azure DI, SAM 3 on Replicate), the pool
+raised as in 31.6 (`LLM_CONCURRENCY=64`, `CLASSIFY_CONCURRENCY=16`; `LOCALIZER_CONCURRENCY`
+at its default 3) so the providers see concurrency, and `STUDY_BUDGET_USD=4` as the hard cap
+of each study (`tooling/load/stack.sh up DIR real`; worker log: `llm_providers=openai+anthropic
+localizer=ReplicateSam3Localizer azure_di=True`):
+
+- **All three completed in 159 s** (appraisal gate +48 s, assets gate +64 to +74 s). Spend
+  **$3.69 recorded** ($1.23 a study: Sonnet classifier $1.58, Opus fusion $1.39, sol $0.41,
+  Sonnet room step $0.25, luna $0.02, SAM 3 $0.04) plus three Azure DI analyses of the
+  synthetic URAR (not recorded; cents). Under $4 of the $15 allowed.
+- **Throttling: only Replicate.** OpenAI and Anthropic answered every call (0 429s with up to
+  about 45 photo calls and 48 classifier calls in flight). Replicate answered 10 creates with
+  429 (retried after 5 to 15 s); the 60 predictions ran at one a second (60 in 59 s), which is
+  what section 30 measured for the under-$10 tier (60 a minute, burst 5), so the account's
+  credit is probably below $10 again (the localizer logs only the status, not Replicate's
+  message).
+- **Latency under concurrency is no worse than the single live study**; the profile the fakes
+  sample is conservative:
+
+| Call | Live study, alone (27.8): p50 / p95 ms | Probe, 3 concurrent: p50 / p95 ms |
+|---|---|---|
+| countables, gpt-6.1-sol | 11,325 / 19,541 | 5,891 / 8,156 |
+| countables fusion, claude-opus-5-5 | 6,501 / 10,975 | 4,237 / 6,919 |
+| surfaces, gpt-6-luna (live: sol) | 5,947 / 15,806 | 5,674 / 7,156 |
+| classify, claude-sonnet-5-5 | 1,480 / 3,710 | 1,693 / 2,921 |
+| room inventory, claude-sonnet-5-5 | 4,715 / 9,125 | 3,677 / 4,511 |
+
+  (The synthetic photos are simpler than the client's, which likely explains part of the
+  faster per-photo calls.)
+- It found the third held transaction (31.4): `ingest_appraisal` 28 s with the real
+  embedder, the longest open transaction 26 s.
+- The status polls at real speed met six connection errors in 93 ("remote end closed",
+  "reset by peer"): uvicorn closes an idle keep-alive connection after 5 s by default and the
+  client polls every 5 s, so it sometimes reuses a connection the server is closing (the
+  compressed steps poll every 0.5 s and never meet it). A browser retries such a request; still,
+  `--timeout-keep-alive` above the poll interval (and, behind Google's front end, above its
+  idle timeout) removes it. Tuning item, not changed here (31.12).
+
+### 31.9 Provider ceilings
+
+Our accounts' limits, read from the response headers (`provider_limits.py`, one request
+of a few tokens per model; `docs/perf/runs/provider_limits_2026-10-17.json`), against
+what one live-shaped study takes of each (the 550 calls of the 27.8 profile, surfaces on
+gpt-6-luna; `ceilings.py`):
+
+| Provider / model | Per study | Our limit | Ceiling (studies/hour) | Binding |
+|---|---|---|---|---|
+| Anthropic `claude-sonnet-5-5` (room step, classifier) | 393 requests, 1.78 M input, 74 k output tokens | 10,000 RPM, 10 M ITPM, 2 M OTPM | **337** | input tokens |
+| Replicate SAM 3 | 52 creates | 600 creates/min (60 under $10 credit) | 692 (**69** under $10) | creates |
+| OpenAI `gpt-6.1-sol` (countables) | 52 requests, 153 k tokens | 10,000 RPM, 4 M TPM | 1,565 | tokens |
+| Anthropic `claude-opus-5-5` (count fusion) | 52 requests, 240 k input tokens | 10,000 RPM, 10 M ITPM, 2 M OTPM | 2,498 | input tokens |
+| OpenAI `gpt-6-luna` (surfaces, extraction) | 53 requests, 128 k tokens | 10,000 RPM, 10 M TPM | 4,704 | tokens |
+| Azure Document Intelligence | 1 analyze | 15 analyze/s per resource | 54,000 | analyze/s |
+
+- The tightest provider is Anthropic on Sonnet input tokens, about **337 studies an hour**,
+  because the classifier sends 4,700 uncached input tokens per call (the same system prompt
+  and tool definitions every time). No request sets `cache_control`; cached tokens do not
+  count toward Anthropic's ITPM, so prompt caching on the classifier would raise this
+  ceiling several times and cut its cost (follow-up). Anthropic and OpenAI are both on
+  tiers far above our use: one worker at the defaults sends at most four calls at a time.
+- These are sustained rates. The classification of one study is concentrated in two to
+  three minutes, so a burst of studies that classify together meets the limit sooner:
+  at the live classification speed (about 0.55 M input tokens a minute per study) 10 M ITPM
+  is about 18 studies classifying in the same minute, and fewer with a faster classifier
+  (31.6 ran 25 at once on the emulated limits without a 429).
+- OpenAI counts the tokens a request actually uses, not its `max_completion_tokens`
+  (measured: a sol request with a 6,000-token budget took 4 to 17 tokens off
+  `x-ratelimit-remaining-tokens`), so the 6,000-token reasoning budget costs no TPM.
+- Replicate's under-$10 throttle (EVAL_REPORT 30) is the one limit we can fall into by
+  accident: keep the credit auto-reloaded above $20.
+
+### 31.10 Uploads are throttled by the per-engineer limit
+
+One study's upload is 108 mutations (create, 53 x register and confirm, start); the
+per-engineer limit is 60 mutations a minute (`RATE_LIMIT_MUTATIONS_PER_MIN`, S1). So every
+52-photo study took at least 61 s to upload and met at least one 429 in every step above,
+at 1 study as at 25; the system answered each request in about 15 ms. Five engineers
+uploading at once, the limit only changed (`upload-only` steps, scale 1.0):
+
+| Mutation limit per engineer | Upload of 53 documents (p50 / max) | 429s |
+|---|---|---|
+| 60 a minute (default) | 61.5 s / 61.5 s | 5 |
+| 300 a minute | 2.9 s / 2.9 s | 0 |
+
+Setting `RATE_LIMIT_MUTATIONS_PER_MIN=300` keeps the abuse guard (a client is still held to
+5 a second) and lets a whole study upload without throttling. Not changed here: it is the
+product's API contract (S1_SPEC section 5), so the default is a decision to take with the
+frontend, which must keep honoring `Retry-After` either way.
+
+### 31.11 What to rerun on staging, and how
+
+Staging (PR 59, session staging-deploy) is not deployed yet. Its planned shape makes the
+fixes above matter immediately: Cloud Run sends up to 80 concurrent requests to one API
+instance whose pool is 5 (the 31.3 deadlock), and one worker instance with a pool of 5 (the
+31.4 exhaustion). The steps, in order, once it exists:
+
+1. Mint tokens for 25 test users (creates `load-eng-0..24` in the staging Firebase project):
+
+   ```bash
+   backEnd/.venv/bin/python tooling/load/mint_tokens.py --project cost-seg-basis \
+     --api-key "$FIREBASE_WEB_API_KEY" -n 25 > ~/basis-load/staging_tokens.json
+   ```
+
+2. The API's write path at 25 concurrent engineers, with the GCS signed uploads and Cloud
+   SQL, without starting a study (no model spend):
+
+   ```bash
+   API_URL=https://staging-basis-api-930581733841.us-central1.run.app \
+   TOKEN_FILE=~/basis-load/staging_tokens.json LOCUST_ARGS=--upload-only \
+     tooling/load/run_remote.sh RUN_DIR/staging-upload-25 25
+   ```
+
+3. The read path: 200 readers over the studies of step 4 (or of any earlier run):
+
+   ```bash
+   cd backEnd && .venv/bin/python -m locust -f ../tooling/load/locustfile.py --headless \
+     ReviewReader --host https://staging-basis-api-930581733841.us-central1.run.app \
+     -u 200 -r 20 -t 5m --reader-pool 25 --token-file ~/basis-load/staging_tokens.json \
+     --csv RUN_DIR/staging-read-200/locust
+   ```
+
+4. Whole studies on the real providers, capped: 1 then 3 concurrent studies of 20 photos
+   with `STUDY_BUDGET_USD=4` set on the staging worker (about $1.30 a study as in 31.8, at
+   most $12 for the step):
+
+   ```bash
+   API_URL=https://staging-basis-api-930581733841.us-central1.run.app \
+   TOKEN_FILE=~/basis-load/staging_tokens.json LOCUST_ARGS="--photos 20" \
+     tooling/load/run_remote.sh RUN_DIR/staging-real-3 3 1.0
+   ```
+
+   With `PG_DSN` (through the Cloud SQL proxy) and `TEMPORAL_ADDRESS` set the sampler records
+   Cloud SQL connections and the Temporal backlog too. Compare with 31.5 (pool-bound at
+   about 6.5 studies an hour per worker process) and 31.8 (latencies on real providers).
+
+5. For the worker at 10 and 25 studies on staging, without the model spend, the
+   fake-provider worker has to run there: a `load` image target with `tests/load` (follow-up)
+   deployed as a second worker pool on its own task queue. Until then, the local numbers
+   (31.5, 31.6) are the worker's capacity.
+
+
+### 31.12 Against the objectives, what to set before launch, follow-ups
+
+The proposed SLOs (LOAD_TESTING.md section 5) at 25 concurrent studies on one worker and one
+API process, after the fixes:
+
+| SLO | Objective | Defaults (`c-s25`) | Tuned (`l12-s25`) |
+|---|---|---|---|
+| Status poll, studies running | p95 < 200 ms | 66 ms, met | 52 ms, met |
+| Status poll, finished studies (reviewers) | p95 < 200 ms | 240 ms at 25 readers, 4.4 s at 200: **missed** (31.7) | same route |
+| Other reads | p95 < 300 ms | 250 ms, met | 95 ms, met |
+| Mutations | p95 < 500 ms | 180 ms, met | 180 ms, met |
+| A study's upload without a 429 | every study | 2 per study: **missed** (31.10) | met with `RATE_LIMIT_MUTATIONS_PER_MIN=300` |
+| Appraisal gate | p95 < 3 min | 26 min: **missed** | 3.6 min: missed narrowly (Azure DI is 72 to 82 s of it) |
+| Assets gate | p95 < 20 min | 3.8 h: **missed** | 14.3 min, met |
+| Activity schedule-to-start | p95 < 1 s | 20% within 1 s: **missed** | 25% within 1 s: **missed** (slots full, 31.6) |
+| Cost per study | < $8 | $6.06, met | $6.06, met |
+
+What to set for launch (settings only; the three fixes are in this branch):
+
+1. `LLM_CONCURRENCY=64` and `CLASSIFY_CONCURRENCY=16` on the worker: one process goes from 6.6
+   to about 55 studies an hour with no provider throttling (31.6).
+2. `LOCALIZER_CONCURRENCY=12` with the Replicate account kept above $20 (auto-reload), or
+   SAM 3 on the self-hosted service of section 30: the next factor of two (104 an hour).
+3. More worker processes beyond that, not a larger pool: one process is capped at 64 calls
+   (`Settings`) and 100 activity slots (the SDK's default; full at 25 studies). The
+   providers allow about 337 studies an hour (Sonnet input tokens, 31.9), so about three
+   processes at 104 an hour reach that ceiling before prompt caching. `DB_POOL_SIZE=5` per process was enough
+   for every step once the three fixes were in (11 connections for the whole stack).
+4. `RATE_LIMIT_MUTATIONS_PER_MIN=300`, with the frontend (31.10).
+5. The API's uvicorn `--timeout-keep-alive` above the 5 s poll interval (31.8).
+
+Follow-ups, not done here:
+
+- **Status of finished studies from Postgres**, not a Temporal query (31.7): the read path's
+  first bottleneck, and it lands on the worker.
+- **A metric for the provider pool's wait** (time from `complete()` to holding the
+  semaphore), so the bottleneck of 31.5 is visible on a dashboard; Temporal's own metrics
+  show it only once the slots are full.
+- **A setting for the worker's activity slots** (`max_concurrent_activities`), and with it a
+  separate task queue or slot budget for `localize_photo`, whose waits hold slots that
+  `analyze_photo` needs (31.6).
+- **Prompt caching on the classifier** (`cache_control` on its system prompt and tools): the
+  tightest provider ceiling (31.9) and about two thirds of a study's model cost.
+- **Record the model calls of failed attempts**: `process_assets` writes its `llm_calls` in the
+  transaction that a failure rolls back, so retried spend is invisible to the cost record and
+  to the study budget (31.4).
+- **A load image target** (`tests/load` in a `load` stage of the Dockerfile) so the
+  fake-provider worker can run on staging (31.11, step 5).
+
+### 31.13 Commands and data
+
+From the repository root (`backEnd/.venv` from `uv sync --group dev --group load`):
+
+```bash
+docker compose -p basis-load -f tooling/load/compose.load.yml up -d
+tooling/load/run_step.sh RUN_DIR/c-s25 25 0.1                                   # 31.5
+LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 tooling/load/run_step.sh RUN_DIR/b-s25 25 0.1   # 31.6
+LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 LOCALIZER_CONCURRENCY=12 \
+  LOAD_PROVIDER_LIMITS=docs/perf/runs/provider_limits_2026-10-17.json \
+  tooling/load/run_step.sh RUN_DIR/l12-s25 25 0.5                                  # 31.6
+LOAD_EMBEDDER=real LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 LOCALIZER_CONCURRENCY=12 \
+  tooling/load/run_step.sh RUN_DIR/emb2-s10 10 0.1                                 # 31.4
+RATE_LIMIT_MUTATIONS_PER_MIN=300 LOCUST_ARGS=--upload-only tooling/load/run_step.sh RUN_DIR/u300 5  # 31.10
+python3 tooling/load/compare.py RUN_DIR/c-s1 RUN_DIR/c-s5 RUN_DIR/c-s10 RUN_DIR/c-s25    # the tables
+python3 tooling/load/ceilings.py docs/perf/runs/provider_limits_2026-10-17.json         # 31.9
+```
+
+The read steps and the probe are in LOAD_TESTING.md section 6. Every run's summary
+(`summary.md`, `summary.json`, the Locust CSVs, `studies.jsonl`, the top statements) is under
+`docs/perf/runs/<run>/`; the raw samples and process logs stayed local (they hold nothing
+private, but are large). Spend for this section: $3.69 recorded for the probe plus three
+Azure DI analyses, and five header reads of a few tokens each.

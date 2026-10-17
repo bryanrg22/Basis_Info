@@ -1,0 +1,572 @@
+{
+ "run_dir": "a-s10",
+ "scale": 0.1,
+ "settings": [
+  "LOAD_LATENCY_SCALE=0.1",
+  "MODE=fake"
+ ],
+ "studies": {
+  "studies": 10,
+  "completed": 4,
+  "failed": 6,
+  "errors": [
+   "RuntimeError: study timed out"
+  ],
+  "makespan_s": 536.797060251236,
+  "makespan_real_s": 5367.97060251236,
+  "studies_per_hour_real": 2.682578029257537,
+  "run_real_s": {
+   "50": 5367.3,
+   "95": 5367.8,
+   "100": 5367.8
+  },
+  "uploads_s": {
+   "50": 62.4,
+   "95": 62.45,
+   "100": 62.45
+  },
+  "rate_limited_429": 10,
+  "polls": 3973,
+  "to_appraisal_review_real_s": {
+   "50": 450.1,
+   "95": 493.1,
+   "100": 493.1
+  },
+  "to_rooms_review_real_s": {
+   "50": 3732.4,
+   "95": 3736.9,
+   "100": 3736.9
+  },
+  "to_assets_review_real_s": {
+   "50": 5337.6,
+   "95": 5347.5,
+   "100": 5347.5
+  }
+ },
+ "routes": [
+  {
+   "route": "GET /v1/studies/{id}/workflow",
+   "count": 15939,
+   "failures": 0,
+   "p50": 36.0,
+   "p95": 48.0,
+   "p99": 90.0,
+   "max": 387
+  },
+  {
+   "route": "POST /v1/studies/{id}/documents/{id}/complete",
+   "count": 540,
+   "failures": 10,
+   "p50": 41.0,
+   "p95": 50.0,
+   "p99": 67.0,
+   "max": 71
+  },
+  {
+   "route": "POST /v1/studies/{id}/documents",
+   "count": 530,
+   "failures": 0,
+   "p50": 36.0,
+   "p95": 46.0,
+   "p99": 210.0,
+   "max": 213
+  },
+  {
+   "route": "GET /v1/studies/{id}/photos/{id}/objects",
+   "count": 520,
+   "failures": 0,
+   "p50": 6.0,
+   "p95": 8.0,
+   "p99": 10.0,
+   "max": 12
+  },
+  {
+   "route": "GET /v1/studies/{id}",
+   "count": 38,
+   "failures": 0,
+   "p50": 8.0,
+   "p95": 14.0,
+   "p99": 42.0,
+   "max": 42
+  },
+  {
+   "route": "POST /v1/studies/{id}/decisions",
+   "count": 24,
+   "failures": 0,
+   "p50": 15.0,
+   "p95": 22.0,
+   "p99": 27.0,
+   "max": 27
+  },
+  {
+   "route": "GET /v1/studies/{id}/evidence",
+   "count": 16,
+   "failures": 0,
+   "p50": 30.0,
+   "p95": 64.0,
+   "p99": 64.0,
+   "max": 64
+  },
+  {
+   "route": "GET /v1/studies/{id}/fields",
+   "count": 10,
+   "failures": 0,
+   "p50": 88.0,
+   "p95": 110.0,
+   "p99": 110.0,
+   "max": 106
+  },
+  {
+   "route": "GET /v1/studies/{id}/rooms",
+   "count": 10,
+   "failures": 0,
+   "p50": 28.0,
+   "p95": 54.0,
+   "p99": 54.0,
+   "max": 54
+  },
+  {
+   "route": "POST /v1/studies",
+   "count": 10,
+   "failures": 0,
+   "p50": 98.0,
+   "p95": 100.0,
+   "p99": 100.0,
+   "max": 104
+  },
+  {
+   "route": "POST /v1/studies/{id}/start",
+   "count": 10,
+   "failures": 0,
+   "p50": 45.0,
+   "p95": 56.0,
+   "p99": 56.0,
+   "max": 56
+  },
+  {
+   "route": "GET /v1/studies/{id}/assets",
+   "count": 8,
+   "failures": 0,
+   "p50": 21.0,
+   "p95": 29.0,
+   "p99": 29.0,
+   "max": 29
+  }
+ ],
+ "failures": [
+  {
+   "route": "POST /v1/studies/{id}/documents/{id}/complete",
+   "error": "CatchResponseError('429 rate limited')",
+   "count": 10
+  }
+ ],
+ "samples": {
+  "samples": 211,
+  "activity_backlog_max": 0,
+  "activity_backlog_age_max_s": 0.0,
+  "workflow_backlog_max": 0,
+  "workflow_backlog_age_max_s": 0.0,
+  "activity_slots_used_max": 61.0,
+  "workflow_slots_used_max": 6.0,
+  "activity_schedule_to_start": {
+   "count": 1190.0,
+   "mean_ms": 0.7,
+   "share_le_ms": {
+    "100": 1.0,
+    "500": 1.0,
+    "1000": 1.0,
+    "5000": 1.0,
+    "10000": 1.0,
+    "100000": 1.0,
+    "1000000": 1.0,
+    "+Inf": 1.0
+   }
+  },
+  "workflow_task_schedule_to_start": {
+   "count": 1198.0,
+   "mean_ms": 1.5,
+   "share_le_ms": {
+    "100": 1.0,
+    "500": 1.0,
+    "1000": 1.0,
+    "5000": 1.0,
+    "10000": 1.0,
+    "100000": 1.0,
+    "1000000": 1.0,
+    "+Inf": 1.0
+   }
+  },
+  "activity_execution_mean_s": {
+   "analyze_photo": 31.68,
+   "export_report": 0.23,
+   "extract_fields": 44.0,
+   "ingest_appraisal": 1.06,
+   "list_photos": 0.22,
+   "localize_photo": 0.42,
+   "process_assets": 35.38,
+   "reconcile_rooms": 30.08,
+   "record_failure": 7.94,
+   "record_run_end": 0.05,
+   "record_run_start": 0.07,
+   "transition": 0.02
+  },
+  "pg_connections_max": 11,
+  "pg_connections_by_app_max": {
+   "basis": 11
+  },
+  "pg_idle_in_transaction_max": 6,
+  "pg_waiting_lock_max": 1,
+  "pg_oldest_xact_max_s": 112.5,
+  "procs": {
+   "api": {
+    "cpu_p50": 5.7,
+    "cpu_p95": 9.1,
+    "cpu_max": 41.7,
+    "rss_max_mb": 187.2
+   },
+   "worker": {
+    "cpu_p50": 2.4,
+    "cpu_p95": 18.0,
+    "cpu_max": 61.4,
+    "rss_max_mb": 514.2
+   },
+   "relay": {
+    "cpu_p50": 0.2,
+    "cpu_p95": 0.3,
+    "cpu_max": 0.6,
+    "rss_max_mb": 114.5
+   },
+   "postgres": {
+    "cpu_p50": 4.02,
+    "cpu_p95": 7.8,
+    "cpu_max": 24.64
+   }
+  }
+ },
+ "logs": {
+  "worker": {
+   "pool_timeout": 40,
+   "traceback": 31,
+   "error_lines": 7,
+   "api_429": 0,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 30
+  },
+  "api": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 10,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  },
+  "relay": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 0,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  }
+ },
+ "statements": [
+  {
+   "calls": 7660,
+   "total_ms": 1020.8,
+   "mean_ms": 0.13,
+   "max_ms": 3.3,
+   "rows": 7660,
+   "query": "INSERT INTO photo_objects (study_id, document_id, revision, label, phrase, score, x1, y1, x2, y2, mask, area, source, counted, derived_from, carried_from, created_by, deleted_at, deleted_by) VALUES ($1::UUID, $2::UUID, $3::INTEGER, $4::VARCHAR, $5::VARCHAR, $6::FLOAT, $7::FLOAT, $8::FLOAT, $9::FLOAT"
+  },
+  {
+   "calls": 8100,
+   "total_ms": 773.3,
+   "mean_ms": 0.1,
+   "max_ms": 2.1,
+   "rows": 8100,
+   "query": "INSERT INTO components (study_id, revision, document_id, room_id, label, material, attachment, confidence, bbox, raw) VALUES ($1::UUID, $2::INTEGER, $3::UUID, $4::UUID, $5::VARCHAR, $6::VARCHAR, $7::VARCHAR, $8::FLOAT, $9::JSONB, $10::JSONB) RETURNING components.id, components.created_at"
+  },
+  {
+   "calls": 17635,
+   "total_ms": 544.7,
+   "mean_ms": 0.03,
+   "max_ms": 1.0,
+   "rows": 17635,
+   "query": "SELECT studies.id, studies.org_id, studies.created_by, studies.property_name, studies.status, studies.current_stage, studies.revision, studies.workflow_id, studies.room_aliases, studies.failure_reason, studies.created_at, studies.updated_at, org_members.role FROM studies JOIN org_members ON org_memb"
+  },
+  {
+   "calls": 3224,
+   "total_ms": 440.5,
+   "mean_ms": 0.14,
+   "max_ms": 1.7,
+   "rows": 3224,
+   "query": "INSERT INTO llm_calls (study_id, run_id, activity, provider, model, prompt_version, input_tokens, output_tokens, cost_usd, latency_ms) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::VARCHAR, $7::INTEGER, $8::INTEGER, $9::NUMERIC(10, 6), $10::INTEGER) RETURNING llm_calls.id, l"
+  },
+  {
+   "calls": 10,
+   "total_ms": 429.0,
+   "mean_ms": 42.9,
+   "max_ms": 91.8,
+   "rows": 1130,
+   "query": "SELECT extraction_fields.id, extraction_fields.extraction_id, extraction_fields.study_id, extraction_fields.section, extraction_fields.field, extraction_fields.value_text, extraction_fields.value_num, extraction_fields.value_date, extraction_fields.confidence, extraction_fields.source, extraction_fi"
+  },
+  {
+   "calls": 17645,
+   "total_ms": 386.7,
+   "mean_ms": 0.02,
+   "max_ms": 1.1,
+   "rows": 17645,
+   "query": "SELECT users.id, users.firebase_uid, users.email, users.display_name, users.created_at, users.last_seen_at FROM users WHERE users.firebase_uid = $1::VARCHAR"
+  },
+  {
+   "calls": 15939,
+   "total_ms": 268.0,
+   "mean_ms": 0.02,
+   "max_ms": 0.5,
+   "rows": 15931,
+   "query": "SELECT runs.id, runs.study_id, runs.workflow_id, runs.run_id, runs.workflow_version, runs.input_revision, runs.started_at, runs.ended_at, runs.outcome, runs.created_at FROM runs WHERE runs.study_id = $1::UUID ORDER BY runs.started_at, runs.id"
+  },
+  {
+   "calls": 1184,
+   "total_ms": 218.8,
+   "mean_ms": 0.18,
+   "max_ms": 0.8,
+   "rows": 1166,
+   "query": "INSERT INTO activity_results (run_id, activity, idempotency_key, status) VALUES ($1::UUID, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR) ON CONFLICT (idempotency_key) DO NOTHING RETURNING activity_results.id"
+  },
+  {
+   "calls": 29710,
+   "total_ms": 175.9,
+   "mean_ms": 0.01,
+   "max_ms": 0.5,
+   "rows": 29710,
+   "query": "SELECT $2 FROM ONLY \"public\".\"studies\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 35,
+   "total_ms": 127.8,
+   "mean_ms": 3.65,
+   "max_ms": 7.5,
+   "rows": 25250,
+   "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+  },
+  {
+   "calls": 320,
+   "total_ms": 119.2,
+   "mean_ms": 0.37,
+   "max_ms": 1.6,
+   "rows": 0,
+   "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+  },
+  {
+   "calls": 8100,
+   "total_ms": 118.1,
+   "mean_ms": 0.01,
+   "max_ms": 0.3,
+   "rows": 8100,
+   "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.id = $1::UUID"
+  },
+  {
+   "calls": 13710,
+   "total_ms": 113.8,
+   "mean_ms": 0.01,
+   "max_ms": 1.1,
+   "rows": 13710,
+   "query": "SELECT $3 FROM ONLY \"public\".\"documents\" x WHERE \"study_id\" OPERATOR(pg_catalog.=) $1 AND \"id\" OPERATOR(pg_catalog.=) $2 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 578,
+   "total_ms": 110.0,
+   "mean_ms": 0.19,
+   "max_ms": 0.9,
+   "rows": 30634,
+   "query": "SELECT documents.id, documents.study_id, documents.kind, documents.filename, documents.content_type, documents.bytes, documents.sha256, documents.gcs_uri, documents.uploaded_by, documents.uploaded_at, documents.created_at FROM documents WHERE documents.study_id = $1::UUID ORDER BY documents.created_"
+  },
+  {
+   "calls": 7660,
+   "total_ms": 95.3,
+   "mean_ms": 0.01,
+   "max_ms": 0.6,
+   "rows": 7660,
+   "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+  },
+  {
+   "calls": 1160,
+   "total_ms": 85.1,
+   "mean_ms": 0.07,
+   "max_ms": 0.5,
+   "rows": 1160,
+   "query": "UPDATE activity_results SET status=$1::VARCHAR, output_ref=$2::VARCHAR, error=$3::VARCHAR WHERE activity_results.idempotency_key = $4::VARCHAR"
+  },
+  {
+   "calls": 520,
+   "total_ms": 80.4,
+   "mean_ms": 0.15,
+   "max_ms": 0.5,
+   "rows": 5000,
+   "query": "SELECT components.label FROM components WHERE components.study_id = $1::UUID AND components.document_id = $2::UUID AND components.revision = $3::INTEGER ORDER BY components.label"
+  },
+  {
+   "calls": 520,
+   "total_ms": 73.3,
+   "mean_ms": 0.14,
+   "max_ms": 23.0,
+   "rows": 520,
+   "query": "SELECT pg_advisory_xact_lock(hashtextextended($1, $2))"
+  },
+  {
+   "calls": 520,
+   "total_ms": 60.0,
+   "mean_ms": 0.12,
+   "max_ms": 2.6,
+   "rows": 520,
+   "query": "INSERT INTO photo_rooms (study_id, document_id, room_id, revision) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::INTEGER) RETURNING photo_rooms.created_at"
+  },
+  {
+   "calls": 1173,
+   "total_ms": 58.8,
+   "mean_ms": 0.05,
+   "max_ms": 0.4,
+   "rows": 1173,
+   "query": "SELECT activity_results.id, activity_results.run_id, activity_results.activity, activity_results.idempotency_key, activity_results.status, activity_results.output_ref, activity_results.error, activity_results.created_at, activity_results.updated_at FROM activity_results WHERE activity_results.idempo"
+  },
+  {
+   "calls": 93011,
+   "total_ms": 57.6,
+   "mean_ms": 0.0,
+   "max_ms": 1.8,
+   "rows": 0,
+   "query": "BEGIN"
+  },
+  {
+   "calls": 4390,
+   "total_ms": 56.9,
+   "mean_ms": 0.01,
+   "max_ms": 1.4,
+   "rows": 4390,
+   "query": "SELECT $2 FROM ONLY \"public\".\"runs\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 1738,
+   "total_ms": 49.6,
+   "mean_ms": 0.03,
+   "max_ms": 0.5,
+   "rows": 1738,
+   "query": "SELECT runs.id, runs.study_id, runs.workflow_id, runs.run_id, runs.workflow_version, runs.input_revision, runs.started_at, runs.ended_at, runs.outcome, runs.created_at FROM runs WHERE runs.workflow_id = $1::VARCHAR AND runs.run_id = $2::VARCHAR"
+  },
+  {
+   "calls": 8620,
+   "total_ms": 45.6,
+   "mean_ms": 0.01,
+   "max_ms": 0.4,
+   "rows": 8620,
+   "query": "SELECT $3 FROM ONLY \"public\".\"rooms\" x WHERE \"study_id\" OPERATOR(pg_catalog.=) $1 AND \"id\" OPERATOR(pg_catalog.=) $2 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 1130,
+   "total_ms": 45.3,
+   "mean_ms": 0.04,
+   "max_ms": 0.7,
+   "rows": 1130,
+   "query": "INSERT INTO extraction_fields (extraction_id, study_id, section, field, value_text, value_num, value_date, confidence, source, page) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::NUMERIC, $7::DATE, $8::FLOAT, $9::VARCHAR, $10::INTEGER) ON CONFLICT (extraction_id, section, fi"
+  }
+ ],
+ "costs": [
+  {
+   "study_id": "5cc4e118-c315-42b2-96a3-abd55d3ee69f",
+   "status": "failed",
+   "llm_usd": "2.344582",
+   "sam_usd": 0.018069,
+   "calls": 189,
+   "assets": 0,
+   "failed_activities": 1
+  },
+  {
+   "study_id": "0cb90e27-a1e3-44b0-b207-9d5f3ed22892",
+   "status": "failed",
+   "llm_usd": "2.344582",
+   "sam_usd": 0.018950999999999996,
+   "calls": 189,
+   "assets": 0,
+   "failed_activities": 1
+  },
+  {
+   "study_id": "4b050573-d9c5-47f5-a9b6-7409f37ce7cd",
+   "status": "failed",
+   "llm_usd": "2.344582",
+   "sam_usd": 0.017735,
+   "calls": 189,
+   "assets": 0,
+   "failed_activities": 1
+  },
+  {
+   "study_id": "61e999d7-e1bd-4bc8-adc1-d741d2977db1",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.01906100000000001,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "619f8f70-9532-4e54-b80c-e70cff52f97d",
+   "status": "failed",
+   "llm_usd": "2.344582",
+   "sam_usd": 0.017846999999999995,
+   "calls": 189,
+   "assets": 0,
+   "failed_activities": 1
+  },
+  {
+   "study_id": "cf953b4a-1d12-40c7-9203-d5c72fbfeb35",
+   "status": "failed",
+   "llm_usd": "2.344582",
+   "sam_usd": 0.018300000000000004,
+   "calls": 189,
+   "assets": 0,
+   "failed_activities": 1
+  },
+  {
+   "study_id": "4312412c-27f0-459f-8b11-4de9532a45fb",
+   "status": "failed",
+   "llm_usd": "2.344582",
+   "sam_usd": 0.018643000000000007,
+   "calls": 189,
+   "assets": 0,
+   "failed_activities": 1
+  },
+  {
+   "study_id": "5bc6adfc-237d-47f9-bcd5-9dcf9bc7533f",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.017937000000000005,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "163acacd-334e-4a91-a364-8a6aec0747e6",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.017635999999999995,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "eeed67a0-ead3-4bca-9be2-32af94c80ba6",
+   "status": "completed",
+   "llm_usd": "6.032438",
+   "sam_usd": 0.01777800000000001,
+   "calls": 521,
+   "assets": 310,
+   "failed_activities": 0
+  }
+ ]
+}

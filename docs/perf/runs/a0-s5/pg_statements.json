@@ -1,0 +1,202 @@
+[
+ {
+  "calls": 4,
+  "total_ms": 2.0,
+  "mean_ms": 0.49,
+  "max_ms": 0.7,
+  "rows": 4,
+  "query": "INSERT INTO org_members (org_id, user_id, role) VALUES ($1::UUID, $2::UUID, $3::VARCHAR) RETURNING org_members.created_at"
+ },
+ {
+  "calls": 5,
+  "total_ms": 0.9,
+  "mean_ms": 0.18,
+  "max_ms": 0.3,
+  "rows": 5,
+  "query": "INSERT INTO idempotency_keys (key, user_id, route, request_hash, expires_at) VALUES ($1::VARCHAR, $2::UUID, $3::VARCHAR, $4::VARCHAR, (now() + $5::INTERVAL)) ON CONFLICT (key) DO UPDATE SET user_id = excluded.user_id, route = excluded.route, request_hash = excluded.request_hash, status_code = $6::IN"
+ },
+ {
+  "calls": 5,
+  "total_ms": 0.8,
+  "mean_ms": 0.16,
+  "max_ms": 0.3,
+  "rows": 5,
+  "query": "INSERT INTO studies (org_id, created_by, property_name, workflow_id, room_aliases, failure_reason) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::JSONB, $6::VARCHAR) RETURNING studies.id, studies.status, studies.current_stage, studies.revision, studies.created_at, studies.updated_at"
+ },
+ {
+  "calls": 4,
+  "total_ms": 0.4,
+  "mean_ms": 0.11,
+  "max_ms": 0.2,
+  "rows": 4,
+  "query": "INSERT INTO users (firebase_uid, email, display_name, last_seen_at) VALUES ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR, now()) ON CONFLICT (firebase_uid) DO NOTHING RETURNING users.id, users.firebase_uid, users.email, users.display_name, users.created_at, users.last_seen_at"
+ },
+ {
+  "calls": 8,
+  "total_ms": 0.4,
+  "mean_ms": 0.05,
+  "max_ms": 0.1,
+  "rows": 0,
+  "query": "SELECT outbox.id, outbox.kind, outbox.payload, outbox.status, outbox.attempts, outbox.next_attempt_at, outbox.delivered_at, outbox.last_error, outbox.created_at FROM outbox WHERE outbox.status = $1::outbox_status AND outbox.next_attempt_at <= now() ORDER BY outbox.next_attempt_at, outbox.created_at,"
+ },
+ {
+  "calls": 6,
+  "total_ms": 0.3,
+  "mean_ms": 0.06,
+  "max_ms": 0.1,
+  "rows": 11,
+  "query": "WITH RECURSIVE typeinfo_tree( oid, ns, name, kind, basetype, elemtype, elemdelim, range_subtype, attrtypoids, attrnames, depth) AS ( SELECT ti.oid, ti.ns, ti.name, ti.kind, ti.basetype, ti.elemtype, ti.elemdelim, ti.range_subtype, ti.attrtypoids, ti.attrnames, $2 FROM ( SELECT t.oid AS oid, ns.nspna"
+ },
+ {
+  "calls": 2,
+  "total_ms": 0.3,
+  "mean_ms": 0.16,
+  "max_ms": 0.2,
+  "rows": 3,
+  "query": "select coalesce(application_name, $1) as app, coalesce(state, $2) as state, count(*) as n, count(*) filter (where wait_event_type = $3) as waiting_lock, coalesce(max(extract($4 from now() - xact_start)), $5) as oldest_xact_s from pg_stat_activity where datname = current_database() and pid <> pg_back"
+ },
+ {
+  "calls": 4,
+  "total_ms": 0.3,
+  "mean_ms": 0.08,
+  "max_ms": 0.1,
+  "rows": 4,
+  "query": "INSERT INTO orgs (name) VALUES ($1::VARCHAR) RETURNING orgs.id, orgs.created_at"
+ },
+ {
+  "calls": 1,
+  "total_ms": 0.2,
+  "mean_ms": 0.18,
+  "max_ms": 0.2,
+  "rows": 1,
+  "query": "select pg_stat_statements_reset()"
+ },
+ {
+  "calls": 5,
+  "total_ms": 0.1,
+  "mean_ms": 0.03,
+  "max_ms": 0.1,
+  "rows": 1,
+  "query": "SELECT users.id, users.firebase_uid, users.email, users.display_name, users.created_at, users.last_seen_at FROM users WHERE users.firebase_uid = $1::VARCHAR"
+ },
+ {
+  "calls": 14,
+  "total_ms": 0.1,
+  "mean_ms": 0.01,
+  "max_ms": 0.0,
+  "rows": 14,
+  "query": "SELECT $2 FROM ONLY \"public\".\"users\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+ },
+ {
+  "calls": 1,
+  "total_ms": 0.1,
+  "mean_ms": 0.09,
+  "max_ms": 0.1,
+  "rows": 29,
+  "query": "SELECT chunks.id, chunks.text FROM chunks WHERE chunks.corpus_version_id = $1::UUID ORDER BY chunks.chunk_key"
+ },
+ {
+  "calls": 9,
+  "total_ms": 0.1,
+  "mean_ms": 0.01,
+  "max_ms": 0.0,
+  "rows": 9,
+  "query": "SELECT $2 FROM ONLY \"public\".\"orgs\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+ },
+ {
+  "calls": 52,
+  "total_ms": 0.1,
+  "mean_ms": 0.0,
+  "max_ms": 0.0,
+  "rows": 0,
+  "query": "BEGIN"
+ },
+ {
+  "calls": 3,
+  "total_ms": 0.1,
+  "mean_ms": 0.02,
+  "max_ms": 0.0,
+  "rows": 3,
+  "query": "select current_schema()"
+ },
+ {
+  "calls": 1,
+  "total_ms": 0.1,
+  "mean_ms": 0.06,
+  "max_ms": 0.1,
+  "rows": 1,
+  "query": "SELECT corpus_versions.id, corpus_versions.corpus, corpus_versions.study_id, corpus_versions.version, corpus_versions.embedding_model, corpus_versions.published_at, corpus_versions.created_at FROM corpus_versions WHERE corpus_versions.corpus = $1::VARCHAR AND corpus_versions.study_id IS NULL AND cor"
+ },
+ {
+  "calls": 5,
+  "total_ms": 0.0,
+  "mean_ms": 0.01,
+  "max_ms": 0.0,
+  "rows": 5,
+  "query": "SELECT users.id FROM users WHERE users.firebase_uid = $1::VARCHAR"
+ },
+ {
+  "calls": 3,
+  "total_ms": 0.0,
+  "mean_ms": 0.01,
+  "max_ms": 0.0,
+  "rows": 3,
+  "query": "select pg_catalog.version()"
+ },
+ {
+  "calls": 6,
+  "total_ms": 0.0,
+  "mean_ms": 0.0,
+  "max_ms": 0.0,
+  "rows": 6,
+  "query": "SELECT current_setting($1) AS cur, set_config($2, $3, $4) AS new"
+ },
+ {
+  "calls": 1,
+  "total_ms": 0.0,
+  "mean_ms": 0.03,
+  "max_ms": 0.0,
+  "rows": 1,
+  "query": "SELECT corpus_versions.published_at FROM corpus_versions WHERE corpus_versions.id = $1::UUID"
+ },
+ {
+  "calls": 5,
+  "total_ms": 0.0,
+  "mean_ms": 0.01,
+  "max_ms": 0.0,
+  "rows": 5,
+  "query": "SELECT studies.id, studies.org_id, studies.created_by, studies.property_name, studies.status, studies.current_stage, studies.revision, studies.workflow_id, studies.room_aliases, studies.failure_reason, studies.created_at, studies.updated_at FROM studies WHERE studies.id = $1::UUID"
+ },
+ {
+  "calls": 32,
+  "total_ms": 0.0,
+  "mean_ms": 0.0,
+  "max_ms": 0.0,
+  "rows": 0,
+  "query": "ROLLBACK"
+ },
+ {
+  "calls": 5,
+  "total_ms": 0.0,
+  "mean_ms": 0.0,
+  "max_ms": 0.0,
+  "rows": 5,
+  "query": "SELECT org_members.org_id, org_members.role FROM org_members WHERE org_members.user_id = $1::UUID"
+ },
+ {
+  "calls": 21,
+  "total_ms": 0.0,
+  "mean_ms": 0.0,
+  "max_ms": 0.0,
+  "rows": 0,
+  "query": "COMMIT"
+ },
+ {
+  "calls": 6,
+  "total_ms": 0.0,
+  "mean_ms": 0.0,
+  "max_ms": 0.0,
+  "rows": 6,
+  "query": "SELECT set_config($2, $1, $3)"
+ }
+]

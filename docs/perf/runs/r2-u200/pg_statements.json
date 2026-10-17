@@ -1,0 +1,202 @@
+[
+ {
+  "calls": 4974,
+  "total_ms": 30606.6,
+  "mean_ms": 6.15,
+  "max_ms": 80.5,
+  "rows": 248678,
+  "query": "SELECT citations.asset_id, count(*) AS count_1, count(citations.verified_at) AS count_2 FROM citations WHERE citations.study_id = $1::UUID AND citations.asset_id IN ($2::UUID, $3::UUID, $4::UUID, $5::UUID, $6::UUID, $7::UUID, $8::UUID, $9::UUID, $10::UUID, $11::UUID, $12::UUID, $13::UUID, $14::UUID,"
+ },
+ {
+  "calls": 678,
+  "total_ms": 14721.0,
+  "mean_ms": 21.71,
+  "max_ms": 165.7,
+  "rows": 67064,
+  "query": "SELECT extraction_fields.id, extraction_fields.extraction_id, extraction_fields.study_id, extraction_fields.section, extraction_fields.field, extraction_fields.value_text, extraction_fields.value_num, extraction_fields.value_date, extraction_fields.confidence, extraction_fields.source, extraction_fi"
+ },
+ {
+  "calls": 829,
+  "total_ms": 5063.4,
+  "mean_ms": 6.11,
+  "max_ms": 28.4,
+  "rows": 8290,
+  "query": "SELECT citations.asset_id, count(*) AS count_1, count(citations.verified_at) AS count_2 FROM citations WHERE citations.study_id = $1::UUID AND citations.asset_id IN ($2::UUID, $3::UUID, $4::UUID, $5::UUID, $6::UUID, $7::UUID, $8::UUID, $9::UUID, $10::UUID, $11::UUID) GROUP BY citations.asset_id"
+ },
+ {
+  "calls": 555,
+  "total_ms": 3761.0,
+  "mean_ms": 6.78,
+  "max_ms": 87.6,
+  "rows": 32441,
+  "query": "SELECT citations.id, citations.study_id, citations.asset_id, citations.chunk_id, citations.excerpt, citations.verified_at, citations.verification_method, citations.created_at, chunks.id AS id_1, chunks.corpus_version_id, chunks.doc_id, chunks.chunk_key, chunks.page_start, chunks.page_end, chunks.sec"
+ },
+ {
+  "calls": 656,
+  "total_ms": 2321.9,
+  "mean_ms": 3.54,
+  "max_ms": 22.2,
+  "rows": 531310,
+  "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+ },
+ {
+  "calls": 664,
+  "total_ms": 2004.2,
+  "mean_ms": 3.02,
+  "max_ms": 15.0,
+  "rows": 8632,
+  "query": "SELECT extraction_fields.id, extraction_fields.extraction_id, extraction_fields.study_id, extraction_fields.section, extraction_fields.field, extraction_fields.value_text, extraction_fields.value_num, extraction_fields.value_date, extraction_fields.confidence, extraction_fields.source, extraction_fi"
+ },
+ {
+  "calls": 5529,
+  "total_ms": 1574.8,
+  "mean_ms": 0.28,
+  "max_ms": 6.0,
+  "rows": 276450,
+  "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+ },
+ {
+  "calls": 4974,
+  "total_ms": 849.8,
+  "mean_ms": 0.17,
+  "max_ms": 1.8,
+  "rows": 248700,
+  "query": "SELECT takeoffs.id, takeoffs.study_id, takeoffs.asset_id, takeoffs.quantity, takeoffs.unit, takeoffs.formula, takeoffs.inputs, takeoffs.created_at FROM takeoffs WHERE takeoffs.study_id = $1::UUID AND takeoffs.asset_id IN ($2::UUID, $3::UUID, $4::UUID, $5::UUID, $6::UUID, $7::UUID, $8::UUID, $9::UUID"
+ },
+ {
+  "calls": 4974,
+  "total_ms": 574.5,
+  "mean_ms": 0.12,
+  "max_ms": 1.1,
+  "rows": 248700,
+  "query": "SELECT cost_estimates.id, cost_estimates.study_id, cost_estimates.asset_id, cost_estimates.unit_cost, cost_estimates.total, cost_estimates.source_row, cost_estimates.location_factor, cost_estimates.cost_year, cost_estimates.created_at FROM cost_estimates WHERE cost_estimates.study_id = $1::UUID AND "
+ },
+ {
+  "calls": 4974,
+  "total_ms": 401.0,
+  "mean_ms": 0.08,
+  "max_ms": 4.4,
+  "rows": 219685,
+  "query": "SELECT assets.id, assets.study_id, assets.revision, assets.component_id, assets.category, assets.bucket, assets.recovery_period, assets.irs_section, assets.method, assets.confidence, assets.needs_review, assets.review_reason, assets.verified, assets.created_at FROM assets WHERE assets.study_id = $1:"
+ },
+ {
+  "calls": 656,
+  "total_ms": 329.8,
+  "mean_ms": 0.5,
+  "max_ms": 2.8,
+  "rows": 34112,
+  "query": "SELECT photo_rooms.room_id, documents.id, documents.filename FROM photo_rooms JOIN documents ON documents.id = photo_rooms.document_id AND documents.study_id = $1::UUID WHERE photo_rooms.study_id = $2::UUID AND photo_rooms.revision = $3::INTEGER AND photo_rooms.room_id IN ($4::UUID, $5::UUID, $6::UU"
+ },
+ {
+  "calls": 13047,
+  "total_ms": 262.0,
+  "mean_ms": 0.02,
+  "max_ms": 0.5,
+  "rows": 13047,
+  "query": "SELECT studies.id, studies.org_id, studies.created_by, studies.property_name, studies.status, studies.current_stage, studies.revision, studies.workflow_id, studies.room_aliases, studies.failure_reason, studies.created_at, studies.updated_at, org_members.role FROM studies JOIN org_members ON org_memb"
+ },
+ {
+  "calls": 1661,
+  "total_ms": 183.9,
+  "mean_ms": 0.11,
+  "max_ms": 1.2,
+  "rows": 70584,
+  "query": "SELECT assets.id, assets.study_id, assets.revision, assets.component_id, assets.category, assets.bucket, assets.recovery_period, assets.irs_section, assets.method, assets.confidence, assets.needs_review, assets.review_reason, assets.verified, assets.created_at FROM assets WHERE assets.study_id = $1:"
+ },
+ {
+  "calls": 13566,
+  "total_ms": 167.2,
+  "mean_ms": 0.01,
+  "max_ms": 0.6,
+  "rows": 13566,
+  "query": "SELECT users.id, users.firebase_uid, users.email, users.display_name, users.created_at, users.last_seen_at FROM users WHERE users.firebase_uid = $1::VARCHAR"
+ },
+ {
+  "calls": 3239,
+  "total_ms": 123.9,
+  "mean_ms": 0.04,
+  "max_ms": 0.6,
+  "rows": 3239,
+  "query": "SELECT runs.id, runs.study_id, runs.workflow_id, runs.run_id, runs.workflow_version, runs.input_revision, runs.started_at, runs.ended_at, runs.outcome, runs.created_at FROM runs WHERE runs.study_id = $1::UUID ORDER BY runs.started_at, runs.id"
+ },
+ {
+  "calls": 936,
+  "total_ms": 117.0,
+  "mean_ms": 0.13,
+  "max_ms": 0.8,
+  "rows": 49608,
+  "query": "SELECT documents.id, documents.study_id, documents.kind, documents.filename, documents.content_type, documents.bytes, documents.sha256, documents.gcs_uri, documents.uploaded_by, documents.uploaded_at, documents.created_at FROM documents WHERE documents.study_id = $1::UUID ORDER BY documents.created_"
+ },
+ {
+  "calls": 89,
+  "total_ms": 94.7,
+  "mean_ms": 1.06,
+  "max_ms": 1.9,
+  "rows": 53773,
+  "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+ },
+ {
+  "calls": 77,
+  "total_ms": 80.1,
+  "mean_ms": 1.04,
+  "max_ms": 2.1,
+  "rows": 45406,
+  "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+ },
+ {
+  "calls": 68,
+  "total_ms": 74.5,
+  "mean_ms": 1.1,
+  "max_ms": 2.3,
+  "rows": 42218,
+  "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+ },
+ {
+  "calls": 65,
+  "total_ms": 68.5,
+  "mean_ms": 1.05,
+  "max_ms": 4.8,
+  "rows": 37445,
+  "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+ },
+ {
+  "calls": 168,
+  "total_ms": 68.3,
+  "mean_ms": 0.41,
+  "max_ms": 1.2,
+  "rows": 6865,
+  "query": "SELECT photo_rooms.study_id, photo_rooms.document_id, photo_rooms.room_id, photo_rooms.revision, photo_rooms.created_at FROM photo_rooms WHERE photo_rooms.study_id = $1::UUID AND photo_rooms.revision = $2::INTEGER AND photo_rooms.room_id IN ($3::UUID, $4::UUID, $5::UUID, $6::UUID, $7::UUID, $8::UUID"
+ },
+ {
+  "calls": 1308,
+  "total_ms": 64.4,
+  "mean_ms": 0.05,
+  "max_ms": 0.5,
+  "rows": 34008,
+  "query": "SELECT rooms.id, rooms.study_id, rooms.revision, rooms.name, rooms.room_type, rooms.floor, rooms.source, rooms.group_key, rooms.created_at FROM rooms WHERE rooms.study_id = $1::UUID AND rooms.id IN ($2::UUID, $3::UUID, $4::UUID, $5::UUID, $6::UUID, $7::UUID, $8::UUID, $9::UUID, $10::UUID, $11::UUID,"
+ },
+ {
+  "calls": 829,
+  "total_ms": 62.5,
+  "mean_ms": 0.08,
+  "max_ms": 14.1,
+  "rows": 8290,
+  "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+ },
+ {
+  "calls": 1212,
+  "total_ms": 56.8,
+  "mean_ms": 0.05,
+  "max_ms": 0.5,
+  "rows": 30300,
+  "query": "SELECT rooms.id, rooms.study_id, rooms.revision, rooms.name, rooms.room_type, rooms.floor, rooms.source, rooms.group_key, rooms.created_at FROM rooms WHERE rooms.study_id = $1::UUID AND rooms.id IN ($2::UUID, $3::UUID, $4::UUID, $5::UUID, $6::UUID, $7::UUID, $8::UUID, $9::UUID, $10::UUID, $11::UUID,"
+ },
+ {
+  "calls": 51,
+  "total_ms": 56.8,
+  "mean_ms": 1.11,
+  "max_ms": 2.5,
+  "rows": 32360,
+  "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+ }
+]

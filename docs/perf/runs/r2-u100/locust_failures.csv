@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,GET /v1/studies/{id}/fields,"CatchResponseError(""0 ConnectionError(ProtocolError('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer')))"")",2,2026-10-17T20:37:38Z,2026-10-17T20:38:34Z
