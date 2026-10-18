@@ -3,4 +3,5 @@ terraform.tfvars
 *.tfstate
 *.tfstate.*
 crash.log
-tfplan
+tfplan*
+targets.txt

@@ -165,10 +165,16 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
       }
     }
 
+    # The Cloud SQL socket comes from the proxy sidecar below, not from Cloud Run's built-in
+    # connector: on this worker pool the built-in socket never appeared (FileNotFoundError
+    # on /cloudsql/<connection>/.s.PGSQL.5432 from both containers, 2026-10-18), and Cloud
+    # Run dropped the relay's mount of it. The proxy writes the same socket path into this
+    # shared in-memory volume, so DATABASE_URL is the same as the API's and the jobs'.
     volumes {
-      name = "cloudsql"
-      cloud_sql_instance {
-        instances = [local.sql_connection]
+      name = "sql-socket" # "cloudsql" is reserved for the built-in connector
+      empty_dir {
+        medium     = "MEMORY"
+        size_limit = "1Mi"
       }
     }
 
@@ -181,9 +187,10 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
     }
 
     containers {
-      name    = "worker"
-      image   = var.image
-      command = ["python", "-m", "basis.worker"]
+      name       = "worker"
+      image      = var.image
+      command    = ["python", "-m", "basis.worker"]
+      depends_on = ["cloud-sql-proxy"]
 
       resources {
         limits = {
@@ -214,7 +221,7 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
       }
 
       volume_mounts {
-        name       = "cloudsql"
+        name       = "sql-socket"
         mount_path = "/cloudsql"
       }
 
@@ -235,13 +242,14 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
     }
 
     containers {
-      name    = "relay"
-      image   = var.image
-      command = ["python", "-m", "basis.relay"]
+      name       = "relay"
+      image      = var.image
+      command    = ["python", "-m", "basis.relay"]
+      depends_on = ["cloud-sql-proxy"]
 
       resources {
         limits = {
-          cpu    = "1"
+          cpu    = "0.25"
           memory = "512Mi"
         }
       }
@@ -268,7 +276,7 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
       }
 
       volume_mounts {
-        name       = "cloudsql"
+        name       = "sql-socket"
         mount_path = "/cloudsql"
       }
 
@@ -279,6 +287,43 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
           port = 8081
         }
         period_seconds    = 5
+        failure_threshold = 30
+      }
+    }
+
+    # Cloud SQL Auth Proxy (https://cloud.google.com/sql/docs/postgres/connect-auth-proxy):
+    # authorizes with the worker account's roles/cloudsql.client, encrypts, and serves the
+    # Unix socket the app's DATABASE_URL names. Its /startup probe gates the other two.
+    containers {
+      name  = "cloud-sql-proxy"
+      image = "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.26.0"
+      args = [
+        "--unix-socket=/cloudsql",
+        "--health-check",
+        "--http-address=0.0.0.0",
+        "--http-port=9801",
+        "--structured-logs",
+        local.sql_connection,
+      ]
+
+      resources {
+        limits = {
+          cpu    = "0.25"
+          memory = "256Mi"
+        }
+      }
+
+      volume_mounts {
+        name       = "sql-socket"
+        mount_path = "/cloudsql"
+      }
+
+      startup_probe {
+        http_get {
+          path = "/startup"
+          port = 9801
+        }
+        period_seconds    = 2
         failure_threshold = 30
       }
     }
@@ -386,18 +431,19 @@ resource "google_cloud_run_v2_job" "ingest" {
       max_retries     = 0
       timeout         = "3600s"
 
-      volumes {
-        name = "cloudsql"
-        cloud_sql_instance {
-          instances = [local.sql_connection]
-        }
-      }
-
+      # Listed in the order the API returns them, so plans show no diff.
       volumes {
         name = "private"
         gcs {
           bucket    = google_storage_bucket.private.name
           read_only = true
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [local.sql_connection]
         }
       }
 
@@ -435,13 +481,13 @@ resource "google_cloud_run_v2_job" "ingest" {
         }
 
         volume_mounts {
-          name       = "cloudsql"
-          mount_path = "/cloudsql"
+          name       = "private"
+          mount_path = local.private_mount
         }
 
         volume_mounts {
-          name       = "private"
-          mount_path = local.private_mount
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
         }
       }
     }
