@@ -8,9 +8,9 @@
 # Then lists the corpus versions (a second, short execution) to show the result.
 set -euo pipefail
 
-PROJECT=${PROJECT:-cost-seg-basis}
+PROJECT=${PROJECT:-basis-staging-512000}
 REGION=${REGION:-us-central1}
-BUCKET=${BUCKET:-staging-cost-seg-basis-private}
+BUCKET=${BUCKET:-staging-basis-staging-512000-private}
 JOB=${JOB:-staging-basis-ingest}
 
 args=""

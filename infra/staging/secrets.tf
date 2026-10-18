@@ -4,14 +4,16 @@
 #
 # Who reads what:
 #   database-url        API, worker, relay, jobs (it carries the database password)
-#   provider keys       worker only (the API calls no model)
+#   provider keys       worker only (the API calls no model), and the Azure DI endpoint
 
 locals {
   secrets = {
-    "staging-database-url"        = { env = "DATABASE_URL", readers = ["api", "worker"] }
-    "staging-openai-api-key"      = { env = "OPENAI_API_KEY", readers = ["worker"] }
-    "staging-anthropic-api-key"   = { env = "ANTHROPIC_API_KEY", readers = ["worker"] }
-    "staging-azure-di-key"        = { env = "AZURE_DOCUMENT_INTELLIGENCE_KEY", readers = ["worker"] }
+    "staging-database-url"      = { env = "DATABASE_URL", readers = ["api", "worker"] }
+    "staging-openai-api-key"    = { env = "OPENAI_API_KEY", readers = ["worker"] }
+    "staging-anthropic-api-key" = { env = "ANTHROPIC_API_KEY", readers = ["worker"] }
+    "staging-azure-di-key"      = { env = "AZURE_DOCUMENT_INTELLIGENCE_KEY", readers = ["worker"] }
+    # Not a credential, but it names the Azure resource; kept out of the public repo.
+    "staging-azure-di-endpoint"   = { env = "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", readers = ["worker"] }
     "staging-replicate-api-token" = { env = "REPLICATE_API_TOKEN", readers = ["worker"] }
   }
   secret_readers = merge([

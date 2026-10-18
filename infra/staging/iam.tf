@@ -89,18 +89,13 @@ resource "google_service_account_iam_member" "deployer_acts_as" {
   member             = "serviceAccount:${google_service_account.deployer.email}"
 }
 
-# ... and pushes images to the existing repository (created 2026-10-15, INFRA_NOTES.md).
-data "google_artifact_registry_repository" "basis" {
-  location      = var.region
-  repository_id = "basis"
-}
-
+# ... and pushes images to the staging repository (registry.tf).
 resource "google_artifact_registry_repository_iam_member" "deployer_push" {
-  location   = data.google_artifact_registry_repository.basis.location
-  repository = data.google_artifact_registry_repository.basis.name
+  location   = google_artifact_registry_repository.staging.location
+  repository = google_artifact_registry_repository.staging.name
   role       = "roles/artifactregistry.writer"
   member     = "serviceAccount:${google_service_account.deployer.email}"
 }
 
-# Cloud Run pulls images as its service agent; the repository is in the same project,
-# where the agent already has roles/artifactregistry.reader through run.serviceAgent.
+# Cloud Run pulls images as its service agent, which reads repositories of its own project
+# through roles/run.serviceAgent.

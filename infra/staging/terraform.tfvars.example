@@ -1,4 +1,4 @@
-# Copy to terraform.tfvars (git-ignored) and fill in. No secret belongs here: keys and the
-# database password go to Secret Manager through scripts/load-secrets.sh.
-image                                = "us-central1-docker.pkg.dev/cost-seg-basis/basis/basis-backend:<git sha>"
-azure_document_intelligence_endpoint = "https://<resource>.cognitiveservices.azure.com/"
+# Copy to terraform.tfvars (git-ignored). No secret belongs here: keys, the Azure DI
+# endpoint and the database URL go to Secret Manager (scripts/load_secrets.py,
+# scripts/set-db-password.sh).
+image = "us-central1-docker.pkg.dev/basis-staging-512000/staging-basis/basis-backend:<git sha>"

@@ -1,4 +1,4 @@
-"""Add the model-provider keys to the staging Secret Manager secrets.
+"""Add the model-provider keys (and the Azure DI endpoint) to the staging Secret Manager secrets.
 
 Reads each key from the operator's environment first, then from a dotenv file
 (``--env-file``, default ``backEnd/.env``), strips surrounding whitespace (the local
@@ -25,7 +25,7 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-PROJECT = "cost-seg-basis"
+PROJECT = "basis-staging-512000"
 
 # Secret Manager name -> the environment variable that holds the value locally.
 SECRETS: dict[str, str] = {
@@ -33,6 +33,7 @@ SECRETS: dict[str, str] = {
     "staging-anthropic-api-key": "ANTHROPIC_API_KEY",
     "staging-azure-di-key": "AZURE_DOCUMENT_INTELLIGENCE_KEY",
     "staging-replicate-api-token": "REPLICATE_API_TOKEN",
+    "staging-azure-di-endpoint": "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
 }
 
 

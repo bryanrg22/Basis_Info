@@ -1,4 +1,4 @@
-# Staging environment of the Basis backend in GCP project cost-seg-basis.
+# Staging environment of the Basis backend in its own GCP project, basis-staging-512000.
 # Architecture, costs and runbook: docs/deploy/STAGING.md.
 #
 # State lives in a versioned private bucket (scripts/bootstrap.sh creates it). Secret
@@ -16,7 +16,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "cost-seg-basis-tfstate"
+    bucket = "basis-staging-512000-tfstate"
     prefix = "staging"
   }
 }

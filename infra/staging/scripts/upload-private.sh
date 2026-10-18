@@ -11,8 +11,8 @@
 # versioned, so the previous table stays recoverable).
 set -euo pipefail
 
-PROJECT=${PROJECT:-cost-seg-basis}
-BUCKET=${BUCKET:-staging-cost-seg-basis-private}
+PROJECT=${PROJECT:-basis-staging-512000}
+BUCKET=${BUCKET:-staging-basis-staging-512000-private}
 CORPUS_DIR=${CORPUS_DIR:-$HOME/basis-eval-data/corpus}
 COST_TABLE=${COST_TABLE:-$HOME/basis-eval-data/costs/unit_costs_rsmeans_2020.json}
 

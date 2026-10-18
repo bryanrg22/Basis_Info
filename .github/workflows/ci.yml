@@ -386,9 +386,9 @@ jobs:
       contents: read
       id-token: write # the OIDC token Workload Identity Federation exchanges
     env:
-      PROJECT: cost-seg-basis
+      PROJECT: basis-staging-512000
       REGION: us-central1
-      IMAGE: us-central1-docker.pkg.dev/cost-seg-basis/basis/basis-backend:${{ github.sha }}
+      IMAGE: us-central1-docker.pkg.dev/basis-staging-512000/staging-basis/basis-backend:${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

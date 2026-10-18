@@ -7,7 +7,7 @@
 # (or restart the worker pool) so running instances pick it up.
 set -euo pipefail
 
-PROJECT=${PROJECT:-cost-seg-basis}
+PROJECT=${PROJECT:-basis-staging-512000}
 REGION=${REGION:-us-central1}
 INSTANCE=${INSTANCE:-staging-basis-pg}
 DB=${DB:-basis}

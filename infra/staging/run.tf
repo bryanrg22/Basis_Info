@@ -20,14 +20,13 @@ locals {
   common_env = merge(var.app_env, {
     BASIS_ENV           = "staging"
     GCS_BUCKET          = google_storage_bucket.uploads.name
-    FIREBASE_PROJECT_ID = var.project_id
+    FIREBASE_PROJECT_ID = var.firebase_project_id
     TEMPORAL_ADDRESS    = "${google_compute_address.temporal.address}:7233"
     TEMPORAL_NAMESPACE  = var.temporal_namespace
   })
 
   worker_env = merge(local.common_env, {
-    AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT = var.azure_document_intelligence_endpoint
-    COST_TABLE_PATH                      = "/mnt/private/${var.cost_table_object}"
+    COST_TABLE_PATH = "/mnt/private/${var.cost_table_object}"
   })
 
   # Where the worker and the ingest job see the private bucket (mounted read-only).

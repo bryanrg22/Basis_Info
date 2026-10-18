@@ -10,8 +10,8 @@ set -euo pipefail
 
 REPO=${REPO:-bryanrg22/Basis_Info}
 ENVIRONMENT=staging
-PROVIDER=${PROVIDER:-projects/930581733841/locations/global/workloadIdentityPools/github-actions/providers/github}
-DEPLOYER=${DEPLOYER:-staging-deployer@cost-seg-basis.iam.gserviceaccount.com}
+PROVIDER=${PROVIDER:-projects/138338018557/locations/global/workloadIdentityPools/github-actions/providers/github}
+DEPLOYER=${DEPLOYER:-staging-deployer@basis-staging-512000.iam.gserviceaccount.com}
 
 reviewers='[]'
 if [ -n "${REVIEWER:-}" ]; then

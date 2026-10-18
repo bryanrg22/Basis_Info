@@ -11,7 +11,7 @@
 # source of truth for "up": a later `terraform apply` brings the worker back to it.
 set -euo pipefail
 
-PROJECT=${PROJECT:-cost-seg-basis}
+PROJECT=${PROJECT:-basis-staging-512000}
 REGION=${REGION:-us-central1}
 ZONE=${ZONE:-us-central1-a}
 SQL=staging-basis-pg

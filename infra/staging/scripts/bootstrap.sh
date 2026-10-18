@@ -8,9 +8,9 @@
 # STAGING.md, "Who can apply").
 set -euo pipefail
 
-PROJECT=${PROJECT:-cost-seg-basis}
+PROJECT=${PROJECT:-basis-staging-512000}
 REGION=${REGION:-us-central1}
-STATE_BUCKET=${STATE_BUCKET:-cost-seg-basis-tfstate}
+STATE_BUCKET=${STATE_BUCKET:-basis-staging-512000-tfstate}
 
 gcloud services enable --project "$PROJECT" \
   cloudresourcemanager.googleapis.com serviceusage.googleapis.com iam.googleapis.com \

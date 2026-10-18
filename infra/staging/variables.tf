@@ -1,13 +1,23 @@
 variable "project_id" {
-  description = "GCP project that holds staging (Bryan's decision of 2026-10-15: cost-seg-basis)."
+  description = "GCP project that holds staging (created 2026-10-17; cost-seg-basis's IAM could not be granted)."
   type        = string
-  default     = "cost-seg-basis"
+  default     = "basis-staging-512000"
 }
 
 variable "project_number" {
   description = "Number of project_id (used in Workload Identity principal names)."
   type        = string
-  default     = "930581733841"
+  default     = "138338018557"
+}
+
+variable "firebase_project_id" {
+  description = <<-EOT
+    Firebase project whose ID tokens the API accepts (FIREBASE_PROJECT_ID). Firebase Auth
+    stays in cost-seg-basis with the frontend: verifying a token needs only Google's public
+    keys and the project id, no permission in that project.
+  EOT
+  type        = string
+  default     = "cost-seg-basis"
 }
 
 variable "region" {
@@ -94,10 +104,6 @@ variable "app_env" {
   }
 }
 
-variable "azure_document_intelligence_endpoint" {
-  description = "Azure Document Intelligence endpoint URL (not a secret, but kept out of the public repo: terraform.tfvars)."
-  type        = string
-}
 
 variable "cost_table_object" {
   description = "Object in the private bucket holding the licensed unit-cost table (COST_TABLE_PATH)."
