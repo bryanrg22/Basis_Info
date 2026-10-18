@@ -1,0 +1,404 @@
+{
+ "run_dir": "u300-s5",
+ "scale": 1.0,
+ "settings": [
+  "RATE_LIMIT_MUTATIONS_PER_MIN=300",
+  "LOAD_LATENCY_SCALE=1.0",
+  "MODE=fake"
+ ],
+ "studies": {
+  "studies": 5,
+  "completed": 5,
+  "failed": 0,
+  "errors": [],
+  "makespan_s": null,
+  "makespan_real_s": null,
+  "studies_per_hour_real": null,
+  "run_real_s": {
+   "50": null,
+   "95": null,
+   "100": null
+  },
+  "uploads_s": {
+   "50": 2.87,
+   "95": 2.89,
+   "100": 2.89
+  },
+  "rate_limited_429": 0,
+  "polls": 0,
+  "to_appraisal_review_real_s": {
+   "50": null,
+   "95": null,
+   "100": null
+  },
+  "to_rooms_review_real_s": {
+   "50": null,
+   "95": null,
+   "100": null
+  },
+  "to_assets_review_real_s": {
+   "50": null,
+   "95": null,
+   "100": null
+  }
+ },
+ "routes": [
+  {
+   "route": "POST /v1/studies/{id}/documents",
+   "count": 170,
+   "failures": 0,
+   "p50": 22.0,
+   "p95": 61.0,
+   "p99": 220.0,
+   "max": 216
+  },
+  {
+   "route": "POST /v1/studies/{id}/documents/{id}/complete",
+   "count": 166,
+   "failures": 0,
+   "p50": 23.0,
+   "p95": 34.0,
+   "p99": 96.0,
+   "max": 143
+  },
+  {
+   "route": "POST /v1/studies",
+   "count": 5,
+   "failures": 0,
+   "p50": 82.0,
+   "p95": 92.0,
+   "p99": 92.0,
+   "max": 92
+  }
+ ],
+ "aggregate": {
+  "count": 341,
+  "failures": 0,
+  "rps": 170.74853224500555,
+  "p95": 61.0,
+  "p99": 220.0
+ },
+ "failures": [],
+ "samples": {
+  "samples": 1,
+  "activity_backlog_max": 0,
+  "activity_backlog_age_max_s": 0.0,
+  "workflow_backlog_max": 0,
+  "workflow_backlog_age_max_s": 0.0,
+  "activity_slots_used_max": 0.0,
+  "workflow_slots_used_max": 0.0,
+  "pg_connections_max": 3,
+  "pg_connections_by_app_max": {
+   "basis": 3
+  },
+  "pg_idle_in_transaction_max": 0,
+  "pg_waiting_lock_max": 0,
+  "pg_oldest_xact_max_s": 0,
+  "procs": {
+   "api": {
+    "cpu_p50": 0.0,
+    "cpu_p95": 0.0,
+    "cpu_max": 0.0,
+    "rss_max_mb": 159.3
+   },
+   "worker": {
+    "cpu_p50": 1.4,
+    "cpu_p95": 1.4,
+    "cpu_max": 1.4,
+    "rss_max_mb": 383.2
+   },
+   "relay": {
+    "cpu_p50": 0.0,
+    "cpu_p95": 0.0,
+    "cpu_max": 0.0,
+    "rss_max_mb": 113.9
+   },
+   "postgres": {
+    "cpu_p50": 21.36,
+    "cpu_p95": 21.36,
+    "cpu_max": 21.36
+   }
+  }
+ },
+ "logs": {
+  "worker": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 0,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  },
+  "api": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 0,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  },
+  "relay": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 0,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  }
+ },
+ "statements": [
+  {
+   "calls": 535,
+   "total_ms": 31.1,
+   "mean_ms": 0.06,
+   "max_ms": 0.4,
+   "rows": 535,
+   "query": "INSERT INTO idempotency_keys (key, user_id, route, request_hash, expires_at) VALUES ($1::VARCHAR, $2::UUID, $3::VARCHAR, $4::VARCHAR, (now() + $5::INTERVAL)) ON CONFLICT (key) DO UPDATE SET user_id = excluded.user_id, route = excluded.route, request_hash = excluded.request_hash, status_code = $6::IN"
+  },
+  {
+   "calls": 265,
+   "total_ms": 27.2,
+   "mean_ms": 0.1,
+   "max_ms": 0.4,
+   "rows": 265,
+   "query": "INSERT INTO documents (id, study_id, kind, filename, content_type, bytes, sha256, gcs_uri, uploaded_by, uploaded_at) VALUES ($1::UUID, $2::UUID, $3::document_kind, $4::VARCHAR, $5::VARCHAR, $6::BIGINT, $7::VARCHAR, $8::VARCHAR, $9::UUID, $10::TIMESTAMP WITH TIME ZONE) RETURNING documents.created_at"
+  },
+  {
+   "calls": 535,
+   "total_ms": 27.0,
+   "mean_ms": 0.05,
+   "max_ms": 0.5,
+   "rows": 535,
+   "query": "UPDATE idempotency_keys SET status_code=$1::INTEGER, response=$2::JSONB, expires_at=(now() + $3::INTERVAL) WHERE idempotency_keys.key = $4::VARCHAR AND idempotency_keys.status_code IS NULL AND idempotency_keys.request_hash = $5::VARCHAR"
+  },
+  {
+   "calls": 265,
+   "total_ms": 11.8,
+   "mean_ms": 0.04,
+   "max_ms": 0.2,
+   "rows": 265,
+   "query": "UPDATE documents SET uploaded_at=now() WHERE documents.id = $1::UUID AND documents.study_id = $2::UUID AND documents.uploaded_at IS NULL RETURNING documents.id, documents.study_id, documents.kind, documents.filename, documents.content_type, documents.bytes, documents.sha256, documents.gcs_uri, docum"
+  },
+  {
+   "calls": 530,
+   "total_ms": 7.7,
+   "mean_ms": 0.01,
+   "max_ms": 0.1,
+   "rows": 530,
+   "query": "SELECT studies.id, studies.org_id, studies.created_by, studies.property_name, studies.status, studies.current_stage, studies.revision, studies.workflow_id, studies.room_aliases, studies.failure_reason, studies.created_at, studies.updated_at, org_members.role FROM studies JOIN org_members ON org_memb"
+  },
+  {
+   "calls": 1070,
+   "total_ms": 7.7,
+   "mean_ms": 0.01,
+   "max_ms": 0.1,
+   "rows": 1070,
+   "query": "SELECT users.id FROM users WHERE users.firebase_uid = $1::VARCHAR"
+  },
+  {
+   "calls": 535,
+   "total_ms": 4.2,
+   "mean_ms": 0.01,
+   "max_ms": 0.1,
+   "rows": 535,
+   "query": "SELECT users.id, users.firebase_uid, users.email, users.display_name, users.created_at, users.last_seen_at FROM users WHERE users.firebase_uid = $1::VARCHAR"
+  },
+  {
+   "calls": 805,
+   "total_ms": 3.6,
+   "mean_ms": 0.0,
+   "max_ms": 0.0,
+   "rows": 805,
+   "query": "SELECT $2 FROM ONLY \"public\".\"users\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 265,
+   "total_ms": 2.9,
+   "mean_ms": 0.01,
+   "max_ms": 0.0,
+   "rows": 265,
+   "query": "SELECT documents.id, documents.study_id, documents.kind, documents.filename, documents.content_type, documents.bytes, documents.sha256, documents.gcs_uri, documents.uploaded_by, documents.uploaded_at, documents.created_at FROM documents WHERE documents.id = $1::UUID AND documents.study_id = $2::UUID"
+  },
+  {
+   "calls": 265,
+   "total_ms": 2.1,
+   "mean_ms": 0.01,
+   "max_ms": 0.0,
+   "rows": 265,
+   "query": "SELECT documents.id, documents.study_id, documents.kind, documents.filename, documents.content_type, documents.bytes, documents.sha256, documents.gcs_uri, documents.uploaded_by, documents.uploaded_at, documents.created_at FROM documents WHERE documents.id = $1::UUID"
+  },
+  {
+   "calls": 5,
+   "total_ms": 1.4,
+   "mean_ms": 0.27,
+   "max_ms": 0.3,
+   "rows": 5,
+   "query": "INSERT INTO studies (org_id, created_by, property_name, workflow_id, room_aliases, failure_reason) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::JSONB, $6::VARCHAR) RETURNING studies.id, studies.status, studies.current_stage, studies.revision, studies.created_at, studies.updated_at"
+  },
+  {
+   "calls": 265,
+   "total_ms": 1.3,
+   "mean_ms": 0.0,
+   "max_ms": 0.0,
+   "rows": 265,
+   "query": "SELECT $2 FROM ONLY \"public\".\"studies\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 4824,
+   "total_ms": 0.8,
+   "mean_ms": 0.0,
+   "max_ms": 0.0,
+   "rows": 0,
+   "query": "BEGIN"
+  },
+  {
+   "calls": 2412,
+   "total_ms": 0.5,
+   "mean_ms": 0.0,
+   "max_ms": 0.0,
+   "rows": 0,
+   "query": "COMMIT"
+  },
+  {
+   "calls": 2413,
+   "total_ms": 0.5,
+   "mean_ms": 0.0,
+   "max_ms": 0.0,
+   "rows": 0,
+   "query": "ROLLBACK"
+  },
+  {
+   "calls": 11,
+   "total_ms": 0.4,
+   "mean_ms": 0.04,
+   "max_ms": 0.1,
+   "rows": 16,
+   "query": "WITH RECURSIVE typeinfo_tree( oid, ns, name, kind, basetype, elemtype, elemdelim, range_subtype, attrtypoids, attrnames, depth) AS ( SELECT ti.oid, ti.ns, ti.name, ti.kind, ti.basetype, ti.elemtype, ti.elemdelim, ti.range_subtype, ti.attrtypoids, ti.attrnames, $2 FROM ( SELECT t.oid AS oid, ns.nspna"
+  },
+  {
+   "calls": 1,
+   "total_ms": 0.1,
+   "mean_ms": 0.15,
+   "max_ms": 0.1,
+   "rows": 29,
+   "query": "SELECT chunks.id, chunks.text FROM chunks WHERE chunks.corpus_version_id = $1::UUID ORDER BY chunks.chunk_key"
+  },
+  {
+   "calls": 4,
+   "total_ms": 0.1,
+   "mean_ms": 0.02,
+   "max_ms": 0.0,
+   "rows": 0,
+   "query": "SELECT outbox.id, outbox.kind, outbox.payload, outbox.status, outbox.attempts, outbox.next_attempt_at, outbox.delivered_at, outbox.last_error, outbox.created_at FROM outbox WHERE outbox.status = $1::outbox_status AND outbox.next_attempt_at <= now() ORDER BY outbox.next_attempt_at, outbox.created_at,"
+  },
+  {
+   "calls": 1,
+   "total_ms": 0.1,
+   "mean_ms": 0.06,
+   "max_ms": 0.1,
+   "rows": 1,
+   "query": "select pg_stat_statements_reset()"
+  },
+  {
+   "calls": 3,
+   "total_ms": 0.1,
+   "mean_ms": 0.02,
+   "max_ms": 0.0,
+   "rows": 3,
+   "query": "select current_schema()"
+  },
+  {
+   "calls": 1,
+   "total_ms": 0.1,
+   "mean_ms": 0.06,
+   "max_ms": 0.1,
+   "rows": 1,
+   "query": "select coalesce(application_name, $1) as app, coalesce(state, $2) as state, count(*) as n, count(*) filter (where wait_event_type = $3) as waiting_lock, coalesce(max(extract($4 from now() - xact_start)), $5) as oldest_xact_s from pg_stat_activity where datname = current_database() and pid <> pg_back"
+  },
+  {
+   "calls": 5,
+   "total_ms": 0.0,
+   "mean_ms": 0.01,
+   "max_ms": 0.0,
+   "rows": 5,
+   "query": "SELECT studies.id, studies.org_id, studies.created_by, studies.property_name, studies.status, studies.current_stage, studies.revision, studies.workflow_id, studies.room_aliases, studies.failure_reason, studies.created_at, studies.updated_at FROM studies WHERE studies.id = $1::UUID"
+  },
+  {
+   "calls": 1,
+   "total_ms": 0.0,
+   "mean_ms": 0.04,
+   "max_ms": 0.0,
+   "rows": 1,
+   "query": "SELECT corpus_versions.id, corpus_versions.corpus, corpus_versions.study_id, corpus_versions.version, corpus_versions.embedding_model, corpus_versions.published_at, corpus_versions.created_at FROM corpus_versions WHERE corpus_versions.corpus = $1::VARCHAR AND corpus_versions.study_id IS NULL AND cor"
+  },
+  {
+   "calls": 11,
+   "total_ms": 0.0,
+   "mean_ms": 0.0,
+   "max_ms": 0.0,
+   "rows": 11,
+   "query": "SELECT current_setting($1) AS cur, set_config($2, $3, $4) AS new"
+  },
+  {
+   "calls": 5,
+   "total_ms": 0.0,
+   "mean_ms": 0.01,
+   "max_ms": 0.0,
+   "rows": 5,
+   "query": "SELECT $2 FROM ONLY \"public\".\"orgs\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+  }
+ ],
+ "costs": [
+  {
+   "study_id": "c12091ba-0ccf-4156-a4fa-79192458844d",
+   "status": "draft",
+   "llm_usd": "0",
+   "sam_usd": 0.0,
+   "calls": 0,
+   "assets": 0,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "37eb28e0-943e-4cac-a9e1-1e91cdfcdd02",
+   "status": "draft",
+   "llm_usd": "0",
+   "sam_usd": 0.0,
+   "calls": 0,
+   "assets": 0,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "d42d4731-3ff2-45d0-b022-7a80b8f07526",
+   "status": "draft",
+   "llm_usd": "0",
+   "sam_usd": 0.0,
+   "calls": 0,
+   "assets": 0,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "70df140a-74bb-4a0e-898e-306ccc9043ad",
+   "status": "draft",
+   "llm_usd": "0",
+   "sam_usd": 0.0,
+   "calls": 0,
+   "assets": 0,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "83700074-f64c-48a9-8f63-90aee5680f3a",
+   "status": "draft",
+   "llm_usd": "0",
+   "sam_usd": 0.0,
+   "calls": 0,
+   "assets": 0,
+   "failed_activities": 0
+  }
+ ]
+}

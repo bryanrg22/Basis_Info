@@ -16,6 +16,7 @@ import pytest
 from fixtures import fixture_path
 from lifecycletest_support import SeededStudy, count_rows, make_deps, scripted_classifier
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncEngine
 from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
@@ -37,7 +38,7 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm.cost import cost_usd
 from basis.llm.errors import ProviderAccountError
-from basis.llm.provider import ScriptedProvider, ScriptedTurn, Usage
+from basis.llm.provider import ChatRequest, ChatResponse, ScriptedProvider, ScriptedTurn, Usage
 from basis.workflow.contracts import (
     ApplyCorrectionsInput,
     CorrectionInput,
@@ -488,3 +489,36 @@ async def test_the_classifier_searches_with_retrieval_search(
     hits = await ctx.search(version, "asset class 57.0", 3)
     assert [c[0] for c in store.calls] == ["search_bm25", "search_vector"]
     assert [h.doc_id for h in hits] == ["D"]
+
+
+class PoolWatchingClassifier:
+    """The scripted classifier, recording the connections checked out at each model call."""
+
+    name = "pool-watching"
+
+    def __init__(self, engine: AsyncEngine) -> None:
+        self.inner = scripted_classifier()
+        self.engine = engine
+        self.checked_out: list[int] = []
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        self.checked_out.append(self.engine.sync_engine.pool.checkedout())
+        return await self.inner.complete(request)
+
+
+@pytest.mark.regression
+async def test_no_connection_is_held_while_the_model_classifies(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT 32.4: the classification (minutes of model calls on a live study) ran
+    inside run_once's transaction, holding a pooled connection and the activity key's row
+    lock throughout while each classifier search needed a second connection. Now the
+    revision is read first, the model runs with nothing checked out, then everything is
+    written in one transaction."""
+    engine = deps.sessionmaker.kw["bind"]
+    watcher = PoolWatchingClassifier(engine)
+    watched = make_deps(deps.sessionmaker, deps.storage, deps.settings, chat_provider=watcher)
+    output = await activity_env.run(ProcessAssets(watched).run, process(analyzed))
+    assert watcher.checked_out == [0] * MODEL_CALLS
+    assert output.assets == 6
+    assert await count_rows(deps.sessionmaker, LlmCall, study_id=analyzed.study_id) == MODEL_CALLS

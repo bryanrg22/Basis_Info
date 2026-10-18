@@ -1,0 +1,202 @@
+[
+ {
+  "calls": 19150,
+  "total_ms": 2346.9,
+  "mean_ms": 0.12,
+  "max_ms": 1.4,
+  "rows": 19150,
+  "query": "INSERT INTO photo_objects (study_id, document_id, revision, label, phrase, score, x1, y1, x2, y2, mask, area, source, counted, derived_from, carried_from, created_by, deleted_at, deleted_by) VALUES ($1::UUID, $2::UUID, $3::INTEGER, $4::VARCHAR, $5::VARCHAR, $6::FLOAT, $7::FLOAT, $8::FLOAT, $9::FLOAT"
+ },
+ {
+  "calls": 20240,
+  "total_ms": 1675.2,
+  "mean_ms": 0.08,
+  "max_ms": 1.3,
+  "rows": 20240,
+  "query": "INSERT INTO components (study_id, revision, document_id, room_id, label, material, attachment, confidence, bbox, raw) VALUES ($1::UUID, $2::INTEGER, $3::UUID, $4::UUID, $5::VARCHAR, $6::VARCHAR, $7::VARCHAR, $8::FLOAT, $9::JSONB, $10::JSONB) RETURNING components.id, components.created_at"
+ },
+ {
+  "calls": 53737,
+  "total_ms": 1202.6,
+  "mean_ms": 0.02,
+  "max_ms": 2.5,
+  "rows": 53737,
+  "query": "SELECT studies.id, studies.org_id, studies.created_by, studies.property_name, studies.status, studies.current_stage, studies.revision, studies.workflow_id, studies.room_aliases, studies.failure_reason, studies.created_at, studies.updated_at, org_members.role FROM studies JOIN org_members ON org_memb"
+ },
+ {
+  "calls": 4745,
+  "total_ms": 831.2,
+  "mean_ms": 0.18,
+  "max_ms": 1.2,
+  "rows": 4745,
+  "query": "INSERT INTO llm_calls (study_id, run_id, activity, provider, model, prompt_version, input_tokens, output_tokens, cost_usd, latency_ms) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::VARCHAR, $7::INTEGER, $8::INTEGER, $9::NUMERIC(10, 6), $10::INTEGER) RETURNING llm_calls.id, l"
+ },
+ {
+  "calls": 49587,
+  "total_ms": 762.8,
+  "mean_ms": 0.02,
+  "max_ms": 0.3,
+  "rows": 49565,
+  "query": "SELECT runs.id, runs.study_id, runs.workflow_id, runs.run_id, runs.workflow_version, runs.input_revision, runs.started_at, runs.ended_at, runs.outcome, runs.created_at FROM runs WHERE runs.study_id = $1::UUID ORDER BY runs.started_at, runs.id"
+ },
+ {
+  "calls": 53762,
+  "total_ms": 636.4,
+  "mean_ms": 0.01,
+  "max_ms": 1.4,
+  "rows": 53762,
+  "query": "SELECT users.id, users.firebase_uid, users.email, users.display_name, users.created_at, users.last_seen_at FROM users WHERE users.firebase_uid = $1::VARCHAR"
+ },
+ {
+  "calls": 25,
+  "total_ms": 628.1,
+  "mean_ms": 25.12,
+  "max_ms": 47.3,
+  "rows": 2825,
+  "query": "SELECT extraction_fields.id, extraction_fields.extraction_id, extraction_fields.study_id, extraction_fields.section, extraction_fields.field, extraction_fields.value_text, extraction_fields.value_num, extraction_fields.value_date, extraction_fields.confidence, extraction_fields.source, extraction_fi"
+ },
+ {
+  "calls": 2924,
+  "total_ms": 478.0,
+  "mean_ms": 0.16,
+  "max_ms": 0.8,
+  "rows": 2869,
+  "query": "INSERT INTO activity_results (run_id, activity, idempotency_key, status) VALUES ($1::UUID, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR) ON CONFLICT (idempotency_key) DO NOTHING RETURNING activity_results.id"
+ },
+ {
+  "calls": 51860,
+  "total_ms": 440.9,
+  "mean_ms": 0.01,
+  "max_ms": 0.6,
+  "rows": 51860,
+  "query": "SELECT $2 FROM ONLY \"public\".\"studies\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+ },
+ {
+  "calls": 1444,
+  "total_ms": 279.4,
+  "mean_ms": 0.19,
+  "max_ms": 1.1,
+  "rows": 76532,
+  "query": "SELECT documents.id, documents.study_id, documents.kind, documents.filename, documents.content_type, documents.bytes, documents.sha256, documents.gcs_uri, documents.uploaded_by, documents.uploaded_at, documents.created_at FROM documents WHERE documents.study_id = $1::UUID ORDER BY documents.created_"
+ },
+ {
+  "calls": 799,
+  "total_ms": 258.7,
+  "mean_ms": 0.32,
+  "max_ms": 1.1,
+  "rows": 0,
+  "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+ },
+ {
+  "calls": 20240,
+  "total_ms": 258.0,
+  "mean_ms": 0.01,
+  "max_ms": 0.3,
+  "rows": 20240,
+  "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.id = $1::UUID"
+ },
+ {
+  "calls": 34275,
+  "total_ms": 238.3,
+  "mean_ms": 0.01,
+  "max_ms": 0.9,
+  "rows": 34275,
+  "query": "SELECT $3 FROM ONLY \"public\".\"documents\" x WHERE \"study_id\" OPERATOR(pg_catalog.=) $1 AND \"id\" OPERATOR(pg_catalog.=) $2 FOR KEY SHARE OF x"
+ },
+ {
+  "calls": 19150,
+  "total_ms": 216.9,
+  "mean_ms": 0.01,
+  "max_ms": 2.2,
+  "rows": 19150,
+  "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+ },
+ {
+  "calls": 1300,
+  "total_ms": 216.6,
+  "mean_ms": 0.17,
+  "max_ms": 1.3,
+  "rows": 12500,
+  "query": "SELECT components.label FROM components WHERE components.study_id = $1::UUID AND components.document_id = $2::UUID AND components.revision = $3::INTEGER ORDER BY components.label"
+ },
+ {
+  "calls": 69,
+  "total_ms": 214.8,
+  "mean_ms": 3.11,
+  "max_ms": 9.3,
+  "rows": 47770,
+  "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+ },
+ {
+  "calls": 2844,
+  "total_ms": 190.3,
+  "mean_ms": 0.07,
+  "max_ms": 0.6,
+  "rows": 2844,
+  "query": "UPDATE activity_results SET status=$1::VARCHAR, output_ref=$2::VARCHAR, error=$3::VARCHAR WHERE activity_results.idempotency_key = $4::VARCHAR"
+ },
+ {
+  "calls": 2825,
+  "total_ms": 145.8,
+  "mean_ms": 0.05,
+  "max_ms": 0.6,
+  "rows": 2825,
+  "query": "INSERT INTO extraction_fields (extraction_id, study_id, section, field, value_text, value_num, value_date, confidence, source, page) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::NUMERIC, $7::DATE, $8::FLOAT, $9::VARCHAR, $10::INTEGER) ON CONFLICT (extraction_id, section, fi"
+ },
+ {
+  "calls": 7614,
+  "total_ms": 133.8,
+  "mean_ms": 0.02,
+  "max_ms": 0.4,
+  "rows": 7614,
+  "query": "SELECT $2 FROM ONLY \"public\".\"runs\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+ },
+ {
+  "calls": 4318,
+  "total_ms": 131.2,
+  "mean_ms": 0.03,
+  "max_ms": 0.5,
+  "rows": 4318,
+  "query": "SELECT runs.id, runs.study_id, runs.workflow_id, runs.run_id, runs.workflow_version, runs.input_revision, runs.started_at, runs.ended_at, runs.outcome, runs.created_at FROM runs WHERE runs.workflow_id = $1::VARCHAR AND runs.run_id = $2::VARCHAR"
+ },
+ {
+  "calls": 2869,
+  "total_ms": 122.9,
+  "mean_ms": 0.04,
+  "max_ms": 0.5,
+  "rows": 2869,
+  "query": "SELECT activity_results.id, activity_results.run_id, activity_results.activity, activity_results.idempotency_key, activity_results.status, activity_results.output_ref, activity_results.error, activity_results.created_at, activity_results.updated_at FROM activity_results WHERE activity_results.idempo"
+ },
+ {
+  "calls": 1300,
+  "total_ms": 118.2,
+  "mean_ms": 0.09,
+  "max_ms": 1.1,
+  "rows": 1300,
+  "query": "INSERT INTO photo_rooms (study_id, document_id, room_id, revision) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::INTEGER) RETURNING photo_rooms.created_at"
+ },
+ {
+  "calls": 21540,
+  "total_ms": 102.2,
+  "mean_ms": 0.0,
+  "max_ms": 0.4,
+  "rows": 21540,
+  "query": "SELECT $3 FROM ONLY \"public\".\"rooms\" x WHERE \"study_id\" OPERATOR(pg_catalog.=) $1 AND \"id\" OPERATOR(pg_catalog.=) $2 FOR KEY SHARE OF x"
+ },
+ {
+  "calls": 1300,
+  "total_ms": 100.6,
+  "mean_ms": 0.08,
+  "max_ms": 0.5,
+  "rows": 1300,
+  "query": "INSERT INTO photo_localizations (study_id, document_id, revision, status, reason, instances, model_version, params, image_width, image_height, predict_seconds, cost_usd, carried_from_revision) VALUES ($1::UUID, $2::UUID, $3::INTEGER, $4::VARCHAR, $5::VARCHAR, $6::INTEGER, $7::VARCHAR, $8::JSONB, $9:"
+ },
+ {
+  "calls": 2750,
+  "total_ms": 94.7,
+  "mean_ms": 0.03,
+  "max_ms": 0.4,
+  "rows": 2750,
+  "query": "INSERT INTO idempotency_keys (key, user_id, route, request_hash, expires_at) VALUES ($1::VARCHAR, $2::UUID, $3::VARCHAR, $4::VARCHAR, (now() + $5::INTERVAL)) ON CONFLICT (key) DO UPDATE SET user_id = excluded.user_id, route = excluded.route, request_hash = excluded.request_hash, status_code = $6::IN"
+ }
+]

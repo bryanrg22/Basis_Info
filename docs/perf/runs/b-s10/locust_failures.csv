@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /v1/studies/{id}/documents/{id}/complete,CatchResponseError('429 rate limited'),10,2026-10-17T19:46:54Z,2026-10-17T19:46:54Z

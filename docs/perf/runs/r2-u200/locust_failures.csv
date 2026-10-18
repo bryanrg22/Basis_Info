@@ -1,0 +1,5 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,GET /v1/studies/{id}/workflow,"CatchResponseError(""0 ConnectionError(ProtocolError('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer')))"")",3,2026-10-17T20:41:37Z,2026-10-17T20:41:37Z
+GET,GET /v1/studies/{id}/evidence,"CatchResponseError(""0 ConnectionError(ProtocolError('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer')))"")",1,2026-10-17T20:41:37Z,2026-10-17T20:41:37Z
+GET,GET /v1/studies/{id},"CatchResponseError(""0 ConnectionError(ProtocolError('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer')))"")",2,2026-10-17T20:41:34Z,2026-10-17T20:41:50Z
+GET,GET /v1/studies/{id}/assets,"CatchResponseError(""0 ConnectionError(ProtocolError('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer')))"")",3,2026-10-17T20:41:37Z,2026-10-17T20:42:44Z

@@ -1,0 +1,576 @@
+{
+ "run_dir": "b-s10",
+ "scale": 0.1,
+ "settings": [
+  "LLM_CONCURRENCY=64",
+  "CLASSIFY_CONCURRENCY=16",
+  "LOAD_LATENCY_SCALE=0.1",
+  "MODE=fake"
+ ],
+ "studies": {
+  "studies": 10,
+  "completed": 10,
+  "failed": 0,
+  "errors": [],
+  "makespan_s": 66.41947174072266,
+  "makespan_real_s": 664.1947174072266,
+  "studies_per_hour_real": 54.20097308290985,
+  "run_real_s": {
+   "50": 652.8,
+   "95": 663.6,
+   "100": 663.6
+  },
+  "uploads_s": {
+   "50": 62.37,
+   "95": 62.45,
+   "100": 62.45
+  },
+  "rate_limited_429": 10,
+  "polls": 1231,
+  "to_appraisal_review_real_s": {
+   "50": 134.3,
+   "95": 144.7,
+   "100": 144.7
+  },
+  "to_rooms_review_real_s": {
+   "50": 275.8,
+   "95": 301.4,
+   "100": 301.4
+  },
+  "to_assets_review_real_s": {
+   "50": 415.1,
+   "95": 428.7,
+   "100": 428.7
+  }
+ },
+ "routes": [
+  {
+   "route": "GET /v1/studies/{id}/workflow",
+   "count": 1230,
+   "failures": 0,
+   "p50": 20.0,
+   "p95": 53.0,
+   "p99": 210.0,
+   "max": 590
+  },
+  {
+   "route": "POST /v1/studies/{id}/documents/{id}/complete",
+   "count": 540,
+   "failures": 10,
+   "p50": 40.0,
+   "p95": 51.0,
+   "p99": 67.0,
+   "max": 76
+  },
+  {
+   "route": "POST /v1/studies/{id}/documents",
+   "count": 530,
+   "failures": 0,
+   "p50": 35.0,
+   "p95": 45.0,
+   "p99": 210.0,
+   "max": 223
+  },
+  {
+   "route": "GET /v1/studies/{id}/photos/{id}/objects",
+   "count": 520,
+   "failures": 0,
+   "p50": 5.0,
+   "p95": 9.0,
+   "p99": 11.0,
+   "max": 15
+  },
+  {
+   "route": "GET /v1/studies/{id}",
+   "count": 49,
+   "failures": 0,
+   "p50": 7.0,
+   "p95": 21.0,
+   "p99": 51.0,
+   "max": 51
+  },
+  {
+   "route": "GET /v1/studies/{id}/evidence",
+   "count": 40,
+   "failures": 0,
+   "p50": 31.0,
+   "p95": 75.0,
+   "p99": 81.0,
+   "max": 81
+  },
+  {
+   "route": "POST /v1/studies/{id}/decisions",
+   "count": 30,
+   "failures": 0,
+   "p50": 14.0,
+   "p95": 30.0,
+   "p99": 32.0,
+   "max": 32
+  },
+  {
+   "route": "GET /v1/studies/{id}/assets",
+   "count": 20,
+   "failures": 0,
+   "p50": 25.0,
+   "p95": 78.0,
+   "p99": 78.0,
+   "max": 78
+  },
+  {
+   "route": "GET /v1/studies/{id}/fields",
+   "count": 10,
+   "failures": 0,
+   "p50": 62.0,
+   "p95": 67.0,
+   "p99": 67.0,
+   "max": 67
+  },
+  {
+   "route": "GET /v1/studies/{id}/rooms",
+   "count": 10,
+   "failures": 0,
+   "p50": 16.0,
+   "p95": 62.0,
+   "p99": 62.0,
+   "max": 62
+  },
+  {
+   "route": "POST /v1/studies",
+   "count": 10,
+   "failures": 0,
+   "p50": 100.0,
+   "p95": 110.0,
+   "p99": 110.0,
+   "max": 105
+  },
+  {
+   "route": "POST /v1/studies/{id}/start",
+   "count": 10,
+   "failures": 0,
+   "p50": 44.0,
+   "p95": 54.0,
+   "p99": 54.0,
+   "max": 54
+  }
+ ],
+ "aggregate": {
+  "count": 3048,
+  "failures": 10,
+  "rps": 23.736051536808986,
+  "p95": 62.0,
+  "p99": 30000.0
+ },
+ "failures": [
+  {
+   "route": "POST /v1/studies/{id}/documents/{id}/complete",
+   "error": "CatchResponseError('429 rate limited')",
+   "count": 10
+  }
+ ],
+ "samples": {
+  "samples": 24,
+  "activity_backlog_max": 0,
+  "activity_backlog_age_max_s": 0.0,
+  "workflow_backlog_max": 0,
+  "workflow_backlog_age_max_s": 0.0,
+  "activity_slots_used_max": 87.0,
+  "workflow_slots_used_max": 3.0,
+  "activity_schedule_to_start": {
+   "count": 1146.0,
+   "mean_ms": 0.6,
+   "share_le_ms": {
+    "100": 1.0,
+    "500": 1.0,
+    "1000": 1.0,
+    "5000": 1.0,
+    "10000": 1.0,
+    "100000": 1.0,
+    "1000000": 1.0,
+    "+Inf": 1.0
+   }
+  },
+  "workflow_task_schedule_to_start": {
+   "count": 1100.0,
+   "mean_ms": 13.7,
+   "share_le_ms": {
+    "100": 1.0,
+    "500": 1.0,
+    "1000": 1.0,
+    "5000": 1.0,
+    "10000": 1.0,
+    "100000": 1.0,
+    "1000000": 1.0,
+    "+Inf": 1.0
+   }
+  },
+  "activity_execution_mean_s": {
+   "analyze_photo": 2.15,
+   "extract_fields": 11.32,
+   "ingest_appraisal": 1.03,
+   "list_photos": 0.28,
+   "localize_photo": 3.45,
+   "process_assets": 10.93,
+   "reconcile_rooms": 2.67,
+   "record_run_start": 0.08,
+   "transition": 0.04
+  },
+  "pg_connections_max": 11,
+  "pg_connections_by_app_max": {
+   "basis": 11
+  },
+  "pg_idle_in_transaction_max": 5,
+  "pg_waiting_lock_max": 0,
+  "pg_oldest_xact_max_s": 1.6,
+  "procs": {
+   "api": {
+    "cpu_p50": 5.5,
+    "cpu_p95": 37.5,
+    "cpu_max": 41.9,
+    "rss_max_mb": 190.2
+   },
+   "worker": {
+    "cpu_p50": 1.0,
+    "cpu_p95": 78.1,
+    "cpu_max": 86.3,
+    "rss_max_mb": 508.4
+   },
+   "relay": {
+    "cpu_p50": 0.2,
+    "cpu_p95": 0.4,
+    "cpu_max": 0.4,
+    "rss_max_mb": 119.1
+   },
+   "postgres": {
+    "cpu_p50": 9.15,
+    "cpu_p95": 23.14,
+    "cpu_max": 23.14
+   }
+  }
+ },
+ "logs": {
+  "worker": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 0,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  },
+  "api": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 10,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  },
+  "relay": {
+   "pool_timeout": 0,
+   "traceback": 0,
+   "error_lines": 0,
+   "api_429": 0,
+   "provider_429": 0,
+   "provider_5xx": 0,
+   "pool_fallback": 0,
+   "activity_failed": 0
+  }
+ },
+ "statements": [
+  {
+   "calls": 7660,
+   "total_ms": 613.9,
+   "mean_ms": 0.08,
+   "max_ms": 3.1,
+   "rows": 7660,
+   "query": "INSERT INTO photo_objects (study_id, document_id, revision, label, phrase, score, x1, y1, x2, y2, mask, area, source, counted, derived_from, carried_from, created_by, deleted_at, deleted_by) VALUES ($1::UUID, $2::UUID, $3::INTEGER, $4::VARCHAR, $5::VARCHAR, $6::FLOAT, $7::FLOAT, $8::FLOAT, $9::FLOAT"
+  },
+  {
+   "calls": 8100,
+   "total_ms": 375.1,
+   "mean_ms": 0.05,
+   "max_ms": 0.5,
+   "rows": 8100,
+   "query": "INSERT INTO components (study_id, revision, document_id, room_id, label, material, attachment, confidence, bbox, raw) VALUES ($1::UUID, $2::INTEGER, $3::UUID, $4::UUID, $5::VARCHAR, $6::VARCHAR, $7::VARCHAR, $8::FLOAT, $9::JSONB, $10::JSONB) RETURNING components.id, components.created_at"
+  },
+  {
+   "calls": 43180,
+   "total_ms": 264.1,
+   "mean_ms": 0.01,
+   "max_ms": 0.2,
+   "rows": 43180,
+   "query": "SELECT $2 FROM ONLY \"public\".\"studies\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 10,
+   "total_ms": 225.8,
+   "mean_ms": 22.58,
+   "max_ms": 39.8,
+   "rows": 1130,
+   "query": "SELECT extraction_fields.id, extraction_fields.extraction_id, extraction_fields.study_id, extraction_fields.section, extraction_fields.field, extraction_fields.value_text, extraction_fields.value_num, extraction_fields.value_date, extraction_fields.confidence, extraction_fields.source, extraction_fi"
+  },
+  {
+   "calls": 5230,
+   "total_ms": 218.0,
+   "mean_ms": 0.04,
+   "max_ms": 0.7,
+   "rows": 5230,
+   "query": "INSERT INTO llm_calls (study_id, run_id, activity, provider, model, prompt_version, input_tokens, output_tokens, cost_usd, latency_ms) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::VARCHAR, $7::INTEGER, $8::INTEGER, $9::NUMERIC(10, 6), $10::INTEGER) RETURNING llm_calls.id, l"
+  },
+  {
+   "calls": 3640,
+   "total_ms": 109.0,
+   "mean_ms": 0.03,
+   "max_ms": 0.3,
+   "rows": 3640,
+   "query": "INSERT INTO citations (study_id, asset_id, chunk_id, excerpt, verified_at, verification_method) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::VARCHAR, $5::TIMESTAMP WITH TIME ZONE, $6::VARCHAR) RETURNING citations.id, citations.created_at"
+  },
+  {
+   "calls": 520,
+   "total_ms": 108.7,
+   "mean_ms": 0.21,
+   "max_ms": 0.8,
+   "rows": 5000,
+   "query": "SELECT components.label FROM components WHERE components.study_id = $1::UUID AND components.document_id = $2::UUID AND components.revision = $3::INTEGER ORDER BY components.label"
+  },
+  {
+   "calls": 3100,
+   "total_ms": 105.2,
+   "mean_ms": 0.03,
+   "max_ms": 0.2,
+   "rows": 3100,
+   "query": "INSERT INTO assets (study_id, revision, component_id, category, bucket, recovery_period, irs_section, method, confidence, needs_review, review_reason) VALUES ($1::UUID, $2::INTEGER, $3::UUID, $4::VARCHAR, $5::bucket, $6::NUMERIC(4, 1), $7::VARCHAR, $8::classification_method, $9::FLOAT, $10::BOOLEAN,"
+  },
+  {
+   "calls": 1190,
+   "total_ms": 102.9,
+   "mean_ms": 0.09,
+   "max_ms": 0.6,
+   "rows": 1190,
+   "query": "INSERT INTO activity_results (run_id, activity, idempotency_key, status) VALUES ($1::UUID, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR) ON CONFLICT (idempotency_key) DO NOTHING RETURNING activity_results.id"
+  },
+  {
+   "calls": 3640,
+   "total_ms": 99.6,
+   "mean_ms": 0.03,
+   "max_ms": 0.2,
+   "rows": 3640,
+   "query": "UPDATE citations SET verified_at=$1::TIMESTAMP WITH TIME ZONE WHERE citations.id = $2::UUID"
+  },
+  {
+   "calls": 3100,
+   "total_ms": 97.4,
+   "mean_ms": 0.03,
+   "max_ms": 0.2,
+   "rows": 3100,
+   "query": "INSERT INTO takeoffs (study_id, asset_id, quantity, unit, formula, inputs) VALUES ($1::UUID, $2::UUID, $3::NUMERIC(14, 4), $4::VARCHAR, $5::VARCHAR, $6::JSONB) RETURNING takeoffs.id, takeoffs.created_at"
+  },
+  {
+   "calls": 40,
+   "total_ms": 94.6,
+   "mean_ms": 2.36,
+   "max_ms": 5.9,
+   "rows": 29300,
+   "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+  },
+  {
+   "calls": 3100,
+   "total_ms": 89.1,
+   "mean_ms": 0.03,
+   "max_ms": 0.4,
+   "rows": 3100,
+   "query": "INSERT INTO cost_estimates (study_id, asset_id, unit_cost, total, source_row, location_factor, cost_year) VALUES ($1::UUID, $2::UUID, $3::NUMERIC(14, 2), $4::NUMERIC(14, 2), $5::VARCHAR, $6::NUMERIC(6, 3), $7::INTEGER) RETURNING cost_estimates.id, cost_estimates.created_at"
+  },
+  {
+   "calls": 2981,
+   "total_ms": 69.4,
+   "mean_ms": 0.02,
+   "max_ms": 0.5,
+   "rows": 2981,
+   "query": "SELECT studies.id, studies.org_id, studies.created_by, studies.property_name, studies.status, studies.current_stage, studies.revision, studies.workflow_id, studies.room_aliases, studies.failure_reason, studies.created_at, studies.updated_at, org_members.role FROM studies JOIN org_members ON org_memb"
+  },
+  {
+   "calls": 520,
+   "total_ms": 61.2,
+   "mean_ms": 0.12,
+   "max_ms": 21.7,
+   "rows": 520,
+   "query": "SELECT pg_advisory_xact_lock(hashtextextended($1, $2))"
+  },
+  {
+   "calls": 30,
+   "total_ms": 59.5,
+   "mean_ms": 1.98,
+   "max_ms": 2.9,
+   "rows": 3529,
+   "query": "SELECT citations.id, citations.study_id, citations.asset_id, citations.chunk_id, citations.excerpt, citations.verified_at, citations.verification_method, citations.created_at, chunks.id AS id_1, chunks.corpus_version_id, chunks.doc_id, chunks.chunk_key, chunks.page_start, chunks.page_end, chunks.sec"
+  },
+  {
+   "calls": 320,
+   "total_ms": 57.5,
+   "mean_ms": 0.18,
+   "max_ms": 1.3,
+   "rows": 0,
+   "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.study_id = $1::UUID"
+  },
+  {
+   "calls": 8100,
+   "total_ms": 56.4,
+   "mean_ms": 0.01,
+   "max_ms": 0.1,
+   "rows": 8100,
+   "query": "SELECT components.id, components.study_id, components.revision, components.document_id, components.room_id, components.label, components.material, components.attachment, components.confidence, components.bbox, components.raw, components.created_at FROM components WHERE components.id = $1::UUID"
+  },
+  {
+   "calls": 6420,
+   "total_ms": 55.3,
+   "mean_ms": 0.01,
+   "max_ms": 0.2,
+   "rows": 6420,
+   "query": "SELECT $2 FROM ONLY \"public\".\"runs\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 7660,
+   "total_ms": 53.5,
+   "mean_ms": 0.01,
+   "max_ms": 0.2,
+   "rows": 7660,
+   "query": "SELECT photo_objects.id, photo_objects.study_id, photo_objects.document_id, photo_objects.revision, photo_objects.label, photo_objects.phrase, photo_objects.score, photo_objects.x1, photo_objects.y1, photo_objects.x2, photo_objects.y2, photo_objects.mask, photo_objects.area, photo_objects.source, ph"
+  },
+  {
+   "calls": 1820,
+   "total_ms": 51.4,
+   "mean_ms": 0.03,
+   "max_ms": 0.3,
+   "rows": 1820,
+   "query": "UPDATE assets SET needs_review=$1::BOOLEAN, review_reason=$2::VARCHAR WHERE assets.id = $3::UUID"
+  },
+  {
+   "calls": 590,
+   "total_ms": 51.3,
+   "mean_ms": 0.09,
+   "max_ms": 0.5,
+   "rows": 31270,
+   "query": "SELECT documents.id, documents.study_id, documents.kind, documents.filename, documents.content_type, documents.bytes, documents.sha256, documents.gcs_uri, documents.uploaded_by, documents.uploaded_at, documents.created_at FROM documents WHERE documents.study_id = $1::UUID ORDER BY documents.created_"
+  },
+  {
+   "calls": 13710,
+   "total_ms": 50.4,
+   "mean_ms": 0.0,
+   "max_ms": 0.2,
+   "rows": 13710,
+   "query": "SELECT $3 FROM ONLY \"public\".\"documents\" x WHERE \"study_id\" OPERATOR(pg_catalog.=) $1 AND \"id\" OPERATOR(pg_catalog.=) $2 FOR KEY SHARE OF x"
+  },
+  {
+   "calls": 1190,
+   "total_ms": 49.4,
+   "mean_ms": 0.04,
+   "max_ms": 0.7,
+   "rows": 1190,
+   "query": "UPDATE activity_results SET status=$1::VARCHAR, output_ref=$2::VARCHAR, error=$3::VARCHAR WHERE activity_results.idempotency_key = $4::VARCHAR"
+  },
+  {
+   "calls": 1110,
+   "total_ms": 44.4,
+   "mean_ms": 0.04,
+   "max_ms": 0.2,
+   "rows": 1110,
+   "query": "INSERT INTO idempotency_keys (key, user_id, route, request_hash, expires_at) VALUES ($1::VARCHAR, $2::UUID, $3::VARCHAR, $4::VARCHAR, (now() + $5::INTERVAL)) ON CONFLICT (key) DO UPDATE SET user_id = excluded.user_id, route = excluded.route, request_hash = excluded.request_hash, status_code = $6::IN"
+  }
+ ],
+ "costs": [
+  {
+   "study_id": "cd39c2ec-6f5c-46cc-b57a-d32b467927eb",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.0171,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "126d61a2-5a40-486d-a374-37d5f2176729",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.017358,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "6b3c88f1-3897-4e8e-9bd1-e2b4ec118e59",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.01777900000000001,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "0c512f3d-01c5-4a15-b1e5-c81c839c0e05",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.018101000000000006,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "820561b7-97f4-4093-b74e-cd4dd9382dda",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.018082,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "47d328dd-0813-4f69-9a1f-6e30d83b23ee",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.018790999999999995,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "b13e4cfe-9d2f-4abc-95cd-0cbba9069727",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.017796,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "1083e1dd-372e-4232-8729-46f516762e65",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.018652,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "09088d39-3a9c-44e0-97b4-1b061a718e49",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.017667999999999996,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  },
+  {
+   "study_id": "1b973cd7-6f52-44e7-a450-f7256ffe5cde",
+   "status": "completed",
+   "llm_usd": "6.054654",
+   "sam_usd": 0.01851,
+   "calls": 523,
+   "assets": 310,
+   "failed_activities": 0
+  }
+ ]
+}

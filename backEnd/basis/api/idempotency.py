@@ -45,6 +45,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Coroutine, Iterable
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Annotated, Any, Final, NamedTuple, Protocol
@@ -71,6 +72,8 @@ IN_FLIGHT_TTL: Final = timedelta(minutes=10)
 MAX_KEY_LENGTH: Final = 128
 ENFORCED_METHODS: Final = frozenset({"POST", "DELETE"})
 STATE_ATTR: Final = "idempotency"
+# FastAPI (>= 0.121) keeps the exit stack of function-scoped dependencies here.
+FUNCTION_STACK: Final = "fastapi_function_astack"
 
 # Visible ASCII except the double quote, which delimits the optional quoted form
 # (draft-ietf-httpapi-idempotency-key-header: the value is a quoted-string). This is
@@ -365,12 +368,58 @@ Handler = Callable[[Request], Coroutine[Any, Any, Response]]
 
 
 class IdempotentRoute(APIRoute):
-    """Route class that records responses for requests reserved by :func:`idempotency`."""
+    """Route class that records responses for requests reserved by :func:`idempotency`.
+
+    The response is stored (or the reservation released) **after the request's own
+    transaction has ended and before the response is sent**: a callback on FastAPI's
+    function-scoped exit stack (``fastapi_function_astack``), registered before the
+    route's dependencies are solved, so it exits after them (last in, first out), after
+    ``SessionDep`` committed or rolled back. Two reasons (EVAL_REPORT section 32.3):
+
+    * one pooled connection per request. Storing from inside the handler ran while the
+      request's session still held its connection, so every POST and DELETE held two at
+      once; with ``DB_POOL_SIZE`` concurrent mutations each held one and waited for a
+      second, and the pool deadlocked until ``pool_timeout`` (every one answered 503);
+    * the stored response describes committed data. Stored first, a commit that failed
+      afterwards left a 2xx to replay for rows that were never written; now a failed
+      commit releases the key instead (the client's retry runs the handler again).
+
+    Without the function stack (a handler run outside FastAPI's request wrapper) the
+    response is stored as the handler returns, as before.
+    """
 
     def get_route_handler(self) -> Handler:
         handler = super().get_route_handler()
 
         async def idempotent_handler(request: Request) -> Response:
+            stack = request.scope.get(FUNCTION_STACK)
+            deferred = isinstance(stack, AsyncExitStack)
+            outcome: list[Response] = []
+
+            async def finish(
+                exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any
+            ) -> bool:
+                pending = _pending(request)
+                if pending is not None:
+                    if exc_type is None and outcome:
+                        await pending.complete(outcome[0])
+                    else:
+                        await pending.abandon()
+                return False  # never swallow the request's exception
+
+            if deferred:
+                assert isinstance(stack, AsyncExitStack)
+                stack.push_async_exit(finish)
+
+            async def record(response: Response) -> Response:
+                pending = _pending(request)
+                if pending is not None:
+                    if deferred:
+                        outcome.append(response)
+                    else:
+                        await pending.complete(response)
+                return response
+
             try:
                 response = await handler(request)
             except _Replay as replay:
@@ -381,14 +430,10 @@ class IdempotentRoute(APIRoute):
                     raise
                 api_error = as_api_error(exc) if isinstance(exc, Exception) else None
                 if api_error is None or api_error.status >= 500:
-                    await pending.abandon()
-                    raise
-                response = api_error_response(request, api_error)
-                await pending.complete(response)
-                return response
-            pending = _pending(request)
-            if pending is not None:
-                await pending.complete(response)
-            return response
+                    if not deferred:
+                        await pending.abandon()
+                    raise  # deferred: finish() sees the exception and releases the key
+                return await record(api_error_response(request, api_error))
+            return await record(response)
 
         return idempotent_handler

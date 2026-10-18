@@ -51,6 +51,10 @@ dev = [
     "schemathesis>=4.31.1",
     "testcontainers[postgres]>=4.15.0",
 ]
+# Load testing (tooling/load, docs/perf/LOAD_TESTING.md): uv sync --group load
+load = [
+    "locust>=2.37",
+]
 
 [tool.uv]
 default-groups = ["dev"]

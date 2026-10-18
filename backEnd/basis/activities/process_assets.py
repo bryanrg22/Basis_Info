@@ -20,6 +20,11 @@ count an object once per photo it is in; every other room its per-photo rows):
 5. write ``assets``, ``takeoffs``, ``cost_estimates``, ``citations`` (verified ones only)
    and one ``llm_calls`` row per model call, all in the activity's one transaction.
 
+Step 1 runs with no database connection held: the revision is read in a short session
+first, the model calls run, then steps 2 to 5 are written and the activity key completed
+in one transaction (EVAL_REPORT section 32.4: the classification used to run inside that
+transaction, holding a pooled connection for minutes).
+
 Idempotent per revision: when assets already exist for the revision (an earlier execution,
 a workflow reset), nothing is recomputed and the stored counts are returned.
 
@@ -73,9 +78,11 @@ from basis.classify.schemas import ComponentView
 from basis.classify.verify import VerifiedCitation
 from basis.db.enums import ClassificationMethod, Corpus
 from basis.db.models import Asset, Component, CorpusVersion, LlmCall, Room
+from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.run import RunRepository
+from basis.db.session import session_scope
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.costs import CostError, CostEstimate, NeedsQuantity, estimate_cost
 from basis.domain.cross_validation import cross_validate
@@ -111,10 +118,42 @@ class ProcessAssets:
 
     @activity.defn(name="process_assets")
     async def run(self, input: ProcessAssetsInput) -> ProcessAssetsOutput:
+        """Read, then classify with no database connection held, then write.
+
+        The classification is minutes of model calls (EVAL_REPORT 27.8: 359 calls, about
+        three minutes). It runs between two short sessions, as ``analyze_photo`` and
+        ``extract_fields`` run their model calls: before EVAL_REPORT section 32 it ran
+        inside ``run_once``'s transaction, which held a pooled connection (and the
+        activity key's row lock) for the whole classification, while every classifier
+        search needed a second connection from the same pool (``DB_POOL_SIZE``, no
+        overflow); under load the worker's pool ran dry (section 32.4).
+        """
         study_id = parse_uuid(input.study_id, "study_id")
+        prepared: _Prepared | None = None
+        async with session_scope(self._deps.sessionmaker) as session:
+            claimed = await ActivityResultRepository(session).get(input.idempotency_key)
+            if claimed is None or claimed.status != COMPLETED:
+                prepared = await _prepare(self._deps, session, study_id, input)
+        results: dict[uuid.UUID, ClassificationResult] = {}
+        if prepared is not None:
+            try:
+                results = await _classify_all(
+                    list(prepared.views.values()),
+                    prepared.ctx,
+                    self._deps.settings.classify_concurrency,
+                )
+            except ProviderAccountError as exc:
+                raise provider_failure(exc, f"assets of study {study_id}") from exc
 
         async def work(session: AsyncSession) -> ProcessAssetsOutput:
-            return await _process(self._deps, session, study_id, input)
+            existing = await AssetRepository(session).list_for_revision(study_id, input.revision)
+            if existing or prepared is None:
+                # Written by an earlier execution for the same revision (a replay, a reset,
+                # or a concurrent attempt that won the key's lock): nothing is recomputed.
+                return ProcessAssetsOutput(
+                    assets=len(existing), needs_review=sum(a.needs_review for a in existing)
+                )
+            return await _write(self._deps, session, study_id, input, prepared, results)
 
         return await run_once(
             self._deps,
@@ -125,15 +164,29 @@ class ProcessAssets:
         )
 
 
-async def _process(
+@dataclass(frozen=True, slots=True)
+class _Prepared:
+    """What the classification and the write need, read in one short session (the rows
+    stay readable after it closes: ``expire_on_commit=False``)."""
+
+    components: list[Component]
+    rooms: dict[uuid.UUID, Room]
+    overrides: dict[uuid.UUID, Override]
+    views: dict[uuid.UUID, ComponentView]
+    ctx: ClassifyContext
+    budget: Budget
+
+
+async def _prepare(
     deps: Deps, session: AsyncSession, study_id: uuid.UUID, input: ProcessAssetsInput
-) -> ProcessAssetsOutput:
+) -> _Prepared | None:
+    """The revision's components, rooms, corrections and classification context; None when
+    the revision already has assets (an earlier execution wrote them). Refuses up front,
+    before any model call, when the worst case of the model's components exceeds the
+    budget."""
     assets = AssetRepository(session)
-    existing = await assets.list_for_revision(study_id, input.revision)
-    if existing:
-        return ProcessAssetsOutput(
-            assets=len(existing), needs_review=sum(a.needs_review for a in existing)
-        )
+    if await assets.list_for_revision(study_id, input.revision):
+        return None
     settings = deps.settings
     rooms_repo = RoomRepository(session)
     components = asset_components(await rooms_repo.components(study_id, input.revision))
@@ -179,11 +232,24 @@ async def _process(
                 f"{len(residual)} components need the model (up to ${worst}); "
                 f"${input.budget_remaining_usd:.4f} remains"
             )
+    return _Prepared(components, rooms, overrides, views, ctx, budget)
 
-    try:
-        results = await _classify_all(list(views.values()), ctx, settings.classify_concurrency)
-    except ProviderAccountError as exc:
-        raise provider_failure(exc, f"assets of study {study_id}") from exc
+
+async def _write(
+    deps: Deps,
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    input: ProcessAssetsInput,
+    prepared: _Prepared,
+    results: dict[uuid.UUID, ClassificationResult],
+) -> ProcessAssetsOutput:
+    """Measure, price, cross-check and write every component (module doc, steps 2-5)."""
+    settings = deps.settings
+    property_class = settings.property_class
+    components, rooms, overrides = prepared.components, prepared.rooms, prepared.overrides
+    assets = AssetRepository(session)
+    cache_repo = ClassificationCacheRepository(session)
+    budget = prepared.budget
     table = cost_table_for(settings.cost_table_path)
     measured: dict[tuple[uuid.UUID | None, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
