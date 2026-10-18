@@ -14,11 +14,13 @@ resource "google_compute_address" "temporal" {
   subnetwork   = google_compute_subnetwork.staging.id
   address_type = "INTERNAL"
   address      = "10.20.0.10"
+  depends_on   = [google_project_service.enabled]
 }
 
 resource "google_compute_resource_policy" "temporal_snapshots" {
-  name   = "staging-temporal-daily"
-  region = var.region
+  name       = "staging-temporal-daily"
+  region     = var.region
+  depends_on = [google_project_service.enabled]
 
   snapshot_schedule_policy {
     schedule {
@@ -43,6 +45,8 @@ resource "google_compute_disk" "temporal_data" {
   lifecycle {
     prevent_destroy = true
   }
+
+  depends_on = [google_project_service.enabled]
 }
 
 resource "google_compute_disk_resource_policy_attachment" "temporal_data" {

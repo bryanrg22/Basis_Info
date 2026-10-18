@@ -13,15 +13,17 @@ REGION=${REGION:-us-central1}
 BUCKET=${BUCKET:-staging-basis-staging-512000-private}
 JOB=${JOB:-staging-basis-ingest}
 
+# gcloud reads --args as a list and rejects a repeated "--pdf" item, so each argument is
+# one --flag=value item, joined with ";" (gcloud's ^DELIM^ list syntax).
 args=""
 for uri in $(gcloud storage ls "gs://$BUCKET/corpus/*.pdf" --project "$PROJECT"); do
   name=$(basename "$uri")
-  args+="--pdf,/mnt/private/corpus/$name,--doc-id,${name%.pdf},"
+  args+="--pdf=/mnt/private/corpus/$name;--doc-id=${name%.pdf};"
 done
 [ -n "$args" ] || { echo "no PDFs under gs://$BUCKET/corpus/ (run upload-private.sh)"; exit 1; }
 
 gcloud run jobs execute "$JOB" --project "$PROJECT" --region "$REGION" --wait \
-  --args="${args%,}"
+  --args="^;^${args%;}"
 gcloud run jobs execute "$JOB" --project "$PROJECT" --region "$REGION" --wait \
   --args="--list-versions"
 echo "Read the versions in the job's logs (Cloud Logging, resource cloud_run_job $JOB)."

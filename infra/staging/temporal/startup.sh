@@ -53,14 +53,16 @@ systemctl enable --now docker
 
 # 3. Database password, generated once and kept with the data
 if [ ! -f "$MOUNT/temporal.env" ]; then
-  umask 077
-  echo "TEMPORAL_DB_PASSWORD=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" > "$MOUNT/temporal.env"
+  (umask 077 && echo "TEMPORAL_DB_PASSWORD=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
+    > "$MOUNT/temporal.env")
 fi
 
 # 4. Compose stack
 mkdir -p "$APP"
 metadata temporal-compose > "$APP/compose.yaml"
 metadata temporal-dynamicconfig > "$APP/dynamicconfig.yaml"
+# The server container runs as a non-root user and reads the dynamic config.
+chmod 644 "$APP/compose.yaml" "$APP/dynamicconfig.yaml"
 INTERNAL_IP=$(curl -sf -H "Metadata-Flavor: Google" \
   http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
 {
