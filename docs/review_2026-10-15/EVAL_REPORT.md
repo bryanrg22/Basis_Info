@@ -4598,6 +4598,10 @@ PRs 58, 60 and 61, so with the three fixes above). It runs in the GCP project
 | Temporal | self-hosted 1.31.4 on an e2-medium VM, namespace `basis-staging`, 8 history shards | not measured here: the local runs used the dev server |
 | Providers | real; Replicate still under $10 of credit | about $6.40 a real-size study; SAM 3 at 60 creates a minute (32.8) |
 
+Staging is parked between uses (worker pool at 0 instances, the Temporal VM and Cloud SQL
+stopped): unpark it first with the commands in `docs/deploy/STAGING.md`, and park it again
+after the run. Nothing below works, or should be sent, while it is parked.
+
 The steps, in order:
 
 1. Mint tokens for 25 test users. This creates `load-eng-0..24` in the `cost-seg-basis`
