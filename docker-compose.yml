@@ -7,6 +7,9 @@
 #
 # Settings come from backEnd/.env (BASIS_ENV=dev reads it); DATABASE_URL and
 # TEMPORAL_ADDRESS below point at the compose services and override the file.
+# Without GCS_BUCKET, uploads go to local storage on the "localstorage" volume, which the
+# API (it receives and verifies uploads) and the worker (it reads them) share.
+# The browser frontend (web/) adds docker-compose.web.yml: see web/README.md.
 services:
   postgres:
     image: pgvector/pgvector:pg16  # the image the test suite runs against (tests/dbtest_support.py)
@@ -26,12 +29,16 @@ services:
 
   temporal:
     image: temporalio/temporal:latest
-    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db"]
+    # The image runs as the non-root user "temporal" (uid 1000) and has no /data, so a
+    # volume at /data is created root-owned and the dev server cannot create its SQLite
+    # file. Mounted on the user's home directory instead, a new volume takes that
+    # directory's owner.
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/home/temporal/temporal.db"]
     ports:
       - "7233:7233"
       - "8233:8233"
     volumes:
-      - temporaldata:/data
+      - temporaldata:/home/temporal
 
   api:
     build:
@@ -44,6 +51,8 @@ services:
       BASIS_ENV: dev
       DATABASE_URL: postgresql+asyncpg://basis:basis@postgres:5432/basis  # pragma: allowlist secret
       TEMPORAL_ADDRESS: temporal:7233
+    volumes:
+      - localstorage:/tmp/basis-local-storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +70,8 @@ services:
       BASIS_ENV: dev
       DATABASE_URL: postgresql+asyncpg://basis:basis@postgres:5432/basis  # pragma: allowlist secret
       TEMPORAL_ADDRESS: temporal:7233
+    volumes:
+      - localstorage:/tmp/basis-local-storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,3 +101,4 @@ services:
 volumes:
   pgdata:
   temporaldata:
+  localstorage:

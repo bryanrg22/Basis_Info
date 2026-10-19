@@ -1,0 +1,24 @@
+# The browser frontend (web/) against the local stack: add this file to docker-compose.yml.
+#
+#   firebase emulators:start --only auth --project demo-basis      # web/README.md
+#   docker compose -f docker-compose.yml -f docker-compose.web.yml up --build
+#   docker compose exec api alembic upgrade head
+#
+# * CORS for the frontend served at http://127.0.0.1:3100 (python3 -m http.server).
+# * Uploads: local storage signs URLs on the API's dev upload route, which the browser can
+#   PUT to (LOCAL_UPLOAD_BASE_URL; dev and test only).
+# * Sign-in: the Firebase Auth emulator on the host, in the demo project "demo-basis" (a
+#   demo- project never reaches real Firebase). The API refuses the emulator outside dev.
+# * Rate limits raised for one engineer clicking through a 50-photo study: an upload is two
+#   mutations per file, the rooms page reads each photo and its objects.
+services:
+  api:
+    environment:
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:3100,http://localhost:3100
+      LOCAL_UPLOAD_BASE_URL: http://127.0.0.1:8000
+      FIREBASE_PROJECT_ID: demo-basis
+      FIREBASE_AUTH_EMULATOR_HOST: host.docker.internal:9099
+      RATE_LIMIT_MUTATIONS_PER_MIN: "600"
+      RATE_LIMIT_READS_PER_MIN: "3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

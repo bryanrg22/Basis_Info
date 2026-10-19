@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     # clients can use the API. Outside dev and test "*" is refused, and so is plain http
     # except for localhost (a local frontend pointed at staging).
     cors_allowed_origins: Annotated[tuple[str, ...], NoDecode] = ()
+    # Local stacks without GCS (dev and test only): the API's own base URL as the browser
+    # reaches it, e.g. "http://127.0.0.1:8000". Local storage then signs upload URLs on the
+    # API's dev upload route (basis.api.local_uploads) so a browser can upload; unset, they
+    # are opaque local-upload:// URLs that only tests and scripts can use.
+    local_upload_base_url: str | None = None
     # Sentence-embedding model for the evidence corpora (recorded per corpus version).
     # "hash" selects the deterministic test embedder and is refused outside dev and test.
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -431,6 +436,17 @@ class Settings(BaseSettings):
                         f"CORS_ALLOWED_ORIGINS entry {origin!r} is plain http; outside dev "
                         "and test only https origins and http://localhost are allowed"
                     )
+        if self.local_upload_base_url is not None:
+            if self.env not in ("dev", "test"):
+                raise ConfigError(
+                    f"LOCAL_UPLOAD_BASE_URL is for local stacks (dev and test), not "
+                    f"{ENV_VAR}={self.env}"
+                )
+            if not _ORIGIN.fullmatch(self.local_upload_base_url):
+                raise ConfigError(
+                    f"LOCAL_UPLOAD_BASE_URL {self.local_upload_base_url!r} is not a base URL: "
+                    "use scheme://host[:port] with no path or trailing slash"
+                )
         if self.retrieval_chunk_overlap >= self.retrieval_chunk_tokens:
             raise ConfigError(
                 f"RETRIEVAL_CHUNK_OVERLAP ({self.retrieval_chunk_overlap}) must be smaller than "

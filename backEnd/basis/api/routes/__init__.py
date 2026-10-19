@@ -11,6 +11,7 @@ def api_routers() -> list[APIRouter]:
     return [
         studies.reads,
         studies.writes,
+        documents.reads,
         documents.writes,
         decisions.writes,
         evidence.reads,

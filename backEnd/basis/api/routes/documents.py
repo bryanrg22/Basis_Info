@@ -13,6 +13,12 @@ Flow:
    On a mismatch the object is deleted (its bytes are not what was registered) and the
    answer is 409; the client uploads again and confirms with a new idempotency key.
 
+4. ``GET .../documents/{doc_id}/content`` returns a confirmed document's bytes to a viewer
+   of the study (the frontend shows photos, their masks and the appraisal PDF from it).
+   The bytes are immutable (they hash to the registered sha256), so the response is
+   cacheable by the browser (private) with the sha256 as its strong ``ETag``. Like the
+   completion check, it reads storage with no database connection held.
+
 The completion check does not hold a database connection while it reads the object: it
 looks the document up in one short transaction, verifies storage with no transaction
 open, and sets ``uploaded_at`` in a second one.
@@ -24,12 +30,19 @@ import hashlib
 import uuid
 from datetime import timedelta
 from typing import Annotated, Final
+from urllib.parse import quote
 
 import anyio.to_thread
-from fastapi import Depends, Path, status
+from fastapi import Depends, Path, Request, Response, status
 
 from basis.api.errors import Conflict, NotFound
-from basis.api.routes.common import get_storage, get_storage_bucket, problems, write_router
+from basis.api.routes.common import (
+    get_storage,
+    get_storage_bucket,
+    problems,
+    read_router,
+    write_router,
+)
 from basis.api.schemas.documents import (
     DocumentOut,
     SignedUploadOut,
@@ -52,7 +65,9 @@ from basis.storage import ObjectNotFound, Storage, object_uri
 
 UPLOAD_URL_TTL: Final = timedelta(minutes=15)
 UPLOAD_ROLE: Final = OrgRole.ENGINEER
+CONTENT_CACHE_CONTROL: Final = "private, max-age=3600"
 
+reads = read_router(tags=["documents"])
 writes = write_router(tags=["documents"])
 
 StorageDep = Annotated[Storage, Depends(get_storage)]
@@ -169,3 +184,50 @@ async def complete_upload(
     async with session_scope(sessionmaker) as session:
         confirmed = await DocumentRepository(session).mark_uploaded(study_id, document_id)
         return DocumentOut.model_validate(confirmed)
+
+
+def _content_disposition(filename: str) -> str:
+    """``inline`` with the RFC 6266 / 8187 ``filename*`` (UTF-8) and an ASCII fallback."""
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
+
+
+@reads.get(
+    "/studies/{study_id}/documents/{document_id}/content",
+    summary="Download a confirmed document's bytes (photos, the appraisal)",
+    response_class=Response,
+    responses={
+        200: {"description": "The document's bytes, with its registered content type."},
+        304: {"description": "`If-None-Match` matched the document's sha256."},
+        **problems(404, 409),
+    },
+)
+async def document_content(
+    request: Request,
+    study_id: StudyIdPath,
+    document_id: DocumentIdPath,
+    user: CurrentUserDep,
+    sessionmaker: SessionmakerDep,
+    storage: StorageDep,
+) -> Response:
+    # Like the completion check: one short transaction, then storage with none open.
+    async with session_scope(sessionmaker) as session:
+        await require_study_access(session, user, study_id, OrgRole.VIEWER)
+        found = await DocumentRepository(session).get(study_id, document_id)
+        if found is None:
+            raise NotFound("Document not found.")
+        uri, content_type, filename = found.gcs_uri, found.content_type, found.filename
+        sha256, uploaded = found.sha256, found.uploaded_at is not None
+    if not uploaded:
+        raise Conflict("The document's upload is not confirmed yet.", type_suffix="upload-missing")
+    etag = f'"{sha256}"'
+    headers = {"ETag": etag, "Cache-Control": CONTENT_CACHE_CONTROL}
+    if etag in [tag.strip() for tag in request.headers.get("if-none-match", "").split(",")]:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    try:
+        data = await storage.read(uri)
+    except ObjectNotFound:
+        raise NotFound("The document's bytes are missing from storage.") from None
+    headers["Content-Disposition"] = _content_disposition(filename)
+    headers["X-Content-Type-Options"] = "nosniff"
+    return Response(content=data, media_type=content_type, headers=headers)
