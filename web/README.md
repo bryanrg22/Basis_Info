@@ -46,11 +46,17 @@ not use them.
    Intelligence) and `COST_TABLE_PATH`. A full study on the real providers costs about $6.
 
    A new database has no reference corpus, so assets get no citations (every asset is
-   flagged `citation_unverified`). Load the six reference PDFs once (about 16 minutes on
-   CPU, no API cost), then restart the worker (`docs/deploy/STAGING.md` section 1.8):
+   flagged `citation_unverified`). Load the six reference PDFs once (4 minutes locally, 16
+   on the staging job; no API cost), then restart the worker (`docs/deploy/STAGING.md`
+   section 1.8). Mount the PDFs into the worker read-only (`/corpus`) and pass each file's
+   stem as its `--doc-id`: the classification rules cite documents by those ids
+   (`backEnd/basis/domain/rules.py`), so another id leaves rule citations unresolved.
 
    ```sh
-   docker compose … exec worker python -m basis.retrieval.ingest --pdf=/path/IRS_PUB_946.pdf --doc-id=IRS_PUB_946 …
+   docker compose … exec worker python -m basis.retrieval.ingest \
+     --pdf=/corpus/IRS_IRS_COST_SEG_ATG__2024.pdf --doc-id=IRS_IRS_COST_SEG_ATG__2024 …   # all six
+   docker compose … exec worker python -m basis.retrieval.ingest --list-versions        # 7,466 chunks
+   docker compose … restart worker
    ```
 
 2. The Firebase Auth emulator, in the demo project `demo-basis` (a `demo-` project never
@@ -100,7 +106,7 @@ edits the defaults. The API's `CORS_ALLOWED_ORIGINS` must list the frontend's or
 | Appraisal review | `GET …/fields` (by section, page, confidence, critical); the cited page drawn inline with PDF.js from `GET …/documents/{id}/content`; `extraction_field` corrections |
 | Rooms review | `GET …/rooms` (photos, inventories); `room` (rename, retype, merge), `component` (label, material, attachment) and `photo` (re-analyze) corrections |
 | Photo components | `GET …/photos/{doc}/objects`; SAM 3 masks decoded in the browser (`live/rle.js`) and drawn on a canvas (`live/mask-layer.js`): **Spotlight** (default: one component, glow, numbered pins), **Show all** (every counted instance, tinted by component), one instance (score, size, delete). **Add object**: tap (`POST` a point, matched to what SAM 3 found) or draw a box. Delete: `DELETE` (manual objects only; the API keeps the model's) |
-| Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with verification); `asset` corrections (category, class, recovery period, IRS section) |
+| Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with their document, page, section and verification, `live/citations.js`); `asset` corrections (category, class, recovery period, IRS section) |
 | Schedule | totals by recovery class from `GET …/assets`; a CSV of the table |
 | Files | the study's documents; open and download through the API |
 
@@ -161,7 +167,7 @@ API data the design does not show yet:
 ## Tests
 
 ```sh
-node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client)
+node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations)
 node web/tests/live-smoke.mjs --origin http://127.0.0.1:3100   # against the local stack
 ```
 

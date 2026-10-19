@@ -49,6 +49,8 @@
 .live-citations{display:grid;gap:12px;margin-top:10px}
 .live-citation{border:1px solid var(--line);border-radius:10px;padding:12px}
 .live-citation blockquote{margin:8px 0;font-size:12px;line-height:1.5;color:var(--ink)}
+.live-citation>.row{align-items:flex-start;gap:12px}.live-citation .badge{flex:none}
+.live-citation-section{margin:2px 0 0}
 .live-evidence-photo{margin:12px 0}
 .live-evidence-photo .photo-canvas{position:relative}
 .live-evidence-photo img{display:block;width:100%;height:auto}
