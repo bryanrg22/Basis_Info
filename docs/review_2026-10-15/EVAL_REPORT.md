@@ -4584,12 +4584,28 @@ frontend, which must keep honoring `Retry-After` either way.
 
 ### 32.11 What to rerun on staging, and how
 
-Staging (PR 59, session staging-deploy) is not deployed yet. Its planned shape makes the
-fixes above matter immediately: Cloud Run sends up to 80 concurrent requests to one API
-instance whose pool is 5 (the 32.3 deadlock), and one worker instance with a pool of 5 (the
-32.4 exhaustion). The steps, in order, once it exists:
+Staging is live (PR 59, `docs/deploy/STAGING.md`), deployed at commit 5a6f076 (main after
+PRs 58, 60 and 61, so with the three fixes above). It runs in the GCP project
+`basis-staging-512000`; Firebase Auth stays in `cost-seg-basis`. The API is
+`https://staging-basis-api-138338018557.us-central1.run.app` (also
+`https://staging-basis-api-zweq2vtmtq-uc.a.run.app`). What its shape means for these steps:
 
-1. Mint tokens for 25 test users (creates `load-eng-0..24` in the staging Firebase project):
+| Part | Staging | What to expect, from this section |
+|---|---|---|
+| API | Cloud Run, 0 to 4 instances, 1 vCPU / 1 GiB, concurrency 40, `DB_POOL_SIZE=5` | up to 160 concurrent requests and 20 connections; one instance served 200 readers locally (32.7), and mutations now hold one connection (32.3) |
+| Worker | one worker-pool instance, 1 vCPU / 2 GiB, the defaults (`LLM_CONCURRENCY=4`, `PHOTO_CONCURRENCY=5`), relay and Cloud SQL proxy sidecars | about 6.6 studies an hour (32.5) until the settings of 32.12 are applied |
+| Database | Cloud SQL db-g1-small, `max_connections` 50 | the API's 20 plus the worker's and relay's pools fit |
+| Temporal | self-hosted 1.31.4 on an e2-medium VM, namespace `basis-staging`, 8 history shards | not measured here: the local runs used the dev server |
+| Providers | real; Replicate still under $10 of credit | about $6.40 a real-size study; SAM 3 at 60 creates a minute (32.8) |
+
+Staging is parked between uses (worker pool at 0 instances, the Temporal VM and Cloud SQL
+stopped): unpark it first with the commands in `docs/deploy/STAGING.md`, and park it again
+after the run. Nothing below works, or should be sent, while it is parked.
+
+The steps, in order:
+
+1. Mint tokens for 25 test users. This creates `load-eng-0..24` in the `cost-seg-basis`
+   Firebase project and needs an account allowed to sign custom tokens, so Bryan runs it:
 
    ```bash
    backEnd/.venv/bin/python tooling/load/mint_tokens.py --project cost-seg-basis \
@@ -4600,16 +4616,19 @@ instance whose pool is 5 (the 32.3 deadlock), and one worker instance with a poo
    SQL, without starting a study (no model spend):
 
    ```bash
-   API_URL=https://staging-basis-api-930581733841.us-central1.run.app \
+   API_URL=https://staging-basis-api-138338018557.us-central1.run.app \
    TOKEN_FILE=~/basis-load/staging_tokens.json LOCUST_ARGS=--upload-only \
      tooling/load/run_remote.sh RUN_DIR/staging-upload-25 25
    ```
 
-3. The read path: 200 readers over the studies of step 4 (or of any earlier run):
+3. The read path, over the studies of step 4. The staging API keeps the per-engineer limit of
+   240 reads a minute, so either run one reader per engineer (`-u 25 --reader-pool 25`) or
+   raise `RATE_LIMIT_READS_PER_MIN` on the staging API for the test, as 32.7 did locally,
+   before 200 readers share the 25 identities:
 
    ```bash
    cd backEnd && .venv/bin/python -m locust -f ../tooling/load/locustfile.py --headless \
-     ReviewReader --host https://staging-basis-api-930581733841.us-central1.run.app \
+     ReviewReader --host https://staging-basis-api-138338018557.us-central1.run.app \
      -u 200 -r 20 -t 5m --reader-pool 25 --token-file ~/basis-load/staging_tokens.json \
      --csv RUN_DIR/staging-read-200/locust
    ```
@@ -4619,7 +4638,7 @@ instance whose pool is 5 (the 32.3 deadlock), and one worker instance with a poo
    most $12 for the step):
 
    ```bash
-   API_URL=https://staging-basis-api-930581733841.us-central1.run.app \
+   API_URL=https://staging-basis-api-138338018557.us-central1.run.app \
    TOKEN_FILE=~/basis-load/staging_tokens.json LOCUST_ARGS="--photos 20" \
      tooling/load/run_remote.sh RUN_DIR/staging-real-3 3 1.0
    ```
