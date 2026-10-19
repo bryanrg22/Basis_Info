@@ -20,6 +20,7 @@ resource "google_sql_database_instance" "staging" {
   settings {
     edition                     = "ENTERPRISE"
     tier                        = var.sql_tier
+    activation_policy           = var.parked ? "NEVER" : "ALWAYS" # NEVER: stopped, storage kept
     availability_type           = "ZONAL"
     disk_type                   = "PD_SSD"
     disk_size                   = 10

@@ -87,8 +87,20 @@ variable "api_max_instances" {
   default     = 4
 }
 
+variable "parked" {
+  description = <<-EOT
+    Staging is built but not running (STAGING.md section 5.4): the worker pool at 0
+    instances, the Temporal VM stopped, Cloud SQL stopped (activation policy NEVER). The
+    API service stays deployed and scales to zero; it answers /health with 503 while the
+    database is stopped. Default true, so a plain `terraform apply` never starts the
+    always-on parts by accident: unparking is the explicit `-var parked=false`.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "worker_instances" {
-  description = "Worker pool instances (each runs one worker and one relay). 0 parks staging."
+  description = "Worker pool instances when not parked (each runs one worker, one relay, one SQL proxy)."
   type        = number
   default     = 1
 }

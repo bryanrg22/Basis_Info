@@ -10,7 +10,8 @@ deployed, and how to operate it. Infrastructure as code is in [`infra/staging`](
 | Health | `GET <api>/health` (build sha, database and Temporal checks) |
 | API docs | `GET <api>/docs` (Swagger UI), `GET <api>/openapi.json` |
 | Region | `us-central1` (everything except the optional SAM 3 GPU service, `us-east4`) |
-| Deploys | every merge to `main`, after CI passes, in the GitHub environment `staging` |
+| State | **parked** since 2026-10-18 (built and verified once, then stopped; section 5.4) |
+| Deploys | off until the repository variable `STAGING_DEPLOY` is `enabled`; then every merge to `main`, after CI passes, in the GitHub environment `staging` |
 
 Staging has a GCP project of its own, `basis-staging-512000` (number 138338018557,
 created 2026-10-17): Terraform needs Owner-level IAM rights, which could not be granted in
@@ -362,7 +363,9 @@ scan, the client-data guard and the image build):
 3. deploys the worker pool (worker and relay), then the API;
 4. checks that `/health` reports the new commit with the database and Temporal ok.
 
-The job runs one at a time and is never cancelled (runs on `main` queue instead of
+The job is off unless the repository variable `STAGING_DEPLOY` is `enabled`. Unset means no
+deploy, which is fail-safe while staging is parked (its migrations would fail against a
+stopped database). Section 5.4 turns it on with the unpark. The job runs one at a time and is never cancelled (runs on `main` queue instead of
 cancelling each other, since a migration must not be cut off). To require a manual
 approval before each deploy: `REVIEWER=bryanrg22 infra/staging/scripts/github-environment.sh`.
 
@@ -391,10 +394,9 @@ Temporal VM ($28.56) are each under the $60 a month allowed for them. The worker
 the largest item, and its worker container's 1 vCPU is the floor for a Temporal worker
 that never idles.
 
-**Parked** (`scripts/park.sh down`: worker pool at 0, VM stopped, Cloud SQL stopped):
+**Parked** (the default, section 5.4: worker pool at 0, VM stopped, Cloud SQL stopped):
 disks $4.00 + Cloud SQL storage $1.70 + its reserved IP while stopped ($7.30) + backups
-and the rest (about $2) = **about $15/month**. `park.sh up` brings it back in a few
-minutes.
+and the rest (about $2) = **about $15/month**. Unparking brings it back in a few minutes.
 
 ### 2.2 Per study
 
@@ -457,13 +459,15 @@ cd infra/staging && terraform apply -target=google_cloud_run_v2_job.migrate \
   && cd -                                                # 4. API and jobs
 gcloud run jobs execute staging-basis-migrate --region $R --project $P --wait
 infra/staging/scripts/ingest-corpus.sh                   #    reference corpus
-cd infra/staging && terraform apply && cd -              # 5. worker pool (and anything left)
+cd infra/staging && terraform apply -var parked=false && cd -   # 5. worker pool, running
 infra/staging/scripts/github-environment.sh              # 6. staging env: main only, WIF vars
 uv run --project backEnd python infra/staging/scripts/smoke.py \
   https://staging-basis-api-138338018557.us-central1.run.app --expect-sha $SHA
 ```
 
-Targeting a resource also applies everything it depends on (the APIs, the network, the
+Every `terraform apply` above except stage 5 keeps the `parked` default, so the VM and
+Cloud SQL stop as soon as they are created; give `-var parked=false` to each of them for a
+first deploy that should keep running. Targeting a resource also applies everything it depends on (the APIs, the network, the
 service accounts), so stage 1 creates the whole foundation without any Cloud Run
 resource; `terraform plan` before each `apply` shows exactly what a stage creates. After
 this, every merge to `main` deploys through CI.
@@ -520,8 +524,54 @@ gcloud compute ssh staging-temporal --zone us-central1-a --tunnel-through-iap --
 
 ### 5.4 Park and unpark
 
-`infra/staging/scripts/park.sh down|up|status` (section 2.1). The API stays deployed and
-answers `/health` with 503 while the database is stopped.
+Staging is **parked**: everything is built, the database is migrated and the corpus is
+ingested, but nothing that bills by the hour runs. Terraform's `parked` variable (default
+`true`) holds three switches:
+
+| | Parked | Running |
+|---|---|---|
+| Worker pool `staging-basis-worker` | 0 instances | `worker_instances` (1) |
+| VM `staging-temporal` | `TERMINATED` (stopped, disks kept) | `RUNNING` |
+| Cloud SQL `staging-basis-pg` | activation policy `NEVER` (stopped, storage kept) | `ALWAYS` |
+
+The API service stays deployed and scales to zero. While parked, its `/health` answers 503
+(no database) and studies cannot start. Nothing is deleted; parked costs about $15/month
+(section 2.1). Because the default is `true`, a plain `terraform apply` keeps staging
+parked instead of starting it by accident.
+
+Check the state at any time (read-only):
+
+```bash
+infra/staging/scripts/park.sh status
+```
+
+**Unpark** (staging runs; about $116/month while up), from the repository root:
+
+```bash
+cd infra/staging
+terraform plan -var parked=false     # expect exactly 3 in-place changes: the three switches
+terraform apply -var parked=false
+cd -
+curl -s https://staging-basis-api-138338018557.us-central1.run.app/health   # db and temporal ok
+gh variable set STAGING_DEPLOY --repo bryanrg22/Basis_Info --body enabled  # CI deploys resume
+```
+
+Cloud SQL takes a few minutes to start. The VM's startup script brings Temporal back
+automatically, and the worker reconnects once both are up.
+
+**Park again:**
+
+```bash
+gh variable delete STAGING_DEPLOY --repo bryanrg22/Basis_Info   # CI deploys stop first
+cd infra/staging && terraform apply && cd -                      # parked is the default
+```
+
+`scripts/park.sh down|up` makes the same three changes with gcloud, without Terraform,
+for a quick stop. A later `terraform apply` sets them back to what `parked` says, so keep
+the two in agreement: after `park.sh up`, apply with `-var parked=false`.
+
+The first `terraform apply` in parked mode records `desired_status = TERMINATED` on the VM,
+which is already stopped; it is not a change to the running infrastructure.
 
 ## 6. Frontend
 

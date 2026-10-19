@@ -7,8 +7,9 @@
 #   park.sh status what is running.
 #
 # The API scales to zero by itself and needs nothing. While parked it answers /health with
-# 503 (no database), and studies cannot start. Terraform's worker_instances stays the
-# source of truth for "up": a later `terraform apply` brings the worker back to it.
+# 503 (no database), and studies cannot start. Terraform's `parked` variable (default
+# true) is the source of truth: a later `terraform apply` sets these three switches back
+# to it, so after `up` apply with -var parked=false (STAGING.md section 5.4).
 set -euo pipefail
 
 PROJECT=${PROJECT:-basis-staging-512000}

@@ -371,8 +371,14 @@ jobs:
   # then check that /health reports this commit with the database and Temporal up.
   # Migrations therefore run before any new code: they must keep the running release
   # working (expand first, contract in a later release).
+  #
+  # Off unless the repository variable STAGING_DEPLOY is `enabled` (fail-safe: unset means
+  # no deploy). Staging is parked until Bryan decides to run it (STAGING.md section 5.4);
+  # a deploy needs the database up, and its migrations would fail against a stopped one.
   deploy-staging:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && vars.STAGING_DEPLOY == 'enabled'
     needs: [backend-lint, backend-test, secrets-scan, client-data-guard, docker-build]
     runs-on: ubuntu-latest
     timeout-minutes: 45

@@ -11,7 +11,7 @@
 # throttles its CPU between requests, so polling would stall; with CPU always allocated a
 # service costs the instance-based rate (us-central1 $0.000018/vCPU-s) against the worker
 # pool's $0.00001124/vCPU-s, and a worker pool needs no ingress at all. Worker pools do
-# not autoscale: the instance count is set (var.worker_instances, 0 parks staging).
+# not autoscale: the instance count is set (var.worker_instances; 0 while var.parked).
 
 locals {
   sql_connection = google_sql_database_instance.staging.connection_name
@@ -151,7 +151,7 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
 
   scaling {
     scaling_mode          = "MANUAL"
-    manual_instance_count = var.worker_instances
+    manual_instance_count = var.parked ? 0 : var.worker_instances
   }
 
   template {

@@ -61,6 +61,7 @@ resource "google_compute_instance" "temporal" {
   machine_type              = var.temporal_machine_type
   tags                      = ["staging-temporal"]
   allow_stopping_for_update = true
+  desired_status            = var.parked ? "TERMINATED" : "RUNNING" # TERMINATED: stopped, disks kept
 
   boot_disk {
     initialize_params {
