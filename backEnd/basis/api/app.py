@@ -20,7 +20,8 @@ Wiring (all on ``app.state``):
   ``workflows`` to :func:`create_app` instead; ``temporal`` then stays ``None``.
 
 Middleware, innermost first: the 1 MiB body limit for ``/v1/``, the 500 handler, request
-ids. The OpenAPI document is built by :func:`basis.api.openapi.build_openapi`.
+ids, and CORS for ``CORS_ALLOWED_ORIGINS`` (:func:`install_cors`). The OpenAPI document is
+built by :func:`basis.api.openapi.build_openapi`.
 """
 
 from __future__ import annotations
@@ -33,15 +34,20 @@ from pathlib import Path
 from typing import Final
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis import __version__
 from basis.api import health
 from basis.api.bodylimit import BodySizeLimitMiddleware
 from basis.api.errors import install_error_handlers
-from basis.api.idempotency import InMemoryIdempotencyStore
+from basis.api.idempotency import (
+    IDEMPOTENCY_HEADER,
+    REPLAYED_HEADER,
+    InMemoryIdempotencyStore,
+)
 from basis.api.idempotency_pg import PostgresIdempotencyStore
-from basis.api.middleware import RequestIdMiddleware
+from basis.api.middleware import REQUEST_ID_HEADER, RequestIdMiddleware
 from basis.api.openapi import build_openapi
 from basis.api.ratelimit import InMemoryRateLimiter
 from basis.api.routes import api_routers
@@ -57,6 +63,12 @@ SERVICE_NAME: Final = health.SERVICE_NAME
 DOCS_URL: Final = "/docs"
 LOCAL_BUCKET: Final = "basis-local"
 LOCAL_STORAGE_DIR: Final = Path(tempfile.gettempdir()) / "basis-local-storage"
+# What the browser may send and read cross-origin: the methods the /v1 routes use, the
+# request headers they read, and the response headers a client acts on.
+CORS_ALLOW_METHODS: Final = ("GET", "POST", "DELETE")
+CORS_ALLOW_HEADERS: Final = ("Authorization", "Content-Type", IDEMPOTENCY_HEADER, REQUEST_ID_HEADER)
+CORS_EXPOSE_HEADERS: Final = (REQUEST_ID_HEADER, REPLAYED_HEADER, "Location", "Retry-After")
+CORS_MAX_AGE_S: Final = 600
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +81,26 @@ def install_database(app: FastAPI, sessionmaker: async_sessionmaker[AsyncSession
     """Use ``sessionmaker`` for requests and keep idempotency keys in PostgreSQL."""
     setattr(app.state, SESSIONMAKER_STATE_ATTR, sessionmaker)
     app.state.idempotency_store = PostgresIdempotencyStore(sessionmaker)
+
+
+def install_cors(app: FastAPI, settings: Settings) -> None:
+    """Answer browser preflights and tag responses for ``CORS_ALLOWED_ORIGINS``.
+
+    Outermost, so error responses (401, 413, 429, 5xx problems) carry the headers too and
+    the browser shows the frontend the problem instead of an opaque CORS failure. Bearer
+    tokens, not cookies, so credentials stay off.
+    """
+    if not settings.cors_allowed_origins:
+        return
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_allowed_origins),
+        allow_methods=list(CORS_ALLOW_METHODS),
+        allow_headers=list(CORS_ALLOW_HEADERS),
+        expose_headers=list(CORS_EXPOSE_HEADERS),
+        allow_credentials=False,
+        max_age=CORS_MAX_AGE_S,
+    )
 
 
 def default_storage(settings: Settings) -> tuple[Storage, str]:
@@ -143,6 +175,7 @@ def create_app(
     app.add_middleware(BodySizeLimitMiddleware)
     install_error_handlers(app)
     app.add_middleware(RequestIdMiddleware)
+    install_cors(app, settings)
 
     app.include_router(health.router)
 

@@ -11,7 +11,9 @@
 # Dependabot (.github/dependabot.yml) proposes updates.
 #
 # The repository is public: no cloud credentials, no client data, and nothing
-# from .env files may appear here, in logs, or in uploaded artifacts.
+# from .env files may appear here, in logs, or in uploaded artifacts. The one job that
+# reaches GCP (deploy-staging) holds no key: it gets a short-lived token through Workload
+# Identity Federation, and only from the `staging` environment on main.
 
 name: CI
 
@@ -23,9 +25,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the older run; runs on main are never cancelled,
+# because they end in the staging deploy (a migration must not be cut off). They queue.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -355,4 +359,110 @@ jobs:
             echo "- smoke (\`import basis\`): ${SMOKE_OUTCOME}"
             echo ""
             echo "The image becomes a deploy gate in Stage 5"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Deploy main to staging (docs/deploy/STAGING.md, "CI deploys"). Only on a push to main,
+  # after every gate passed, in the GitHub environment `staging` (main only); that
+  # environment is the one identity Workload Identity Federation lets act as the deployer
+  # (infra/staging/wif.tf). One deploy at a time, never cancelled: pushes queue behind it.
+  #
+  # Order: build and push the image (tagged with the commit), run the migrations as a
+  # Cloud Run job and wait for them, then the worker pool (worker + relay), then the API,
+  # then check that /health reports this commit with the database and Temporal up.
+  # Migrations therefore run before any new code: they must keep the running release
+  # working (expand first, contract in a later release).
+  #
+  # Off unless the repository variable STAGING_DEPLOY is `enabled` (fail-safe: unset means
+  # no deploy). Staging is parked until Bryan decides to run it (STAGING.md section 5.4);
+  # a deploy needs the database up, and its migrations would fail against a stopped one.
+  deploy-staging:
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && vars.STAGING_DEPLOY == 'enabled'
+    needs: [backend-lint, backend-test, secrets-scan, client-data-guard, docker-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: staging
+      url: ${{ steps.api.outputs.url }}
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # the OIDC token Workload Identity Federation exchanges
+    env:
+      PROJECT: basis-staging-512000
+      REGION: us-central1
+      IMAGE: us-central1-docker.pkg.dev/basis-staging-512000/staging-basis/basis-backend:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          install_components: beta # `gcloud run worker-pools` is beta-track in gcloud 546
+
+      - name: Docker credentials for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build and push the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: backEnd
+          file: backEnd/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Run the migrations (alembic upgrade head)
+        run: |
+          gcloud run jobs update staging-basis-migrate --image "$IMAGE" \
+            --project "$PROJECT" --region "$REGION" --quiet
+          gcloud run jobs execute staging-basis-migrate --wait \
+            --project "$PROJECT" --region "$REGION"
+          gcloud run jobs update staging-basis-ingest --image "$IMAGE" \
+            --project "$PROJECT" --region "$REGION" --quiet
+
+      - name: Deploy the worker pool (worker + relay)
+        run: |
+          gcloud beta run worker-pools deploy staging-basis-worker \
+            --project "$PROJECT" --region "$REGION" --quiet \
+            --container worker --image "$IMAGE" \
+            --container relay --image "$IMAGE"
+
+      - name: Deploy the API
+        id: api
+        run: |
+          gcloud run deploy staging-basis-api --image "$IMAGE" \
+            --project "$PROJECT" --region "$REGION" --quiet
+          url=$(gcloud run services describe staging-basis-api \
+            --project "$PROJECT" --region "$REGION" --format 'value(status.url)')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Check /health reports this commit
+        env:
+          URL: ${{ steps.api.outputs.url }}
+        run: |
+          body=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 5 "$URL/health")
+          echo "$body"
+          jq -e --arg sha "$GITHUB_SHA" \
+            '.git_sha == $sha and .checks.db.status == "ok" and .checks.temporal.status == "ok"' \
+            <<<"$body" >/dev/null
+          {
+            echo "### Staging deploy"
+            echo ""
+            echo "- API: $URL"
+            echo "- image: \`$IMAGE\`"
           } >> "$GITHUB_STEP_SUMMARY"
