@@ -106,7 +106,7 @@ edits the defaults. The API's `CORS_ALLOWED_ORIGINS` must list the frontend's or
 | Appraisal review | `GET …/fields` (by section, page, confidence, critical); the cited page drawn inline with PDF.js from `GET …/documents/{id}/content`; `extraction_field` corrections |
 | Rooms review | `GET …/rooms` (photos, inventories); `room` (rename, retype, merge), `component` (label, material, attachment) and `photo` (re-analyze) corrections |
 | Photo components | `GET …/photos/{doc}/objects`; SAM 3 masks decoded in the browser (`live/rle.js`) and drawn on a canvas (`live/mask-layer.js`): **Spotlight** (default: one component, glow, numbered pins), **Show all** (every counted instance, tinted by component), one instance (score, size, delete). **Add object**: tap (`POST` a point, matched to what SAM 3 found) or draw a box. Delete: `DELETE` (manual objects only; the API keeps the model's) |
-| Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with their document, page, section and verification, `live/citations.js`); `asset` corrections (category, class, recovery period, IRS section) |
+| Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with their document, page, section and verification, `live/citations.js`; review reasons as sentences, `live/review-reasons.js`); `asset` corrections (category, class, recovery period, IRS section) |
 | Schedule | totals by recovery class from `GET …/assets`; a CSV of the table |
 | Files | the study's documents; open and download through the API |
 
@@ -114,6 +114,8 @@ Decisions: `POST …/decisions` with the stage and revision. Approve is disabled
 corrections are pending (the API refuses approve-with-corrections); Request corrections
 sends them and the stage runs again as the next revision. Every POST and DELETE carries an
 `Idempotency-Key`; errors are `application/problem+json` and show their request id.
+Entering a review screen re-reads the study (`GET /v1/studies/{id}`) in the background,
+so a gate that opened while the app was elsewhere shows its decision bar without a reload.
 
 ## Still mock-only in live mode
 
@@ -147,7 +149,7 @@ Fields the design shows that the API does not have:
 API data the design does not show yet:
 
 * Uncounted SAM 3 candidates per photo (the tap-to-add pool), each object's phrase.
-* `review_reasons`, `confidence`, `method`, `irs_section`, the takeoff formula and the cost
+* `confidence`, `method`, `irs_section`, the takeoff formula and the cost
   row, location factor and cost year (shown on the asset page; the assets table shows few).
 * Per-photo localization status and model version (shown as a caption only).
 * Room `source`, `group_key` and the study's `room_aliases`.
@@ -167,7 +169,7 @@ API data the design does not show yet:
 ## Tests
 
 ```sh
-node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations)
+node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons)
 node web/tests/live-smoke.mjs --origin http://127.0.0.1:3100   # against the local stack
 ```
 

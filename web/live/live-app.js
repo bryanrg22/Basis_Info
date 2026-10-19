@@ -53,6 +53,23 @@
   L.study=s.data;return fn(s.data);
  };
  Live.reloadStudy=async()=>{Live.invalidate('study:'+L.studyId);const s=studyEntry(true);try{await s.promise}catch{}return s.data};
+ /* Only the processing screen polls the study, so a cached study goes stale once the app
+  * leaves it: a gate that opened meanwhile stayed read-only until a reload. Entering a study
+  * screen (another screen or study) revalidates the cached study in the background: the
+  * cached copy stays on screen and the page renders again only if the study changed. */
+ const REVALIDATE=new Set(['appraisal','rooms','viewer','assets','asset-detail','complete','files']);
+ let entered='';
+ function revalidateOnEntry(){
+  const at=state.screen+'/'+L.studyId;if(at===entered)return;entered=at;
+  if(!REVALIDATE.has(state.screen)||!L.studyId)return;
+  const key='study:'+L.studyId,entry=L.cache.get(key);
+  if(!entry?.done||entry.error||entry.revalidating)return;// not loaded yet: the load is fresh
+  entry.revalidating=true;
+  api.getStudy(L.studyId).then(fresh=>{
+   if(L.cache.get(key)!==entry||JSON.stringify(fresh)===JSON.stringify(entry.data))return;
+   entry.data=fresh;render();
+  },()=>{}).finally(()=>{entry.revalidating=false});// a failed check keeps the cached study
+ }
  /* Document bytes (photos, the appraisal) need the bearer token, so they are fetched and
   * shown from object URLs, at most six at a time. <img data-live-doc="id"> is filled in. */
  const queue=[];let active=0;
@@ -90,6 +107,7 @@
   if(!L.user&&!PUBLIC.has(state.screen)){L.returnTo=location.hash||'#dashboard';state.screen='login'}
   if(L.user&&state.screen==='login'){state.screen='dashboard';history.replaceState(null,'','#dashboard')}
   if(state.screen!=='processing')stopPolling();
+  if(L.user)revalidateOnEntry();
   baseRender();
   afterRender();
  };
