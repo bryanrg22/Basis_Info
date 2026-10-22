@@ -13,8 +13,10 @@ needs the token's ``email_verified`` claim and the same normalized email.
 * One open invitation per firm and email (``uq_invitations_org_id_email_open``).
   :meth:`InvitationRepository.create` raises ``InvitationPendingError`` while a pending
   one exists and closes an expired one before inviting again.
-* :meth:`InvitationRepository.answer` locks the invitation row (``SELECT ... FOR
-  UPDATE``), so concurrent accepts, declines and revokes of one invitation apply once.
+* Lock order, for every writer: the firm's ``orgs`` row (``OrgRepository.lock``) first,
+  then invitation rows. :meth:`InvitationRepository.answer` takes the firm lock, then the
+  invitation row (``SELECT ... FOR UPDATE``), so concurrent accepts, declines, revokes and
+  member removals of one firm apply one at a time and cannot deadlock.
   Accepting grants the role without lowering a higher one the user already has
   (``UserRepository.grant_membership``). Answering again the same way is idempotent; a
   removed member who replays an accepted invitation does not get the membership back.
@@ -172,7 +174,8 @@ class InvitationRepository:
         created_by: uuid.UUID | None,
         ttl: timedelta,
     ) -> InvitationView:
-        """Invite ``email`` (normalized here) to the firm as ``role`` for ``ttl``.
+        """Invite ``email`` (normalized here) to the firm as ``role`` for ``ttl``. Call with
+        the firm locked (``OrgRepository.lock``): it may lock an invitation row.
 
         Raises ``ValueError`` for an invalid email, ``AlreadyMemberError`` when a member
         of the firm has that email, ``InvitationPendingError`` while a pending invitation
@@ -247,7 +250,8 @@ class InvitationRepository:
     async def revoke(
         self, org_id: uuid.UUID, invitation_id: uuid.UUID, revoked_by: uuid.UUID
     ) -> InvitationView:
-        """Revoke a pending invitation of the firm; revoking again is a no-op.
+        """Revoke a pending invitation of the firm; revoking again is a no-op. Call with the
+        firm locked (``OrgRepository.lock``).
 
         ``NotVisibleError`` if it is not this firm's; ``InvitationClosedError`` once
         accepted or declined (remove the member instead). An expired one is closed and
@@ -286,10 +290,21 @@ class InvitationRepository:
           ``EmailUnverifiedError``.
         * Already answered the same way by the caller: the same answer again.
         * Otherwise anything but pending: ``InvitationClosedError`` with the status.
+
+        Locks, in the order every writer of a firm uses: the firm's row
+        (``OrgRepository.lock``), then the invitation's. Removing a member takes the firm
+        lock, deletes the membership and revokes their invitations; an accept that locked
+        the invitation first and then needed the membership row deadlocked with it.
         """
-        invitation = await self._session.scalar(
-            select(Invitation).where(Invitation.id == invitation_id).with_for_update()
+        org_id = await self._session.scalar(
+            select(Invitation.org_id).where(Invitation.id == invitation_id)
         )
+        invitation = None
+        if org_id is not None:
+            await OrgRepository(self._session).lock(org_id)
+            invitation = await self._session.scalar(
+                select(Invitation).where(Invitation.id == invitation_id).with_for_update()
+            )
         if invitation is None or email is None or invitation.email != normalize_email(email):
             raise NotVisibleError(DETAIL_NOT_FOUND)
         if not email_verified:

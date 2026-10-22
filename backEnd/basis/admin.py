@@ -21,9 +21,10 @@ the firm's owners manage it in the app (``/v1/orgs/{org_id}``).
   it with the same role reports the pending invitation.
 * ``list-firms`` prints every firm with its owners, member count and pending invitations.
 
-Output is one JSON object per line on stdout; errors go to stderr with exit status 2. It
-reads ``BASIS_ENV``, ``DATABASE_URL`` (or ``CLOUD_SQL_INSTANCE``) and
-``INVITATION_TTL_DAYS`` like every process.
+Like the API, it takes the firm's row lock before touching its invitations (the lock
+order every writer of a firm uses). Output is one JSON object per line on stdout; errors
+go to stderr with exit status 2. It reads ``BASIS_ENV``, ``DATABASE_URL`` (or
+``CLOUD_SQL_INSTANCE``) and ``INVITATION_TTL_DAYS`` like every process.
 """
 
 from __future__ import annotations
@@ -137,6 +138,7 @@ async def create_firm(
                 + "; use invite --org-id"
             )
         org = existing[0]
+        await firms.lock(org.id)  # lock order: the firm, then its invitations
         state = await _existing_owner_state(session, org, email, ttl)
         if state is None:
             raise AdminError(
@@ -153,9 +155,11 @@ async def invite(
     session: AsyncSession, org_id: uuid.UUID, email: str, role: OrgRole, *, ttl: timedelta
 ) -> dict[str, Any]:
     """Invite ``email`` to the firm as ``role``; a pending one with that role is reported."""
-    org = await OrgRepository(session).get(org_id)
+    firms = OrgRepository(session)
+    org = await firms.get(org_id)
     if org is None:
         raise AdminError(f"no firm with id {org_id}")
+    await firms.lock(org_id)  # lock order: the firm, then its invitations
     invitations = InvitationRepository(session)
     try:
         view = await invitations.create(org_id, email, role, None, ttl)

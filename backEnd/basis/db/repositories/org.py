@@ -168,12 +168,14 @@ class OrgRepository:
         assert updated is not None
         return updated
 
-    async def remove(self, org_id: uuid.UUID, user_id: uuid.UUID) -> Member:
+    async def remove(self, org_id: uuid.UUID, user_id: uuid.UUID, removed_by: uuid.UUID) -> Member:
         """Remove a member (access ends at once). Call with the firm locked (:meth:`lock`).
 
-        Their studies stay in the firm with their ``created_by`` unchanged. Raises
-        ``NotVisibleError`` for a non-member and ``LastOwnerError`` for the last owner
-        (including an owner removing themselves).
+        Their studies stay in the firm with their ``created_by`` unchanged. Every open
+        invitation to this firm for their email is revoked by ``removed_by``, so removal is
+        final until an owner invites them again (an invitation sent before they joined
+        cannot bring them back). Raises ``NotVisibleError`` for a non-member and
+        ``LastOwnerError`` for the last owner (including an owner removing themselves).
         """
         current = await self.member(org_id, user_id)
         if current is None:
@@ -183,6 +185,20 @@ class OrgRepository:
         await self._session.execute(
             delete(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == user_id)
         )
+        if current.email:
+            # Lock order: the firm row (held by the caller), then invitation rows.
+            await self._session.execute(
+                update(Invitation)
+                .where(
+                    Invitation.org_id == org_id,
+                    Invitation.email == current.email.strip().lower(),
+                    Invitation.accepted_at.is_(None),
+                    Invitation.declined_at.is_(None),
+                    Invitation.revoked_at.is_(None),
+                )
+                .values(revoked_at=func.now(), revoked_by=removed_by)
+                .execution_options(synchronize_session=False)
+            )
         return current
 
     async def summaries(self) -> list[FirmSummary]:

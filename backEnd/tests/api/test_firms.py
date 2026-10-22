@@ -665,6 +665,43 @@ async def test_two_owners_demoting_each_other_at_once_leave_an_owner(
     assert owners == 1
 
 
+async def test_removing_a_member_revokes_their_open_invitations(
+    invite_only_api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """An invitation sent before Erin joined (another role) cannot bring her back after
+    removal: removal revokes it, recorded as revoked by the owner who removed her. Other
+    firms' invitations and other people's are untouched; inviting her again works."""
+    org, other = await firm(seed, "olivia", "Basis"), await firm(seed, "omar", "Other")
+    early = await invite(invite_only_api, "olivia", org, "Erin@Example.test", "owner")
+    elsewhere = await invite(invite_only_api, "omar", other, "erin@example.test", "viewer")
+    someone = await invite(invite_only_api, "olivia", org, "drew@example.test", "viewer")
+    # Erin joined some other way (an earlier invitation) while that one was pending.
+    await seed.member(uuid.UUID(org), "erin", OrgRole.ENGINEER, own_firm=False)
+    erin = await member_id(invite_only_api, "erin")
+
+    removed = await invite_only_api.delete("olivia", f"/v1/orgs/{org}/members/{erin}")
+
+    assert removed.status_code == 200
+    olivia = await member_id(invite_only_api, "olivia")
+    listed = {
+        i["id"]: i
+        for i in (await invite_only_api.get("olivia", f"/v1/orgs/{org}/invitations")).json()[
+            "items"
+        ]
+    }
+    assert (listed[early["id"]]["status"], listed[early["id"]]["revoked_by"]) == ("revoked", olivia)
+    assert listed[someone["id"]]["status"] == "pending"
+    theirs = (await invite_only_api.get("omar", f"/v1/orgs/{other}/invitations")).json()["items"]
+    assert [(i["id"], i["status"]) for i in theirs] == [(elsewhere["id"], "pending")]
+    late = await accept(invite_only_api, "erin", early["id"])
+    assert late.status_code == 409 and problem_type(late) == "invitation-revoked"
+    me = (await invite_only_api.get("erin", "/v1/me")).json()
+    assert me["memberships"] == []
+    assert [i["id"] for i in me["pending_invitations"]] == [elsewhere["id"]]
+    again = await invite(invite_only_api, "olivia", org, "erin@example.test", "engineer")
+    assert (await accept(invite_only_api, "erin", again["id"])).status_code == 200
+
+
 async def test_a_removed_member_loses_access_at_once_and_their_studies_stay(
     invite_only_api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:

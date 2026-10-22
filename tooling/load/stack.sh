@@ -12,6 +12,9 @@
 # "real" runs the production worker composition (real providers, real spend): the keys
 # must be in the caller's environment; the probe in LOAD_TESTING.md section 6 caps spend
 # with STUDY_BUDGET_USD.
+# Firms are invite-only: "up" also gives the load-eng-<n> users (LOAD_USERS of them,
+# default 50) an engineer membership in the "Load test" firm (provision.py), or Locust
+# would get 403 no-firm.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -42,6 +45,7 @@ start() {  # name, command...
 case "$cmd" in
   up)
     (cd "$BACKEND" && "$PY" tests/load/setup_db.py) | tee "$run_dir/setup.log"
+    (cd "$BACKEND" && "$PY" "$HERE/provision.py" --users "${LOAD_USERS:-50}") | tee -a "$run_dir/setup.log"
     env | grep -E '^(LLM_CONCURRENCY|CLASSIFY_CONCURRENCY|PHOTO_CONCURRENCY|LOCALIZER_CONCURRENCY|DB_POOL_SIZE|LOAD_LATENCY_SCALE|LOAD_PROVIDER_LIMITS|LOAD_EMBEDDER|STUDY_BUDGET_USD|RATE_LIMIT_[A-Z_]+|VISION_[A-Z_]+|LLM_PRIMARY)=' \
       >"$run_dir/settings.env" || true
     echo "MODE=$mode" >>"$run_dir/settings.env"

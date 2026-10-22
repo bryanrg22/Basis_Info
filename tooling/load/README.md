@@ -14,6 +14,7 @@ EVAL_REPORT section 32.
 | `sampler.py` | Temporal backlog, worker slots and schedule-to-start, Postgres, CPU/RSS every 5 s |
 | `report.py` | the summary of a run directory |
 | `mint_tokens.py` | Firebase ID tokens for the `load-eng-<n>` users on a deployed stack (creates them) |
+| `provision.py` | gives the `load-eng-<n>` users an engineer membership in the "Load test" firm, in the stack's own database (firms are invite-only; without it every study call is 403 `no-firm`). `stack.sh up` runs it; on a deployed stack an operator with database access runs it once |
 | `provider_limits.py`, `ceilings.py` | our accounts' rate limits and the studies/hour each provider allows |
 
 The fake-provider worker and its latency profile are in `backEnd/tests/load/`.

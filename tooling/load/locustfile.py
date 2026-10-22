@@ -16,6 +16,9 @@ Users
   ``GET .../workflow`` every 5 s, and at each gate read what the engineer reviews (fields;
   rooms and every photo's objects; assets and evidence) and approve. Each user is its own
   engineer (uid ``load-eng-<n>``), so the per-caller rate limits apply as in production.
+  Firms are invite-only: ``provision.py`` (run by ``stack.sh up``) makes each uid an
+  engineer of the ``--firm`` ("Load test"); a user reads its id once (``GET /v1/me``) and
+  creates studies there (``org_id``), and stops at once if it is not a member.
   The run stops when ``--target-studies`` studies have finished (completed or failed).
 * :class:`ReviewReader` is an engineer with studies open: list them, poll one's workflow,
   page its fields, rooms, assets and evidence, open photos' objects. It reads the studies
@@ -52,7 +55,16 @@ from locust import HttpUser, between, constant, events, task
 from locust.exception import StopUser
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from plan import APPRAISAL, FIXTURES, emulator_token, photo_plan, scaled, unique_bytes  # noqa: E402
+from plan import (  # noqa: E402
+    APPRAISAL,
+    FIXTURES,
+    LOAD_FIRM,
+    LOAD_UID_PREFIX,
+    emulator_token,
+    photo_plan,
+    scaled,
+    unique_bytes,
+)
 
 GATES = ("appraisal_review", "rooms_review", "assets_review")
 POLL_S = 5.0  # the frontend's (and the live client's) workflow poll interval
@@ -92,7 +104,10 @@ def _options(parser: Any) -> None:
         action="store_true",
         help="create and upload, never start (no model spend on a real-provider stack)",
     )
-    parser.add_argument("--uid-prefix", default="load-eng", help="engineer uid prefix")
+    parser.add_argument("--uid-prefix", default=LOAD_UID_PREFIX, help="engineer uid prefix")
+    parser.add_argument(
+        "--firm", default=LOAD_FIRM, help="the firm studies are created in (provision.py)"
+    )
 
 
 class Engineer:
@@ -195,6 +210,7 @@ class StudyEngineer(Engineer, HttpUser):
 
     def on_start(self) -> None:
         self.login(f"{self._opts().uid_prefix}-{next(_ids)}")
+        self.org_id = self._firm_id()
         run_dir = self._opts().run_dir
         self.log_path = Path(run_dir) / "studies.jsonl" if run_dir else None
         storage = self._opts().local_storage_dir
@@ -297,13 +313,23 @@ class StudyEngineer(Engineer, HttpUser):
         if done.status_code != 200:
             raise RuntimeError(f"complete {filename}: {done.status_code}")
 
+    def _firm_id(self) -> str:
+        """The --firm's id from GET /v1/me (firms are invite-only: provision.py made the uid
+        an engineer there). Sent as org_id, so a user also in another firm still works."""
+        r = self.call("GET", "/v1/me", "GET /v1/me")
+        firm = self._opts().firm
+        for m in r.json().get("memberships", []) if r.status_code == 200 else []:
+            if m["org_name"] == firm and m["role"] in ("engineer", "owner"):
+                return str(m["org_id"])
+        raise StopUser(f"{self.uid} is not an engineer of {firm!r}: run tooling/load/provision.py")
+
     def _study(self, record: Dict[str, Any]) -> None:
         opts = self._opts()
         scale = opts.time_scale
         t_create = time.monotonic()
         r = self.call(
             "POST", "/v1/studies", "POST /v1/studies", ok=(201,),
-            json_body={"property_name": f"Load test {self.uid}"},
+            json_body={"property_name": f"Load test {self.uid}", "org_id": self.org_id},
         )
         if r.status_code != 201:
             raise RuntimeError(f"create: {r.status_code}")

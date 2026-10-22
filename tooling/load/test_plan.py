@@ -16,9 +16,13 @@ from plan import (  # noqa: E402
     APPRAISAL,
     FIXTURE_PHOTO,
     FIXTURES,
+    LOAD_DISPLAY_NAME,
+    LOAD_UID_PREFIX,
     ROOMS,
     TRAILER_MAGIC,
     emulator_token,
+    load_email,
+    load_uids,
     percentile,
     photo_plan,
     scaled,
@@ -95,3 +99,23 @@ def test_percentile_is_nearest_rank() -> None:
 def test_scaled_delays_never_reach_zero() -> None:
     assert scaled(5.0, 0.1) == pytest.approx(0.5)
     assert scaled(5.0, 0.0) == 0.05
+
+
+def test_load_uids_are_the_ones_locust_signs_in_as() -> None:
+    assert load_uids(LOAD_UID_PREFIX, 3) == ["load-eng-0", "load-eng-1", "load-eng-2"]
+    assert load_uids("reader", 0) == []
+    with pytest.raises(ValueError):
+        load_uids(LOAD_UID_PREFIX, -1)
+    here = Path(__file__).resolve().parent
+    # Locust signs in as, and provision.py gives a firm to, the same uids and firm.
+    for script in ("locustfile.py", "provision.py"):
+        text = (here / script).read_text()
+        assert "default=LOAD_UID_PREFIX" in text and "default=LOAD_FIRM" in text, script
+
+
+def test_the_token_asserts_the_identity_provision_stores() -> None:
+    token = emulator_token("load-eng-7", "basis-load", now=1000)
+    payload = token.split(".")[1]
+    claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    assert claims["email"] == load_email("load-eng-7") == "load-eng-7@example.test"
+    assert claims["name"] == LOAD_DISPLAY_NAME

@@ -120,15 +120,16 @@ async def change_member_role(
     "/orgs/{org_id}/members/{user_id}",
     summary="Remove a member (owner only)",
     description="Access ends at once; the member's studies stay in the firm and keep their "
-    "creator. 409 `last-owner` for the last owner (an owner may remove themselves while "
-    "another owner remains).",
+    "creator. Their open invitations to the firm are revoked, so they stay out until "
+    "invited again. 409 `last-owner` for the last owner (an owner may remove themselves "
+    "while another owner remains).",
     responses=problems(403, 404),
 )
 async def remove_member(
     org_id: OwnedOrg, user_id: UserIdPath, user: CurrentUserDep, session: SessionDep
 ) -> MemberOut:
     await lock_as_owner(session, user, org_id)
-    member = await OrgRepository(session).remove(org_id, user_id)
+    member = await OrgRepository(session).remove(org_id, user_id, user.id)
     return MemberOut.of(member)
 
 

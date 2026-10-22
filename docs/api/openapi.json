@@ -3327,7 +3327,7 @@
           "firms"
         ],
         "summary": "Remove a member (owner only)",
-        "description": "Access ends at once; the member's studies stay in the firm and keep their creator. 409 `last-owner` for the last owner (an owner may remove themselves while another owner remains).",
+        "description": "Access ends at once; the member's studies stay in the firm and keep their creator. Their open invitations to the firm are revoked, so they stay out until invited again. 409 `last-owner` for the last owner (an owner may remove themselves while another owner remains).",
         "operationId": "remove_member_v1_orgs__org_id__members__user_id__delete",
         "security": [
           {
