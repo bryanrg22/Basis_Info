@@ -213,6 +213,45 @@ async def test_build_localizer_prefers_the_self_hosted_url(settings: Settings) -
     assert isinstance(open_, CogSam3Localizer) and open_.token_source is None
 
 
+def test_the_api_builds_the_same_localizer_as_an_interactive_client(settings: Settings) -> None:
+    """Manual add (``basis.vision.localizer_config``): the API prompts the worker's model
+    and host, but an engineer waits, so the call is bounded and retried once; the worker's
+    client is unchanged (minutes of backoff for Replicate's throttle)."""
+    from pydantic import SecretStr
+
+    from basis.vision.localize import (
+        INTERACTIVE_RETRY_DELAYS_S,
+        PREDICTION_DEADLINE_S,
+        PREFER_WAIT_S,
+        CogSam3Localizer,
+        ReplicateSam3Localizer,
+    )
+    from basis.vision.localizer_config import build_localizer
+
+    replicate = settings.model_copy(
+        update={"replicate_api_token": SecretStr("r8_x"), "localizer_url": None}
+    )
+    worker, api = build_localizer(replicate), build_localizer(replicate, timeout_s=12.5)
+    assert isinstance(worker, ReplicateSam3Localizer) and isinstance(api, ReplicateSam3Localizer)
+    assert (worker.deadline_s, worker.prefer_wait_s, worker.retry_delays) == (
+        PREDICTION_DEADLINE_S,
+        PREFER_WAIT_S,
+        None,
+    )
+    assert (api.deadline_s, api.prefer_wait_s, api.retry_delays) == (
+        12.5,
+        13,
+        INTERACTIVE_RETRY_DELAYS_S,
+    )
+    assert api.version == worker.version == settings.sam3_replicate_version
+    assert api.client.timeout.read == 18.0
+    hosted = replicate.model_copy(update={"localizer_url": "https://sam3.example.run.app"})
+    cog = build_localizer(hosted, timeout_s=12.5)
+    assert isinstance(cog, CogSam3Localizer)
+    assert (cog.retry_delays, cog.client.timeout.read) == (INTERACTIVE_RETRY_DELAYS_S, 12.5)
+    assert build_localizer(replicate.model_copy(update={"replicate_api_token": None})) is None
+
+
 # --------------------------------------------------------------------------- room-stage options
 
 

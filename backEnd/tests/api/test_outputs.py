@@ -31,6 +31,7 @@ from basis.db.models import (
     Takeoff,
 )
 from basis.db.repositories import DocumentRepository
+from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository
 from basis.db.session import session_scope
 
 pytestmark = pytest.mark.integration
@@ -410,3 +411,87 @@ async def test_a_study_with_no_outputs_has_empty_pages(api: Api) -> None:
     for route in ("fields", "rooms", "assets"):
         body = (await api.get("alice", f"/v1/studies/{study['id']}/{route}")).json()
         assert body == {"revision": 1, "items": [], "next_cursor": None}
+
+
+async def test_rooms_suggest_counts_from_the_photos_and_list_added_components(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Manual add: per label, the most counted instances (SAM 3's and the engineers') in
+    one photo of the room against the room's count; a component an engineer added to the
+    room is listed with its inventory and counts in it."""
+    seeded = await seed_outputs(api, seed, sessionmaker)
+    sid = uuid.UUID(seeded.study_id)
+    k1, k2 = seeded.photos["Kitchen photo 1.jpg"], seeded.photos["Kitchen photo 2.jpg"]
+    alice = await seed.user("alice")
+    kitchen_id = seeded.rooms["kitchen"]
+
+    def instance(label: str, source: str, counted: bool = True) -> NewObject:
+        manual = source == "manual"
+        return NewObject(
+            label=label,
+            x1=0.1,
+            y1=0.1,
+            x2=0.2,
+            y2=0.2,
+            area=0.01,
+            source=source,
+            score=None if manual else 0.9,
+            counted=counted,
+            created_by=alice.id if manual else None,
+            mask_source="sam_box_prompt" if manual else None,
+        )
+
+    async with session_scope(sessionmaker) as session:
+        repo = PhotoObjectRepository(session)
+        rows = [
+            (k1, 2, instance("kitchen_cabinet", "model")),
+            (k1, 2, instance("kitchen_cabinet", "model")),
+            (k1, 2, instance("kitchen_cabinet", "model", counted=False)),  # a candidate
+            (k1, 2, instance("window", "model")),
+            *[(k2, 2, instance("kitchen_cabinet", "model")) for _ in range(5)],
+            *[(k2, 2, instance("kitchen_cabinet", "manual")) for _ in range(3)],
+            (k2, 1, instance("window", "manual")),  # revision 1 is history
+        ]
+        for document_id, revision, new in rows:
+            await repo.add(study_id=sid, document_id=document_id, revision=revision, new=new)
+        deleted = await repo.add(
+            study_id=sid, document_id=k2, revision=2, new=instance("kitchen_cabinet", "manual")
+        )
+        await repo.soft_delete(deleted, alice.id)
+        session.add(
+            Component(
+                study_id=sid,
+                revision=2,
+                document_id=None,
+                room_id=kitchen_id,
+                label="electrical_outlet",
+                material="plastic",
+                raw={"source": "room_manual", "count": 2, "room_from": str(uuid.uuid4())},
+            )
+        )
+
+    body = (await api.get("alice", f"/v1/studies/{sid}/rooms")).json()
+    bath, kitchen = body["items"]
+    assert [(i["label"], i["count"], i["added"]) for i in kitchen["inventory"]] == [
+        ("kitchen_cabinet", 6, False),
+        ("electrical_outlet", 2, True),  # listed after the room's own inventory
+    ]
+    assert kitchen["suggested_counts"] == [
+        {
+            "label": "kitchen_cabinet",
+            "inventory_count": 6,
+            "photo_count": 8,
+            "manual_count": 3,
+            "document_id": str(k2),
+            "suggested": 8,
+        },
+        {
+            "label": "window",
+            "inventory_count": 0,
+            "photo_count": 1,
+            "manual_count": 0,
+            "document_id": str(k1),
+            "suggested": 1,
+        },
+    ]
+    assert bath["suggested_counts"] == [] and not bath["inventory"][0]["added"]

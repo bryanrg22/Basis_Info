@@ -25,7 +25,7 @@ from basis.db.models import (
     Study,
 )
 from basis.db.session import session_scope
-from basis.vision.rooms import resolve_aliases
+from basis.vision.rooms import is_room_manual, resolve_aliases
 from basis.workflow.contracts import (
     AnalyzePhotoInput,
     ApplyCorrectionsInput,
@@ -449,3 +449,160 @@ async def test_bad_merges_are_refused_before_anything_is_written(
     async with session_scope(deps.sessionmaker) as session:
         study = await session.get(Study, sid)
         assert study is not None and study.room_aliases == {}
+
+
+# --------------------------------------------------------------------------- counts
+
+
+def added_component(room: Room, after: dict[str, Any]) -> CorrectionInput:
+    return CorrectionInput(entity_type="room_component", entity_id=str(room.id), after=after)
+
+
+async def test_a_count_correction_and_an_added_component_reach_the_new_revision(
+    deps: Deps, revision_one: SeededStudy, activity_env: Env
+) -> None:
+    """A reviewer's count replaces the copy's ``raw["count"]`` (the quantity
+    process_assets takes off) and keeps the old one; an added component is a row of the
+    room with no document, ``source: room_manual``, and the rules' label, material and
+    attachment."""
+    sid = revision_one.study_id
+    rooms = {r.name: r for r in await rows(deps, Room, sid, 1)}
+    await add_inventory_row(deps, rooms["Kitchen"])  # 6 cabinets reconciled
+    [inventory] = [c for c in await rows(deps, Component, sid, 1) if c.document_id is None]
+    corrections = (
+        CorrectionInput(entity_type="component", entity_id=str(inventory.id), after={"count": 9}),
+        added_component(
+            rooms["Kitchen"], {"label": "electrical_outlet", "count": 3, "material": "plastic"}
+        ),
+    )
+    output = await activity_env.run(
+        ApplyCorrections(deps).run, apply(revision_one, "rooms_review", corrections)
+    )
+    assert output.applied == 2
+    kitchen = next(r for r in await rows(deps, Room, sid, 2) if r.name == "Kitchen")
+    new = await rows(deps, Component, sid, 2)
+    [counted] = [c for c in new if c.raw.get("carried_from") == str(inventory.id)]
+    assert (counted.raw["count"], counted.raw["count_before"], counted.raw["corrected"]) == (
+        9,
+        6,
+        ["count"],
+    )
+    assert (counted.label, counted.room_id, counted.confidence) == (
+        "kitchen_cabinet",
+        kitchen.id,
+        1.0,
+    )
+    [added] = [c for c in new if is_room_manual(c.raw, c.document_id)]
+    assert (added.label, added.material, added.attachment, added.room_id) == (
+        "electrical_outlet",
+        "plastic",
+        None,  # "unknown" is stored as None, like the model's rows
+        kitchen.id,
+    )
+    assert added.raw == {
+        "source": "room_manual",
+        "count": 3,
+        "material": "plastic",
+        "attachment": "unknown",
+        "room_from": str(rooms["Kitchen"].id),
+    }
+    assert len(new) == 8  # six per-photo rows, the inventory row, the added one
+    # Revision 1 is history: unchanged.
+    old = await rows(deps, Component, sid, 1)
+    assert inventory.raw["count"] == 6 and not [c for c in old if is_room_manual(c.raw, None)]
+
+    # The next rejection carries the added component like any row, still in its room.
+    activity_env.with_info(activity_id="apply-2")
+    await activity_env.run(
+        ApplyCorrections(deps).run,
+        ApplyCorrectionsInput(
+            study_id=str(sid), stage="rooms_review", from_revision=2, to_revision=3, corrections=()
+        ),
+    )
+    kitchen_3 = next(r for r in await rows(deps, Room, sid, 3) if r.name == "Kitchen")
+    [carried] = [
+        c for c in await rows(deps, Component, sid, 3) if is_room_manual(c.raw, c.document_id)
+    ]
+    assert (carried.room_id, carried.raw["count"], carried.raw["carried_from"]) == (
+        kitchen_3.id,
+        3,
+        str(added.id),
+    )
+
+
+async def test_an_added_component_keeps_its_room_when_its_photos_are_flagged(
+    deps: Deps, revision_one: SeededStudy, activity_env: Env
+) -> None:
+    """The bathroom's only photo is flagged and the bathroom is given a component: the room
+    stays (an engineer said it holds one)."""
+    sid = revision_one.study_id
+    rooms = {r.name: r for r in await rows(deps, Room, sid, 1)}
+    flagged = revision_one.photo_ids[2]  # bathroom_1.jpg
+    corrections = (
+        CorrectionInput(entity_type="photo", entity_id=str(flagged), after={}),
+        added_component(rooms["Bathroom"], {"label": "toilet", "count": 1}),
+    )
+    await activity_env.run(
+        ApplyCorrections(deps).run, apply(revision_one, "rooms_review", corrections)
+    )
+    new_rooms = {r.name: r for r in await rows(deps, Room, sid, 2)}
+    assert set(new_rooms) == {"Kitchen", "Bathroom"}
+    [added] = [
+        c for c in await rows(deps, Component, sid, 2) if is_room_manual(c.raw, c.document_id)
+    ]
+    assert added.room_id == new_rooms["Bathroom"].id
+
+
+async def test_a_component_added_to_a_merged_room_lands_in_the_target(
+    deps: Deps, revision_one: SeededStudy, activity_env: Env
+) -> None:
+    sid = revision_one.study_id
+    rooms = {r.name: r for r in await rows(deps, Room, sid, 1)}
+    corrections = (
+        merge(rooms["Bathroom"], rooms["Kitchen"]),
+        added_component(rooms["Bathroom"], {"label": "toilet", "count": 1}),
+    )
+    await activity_env.run(
+        ApplyCorrections(deps).run, apply(revision_one, "rooms_review", corrections)
+    )
+    [only] = await rows(deps, Room, sid, 2)
+    [added] = [
+        c for c in await rows(deps, Component, sid, 2) if is_room_manual(c.raw, c.document_id)
+    ]
+    assert (only.name, added.room_id) == ("Kitchen", only.id)
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "after", "message"),
+    [
+        ("component", {"count": 0}, "whole number from 1"),
+        ("component", {"count": True}, "whole number from 1"),
+        ("component", {"count": "3"}, "whole number from 1"),
+        ("room_component", {"label": "skylight", "count": 1}, "unknown component label"),
+        ("room_component", {"label": "window"}, "needs count"),
+        ("room_component", {"label": "window", "count": 1, "material": "oak"}, "material"),
+        ("room_component", None, "not in the rejected revision"),
+    ],
+)
+async def test_bad_counts_are_refused_before_anything_is_written(
+    deps: Deps,
+    revision_one: SeededStudy,
+    activity_env: Env,
+    entity_type: str,
+    after: dict[str, Any] | None,
+    message: str,
+) -> None:
+    sid = revision_one.study_id
+    rooms = await rows(deps, Room, sid, 1)
+    if entity_type == "component":
+        target = str((await rows(deps, Component, sid, 1))[0].id)
+    else:
+        target = str(rooms[0].id) if after is not None else str(uuid.uuid4())
+    values = after if after is not None else {"label": "window", "count": 1}
+    bad = (CorrectionInput(entity_type=entity_type, entity_id=target, after=values),)
+    with pytest.raises(ApplicationError) as raised:
+        await activity_env.run(ApplyCorrections(deps).run, apply(revision_one, "rooms_review", bad))
+    assert raised.value.type == "ValidationError" and raised.value.non_retryable
+    assert message in str(raised.value)
+    assert await rows(deps, Room, sid, 2) == []
+    assert await rows(deps, Extraction, sid, 2) == []

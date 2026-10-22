@@ -23,6 +23,11 @@ transition, inside the same transaction, so a stale decision is still a 409 and 
 targets are checked against the revision the study is verified to be at; a failure rolls
 the whole transaction back and, like every validation failure, is not stored under the
 idempotency key.
+
+Count values (manual add, :mod:`basis.domain.counts`) are checked with the types, before
+anything is written: a ``component`` ``count`` and a ``room_component``'s ``after`` (a
+component added to the room named by ``entity_id``) that ``apply_corrections`` would refuse
+are a 422 located at ``["body", "corrections", <i>, "after"]``.
 """
 
 from __future__ import annotations
@@ -40,12 +45,14 @@ from basis.api.users import CurrentUserDep, study_access
 from basis.db.enums import OrgRole, Stage
 from basis.db.repositories import CorrectionInput, ReviewRepository, VisibleStudy
 from basis.db.session import SessionDep
+from basis.domain.counts import count_problem, room_component_problems
 from basis.workflow.contracts import CORRECTION_TYPES
 
 DECISION_ROLE: Final = OrgRole.ENGINEER
 # Pydantic-style error ``type`` values of the two correction checks.
 CORRECTION_TYPE_ERROR: Final = "correction_type"
 CORRECTION_TARGET_ERROR: Final = "correction_target"
+CORRECTION_VALUE_ERROR: Final = "correction_value"
 
 writes = write_router(tags=["reviews"])
 
@@ -98,6 +105,28 @@ async def check_correction_targets(
         raise RequestValidationError(errors)
 
 
+def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
+    """422 naming every count the rooms review would refuse (:mod:`basis.domain.counts`): a
+    ``component`` ``count`` that is not a whole number from 1, or a ``room_component`` that
+    is not a known label with a count (and known material and attachment). Refused here,
+    because ``apply_corrections`` refusing one would start the next revision without any
+    of the rejection's corrections."""
+    errors = []
+    for index, item in enumerate(corrections):
+        problems: list[str] = []
+        if item.entity_type == "component" and "count" in item.after:
+            problem = count_problem(item.after["count"])
+            problems = [problem] if problem is not None else []
+        elif item.entity_type == "room_component":
+            problems = room_component_problems(item.after)
+        errors += [
+            _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR)
+            for problem in problems
+        ]
+    if errors:
+        raise RequestValidationError(errors)
+
+
 def check_no_corrections_on_approve(decision: str, corrections: Sequence[CorrectionIn]) -> None:
     """422: an approval cannot carry corrections.
 
@@ -127,10 +156,14 @@ def check_no_corrections_on_approve(decision: str, corrections: Sequence[Correct
         "workflow has not opened yet (`gate-not-open`: the study is at the stage but "
         "`processing` or `failed`). Each correction's "
         "`entity_type` must be one the stage accepts (appraisal_review: extraction_field; "
-        "rooms_review: room, component, photo; assets_review: asset) and its `entity_id` "
-        "must exist in the study at the decided revision (a photo: a photo document of the "
-        "study); otherwise 422 with one `errors` entry per offending correction, located at "
-        '`["body", "corrections", <index>, "entity_type" | "entity_id"]`.'
+        "rooms_review: room, component, room_component, photo; assets_review: asset) and "
+        "its `entity_id` must exist in the study at the decided revision (a photo: a photo "
+        "document of the study; a room_component: the room it adds a component to); a "
+        "`component` `count` must be a whole number from 1, and a `room_component` "
+        "`after` a taxonomy `label` with a `count` (optional `material`, `attachment` from "
+        "their vocabularies); otherwise 422 with one `errors` entry per offending "
+        'correction, located at `["body", "corrections", <index>, "entity_type" | '
+        '"entity_id" | "after"]`.'
     ),
     responses=problems(403, 404),
 )
@@ -145,6 +178,7 @@ async def record_decision(
     key = parse_idempotency_key(request.headers.get(IDEMPOTENCY_HEADER))
     check_correction_types(body.stage, body.corrections)
     check_no_corrections_on_approve(body.decision, body.corrections)
+    check_correction_values(body.corrections)
     reviews = ReviewRepository(session)
     record = await reviews.record_decision(
         study_id=access.study.id,

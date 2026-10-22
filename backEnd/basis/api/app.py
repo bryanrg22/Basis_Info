@@ -18,6 +18,11 @@ Wiring (all on ``app.state``):
   network call and the API starts (and accepts decisions, which go through the outbox)
   while Temporal is down; only the workflow routes answer 503 then. Tests pass a fake
   ``workflows`` to :func:`create_app` instead; ``temporal`` then stays ``None``.
+* ``localizer``: the SAM 3 localizer the worker uses (``LOCALIZER_URL`` or
+  ``REPLICATE_API_TOKEN``), as an interactive client bounded by
+  ``OBJECT_PROMPT_TIMEOUT_S`` (:func:`basis.vision.localizer_config.build_localizer`), for
+  an engineer's box that matches no stored instance (``POST .../objects``); ``None`` when
+  neither is set (the box is stored without an outline). Tests pass ``localizer``.
 
 Middleware, innermost first: the 1 MiB body limit for ``/v1/``, the 500 handler, request
 ids, and CORS for ``CORS_ALLOWED_ORIGINS`` (:func:`install_cors`). The OpenAPI document is
@@ -60,6 +65,8 @@ from basis.storage import GcsStorage, LocalStorage, Storage
 from basis.storage.base import CONTENT_LENGTH_RANGE_HEADER
 from basis.temporal.client import connect, temporal_configured
 from basis.temporal.service import TemporalWorkflowService, WorkflowService
+from basis.vision.localize import Localizer
+from basis.vision.localizer_config import build_localizer
 
 SERVICE_NAME: Final = health.SERVICE_NAME
 DOCS_URL: Final = "/docs"
@@ -131,11 +138,12 @@ def create_app(
     db_sessionmaker: async_sessionmaker[AsyncSession] | None = None,
     storage: Storage | None = None,
     workflows: WorkflowService | None = None,
+    localizer: Localizer | None = None,
 ) -> FastAPI:
     """Build the API. ``settings`` is passed in so tests control every value.
 
-    ``db_sessionmaker``, ``storage`` and ``workflows`` override what settings would
-    select; they exist for tests and are not used by :mod:`basis.api.main`.
+    ``db_sessionmaker``, ``storage``, ``workflows`` and ``localizer`` override what
+    settings would select; they exist for tests and are not used by :mod:`basis.api.main`.
     """
 
     @asynccontextmanager
@@ -180,6 +188,11 @@ def create_app(
         install_database(app, db_sessionmaker)
     app.state.temporal = None
     app.state.workflows = workflows
+    app.state.localizer = (
+        localizer
+        if localizer is not None
+        else build_localizer(settings, timeout_s=settings.object_prompt_timeout_s)
+    )
     if storage is None:
         app.state.storage, app.state.storage_bucket = default_storage(settings)
     else:

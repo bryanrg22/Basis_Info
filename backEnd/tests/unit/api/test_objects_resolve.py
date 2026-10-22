@@ -1,8 +1,9 @@
 """How an engineer's tap or box resolves against the stored instances (no database).
 
-``basis.api.routes.objects.resolve``: same label only; a tap picks the instance whose mask
-(or, without a mask, box) covers the point, highest score first; a box picks the instance it
-overlaps best, but only at IoU >= 0.5; the stored row is returned, not a copy.
+``basis.api.routes.objects.plan`` (``basis.vision.selection`` on the stored rows): same
+label only; a tap picks the instance whose mask (or, without a mask, box) covers the point,
+highest score first; a box picks the instance it overlaps best, but only at IoU >= 0.5; the
+plan names the stored row (by index), not a copy.
 """
 
 from __future__ import annotations
@@ -13,11 +14,12 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
-from basis.api.routes.objects import BOX_MATCH_IOU, drawn_box, object_out, resolve
+from basis.api.routes.objects import drawn_box, object_out, plan
 from basis.api.schemas.objects import BoxIn, BoxSelection, PointIn, PointSelection
 from basis.db.models import PhotoObject
-from basis.vision.localize import Rle
+from basis.vision.localize import PROMPT_BOX_IOU, Rle
 from basis.vision.schemas import ComponentLabel
+from basis.vision.selection import Candidate, Counted
 
 DOC = uuid.uuid4()
 
@@ -58,6 +60,14 @@ def row(
     )
 
 
+def resolved(
+    rows: list[PhotoObject], selection: PointSelection | BoxSelection
+) -> PhotoObject | None:
+    """The stored row the selection resolves to, counted or a candidate; None otherwise."""
+    found = plan(rows, selection)
+    return rows[found.index] if isinstance(found, Counted | Candidate) else None
+
+
 def tap(label: str, x: float, y: float) -> PointSelection:
     return PointSelection(kind="point", label=ComponentLabel(label), point=PointIn(x=x, y=y))
 
@@ -71,34 +81,34 @@ def drawn(label: str, x1: float, y1: float, x2: float, y2: float) -> BoxSelectio
 def test_a_tap_inside_a_mask_resolves_to_that_row() -> None:
     window = row("window", (0.1, 0.1, 0.5, 0.5), mask_rect=(1, 5, 1, 5))
     other = row("window", (0.6, 0.6, 0.9, 0.9), mask_rect=(6, 9, 6, 9))
-    assert resolve([window, other], tap("window", 0.3, 0.3)) is window
-    assert resolve([window, other], tap("window", 0.75, 0.75)) is other
+    assert resolved([window, other], tap("window", 0.3, 0.3)) is window
+    assert resolved([window, other], tap("window", 0.75, 0.75)) is other
 
 
 def test_a_tap_inside_the_box_but_outside_the_mask_resolves_to_nothing() -> None:
     # The mask covers pixel rows and columns 1..4 of 10; (0.02, 0.02) is pixel (0, 0):
     # inside the box, outside the mask. The mask, not the box, decides.
     window = row("window", (0.0, 0.0, 0.5, 0.5), mask_rect=(1, 5, 1, 5))
-    assert resolve([window], tap("window", 0.02, 0.02)) is None
+    assert resolved([window], tap("window", 0.02, 0.02)) is None
 
 
 def test_without_a_mask_the_box_decides_and_the_highest_score_wins() -> None:
     low = row("light_fixture", (0.1, 0.1, 0.6, 0.6), score=0.4)
     high = row("light_fixture", (0.2, 0.2, 0.7, 0.7), score=0.8)
-    assert resolve([low, high], tap("light_fixture", 0.4, 0.4)) is high
+    assert resolved([low, high], tap("light_fixture", 0.4, 0.4)) is high
 
 
 def test_only_the_selected_label_is_considered() -> None:
     door = row("interior_door", (0.1, 0.1, 0.5, 0.9))
-    assert resolve([door], tap("exterior_door", 0.3, 0.5)) is None
+    assert resolved([door], tap("exterior_door", 0.3, 0.5)) is None
 
 
 def test_a_box_matches_only_at_iou_0_5() -> None:
     window = row("window", (0.1, 0.1, 0.5, 0.5))
-    assert resolve([window], drawn("window", 0.12, 0.1, 0.5, 0.52)) is window
+    assert resolved([window], drawn("window", 0.12, 0.1, 0.5, 0.52)) is window
     # Overlapping, but well below the match criterion: a different object next to it.
-    assert resolve([window], drawn("window", 0.4, 0.1, 0.8, 0.5)) is None
-    assert BOX_MATCH_IOU == 0.5
+    assert resolved([window], drawn("window", 0.4, 0.1, 0.8, 0.5)) is None
+    assert PROMPT_BOX_IOU == 0.5
 
 
 def test_box_corners_are_sorted() -> None:
@@ -108,12 +118,12 @@ def test_box_corners_are_sorted() -> None:
 
 def test_a_manual_box_without_score_is_a_candidate_too() -> None:
     manual = row("electrical_outlet", (0.7, 0.7, 0.8, 0.8), score=None, source="manual")
-    assert resolve([manual], tap("electrical_outlet", 0.75, 0.75)) is manual
+    assert resolved([manual], tap("electrical_outlet", 0.75, 0.75)) is manual
 
 
 def test_nothing_stored_resolves_to_nothing() -> None:
-    assert resolve([], tap("window", 0.5, 0.5)) is None
-    assert resolve([], drawn("window", 0.1, 0.1, 0.2, 0.2)) is None
+    assert resolved([], tap("window", 0.5, 0.5)) is None
+    assert resolved([], drawn("window", 0.1, 0.1, 0.2, 0.2)) is None
 
 
 def test_object_out_carries_the_geometry_and_the_mask() -> None:

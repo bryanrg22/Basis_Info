@@ -27,6 +27,18 @@ after a rooms rejection for a room that held a flagged photo: that room's photos
 to change, so ``reconcile_rooms`` rebuilds its inventory in the new revision (a correction
 of one of those rows is not carried; it would describe photos that are re-analyzed).
 
+Counts (v0.11, manual add): a ``component`` correction may set ``count`` (the copy's
+``raw["count"]``, the quantity ``process_assets`` takes off and prices; ``count_before``
+keeps the old one); a ``room_component`` correction adds a component to the room named by
+its ``entity_id`` (``label``, ``count``, optional ``material`` and ``attachment``) as a row
+with no document and ``raw.source = "room_manual"``
+(:data:`basis.vision.rooms.ROOM_MANUAL_SOURCE`). ``process_assets`` builds an asset from it
+whether or not the room has a reconciled inventory, looking its rule up by label, material
+and attachment like any component, and the room step never rebuilds it; it is carried into
+later revisions like every other row, and keeps its room alive (merged: the target). A
+count correction of an inventory row of a room that is rebuilt (a flagged photo) is not
+carried, like any correction of those rows.
+
 Merging rooms (EVAL_REPORT section 27): a ``room`` correction ``{"merge_into": <room id>}``
 moves the room's photos and per-photo rows into the target room of the new revision (chains
 followed; a loop, a self-merge, an unknown target or extra fields are refused). Neither
@@ -66,8 +78,10 @@ from basis.activities.corrections import (
     PHOTO_FIELDS,
     ROOM_FIELDS,
     check_asset,
+    check_component,
     check_extraction_field,
     check_fields,
+    check_room_component,
 )
 from basis.activities.deps import Deps
 from basis.db.enums import DocumentKind
@@ -77,7 +91,13 @@ from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
-from basis.vision.rooms import is_room_inventory, merge_alias
+from basis.vision.rooms import (
+    ROOM_MANUAL_SOURCE,
+    is_room_inventory,
+    is_room_manual,
+    merge_alias,
+    optional_value,
+)
 from basis.workflow.contracts import (
     CORRECTION_TYPES,
     ApplyCorrectionsInput,
@@ -112,6 +132,7 @@ class ApplyCorrections:
                 skip_photos=flagged,
                 room_corrections=by_type.get("room", []),
                 component_corrections=by_type.get("component", []),
+                added=by_type.get("room_component", []),
             )
             return ApplyCorrectionsOutput(applied=applied)
 
@@ -209,12 +230,16 @@ async def _carry_rooms(
     skip_photos: set[uuid.UUID],
     room_corrections: list[CorrectionInput],
     component_corrections: list[CorrectionInput],
+    added: list[CorrectionInput],
 ) -> int:
     repo = RoomRepository(session)
     old_rooms = {room.id: room for room in await repo.list_for_revision(study_id, from_revision)}
     old_components = {c.id: c for c in await repo.components(study_id, from_revision)}
     room_after = _targets(room_corrections, old_rooms, ROOM_FIELDS, "room")
     component_after = _targets(component_corrections, old_components, COMPONENT_FIELDS, "component")
+    for after in component_after.values():
+        check_component(after)
+    additions = _additions(added, old_rooms)
     merges = _merges(room_after, old_rooms)
     for source in merges:
         del room_after[source]
@@ -224,7 +249,14 @@ async def _carry_rooms(
     rebuilt_rooms = {pr.room_id for pr in all_assignments if pr.document_id in skip_photos}
     rebuilt_rooms |= set(merges) | set(merges.values())
     keep_rooms = {pr.room_id for pr in assignments} | set(room_after) | set(merges.values())
-    keep_rooms -= set(merges)
+    # A room an engineer added a component to stays, now or in an earlier revision.
+    keep_rooms |= {room_id for room_id, _ in additions}
+    keep_rooms |= {
+        c.room_id
+        for c in old_components.values()
+        if c.room_id is not None and is_room_manual(c.raw, c.document_id)
+    }
+    keep_rooms = {merges.get(room_id, room_id) for room_id in keep_rooms}
     new_room_ids: dict[uuid.UUID, uuid.UUID] = {}
     adopted = _adopted_keys(merges, old_rooms)
     for room_id in sorted(keep_rooms):
@@ -251,11 +283,29 @@ async def _carry_rooms(
             continue
         heartbeat("component")
         await _copy_component(repo, component, to_revision, new_room_ids, component_after)
+    for room_id, after in additions:
+        heartbeat("added component")
+        await _add_component(repo, study_id, to_revision, new_room_ids[room_id], room_id, after)
     heartbeat("objects")
     await PhotoObjectRepository(session).carry(
         study_id, from_revision, to_revision, skip_photos=skip_photos
     )
-    return len(room_after) + len(merges) + len(component_after)
+    return len(room_after) + len(merges) + len(component_after) + len(additions)
+
+
+def _additions(
+    corrections: list[CorrectionInput], old_rooms: dict[uuid.UUID, Room]
+) -> list[tuple[uuid.UUID, dict[str, Any]]]:
+    """``(room, after)`` of each ``room_component`` correction, in order; a room not in the
+    rejected revision or an invalid component is a ``ValidationError``."""
+    found: list[tuple[uuid.UUID, dict[str, Any]]] = []
+    for correction in corrections:
+        room_id = parse_uuid(correction.entity_id, "entity_id")
+        if room_id not in old_rooms:
+            raise validation_error(f"room {room_id} is not in the rejected revision")
+        check_room_component(correction.after)
+        found.append((room_id, dict(correction.after)))
+    return found
 
 
 def _merges(
@@ -375,6 +425,9 @@ async def _copy_component(
     raw = {**(old.raw if isinstance(old.raw, dict) else {}), CARRIED_FROM: str(old.id)}
     if changes:
         raw["corrected"] = sorted(changes)
+    if "count" in changes:
+        raw["count_before"] = raw.get("count")
+        raw["count"] = changes["count"]
     await repo.add_component(
         study_id=old.study_id,
         revision=to_revision,
@@ -386,4 +439,35 @@ async def _copy_component(
         confidence=1.0 if changes else old.confidence,
         bbox=old.bbox,
         raw=raw,
+    )
+
+
+async def _add_component(
+    repo: RoomRepository,
+    study_id: uuid.UUID,
+    to_revision: int,
+    room_id: uuid.UUID,
+    corrected_room: uuid.UUID,
+    after: dict[str, Any],
+) -> None:
+    """A component an engineer added to a room (module doc)."""
+    material = str(after.get("material") or "unknown")
+    attachment = str(after.get("attachment") or "unknown")
+    await repo.add_component(
+        study_id=study_id,
+        revision=to_revision,
+        document_id=None,
+        room_id=room_id,
+        label=str(after["label"]),
+        material=optional_value(material),
+        attachment=optional_value(attachment),
+        confidence=1.0,
+        bbox=None,
+        raw={
+            "source": ROOM_MANUAL_SOURCE,
+            "count": after["count"],
+            "material": material,
+            "attachment": attachment,
+            "room_from": str(corrected_room),
+        },
     )

@@ -181,6 +181,7 @@ async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(harness: Harne
                         area=0.004,
                         source="manual",
                         created_by=started.study.owner_id,
+                        mask_source="none",
                     ),
                 )
             assert len(localizer.calls) == 3

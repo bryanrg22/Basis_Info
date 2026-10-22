@@ -58,6 +58,7 @@ from basis.db.repositories import DocumentRepository, UserRepository
 from basis.db.session import session_scope
 from basis.storage import LocalStorage
 from basis.temporal.service import WorkflowService
+from basis.vision.localize import Localizer
 
 TOKEN_PREFIX = "uid:"
 # Nothing listens on port 1: connecting fails at once with "connection refused".
@@ -92,10 +93,14 @@ def build_api_app(
     workflows: WorkflowService | None = None,
     *,
     own_firms: bool = True,
+    localizer: Localizer | None = None,
 ) -> FastAPI:
-    """The real app with the database, storage (and optionally Temporal) injected and
-    Firebase faked; with ``own_firms`` each new user owns a firm of their own."""
+    """The real app with the database, storage (and optionally Temporal and a localizer)
+    injected and Firebase faked; with ``own_firms`` each new user owns a firm of their own.
+    The localizer is always the one given (none by default), never one built from the
+    environment, so a shell that exports a Replicate token cannot reach the real model."""
     app = create_app(settings, db_sessionmaker=sessionmaker, storage=storage, workflows=workflows)
+    app.state.localizer = localizer
     app.dependency_overrides[get_token_verifier] = lambda: verifier
     if own_firms:
         app.dependency_overrides[get_current_user] = current_user_with_own_firm
@@ -237,7 +242,8 @@ class Seed:
         Synthetic rows only: an appraisal and a photo document (random sha256, URIs that
         point at nothing), an extraction with one field, a room, a component of the photo
         in that room, and an asset of the component. Returns ``{entity_type: id}`` for
-        ``extraction_field``, ``room``, ``component``, ``asset`` and ``photo``.
+        ``extraction_field``, ``room``, ``component``, ``asset`` and ``photo``, and
+        ``room_component`` (the room: a component is added to a room).
         """
         sid = uuid.UUID(str(study_id))
         async with session_scope(self.sessionmaker) as session:
@@ -302,6 +308,7 @@ class Seed:
                 "extraction_field": str(field.id),
                 "room": str(room.id),
                 "component": str(component.id),
+                "room_component": str(room.id),
                 "asset": str(asset.id),
                 "photo": str(ids["photo"]),
             }

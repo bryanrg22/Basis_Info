@@ -58,6 +58,30 @@ class InventoryItemOut(ResponseModel):
     seen_in: list[uuid.UUID] = Field(
         description="The photos a reconciled object was seen in (empty for a per-photo row)."
     )
+    added: bool = Field(
+        default=False,
+        description="An engineer added it to the room at a rooms review (a "
+        "`room_component` correction); its asset is built whatever the room's inventory.",
+    )
+
+
+class SuggestedCountOut(ResponseModel):
+    label: str
+    inventory_count: int = Field(
+        description="The label's count in the room's inventory now (the rows its assets are "
+        "built from)."
+    )
+    photo_count: int = Field(
+        description="The most counted instances of the label in one photo of the room: "
+        "SAM 3's counted instances plus the engineers' manual ones."
+    )
+    manual_count: int = Field(description="Of `photo_count`, the manual instances.")
+    document_id: uuid.UUID = Field(description="The photo with `photo_count` instances.")
+    suggested: int = Field(
+        description="max(`inventory_count`, `photo_count`): a room has at least as many as "
+        "one photo shows. A suggestion for the engineer to confirm with a `component` "
+        "(`count`) or `room_component` correction; nothing changes by itself."
+    )
 
 
 class RoomOut(RoomRefOut):
@@ -73,6 +97,10 @@ class RoomOut(RoomRefOut):
     )
     needs_review: bool = Field(description="The room step flagged the room's inventory.")
     inventory: list[InventoryItemOut]
+    suggested_counts: list[SuggestedCountOut] = Field(
+        default_factory=list,
+        description="Per label with counted instances on the room's photos, by label.",
+    )
 
 
 class RoomsPageOut(ResponseModel):

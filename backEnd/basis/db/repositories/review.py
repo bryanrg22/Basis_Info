@@ -22,9 +22,9 @@ Temporal update from the message alone.
 
 :meth:`ReviewRepository.missing_targets` answers which correction targets do not exist in
 a study's revision (``CORRECTION_TARGET_TYPES``: extraction fields, rooms, components and
-assets of that revision; photos are documents of kind ``photo``, which are not
-revisioned). The API uses it to refuse a correction the workflow's ``apply_corrections``
-would refuse later.
+assets of that revision, and for ``room_component`` the room a component is added to;
+photos are documents of kind ``photo``, which are not revisioned). The API uses it to
+refuse a correction the workflow's ``apply_corrections`` would refuse later.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def _target_query(
             Document.kind == DocumentKind.PHOTO,
             Document.id.in_(ids),
         )
-    if entity_type == "room":
+    if entity_type in ("room", "room_component"):
         return select(Room.id).where(
             Room.study_id == study_id, Room.revision == revision, Room.id.in_(ids)
         )
@@ -118,7 +118,7 @@ def _target_query(
 # Every entity type a correction can target (the union of
 # ``basis.workflow.contracts.CORRECTION_TYPES``; a unit test keeps the two equal).
 CORRECTION_TARGET_TYPES: Final = frozenset(
-    {"extraction_field", "room", "component", "asset", "photo"}
+    {"extraction_field", "room", "component", "room_component", "asset", "photo"}
 )
 
 

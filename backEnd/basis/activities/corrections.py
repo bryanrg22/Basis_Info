@@ -4,6 +4,11 @@
 written (target exists in the rejected revision of this study, only known fields, values
 parse); ``extract_fields`` and ``process_assets`` apply the validated ``extraction_field``
 and ``asset`` corrections with the same parsers.
+
+Counts (v0.11, manual add): a ``component`` correction may set ``count``, the quantity
+``process_assets`` takes off and prices (``components.raw["count"]``); a ``room_component``
+correction adds a component the room's inventory is missing (``entity_id`` is the room).
+Their values follow :mod:`basis.domain.counts`, which the decision route checks too.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from typing import Any, Final
 
 from basis.activities._support import validation_error
 from basis.db.enums import Bucket
+from basis.domain.counts import count_problem, room_component_problems
 from basis.domain.validators import (
     VALID_SECTION_BUCKETS,
     check_recovery_period,
@@ -25,7 +31,7 @@ ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor", "merge_into"})
 # A ``room`` correction ``{"merge_into": "<room id>"}`` merges the room into another room of
 # the same revision (its photos and per-photo rows move there); it takes no other field.
 MERGE_INTO: Final = "merge_into"
-COMPONENT_FIELDS: Final = frozenset({"label", "material", "attachment"})
+COMPONENT_FIELDS: Final = frozenset({"label", "material", "attachment", "count"})
 ASSET_FIELDS: Final = frozenset({"category", "bucket", "recovery_period", "irs_section"})
 PHOTO_FIELDS: Final = frozenset[str]()
 
@@ -73,6 +79,21 @@ def parse_recovery_period(value: Any) -> Decimal:
     if number is None or not Decimal(0) < number < Decimal(1000):
         raise validation_error(f"recovery_period {value!r} must be a positive number of years")
     return number
+
+
+def check_component(after: dict[str, Any]) -> None:
+    """Known fields and, when given, a count (:func:`basis.domain.counts.count_problem`)."""
+    check_fields("component", after, COMPONENT_FIELDS)
+    problem = count_problem(after["count"]) if "count" in after else None
+    if problem is not None:
+        raise validation_error(problem)
+
+
+def check_room_component(after: dict[str, Any]) -> None:
+    """A component added to a room (:func:`basis.domain.counts.room_component_problems`)."""
+    problems = room_component_problems(after)
+    if problems:
+        raise validation_error("; ".join(problems))
 
 
 def check_extraction_field(after: dict[str, Any]) -> None:

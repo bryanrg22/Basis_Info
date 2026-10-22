@@ -52,13 +52,7 @@ from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
 from basis.temporal.client import build_id, connect
 from basis.vision import fusion, room_step, surface_crops
 from basis.vision.analyze import prompts_for_mode
-from basis.vision.localize import (
-    Localizer,
-    build_cog_localizer,
-    build_replicate_localizer,
-    google_id_token,
-    static_token,
-)
+from basis.vision.localizer_config import build_localizer
 from basis.vision.surface_segmenter import SurfaceSegmenter, build_segmenter
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
@@ -223,36 +217,6 @@ def build_surface_segmenter(settings: Settings) -> SurfaceSegmenter | None:
         settings.surface_segmenter,
         token=token.get_secret_value() if token is not None else None,
         version=settings.surface_segmenter_replicate_version,
-        concurrency=settings.localizer_concurrency,
-    )
-
-
-def build_localizer(settings: Settings) -> Localizer | None:
-    """SAM 3 on the self-hosted Cog server at ``LOCALIZER_URL`` when it is set, else on
-    Replicate when ``REPLICATE_API_TOKEN`` is set, else None (skipped).
-
-    No budget is bound to the shared localizer: concurrent activities would share it. The
-    activity charges each prediction's cost to the study budget instead.
-    """
-    if settings.localizer_url:
-        token_source = None
-        if settings.localizer_token is not None and settings.localizer_token.get_secret_value():
-            token_source = static_token(settings.localizer_token.get_secret_value())
-        elif settings.localizer_google_auth:
-            token_source = google_id_token(settings.localizer_url)
-        return build_cog_localizer(
-            settings.localizer_url,
-            settings.sam3_replicate_version,
-            token_source=token_source,
-            concurrency=settings.localizer_concurrency,
-            usd_per_second=settings.localizer_usd_per_second,
-        )
-    token = settings.replicate_api_token
-    if token is None or not token.get_secret_value().strip():
-        return None
-    return build_replicate_localizer(
-        token.get_secret_value(),
-        settings.sam3_replicate_version,
         concurrency=settings.localizer_concurrency,
     )
 

@@ -404,6 +404,19 @@ def test_invalid_localizer_concurrency_raises(clean_env: pytest.MonkeyPatch, val
         load_settings()
 
 
+def test_object_prompt_timeout_bounds_the_engineers_wait(clean_env: pytest.MonkeyPatch) -> None:
+    """Manual add: a box the stored instances do not match is sent to SAM 3 from the API;
+    OBJECT_PROMPT_TIMEOUT_S (default 30 s, above 0, at most 120) bounds that call."""
+    clean_env.setenv("BASIS_ENV", "test")
+    assert load_settings().object_prompt_timeout_s == 30.0
+    clean_env.setenv("OBJECT_PROMPT_TIMEOUT_S", "12.5")
+    assert load_settings().object_prompt_timeout_s == 12.5
+    for value in ("0", "-1", "121", "soon"):
+        clean_env.setenv("OBJECT_PROMPT_TIMEOUT_S", value)
+        with pytest.raises(ValidationError):
+            load_settings()
+
+
 # --------------------------------------------------------------------------- caching
 
 

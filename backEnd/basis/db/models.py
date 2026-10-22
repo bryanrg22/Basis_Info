@@ -485,6 +485,11 @@ class PhotoObject(Base):
     select one). ``source="manual"`` rows are an engineer's selection (``created_by``),
     always counted; ``derived_from`` names the candidate a tap or box resolved to.
     Deleting is a soft delete (``deleted_at``/``deleted_by``) so the audit trail stays.
+
+    ``mask_source`` says where a manual row's outline came from (NULL on model rows):
+    ``candidate`` (a stored candidate promoted), ``sam_box_prompt`` (SAM 3 prompted with the
+    engineer's box, ``prompt_id`` names the call) or ``none`` (the box alone; ``mask_reason``
+    says why: nothing matched, the call failed or timed out, no localizer).
     """
 
     __tablename__ = "photo_objects"
@@ -501,6 +506,13 @@ class PhotoObject(Base):
         CheckConstraint("area BETWEEN 0 AND 1", name="area_range"),
         CheckConstraint("source = 'manual' OR created_by IS NULL", name="model_has_no_author"),
         CheckConstraint("(deleted_at IS NULL) = (deleted_by IS NULL)", name="deleted_by_whom"),
+        CheckConstraint(
+            "mask_source IS NULL OR mask_source IN ('candidate', 'sam_box_prompt', 'none')",
+            name="mask_source_valid",
+        ),
+        CheckConstraint(
+            "(source = 'manual') = (mask_source IS NOT NULL)", name="manual_has_mask_source"
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -523,6 +535,44 @@ class PhotoObject(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     deleted_at: Mapped[datetime | None]
     deleted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    mask_source: Mapped[str | None]
+    mask_reason: Mapped[str | None]
+    prompt_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("object_prompts.id"))
+    created_at: Mapped[datetime] = _created_at()
+
+
+class ObjectPrompt(Base):
+    """One SAM 3 call prompted with an engineer's box (``POST .../objects``): the label,
+    what was sent (``params``: phrases, box, thresholds), whether the localizer answered
+    (``done``) or not (``failed``, ``reason``), how many instances it returned and the
+    score of the one kept, the model version, predict seconds and cost, as
+    ``photo_localizations`` records a photo's call. Written as soon as the call returns,
+    in its own transaction, so a billed call is recorded even when the add that asked
+    for it is then refused; the object row it outlined names it (``prompt_id``).
+    """
+
+    __tablename__ = "object_prompts"
+    __table_args__ = (
+        ForeignKeyConstraint(["study_id", "document_id"], ["documents.study_id", "documents.id"]),
+        Index(None, "document_id", "revision"),
+        CheckConstraint("status IN ('done', 'failed')", name="status_valid"),
+        CheckConstraint("returned >= 0", name="returned_nonnegative"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    document_id: Mapped[uuid.UUID]
+    revision: Mapped[int]
+    label: Mapped[str]
+    params: Mapped[Any] = mapped_column(JSON_DOC)
+    status: Mapped[str]
+    reason: Mapped[str | None]
+    returned: Mapped[int] = mapped_column(server_default=ZERO)
+    kept_score: Mapped[float | None] = mapped_column(REAL)
+    model_version: Mapped[str | None]
+    predict_seconds: Mapped[float | None] = mapped_column(Double)
+    cost_usd: Mapped[float | None] = mapped_column(Double)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = _created_at()
 
 

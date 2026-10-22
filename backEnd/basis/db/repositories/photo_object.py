@@ -1,4 +1,5 @@
-"""Localized objects per photo and revision (``photo_objects``, ``photo_localizations``).
+"""Localized objects per photo and revision (``photo_objects``, ``photo_localizations``)
+and the SAM 3 calls prompted with an engineer's box (``object_prompts``).
 
 Grouped by revision like rooms and components: a rejection copies the rows of the photos it
 does not re-analyze into the new revision (:meth:`PhotoObjectRepository.carry`), so the
@@ -17,7 +18,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from basis.db.models import PhotoLocalization, PhotoObject
+from basis.db.models import ObjectPrompt, PhotoLocalization, PhotoObject
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,9 @@ class NewObject:
     counted: bool = True
     derived_from: uuid.UUID | None = None
     created_by: uuid.UUID | None = None
+    mask_source: str | None = None
+    mask_reason: str | None = None
+    prompt_id: uuid.UUID | None = None
 
 
 class PhotoObjectRepository:
@@ -123,6 +127,9 @@ class PhotoObjectRepository:
             derived_from=new.derived_from,
             carried_from=carried_from,
             created_by=new.created_by,
+            mask_source=new.mask_source,
+            mask_reason=new.mask_reason,
+            prompt_id=new.prompt_id,
         )
         self._session.add(row)
         await self._session.flush()
@@ -159,6 +166,51 @@ class PhotoObjectRepository:
         )
         return list((await self._session.scalars(stmt)).all())
 
+    async def record_prompt(
+        self,
+        *,
+        study_id: uuid.UUID,
+        document_id: uuid.UUID,
+        revision: int,
+        label: str,
+        params: dict[str, Any],
+        status: str,
+        created_by: uuid.UUID,
+        reason: str | None = None,
+        returned: int = 0,
+        kept_score: float | None = None,
+        model_version: str | None = None,
+        predict_seconds: float | None = None,
+        cost_usd: float | None = None,
+    ) -> ObjectPrompt:
+        row = ObjectPrompt(
+            study_id=study_id,
+            document_id=document_id,
+            revision=revision,
+            label=label,
+            params=params,
+            status=status,
+            reason=reason,
+            returned=returned,
+            kept_score=kept_score,
+            model_version=model_version,
+            predict_seconds=predict_seconds,
+            cost_usd=cost_usd,
+            created_by=created_by,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return row
+
+    async def prompts(self, study_id: uuid.UUID, document_id: uuid.UUID) -> list[ObjectPrompt]:
+        """Every box prompt of the photo, oldest first."""
+        stmt = (
+            select(ObjectPrompt)
+            .where(ObjectPrompt.study_id == study_id, ObjectPrompt.document_id == document_id)
+            .order_by(ObjectPrompt.created_at, ObjectPrompt.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
     async def soft_delete(self, row: PhotoObject, user_id: uuid.UUID) -> PhotoObject:
         row.deleted_at = datetime.now(UTC)
         row.deleted_by = user_id
@@ -178,9 +230,10 @@ class PhotoObjectRepository:
         """Copy the localization rows and active objects of every photo not in
         ``skip_photos`` from ``from_revision`` into ``to_revision``; returns objects copied.
 
-        A copied object keeps its geometry, score, source and author and names the row it
-        came from (``carried_from``); a copied ``derived_from`` still names the candidate of
-        ``from_revision`` (the selection's history), not its copy.
+        A copied object keeps its geometry, score, source, author and mask source and
+        names the row it came from (``carried_from``); a copied ``derived_from`` still names
+        the candidate of ``from_revision`` (the selection's history), not its copy, and a
+        copied ``prompt_id`` the call that outlined it.
         """
         localizations = await self.localizations(study_id, from_revision)
         for document_id in sorted(localizations):
@@ -234,6 +287,9 @@ class PhotoObjectRepository:
                     derived_from=old_row.derived_from,
                     carried_from=old_row.id,
                     created_by=old_row.created_by,
+                    mask_source=old_row.mask_source,
+                    mask_reason=old_row.mask_reason,
+                    prompt_id=old_row.prompt_id,
                 )
             )
             copied += 1

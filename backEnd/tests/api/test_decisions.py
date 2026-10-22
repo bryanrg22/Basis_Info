@@ -445,7 +445,11 @@ STAGE_TYPES = sorted(
 
 
 def correction(entity_type: str, entity_id: str) -> dict[str, Any]:
-    return {"entity_type": entity_type, "entity_id": entity_id, "after": {"name": "Kitchen"}}
+    # A room_component's values are checked (basis.domain.counts): it adds a real component.
+    after = (
+        {"label": "window", "count": 2} if entity_type == "room_component" else {"name": "Kitchen"}
+    )
+    return {"entity_type": entity_type, "entity_id": entity_id, "after": after}
 
 
 async def assert_nothing_written(
@@ -667,3 +671,85 @@ async def test_a_refused_correction_does_not_consume_the_idempotency_key(
     assert await counts(sessionmaker) == (1, 1, 1)
     replay = await api.post("alice", path, fixed, key=key)
     assert replay.status_code == 202 and replay.headers[REPLAYED_HEADER] == "true"
+
+
+# --------------------------------------------------------------------------- counts
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "after", "message"),
+    [
+        ("component", {"count": 0}, "whole number from 1"),
+        ("component", {"count": True}, "whole number from 1"),
+        ("component", {"count": 2.5}, "whole number from 1"),
+        ("room_component", {"label": "skylight", "count": 1}, "unknown component label"),
+        ("room_component", {"label": "window"}, "needs count"),
+        ("room_component", {"label": "window", "count": 1, "material": "oak"}, "material"),
+    ],
+)
+async def test_a_count_the_rooms_review_would_refuse_is_422_before_anything_is_written(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    entity_type: str,
+    after: dict[str, Any],
+    message: str,
+) -> None:
+    """apply_corrections refusing one correction would start the next revision with none
+    of them; the API refuses the bad value instead, located at the correction's ``after``."""
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, revision=2)
+    targets = await seed.outputs(sid, revision=2)
+    good = {"entity_type": "room", "entity_id": targets["room"], "after": {"name": "Galley"}}
+    bad = {"entity_type": entity_type, "entity_id": targets[entity_type], "after": after}
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 2, "reject", corrections=[good, bad]),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert error["loc"] == ["body", "corrections", 1, "after"]
+    assert message in error["detail"] and error["type"] == "correction_value"
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 2)
+
+
+async def test_a_count_and_an_added_component_are_recorded(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, revision=2)
+    targets = await seed.outputs(sid, revision=2)
+    corrections = [
+        {"entity_type": "component", "entity_id": targets["component"], "after": {"count": 7}},
+        {
+            "entity_type": "room_component",
+            "entity_id": targets["room"],
+            "after": {"label": "electrical_outlet", "count": 4, "attachment": "permanent"},
+        },
+    ]
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 2, "reject", corrections=corrections),
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["corrections_recorded"] == 2
+    # An approval still cannot carry them: reject, then approve the new revision.
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, revision=2)
+    targets = await seed.outputs(sid, revision=2)
+    approve = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "rooms_review",
+            2,
+            "approve",
+            corrections=[
+                {
+                    "entity_type": "room_component",
+                    "entity_id": targets["room"],
+                    "after": {"label": "window", "count": 1},
+                }
+            ],
+        ),
+    )
+    assert approve.status_code == 422

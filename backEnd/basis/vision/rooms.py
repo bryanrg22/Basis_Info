@@ -61,11 +61,23 @@ UNASSIGNED: Final = "Unassigned"
 ROOM_INVENTORY_SOURCE: Final = "room_inventory"
 
 
+# ``components.raw["source"]`` of a component an engineer added to a room at the rooms review
+# (a ``room_component`` correction, ``apply_corrections``): no document, in the room. Assets
+# are built from it whether or not the room has a reconciled inventory (``process_assets``),
+# and the room step never rebuilds or deletes it (it is not a model output).
+ROOM_MANUAL_SOURCE: Final = "room_manual"
+
+
 def is_room_inventory(raw: Any, document_id: uuid.UUID | None) -> bool:
     """Whether a ``components`` row is a room inventory row (by its ``raw`` and document)."""
     return (
         document_id is None and isinstance(raw, dict) and raw.get("source") == ROOM_INVENTORY_SOURCE
     )
+
+
+def is_room_manual(raw: Any, document_id: uuid.UUID | None) -> bool:
+    """Whether a ``components`` row is a component an engineer added to a room."""
+    return document_id is None and isinstance(raw, dict) and raw.get("source") == ROOM_MANUAL_SOURCE
 
 
 @dataclass(frozen=True, slots=True)
