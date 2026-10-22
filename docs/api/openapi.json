@@ -986,7 +986,7 @@
           "reviews"
         ],
         "summary": "Approve or reject the current review stage",
-        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field; rooms_review: room, component, photo; assets_review: asset) and its `entity_id` must exist in the study at the decided revision (a photo: a photo document of the study); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\"]`.",
+        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field; rooms_review: room, component, room_component, photo; assets_review: asset) and its `entity_id` must exist in the study at the decided revision (a photo: a photo document of the study; a room_component: the room it adds a component to); a `component` `count` must be a whole number from 1, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\"]`.",
         "operationId": "record_decision_v1_studies__study_id__decisions_post",
         "security": [
           {
@@ -1852,8 +1852,8 @@
         "tags": [
           "objects"
         ],
-        "summary": "Add an engineer's selection (a tap or a box) at rooms_review",
-        "description": "Resolved against the photo's stored instances of the label: the instance under the tap, or the one the box overlaps at IoU >= 0.5. A counted instance is returned as is (200, `created: false`); an uncounted candidate becomes a manual instance with its mask (201); a box that resolves to nothing is stored as a manual box (201); a tap that resolves to nothing is 422. Only while the study waits at `rooms_review`, on its current revision, once the photo's localization is recorded (409 otherwise; `localization-pending` while SAM 3 still runs).",
+        "summary": "Add an engineer's selection (a box, a tap or a candidate) at rooms_review",
+        "description": "A `box` resolves to the stored instance of its label it overlaps at IoU >= 0.5; with none, SAM 3 is prompted with the label's phrases and the box and the instance overlapping the box best at IoU >= 0.5 with score >= 0.5 is stored with its outline (`mask_source: sam_box_prompt`), else the box alone (`none`, `mask_reason` says why; a failed or timed-out call never fails the add). A tap (`point`) resolves to the stored instance under it, 422 when there is none (draw a box). A `candidate` names a stored instance by id. An uncounted candidate becomes a manual instance with its outline (201, `mask_source: candidate`). A selection that is, or covers at intersection over the smaller >= 0.5, a counted instance of its label adds nothing (200, `created: false`, `duplicate_of`) unless `allow_duplicate`. Only while the study waits at `rooms_review`, on its current revision, once the photo's localization is recorded (409 otherwise; `localization-pending` while SAM 3 still runs).",
         "operationId": "add_object_v1_studies__study_id__photos__document_id__objects_post",
         "security": [
           {
@@ -1861,18 +1861,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "document_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "description": "Photo document id.",
-              "title": "Document Id"
-            },
-            "description": "Photo document id."
-          },
           {
             "name": "study_id",
             "in": "path",
@@ -1884,6 +1872,18 @@
               "title": "Study Id"
             },
             "description": "Study id."
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Photo document id.",
+              "title": "Document Id"
+            },
+            "description": "Photo document id."
           },
           {
             "name": "Idempotency-Key",
@@ -1910,13 +1910,17 @@
                   },
                   {
                     "$ref": "#/components/schemas/BoxSelection"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CandidateSelection"
                   }
                 ],
                 "discriminator": {
                   "propertyName": "kind",
                   "mapping": {
                     "point": "#/components/schemas/PointSelection",
-                    "box": "#/components/schemas/BoxSelection"
+                    "box": "#/components/schemas/BoxSelection",
+                    "candidate": "#/components/schemas/CandidateSelection"
                   }
                 },
                 "title": "Body"
@@ -2006,7 +2010,7 @@
             }
           },
           "200": {
-            "description": "Resolved to an instance already counted; nothing added."
+            "description": "The selection is a counted instance already; nothing added."
           },
           "403": {
             "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
@@ -4339,6 +4343,12 @@
           },
           "box": {
             "$ref": "#/components/schemas/BoxIn"
+          },
+          "allow_duplicate": {
+            "type": "boolean",
+            "title": "Allow Duplicate",
+            "description": "Add even when the selection covers a counted instance of its label (after a `created: false` answer naming it in `duplicate_of`).",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -4390,6 +4400,34 @@
         ],
         "title": "CancelRequested",
         "description": "202: the cancel signal was delivered; the workflow records the outcome itself."
+      },
+      "CandidateSelection": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "candidate",
+            "title": "Kind"
+          },
+          "candidate_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Candidate Id",
+            "description": "An active instance of the photo at the current revision (from `GET`); an uncounted candidate is promoted with its mask and label."
+          },
+          "allow_duplicate": {
+            "type": "boolean",
+            "title": "Allow Duplicate",
+            "description": "Add even when the selection covers a counted instance of its label (after a `created: false` answer naming it in `duplicate_of`).",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "candidate_id"
+        ],
+        "title": "CandidateSelection"
       },
       "CheckResult": {
         "properties": {
@@ -5422,6 +5460,12 @@
             "type": "array",
             "title": "Seen In",
             "description": "The photos a reconciled object was seen in (empty for a per-photo row)."
+          },
+          "added": {
+            "type": "boolean",
+            "title": "Added",
+            "description": "An engineer added it to the room at a rooms review (a `room_component` correction); its asset is built whatever the room's inventory.",
+            "default": false
           }
         },
         "type": "object",
@@ -5820,12 +5864,38 @@
       "ManualSelectionOut": {
         "properties": {
           "object": {
-            "$ref": "#/components/schemas/PhotoObjectOut"
+            "$ref": "#/components/schemas/PhotoObjectOut",
+            "description": "The new manual instance, or (`created: false`) the counted instance that already covers the selection."
           },
           "created": {
             "type": "boolean",
             "title": "Created",
-            "description": "False when the selection resolved to an instance already counted (nothing was added)."
+            "description": "False when the selection is an instance already counted (nothing was added): `duplicate_of` names it."
+          },
+          "duplicate_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Of",
+            "description": "When nothing was added: the counted instance the selection duplicates (the `object` returned). Send the selection again with `allow_duplicate: true` to add it anyway."
+          },
+          "overlap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overlap",
+            "description": "When nothing was added: how much the selection covers that instance (intersection over the smaller of the two outlines, or of the boxes); 1 when the selection resolved to that instance itself."
           }
         },
         "type": "object",
@@ -6246,6 +6316,35 @@
               }
             ],
             "title": "Deleted By"
+          },
+          "mask_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "candidate",
+                  "sam_box_prompt",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask Source",
+            "description": "Where a manual instance's outline came from: `candidate` (a stored candidate SAM 3 found), `sam_box_prompt` (SAM 3 prompted with the engineer's box) or `none` (the box alone). Null for model instances."
+          },
+          "mask_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask Reason",
+            "description": "Why a manual instance has no outline (`mask_source` is `none`): nothing matched the box, the call failed or timed out, or no localizer."
           }
         },
         "type": "object",
@@ -6404,6 +6503,12 @@
           },
           "point": {
             "$ref": "#/components/schemas/PointIn"
+          },
+          "allow_duplicate": {
+            "type": "boolean",
+            "title": "Allow Duplicate",
+            "description": "Add even when the selection covers a counted instance of its label (after a `created: false` answer naming it in `duplicate_of`).",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -6588,6 +6693,14 @@
             },
             "type": "array",
             "title": "Inventory"
+          },
+          "suggested_counts": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestedCountOut"
+            },
+            "type": "array",
+            "title": "Suggested Counts",
+            "description": "Per label with counted instances on the room's photos, by label."
           }
         },
         "type": "object",
@@ -7077,6 +7190,50 @@
           "runs"
         ],
         "title": "StudyWorkflowOut"
+      },
+      "SuggestedCountOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "inventory_count": {
+            "type": "integer",
+            "title": "Inventory Count",
+            "description": "The label's count in the room's inventory now (the rows its assets are built from)."
+          },
+          "photo_count": {
+            "type": "integer",
+            "title": "Photo Count",
+            "description": "The most counted instances of the label in one photo of the room: SAM 3's counted instances plus the engineers' manual ones."
+          },
+          "manual_count": {
+            "type": "integer",
+            "title": "Manual Count",
+            "description": "Of `photo_count`, the manual instances."
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id",
+            "description": "The photo with `photo_count` instances."
+          },
+          "suggested": {
+            "type": "integer",
+            "title": "Suggested",
+            "description": "max(`inventory_count`, `photo_count`): a room has at least as many as one photo shows. A suggestion for the engineer to confirm with a `component` (`count`) or `room_component` correction; nothing changes by itself."
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "inventory_count",
+          "photo_count",
+          "manual_count",
+          "document_id",
+          "suggested"
+        ],
+        "title": "SuggestedCountOut"
       },
       "TakeoffOut": {
         "properties": {

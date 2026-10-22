@@ -532,29 +532,103 @@ def test_a_localizer_needs_a_token_and_hides_it() -> None:
 
 
 async def test_segment_prompt_sends_points_and_boxes_and_keeps_the_tapped_instance() -> None:
+    """One prompt object per v3 phrase of the label (the phrases the photo was localized
+    with, not v1's ``electrical outlet``), each carrying the points and boxes; the
+    instances of both are pooled, then narrowed to the tapped one and the box's match."""
     image = image_of(*SIZE)
     fake = FakeReplicate(
-        [result(((8, 6, 24, 30), 0.6), ((40, 30, 70, 50), 0.9), ((0, 0, 4, 4), 0.95), size=SIZE)]
+        [
+            result(((8, 6, 24, 30), 0.6), ((40, 30, 70, 50), 0.9), ((0, 0, 4, 4), 0.95), size=SIZE),
+            result(((41, 31, 70, 50), 0.97), size=SIZE),
+        ],
+        predict_time=2.0,
     )
     found = await localizer(fake).segment_prompt(
         image,
         label=L.ELECTRICAL_OUTLET,
         points=[Point(x=0.2, y=0.3)],  # pixel (16, 18): inside the first instance
-        boxes=[Box(x1=0.5, y1=0.5, x2=0.875, y2=0.8333)],  # the second instance
+        boxes=[Box(x1=0.5, y1=0.5, x2=0.875, y2=0.8333)],  # the second instance exactly
         negative_points=[Point(x=0.9, y=0.9)],
     )
-    prompt = json.loads(json.loads(fake.requests[0].content)["input"]["prompts"][0])
-    assert prompt["text"] == "electrical outlet"
-    assert prompt["positive_points"] == [[0.2, 0.3]]
-    assert prompt["negative_points"] == [[0.9, 0.9]]
-    [[cx, cy, w, h]] = prompt["positive_boxes"]
-    assert (cx, cy, w, h) == pytest.approx((0.6875, 0.66665, 0.375, 0.3333))
-    assert [(i.score, i.source, i.label) for i in found] == [
-        (0.6, "manual", L.ELECTRICAL_OUTLET),
-        (0.9, "manual", L.ELECTRICAL_OUTLET),
+    prompts = [json.loads(p) for p in json.loads(fake.requests[0].content)["input"]["prompts"]]
+    assert [p["text"] for p in prompts] == ["wall outlet", "power outlet"]
+    for prompt in prompts:
+        assert prompt["positive_points"] == [[0.2, 0.3]]
+        assert prompt["negative_points"] == [[0.9, 0.9]]
+        [[cx, cy, w, h]] = prompt["positive_boxes"]
+        assert (cx, cy, w, h) == pytest.approx((0.6875, 0.66665, 0.375, 0.3333))
+    # The box keeps its best match (IoU 1.0 at 0.9) over a near copy with a higher score.
+    assert [(i.score, i.source, i.label, i.phrase) for i in found.instances] == [
+        (0.6, "manual", L.ELECTRICAL_OUTLET, "wall outlet"),
+        (0.9, "manual", L.ELECTRICAL_OUTLET, "wall outlet"),
     ]
+    assert found.returned == 4
+    [call] = found.calls
+    assert call.prompts == ("wall outlet", "power outlet")
+    assert found.predict_seconds == 2.0 and found.cost_usd == pytest.approx(2.0 * 0.000975)
     with pytest.raises(ValueError):
         await localizer(fake).segment_prompt(image, label=L.WINDOW)
+
+
+async def test_segment_prompt_box_gate_needs_iou_half_and_the_threshold() -> None:
+    """In concept mode the model returns every similar instance: one overlapping the box
+    below IoU 0.5 is not the drawn object, and one scored under the threshold is dropped
+    even when it fits the box exactly."""
+    image = image_of(*SIZE)
+    box = Box(x1=0.5, y1=0.5, x2=0.875, y2=0.8333)  # pixels (40, 30, 70, 50)
+    beside = result(((55, 30, 80, 50), 0.95), size=SIZE)  # IoU 300/800 = 0.375 with the box
+    found = await localizer(FakeReplicate([beside])).segment_prompt(
+        image, label=L.WINDOW, boxes=[box]
+    )
+    assert found.instances == () and found.returned == 1
+    faint = result(((40, 30, 70, 50), 0.45), ((40, 30, 66, 50), 0.6), size=SIZE)
+    found = await localizer(FakeReplicate([faint])).segment_prompt(
+        image, label=L.WINDOW, boxes=[box]
+    )
+    [kept] = found.instances
+    assert kept.score == 0.6 and found.returned == 1  # 0.45 is below DEFAULT_THRESHOLD
+    sent = FakeReplicate([faint])
+    await localizer(sent).segment_prompt(image, label=L.WINDOW, boxes=[box])
+    body = json.loads(sent.requests[0].content)["input"]
+    assert body["confidence_threshold"] == loc.DEFAULT_THRESHOLD == 0.5
+    assert [json.loads(p)["text"] for p in body["prompts"]] == ["house window"]
+
+
+async def test_segment_prompt_of_a_label_without_phrases_uses_its_name() -> None:
+    fake = FakeReplicate([EMPTY])
+    found = await localizer(fake).segment_prompt(
+        image_of(*SIZE), label=L.OTHER, boxes=[Box(x1=0.1, y1=0.1, x2=0.2, y2=0.2)]
+    )
+    prompt = json.loads(json.loads(fake.requests[0].content)["input"]["prompts"][0])
+    assert prompt["text"] == "other" and found.instances == ()
+    assert [p.text for p in loc.prompt_phrases(L.LIGHT_FIXTURE)] == [
+        "recessed light",
+        "ceiling lamp",
+    ]
+    assert [p.text for p in loc.prompt_phrases(L.LIGHT_FIXTURE, "v1")] == list(
+        PHRASES[L.LIGHT_FIXTURE]
+    )
+
+
+def test_best_box_match_gate_ties_and_under_point() -> None:
+    size = (100, 100)
+    a = instance(L.WINDOW, 0.6, (10, 10, 50, 50), size)
+    b = instance(L.WINDOW, 0.9, (10, 10, 50, 50), size)  # same box, higher score
+    c = instance(L.WINDOW, 0.99, (30, 30, 70, 70), size)  # IoU 400/2800 with a and b
+    drawn = Box(x1=0.1, y1=0.1, x2=0.5, y2=0.5)
+    assert loc.best_box_match([a, b, c], drawn) == 1  # IoU 1.0 twice: the higher score
+    assert loc.best_box_match([a, a], drawn) == 0  # full tie: the first
+    assert loc.best_box_match([c], drawn) is None  # IoU 0.14 < 0.5
+    assert loc.best_box_match([c], drawn, min_iou=0.1) == 0
+    assert loc.best_box_match([], drawn) is None
+    exact = Box(x1=0.0, y1=0.0, x2=0.5, y2=0.5)
+    half = instance(L.WINDOW, 0.5, (0, 0, 50, 25), size)  # IoU exactly 0.5 with exact
+    assert loc.best_box_match([half], exact) == 0  # the gate is inclusive
+    # A tap: the highest score among the masks covering it; none: None.
+    assert loc.under_point([a, b, c], Point(x=0.4, y=0.4)) == 2
+    assert loc.under_point([a, b], Point(x=0.2, y=0.2)) == 1
+    assert loc.under_point([a, b], Point(x=0.9, y=0.9)) is None
+    assert loc.pick_prompted([a, c], [], [drawn]) == [a.model_copy(update={"source": "manual"})]
 
 
 # --------------------------------------------------------------------------- tiling
@@ -727,10 +801,14 @@ async def test_fake_localizer_applies_threshold_and_records_prompts() -> None:
     found = await fake.localize(image, [Phrase(label=L.WINDOW, text="window")], threshold=0.5)
     assert found.instances == ()
     tapped = await fake.segment_prompt(
-        image, label=L.WINDOW, points=[Point(x=3 / 80, y=3 / 60)], threshold=0.2
+        image, label=L.WINDOW, points=[Point(x=3 / 80, y=3 / 60)], threshold=0.2, phrase_set="v1"
     )
-    assert [i.source for i in tapped] == ["manual"]
+    assert [i.source for i in tapped.instances] == ["manual"] and tapped.returned == 1
     assert fake.prompted[0][1]["label"] is L.WINDOW
+    assert fake.prompted[0][1]["phrases"] == ["window"]
+    assert (
+        await fake.segment_prompt(image, label=L.WINDOW, points=[Point(x=0.1, y=0.1)])
+    ).instances == ()  # the default (v3) phrase "house window" has no script
 
 
 def test_counts_with_a_minimum_score() -> None:
@@ -1122,13 +1200,22 @@ async def test_cog_without_a_token_sends_no_authorization_and_no_phrases_no_call
 
 
 async def test_cog_segment_prompt_keeps_the_tapped_instance() -> None:
-    fake = FakeCog([offset_result(((8, 6, 24, 30), 0.6), ((40, 30, 70, 50), 0.9), size=SIZE)])
+    fake = FakeCog(
+        [
+            offset_result(((8, 6, 24, 30), 0.6), ((40, 30, 70, 50), 0.9), size=SIZE),
+            offset_result(size=SIZE),
+        ]
+    )
     found = await cog(fake).segment_prompt(
         image_of(*SIZE), label=L.ELECTRICAL_OUTLET, points=[Point(x=0.2, y=0.3)]
     )
-    assert [(i.score, i.source) for i in found] == [(0.6, "manual")]
-    prompt = json.loads(json.loads(fake.requests[0].content)["input"]["prompts"][0])
-    assert prompt == {"text": "electrical outlet", "positive_points": [[0.2, 0.3]]}
+    assert [(i.score, i.source) for i in found.instances] == [(0.6, "manual")]
+    assert found.cost_usd == pytest.approx(2.0 * loc.CLOUD_RUN_L4_USD_PER_SECOND, abs=1e-6)
+    prompts = [json.loads(p) for p in json.loads(fake.requests[0].content)["input"]["prompts"]]
+    assert prompts == [
+        {"text": "wall outlet", "positive_points": [[0.2, 0.3]]},
+        {"text": "power outlet", "positive_points": [[0.2, 0.3]]},
+    ]
 
 
 async def test_google_id_tokens_are_cached_and_refreshed_before_expiry() -> None:

@@ -8,7 +8,9 @@ page (:mod:`basis.db.repositories.evidence`), and is built with one query per ta
 * fields: the revision's extraction fields, ordered by ``(section, field, id)``;
 * rooms: the revision's rooms ordered by ``(name, id)``, each with its photos (file-name
   order) and its inventory: the reconciled ``room_inventory`` rows when the room has them,
-  else the per-photo component rows (what ``process_assets`` builds the assets from);
+  else the per-photo component rows, then the components an engineer added to the room
+  (what ``process_assets`` builds the assets from); and per photo of the room, its counted
+  localized instances per label and how many of them are manual (the suggested counts);
 * assets: ordered by id, each with its component, room, takeoff, cost estimate and
   citation counts; filterable by ``needs_review``.
 """
@@ -35,11 +37,12 @@ from basis.db.models import (
     Document,
     Extraction,
     ExtractionField,
+    PhotoObject,
     PhotoRoom,
     Room,
     Takeoff,
 )
-from basis.vision.rooms import is_room_inventory
+from basis.vision.rooms import is_room_inventory, is_room_manual
 
 MAX_OUTPUT_PAGE: Final = 200
 
@@ -98,6 +101,8 @@ class RoomRow:
     photos: list[RoomPhoto] = field(default_factory=list)
     inventory: list[Component] = field(default_factory=list)
     reconciled: bool = False
+    # {photo: {label: (counted instances, of which manual)}}, active rows only.
+    objects: dict[uuid.UUID, dict[str, tuple[int, int]]] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- assets
@@ -194,10 +199,13 @@ class OutputRepository:
                 .order_by(Component.label, Component.id)
             )
             per_photo: dict[uuid.UUID, list[Component]] = {}
+            added: dict[uuid.UUID, list[Component]] = {}
             for component in components.all():
                 assert component.room_id is not None
                 row = by_id[component.room_id]
-                if is_room_inventory(component.raw, component.document_id):
+                if is_room_manual(component.raw, component.document_id):
+                    added.setdefault(component.room_id, []).append(component)
+                elif is_room_inventory(component.raw, component.document_id):
                     row.inventory.append(component)
                     row.reconciled = True
                 else:
@@ -205,11 +213,38 @@ class OutputRepository:
             for room_id, row in by_id.items():
                 if not row.reconciled:
                     row.inventory = per_photo.get(room_id, [])
+                row.inventory += added.get(room_id, [])
+            await self._room_objects(study_id, revision, rooms)
         next_cursor = None
         if len(found) > limit:
             last = rooms[-1].room
             next_cursor = encode_cursor(revision, (last.name, str(last.id)))
         return Page(revision=revision, items=rooms, next_cursor=next_cursor)
+
+    async def _room_objects(self, study_id: uuid.UUID, revision: int, rooms: list[RoomRow]) -> None:
+        """Fill each room's per-photo counts of counted instances (and manual ones)."""
+        of_photo = {p.document_id: row for row in rooms for p in row.photos}
+        if not of_photo:
+            return
+        counted = await self._session.execute(
+            select(
+                PhotoObject.document_id,
+                PhotoObject.label,
+                func.count(),
+                func.count().filter(PhotoObject.source == "manual"),
+            )
+            .where(
+                PhotoObject.study_id == study_id,
+                PhotoObject.revision == revision,
+                PhotoObject.document_id.in_(list(of_photo)),
+                PhotoObject.deleted_at.is_(None),
+                PhotoObject.counted.is_(True),
+            )
+            .group_by(PhotoObject.document_id, PhotoObject.label)
+        )
+        for document_id, label, total, manual in counted.all():
+            per_label = of_photo[document_id].objects.setdefault(document_id, {})
+            per_label[label] = (int(total), int(manual))
 
     async def assets(
         self,

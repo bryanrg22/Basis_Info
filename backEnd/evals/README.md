@@ -395,6 +395,20 @@ Detector and model orderings (EVAL_REPORT section 21; shared rules in `basis.vis
   system and the paired bootstrap over photos of its per-photo count error against the
   baseline's.
 
+Adding what the pipeline missed (the rooms review's Add object; `basis.vision.selection`):
+
+- `evals.manual_add --data DATA --out OUT [--live] [--phrases all|first]`: every verified
+  object of the count classes selected as an engineer would (the verified box exact and two
+  sloppy ones, a tap at its centre) against the instances the product stores (the v3 SAM 3
+  run from `CANDIDATE_THRESHOLD`), with the product's own resolution, SAM 3 box prompt gates
+  and duplicate guard. SAM 3's answers to the boxes that reach it are prompted once with
+  `--live` (saved to `DATA/predictions/manual_add_v1/prompted.json`, one record per phrase)
+  and replayed after. Gates: the exact box outlines >= 0.95 of the missed objects, a wrong
+  object never, and boxes on counted objects create <= 2% duplicates
+  (`tests/evals/test_manual_add_real_photos.py`, `eval_data`). Measured 2026-10-22: 42/43 at
+  once and 43/43 after "add anyway" for every box variant, 0 wrong, 1/444 duplicates; taps
+  27/43 (13 over no stored instance); first v3 phrase = every v3 phrase.
+
 Vision architecture alternatives (EVAL_REPORT section 26; `docs/review_2026-10-15/VISION_ARCHITECTURE_SURVEY.md`):
 
 - `evals.predict_detector --detector mask2former|oneformer|owlv2|gdino|llmdet|mmgdino`: a

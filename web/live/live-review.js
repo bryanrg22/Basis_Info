@@ -1,14 +1,17 @@
 /* Live mode, part 2: the three review gates, the photo component page, assets, schedule.
  *
  * Gates: appraisal_review (extraction_field corrections), rooms_review (room, component,
- * photo corrections; per-photo objects added or deleted), assets_review (asset
- * corrections). Approve sends no corrections (the API refuses approve-with-corrections);
+ * room_component, photo corrections; per-photo objects added or deleted), assets_review
+ * (asset corrections). Adding what the pipeline missed (live/manual-add.js): a drawn box
+ * first (SAM 3 outlines it), or a tap that previews the stored candidates under it to
+ * cycle and confirm; a duplicate offers the existing object or "Add anyway"; on the rooms
+ * review, the counts the photos suggest become count corrections or added components. Approve sends no corrections (the API refuses approve-with-corrections);
  * Request corrections rejects with them and the workflow re-runs that stage.
  */
 (function(){
  'use strict';
  const Live=globalThis.BasisLive;if(!Live)return;
- const {api,state:L}=Live,name=Live.labelName;
+ const {api,state:L}=Live,name=Live.labelName,M=globalThis.BasisManualAdd;
  const LABELS=["carpet","hardwood_floor","vinyl_flooring","laminate_flooring","tile","wall_finish","ceiling_finish","baseboard","crown_molding","wainscoting","concrete_floor","half_wall","interior_door","exterior_door","window","blinds","window_treatment","stairs","railing","fireplace","closet_shelving","built_in_shelving","mirror","kitchen_cabinet","countertop","sink","appliance","refrigerator","dishwasher","stove","oven","microwave","range_hood","garbage_disposal","washer","dryer","bathroom_vanity","toilet","bathtub","shower","bathroom_accessory","light_fixture","ceiling_fan","outdoor_lighting","electrical_panel","electrical_outlet","hvac_unit","ac_condenser","hvac_vent","thermostat","water_heater","smoke_detector","sprinkler_system","security_system","doorbell","window_guard","furniture","desk","chair","filing_cabinet","garage_door","roof","siding","gutter","deck","patio","porch","pool","fence","retaining_wall","driveway","sidewalk","parking_lot","landscaping","signage","shed","concrete_pad","other"];
  const BUCKETS={y5:'5-year',y7:'7-year',y15:'15-year',y27_5:'27.5-year',y39:'39-year',land:'Land'};
  const money=v=>v===null||v===undefined||v===''?'—':Number(v).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:Number(v)>=1000?0:2});
@@ -98,9 +101,17 @@
   });
  };
  function inventoryTable(r,open){
-  if(!r.inventory.length)return '<p class="room-section-empty">No components in this room’s inventory.</p>';
-  const corr=pending('rooms_review');
-  return `<div class="tablewrap live-inventory"><table><caption class="sr-only">${esc(r.name)} inventory</caption><thead><tr><th>Component</th><th>Count</th><th>Material</th><th>Attachment</th><th>Confidence</th><th></th></tr></thead><tbody>${r.inventory.map(c=>{const k=corr.get('component:'+c.component_id),a=k?.after||{};return `<tr><td><b>${esc(name(a.label||c.label))}</b>${k?'<small class="live-edited"> · edited</small>':''}</td><td class="num">${c.count}</td><td>${esc(a.material??c.material??'—')}</td><td>${esc(a.attachment??c.attachment??'—')}</td><td class="num">${pct(c.confidence)}</td><td class="text-right">${open?`<button class="button quiet small" data-live="edit-component" data-value="${esc(c.component_id)}" data-room="${esc(r.id)}">${icon('edit',13)}Edit</button>`:''}</td></tr>`}).join('')}</tbody></table><p class="footnote">Counts are the room’s inventory (instances counted across its photos). To change a count, add or delete objects on a photo.</p></div>`;
+  const corr=pending('rooms_review'),sug=M.suggestions(r);
+  const adding=[...corr.values()].filter(c=>c.entity_type==='room_component'&&c.entity_id===r.id);
+  const missing=M.missingLabels(r).filter(s=>!corr.has(`room_component:${r.id}:${s.label}`));
+  const addButton=open?`<button class="button quiet small" data-live="add-room-component" data-value="${esc(r.id)}">${icon('plus',13)}Add a component to this room</button>`:'';
+  const missingNote=missing.map(s=>`<p class="live-suggest">The photos show ${s.suggested} ${esc(name(s.label).toLowerCase())} this room’s inventory does not list${s.manual_count?` (${s.manual_count} added by an engineer)`:''}.${open?` <button class="button quiet small" data-live="add-room-component" data-value="${esc(r.id)}" data-label="${esc(s.label)}" data-count="${s.suggested}">Add ${s.suggested} to the room</button>`:''}</p>`).join('');
+  if(!r.inventory.length&&!adding.length)return `<p class="room-section-empty">No components in this room’s inventory.</p>${missingNote}<div class="live-room-tools">${addButton}</div>`;
+  const row=c=>{const k=corr.get('component:'+c.component_id),a=k?.after||{},s=sug.get(c.label),suggest=open&&M.raised(s)&&a.count===undefined&&M.rowFor(r,c.label)?.component_id===c.component_id;
+   const count=a.count!==undefined&&a.count!==c.count?`<s class="muted">${c.count}</s> ${a.count}`:String(c.count);
+   return `<tr><td><b>${esc(name(a.label||c.label))}</b>${c.added?'<small class="live-mock-tag">added</small>':''}${k?'<small class="live-edited"> · edited</small>':''}</td><td class="num">${count}${suggest?`<div class="live-suggest-count"><span title="The most counted in one photo of this room${s.manual_count?`, ${s.manual_count} of them added by an engineer`:''}">Photos show ${s.suggested}</span> <button class="button quiet small" data-live="use-suggested" data-value="${esc(c.component_id)}" data-room="${esc(r.id)}">Use ${s.suggested}</button></div>`:''}</td><td>${esc(a.material??c.material??'—')}</td><td>${esc(a.attachment??c.attachment??'—')}</td><td class="num">${pct(c.confidence)}</td><td class="text-right">${open?`<button class="button quiet small" data-live="edit-component" data-value="${esc(c.component_id)}" data-room="${esc(r.id)}">${icon('edit',13)}Edit</button>`:''}</td></tr>`};
+  const pendingRow=c=>`<tr><td><b>${esc(name(c.after.label))}</b><small class="live-edited"> · to add</small></td><td class="num">${c.after.count}</td><td>${esc(c.after.material||'—')}</td><td>${esc(c.after.attachment||'—')}</td><td class="num">—</td><td class="text-right"><button class="button quiet small" data-live="drop-correction" data-stage="rooms_review" data-value="${esc(c.key)}">Remove</button></td></tr>`;
+  return `<div class="tablewrap live-inventory"><table><caption class="sr-only">${esc(r.name)} inventory</caption><thead><tr><th>Component</th><th>Count</th><th>Material</th><th>Attachment</th><th>Confidence</th><th></th></tr></thead><tbody>${r.inventory.map(row).join('')}${adding.map(pendingRow).join('')}</tbody></table>${missingNote}<div class="live-room-tools">${addButton}</div><p class="footnote">Counts are the room’s inventory. When the objects counted in one photo (SAM 3’s and the ones you add) exceed it, Basis suggests the higher count; confirm it, edit any count, or add a missing component. They are sent with Request corrections, and the assets use the corrected counts.</p></div>`;
  }
  const roomById=id=>roomsEntry(L.study).data.items.find(r=>r.id===id);
  Live.actions['toggle-room']=(el,id)=>{L.collapsedRooms.has(id)?L.collapsedRooms.delete(id):L.collapsedRooms.add(id);Live.render()};
@@ -116,11 +127,22 @@
   const m=modal('Merge '+esc(r.name),`<p>Its photos and inventory move into the room you choose.</p><div class="field"><label for="live-merge">Merge into</label><select id="live-merge">${others.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select></div>`,`${closeBtn}<button class="button primary" id="live-save">Add correction</button>`);
   m.querySelector('#live-save').onclick=()=>{const into=m.querySelector('#live-merge').value,target=others.find(o=>o.id===into);m.remove();addCorrection('rooms_review',{key:'room:'+id,entity_type:'room',entity_id:id,before:null,after:{merge_into:into},reason:null,title:r.name,summary:'merge into '+target.name})}};
  Live.actions['edit-component']=(el,cid)=>{const r=roomById(el.dataset.room),c=r.inventory.find(x=>x.component_id===cid),cur=pending('rooms_review').get('component:'+cid)?.after||{};
-  const m=modal('Edit '+esc(name(c.label)),`<p>Corrects the component’s label, material or attachment. Counts follow the objects on the photos.</p><div class="field"><label for="live-comp-label">Component</label><select id="live-comp-label">${LABELS.map(l=>`<option value="${l}" ${(cur.label||c.label)===l?'selected':''}>${esc(name(l))}</option>`).join('')}</select></div><div class="field" style="margin-top:12px"><label for="live-comp-material">Material</label><input id="live-comp-material" value="${esc(cur.material??c.material??'')}" maxlength="120"></div><div class="field" style="margin-top:12px"><label for="live-comp-attachment">Attachment</label><input id="live-comp-attachment" value="${esc(cur.attachment??c.attachment??'')}" maxlength="120" placeholder="e.g. built-in, removable"></div>`,`${closeBtn}<button class="button primary" id="live-save">Add correction</button>`);
-  m.querySelector('#live-save').onclick=()=>{const after={},l=m.querySelector('#live-comp-label').value,mat=m.querySelector('#live-comp-material').value.trim(),att=m.querySelector('#live-comp-attachment').value.trim();
-   if(l!==c.label)after.label=l;if(mat!==(c.material||''))after.material=mat||null;if(att!==(c.attachment||''))after.attachment=att||null;
+  const m=modal('Edit '+esc(name(c.label)),`<p>Corrects the component’s label, count, material or attachment. The assets are rebuilt with them.</p><div class="field"><label for="live-comp-count">Count in this room</label><input id="live-comp-count" type="number" min="1" max="${M.MAX_COUNT}" step="1" inputmode="numeric" value="${esc(cur.count??c.count)}"></div><div class="field" style="margin-top:12px"><label for="live-comp-label">Component</label><select id="live-comp-label">${LABELS.map(l=>`<option value="${l}" ${(cur.label||c.label)===l?'selected':''}>${esc(name(l))}</option>`).join('')}</select></div><div class="field" style="margin-top:12px"><label for="live-comp-material">Material</label><input id="live-comp-material" value="${esc(cur.material??c.material??'')}" maxlength="120"></div><div class="field" style="margin-top:12px"><label for="live-comp-attachment">Attachment</label><input id="live-comp-attachment" value="${esc(cur.attachment??c.attachment??'')}" maxlength="120" placeholder="e.g. built-in, removable"></div>`,`${closeBtn}<button class="button primary" id="live-save">Add correction</button>`);
+  m.querySelector('#live-save').onclick=()=>{const after={},l=m.querySelector('#live-comp-label').value,mat=m.querySelector('#live-comp-material').value.trim(),att=m.querySelector('#live-comp-attachment').value.trim(),count=M.validCount(m.querySelector('#live-comp-count').value);
+   if(count===null){toast(`The count is a whole number from 1 to ${M.MAX_COUNT}.`);return}
+   if(l!==c.label)after.label=l;if(count!==c.count)after.count=count;if(mat!==(c.material||''))after.material=mat||null;if(att!==(c.attachment||''))after.attachment=att||null;
    m.remove();if(!Object.keys(after).length){pending('rooms_review').delete('component:'+cid);Live.render();return}
-   addCorrection('rooms_review',{key:'component:'+cid,entity_type:'component',entity_id:cid,before:{label:c.label,material:c.material,attachment:c.attachment},after,reason:null,title:`${name(c.label)} (${r.name})`,summary:Object.entries(after).map(([k,v])=>`${k} → ${v??'none'}`).join(', ')});
+   addCorrection('rooms_review',{key:'component:'+cid,entity_type:'component',entity_id:cid,before:{label:c.label,material:c.material,attachment:c.attachment,count:c.count},after,reason:null,title:`${name(c.label)} (${r.name})`,summary:Object.entries(after).map(([k,v])=>`${k} → ${v??'none'}`).join(', ')});
+  }};
+ Live.actions['use-suggested']=(el,cid)=>{const r=roomById(el.dataset.room),c=r.inventory.find(x=>x.component_id===cid),s=M.suggestions(r).get(c.label),key='component:'+cid;
+  addCorrection('rooms_review',M.countCorrection(r,c,s.suggested,pending('rooms_review').get(key),name))};
+ Live.actions['add-room-component']=(el,rid)=>{const r=roomById(rid),label=el.dataset.label||'',count=el.dataset.count||'1';
+  const options=(list,chosen)=>`<option value="">Not specified</option>${list.map(v=>`<option value="${v}" ${v===chosen?'selected':''}>${esc(name(v))}</option>`).join('')}`;
+  const m=modal('Add a component to '+esc(r.name),`<p>For a component the room’s inventory is missing. It is classified by the rules table like any component and priced at this count when you request corrections.</p><div class="field"><label for="live-add-comp-label">Component</label><select id="live-add-comp-label">${LABELS.map(l=>`<option value="${l}" ${l===label?'selected':''}>${esc(name(l))}</option>`).join('')}</select></div><div class="field" style="margin-top:12px"><label for="live-add-comp-count">Count in this room</label><input id="live-add-comp-count" type="number" min="1" max="${M.MAX_COUNT}" step="1" inputmode="numeric" value="${esc(count)}"></div><div class="field" style="margin-top:12px"><label for="live-add-comp-material">Material</label><select id="live-add-comp-material">${options(M.MATERIALS,'')}</select></div><div class="field" style="margin-top:12px"><label for="live-add-comp-attachment">Attachment</label><select id="live-add-comp-attachment">${options(M.ATTACHMENTS,'')}</select></div>`,`${closeBtn}<button class="button primary" id="live-save">Add correction</button>`);
+  m.querySelector('#live-save').onclick=()=>{const n=M.validCount(m.querySelector('#live-add-comp-count').value);
+   if(n===null){toast(`The count is a whole number from 1 to ${M.MAX_COUNT}.`);return}
+   const values={label:m.querySelector('#live-add-comp-label').value,count:n,material:m.querySelector('#live-add-comp-material').value||null,attachment:m.querySelector('#live-add-comp-attachment').value||null};
+   m.remove();addCorrection('rooms_review',M.roomComponentCorrection(r,values,name));
   }};
 
  /* ---------- the photo component page ---------- */
@@ -131,20 +153,26 @@
    const re=roomsEntry(s);if(!re.done)return Live.loading('Loading rooms…');if(re.error)return Live.failed(re.error,'reload-study');
    const all=re.data.items,doc=L.docId||all.find(r=>r.photos.length)?.photos[0]?.document_id;if(!doc)return heading('No photos','This study has no analyzed photos yet.');
    const room=all.find(r=>r.photos.some(p=>p.document_id===doc))||all[0],photos=room?.photos||[],at=photos.findIndex(p=>p.document_id===doc),photo=photos[at]||{document_id:doc,filename:'Photo'};
-   const oe=objectsEntry(s,doc),v=L.viewer;if(v.doc!==doc){Object.assign(v,{doc,mode:'spotlight',focusLabel:null,selectedId:null,tool:null})}
+   const oe=objectsEntry(s,doc),v=L.viewer;if(v.doc!==doc){Object.assign(v,{doc,mode:'spotlight',focusLabel:null,selectedId:null,tool:null,tap:null})}
    const data=oe.done&&!oe.error?oe.data:null,items=data?.items||[],counts=data?.counts||{},labels=Object.keys(counts).filter(l=>counts[l]>0).sort((a,b)=>counts[b]-counts[a]||a.localeCompare(b));
    if(data&&(!v.focusLabel||!counts[v.focusLabel]))v.focusLabel=labels[0]||null;
    const open=Live.gateOpen('rooms_review'),focus=v.focusLabel,focusItems=items.filter(i=>i.label===focus&&i.counted).sort((a,b)=>a.box.x1-b.box.x1||a.box.y1-b.box.y1),sel=items.find(i=>i.id===v.selectedId);
    const loc=data?.localization,inv=label=>(room?.inventory||[]).filter(c=>c.label===label&&(c.document_id===doc||(c.seen_in||[]).includes(doc)));
    const prev=photos[at-1],next=photos[at+1];
-   return `${heading(esc(photo.filename),'Review the components found in this photo, then continue through the room.',`<a class="button" href="${Live.route('rooms')}">${icon('back')}Back to rooms</a>`)}${readOnlyNote('rooms_review')}<div class="component-review-nav"><label for="live-room-select">Room<select id="live-room-select" aria-label="Choose room to review">${all.filter(r=>r.photos.length).map(r=>`<option value="${esc(r.photos[0].document_id)}" ${r.id===room?.id?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label><nav aria-label="Room photo navigation">${prev?`<a class="button small" href="${Live.route('viewer',s.id,prev.document_id)}">${icon('back',16)}Previous photo</a>`:`<button class="button small" disabled>${icon('back',16)}Previous photo</button>`}<span>${at+1} of ${photos.length}</span>${next?`<a class="button primary small" href="${Live.route('viewer',s.id,next.document_id)}">Next photo ${icon('arrow',16)}</a>`:`<button class="button primary small" disabled>Next photo ${icon('arrow',16)}</button>`}</nav></div><div class="viewer component-workbench live-workbench"><div class="photo-stage"><div class="photo-toolbar"><span>${esc(s.property_name)} / ${esc(room?.name||'')}</span><div class="row gap6"><div class="live-mode-switch" role="group" aria-label="Highlight">${[['spotlight','Spotlight'],['overview','Show all']].map(([m,l])=>`<button class="button small ${v.mode===m||(m==='spotlight'&&v.mode==='single')?'primary':''}" data-live="viewer-mode" data-value="${m}" aria-pressed="${v.mode===m}">${l}</button>`).join('')}</div>${open?`<button class="button small ${v.tool?'primary':''}" data-live="add-object" aria-pressed="${Boolean(v.tool)}">${icon('plus',14)}${v.tool?'Adding…':'Add object'}</button>`:''}</div></div>${v.tool?`<div class="live-add-bar" role="region" aria-label="Add an object"><label>Component<select id="live-add-label">${LABELS.filter(l=>l!=='other').map(l=>`<option value="${l}" ${l===(v.addLabel||focus)?'selected':''}>${esc(name(l))}</option>`).join('')}</select></label><div class="live-mode-switch" role="group" aria-label="How to add">${[['point','Tap it'],['box','Draw a box']].map(([t,l])=>`<button class="button small ${v.tool===t?'primary':''}" data-live="add-tool" data-value="${t}" aria-pressed="${v.tool===t}">${l}</button>`).join('')}</div><span class="small">${v.tool==='point'?'Tap the object on the photo. Basis matches it to what SAM 3 found.':'Drag a box around the object.'}</span><button class="button quiet small" data-live="add-cancel">Cancel</button></div>`:''}<div class="photo-canvas live-photo-canvas ${v.tool?'is-adding':''}">${Live.photo(doc,photo.filename,'live-viewer-photo')}${drag?.rect?'':''}</div><div class="photo-caption"><span>${!data?'Loading objects…':loc?(loc.status==='done'?`SAM 3 · ${items.filter(i=>i.counted).length} counted instances${loc.model_version?` · <span title="${esc(loc.model_version)}">model ${esc(loc.model_version.slice(0,8))}</span>`:''}`:loc.status==='failed'?'Localization failed: '+esc(loc.reason||'unknown reason')+'. Boxes and taps still work.':'Localization skipped'+(loc.reason?': '+esc(loc.reason):'')):'Not localized yet'}</span><button class="button quiet small" data-live="download-doc" data-value="${esc(doc)}">${icon('download',13)}Download original</button></div><nav class="component-filmstrip" aria-label="Photos in ${esc(room?.name||'room')}"><span>${esc(room?.name||'')} photos</span><div>${photos.map(p=>`<a href="${Live.route('viewer',s.id,p.document_id)}" aria-label="Review ${esc(p.filename)}" aria-current="${p.document_id===doc}">${Live.photo(p.document_id,'')}<span>${esc(p.filename)}</span></a>`).join('')}</div></nav></div><aside class="object-aside" id="live-components">${!oe.done?Live.loading('Loading objects…'):oe.error?Live.failed(oe.error,'reload-objects'):componentsPanel({items,counts,labels,focus,focusItems,sel,open,inv})}</aside></div><div class="actionbar component-review-actions"><p>${esc(room?.name||'')} · ${photos.length} ${photos.length===1?'photo':'photos'}</p><div class="row">${next?`<a class="button" href="${Live.route('viewer',s.id,next.document_id)}">Next photo ${icon('arrow',16)}</a>`:`<a class="button" href="${Live.route('rooms')}">${icon('back',16)}Back to rooms</a>`}</div></div>`;
+   return `${heading(esc(photo.filename),'Review the components found in this photo, then continue through the room.',`<a class="button" href="${Live.route('rooms')}">${icon('back')}Back to rooms</a>`)}${readOnlyNote('rooms_review')}<div class="component-review-nav"><label for="live-room-select">Room<select id="live-room-select" aria-label="Choose room to review">${all.filter(r=>r.photos.length).map(r=>`<option value="${esc(r.photos[0].document_id)}" ${r.id===room?.id?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label><nav aria-label="Room photo navigation">${prev?`<a class="button small" href="${Live.route('viewer',s.id,prev.document_id)}">${icon('back',16)}Previous photo</a>`:`<button class="button small" disabled>${icon('back',16)}Previous photo</button>`}<span>${at+1} of ${photos.length}</span>${next?`<a class="button primary small" href="${Live.route('viewer',s.id,next.document_id)}">Next photo ${icon('arrow',16)}</a>`:`<button class="button primary small" disabled>Next photo ${icon('arrow',16)}</button>`}</nav></div><div class="viewer component-workbench live-workbench"><div class="photo-stage"><div class="photo-toolbar"><span>${esc(s.property_name)} / ${esc(room?.name||'')}</span><div class="row gap6"><div class="live-mode-switch" role="group" aria-label="Highlight">${[['spotlight','Spotlight'],['overview','Show all']].map(([m,l])=>`<button class="button small ${v.mode===m||(m==='spotlight'&&v.mode==='single')?'primary':''}" data-live="viewer-mode" data-value="${m}" aria-pressed="${v.mode===m}">${l}</button>`).join('')}</div>${open?`<button class="button small ${v.tool?'primary':''}" data-live="add-object" aria-pressed="${Boolean(v.tool)}">${icon('plus',14)}${v.tool?'Adding…':'Add object'}</button>`:''}</div></div>${v.tool?addBar(v,items,focus):''}<div class="photo-canvas live-photo-canvas ${v.tool?'is-adding':''}">${Live.photo(doc,photo.filename,'live-viewer-photo')}${drag?.rect?'':''}</div><div class="photo-caption"><span>${!data?'Loading objects…':loc?(loc.status==='done'?`SAM 3 · ${items.filter(i=>i.counted).length} counted instances${loc.model_version?` · <span title="${esc(loc.model_version)}">model ${esc(loc.model_version.slice(0,8))}</span>`:''}`:loc.status==='failed'?'Localization failed: '+esc(loc.reason||'unknown reason')+'. Boxes and taps still work.':'Localization skipped'+(loc.reason?': '+esc(loc.reason):'')):'Not localized yet'}</span><button class="button quiet small" data-live="download-doc" data-value="${esc(doc)}">${icon('download',13)}Download original</button></div><nav class="component-filmstrip" aria-label="Photos in ${esc(room?.name||'room')}"><span>${esc(room?.name||'')} photos</span><div>${photos.map(p=>`<a href="${Live.route('viewer',s.id,p.document_id)}" aria-label="Review ${esc(p.filename)}" aria-current="${p.document_id===doc}">${Live.photo(p.document_id,'')}<span>${esc(p.filename)}</span></a>`).join('')}</div></nav></div><aside class="object-aside" id="live-components">${!oe.done?Live.loading('Loading objects…'):oe.error?Live.failed(oe.error,'reload-objects'):componentsPanel({items,counts,labels,focus,focusItems,sel,open,inv})}</aside></div><div class="actionbar component-review-actions"><p>${esc(room?.name||'')} · ${photos.length} ${photos.length===1?'photo':'photos'}</p><div class="row">${next?`<a class="button" href="${Live.route('viewer',s.id,next.document_id)}">Next photo ${icon('arrow',16)}</a>`:`<a class="button" href="${Live.route('rooms')}">${icon('back',16)}Back to rooms</a>`}</div></div>`;
   });
  };
+ function addBar(v,items,focus){
+  const tools=[['box','Draw a box'],['point','Tap it']],tap=v.tap,shown=tap?items.find(i=>i.id===tap.ids[tap.at]):null;
+  const help=v.busy?`<span class="small live-busy"><span class="live-spinner"></span>${esc(v.busy)}</span>`:v.tool==='box'?'<span class="small">Drag a box around the object. Basis outlines it with SAM 3.</span>':tap&&shown?`<span class="small"><b>${tap.at+1} of ${tap.ids.length}</b> under your tap · ${shown.score===null?'added box':'score '+shown.score.toFixed(2)} · ${shown.counted?'already counted':'not counted yet'}</span><button class="button quiet small" data-live="tap-cycle" data-value="-1" ${tap.ids.length>1?'':'disabled'} aria-label="Previous candidate">${icon('back',13)}</button><button class="button quiet small" data-live="tap-cycle" data-value="1" ${tap.ids.length>1?'':'disabled'} aria-label="Next candidate">${icon('arrow',13)}</button><button class="button primary small" data-live="tap-confirm" ${shown.counted?'disabled title="Already counted"':''}>Use this one</button>`:'<span class="small">Tap the object: Basis shows what SAM 3 found under it. Tap again or press ← → to see the others, then confirm.</span>';
+  return `<div class="live-add-bar" role="region" aria-label="Add an object"><label>Component<select id="live-add-label">${LABELS.filter(l=>l!=='other').map(l=>`<option value="${l}" ${l===(v.addLabel||focus)?'selected':''}>${esc(name(l))}</option>`).join('')}</select></label><div class="live-mode-switch" role="group" aria-label="How to add">${tools.map(([t,l])=>`<button class="button small ${v.tool===t?'primary':''}" data-live="add-tool" data-value="${t}" aria-pressed="${v.tool===t}">${l}</button>`).join('')}</div>${help}<button class="button quiet small" data-live="add-cancel">Cancel</button></div>`;
+ }
  function componentsPanel({items,counts,labels,focus,focusItems,sel,open,inv}){
   const v=L.viewer,colors=label=>BasisMaskLayer.labelColor(label,[...new Set(items.map(i=>i.label))].sort());
   if(v.mode==='single'&&sel){
    const n=focusItems.findIndex(i=>i.id===sel.id)+1,manual=sel.source==='manual';
-   return `<div class="panel-head"><div><h2>${esc(name(sel.label))}${n?' · '+n:''}</h2><p class="small">${manual?'Added by an engineer':'Found by SAM 3'}</p></div><button class="button quiet small" data-live="viewer-mode" data-value="spotlight">${icon('back',13)}All ${esc(name(sel.label).toLowerCase())}</button></div><div class="live-instance-detail"><div class="line-item"><span>Score</span><strong>${sel.score===null?'—':sel.score.toFixed(2)}</strong></div><div class="line-item"><span>Size</span><strong>${sizeLabel(sel.area)} of the photo</strong></div><div class="line-item"><span>Outline</span><strong>${sel.mask?'Mask':'Box only'}</strong></div><div class="line-item"><span>Counted</span><strong>${sel.counted?'Yes':'No (a candidate)'}</strong></div>${manual?`<div class="line-item"><span>Added</span><strong>${Live.when(sel.created_at)}</strong></div>`:''}${open?(manual?`<button class="button danger" data-live="delete-object" data-value="${esc(sel.id)}">Delete this object</button>`:`<p class="footnote">Objects SAM 3 found stay as evidence and cannot be deleted. Correct the component in the room inventory, or ask for the photo to be re-analyzed.</p>`):''}</div>`;
+   const outline=`<div class="line-item"><span>Outline</span><strong>${esc(M.outlineText(sel))}</strong></div>${manual&&sel.mask_reason?`<p class="footnote">No outline: ${esc(sel.mask_reason)}</p>`:''}`;
+   return `<div class="panel-head"><div><h2>${esc(name(sel.label))}${n?' · '+n:''}</h2><p class="small">${manual?'Added by an engineer':'Found by SAM 3'}</p></div><button class="button quiet small" data-live="viewer-mode" data-value="spotlight">${icon('back',13)}All ${esc(name(sel.label).toLowerCase())}</button></div><div class="live-instance-detail"><div class="line-item"><span>Score</span><strong>${sel.score===null?'—':sel.score.toFixed(2)}</strong></div><div class="line-item"><span>Size</span><strong>${sizeLabel(sel.area)} of the photo</strong></div>${outline}<div class="line-item"><span>Counted</span><strong>${sel.counted?'Yes':'No (a candidate)'}</strong></div>${manual?`<div class="line-item"><span>Added</span><strong>${Live.when(sel.created_at)}</strong></div>`:''}${open?(manual?`<button class="button danger" data-live="delete-object" data-value="${esc(sel.id)}">Delete this object</button>`:`<p class="footnote">Objects SAM 3 found stay as evidence and cannot be deleted. Correct the component in the room inventory, or ask for the photo to be re-analyzed.</p>`):''}</div>`;
   }
   if(v.mode==='overview')return `<div class="panel-head"><div><h2>All components</h2><p class="small">${items.filter(i=>i.counted).length} counted instances</p></div></div><div class="object-list">${labels.map(l=>`<div class="object-row"><button class="object-select" data-live="focus-label" data-value="${l}"><b><span class="live-swatch" style="background:rgb(${colors(l)})"></span>${esc(name(l))}</b><strong class="num">${counts[l]}</strong></button></div>`).join('')||'<p class="small">No counted components.</p>'}</div>`;
   return `<div class="panel-head"><div><h2>Components</h2><p class="small">${labels.length} ${labels.length===1?'type':'types'} · ${items.filter(i=>i.counted).length} counted</p></div><span class="small muted">Count</span></div><div class="object-list">${labels.map(l=>{const room=inv(l)[0];return `<div class="object-row ${l===focus?'selected':''}"><button class="object-select" data-live="focus-label" data-value="${l}" aria-pressed="${l===focus}"><b>${esc(name(l))}</b><strong class="num">${counts[l]}</strong></button>${room?`<p>${esc(room.material||'Material not specified')}${room.attachment?' · '+esc(room.attachment):''} · ${room.count} in the room</p>`:''}${l===focus?`<ol class="live-instances">${focusItems.map((i,n)=>`<li><button data-live="select-object" data-value="${esc(i.id)}"><span class="live-pin">${n+1}</span>${i.source==='manual'?'Added':'Score '+(i.score??0).toFixed(2)}<span class="small">${sizeLabel(i.area)}</span></button></li>`).join('')}</ol>`:''}</div>`}).join('')||`<div class="component-empty">${icon('image',27)}<h3>No components counted</h3><p>${open?'Use Add object to tap or box a component.':'Nothing was counted on this photo.'}</p></div>`}</div><div class="object-footer"><p class="small">Pins number each counted instance: the count is the number of pins.</p></div>`;
@@ -154,61 +182,91 @@
   const img=root.querySelector('img.live-viewer-photo');if(!img||state.screen!=='viewer')return;
   const v=L.viewer,e=L.cache.get(`objects:${L.studyId}:${L.study?.revision}:${v.doc}`);
   layer=BasisMaskLayer.attach(img,{onPick:(hit,u,x,ev)=>onPhotoClick(hit,u,x,ev)});
-  if(e?.data)layer.set({instances:e.data.items,mode:v.mode,focusLabel:v.focusLabel,selectedId:v.selectedId});
+  // A tap preview shows the candidate being considered alone, counted or not.
+  if(e?.data)layer.set({instances:e.data.items,mode:v.tap?'single':v.mode,focusLabel:v.focusLabel,selectedId:v.tap?v.tap.ids[v.tap.at]:v.selectedId});
   img.addEventListener('pointerdown',startBox);
  });
  function onPhotoClick(hit,u,v,ev){
   const vw=L.viewer;
-  if(vw.tool==='point'){addObject({kind:'point',label:selectedAddLabel(),point:{x:u,y:v}});return}
+  if(vw.tool==='point'){previewTap(u,v);return}
   if(vw.tool==='box')return;
   if(hit){if(vw.mode==='overview'){vw.focusLabel=hit.label;vw.mode='spotlight';vw.selectedId=null}else{vw.focusLabel=hit.label;vw.selectedId=hit.id;vw.mode='single'}}
   else if(vw.mode==='single'){vw.mode='spotlight';vw.selectedId=null}
   else return;
   Live.render();
  }
+ function previewTap(u,v){
+  const vw=L.viewer,label=selectedAddLabel(),items=L.cache.get(`objects:${L.studyId}:${L.study?.revision}:${vw.doc}`)?.data?.items||[];
+  const tap=vw.tap,again=tap&&tap.label===label&&Math.hypot(u-tap.u,v-tap.v)<0.02;
+  if(again)tap.at=M.cycle(tap.at,tap.ids.length,1);
+  else{
+   const under=M.candidatesUnder(items,label,u,v,globalThis.BasisRle);
+   if(!under.length){vw.tap=null;vw.tool='box';toast(`SAM 3 found no ${name(label).toLowerCase()} there. Draw a box around it instead.`);Live.render();return}
+   vw.tap={u,v,label,ids:under.map(i=>i.id),at:0};
+  }
+  Live.render();
+ }
  const selectedAddLabel=()=>root.querySelector('#live-add-label')?.value||L.viewer.addLabel||L.viewer.focusLabel||'light_fixture';
  function startBox(ev){
   if(L.viewer.tool!=='box'||ev.button!==0)return;ev.preventDefault();
-  const img=ev.currentTarget,r=img.getBoundingClientRect(),band=document.createElement('div');band.className='live-box-band';img.parentElement.append(band);
+  // The photo's pixels inside the <img> box (object-fit letterboxes a 4:3 photo in the
+  // design's 3:2 frame): the box is clamped to them and normalized to them, as the masks are.
+  const img=ev.currentTarget,el=img.getBoundingClientRect(),c=BasisMaskLayer.contentRect(img),r={left:el.left+c.x,top:el.top+c.y,right:el.left+c.x+c.w,bottom:el.top+c.y+c.h,width:c.w,height:c.h},band=document.createElement('div');band.className='live-box-band';img.parentElement.append(band);
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),x0=clamp(ev.clientX,r.left,r.right),y0=clamp(ev.clientY,r.top,r.bottom);
-  const move=e=>{const x=clamp(e.clientX,r.left,r.right),y=clamp(e.clientY,r.top,r.bottom);Object.assign(band.style,{left:(Math.min(x,x0)-r.left+img.offsetLeft)+'px',top:(Math.min(y,y0)-r.top+img.offsetTop)+'px',width:Math.abs(x-x0)+'px',height:Math.abs(y-y0)+'px'})};
+  const move=e=>{const x=clamp(e.clientX,r.left,r.right),y=clamp(e.clientY,r.top,r.bottom);Object.assign(band.style,{left:(Math.min(x,x0)-el.left+img.offsetLeft)+'px',top:(Math.min(y,y0)-el.top+img.offsetTop)+'px',width:Math.abs(x-x0)+'px',height:Math.abs(y-y0)+'px'})};
   const up=e=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);band.remove();
-   const x=clamp(e.clientX,r.left,r.right),y=clamp(e.clientY,r.top,r.bottom),box={x1:(Math.min(x,x0)-r.left)/r.width,y1:(Math.min(y,y0)-r.top)/r.height,x2:(Math.max(x,x0)-r.left)/r.width,y2:(Math.max(y,y0)-r.top)/r.height};
+   const box=M.dragBox(r,x0,y0,clamp(e.clientX,r.left,r.right),clamp(e.clientY,r.top,r.bottom));
    if(box.x2-box.x1<0.01||box.y2-box.y1<0.01){toast('Drag a larger box around the object.');return}
-   addObject({kind:'box',label:selectedAddLabel(),box});
+   addObject({kind:'box',label:selectedAddLabel(),box},'Outlining it with SAM 3…');
   };
   window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);move(ev);
  }
- async function addObject(body){
+ async function addObject(body,busy='Adding…'){
   const v=L.viewer,doc=v.doc;
   await Live.guarded('add-object',async()=>{
+   v.busy=busy;Live.render();
    try{
     const r=await api.addObject(L.studyId,doc,body);
+    // Nothing was added: no reload (a reload would re-render the page under the dialog).
+    if(M.isDuplicate(r)){v.busy=null;Object.assign(v,{tool:null,tap:null,focusLabel:r.object.label,selectedId:r.object.id,mode:'single'});Live.render();askDuplicate(body,r);return}
     Live.invalidate(`objects:${L.studyId}:${L.study.revision}:${doc}`);Live.invalidate(`rooms:${L.studyId}`);
-    Object.assign(v,{tool:null,focusLabel:r.object.label,selectedId:r.object.id,mode:'single'});
-    toast(r.created?(r.object.mask?`Added: matched a ${name(r.object.label).toLowerCase()} SAM 3 had found.`:'Added your box as a new object.'):`That ${name(r.object.label).toLowerCase()} is already counted.`);
+    Object.assign(v,{tool:null,tap:null,focusLabel:r.object.label,selectedId:r.object.id,mode:'single'});
+    toast(M.addedMessage(r,name));
     Live.render();
    }catch(e){
     if(e.status===422&&body.kind==='point'){v.tool='box';toast('Nothing matched there. Draw a box around the object instead.');Live.render();return}
     throw e;
-   }
+   }finally{v.busy=null}
   });
+ }
+ // The API found the selection already counted: show that object, offer to add anyway.
+ function askDuplicate(body,r){
+  const what=name(r.object.label).toLowerCase(),share=r.overlap===null||r.overlap===undefined?'':` (it lies ${Math.round(r.overlap*100)}% inside it)`;
+  const m=modal('Already counted?',`<p>This looks like the ${esc(what)} already counted on this photo, now highlighted${esc(share)}.</p><p class="small">Add it anyway when they are different objects, such as two lights one outline covers.</p>`,`<button class="button" id="live-use-existing">Use the existing one</button><button class="button primary" id="live-add-anyway">Add anyway</button>`);
+  m.querySelector('#live-use-existing').onclick=()=>{m.remove();toast(`Kept the counted ${what}.`)};
+  m.querySelector('#live-add-anyway').onclick=()=>{m.remove();addObject({...body,allow_duplicate:true},body.kind==='box'?'Outlining it with SAM 3…':'Adding…')};
  }
  Live.actions['viewer-mode']=(el,m)=>{Object.assign(L.viewer,{mode:m,selectedId:null});Live.render()};
  Live.actions['focus-label']=(el,l)=>{Object.assign(L.viewer,{focusLabel:l,mode:'spotlight',selectedId:null});Live.render()};
  Live.actions['select-object']=(el,id)=>{Object.assign(L.viewer,{selectedId:id,mode:'single'});Live.render()};
- Live.actions['add-object']=()=>{const v=L.viewer;v.tool=v.tool?null:'point';v.addLabel=v.focusLabel;Live.render()};
- Live.actions['add-tool']=(el,t)=>{L.viewer.addLabel=selectedAddLabel();L.viewer.tool=t;Live.render()};
- Live.actions['add-cancel']=()=>{L.viewer.tool=null;Live.render()};
+ Live.actions['add-object']=()=>{const v=L.viewer;v.tool=v.tool?null:'box';v.tap=null;v.addLabel=v.focusLabel;Live.render()};
+ Live.actions['add-tool']=(el,t)=>{L.viewer.addLabel=selectedAddLabel();L.viewer.tool=t;L.viewer.tap=null;Live.render()};
+ Live.actions['add-cancel']=()=>{L.viewer.tool=null;L.viewer.tap=null;Live.render()};
+ Live.actions['tap-cycle']=(el,step)=>{const t=L.viewer.tap;if(!t)return;t.at=M.cycle(t.at,t.ids.length,Number(step));Live.render()};
+ Live.actions['tap-confirm']=()=>{const t=L.viewer.tap;if(!t)return;addObject({kind:'candidate',candidate_id:t.ids[t.at]})};
  Live.actions['reload-objects']=()=>{Live.invalidate(`objects:${L.studyId}`);Live.render()};
  Live.actions['delete-object']=(el,id)=>{const m=modal('Delete this object?','<p>It is removed from the photo’s count. The deletion is recorded with your name.</p>',`${closeBtn}<button class="button danger" id="live-confirm">Delete</button>`);
   m.querySelector('#live-confirm').onclick=()=>Live.guarded('delete-object',async()=>{m.remove();const doc=L.viewer.doc;await api.deleteObject(L.studyId,doc,id);Live.invalidate(`objects:${L.studyId}:${L.study.revision}:${doc}`);Live.invalidate(`rooms:${L.studyId}`);Object.assign(L.viewer,{selectedId:null,mode:'spotlight'});toast('Object deleted.');Live.render()})};
  root.addEventListener('change',e=>{
   if(e.target.id==='live-room-select'){e.stopImmediatePropagation();Live.go('viewer',L.studyId,e.target.value)}
-  if(e.target.id==='live-add-label'){e.stopImmediatePropagation();L.viewer.addLabel=e.target.value}
+  if(e.target.id==='live-add-label'){e.stopImmediatePropagation();L.viewer.addLabel=e.target.value;if(L.viewer.tap){L.viewer.tap=null;Live.render()}}
   if(e.target.id==='live-assets-filter'){e.stopImmediatePropagation();L.assetsFilter=e.target.value;Live.render()}
  },true);
  document.addEventListener('keydown',e=>{if(state.screen!=='viewer'||e.target.closest('input,select,textarea,.modal'))return;
+  const tap=L.viewer.tap;
+  if(tap&&(e.key==='ArrowRight'||e.key==='ArrowLeft')){e.preventDefault();tap.at=M.cycle(tap.at,tap.ids.length,e.key==='ArrowRight'?1:-1);Live.render();return}
+  if(tap&&e.key==='Enter'){e.preventDefault();Live.actions['tap-confirm']();return}
+  if(e.key==='Escape'&&tap){L.viewer.tap=null;Live.render();return}
   if(e.key==='Escape'&&(L.viewer.tool||L.viewer.mode==='single')){L.viewer.tool=null;if(L.viewer.mode==='single'){L.viewer.mode='spotlight';L.viewer.selectedId=null}Live.render()}
   if((e.key==='ArrowRight'||e.key==='ArrowLeft')&&!L.viewer.tool){const link=root.querySelector(`.component-review-nav nav a.button${e.key==='ArrowRight'?'.primary':':not(.primary)'}`);link?.click()}
  });

@@ -29,6 +29,7 @@ from basis.api.schemas.outputs import (
     RoomOut,
     RoomPhotoOut,
     RoomsPageOut,
+    SuggestedCountOut,
     TakeoffOut,
 )
 from basis.api.users import study_access
@@ -44,7 +45,8 @@ from basis.db.repositories.outputs import (
 )
 from basis.db.session import SessionDep
 from basis.extraction.field_mappings import FIELD_BY_KEY
-from basis.vision.rooms import ROOM_INVENTORY_SOURCE
+from basis.vision.rooms import ROOM_INVENTORY_SOURCE, is_room_manual
+from basis.vision.selection import suggested_counts
 
 DEFAULT_PAGE: Final = 50
 MAX_CURSOR_LENGTH: Final = 1024
@@ -127,8 +129,12 @@ def room_out(row: RoomRow) -> RoomOut:
                 confidence=component.confidence,
                 document_id=component.document_id,
                 seen_in=_uuids(seen),
+                added=is_room_manual(component.raw, component.document_id),
             )
         )
+    inventory: dict[str, int] = {}
+    for item in items:
+        inventory[item.label] = inventory.get(item.label, 0) + item.count
     return RoomOut(
         id=room.id,
         name=room.name,
@@ -140,6 +146,17 @@ def room_out(row: RoomRow) -> RoomOut:
         inventory_source=ROOM_INVENTORY_SOURCE if row.reconciled else "per_photo",
         needs_review=flagged,
         inventory=items,
+        suggested_counts=[
+            SuggestedCountOut(
+                label=s.label,
+                inventory_count=s.inventory_count,
+                photo_count=s.photo_count,
+                manual_count=s.manual_count,
+                document_id=s.document_id,
+                suggested=s.suggested,
+            )
+            for s in suggested_counts(inventory, row.objects)
+        ],
     )
 
 

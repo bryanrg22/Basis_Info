@@ -131,5 +131,5 @@
    destroy(){destroyed=true;observer.disconnect();img.removeEventListener('click',onClick);img.removeEventListener('mousemove',onMove);img.removeEventListener('load',place);canvas.remove()},
   };
  }
- scope.BasisMaskLayer={attach,labelColor:(l,labels)=>labelColor(l,labels),PALETTE};
+ scope.BasisMaskLayer={attach,contentRect,labelColor:(l,labels)=>labelColor(l,labels),PALETTE};
 })(globalThis);

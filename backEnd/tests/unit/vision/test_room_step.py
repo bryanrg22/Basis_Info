@@ -23,7 +23,7 @@ from basis.llm.recorder import MemoryRecorder
 from basis.vision import room_step
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import ModelInventoryObject, ModelRoomInventory, RoomPhoto
-from basis.vision.rooms import ROOM_INVENTORY_SOURCE
+from basis.vision.rooms import ROOM_INVENTORY_SOURCE, ROOM_MANUAL_SOURCE
 from basis.vision.schemas import (
     Attachment,
     Component,
@@ -311,6 +311,24 @@ def test_without_any_inventory_every_per_photo_row_is_an_asset() -> None:
     room = uuid.uuid4()
     rows = [row(room, uuid.uuid4(), "kitchen_cabinet"), row(room, uuid.uuid4(), "countertop")]
     assert asset_components(rows) == rows
+
+
+def test_a_component_an_engineer_added_to_a_room_is_always_an_asset() -> None:
+    """A ``room_component`` correction's row counts in a reconciled room (beside its
+    inventory) and in a per-photo room (beside its per-photo rows)."""
+    reconciled, plain = uuid.uuid4(), uuid.uuid4()
+    inventory = row(reconciled, None, "window", inventory=True)
+    per_photo = row(reconciled, uuid.uuid4(), "window")
+    plain_photo = row(plain, uuid.uuid4(), "toilet")
+
+    def added(room: uuid.UUID) -> Any:
+        manual = row(room, None, "electrical_outlet")
+        manual.raw = {"source": ROOM_MANUAL_SOURCE, "count": 3}
+        return manual
+
+    in_reconciled, in_plain = added(reconciled), added(plain)
+    chosen = asset_components([inventory, per_photo, in_reconciled, plain_photo, in_plain])
+    assert chosen == [inventory, in_reconciled, plain_photo, in_plain]
 
 
 # --------------------------------------------------------------------------- second-look model

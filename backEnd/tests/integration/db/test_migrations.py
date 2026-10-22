@@ -19,6 +19,10 @@
 * ``0007_invitations`` adds ``invitations`` (normalized email, known role, one outcome
   recorded with who, one open invitation per firm and email) and changes no existing row;
   it downgrades back to ``0006``;
+* ``0008_object_prompts`` adds ``object_prompts`` (known status, returned >= 0, tenancy key)
+  and ``photo_objects.mask_source``/``mask_reason``/``prompt_id``, backfilling existing
+  manual rows (``candidate`` when derived from one, else ``none``) and requiring a mask
+  source on manual rows only; it downgrades back to ``0007``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -51,8 +55,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0007"
-HISTORY = ["0007", "0006", "0005", "0004", "0003", "0002", "0001"]
+HEAD = "0008"
+HISTORY = ["0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -412,7 +416,8 @@ async def _photo(connection: asyncpg.Connection) -> tuple[uuid.UUID, uuid.UUID, 
 
 
 async def test_0004_photo_objects_constraints(empty_database_url: str) -> None:
-    await upgrade(empty_database_url)
+    # At 0004 itself: 0008 also requires a mask source on manual rows (its own test).
+    await upgrade(empty_database_url, "0004")
     connection = await asyncpg.connect(plain_dsn(empty_database_url))
     try:
         study, document, user = await _photo(connection)
@@ -644,3 +649,74 @@ async def test_0007_invitations_constraints_and_downgrade(empty_database_url: st
     assert await snapshot(empty_database_url) == at_0006
     await upgrade(empty_database_url)  # and back up again
     assert "invitations" in (await snapshot(empty_database_url))["tables"]  # type: ignore[operator]
+
+
+# --------------------------------------------------------------------------- 0008
+
+
+async def test_0008_backfills_mask_sources_and_constrains_them(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0007")
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        study, document, user = await _photo(connection)
+        insert = (
+            "INSERT INTO photo_objects (study_id, document_id, revision, label, score, x1, y1, "
+            "x2, y2, area, source, created_by, derived_from) VALUES ($1, $2, 1, 'window', "
+            "0.9, 0.1, 0.1, 0.5, 0.5, 0.16, $3, $4, $5) RETURNING id"
+        )
+        model = await connection.fetchval(insert, study, document, "model", None, None)
+        promoted = await connection.fetchval(insert, study, document, "manual", user, model)
+        boxed = await connection.fetchval(insert, study, document, "manual", user, None)
+    finally:
+        await connection.close()
+    at_0007 = await snapshot(empty_database_url)
+    await upgrade(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        sources = {
+            r["id"]: r["mask_source"]
+            for r in await connection.fetch("SELECT id, mask_source FROM photo_objects")
+        }
+        assert sources == {model: None, promoted: "candidate", boxed: "none"}
+        prompt = await connection.fetchval(
+            "INSERT INTO object_prompts (study_id, document_id, revision, label, params, status, "
+            "returned, cost_usd, created_by) VALUES ($1, $2, 1, 'window', '{}', 'done', 3, "
+            "0.004, $3) RETURNING id",
+            study,
+            document,
+            user,
+        )
+        manual = (
+            "INSERT INTO photo_objects (study_id, document_id, revision, label, x1, y1, x2, y2, "
+            "area, source, created_by, mask_source, prompt_id) VALUES ($1, $2, 1, 'window', "
+            "0.1, 0.1, 0.5, 0.5, 0.16, $3, $4, $5, $6)"
+        )
+        await connection.execute(manual, study, document, "manual", user, "sam_box_prompt", prompt)
+        bad = [
+            ("manual", user, None, None),  # a manual row needs a mask source
+            ("manual", user, "guess", None),
+            ("model", None, "candidate", None),  # a model row has none
+        ]
+        for source, author, mask_source, prompt_id in bad:
+            with pytest.raises(asyncpg.CheckViolationError):
+                await connection.execute(
+                    manual, study, document, source, author, mask_source, prompt_id
+                )
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute(
+                manual, study, document, "manual", user, "sam_box_prompt", uuid.uuid4()
+            )
+        calls = (
+            "INSERT INTO object_prompts (study_id, document_id, revision, label, params, status, "
+            "returned, created_by) VALUES ($1, $2, 1, 'window', '{}', $3, $4, $5)"
+        )
+        for status, returned in (("maybe", 0), ("done", -1)):
+            with pytest.raises(asyncpg.CheckViolationError):
+                await connection.execute(calls, study, document, status, returned, user)
+        other_study, _, _ = await _other_study(connection, user)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):  # tenancy: the photo's study
+            await connection.execute(calls, other_study, document, "failed", 0, user)
+    finally:
+        await connection.close()
+    await downgrade(empty_database_url, "0007")
+    assert await snapshot(empty_database_url) == at_0007

@@ -80,8 +80,12 @@ SPEC_TABLES = {
     "photo_localizations": "study_id document_id revision status reason instances "
     "model_version params image_width image_height predict_seconds cost_usd "
     "carried_from_revision",
+    # Manual add (migration 0008_object_prompts): mask_source, mask_reason, prompt_id.
     "photo_objects": "id study_id document_id revision label phrase score x1 y1 x2 y2 mask "
-    "area source counted derived_from carried_from created_by deleted_at deleted_by",
+    "area source counted derived_from carried_from created_by deleted_at deleted_by "
+    "mask_source mask_reason prompt_id",
+    "object_prompts": "id study_id document_id revision label params status reason returned "
+    "kept_score model_version predict_seconds cost_usd created_by",
     # Invite-only firms: migration 0007_invitations.
     "invitations": "id org_id email role created_by expires_at accepted_at accepted_by "
     "declined_at declined_by revoked_at revoked_by",
@@ -148,6 +152,7 @@ SPEC_COMPOSITE_FKS = {
     ("extraction_fields", ("study_id", "extraction_id"), "extractions", ("study_id", "id")),
     ("photo_localizations", ("study_id", "document_id"), "documents", ("study_id", "id")),
     ("photo_objects", ("study_id", "document_id"), "documents", ("study_id", "id")),
+    ("object_prompts", ("study_id", "document_id"), "documents", ("study_id", "id")),
 }
 
 SPEC_SIMPLE_FKS = {
@@ -174,6 +179,8 @@ SPEC_SIMPLE_FKS = {
     ("eval_results", "eval_run_id", "eval_runs"),
     ("photo_objects", "created_by", "users"),
     ("photo_objects", "deleted_by", "users"),
+    ("photo_objects", "prompt_id", "object_prompts"),
+    ("object_prompts", "created_by", "users"),
     ("invitations", "org_id", "orgs"),
     ("invitations", "created_by", "users"),
     ("invitations", "accepted_by", "users"),
@@ -226,6 +233,10 @@ SPEC_CHECKS = {
     "ck_photo_objects_area_range",
     "ck_photo_objects_model_has_no_author",
     "ck_photo_objects_deleted_by_whom",
+    "ck_photo_objects_mask_source_valid",
+    "ck_photo_objects_manual_has_mask_source",
+    "ck_object_prompts_status_valid",
+    "ck_object_prompts_returned_nonnegative",
     "ck_invitations_role_valid",
     "ck_invitations_email_normalized",
     "ck_invitations_expires_after_created",
@@ -258,6 +269,7 @@ SPEC_NOT_NULL = {
     "outbox": "kind payload status attempts next_attempt_at",
     "photo_localizations": "status instances",
     "photo_objects": "revision label x1 y1 x2 y2 area source counted",
+    "object_prompts": "revision label params status returned created_by",
     "invitations": "org_id email role expires_at",
 }
 
@@ -278,6 +290,7 @@ STUDY_SCOPED = {
     "llm_calls",
     "photo_localizations",
     "photo_objects",
+    "object_prompts",
 }
 
 
@@ -493,8 +506,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
         for c in t.columns
         if isinstance(c.type, JSONB)
     ]
-    # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases
-    assert len(jsonb) == 16
+    # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
+    # manual add: object_prompts.params
+    assert len(jsonb) == 17
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

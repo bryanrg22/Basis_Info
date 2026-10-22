@@ -3,7 +3,9 @@
 For each component of the revision (S3_SPEC section 5) that the assets are built from
 (:func:`asset_components`: a room with a reconciled inventory, written by
 ``reconcile_rooms``, contributes its inventory rows and not its per-photo rows, which would
-count an object once per photo it is in; every other room its per-photo rows):
+count an object once per photo it is in; every other room its per-photo rows; a component
+an engineer added to a room at the rooms review always), with the quantity of each row's
+``raw["count"]`` (a reviewer's ``count`` correction included):
 
 1. classify it (:func:`basis.classify.router.classify`: rules table, then the approved
    cache, then the bounded residual model), with ``settings.classify_concurrency``
@@ -93,7 +95,7 @@ from basis.domain.validators import validate_classification
 from basis.llm.cost import cost_usd
 from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import Budget
-from basis.vision.rooms import is_room_inventory
+from basis.vision.rooms import is_room_inventory, is_room_manual
 from basis.workflow.contracts import CorrectionInput, ProcessAssetsInput, ProcessAssetsOutput
 
 ACTIVITY: Final = "process_assets"
@@ -331,8 +333,9 @@ async def _write(
 
 def asset_components(components: list[Component]) -> list[Component]:
     """The rows assets are built from: a room's inventory rows when it has any, else its
-    per-photo rows (and the rows of no room). An inventory row whose room is gone (none in
-    this revision) is ignored."""
+    per-photo rows (and the rows of no room), and always the components an engineer added
+    to a room (``room_component`` corrections: not counted by any other row). An inventory
+    row whose room is gone (none in this revision) is ignored."""
     reconciled = {
         c.room_id
         for c in components
@@ -341,7 +344,8 @@ def asset_components(components: list[Component]) -> list[Component]:
     return [
         c
         for c in components
-        if (
+        if is_room_manual(c.raw, c.document_id)
+        or (
             c.room_id in reconciled
             if is_room_inventory(c.raw, c.document_id)
             else c.room_id is None or c.room_id not in reconciled

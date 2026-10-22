@@ -123,11 +123,39 @@ edits the defaults. The API's `CORS_ALLOWED_ORIGINS` must list the frontend's or
 | Start a study | `POST /v1/studies`; per file: SHA-256 in the browser, `POST …/documents`, `PUT` to the signed URL (with progress), `POST …/complete`; then `POST …/start`. A retry after a failure reuses the study, the confirmed files and the idempotency keys |
 | Progress | `GET …/workflow`, polled with backoff (1.5 s doubling to 15 s while unchanged, paused in a hidden tab); `POST …/retry`, `POST …/cancel` |
 | Appraisal review | `GET …/fields` (by section, page, confidence, critical); the cited page drawn inline with PDF.js from `GET …/documents/{id}/content`; `extraction_field` corrections |
-| Rooms review | `GET …/rooms` (photos, inventories); `room` (rename, retype, merge), `component` (label, material, attachment) and `photo` (re-analyze) corrections |
-| Photo components | `GET …/photos/{doc}/objects`; SAM 3 masks decoded in the browser (`live/rle.js`) and drawn on a canvas (`live/mask-layer.js`): **Spotlight** (default: one component, glow, numbered pins), **Show all** (every counted instance, tinted by component), one instance (score, size, delete). **Add object**: tap (`POST` a point, matched to what SAM 3 found) or draw a box. Delete: `DELETE` (manual objects only; the API keeps the model's) |
+| Rooms review | `GET …/rooms` (photos, inventories, `suggested_counts`); `room` (rename, retype, merge), `component` (label, count, material, attachment), `room_component` (add a component the inventory is missing) and `photo` (re-analyze) corrections. A row whose label the photos show more of than the room counts says "Photos show N" with **Use N**; labels the photos show and the inventory lacks get **Add N to the room**; **Add a component to this room** takes a taxonomy label, a count and optional material and attachment (see "Adding what the pipeline missed") |
+| Photo components | `GET …/photos/{doc}/objects`; SAM 3 masks decoded in the browser (`live/rle.js`) and drawn on a canvas (`live/mask-layer.js`): **Spotlight** (default: one component, glow, numbered pins), **Show all** (every counted instance, tinted by component), one instance (score, size, where its outline came from, delete). **Add object** (`live/manual-add.js`): **Draw a box** (the default) or **Tap it** to preview and cycle the candidates under the tap. Delete: `DELETE` (manual objects only; the API keeps the model's) |
 | Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with their document, page, section and verification, `live/citations.js`; review reasons as sentences, `live/review-reasons.js`); `asset` corrections (category, class, recovery period, IRS section) |
 | Schedule | totals by recovery class from `GET …/assets`; a CSV of the table |
 | Files | the study's documents; open and download through the API |
+
+### Adding what the pipeline missed
+
+On a photo, **Add object** opens with **Draw a box**: drag a box around the object and
+`POST …/objects` (`kind: "box"`) sends it. The API takes the stored SAM 3 instance of that
+component the box matches (IoU 0.5), else asks SAM 3 for the box (one call, a few seconds:
+the add bar shows "Outlining it with SAM 3…"), else stores the box alone. The instance panel
+says which: **Outline from SAM 3**, **Outline from SAM 3 (your box)** or **Box only** with
+the reason (no match, the call failed or timed out). Measured on the real photos
+(`backEnd/evals/manual_add.py`): a box outlines the right object for 42 of the 43 objects the
+pipeline missed at once, and the 43rd after "Add anyway"; never a wrong one.
+
+**Tap it** shows the instances SAM 3 stored under the tap, highest score first, one at a
+time ("1 of 3", score, counted or not). Tap the same spot again or press → / ← to see the
+next, then **Use this one** (`kind: "candidate"` with its id); Enter confirms, Escape clears.
+A tap over nothing switches to Draw a box.
+
+When the API answers that the selection is an object already counted (`created: false`,
+`duplicate_of`), that object is highlighted and a dialog offers **Use the existing one** or
+**Add anyway** (the same selection with `allow_duplicate: true`, for two objects one
+outline covers).
+
+Counts reach the assets through the rooms review: the API suggests, per component, the most
+instances counted in one photo of the room (SAM 3's and the ones added) against the room's
+count; **Use N**, an edited count, or an added component are corrections like any other,
+sent with **Request corrections**. The next revision's assets are built with them (the rules
+table classifies an added component by its label, material and attachment), and the assets
+review shows the new quantities. Mock mode is unchanged.
 
 Decisions: `POST …/decisions` with the stage and revision. Approve is disabled while
 corrections are pending (the API refuses approve-with-corrections); Request corrections
@@ -192,7 +220,7 @@ API data the design does not show yet:
 ## Tests
 
 ```sh
-node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons, firms)
+node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons, firms, manual add)
 node web/tests/live-smoke.mjs --origin http://127.0.0.1:3100 --owner-email you@example.com   # against the local stack
 ```
 

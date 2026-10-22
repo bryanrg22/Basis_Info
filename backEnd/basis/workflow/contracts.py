@@ -73,10 +73,12 @@ class Decision(_Frozen):
 
 # Which correction targets a decision at each review stage may carry. The update
 # validator rejects any other entity_type, so a malformed correction is refused before it
-# is written to history.
+# is written to history. ``room_component`` (v0.11, manual add) adds a component to the
+# room named by ``entity_id`` (``basis.activities.corrections.check_room_component``).
+# Validators do not run when a history replays, so widening a set needs no patch.
 CORRECTION_TYPES: dict[str, frozenset[str]] = {
     "appraisal_review": frozenset({"extraction_field"}),
-    "rooms_review": frozenset({"room", "component", "photo"}),
+    "rooms_review": frozenset({"room", "component", "room_component", "photo"}),
     "assets_review": frozenset({"asset"}),
 }
 

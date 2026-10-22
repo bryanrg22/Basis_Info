@@ -348,6 +348,10 @@ class Settings(BaseSettings):
     # The rooms review opens once the photos are analyzed and the room step is done, with
     # SAM 3 still localizing in the background (EVAL_REPORT 30); true waits for it first.
     rooms_gate_waits_for_localization: bool = False
+    # An engineer's box at the rooms review that matches no stored instance is sent to the
+    # same localizer from the API (POST .../objects) while the engineer waits: the call is
+    # bounded by this many seconds, after which the box is stored without an outline.
+    object_prompt_timeout_s: float = Field(default=30.0, gt=0, le=120)
 
     @property
     def vision_output_budget(self) -> int:

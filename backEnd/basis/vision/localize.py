@@ -61,10 +61,17 @@ in, every matching instance out, each with a mask, a box and a score) and counts
   boxes by leaving one photo out (out of sample against the v1 table at its 10.2
   thresholds: mAP@0.5 0.65 to 0.76, count MAE 1.39 to 0.79).
 
-Tap-to-add (:meth:`Localizer.segment_prompt`) uses SAM 3's point and box prompts. In SAM
-3's concept mode a box or point is an *exemplar* (the model may return every similar
-instance), so the result is narrowed to the instance under each tapped point (or best
-overlapping each drawn box); that holds whichever way the hosted model reads them.
+Box-to-add (:meth:`Localizer.segment_prompt`) uses SAM 3's text and box prompts together:
+the label's phrases of the phrase set (:data:`DEFAULT_PHRASE_SET`, the phrases the photo
+was localized with), one prompt object per phrase, each carrying the drawn box. In SAM 3's
+concept mode a box or point is an *exemplar*, not a selection: the model returns every
+similar instance (4.6 at score >= 0.5 per box on the 43 objects the pipeline missed on the
+real photos), so the result is narrowed by :func:`pick_prompted`: the instance under each
+tapped point, or the one overlapping each drawn box best, accepted only at box IoU >=
+:data:`PROMPT_BOX_IOU` (the PASCAL VOC / COCO match criterion) and at the call's score
+threshold (:data:`DEFAULT_THRESHOLD`). Without both gates a box drawn next to an object
+would take whatever similar object the model found elsewhere (``evals.manual_add``
+measures the path). The call's cost comes back with the instances (:class:`Prompted`).
 """
 
 from __future__ import annotations
@@ -109,10 +116,16 @@ POLL_INTERVAL_S: Final = 1.0
 PREDICTION_DEADLINE_S: Final = 300.0
 COG_TIMEOUT_S: Final = 300.0
 RETRY_DELAYS_S: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0, 120.0)  # Replicate 429s last minutes
+# An engineer waits on an interactive call (a box drawn at the rooms review): one quick
+# retry of a transient error, never minutes of backoff.
+INTERACTIVE_RETRY_DELAYS_S: tuple[float, ...] = (1.0,)
 MAX_RETRY_AFTER_S: Final = 60.0
 PHRASE_DEDUPE_IOU: Final = 0.8
 TILE_NMS_IOU: Final = 0.5
 DEFAULT_THRESHOLD: Final = 0.5
+# A drawn box selects an instance only when their boxes overlap at IoU >= 0.5 (PASCAL VOC /
+# COCO); any smaller overlap is a box drawn next to the instance, not around it.
+PROMPT_BOX_IOU: Final = 0.5
 _RUNNING: Final = frozenset({"starting", "processing"})
 
 
@@ -303,6 +316,24 @@ class Localization(_Model):
     @property
     def counts(self) -> dict[str, int]:
         return counts(self)
+
+    @property
+    def cost_usd(self) -> float:
+        return sum(c.cost_usd for c in self.calls)
+
+    @property
+    def predict_seconds(self) -> float:
+        return sum(c.predict_seconds for c in self.calls)
+
+
+class Prompted(_Model):
+    """A prompted segmentation (:meth:`Localizer.segment_prompt`): the instances kept for
+    the points and boxes, how many the model returned at or above the threshold before
+    that narrowing, and the call (predict seconds and cost, as in :class:`Localization`)."""
+
+    instances: tuple[Instance, ...] = ()
+    returned: int = Field(default=0, ge=0)
+    calls: tuple[LocalizeCall, ...] = ()
 
     @property
     def cost_usd(self) -> float:
@@ -689,38 +720,50 @@ class Localizer(Protocol):
         boxes: Sequence[Box] = (),
         negative_points: Sequence[Point] = (),
         threshold: float = DEFAULT_THRESHOLD,
-    ) -> list[Instance]: ...
+        phrase_set: str = DEFAULT_PHRASE_SET,
+    ) -> Prompted: ...
+
+
+def covers(instance: Instance, point: Point) -> bool:
+    """Whether the instance's mask (its box when it has none) covers the point."""
+    if instance.mask is not None:
+        col = min(instance.mask.width - 1, int(point.x * instance.mask.width))
+        row = min(instance.mask.height - 1, int(point.y * instance.mask.height))
+        return bool(instance.mask.decode()[row, col])
+    return instance.box.contains(point.x, point.y)
+
+
+def under_point(candidates: Sequence[Instance], point: Point) -> int | None:
+    """The index of the highest-scoring instance covering the point (the first on ties)."""
+    hits = [i for i, instance in enumerate(candidates) if covers(instance, point)]
+    return max(hits, key=lambda i: (candidates[i].score, -i)) if hits else None
+
+
+def best_box_match(
+    candidates: Sequence[Instance], box: Box, min_iou: float = PROMPT_BOX_IOU
+) -> int | None:
+    """The index of the instance whose box overlaps ``box`` best, at box IoU >= ``min_iou``
+    (and above 0); the higher score on ties, then the first. None when none does."""
+    scored = [
+        (box_iou(box, instance.box), instance.score, -i) for i, instance in enumerate(candidates)
+    ]
+    kept = [s for s in scored if s[0] >= min_iou and s[0] > 0]
+    return -max(kept)[2] if kept else None
 
 
 def pick_prompted(
     candidates: Sequence[Instance], points: Sequence[Point], boxes: Sequence[Box]
 ) -> list[Instance]:
     """The instance under each point (highest score when several cover it) and the one
-    overlapping each box best; each instance at most once, as ``source="manual"``."""
-    chosen: list[Instance] = []
-
-    def under(point: Point) -> Instance | None:
-        hits = []
-        for instance in candidates:
-            if instance.mask is not None:
-                col = min(instance.mask.width - 1, int(point.x * instance.mask.width))
-                row = min(instance.mask.height - 1, int(point.y * instance.mask.height))
-                inside = bool(instance.mask.decode()[row, col])
-            else:
-                inside = instance.box.contains(point.x, point.y)
-            if inside:
-                hits.append(instance)
-        return max(hits, key=lambda i: i.score) if hits else None
-
-    def best(box: Box) -> Instance | None:
-        scored = [(box_iou(box, i.box), i.score, i) for i in candidates]
-        scored = [s for s in scored if s[0] > 0]
-        return max(scored, key=lambda s: (s[0], s[1]))[2] if scored else None
-
-    for found in [under(p) for p in points] + [best(b) for b in boxes]:
-        if found is not None and all(found is not c for c in chosen):
-            chosen.append(found)
-    return [i.model_copy(update={"source": "manual"}) for i in chosen]
+    overlapping each box best at box IoU >= :data:`PROMPT_BOX_IOU`; each instance at most
+    once, as ``source="manual"``."""
+    picked = [under_point(candidates, p) for p in points]
+    picked += [best_box_match(candidates, b) for b in boxes]
+    chosen: list[int] = []
+    for index in picked:
+        if index is not None and index not in chosen:
+            chosen.append(index)
+    return [candidates[i].model_copy(update={"source": "manual"}) for i in chosen]
 
 
 # --------------------------------------------------------------------------- replicate
@@ -867,8 +910,8 @@ def parse_result(
 class ReplicateSam3Localizer:
     """SAM 3 on Replicate (``vufinder/sam3``) through an ``httpx.AsyncClient``.
 
-    The client's timeout must exceed :data:`PREFER_WAIT_S` (the create call may be held
-    that long); :func:`build_replicate_localizer` makes one.
+    The client's timeout must exceed ``prefer_wait_s`` (the create call may be held that
+    long, :data:`PREFER_WAIT_S` by default); :func:`build_replicate_localizer` makes one.
     """
 
     client: httpx.AsyncClient
@@ -880,6 +923,7 @@ class ReplicateSam3Localizer:
     api: str = REPLICATE_API
     poll_interval_s: float = POLL_INTERVAL_S
     deadline_s: float = PREDICTION_DEADLINE_S
+    prefer_wait_s: int = PREFER_WAIT_S
     retry_delays: tuple[float, ...] | None = None
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     compact: bool = True
@@ -912,7 +956,7 @@ class ReplicateSam3Localizer:
     ) -> httpx.Response:
         headers = self._headers(url)
         if wait:
-            headers["Prefer"] = f"wait={PREFER_WAIT_S}"
+            headers["Prefer"] = f"wait={self.prefer_wait_s}"
         retry = frozenset({404}) if retry_not_found else frozenset()
         return await _send(
             self.client,
@@ -1033,9 +1077,18 @@ class ReplicateSam3Localizer:
         boxes: Sequence[Box] = (),
         negative_points: Sequence[Point] = (),
         threshold: float = DEFAULT_THRESHOLD,
-    ) -> list[Instance]:
+        phrase_set: str = DEFAULT_PHRASE_SET,
+    ) -> Prompted:
         return await _segment_prompt(
-            self._run, image, label, points, boxes, negative_points, threshold, self.compact
+            self._run,
+            image,
+            label,
+            points,
+            boxes,
+            negative_points,
+            threshold,
+            self.compact,
+            phrase_set,
         )
 
 
@@ -1136,9 +1189,18 @@ class CogSam3Localizer:
         boxes: Sequence[Box] = (),
         negative_points: Sequence[Point] = (),
         threshold: float = DEFAULT_THRESHOLD,
-    ) -> list[Instance]:
+        phrase_set: str = DEFAULT_PHRASE_SET,
+    ) -> Prompted:
         return await _segment_prompt(
-            self._run, image, label, points, boxes, negative_points, threshold, self.compact
+            self._run,
+            image,
+            label,
+            points,
+            boxes,
+            negative_points,
+            threshold,
+            self.compact,
+            phrase_set,
         )
 
 
@@ -1203,24 +1265,38 @@ async def _segment_prompt(
     negative_points: Sequence[Point],
     threshold: float,
     compact: bool,
-) -> list[Instance]:
+    phrase_set: str,
+) -> Prompted:
     if not points and not boxes:
         raise ValueError("a prompt needs at least one point or box")
-    phrase = Phrase(label=label, text=PHRASES.get(label, (label.value.replace("_", " "),))[0])
-    prompt: dict[str, Any] = {"text": phrase.text}
+    phrases = prompt_phrases(label, phrase_set)
+    geometry: dict[str, Any] = {}
     if points:
-        prompt["positive_points"] = [[p.x, p.y] for p in points]
+        geometry["positive_points"] = [[p.x, p.y] for p in points]
     if negative_points:
-        prompt["negative_points"] = [[p.x, p.y] for p in negative_points]
+        geometry["negative_points"] = [[p.x, p.y] for p in negative_points]
     if boxes:
-        prompt["positive_boxes"] = [_center_box(b) for b in boxes]
-    [data], _ = await run(
-        model_input(image, [json.dumps(prompt)], threshold, compact), (phrase.text,)
+        geometry["positive_boxes"] = [_center_box(b) for b in boxes]
+    prompts = [json.dumps({"text": p.text, **geometry}) for p in phrases]
+    results, call = await run(
+        model_input(image, prompts, threshold, compact), tuple(p.text for p in phrases)
     )
-    candidates = await asyncio.to_thread(
-        parse_result, data, phrase, image.width, image.height, threshold
+    found: list[Instance] = []
+    for phrase, data in zip(phrases, results, strict=True):
+        found += await asyncio.to_thread(
+            parse_result, data, phrase, image.width, image.height, threshold
+        )
+    return Prompted(
+        instances=tuple(pick_prompted(found, points, boxes)), returned=len(found), calls=(call,)
     )
-    return pick_prompted(candidates, points, boxes)
+
+
+def prompt_phrases(label: ComponentLabel, phrase_set: str = DEFAULT_PHRASE_SET) -> list[Phrase]:
+    """The phrases a prompted segmentation of ``label`` sends, one prompt object each: the
+    label's phrases in ``phrase_set`` (those the photo was localized with), else its name."""
+    return phrases_for([label], phrase_set) or [
+        Phrase(label=label, text=label.value.replace("_", " "))
+    ]
 
 
 def per_prompt(documents: Sequence[Any], expected: int, what: str) -> list[dict[str, Any]]:
@@ -1270,11 +1346,33 @@ def _detail(response: httpx.Response) -> str:
 
 
 def build_replicate_localizer(
-    token: str, version: str, *, concurrency: int = 4, budget: Budget | None = None
+    token: str,
+    version: str,
+    *,
+    concurrency: int = 4,
+    budget: Budget | None = None,
+    timeout_s: float | None = None,
 ) -> ReplicateSam3Localizer:
-    client = httpx.AsyncClient(timeout=httpx.Timeout(PREFER_WAIT_S + 30.0, connect=10.0))
+    """A Replicate client. ``timeout_s`` makes an interactive one (an engineer waits on the
+    answer, :data:`INTERACTIVE_RETRY_DELAYS_S`): the create call is held at most that long,
+    a prediction still running after it is canceled, and transient errors are retried
+    once; the caller bounds the whole call with the same timeout."""
+    if timeout_s is None:
+        client = httpx.AsyncClient(timeout=httpx.Timeout(PREFER_WAIT_S + 30.0, connect=10.0))
+        return ReplicateSam3Localizer(
+            client=client, token=token, version=version, concurrency=concurrency, budget=budget
+        )
+    wait = min(PREFER_WAIT_S, max(1, math.ceil(timeout_s)))
+    client = httpx.AsyncClient(timeout=httpx.Timeout(wait + 5.0, connect=5.0))
     return ReplicateSam3Localizer(
-        client=client, token=token, version=version, concurrency=concurrency, budget=budget
+        client=client,
+        token=token,
+        version=version,
+        concurrency=concurrency,
+        budget=budget,
+        deadline_s=timeout_s,
+        prefer_wait_s=wait,
+        retry_delays=INTERACTIVE_RETRY_DELAYS_S,
     )
 
 
@@ -1330,11 +1428,18 @@ def build_cog_localizer(
     token_source: TokenSource | None = None,
     concurrency: int = 4,
     usd_per_second: float = CLOUD_RUN_L4_USD_PER_SECOND,
+    timeout_s: float | None = None,
 ) -> CogSam3Localizer:
     """A client of a self-hosted SAM 3 Cog server; a cold Cloud Run instance takes minutes
     to answer the first request (SAM3_HOSTING.md), so the read timeout is the request
-    timeout Cloud Run is deployed with."""
-    client = httpx.AsyncClient(timeout=httpx.Timeout(COG_TIMEOUT_S, connect=10.0))
+    timeout Cloud Run is deployed with. ``timeout_s`` makes an interactive one: that read
+    timeout and one retry (:data:`INTERACTIVE_RETRY_DELAYS_S`)."""
+    if timeout_s is None:
+        client = httpx.AsyncClient(timeout=httpx.Timeout(COG_TIMEOUT_S, connect=10.0))
+        delays = None
+    else:
+        client = httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=5.0))
+        delays = INTERACTIVE_RETRY_DELAYS_S
     return CogSam3Localizer(
         client=client,
         url=url,
@@ -1342,6 +1447,7 @@ def build_cog_localizer(
         token_source=token_source,
         concurrency=concurrency,
         usd_per_second=usd_per_second,
+        retry_delays=delays,
     )
 
 
@@ -1404,17 +1510,38 @@ class FakeLocalizer:
         boxes: Sequence[Box] = (),
         negative_points: Sequence[Point] = (),
         threshold: float = DEFAULT_THRESHOLD,
-    ) -> list[Instance]:
+        phrase_set: str = DEFAULT_PHRASE_SET,
+    ) -> Prompted:
+        phrases = prompt_phrases(label, phrase_set)
         self.prompted.append(
-            (image.sha256, {"label": label, "points": list(points), "boxes": list(boxes)})
+            (
+                image.sha256,
+                {
+                    "label": label,
+                    "points": list(points),
+                    "boxes": list(boxes),
+                    "phrases": [p.text for p in phrases],
+                    "threshold": threshold,
+                },
+            )
         )
-        text = PHRASES.get(label, (label.value,))[0]
-        candidates = [
-            i.model_copy(update={"label": label, "phrase": text})
-            for i in self._instances(image, text)
+        found = [
+            i.model_copy(update={"label": label, "phrase": p.text})
+            for p in phrases
+            for i in self._instances(image, p.text)
             if i.score >= threshold
         ]
-        return pick_prompted(candidates, points, boxes)
+        call = LocalizeCall(
+            prompts=tuple(p.text for p in phrases),
+            predict_seconds=self.seconds_per_call,
+            cost_usd=round(self.seconds_per_call * L40S_USD_PER_SECOND, 6),
+            status="succeeded",
+        )
+        return Prompted(
+            instances=tuple(pick_prompted(found, points, boxes)),
+            returned=len(found),
+            calls=(call,),
+        )
 
 
 # --------------------------------------------------------------------------- tiling
@@ -1598,6 +1725,7 @@ __all__ = [
     "PHRASES",
     "DEFAULT_PHRASE_SET",
     "PHRASE_SETS",
+    "PROMPT_BOX_IOU",
     "Box",
     "FakeLocalizer",
     "Instance",
@@ -1609,10 +1737,12 @@ __all__ = [
     "LocalizerUnavailable",
     "Phrase",
     "Point",
+    "Prompted",
     "CogSam3Localizer",
     "ReplicateSam3Localizer",
     "Rle",
     "Tile",
+    "best_box_match",
     "box_iou",
     "class_counts",
     "count_threshold",
@@ -1621,5 +1751,7 @@ __all__ = [
     "merge_tiled",
     "object_labels",
     "pick_prompted",
+    "prompt_phrases",
     "tiles",
+    "under_point",
 ]

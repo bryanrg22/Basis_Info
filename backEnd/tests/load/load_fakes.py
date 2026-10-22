@@ -63,6 +63,7 @@ from basis.vision.localize import (
     Instance,
     Localization,
     Phrase,
+    Prompted,
 )
 from basis.vision.prep import PreparedImage
 from basis.vision.reconcile import ModelInventoryObject, ModelRoomInventory
@@ -423,7 +424,7 @@ class LatencyLocalizer:
             self.inner.seconds_per_call = seconds
             return await self.inner.localize(image, phrases, threshold=threshold, dedupe=dedupe)
 
-    async def segment_prompt(self, image: PreparedImage, **kwargs: Any) -> list[Instance]:
+    async def segment_prompt(self, image: PreparedImage, **kwargs: Any) -> Prompted:
         async with self._semaphore:
             await asyncio.sleep(self.latency.localize_seconds())
             return await self.inner.segment_prompt(image, **kwargs)

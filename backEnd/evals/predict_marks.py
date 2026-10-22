@@ -270,9 +270,16 @@ async def prompt_sam(
         label, point = needs[key]
         image = prepare_image(files[key[0]].read_bytes())
         try:
-            found = await localizer.segment_prompt(
-                image, label=ComponentLabel(label), points=[point], threshold=0.1
+            prompted = await localizer.segment_prompt(
+                image,
+                label=ComponentLabel(label),
+                points=[point],
+                threshold=0.1,
+                # EVAL_REPORT 21 ran this with the first v1 phrase; segment_prompt now sends
+                # every phrase of the label in the set, one prompt object each.
+                phrase_set="v1",
             )
+            found = list(prompted.instances)
         except Exception as exc:  # noqa: BLE001 - recorded, the point stays unmasked
             print(f"SAM 3 point prompt failed for {key}: {exc}", file=sys.stderr)
             found = []
