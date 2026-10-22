@@ -108,3 +108,26 @@ def test_staging_accepts_https_and_local_http(env: pytest.MonkeyPatch) -> None:
 def test_localhost_lookalike_is_refused_in_staging(env: pytest.MonkeyPatch) -> None:
     with pytest.raises(ConfigError, match="plain http"):
         deployed(env, "http://localhost.evil.example")
+
+
+# --------------------------------------------------------------------------- LOCAL_UPLOAD_BASE_URL
+
+
+def test_local_upload_base_url_is_read_in_dev_and_test(env: pytest.MonkeyPatch) -> None:
+    env.setenv("BASIS_ENV", "dev")
+    env.setenv("LOCAL_UPLOAD_BASE_URL", "http://127.0.0.1:8000")
+    assert load_settings().local_upload_base_url == "http://127.0.0.1:8000"
+
+
+def test_local_upload_base_url_is_refused_when_deployed(env: pytest.MonkeyPatch) -> None:
+    env.setenv("LOCAL_UPLOAD_BASE_URL", "http://127.0.0.1:8000")
+    with pytest.raises(ConfigError, match="LOCAL_UPLOAD_BASE_URL is for local stacks"):
+        deployed(env, "")
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1:8000/", "127.0.0.1:8000", "http://api/v1"])
+def test_local_upload_base_url_must_be_a_base_url(env: pytest.MonkeyPatch, url: str) -> None:
+    env.setenv("BASIS_ENV", "dev")
+    env.setenv("LOCAL_UPLOAD_BASE_URL", url)
+    with pytest.raises(ConfigError, match="is not a base URL"):
+        load_settings()

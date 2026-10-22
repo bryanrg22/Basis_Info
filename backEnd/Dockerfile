@@ -31,6 +31,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Run as a non-root user; nothing is written inside the image at run time.
 RUN useradd --create-home --uid 10001 basis
+# Mount point for local storage shared by the API and the worker in docker-compose.yml
+# (a named volume copies this directory's owner, so the non-root user can write to it).
+RUN mkdir -p /tmp/basis-local-storage && chown basis:basis /tmp/basis-local-storage
 USER basis
 
 # The commit the image was built from (CI passes --build-arg GIT_SHA); /health reports it.

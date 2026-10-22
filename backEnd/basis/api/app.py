@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis import __version__
 from basis.api import health
+from basis.api import local_uploads as local_uploads_route
 from basis.api.bodylimit import BodySizeLimitMiddleware
 from basis.api.errors import install_error_handlers
 from basis.api.idempotency import (
@@ -56,6 +57,7 @@ from basis.config import Settings
 from basis.db.engine import create_engine
 from basis.db.session import SESSIONMAKER_STATE_ATTR, create_sessionmaker
 from basis.storage import GcsStorage, LocalStorage, Storage
+from basis.storage.base import CONTENT_LENGTH_RANGE_HEADER
 from basis.temporal.client import connect, temporal_configured
 from basis.temporal.service import TemporalWorkflowService, WorkflowService
 
@@ -83,20 +85,31 @@ def install_database(app: FastAPI, sessionmaker: async_sessionmaker[AsyncSession
     app.state.idempotency_store = PostgresIdempotencyStore(sessionmaker)
 
 
-def install_cors(app: FastAPI, settings: Settings) -> None:
+def local_uploads_enabled(app: FastAPI, settings: Settings) -> bool:
+    """The dev upload route stands in for GCS: local storage, dev or test only."""
+    return isinstance(app.state.storage, LocalStorage) and settings.env in ("dev", "test")
+
+
+def install_cors(app: FastAPI, settings: Settings, *, local_uploads: bool = False) -> None:
     """Answer browser preflights and tag responses for ``CORS_ALLOWED_ORIGINS``.
 
     Outermost, so error responses (401, 413, 429, 5xx problems) carry the headers too and
     the browser shows the frontend the problem instead of an opaque CORS failure. Bearer
-    tokens, not cookies, so credentials stay off.
+    tokens, not cookies, so credentials stay off. With ``local_uploads`` the browser's
+    upload to the dev upload route (a ``PUT`` with the signed content-length range header,
+    as on GCS) is allowed too; deployed stacks never allow it.
     """
     if not settings.cors_allowed_origins:
         return
+    methods, headers = list(CORS_ALLOW_METHODS), list(CORS_ALLOW_HEADERS)
+    if local_uploads:
+        methods.append("PUT")
+        headers.append(CONTENT_LENGTH_RANGE_HEADER)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allowed_origins),
-        allow_methods=list(CORS_ALLOW_METHODS),
-        allow_headers=list(CORS_ALLOW_HEADERS),
+        allow_methods=methods,
+        allow_headers=headers,
         expose_headers=list(CORS_EXPOSE_HEADERS),
         allow_credentials=False,
         max_age=CORS_MAX_AGE_S,
@@ -106,7 +119,10 @@ def install_cors(app: FastAPI, settings: Settings) -> None:
 def default_storage(settings: Settings) -> tuple[Storage, str]:
     if settings.gcs_bucket:
         return GcsStorage(settings.gcs_bucket), settings.gcs_bucket
-    return LocalStorage(LOCAL_STORAGE_DIR), LOCAL_BUCKET
+    return (
+        LocalStorage(LOCAL_STORAGE_DIR, upload_url_base=settings.local_upload_base_url),
+        LOCAL_BUCKET,
+    )
 
 
 def create_app(
@@ -175,9 +191,12 @@ def create_app(
     app.add_middleware(BodySizeLimitMiddleware)
     install_error_handlers(app)
     app.add_middleware(RequestIdMiddleware)
-    install_cors(app, settings)
+    local_uploads = local_uploads_enabled(app, settings)
+    install_cors(app, settings, local_uploads=local_uploads)
 
     app.include_router(health.router)
+    if local_uploads:
+        app.include_router(local_uploads_route.router)
 
     @app.get("/", tags=["ops"], summary="Service name and docs URL")
     async def root() -> dict[str, str]:

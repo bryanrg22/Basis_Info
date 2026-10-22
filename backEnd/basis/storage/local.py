@@ -6,6 +6,11 @@ URL, and :meth:`LocalStorage.put_signed` plays the browser's PUT, enforcing what
 enforces for a V4 signed URL with a content-length range (expiry, exact size, the signed
 ``Content-Type``). :meth:`LocalStorage.write` puts bytes directly.
 
+With ``upload_url_base`` (a local dev stack, ``LOCAL_UPLOAD_BASE_URL``) the signed URL is
+an http URL on the API instead, ``<base>/dev/local-uploads/<token>``, which a browser can
+PUT to; the API's dev-only route (:mod:`basis.api.local_uploads`) hands the request to
+:meth:`LocalStorage.put_signed` with the same checks.
+
 Checksums are computed the way GCS reports them (base64 CRC32C and MD5), so code that
 compares them behaves the same against both backends. File I/O is synchronous; this
 backend is for tests and small local files only.
@@ -35,6 +40,7 @@ from basis.storage.base import (
 )
 
 LOCAL_UPLOAD_SCHEME: Final = "local-upload://"
+LOCAL_UPLOAD_PATH: Final = "/dev/local-uploads/"
 
 
 def crc32c_b64(data: bytes) -> str:
@@ -59,9 +65,18 @@ class _PendingUpload:
 
 
 class LocalStorage:
-    def __init__(self, root_dir: str | Path, *, clock: Callable[[], datetime] = _utcnow) -> None:
+    def __init__(
+        self,
+        root_dir: str | Path,
+        *,
+        clock: Callable[[], datetime] = _utcnow,
+        upload_url_base: str | None = None,
+    ) -> None:
         self._root = Path(root_dir).resolve()
         self._clock = clock
+        self._upload_prefix = (
+            f"{upload_url_base.rstrip('/')}{LOCAL_UPLOAD_PATH}" if upload_url_base else None
+        )
         self._uploads: dict[str, _PendingUpload] = {}
         self._content_types: dict[str, str] = {}
 
@@ -82,8 +97,9 @@ class LocalStorage:
         token = secrets.token_urlsafe(24)
         expires_at = self._clock() + expires
         self._uploads[token] = _PendingUpload(uri, content_type, size, expires_at)
+        prefix = self._upload_prefix or LOCAL_UPLOAD_SCHEME
         return SignedUpload(
-            url=f"{LOCAL_UPLOAD_SCHEME}{token}",
+            url=f"{prefix}{token}",
             expires_at=expires_at,
             headers={"Content-Type": content_type, CONTENT_LENGTH_RANGE_HEADER: f"{size},{size}"},
         )
@@ -126,9 +142,17 @@ class LocalStorage:
         expired URL, a ``Content-Type`` or content-length-range header that differs from
         the signed one, or a body whose size is outside the signed range.
         """
-        if not url.startswith(LOCAL_UPLOAD_SCHEME):
+        if url.startswith(LOCAL_UPLOAD_SCHEME):
+            token = url[len(LOCAL_UPLOAD_SCHEME) :]
+        elif self._upload_prefix is not None and url.startswith(self._upload_prefix):
+            token = url[len(self._upload_prefix) :]
+        else:
             raise UploadRejected("not a local signed URL")
-        upload = self._uploads.get(url[len(LOCAL_UPLOAD_SCHEME) :])
+        return self.put_signed_token(token, data, headers)
+
+    def put_signed_token(self, token: str, data: bytes, headers: Mapping[str, str]) -> str:
+        """:meth:`put_signed` for the token alone (the dev upload route's path parameter)."""
+        upload = self._uploads.get(token)
         if upload is None:
             raise UploadRejected("unknown signed URL")
         if self._clock() >= upload.expires_at:

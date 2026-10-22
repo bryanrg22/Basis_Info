@@ -1,0 +1,62 @@
+/* Live mode only (html[data-basis-mode="live"]): elements the design does not have yet.
+   Everything else reuses the design's classes, so restyling the design restyles live mode. */
+.live-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.live-badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;background:var(--forest);color:#fff;font-size:11px;font-weight:600;letter-spacing:.02em}
+.live-mock-tag{display:inline-flex;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--amber-wash,#fbf1e1);color:var(--amber,#875820);font-size:10px;font-weight:600;vertical-align:middle}
+.live-splash{min-height:60vh;display:grid;place-content:center;gap:16px}
+.live-state{display:flex;align-items:center;gap:12px;padding:28px;color:var(--muted);flex-wrap:wrap}
+.live-state.is-error{flex-direction:column;align-items:flex-start;border:1px solid var(--line);border-radius:var(--radius,12px);background:var(--paper,#fff);color:var(--ink)}
+.live-state.is-error p{color:var(--muted);margin:0}
+.live-spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--forest);animation:live-spin .8s linear infinite}
+@keyframes live-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.live-spinner{animation:none}}
+.live-login-form{margin-top:28px;padding-top:22px;border-top:1px solid var(--line);display:grid;gap:12px}
+.live-login-form h3{font-size:14px}
+.live-login-error{margin-top:14px;color:var(--red,#a33);font-size:13px}
+.live-upload-progress{margin-top:20px}
+.live-upload-error{color:var(--red,#a33);font-size:13px;margin:12px 0}
+.live-upload-failed{font-size:12px;color:var(--muted);margin:8px 0 0 18px}
+.live-field-section{padding:14px 18px 6px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.live-critical{color:var(--amber,#875820)}
+.live-pdf-page{display:grid;justify-items:center;align-content:start;gap:8px;padding:12px;overflow:auto}
+.live-pdf-page canvas{max-width:100%;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.12)}
+.live-corrections{margin-top:6px;font-size:12px}
+.live-corrections ul{margin:6px 0 0;padding-left:16px;display:grid;gap:4px}
+.live-corrections li{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.live-room-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 12px}
+.live-inventory{margin-top:16px}
+.live-inventory small,.live-edited{color:var(--amber,#875820)}
+.live-photo-missing{display:grid;place-content:center;aspect-ratio:4/3;background:var(--wash,#f3f5f2);color:var(--muted);font-size:12px}
+.live-files-heading{margin:26px 0 12px;font-size:15px}
+.live-files-heading span{color:var(--muted);font-weight:400}
+/* The photo component page */
+.live-photo-canvas{position:relative;user-select:none}
+.live-photo-canvas img{cursor:crosshair}/* size and fit come from the design (.photo-canvas>img) */
+.live-photo-canvas.is-adding img{cursor:copy}
+.live-mask-canvas{position:absolute;pointer-events:none}
+.live-box-band{position:absolute;border:2px dashed #fff;background:rgba(163,230,140,.18);box-shadow:0 0 0 1px rgba(0,0,0,.35);pointer-events:none}
+.live-mode-switch{display:inline-flex;gap:4px}
+.live-add-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--wash,#f3f5f2);font-size:12px}
+.live-add-bar label{display:flex;gap:6px;align-items:center}
+.live-instances{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
+.live-instances button{display:flex;align-items:center;gap:8px;width:100%;padding:5px 6px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.live-instances button:hover,.live-instances button:focus-visible{background:var(--wash,#f3f5f2)}
+.live-instances .small{margin-left:auto}
+.live-pin{display:inline-grid;place-content:center;width:20px;height:20px;border-radius:50%;border:2px solid var(--forest);font-size:10px;font-weight:600;color:var(--forest);background:#fff}
+.live-swatch{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:baseline}
+.live-instance-detail{padding:14px 18px;display:grid;gap:4px}
+.live-instance-detail .button{margin-top:14px;justify-self:start}
+.live-citations{display:grid;gap:12px;margin-top:10px}
+.live-citation{border:1px solid var(--line);border-radius:10px;padding:12px}
+.live-citation blockquote{margin:8px 0;font-size:12px;line-height:1.5;color:var(--ink)}
+.live-citation>.row{align-items:flex-start;gap:12px}.live-citation .badge{flex:none}
+.live-citation-section{margin:2px 0 0}
+.live-evidence-photo{margin:12px 0}
+.live-evidence-photo .photo-canvas{position:relative}
+.live-evidence-photo img{display:block;width:100%;height:auto}
+/* Real photos list many components (13 types, 38 instances on one kitchen photo); the
+   mock has four. Keep the photo at the top and scroll the list inside its panel. */
+.live-workbench{align-items:start}
+.live-workbench .photo-stage{justify-content:flex-start}
+.live-workbench .object-aside{position:sticky;top:12px;max-height:calc(100vh - 24px);display:flex;flex-direction:column}
+.live-workbench .object-list{overflow:auto;min-height:0;flex:1}

@@ -135,3 +135,11 @@ backEnd/files/*
 !backEnd/files/README.md
 # Service-account keys are mounted at runtime; never tracked
 backEnd/credentials/
+
+# web/ design photos: listing-style images of unknown license from the legacy example data;
+# kept locally only (web/README.md says where to copy them from).
+web/assets/bedroom.webp
+web/assets/exterior.webp
+web/assets/kitchen.webp
+web/assets/kitchen-detail.webp
+web/assets/living.webp
