@@ -8,8 +8,11 @@
  * Routes: #<screen>/<study id>[/<document id>], e.g. #rooms/3f2c.../ or #viewer/<id>/<doc>.
  * Live actions use data-live="..." attributes, handled here before the design's handlers.
  *
- * MOCK-ONLY in live mode (no API yet): team & owner admin, invitations, editing presence,
- * study drafts, activity history, creator names, client name and address, cost sources.
+ * Firms (live/live-team.js): after sign-in GET /v1/me decides the screen (Live.gate): the
+ * "not a member" screen, the join screen, or the app in the current firm; #team is live.
+ *
+ * MOCK-ONLY in live mode (no API yet): the owner overview, editing presence, study drafts,
+ * activity history, creator names, client name and address, cost sources.
  */
 (function(){
  'use strict';
@@ -107,6 +110,9 @@
   if(!L.user&&!PUBLIC.has(state.screen)){L.returnTo=location.hash||'#dashboard';state.screen='login'}
   if(L.user&&state.screen==='login'){state.screen='dashboard';history.replaceState(null,'','#dashboard')}
   if(state.screen!=='processing')stopPolling();
+  // Firms: no firm yet, or an invitation to answer, replaces the app (live/live-team.js).
+  const gated=L.user&&Live.gate?Live.gate():'';
+  if(gated){root.innerHTML=liveBar()+gated;document.title='Basis · Firm access';return}
   if(L.user)revalidateOnEntry();
   baseRender();
   afterRender();
@@ -121,7 +127,7 @@
    for(const el of root.querySelectorAll('.account .avatar, .account-menu .avatar'))el.textContent=initials;
    for(const el of root.querySelectorAll('.account .account-role'))el.textContent='Signed in';
    root.querySelector('#account-menu-trigger')?.setAttribute('aria-label',who+' — account menu');}
-  for(const link of root.querySelectorAll('aside a[href="#activity"], aside a[href="#team"], aside a[href="#admin"]'))if(!link.querySelector('.live-mock-tag'))link.insertAdjacentHTML('beforeend','<span class="live-mock-tag" title="Not connected to the API yet: sample data">Mock</span>');
+  for(const link of root.querySelectorAll('aside a[href="#activity"], aside a[href="#admin"]'))if(!link.querySelector('.live-mock-tag'))link.insertAdjacentHTML('beforeend','<span class="live-mock-tag" title="Not connected to the API yet: sample data">Mock</span>');
   const crumb=root.querySelector('.breadcrumbs .strong');if(crumb&&L.study&&['appraisal','rooms','viewer','assets','asset-detail','complete','processing','files'].includes(state.screen))crumb.textContent=L.study.property_name;
   for(const meta of root.querySelectorAll('.topbar .right-meta'))meta.innerHTML=L.study&&L.studyId&&state.screen!=='dashboard'&&state.screen!=='library'?`<span>Revision ${L.study.revision}</span>${statusBadge(L.study.status)}`:'';
   hydrateImages();
@@ -131,7 +137,7 @@
  function liveBar(){
   const host=(()=>{try{return new URL(C.apiBase).host}catch{return C.apiBase}})();
   const mock=new URL(location.href);mock.searchParams.delete('mode');
-  return `<div class="reviewbar live-bar"><div class="row"><strong>Basis</strong><span class="live-badge">Live</span><span class="small">API ${esc(host)}${C.firebase.emulatorHost?' · Auth emulator':''}</span></div><div class="row">${L.user?`<span class="small">${esc(L.user.email||L.user.displayName||'Signed in')}</span><button class="button quiet small" data-live="sign-out">Sign out</button>`:''}<a href="${esc(mock.toString())}">Design review (mock)</a></div></div>`;
+  return `<div class="reviewbar live-bar"><div class="row"><strong>Basis</strong><span class="live-badge">Live</span><span class="small">API ${esc(host)}${C.firebase.emulatorHost?' · Auth emulator':''}</span></div><div class="row">${L.user&&Live.barExtra?Live.barExtra():''}${L.user?`<span class="small">${esc(L.user.email||L.user.displayName||'Signed in')}</span><button class="button quiet small" data-live="sign-out">Sign out</button>`:''}<a href="${esc(mock.toString())}">Design review (mock)</a></div></div>`;
  }
  reviewbar=liveBar;
  // Study drafts are mock-only: their leave-page guard must not hold up live navigation.
@@ -157,8 +163,11 @@
   return `<div class="collection-table-wrap"><table class="collection-table"><caption class="sr-only">Studies</caption><thead><tr><th scope="col">Study</th><th scope="col">Status</th><th scope="col">Revision</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>${rows.map(s=>`<tr><td class="collection-study-cell"><a class="collection-entry" href="${Live.route(nextScreen(s),s.id)}"><span><strong>${esc(s.property_name)}</strong><span class="collection-address">${esc(STAGE[s.current_stage]||s.current_stage)}${s.failure_reason?' · '+esc(s.failure_reason):''}</span></span></a></td><td class="collection-state-cell">${deskStatus(s)}</td><td class="num">${s.revision}</td><td class="collection-date-cell"><time datetime="${esc(s.updated_at)}">${Live.when(s.updated_at)}</time></td><td class="collection-open-cell"><a class="collection-open" href="${Live.route(nextScreen(s),s.id)}" aria-label="Open ${esc(s.property_name)}"><span>${s.status==='waiting_review'?'Review':s.status==='completed'?'View schedule':'Open'}</span>${icon('arrow',17)}</a></td></tr>`).join('')||`<tr><td colspan="5"><div class="collection-empty">${icon('search',28)}<h2>${L.studies?.length?'No matching studies':'No studies yet'}</h2><p>${L.studies?.length?'Try another name or status.':'Start a study to upload an appraisal and property photos.'}</p>${L.studies?.length?'':`<a class="button primary" href="#upload">${icon('plus',15)}Start a study</a>`}</div></td></tr>`}</tbody></table></div>`;
  }
  function studiesView(title,subtitle){
-  const e=studiesEntry();if(!e.done)return Live.loading('Loading your studies…');if(e.error)return Live.failed(e.error,'reload-studies');
-  L.studies=e.data;const q=L.studiesQuery.trim().toLowerCase();
+  const e=studiesEntry();if(!e.done)return Live.loading('Loading your studies…');
+  // Removed from the firm meanwhile: re-read /v1/me (the gate then explains) and the list.
+  if(e.error?.kind==='no-firm'){Live.invalidate('studies');Live.refreshMe?.();return Live.loading('Checking your firm…')}
+  if(e.error)return Live.failed(e.error,'reload-studies');
+  L.studies=Live.firmStudies?Live.firmStudies(e.data):e.data;const q=L.studiesQuery.trim().toLowerCase();
   const matched=L.studies.filter(s=>!q||s.property_name.toLowerCase().includes(q));
   const rows=matched.filter(FILTERS[L.studiesFilter]).sort((a,b)=>L.studiesSort==='name'?a.property_name.localeCompare(b.property_name):L.studiesSort==='oldest'?a.updated_at.localeCompare(b.updated_at):b.updated_at.localeCompare(a.updated_at));
   const ready=L.studies.filter(s=>s.status==='waiting_review');
@@ -204,7 +213,7 @@
   for(const job of jobs)if(!run.files.has(job.item.key))run.files.set(job.item.key,{name:job.item.name,kind:job.kind,progress:0,state:'waiting',key:BasisApi.newKey(),doc:null});
   render();
   try{
-   if(!run.studyId){const study=await api.createStudy({property_name:run.name,room_aliases:{}},run.key);run.studyId=study.id;L.studyId=study.id;Live.invalidate('studies')}
+   if(!run.studyId){const body={property_name:run.name,room_aliases:{}},study=await api.createStudy(Live.createBody?Live.createBody(body):body,run.key);run.studyId=study.id;L.studyId=study.id;Live.invalidate('studies')}
    const pending=jobs.filter(j=>run.files.get(j.item.key).state!=='done');let next=0;
    async function worker(){
     while(next<pending.length){
@@ -291,6 +300,7 @@
    case 'create-account':emailSignIn(true);break;
    case 'sign-out':await BasisAuth.signOut();L.cache.clear();L.blobReady.forEach(url=>URL.revokeObjectURL(url));L.blobReady.clear();L.blobs.clear();L.study=null;L.studyId=null;sessionStorage.removeItem('basis-live-study');location.hash='#login';render();break;
    case 'reload-studies':studiesEntry(true);break;
+   case 'reload-me':Live.refreshMe?.();break;
    case 'reload-study':Live.reloadStudy();break;
    case 'studies-filter':L.studiesFilter=value;render();break;
    case 'open-doc':Live.openDocument(value);break;
@@ -313,7 +323,8 @@
  root.addEventListener('change',e=>{if(e.target.id==='live-study-sort'){L.studiesSort=e.target.value;render()}},true);
 
  /* ---------- start ---------- */
- BasisAuth.onChange(user=>{L.user=user;if(L.authReady)render()});
+ // Another account signed in: nothing cached for the previous one may show.
+ BasisAuth.onChange(user=>{if(L.user&&user?.uid!==L.user.uid)L.cache.clear();L.user=user;if(L.authReady)render()});
  BasisAuth.init(C.firebase).then(()=>{L.authReady=true;L.user=BasisAuth.user;L.authError=BasisAuth.redirectError||'';const back=sessionStorage.getItem('basis-live-return');sessionStorage.removeItem('basis-live-return');if(L.user&&back&&/^#(login)?$/.test(location.hash||'#')){location.hash=back}render()},e=>{L.authError=`The Firebase SDK could not load (${e.message}). Check the network connection.`;render()});
  render();
 })();

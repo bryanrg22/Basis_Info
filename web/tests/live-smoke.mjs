@@ -3,13 +3,20 @@
  *
  *   docker compose -f docker-compose.yml -f docker-compose.web.yml up --build -d
  *   firebase emulators:start --only auth --project demo-basis
- *   node web/tests/live-smoke.mjs [--api http://127.0.0.1:8000] [--origin http://127.0.0.1:3100] [--start]
+ *   node web/tests/live-smoke.mjs --owner-email owner@example.com [--api http://127.0.0.1:8000] [--origin http://127.0.0.1:3100] [--start]
+ *
+ * Firms are invite-only, so the smoke user needs one. --owner-email (or BASIS_SMOKE_OWNER_EMAIL)
+ * names an owner of a firm in the local database (python -m basis.admin create-firm, then
+ * accepted): the script signs in as that email with the emulator's Google provider, invites a
+ * throwaway emulator user as an engineer, and that user accepts. Without it, it checks that a
+ * new user is refused (403 no-firm) and stops.
  *
  * Uses the browser's API client (web/live/api-client.js) to: sign in to the Auth emulator,
- * check the CORS preflight for the frontend origin, create a study (and replay the create
+ * check the CORS preflight for the frontend origin, join the firm, create a study (and replay the create
  * with the same Idempotency-Key), upload a generated PDF and PNG through signed URLs,
  * confirm them, read the bytes back, check problem+json errors, then archive the study.
- * --start also starts the workflow (it calls the real model providers: costs money).
+ * --start also starts the workflow (it calls the real model providers: costs money). Without it
+ * the smoke user is removed from the firm at the end.
  * Exits non-zero on the first failed check.
  */
 import {createRequire} from 'node:module';
@@ -18,7 +25,7 @@ import {deflateSync} from 'node:zlib';
 const require=createRequire(import.meta.url);
 const {createClient,ApiError}=require('../live/api-client.js');
 const arg=(name,fallback)=>{const i=process.argv.indexOf('--'+name);return i>0?process.argv[i+1]:fallback};
-const API=arg('api','http://127.0.0.1:8000'),ORIGIN=arg('origin','http://127.0.0.1:3100'),EMULATOR=arg('emulator','http://127.0.0.1:9099'),START=process.argv.includes('--start');
+const OWNER=arg('owner-email',process.env.BASIS_SMOKE_OWNER_EMAIL||''),API=arg('api','http://127.0.0.1:8000'),ORIGIN=arg('origin','http://127.0.0.1:3100'),EMULATOR=arg('emulator','http://127.0.0.1:9099'),START=process.argv.includes('--start');
 let passed=0;
 const check=(ok,what)=>{if(!ok){console.error(`✖ ${what}`);process.exit(1)}passed++;console.log(`✔ ${what}`)};
 
@@ -45,16 +52,39 @@ async function emulatorToken(){
  return (await r.json()).idToken;
 }
 
-const token=await emulatorToken();check(Boolean(token),'signed in to the Auth emulator');
+// The emulator's Google provider: an unsigned id_token is accepted, and its email is verified.
+async function googleToken(email){
+ const idToken=JSON.stringify({sub:`smoke-${createHash('sha256').update(email).digest('hex').slice(0,20)}`,email,email_verified:true});
+ const r=await fetch(`${EMULATOR}/identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=demo-api-key`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({postBody:`id_token=${encodeURIComponent(idToken)}&providerId=google.com`,requestUri:'http://localhost',returnIdpCredential:true,returnSecureToken:true})});
+ if(!r.ok)throw new Error(`Auth emulator signInWithIdp failed (${r.status})`);
+ return (await r.json()).idToken;
+}
+
+const stranger=createClient({baseUrl:API,getToken:async()=>await emulatorToken()});
+const refused=await stranger.listStudies().catch(e=>e);
+check(refused instanceof ApiError&&refused.status===403&&refused.kind==='no-firm','a user in no firm is refused (403 no-firm)');
+if(!OWNER){console.log(`\n${passed} checks passed. Pass --owner-email <a firm owner> for the study checks (web/README.md).`);process.exit(0)}
+
+const ownerToken=await googleToken(OWNER),owner=createClient({baseUrl:API,getToken:async()=>ownerToken});
+const firm=(await owner.me()).memberships.find(m=>m.role==='owner');
+check(Boolean(firm),`${OWNER} is an owner of a firm (${firm?.org_name})`);
+const smokeEmail=`smoke-${randomUUID().slice(0,8)}@example.test`,token=await googleToken(smokeEmail);
+check(Boolean(token),'signed in to the Auth emulator');
 const api=createClient({baseUrl:API,getToken:async()=>token});
+await owner.invite(firm.org_id,{email:smokeEmail,role:'engineer'});
+const invitation=(await api.me()).pending_invitations.find(i=>i.org_id===firm.org_id);
+check(Boolean(invitation),'the smoke user sees the invitation in /v1/me');
+const joined=await api.acceptInvitation(invitation.id);
+check(joined.membership?.role==='engineer','the smoke user accepted and is an engineer of the firm');
+const me=await api.me();
 
 const pre=await fetch(`${API}/v1/studies`,{method:'OPTIONS',headers:{Origin:ORIGIN,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type,idempotency-key'}});
 check(pre.ok&&pre.headers.get('access-control-allow-origin')===ORIGIN,`CORS preflight allows ${ORIGIN} (set CORS_ALLOWED_ORIGINS)`);
 
 const key=randomUUID(),name=`Smoke test ${new Date().toISOString()}`;
-const study=await api.createStudy({property_name:name,room_aliases:{}},key);
+const study=await api.createStudy({property_name:name,room_aliases:{},org_id:firm.org_id},key);
 check(study.id&&study.status==='draft'&&study.current_stage==='uploading','created a draft study');
-const replay=await api.createStudy({property_name:name,room_aliases:{}},key);
+const replay=await api.createStudy({property_name:name,room_aliases:{},org_id:firm.org_id},key);
 check(replay.id===study.id,'replaying the create with the same Idempotency-Key returns the same study');
 check((await api.listStudies()).items.some(s=>s.id===study.id),'the study is in the list');
 
@@ -84,6 +114,9 @@ if(START){
  const started=await api.start(study.id);check(Boolean(started.workflow_id),'started the workflow (real providers)');
  const w=await api.workflow(study.id);check(Boolean(w.execution_status),`the workflow reports ${w.execution_status}`);
 }else{
- const archived=await api.archiveStudy(study.id);check(archived.status==='archived','archived the smoke-test study');
+ const archived=await owner.archiveStudy(study.id);check(archived.status==='archived','archived the smoke-test study (owner)');
+ await owner.removeMember(firm.org_id,me.user.id);
+ const gone=await api.getStudy(study.id).catch(e=>e);
+ check(gone instanceof ApiError&&gone.status===404,'removed from the firm, the smoke user no longer sees the study');
 }
 console.log(`\n${passed} checks passed against ${API}`);

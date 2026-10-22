@@ -13,13 +13,18 @@ from basis.api.routes.common import problems, read_router, write_router
 from basis.api.schemas.documents import DocumentOut
 from basis.api.schemas.reviews import ReviewOut
 from basis.api.schemas.studies import StudyCreate, StudyDetail, StudyList, StudyOut
-from basis.api.users import CurrentUser, CurrentUserDep, study_access
+from basis.api.users import (
+    DETAIL_ORG_NOT_FOUND,
+    CurrentUser,
+    CurrentUserDep,
+    require_firm,
+    study_access,
+)
 from basis.db.enums import OrgRole, Stage
 from basis.db.repositories import (
     DocumentRepository,
     ReviewRepository,
     StudyRepository,
-    UserRepository,
     VisibleStudy,
 )
 from basis.db.repositories.study import MAX_PAGE_SIZE
@@ -39,15 +44,16 @@ async def choose_org(
 ) -> uuid.UUID:
     """The org a new study belongs to; the caller needs ``engineer`` or higher there.
 
-    With ``org_id``: 404 when the caller is not a member (orgs are not enumerable), 403
-    when their role is too low. Without it: the single org where they may create studies;
-    422 when there are several (the client must choose), 403 when there are none.
+    No membership at all: 403 ``no-firm``. With ``org_id``: 404 when the caller is not a
+    member (orgs are not enumerable), 403 when their role is too low. Without it: the
+    single org where they may create studies; 422 when there are several (the client must
+    choose), 403 when there are none.
     """
-    memberships = await UserRepository(session).memberships(user.id)
+    memberships = await require_firm(session, user)
     if org_id is not None:
         role = memberships.get(org_id)
         if role is None:
-            raise NotFound("Organization not found.")
+            raise NotFound(DETAIL_ORG_NOT_FOUND)
         if role.rank < CREATE_ROLE.rank:
             raise Forbidden(
                 f"Creating a study needs the {CREATE_ROLE.value} role or higher in the "
@@ -82,7 +88,12 @@ async def create_study(
     return StudyOut.model_validate(study)
 
 
-@reads.get("/studies", summary="List studies visible to you, newest first")
+@reads.get(
+    "/studies",
+    summary="List studies visible to you, newest first",
+    description="403 `no-firm` when you are not a member of any firm (see `GET /v1/me`).",
+    responses=problems(403),
+)
 async def list_studies(
     user: CurrentUserDep,
     session: SessionDep,
@@ -99,6 +110,9 @@ async def list_studies(
     ] = None,
 ) -> StudyList:
     page = await StudyRepository(session).list_for_user(user.id, limit, cursor)
+    if not page.items:
+        # Only a member of no firm at all sees no studies for that reason; tell them so.
+        await require_firm(session, user)
     return StudyList(
         items=[StudyOut.model_validate(study) for study in page.items],
         next_cursor=page.next_cursor,

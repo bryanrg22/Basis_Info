@@ -3,8 +3,13 @@ unique so it cannot collide with the legacy ``tests`` packages).
 
 * :class:`FakeVerifier` replaces Firebase at ``get_token_verifier``, one level below
   ``get_principal``, so header parsing and 401 mapping still run for real. Tokens:
-  ``uid:<uid>`` is that user; ``expired``/``revoked``/anything else is a 401 with the
-  Firebase verifier's own detail text.
+  ``uid:<uid>`` is that user (email ``<uid>@example.test``, verified, unless
+  ``verifier.identities[uid]`` says otherwise); ``expired``/``revoked``/anything else is a
+  401 with the Firebase verifier's own detail text.
+* :func:`build_api_app` gives every user who belongs to no org a firm of their own on
+  their first request (``dbtest_support.ensure_own_firm``), so the study tests keep one
+  firm per user as before firms became invite-only. ``own_firms=False`` is the product's
+  real onboarding (``tests/api/test_firms.py``).
 * :class:`Api` sends requests as a named user and mints a fresh ``Idempotency-Key`` per
   mutation unless one is given.
 * :class:`Seed` writes directly through the repositories for states the API cannot reach
@@ -19,15 +24,16 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
-from dbtest_support import db_settings
+from dbtest_support import db_settings, ensure_own_firm
 from fastapi import FastAPI
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.app import create_app
-from basis.api.auth import get_token_verifier
+from basis.api.auth import CurrentPrincipal, get_token_verifier
 from basis.api.errors import Unauthorized
 from basis.api.idempotency import IDEMPOTENCY_HEADER
+from basis.api.users import CurrentUser, SessionmakerDep, get_current_user
 from basis.auth.firebase import DETAIL_EXPIRED, DETAIL_INVALID, DETAIL_REVOKED, Principal
 from basis.config import Settings
 from basis.db.enums import (
@@ -84,23 +90,46 @@ def build_api_app(
     storage: LocalStorage,
     verifier: FakeVerifier,
     workflows: WorkflowService | None = None,
+    *,
+    own_firms: bool = True,
 ) -> FastAPI:
     """The real app with the database, storage (and optionally Temporal) injected and
-    Firebase faked."""
+    Firebase faked; with ``own_firms`` each new user owns a firm of their own."""
     app = create_app(settings, db_sessionmaker=sessionmaker, storage=storage, workflows=workflows)
     app.dependency_overrides[get_token_verifier] = lambda: verifier
+    if own_firms:
+        app.dependency_overrides[get_current_user] = current_user_with_own_firm
     return app
+
+
+async def current_user_with_own_firm(
+    principal: CurrentPrincipal, sessionmaker: SessionmakerDep
+) -> CurrentUser:
+    """The real ``get_current_user``, then (in its own transaction) a firm if they have none."""
+    current = await get_current_user(principal, sessionmaker)
+    async with session_scope(sessionmaker) as session:
+        await ensure_own_firm(session, current.user)
+    return current
 
 
 class FakeVerifier:
     def __init__(self) -> None:
         self.calls = 0
+        # Per-uid principals for tests that need another email or an unverified one.
+        self.identities: dict[str, Principal] = {}
 
     def verify(self, token: str) -> Principal:
         self.calls += 1
         if token.startswith(TOKEN_PREFIX) and len(token) > len(TOKEN_PREFIX):
             uid = token[len(TOKEN_PREFIX) :]
-            return Principal(uid=uid, email=f"{uid}@example.test", display_name=uid.title())
+            if uid in self.identities:
+                return self.identities[uid]
+            return Principal(
+                uid=uid,
+                email=f"{uid}@example.test",
+                display_name=uid.title(),
+                email_verified=True,
+            )
         if token == "expired":
             raise Unauthorized(DETAIL_EXPIRED)
         if token == "revoked":
@@ -169,13 +198,18 @@ class Seed:
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
         self.sessionmaker = sessionmaker
 
-    async def user(self, uid: str) -> User:
+    async def user(self, uid: str, *, own_firm: bool = True) -> User:
+        """The user, owning a firm of their own unless ``own_firm`` is False."""
         async with session_scope(self.sessionmaker) as session:
-            return await UserRepository(session).upsert_by_firebase_uid(
+            user = await UserRepository(session).upsert_by_firebase_uid(
                 uid, f"{uid}@example.test", uid.title()
             )
+            if own_firm:
+                await ensure_own_firm(session, user)
+            return user
 
     async def personal_org(self, uid: str) -> uuid.UUID:
+        """The firm :meth:`user` gave them (formerly their personal org)."""
         user = await self.user(uid)
         async with session_scope(self.sessionmaker) as session:
             memberships = await UserRepository(session).memberships(user.id)
@@ -190,8 +224,10 @@ class Seed:
             await session.flush()
             return org.id
 
-    async def member(self, org_id: uuid.UUID, uid: str, role: OrgRole) -> None:
-        user = await self.user(uid)
+    async def member(
+        self, org_id: uuid.UUID, uid: str, role: OrgRole, *, own_firm: bool = True
+    ) -> None:
+        user = await self.user(uid, own_firm=own_firm)
         async with session_scope(self.sessionmaker) as session:
             await UserRepository(session).add_membership(org_id, user.id, role)
 

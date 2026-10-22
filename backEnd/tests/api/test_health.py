@@ -140,6 +140,16 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/fields",
         "GET /v1/studies/{study_id}/rooms",
         "GET /v1/studies/{study_id}/assets",
+        # invite-only firms (tests/api/test_firms.py)
+        "GET /v1/me",
+        "GET /v1/orgs/{org_id}/members",
+        "POST /v1/orgs/{org_id}/members/{user_id}/role",
+        "DELETE /v1/orgs/{org_id}/members/{user_id}",
+        "GET /v1/orgs/{org_id}/invitations",
+        "POST /v1/orgs/{org_id}/invitations",
+        "DELETE /v1/orgs/{org_id}/invitations/{invitation_id}",
+        "POST /v1/invitations/{invitation_id}/accept",
+        "POST /v1/invitations/{invitation_id}/decline",
     }
 
 

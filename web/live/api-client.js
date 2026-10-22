@@ -57,8 +57,19 @@
    return {...first,items,next_cursor:null};
   }
   const study=id=>`/v1/studies/${encodeURIComponent(id)}`;
+  const org=id=>`/v1/orgs/${encodeURIComponent(id)}`;
   return {
    request,listAll,url,
+   // Invite-only firms: who you are, your firms and invitations; owner administration.
+   me:()=>request('GET','/v1/me'),
+   members:orgId=>request('GET',`${org(orgId)}/members`),
+   setMemberRole:(orgId,userId,role,key)=>request('POST',`${org(orgId)}/members/${encodeURIComponent(userId)}/role`,{body:{role},key}),
+   removeMember:(orgId,userId,key)=>request('DELETE',`${org(orgId)}/members/${encodeURIComponent(userId)}`,{key}),
+   invitations:orgId=>request('GET',`${org(orgId)}/invitations`),
+   invite:(orgId,body,key)=>request('POST',`${org(orgId)}/invitations`,{body,key}),
+   revokeInvitation:(orgId,id,key)=>request('DELETE',`${org(orgId)}/invitations/${encodeURIComponent(id)}`,{key}),
+   acceptInvitation:(id,key)=>request('POST',`/v1/invitations/${encodeURIComponent(id)}/accept`,{key}),
+   declineInvitation:(id,key)=>request('POST',`/v1/invitations/${encodeURIComponent(id)}/decline`,{key}),
    listStudies:()=>listAll('/v1/studies',{},{limit:100}),
    getStudy:id=>request('GET',study(id)),
    createStudy:(body,key)=>request('POST','/v1/studies',{body,key}),

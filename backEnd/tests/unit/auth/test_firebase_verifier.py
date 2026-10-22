@@ -163,6 +163,18 @@ def test_non_string_optional_claims_are_dropped() -> None:
     assert principal_from_claims({"uid": "u-3", "email": 5, "name": None}) == Principal("u-3")
 
 
+@pytest.mark.parametrize(
+    ("claim", "verified"),
+    [(True, True), (False, False), (None, False), ("true", False), (1, False), ("absent", False)],
+)
+def test_email_verified_only_for_a_json_true(claim: Any, verified: bool) -> None:
+    """Answering a firm invitation needs the email verified; anything but true is not."""
+    claims: dict[str, Any] = {"sub": "u-4", "email": "a@example.com"}
+    if claim != "absent":
+        claims["email_verified"] = claim
+    assert principal_from_claims(claims).email_verified is verified
+
+
 @pytest.mark.parametrize("claims", [{}, {"uid": ""}, {"uid": 7}, {"email": "a@example.com"}])
 def test_claims_without_subject_are_rejected(claims: dict[str, Any]) -> None:
     with pytest.raises(Unauthorized) as caught:

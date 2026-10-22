@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -19,11 +20,17 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from basis.api.errors import Forbidden
+from basis.api.routes.orgs import lock_as_owner
+from basis.api.users import CurrentUser
+from basis.auth.firebase import Principal
 from basis.db.enums import Decision, OrgRole, Stage, StudyStatus
-from basis.db.errors import StaleStateError, constraint_name
-from basis.db.models import Org, OrgMember, OutboxMessage, Review, Study, User
+from basis.db.errors import InvitationClosedError, StaleStateError, constraint_name
+from basis.db.models import Invitation, Org, OrgMember, OutboxMessage, Review, Study, User
 from basis.db.repositories import (
     IdempotencyRepository,
+    InvitationRepository,
+    OrgRepository,
     OutboxRepository,
     ReviewRepository,
     StudyRepository,
@@ -155,7 +162,7 @@ async def test_unique_review_constraint_holds_without_the_transition(
     assert constraint_name(errors[0]) == "uq_reviews_study_id_stage_revision"
 
 
-async def test_concurrent_first_logins_create_one_user_and_one_personal_org(
+async def test_concurrent_first_logins_create_one_user_and_no_org(
     committed: async_sessionmaker[AsyncSession],
 ) -> None:
     async def login(session: AsyncSession) -> User:
@@ -169,9 +176,130 @@ async def test_concurrent_first_logins_create_one_user_and_one_personal_org(
     assert len({user.id for user in users}) == 1
     async with committed() as session:
         assert await session.scalar(select(func.count()).select_from(User)) == 1
-        assert await session.scalar(select(func.count()).select_from(Org)) == 1
-        member = (await session.scalars(select(OrgMember))).one()
-        assert member.role == OrgRole.OWNER.value
+        # Firms are invite-only: signing in creates no org and no membership.
+        assert await session.scalar(select(func.count()).select_from(Org)) == 0
+        assert await session.scalar(select(func.count()).select_from(OrgMember)) == 0
+
+
+async def test_two_owners_demoting_each_other_at_once_leave_one_owner(
+    committed: async_sessionmaker[AsyncSession],
+) -> None:
+    """The route's sequence (lock the firm, re-check the caller is an owner, change the
+    role) in two transactions released together: the second waits for the firm's lock,
+    then finds its caller demoted and is refused. Without the lock both would pass their
+    checks on the same snapshot and leave the firm with no owner."""
+    async with session_scope(committed) as session:
+        make = Factory(session)
+        org = await make.org("Two owners")
+        first, second = await make.user(), await make.user()
+        for user in (first, second):
+            await make.member(org.id, user, OrgRole.OWNER)
+
+    def demote(caller: User, target: User) -> Callable[[AsyncSession], Awaitable[OrgRole]]:
+        async def action(session: AsyncSession) -> OrgRole:
+            principal = Principal(uid=caller.firebase_uid)
+            await lock_as_owner(session, CurrentUser(user=caller, principal=principal), org.id)
+            member = await OrgRepository(session).set_role(org.id, target.id, OrgRole.ENGINEER)
+            return member.role
+
+        return action
+
+    results = await race(committed, demote(first, second), demote(second, first))
+    done, errors = split(results)
+    assert done == [OrgRole.ENGINEER]
+    assert len(errors) == 1 and isinstance(errors[0], Forbidden)
+    async with committed() as session:
+        owners = await session.scalar(
+            select(func.count()).where(OrgMember.org_id == org.id, OrgMember.role == "owner")
+        )
+    assert owners == 1
+
+
+REMOVE_ACCEPT_ROUNDS = 5
+
+
+async def remove_while_accepting(
+    committed: async_sessionmaker[AsyncSession], *, removal_delay: float = 0.0
+) -> str:
+    """One round: an owner removes a member while the member accepts an invitation sent
+    before they joined, released together (the removal after ``removal_delay`` seconds).
+    Returns which went first."""
+    async with session_scope(committed) as session:
+        make = Factory(session)
+        org = await make.org("Remove vs accept")
+        owner = await make.user()
+        await make.member(org.id, owner, OrgRole.OWNER)
+        email = f"m-{uuid.uuid4().hex[:8]}@example.test"
+        invitation = await InvitationRepository(session).create(
+            org.id, email, OrgRole.VIEWER, owner.id, timedelta(days=14)
+        )
+        member = await make.user(email=email)
+        await make.member(org.id, member, OrgRole.ENGINEER)
+    invitation_id = invitation.invitation.id
+
+    async def remove(session: AsyncSession) -> str:
+        await asyncio.sleep(removal_delay)
+        principal = Principal(uid=owner.firebase_uid)
+        await lock_as_owner(session, CurrentUser(user=owner, principal=principal), org.id)
+        await OrgRepository(session).remove(org.id, member.id, owner.id)
+        return "removed"
+
+    async def accept(session: AsyncSession) -> str:
+        await InvitationRepository(session).answer(
+            invitation_id, user_id=member.id, email=email, email_verified=True, accept=True
+        )
+        return "accepted"
+
+    results = await asyncio.wait_for(race(committed, remove, accept), timeout=15)
+    done, errors = split(results)
+    assert "removed" in done, errors  # the removal never fails
+    assert all(isinstance(e, InvitationClosedError) for e in errors), errors
+    async with committed() as session:
+        row = await session.get(Invitation, invitation_id)
+        membership = await OrgRepository(session).role_of(org.id, member.id)
+    assert row is not None and membership is None  # the user ends outside the firm
+    if errors:  # the removal came first: revoked by the owner, the accept refused
+        assert errors[0].status == "revoked"  # type: ignore[attr-defined]
+        assert row.revoked_at is not None and row.revoked_by == owner.id
+        assert row.accepted_at is None
+        return "removal first"
+    # The accept came first: accepted, then the removal ended it; nothing left to revoke.
+    assert row.accepted_by == member.id and row.revoked_at is None
+    return "accept first"
+
+
+async def test_removing_a_member_while_they_accept_ends_consistent(
+    committed: async_sessionmaker[AsyncSession],
+) -> None:
+    """Removal and acceptance both take the firm's lock first (then the invitation), so they
+    run one after the other and never deadlock, and the end state agrees with itself
+    whichever won: the user is outside the firm, and the invitation is either revoked
+    (the accept was refused) or accepted (before the removal)."""
+    outcomes = [await remove_while_accepting(committed) for _ in range(REMOVE_ACCEPT_ROUNDS)]
+    assert set(outcomes) <= {"removal first", "accept first"}
+    # The accept reads the invitation's firm before locking it, so the removal usually
+    # wins; let the accept start first to cover the other order too.
+    later = await remove_while_accepting(committed, removal_delay=0.1)
+    assert later == "accept first"
+
+
+async def test_removing_a_member_while_a_slow_accept_holds_the_invitation(
+    committed: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The interleaving that deadlocked before the accept took the firm lock: the accept
+    reads (and locked) the invitation, then pauses before granting the membership; the
+    removal meanwhile deletes the membership and updates the invitation. Lock order
+    invitation-then-membership against membership-then-invitation is a deadlock
+    (PostgreSQL aborts one). With the firm lock first in both, the second simply waits."""
+    grant = UserRepository.grant_membership
+
+    async def slow_grant(self: UserRepository, *args: Any) -> OrgRole:
+        await asyncio.sleep(0.3)
+        return await grant(self, *args)
+
+    monkeypatch.setattr(UserRepository, "grant_membership", slow_grant)
+    outcomes = [await remove_while_accepting(committed) for _ in range(3)]
+    assert set(outcomes) <= {"removal first", "accept first"}
 
 
 async def test_concurrent_idempotency_claims_have_one_owner(

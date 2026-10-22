@@ -14,7 +14,7 @@ from typing import Any
 
 import asyncpg
 from alembic.config import Config
-from sqlalchemy import text, update
+from sqlalchemy import select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -50,6 +50,26 @@ async def execute_admin(database_url: str, *statements: str) -> None:
         await connection.close()
 
 
+async def ensure_own_firm(session: AsyncSession, user: User) -> None:
+    """Give a user who belongs to no org a firm of their own, as its owner.
+
+    Firms are invite-only (a new user joins no org), but most tests are about studies,
+    not onboarding: their users start as the owner of their own firm, as if its admin had
+    invited them, so two test users are in different firms unless a test adds them to one.
+    The user's row lock makes concurrent first requests create one firm. The onboarding
+    tests (``tests/api/test_firms.py``) build their app without this.
+    """
+    await session.execute(select(User.id).where(User.id == user.id).with_for_update())
+    if await UserRepository(session).memberships(user.id):
+        return
+    owner = (user.display_name or "").strip() or user.email or user.firebase_uid
+    org = Org(name=f"{owner} (test firm)")
+    session.add(org)
+    await session.flush()
+    session.add(OrgMember(org_id=org.id, user_id=user.id, role=OrgRole.OWNER.value))
+    await session.flush()
+
+
 def db_settings(database_url: str, **overrides: Any) -> Settings:
     """Settings for the test database (BASIS_ENV=test comes from tests/conftest.py)."""
     return Settings(_env_file=None, database_url=database_url, **overrides)
@@ -68,12 +88,16 @@ class Factory:
         self.session = session
 
     async def user(self, uid: str | None = None, email: str | None = None) -> User:
+        """A user who owns a firm of their own (:func:`ensure_own_firm`)."""
         uid = uid or f"uid-{uuid.uuid4().hex}"
-        return await UserRepository(self.session).upsert_by_firebase_uid(
+        user = await UserRepository(self.session).upsert_by_firebase_uid(
             uid, email or f"{uid}@example.test", None
         )
+        await ensure_own_firm(self.session, user)
+        return user
 
     async def personal_org_id(self, user: User) -> uuid.UUID:
+        """The firm :meth:`user` gave the user (formerly their personal org)."""
         memberships = await UserRepository(self.session).memberships(user.id)
         owned = [org_id for org_id, role in memberships.items() if role is OrgRole.OWNER]
         assert len(owned) == 1

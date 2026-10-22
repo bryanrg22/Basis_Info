@@ -16,13 +16,15 @@ Shape (``application/problem+json``)::
 
 Repository exceptions (``basis.db.errors``) are mapped here, once, by
 :func:`as_api_error`: ``NotVisibleError`` -> 404, ``ConflictError`` and its subclasses ->
-409, ``InvalidCursorError`` -> 422; a pool checkout timeout (``sqlalchemy.exc.TimeoutError``)
--> 503 with ``Retry-After``; an unreachable database (``DatabaseUnavailableError``, which
-the engine raises only while establishing a connection) -> 503 with ``Retry-After``. Errors
-on an established connection (a failing query) are not mapped and stay a 500. Routes raise
-the repository errors as they are; the same mapping is used by the exception handlers and
-by ``IdempotentRoute`` (so a mapped 4xx is stored and replayed like any other deliberate
-4xx).
+409 (firm invitations and memberships: ``last-owner``, ``already-member``,
+``invitation-pending``, ``invitation-<status>``), ``EmailUnverifiedError`` -> 403
+``email-unverified``, ``InvalidCursorError`` -> 422; a pool checkout timeout
+(``sqlalchemy.exc.TimeoutError``) -> 503 with ``Retry-After``; an unreachable database
+(``DatabaseUnavailableError``, which the engine raises only while establishing a
+connection) -> 503 with ``Retry-After``. Errors on an established connection (a failing
+query) are not mapped and stay a 500. Routes raise the repository errors as they are; the
+same mapping is used by the exception handlers and by ``IdempotentRoute`` (so a mapped 4xx
+is stored and replayed like any other deliberate 4xx).
 
 Unexpected exceptions never reach the client: :class:`UnhandledErrorMiddleware` logs
 them with ``stack_trace`` and the request id, and answers a generic 500.
@@ -46,12 +48,17 @@ from starlette.routing import Match, compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from basis.db.errors import (
+    AlreadyMemberError,
     ConflictError,
     DatabaseUnavailableError,
     DuplicateDocumentError,
     DuplicateKeyError,
+    EmailUnverifiedError,
     GateNotOpenError,
     InvalidCursorError,
+    InvitationClosedError,
+    InvitationPendingError,
+    LastOwnerError,
     NotVisibleError,
     RepositoryError,
     StaleStateError,
@@ -179,8 +186,8 @@ class Forbidden(ApiError):
     title = "Forbidden"
     type_suffix = "forbidden"
 
-    def __init__(self, detail: str) -> None:
-        super().__init__(detail=detail)
+    def __init__(self, detail: str, *, type_suffix: str | None = None) -> None:
+        super().__init__(detail=detail, type_suffix=type_suffix)
 
 
 class NotFound(ApiError):
@@ -336,6 +343,16 @@ def as_api_error(exc: BaseException) -> ApiError | None:
         return Conflict(str(exc), type_suffix="duplicate-document")
     if isinstance(exc, DuplicateKeyError):
         return Conflict(str(exc), type_suffix="duplicate-key")
+    if isinstance(exc, LastOwnerError):
+        return Conflict(str(exc), type_suffix="last-owner")
+    if isinstance(exc, AlreadyMemberError):
+        return Conflict(str(exc), type_suffix="already-member")
+    if isinstance(exc, InvitationPendingError):
+        return Conflict(str(exc), type_suffix="invitation-pending")
+    if isinstance(exc, InvitationClosedError):
+        return Conflict(str(exc), type_suffix=f"invitation-{exc.status}")
+    if isinstance(exc, EmailUnverifiedError):
+        return Forbidden(str(exc), type_suffix="email-unverified")
     if isinstance(exc, ConflictError):
         return Conflict(str(exc))
     if isinstance(exc, InvalidCursorError):

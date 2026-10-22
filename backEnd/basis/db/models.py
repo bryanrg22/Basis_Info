@@ -212,6 +212,61 @@ class OrgMember(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+# The open (unanswered) invitations: at most one per firm and email. An expired invitation
+# is still open here (an index predicate cannot use now()); re-inviting closes it first.
+INVITATION_OPEN: Final = "accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL"
+
+
+class Invitation(Base):
+    """An invitation to join a firm (migration ``0007_invitations``).
+
+    Bound to an email, not a link: the invitee sees it after signing in with that verified
+    email (``GET /v1/me``) and accepts it in the app. ``email`` is stored normalized
+    (trimmed, lower case). Each outcome records when and by whom (a revocation by the CLI
+    has no ``revoked_by``); at most one outcome is set. The status (pending, accepted,
+    declined, revoked, expired) is derived (``basis.db.repositories.invitation``).
+    ``created_by`` is NULL for invitations issued by the operator CLI
+    (``python -m basis.admin``).
+    """
+
+    __tablename__ = "invitations"
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'engineer', 'viewer')", name="role_valid"),
+        CheckConstraint("email = lower(btrim(email)) AND email <> ''", name="email_normalized"),
+        CheckConstraint("expires_at > created_at", name="expires_after_created"),
+        CheckConstraint("(accepted_at IS NULL) = (accepted_by IS NULL)", name="accepted_by_whom"),
+        CheckConstraint("(declined_at IS NULL) = (declined_by IS NULL)", name="declined_by_whom"),
+        # NULL revoked_by on a revoked row: closed by the operator CLI (re-inviting).
+        CheckConstraint("revoked_by IS NULL OR revoked_at IS NOT NULL", name="revoked_by_whom"),
+        CheckConstraint(
+            "num_nonnulls(accepted_at, declined_at, revoked_at) <= 1", name="one_outcome"
+        ),
+        Index(
+            "uq_invitations_org_id_email_open",
+            "org_id",
+            "email",
+            unique=True,
+            postgresql_where=text(INVITATION_OPEN),
+        ),
+        # GET /v1/me looks invitations up by the caller's email.
+        Index(None, "email"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
+    email: Mapped[str]
+    role: Mapped[str]
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _created_at()
+    expires_at: Mapped[datetime]
+    accepted_at: Mapped[datetime | None]
+    accepted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    declined_at: Mapped[datetime | None]
+    declined_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    revoked_at: Mapped[datetime | None]
+    revoked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+
+
 # --------------------------------------------------------------------- studies, documents
 
 

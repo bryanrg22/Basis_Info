@@ -161,6 +161,18 @@ tooling/load/run_step.sh RUN_DIR 10 0.1
 LLM_CONCURRENCY=64 CLASSIFY_CONCURRENCY=16 tooling/load/run_step.sh RUN_DIR 25 0.1
 ```
 
+Firms are invite-only: a user in no firm gets 403 `no-firm` on every study call. `stack.sh
+up` therefore runs `tooling/load/provision.py` after the database setup: it creates the
+"Load test" firm if missing and gives `load-eng-0` .. `load-eng-<LOAD_USERS-1>` an engineer
+membership directly in the stack's database, through the repositories (no HTTP route;
+`run_step.sh` sets `LOAD_USERS` to the step's study count, at least 50). Run it by hand
+for a bigger reader pool:
+
+```bash
+# DATABASE_URL: the load stack's (the default in tooling/load/stack.sh)
+cd backEnd && BASIS_ENV=dev DATABASE_URL=... .venv/bin/python ../tooling/load/provision.py --users 200
+```
+
 `run_step.sh` restarts the host processes with the step's settings (`stack.sh`), starts
 the sampler, runs Locust until the target number of studies finished, stops everything
 and prints `report.py`'s summary (also `summary.json`, the Locust CSVs, `studies.jsonl`,
@@ -195,7 +207,9 @@ Against staging (no local processes; the stack is Cloud Run + Cloud SQL + Tempor
 Firebase ID tokens (`TOKEN_FILE`, a JSON `{uid: token}` minted by
 `tooling/load/mint_tokens.py`, which creates the `load-eng-<n>` test users in the
 project) because the API refuses the auth emulator outside dev and test, and uploads go
-to the GCS signed URLs. The staging worker runs the real providers, so a study step there
+to the GCS signed URLs. Those users also need a firm: once per deployed database, an
+operator with database access (Cloud SQL proxy) runs `tooling/load/provision.py --users N`
+against it with the same uids (`run_remote.sh` has no database access and does not). The staging worker runs the real providers, so a study step there
 costs about $6.40 a study: run the API steps with `--upload-only` (create, upload,
 confirm; never start) at any concurrency, and the study steps small and capped.
 

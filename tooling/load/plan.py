@@ -126,6 +126,25 @@ def unique_bytes(data: bytes, tag: str) -> bytes:
     return data + b"\n" + TRAILER_MAGIC + tag.encode("ascii") + b"\n"
 
 
+# The load-test engineers: ``<prefix>-0`` ... ``<prefix>-<n-1>`` (locustfile.py signs in as
+# them; provision.py gives them a firm), with the email and name their tokens assert.
+LOAD_UID_PREFIX = "load-eng"
+LOAD_DISPLAY_NAME = "Load Test Engineer"
+LOAD_FIRM = "Load test"
+
+
+def load_uids(prefix: str, count: int) -> List[str]:
+    """The uids of ``count`` load-test engineers."""
+    if count < 0:
+        raise ValueError("count must not be negative")
+    return [f"{prefix}-{n}" for n in range(count)]
+
+
+def load_email(uid: str) -> str:
+    """The email a load-test engineer's token asserts (and provision.py stores)."""
+    return f"{uid}@example.test"
+
+
 def _segment(value: dict) -> str:
     return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
 
@@ -141,8 +160,8 @@ def emulator_token(uid: str, project: str, *, now: Optional[int] = None, ttl: in
         "iat": issued,
         "exp": issued + ttl,
         "auth_time": issued,
-        "email": f"{uid}@example.test",
-        "name": "Load Test Engineer",
+        "email": load_email(uid),
+        "name": LOAD_DISPLAY_NAME,
     }
     return f"{_segment({'alg': 'none', 'typ': 'JWT'})}.{_segment(claims)}."
 

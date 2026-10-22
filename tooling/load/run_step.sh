@@ -20,6 +20,8 @@ mode="${4:-fake}"
 mkdir -p "$run_dir"
 run_dir="$(cd "$run_dir" && pwd)"
 export LOAD_LATENCY_SCALE="$scale"
+# One load-test engineer per concurrent study; stack.sh gives them a firm (provision.py).
+export LOAD_USERS="${LOAD_USERS:-$(( studies > 50 ? studies : 50 ))}"
 API_PORT="${API_PORT:-8161}"
 
 "$HERE/stack.sh" up "$run_dir" "$mode"

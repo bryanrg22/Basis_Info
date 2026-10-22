@@ -45,11 +45,14 @@ DESCRIPTION: Final = """\
 Basis cost segregation API.
 
 **Authentication.** Every `/v1` route needs `Authorization: Bearer <Firebase ID token>`.
-A user (with a personal organization) is created on first sight.
+A user is created on first sight, in no organization: firms are invite-only.
+`GET /v1/me` lists your firms and the invitations waiting for your verified email; until
+you accept one, the study list and study creation answer 403 `no-firm`.
 
-**Authorization.** Studies belong to organizations. A study you are not a member of is
-404, not 403; a study you can see but whose action needs a higher role
-(viewer < engineer < owner) is 403.
+**Authorization.** Studies belong to organizations (firms). A study or firm you are not a
+member of is 404, not 403; one you can see but whose action needs a higher role
+(viewer < engineer < owner) is 403. Owners administer their firm under
+`/v1/orgs/{org_id}`: members, roles and invitations.
 
 **Idempotency.** `POST` and `DELETE` need an `Idempotency-Key` header (a UUID is
 recommended). Retrying with the same key and body replays the stored response with

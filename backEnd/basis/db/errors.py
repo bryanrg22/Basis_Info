@@ -1,7 +1,8 @@
 """Domain exceptions raised by the repositories.
 
 They carry no HTTP knowledge; the API maps them (suggested: ``NotVisibleError`` -> 404,
-``ConflictError`` and subclasses -> 409, ``InvalidCursorError`` -> 422).
+``ConflictError`` and subclasses -> 409, ``InvalidCursorError`` -> 422,
+``EmailUnverifiedError`` -> 403).
 """
 
 from __future__ import annotations
@@ -44,6 +45,31 @@ class DuplicateDocumentError(ConflictError):
 
 class DuplicateKeyError(ConflictError):
     """An idempotency key was already used for a different write."""
+
+
+class LastOwnerError(ConflictError):
+    """The change would leave a firm without an owner (demoting or removing the last one)."""
+
+
+class AlreadyMemberError(ConflictError):
+    """An invitation names an email that already belongs to a member of the firm."""
+
+
+class InvitationPendingError(ConflictError):
+    """The firm already has a pending invitation for this email."""
+
+
+class InvitationClosedError(ConflictError):
+    """The invitation can no longer be answered: it was accepted, declined, revoked or it
+    expired. ``status`` is that derived status (``basis.db.repositories.invitation``)."""
+
+    def __init__(self, message: str, *, status: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class EmailUnverifiedError(RepositoryError):
+    """The caller's token does not assert a verified email, which an invitation needs."""
 
 
 class DatabaseUnavailableError(Exception):

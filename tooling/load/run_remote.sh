@@ -6,7 +6,12 @@
 #
 # TOKEN_FILE: JSON {"load-eng-0": "<Firebase ID token>", ...}, one test user per concurrent
 # study (the API refuses emulator tokens outside dev and test). Tokens live an hour: mint
-# them right before the step. SCALE must equal the staging worker's LOAD_LATENCY_SCALE
+# them right before the step.
+# Firms are invite-only: once per deployed database, an operator with database access
+# (Cloud SQL proxy) gives the same uids a firm, or every study request is 403 no-firm:
+#   cd backEnd && BASIS_ENV=staging DATABASE_URL=postgresql+asyncpg://... \
+#     .venv/bin/python ../tooling/load/provision.py --users 25
+# This script has no database access and does not do it. SCALE must equal the staging worker's LOAD_LATENCY_SCALE
 # when it runs the fake-provider worker (1.0 for the production worker).
 # Optional sampling (Temporal backlog, Postgres) when reachable from here:
 #   TEMPORAL_ADDRESS (+ TEMPORAL_API_KEY via the sampler's env), PG_DSN (Cloud SQL proxy).
