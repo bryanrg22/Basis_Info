@@ -124,6 +124,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "DELETE /v1/studies/{study_id}",
         "POST /v1/studies/{study_id}/documents",
         "POST /v1/studies/{study_id}/documents/{document_id}/complete",
+        # the browser frontend's photos and appraisal (tests/api/test_document_content.py)
+        "GET /v1/studies/{study_id}/documents/{document_id}/content",
         "POST /v1/studies/{study_id}/decisions",
         "GET /v1/studies/{study_id}/evidence",
         # v0.6 (tests/api/test_objects.py)
