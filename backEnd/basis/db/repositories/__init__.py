@@ -16,6 +16,7 @@ from basis.db.repositories.org import FirmSummary, Member, Membership, OrgReposi
 from basis.db.repositories.outbox import NOTIFICATION, WORKFLOW_SIGNAL, OutboxRepository
 from basis.db.repositories.review import (
     DECISION_TRANSITIONS,
+    SINGLE_ROOMS_GATE_TRANSITIONS,
     CorrectionInput,
     DecisionRecord,
     ReviewRepository,
@@ -27,6 +28,7 @@ from basis.db.repositories.user import UserRepository
 __all__ = [
     "DECISION_TRANSITIONS",
     "NOTIFICATION",
+    "SINGLE_ROOMS_GATE_TRANSITIONS",
     "WORKFLOW_SIGNAL",
     "Answer",
     "CorrectionInput",

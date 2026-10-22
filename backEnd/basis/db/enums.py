@@ -26,6 +26,10 @@ class Stage(StrEnum):
     EXTRACTING = "extracting"
     APPRAISAL_REVIEW = "appraisal_review"
     ROOMS_REVIEW = "rooms_review"
+    # v0.12 (patch ``components-gate-v1``): after the rooms review approves the grouping,
+    # the room step runs (``components_processing``), then the components review opens.
+    COMPONENTS_PROCESSING = "components_processing"
+    COMPONENTS_REVIEW = "components_review"
     ASSETS_PROCESSING = "assets_processing"
     ASSETS_REVIEW = "assets_review"
     EXPORTING = "exporting"
@@ -93,7 +97,7 @@ class Corpus(StrEnum):
 
 
 REVIEW_STAGES: frozenset[Stage] = frozenset(
-    {Stage.APPRAISAL_REVIEW, Stage.ROOMS_REVIEW, Stage.ASSETS_REVIEW}
+    {Stage.APPRAISAL_REVIEW, Stage.ROOMS_REVIEW, Stage.COMPONENTS_REVIEW, Stage.ASSETS_REVIEW}
 )
 
 

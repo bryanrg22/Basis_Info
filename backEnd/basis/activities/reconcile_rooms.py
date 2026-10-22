@@ -39,6 +39,12 @@ not an error: the room falls back to the heuristic merge and is flagged.
 
 ``ROOM_RECONCILE=false`` writes nothing but its completion (``enabled=False``).
 
+``vote_only`` (patch ``components-gate-v1``): only the re-vote of the file-name rooms'
+type and floor (:func:`plan_rooms`), committed, and no inventory built and no model call:
+the photo stage and a rooms rejection run it so the rooms review shows the voted rooms; the
+room step itself runs once the rooms review approves the grouping. A room whose photos a
+rooms rejection moved is planned again then (its photo list changed).
+
 Measured but off by default (EVAL_REPORT 26.10; flip after the second client package):
 
 * ``ROOM_STEP_MODE=room_call``: each room :func:`basis.vision.room_step.room_path` sends
@@ -280,6 +286,12 @@ class ReconcileRooms:
         heartbeat("start")
         if not settings.room_reconcile:
             return await self._complete(input, ReconcileRoomsOutput(enabled=False))
+        if input.vote_only:
+            async with session_scope(self._deps.sessionmaker) as session:
+                plan = await plan_rooms(session, study_id, input.revision)
+            return await self._complete(
+                input, ReconcileRoomsOutput(rooms=plan.rooms, current=plan.current)
+            )
         if self._deps.llm is None:
             raise ApplicationError(
                 "no model provider is configured for the room step",

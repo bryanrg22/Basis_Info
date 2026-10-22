@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 from basis.activities import Deps
 from basis.activities.record_run_end import RecordRunEnd
 from basis.activities.record_run_start import RecordRunStart
-from basis.db.models import ActivityResult, Run
+from basis.db.models import ActivityResult, Run, Study
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
 from basis.workflow.contracts import RunEndInput, RunStartInput
@@ -85,3 +85,20 @@ async def test_start_for_an_unknown_study_is_not_retried(deps: Deps, activity_en
     with pytest.raises(ApplicationError) as caught:
         await activity_env.run(RecordRunStart(deps).run, payload)
     assert caught.value.non_retryable
+
+
+@pytest.mark.parametrize("components_gate", [True, False])
+async def test_start_records_the_flow_on_the_study(
+    deps: Deps, study: SeededStudy, activity_env: Env, components_gate: bool
+) -> None:
+    """Patch components-gate-v1: ``studies.components_gate`` is null until the workflow
+    starts, then says whether the execution has the components review."""
+    async with session_scope(deps.sessionmaker) as session:
+        row = await session.get(Study, study.study_id)
+        assert row is not None and row.components_gate is None
+    activity_env.with_info(workflow_id="study-x", workflow_run_id="run-1", activity_id="start")
+    payload = start_input(study).model_copy(update={"components_gate": components_gate})
+    await activity_env.run(RecordRunStart(deps).run, payload)
+    async with session_scope(deps.sessionmaker) as session:
+        row = await session.get(Study, study.study_id)
+        assert row is not None and row.components_gate is components_gate

@@ -5,9 +5,10 @@
   can preview the candidates under a tap), its localization outcome and the counted
   instances per label.
 * ``POST`` (engineer, ``Idempotency-Key``): an engineer's selection, accepted only while
-  the study waits at ``rooms_review`` (409 otherwise), on the current revision, once the
-  photo's localization is recorded. What a selection becomes is decided by
-  :mod:`basis.vision.selection` (measured there):
+  the study waits at its edit stage (``components_review``; ``rooms_review`` for a study
+  whose workflow has the single rooms review, ``studies.components_gate`` not true; 409
+  otherwise), on the current revision, once the photo's localization is recorded. What a
+  selection becomes is decided by :mod:`basis.vision.selection` (measured there):
 
   - a drawn ``box`` with a label: the stored instance of the label it overlaps at box IoU
     >= 0.5; otherwise SAM 3 is prompted with the label's phrases and the box
@@ -24,7 +25,7 @@
   guard: a selection that is, or covers at intersection over the smaller >= 0.5, a counted
   instance of its label is that instance (200, ``created: false``, ``duplicate_of``)
   unless ``allow_duplicate`` (then counted instances are also skipped when resolving).
-* ``DELETE .../objects/{object_id}`` (engineer, ``Idempotency-Key``, ``rooms_review``
+* ``DELETE .../objects/{object_id}`` (engineer, ``Idempotency-Key``, at the edit stage
   only): soft-deletes a manual instance (``deleted_at``/``deleted_by``); a model instance
   is 409 (it is evidence of what the model found; an engineer adds, the model's rows stay).
 
@@ -129,7 +130,11 @@ from basis.vision.selection import (
 )
 
 EDIT_ROLE: Final = OrgRole.ENGINEER
-EDIT_STAGE: Final = Stage.ROOMS_REVIEW
+# Where an engineer edits a photo's objects: the components review (patch
+# ``components-gate-v1``), or the rooms review of a study whose workflow has the single rooms
+# review (``studies.components_gate`` not true: started before the patch). :func:`edit_stage`.
+EDIT_STAGE: Final = Stage.COMPONENTS_REVIEW
+SINGLE_GATE_EDIT_STAGE: Final = Stage.ROOMS_REVIEW
 MAX_REASON: Final = 500
 NO_LOCALIZER: Final = "no localizer is configured (LOCALIZER_URL or REPLICATE_API_TOKEN)"
 
@@ -304,22 +309,29 @@ async def photo_of(session: AsyncSession, study_id: uuid.UUID, document_id: uuid
     return document
 
 
+def edit_stage(study: Study) -> Stage:
+    """The review at which the study's photo objects are edited (``EDIT_STAGE``)."""
+    return EDIT_STAGE if study.components_gate is True else SINGLE_GATE_EDIT_STAGE
+
+
 def check_editable(study: Study) -> int:
-    """The revision a manual edit applies to; 409 unless the study waits at rooms_review."""
+    """The revision a manual edit applies to; 409 unless the study waits at its edit stage
+    (:func:`edit_stage`)."""
     if study.status is StudyStatus.ARCHIVED:
         raise Conflict("The study is archived.", type_suffix="study-archived")
-    if study.current_stage is not EDIT_STAGE:
+    stage = edit_stage(study)
+    if study.current_stage is not stage:
         raise Conflict(
-            f"Objects can be edited only while the study waits at {EDIT_STAGE.value}; it is "
+            f"Objects can be edited only while the study waits at {stage.value}; it is "
             f"at {study.current_stage.value}.",
             type_suffix="stale-state",
         )
     if study.status not in (StudyStatus.WAITING_REVIEW, StudyStatus.STALLED):
-        # At rooms_review but the gate is not open yet: the photos are still being
-        # analyzed and localized behind the appraisal review (EVAL_REPORT 27).
+        # At the stage but the gate is not open yet: the photos are still being analyzed
+        # and localized behind the appraisal review (EVAL_REPORT 27), or failed.
         raise Conflict(
-            f"The rooms review is not open yet (status {study.status.value}): the photos "
-            "are still being analyzed.",
+            f"The {stage.value.replace('_', ' ')} is not open yet (status "
+            f"{study.status.value}): the photos are still being prepared for it.",
             type_suffix="gate-not-open",
         )
     return study.revision
@@ -346,7 +358,7 @@ async def localized_rows(
     repo: PhotoObjectRepository, study_id: uuid.UUID, document_id: uuid.UUID, revision: int
 ) -> list[PhotoObject]:
     if await repo.localization(document_id, revision) is None:
-        # The rooms review opens with SAM 3 still running (EVAL_REPORT 30): until the
+        # A single rooms review opens with SAM 3 still running (EVAL_REPORT 30): until the
         # photo's own instances are stored a selection cannot resolve against them.
         raise Conflict(
             "The photo is still being localized; its objects appear when that finishes.",
@@ -459,7 +471,7 @@ async def list_objects(
 @writes.post(
     "/studies/{study_id}/photos/{document_id}/objects",
     status_code=status.HTTP_201_CREATED,
-    summary="Add an engineer's selection (a box, a tap or a candidate) at rooms_review",
+    summary="Add an engineer's selection (a box, a tap or a candidate) at the components review",
     description=(
         "A `box` resolves to the stored instance of its label it overlaps at IoU >= 0.5; "
         "with none, SAM 3 is prompted with the label's phrases and the box and the "
@@ -471,7 +483,8 @@ async def list_objects(
         "becomes a manual instance with its outline (201, `mask_source: candidate`). A "
         "selection that is, or covers at intersection over the smaller >= 0.5, a counted "
         "instance of its label adds nothing (200, `created: false`, `duplicate_of`) unless "
-        "`allow_duplicate`. Only while the study waits at `rooms_review`, on its current "
+        "`allow_duplicate`. Only while the study waits at `components_review` "
+        "(`rooms_review` when its `components_gate` is false), on its current "
         "revision, once the photo's localization is recorded (409 otherwise; "
         "`localization-pending` while SAM 3 still runs)."
     ),
@@ -581,11 +594,11 @@ async def add_object(
 
 @writes.delete(
     "/studies/{study_id}/photos/{document_id}/objects/{object_id}",
-    summary="Delete a manual instance at rooms_review",
+    summary="Delete a manual instance at the components review",
     description=(
         "Soft delete: the row keeps who deleted it and when. Only manual instances (409 for "
-        "a model instance), only while the study waits at `rooms_review`, on its current "
-        "revision."
+        "a model instance), only while the study waits at `components_review` "
+        "(`rooms_review` when its `components_gate` is false), on its current revision."
     ),
     responses=problems(403, 404),
 )

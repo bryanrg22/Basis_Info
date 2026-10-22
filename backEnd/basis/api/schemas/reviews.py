@@ -18,7 +18,7 @@ MAX_CORRECTION_FIELDS: Final = 100
 MAX_CORRECTION_TEXT: Final = 10_000
 MAX_LIST_ITEMS: Final = 100
 
-ReviewStage = Literal["appraisal_review", "rooms_review", "assets_review"]
+ReviewStage = Literal["appraisal_review", "rooms_review", "components_review", "assets_review"]
 
 # Correction values are field-level edits: a flat object whose values are JSON scalars or
 # lists of scalars. Strings exclude NUL (JSONB cannot store it); floats must be finite

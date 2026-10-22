@@ -39,8 +39,9 @@ SPEC_TABLES = {
     "users": "id firebase_uid email display_name created_at last_seen_at",
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
+    # v0.12: components_gate (migration 0009_components_gate).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
-    "room_aliases failure_reason created_at updated_at",
+    "room_aliases failure_reason components_gate created_at updated_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",
@@ -113,6 +114,9 @@ SPEC_ENUMS = {
         "extracting",
         "appraisal_review",
         "rooms_review",
+        # v0.12: migration 0009_components_gate (patch components-gate-v1).
+        "components_processing",
+        "components_review",
         "assets_processing",
         "assets_review",
         "exporting",
@@ -381,6 +385,12 @@ def test_migration_enum_labels_match_models() -> None:
     added = load_migration(VERSIONS / "0006_study_failed.py")
     assert created["study_status"] == added.PREVIOUS
     created = {**created, "study_status": (*added.PREVIOUS, "failed")}
+    # 0009 adds the components stages before "assets_processing" (ADD VALUE ... BEFORE).
+    components = load_migration(VERSIONS / "0009_components_gate.py")
+    assert created["stage"] == components.PREVIOUS
+    at = components.PREVIOUS.index("assets_processing")
+    stages = (*components.PREVIOUS[:at], *components.ADDED, *components.PREVIOUS[at:])
+    created = {**created, "stage": stages}
     assert created == {name: tuple(labels) for name, labels in SPEC_ENUMS.items()}
 
 

@@ -14,12 +14,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 DecisionKind = Literal["approve", "reject"]
-ReviewStage = Literal["appraisal_review", "rooms_review", "assets_review"]
+ReviewStage = Literal["appraisal_review", "rooms_review", "components_review", "assets_review"]
 StageName = Literal[
     "uploading",
     "extracting",
     "appraisal_review",
     "rooms_review",
+    "components_processing",
+    "components_review",
     "assets_processing",
     "assets_review",
     "exporting",
@@ -45,6 +47,10 @@ class StudyWorkflowInput(_Frozen):
     # and whether the rooms review waits for every localization (else they finish behind it).
     localize_concurrency: int = Field(default=3, ge=1, le=32)
     rooms_gate_waits_for_localization: bool = False
+    # Patch components-gate-v1: the rooms review approves the grouping and a components
+    # review follows the room step. False runs the single rooms review of the executions
+    # before the patch; the API never sets it (tests use it to run that flow afresh).
+    components_gate: bool = True
     review_reminder_days: int = Field(default=7, ge=1)
     review_deadline_days: int = Field(default=30, ge=1)
     # Test-only fault injection per photo document id. The API never sets it, and the
@@ -74,13 +80,30 @@ class Decision(_Frozen):
 # Which correction targets a decision at each review stage may carry. The update
 # validator rejects any other entity_type, so a malformed correction is refused before it
 # is written to history. ``room_component`` (v0.11, manual add) adds a component to the
-# room named by ``entity_id`` (``basis.activities.corrections.check_room_component``).
-# Validators do not run when a history replays, so widening a set needs no patch.
+# room named by ``entity_id`` (``basis.activities.corrections.check_room_component``);
+# ``photo_room`` (v0.12) moves the photo named by ``entity_id`` to the room ``after.room_id``;
+# ``photo`` flags a photo for re-analysis. With the components gate (patch
+# ``components-gate-v1``) the rooms review takes the grouping only and the components review
+# the rest; an execution without it has the single rooms review
+# (:data:`SINGLE_ROOMS_GATE_TYPES`; :func:`correction_types` picks). Validators do not run
+# when a history replays, so changing a set needs no patch.
 CORRECTION_TYPES: dict[str, frozenset[str]] = {
     "appraisal_review": frozenset({"extraction_field"}),
-    "rooms_review": frozenset({"room", "component", "room_component", "photo"}),
+    "rooms_review": frozenset({"room", "photo_room"}),
+    "components_review": frozenset({"component", "room_component", "photo"}),
     "assets_review": frozenset({"asset"}),
 }
+SINGLE_ROOMS_GATE_TYPES: frozenset[str] = frozenset(
+    {"room", "component", "room_component", "photo"}
+)
+
+
+def correction_types(stage: str, *, components_gate: bool) -> frozenset[str]:
+    """The correction types a decision at ``stage`` may carry; ``KeyError`` for a stage that
+    is not a review stage."""
+    if stage == "rooms_review" and not components_gate:
+        return SINGLE_ROOMS_GATE_TYPES
+    return CORRECTION_TYPES[stage]
 
 
 class DecisionAck(_Frozen):
@@ -152,6 +175,8 @@ class RunStartInput(_Frozen):
     run_id: str
     workflow_version: str
     input_revision: int
+    # Patch components-gate-v1: recorded on the study (``studies.components_gate``).
+    components_gate: bool = False
 
 
 class RunEndInput(_Frozen):
@@ -202,6 +227,9 @@ class AnalyzePhotoInput(_Frozen):
     idempotency_key: str
     budget_remaining_usd: float
     simulate: SimulateFault | None = None
+    # Patch components-gate-v1: a re-analysis after a components rejection keeps the room
+    # the rooms review approved (``apply_corrections`` carried the photo's assignment).
+    keep_room: bool = False
 
 
 class AnalyzePhotoOutput(_Frozen):
@@ -213,12 +241,15 @@ class AnalyzePhotoOutput(_Frozen):
 
 
 class ReconcileRoomsInput(_Frozen):
-    """Build the room inventories of ``revision`` (the room step, EVAL_REPORT 16.5)."""
+    """Build the room inventories of ``revision`` (the room step, EVAL_REPORT 16.5);
+    ``vote_only`` (patch components-gate-v1) re-votes the file-name rooms' type and floor
+    and builds nothing (no model call), before the rooms review."""
 
     study_id: str
     revision: int
     idempotency_key: str
     budget_remaining_usd: float
+    vote_only: bool = False
 
 
 class ReconcileRoomsOutput(_Frozen):
@@ -322,6 +353,9 @@ class ApplyCorrectionsInput(_Frozen):
     from_revision: int
     to_revision: int
     corrections: tuple[CorrectionInput, ...]
+    # Patch components-gate-v1: the execution has the components review (which correction
+    # types each gate takes, and what the rooms and components rejections carry over).
+    components_gate: bool = False
 
 
 class ApplyCorrectionsOutput(_Frozen):

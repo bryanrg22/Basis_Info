@@ -46,7 +46,9 @@ class WorkflowProgress(ResponseModel):
     decisions_applied: list[str] = Field(description="Review ids the workflow has applied.")
     stalled: bool
     budget_remaining_usd: float
-    awaiting: Literal["appraisal_review", "rooms_review", "assets_review"] | None = Field(
+    awaiting: (
+        Literal["appraisal_review", "rooms_review", "components_review", "assets_review"] | None
+    ) = Field(
         default=None,
         description="The review gate the workflow is waiting at; decisions are accepted only here.",
     )

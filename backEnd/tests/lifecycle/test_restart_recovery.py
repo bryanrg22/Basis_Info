@@ -99,6 +99,7 @@ async def test_new_worker_resumes_a_study_waiting_for_review(harness: Harness) -
         status = await harness.status(handle)
         assert (status.awaiting, status.revision) == ("rooms_review", 1)
         await harness.approve(handle, "rooms_review")
+        await harness.approve(handle, "components_review")
         await harness.approve(handle, "assets_review")
         result = await harness.result(handle)
 

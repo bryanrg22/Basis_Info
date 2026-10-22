@@ -85,6 +85,7 @@ class StudyOut(ResponseModel):
                     "revision": 1,
                     "room_aliases": {},
                     "failure_reason": None,
+                    "components_gate": None,
                     "created_at": "2026-10-15T17:02:11.204000Z",
                     "updated_at": "2026-10-15T17:02:11.204000Z",
                 }
@@ -108,6 +109,13 @@ class StudyOut(ResponseModel):
         default=None,
         description="Why the current stage failed, while `status` is `failed` (retry with "
         "`POST /v1/studies/{id}/retry`).",
+    )
+    components_gate: bool | None = Field(
+        default=None,
+        description="Whether the study's workflow reviews the components after the rooms "
+        "(`rooms_review` takes the grouping, `components_review` the components and counts); "
+        "false for a study with the single rooms review (started before it); null until the "
+        "workflow starts.",
     )
     created_at: datetime
     updated_at: datetime

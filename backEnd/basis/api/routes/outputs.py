@@ -1,11 +1,13 @@
 """``GET /v1/studies/{id}/fields``, ``/rooms``, ``/assets``: the revision's outputs.
 
-What the three review gates show (EVAL_REPORT section 23, finding 5): the appraisal's
-extraction fields, the rooms with their photos and inventories, and the assets with their
-takeoff, cost and citation counts. Viewer access, like the evidence page. Each is
-keyset-paginated (``limit``, ``cursor``; a cursor stays on the revision it was issued for)
-at the study's current revision, or at ``revision`` (an earlier one is history; a later
-one is 404). The ids are the ``entity_id`` values the decision route's corrections take.
+What the review gates show (EVAL_REPORT section 23, finding 5): the appraisal's
+extraction fields, the rooms with their photos and inventories (the rooms review shows the
+grouping, the components review the inventories and ``suggested_counts``; patch
+``components-gate-v1``), and the assets with their takeoff, cost and citation counts.
+Viewer access, like the evidence page. Each is keyset-paginated (``limit``, ``cursor``; a
+cursor stays on the revision it was issued for) at the study's current revision, or at
+``revision`` (an earlier one is history; a later one is 404). The ids are the
+``entity_id`` values the decision route's corrections take.
 """
 
 from __future__ import annotations

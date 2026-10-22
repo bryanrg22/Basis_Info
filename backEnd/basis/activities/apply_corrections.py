@@ -12,20 +12,45 @@ rejected stage      copied to the new revision                 recomputed by
 appraisal_review    rooms, photo assignments, components,      extract_fields
                     localized objects
 rooms_review        extraction + fields; rooms, assignments,   analyze_photo and
-                    components and localized objects of        localize_photo (only
+(single gate)       components and localized objects of        localize_photo (only
                     photos not flagged (room/component         the photos flagged by
                     corrections applied)                       a ``photo`` correction)
+rooms_review        extraction + fields; rooms (room           nothing (the rooms'
+(components gate)   corrections and merges applied),           vote; the room step
+                    assignments (``photo_room`` moves          runs once the grouping
+                    applied), components (a moved photo's      is approved)
+                    rows in its new room), localized objects
+components_review   extraction + fields; rooms; assignments    analyze_photo (in the
+                    of every photo (a flagged photo keeps its  carried room) and
+                    room); components and localized objects    localize_photo (the
+                    of photos not flagged (component           flagged photos), then
+                    corrections applied, added components)     reconcile_rooms
 assets_review       extraction + fields; rooms, assignments,   process_assets
                     components, localized objects
 ==================  =========================================  ======================
+
+"Single gate" is an execution without patch ``components-gate-v1`` (``components_gate`` in
+the input is false): its rooms review takes every rooms and components correction, as the
+first row says. With the patch the rooms review takes the grouping (``room``,
+``photo_room``) and the components review the rest (``component``, ``room_component``,
+``photo``); :func:`basis.workflow.contracts.correction_types`.
 
 Localized objects are the ``photo_localizations`` and active ``photo_objects`` rows of a
 photo (an engineer's manual selections included, deleted rows left behind).
 
 A room's inventory rows (``reconcile_rooms``; no document) are copied with the room, except
-after a rooms rejection for a room that held a flagged photo: that room's photos are about
-to change, so ``reconcile_rooms`` rebuilds its inventory in the new revision (a correction
-of one of those rows is not carried; it would describe photos that are re-analyzed).
+for a room whose photos are about to change: one that held a photo flagged for re-analysis,
+one a photo moved into or out of, and both rooms of a merge. ``reconcile_rooms`` rebuilds
+their inventories in the new revision (a correction of one of those rows is not carried; it
+would describe photos that changed).
+
+Moving a photo (v0.12, a ``photo_room`` correction ``{"room_id": <room id>}`` at the rooms
+review with the components gate): the photo's assignment and its per-photo component rows
+go to the target room of the new revision (a merged target: the room it ends in). The photo
+must have a room in the rejected revision and the target must be a room of it; a move to the
+photo's own room changes nothing. Its objects are carried unchanged (they do not depend on
+the room). After the components review a re-analyzed photo stays in the room the rooms
+review approved: its assignment is carried and ``analyze_photo`` runs with ``keep_room``.
 
 Counts (v0.11, manual add): a ``component`` correction may set ``count`` (the copy's
 ``raw["count"]``, the quantity ``process_assets`` takes off and prices; ``count_before``
@@ -50,7 +75,7 @@ later joins the target.
 
 ``extraction_field`` and ``asset`` corrections are applied by the activity that
 recomputes those rows (they receive the corrections in their input), so ``applied``
-counts only the room and component corrections applied here. Every correction is
+counts only the room, move and component corrections applied here. Every correction is
 validated here first, before anything is written: a type the stage does not accept, a
 target that is not in ``from_revision`` of this study, an unknown field or a value that
 does not parse is a ``ValidationError`` (the workflow then starts the revision without
@@ -81,6 +106,7 @@ from basis.activities.corrections import (
     check_component,
     check_extraction_field,
     check_fields,
+    check_photo_room,
     check_room_component,
 )
 from basis.activities.deps import Deps
@@ -99,10 +125,10 @@ from basis.vision.rooms import (
     optional_value,
 )
 from basis.workflow.contracts import (
-    CORRECTION_TYPES,
     ApplyCorrectionsInput,
     ApplyCorrectionsOutput,
     CorrectionInput,
+    correction_types,
 )
 
 CARRIED_FROM: Final = "carried_from"
@@ -120,7 +146,8 @@ class ApplyCorrections:
 
         async def work(session: AsyncSession) -> ApplyCorrectionsOutput:
             by_type = _group(input.corrections)
-            await _validate(session, study_id, input.stage, input.from_revision, by_type)
+            allowed = correction_types(input.stage, components_gate=input.components_gate)
+            await _validate(session, study_id, input.stage, allowed, input.from_revision, by_type)
             if input.stage != "appraisal_review":
                 await _carry_extractions(session, study_id, input.from_revision, input.to_revision)
             flagged = {parse_uuid(c.entity_id, "entity_id") for c in by_type.get("photo", [])}
@@ -130,9 +157,11 @@ class ApplyCorrections:
                 input.from_revision,
                 input.to_revision,
                 skip_photos=flagged,
+                keep_rooms_of_skipped=input.stage == "components_review",
                 room_corrections=by_type.get("room", []),
                 component_corrections=by_type.get("component", []),
                 added=by_type.get("room_component", []),
+                moves=by_type.get("photo_room", []),
             )
             return ApplyCorrectionsOutput(applied=applied)
 
@@ -149,16 +178,17 @@ async def _validate(
     session: AsyncSession,
     study_id: uuid.UUID,
     stage: str,
+    allowed: frozenset[str],
     from_revision: int,
     by_type: dict[str, list[CorrectionInput]],
 ) -> None:
     """Refuse the whole rejection's corrections before anything is written.
 
-    Room and component targets are checked while copying (``_targets``); the targets that
-    later activities apply (``extraction_field``, ``asset``) and the flagged photos are
-    checked here, so a bad correction never fails a recompute halfway through a revision.
+    Room, component and move targets are checked while copying (``_targets``, ``_moves``);
+    the targets that later activities apply (``extraction_field``, ``asset``) and the
+    flagged and moved photos are checked here, so a bad correction never fails a recompute
+    halfway through a revision.
     """
-    allowed = CORRECTION_TYPES[stage]
     unknown = set(by_type) - allowed
     if unknown:
         raise validation_error(f"{stage} does not accept {', '.join(sorted(unknown))} corrections")
@@ -178,8 +208,11 @@ async def _validate(
         if asset is None or asset.revision != from_revision:
             raise validation_error(f"asset {correction.entity_id} is not in the rejected revision")
     documents = DocumentRepository(session)
-    for correction in by_type.get("photo", []):
-        check_fields("photo", correction.after, PHOTO_FIELDS)
+    for correction in by_type.get("photo", []) + by_type.get("photo_room", []):
+        if correction.entity_type == "photo":
+            check_fields("photo", correction.after, PHOTO_FIELDS)
+        else:
+            check_photo_room(correction.after)
         document = await documents.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if document is None or document.kind is not DocumentKind.PHOTO:
             raise validation_error(f"photo {correction.entity_id} is not a photo of this study")
@@ -228,10 +261,15 @@ async def _carry_rooms(
     to_revision: int,
     *,
     skip_photos: set[uuid.UUID],
+    keep_rooms_of_skipped: bool = False,
     room_corrections: list[CorrectionInput],
     component_corrections: list[CorrectionInput],
     added: list[CorrectionInput],
+    moves: list[CorrectionInput],
 ) -> int:
+    """Copy the rooms, assignments, components and objects (module doc). ``skip_photos``
+    are re-analyzed: their rows and objects stay behind, and so does their assignment
+    unless ``keep_rooms_of_skipped`` (the components review: the approved room stands)."""
     repo = RoomRepository(session)
     old_rooms = {room.id: room for room in await repo.list_for_revision(study_id, from_revision)}
     old_components = {c.id: c for c in await repo.components(study_id, from_revision)}
@@ -245,10 +283,16 @@ async def _carry_rooms(
         del room_after[source]
 
     all_assignments = await repo.photo_rooms(study_id, from_revision)
-    assignments = [pr for pr in all_assignments if pr.document_id not in skip_photos]
+    moved = _moves(moves, old_rooms, {pr.document_id: pr.room_id for pr in all_assignments})
+    assignments = [
+        pr for pr in all_assignments if pr.document_id not in skip_photos or keep_rooms_of_skipped
+    ]
+    room_of = {pr.document_id: moved.get(pr.document_id, pr.room_id) for pr in assignments}
     rebuilt_rooms = {pr.room_id for pr in all_assignments if pr.document_id in skip_photos}
     rebuilt_rooms |= set(merges) | set(merges.values())
-    keep_rooms = {pr.room_id for pr in assignments} | set(room_after) | set(merges.values())
+    rebuilt_rooms |= {pr.room_id for pr in all_assignments if pr.document_id in moved}
+    rebuilt_rooms |= set(moved.values())
+    keep_rooms = set(room_of.values()) | set(room_after) | set(merges.values())
     # A room an engineer added a component to stays, now or in an earlier revision.
     keep_rooms |= {room_id for room_id, _ in additions}
     keep_rooms |= {
@@ -267,11 +311,11 @@ async def _carry_rooms(
     for source, target in merges.items():
         new_room_ids[source] = new_room_ids[target]
     await _record_merges(session, study_id, merges, old_rooms)
-    for assignment in assignments:
+    for document_id, room_id in room_of.items():
         await repo.assign_photo(
             study_id=study_id,
-            document_id=assignment.document_id,
-            room_id=new_room_ids[assignment.room_id],
+            document_id=document_id,
+            room_id=new_room_ids[room_id],
             revision=to_revision,
         )
     for component in old_components.values():
@@ -282,7 +326,10 @@ async def _carry_rooms(
         ):
             continue
         heartbeat("component")
-        await _copy_component(repo, component, to_revision, new_room_ids, component_after)
+        moved_to = moved.get(component.document_id) if component.document_id else None
+        await _copy_component(
+            repo, component, to_revision, new_room_ids, component_after, room_id=moved_to
+        )
     for room_id, after in additions:
         heartbeat("added component")
         await _add_component(repo, study_id, to_revision, new_room_ids[room_id], room_id, after)
@@ -290,7 +337,32 @@ async def _carry_rooms(
     await PhotoObjectRepository(session).carry(
         study_id, from_revision, to_revision, skip_photos=skip_photos
     )
-    return len(room_after) + len(merges) + len(component_after) + len(additions)
+    return len(room_after) + len(merges) + len(component_after) + len(additions) + len(moved)
+
+
+def _moves(
+    corrections: list[CorrectionInput],
+    old_rooms: dict[uuid.UUID, Room],
+    rooms_of: dict[uuid.UUID, uuid.UUID],
+) -> dict[uuid.UUID, uuid.UUID]:
+    """``{photo: room it moves to}`` from the ``photo_room`` corrections (the last one of a
+    photo wins; a move to its own room is dropped). A photo with no room in the rejected
+    revision (its analysis failed) or a target that is not a room of it is a
+    ``ValidationError``."""
+    moved: dict[uuid.UUID, uuid.UUID] = {}
+    for correction in corrections:
+        document_id = parse_uuid(correction.entity_id, "entity_id")
+        check_photo_room(correction.after)
+        target = parse_uuid(str(correction.after["room_id"]), "room_id")
+        if document_id not in rooms_of:
+            raise validation_error(
+                f"photo {document_id} has no room in the rejected revision (its analysis "
+                "failed); flag it for re-analysis instead"
+            )
+        if target not in old_rooms:
+            raise validation_error(f"room {target} (room_id) is not in the rejected revision")
+        moved[document_id] = target
+    return {d: room for d, room in moved.items() if rooms_of[d] != room}
 
 
 def _additions(
@@ -420,8 +492,13 @@ async def _copy_component(
     to_revision: int,
     new_room_ids: dict[uuid.UUID, uuid.UUID],
     component_after: dict[uuid.UUID, dict[str, Any]],
+    *,
+    room_id: uuid.UUID | None = None,
 ) -> None:
+    """Copy ``old`` with its corrections, into its room's copy or, for a moved photo's row,
+    into ``room_id``'s."""
     changes = component_after.get(old.id, {})
+    source_room = room_id if room_id is not None else old.room_id
     raw = {**(old.raw if isinstance(old.raw, dict) else {}), CARRIED_FROM: str(old.id)}
     if changes:
         raw["corrected"] = sorted(changes)
@@ -432,7 +509,7 @@ async def _copy_component(
         study_id=old.study_id,
         revision=to_revision,
         document_id=old.document_id,
-        room_id=new_room_ids.get(old.room_id) if old.room_id is not None else None,
+        room_id=new_room_ids.get(source_room) if source_room is not None else None,
         label=str(changes.get("label", old.label)),
         material=changes.get("material", old.material),
         attachment=changes.get("attachment", old.attachment),

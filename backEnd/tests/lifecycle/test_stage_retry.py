@@ -212,6 +212,7 @@ async def test_a_later_stage_failure_is_held_and_retried(
         handle, sid = started.handle, started.study_id
         await harness.approve(handle, "appraisal_review")
         await harness.approve(handle, "rooms_review")
+        await harness.approve(handle, "components_review")
         if stage == "exporting":
             await harness.approve(handle, "assets_review")
         status = await harness.wait_for(

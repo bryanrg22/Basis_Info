@@ -24,9 +24,32 @@ from basis.db.errors import (
     StaleStateError,
     constraint_name,
 )
-from basis.db.repositories import DECISION_TRANSITIONS, decision_target, scoped_key
+from basis.db.repositories import (
+    DECISION_TRANSITIONS,
+    SINGLE_ROOMS_GATE_TRANSITIONS,
+    decision_target,
+    scoped_key,
+)
 from basis.db.repositories.document import normalize_sha256
 from basis.db.repositories.study import decode_cursor, encode_cursor
+
+
+@pytest.mark.parametrize(
+    ("stage", "decision", "expected"),
+    [
+        (Stage.APPRAISAL_REVIEW, Decision.APPROVE, (Stage.ROOMS_REVIEW, 3)),
+        (Stage.APPRAISAL_REVIEW, Decision.REJECT, (Stage.EXTRACTING, 4)),
+        (Stage.ROOMS_REVIEW, Decision.APPROVE, (Stage.COMPONENTS_PROCESSING, 3)),
+        (Stage.ROOMS_REVIEW, Decision.REJECT, (Stage.EXTRACTING, 4)),
+        (Stage.COMPONENTS_REVIEW, Decision.APPROVE, (Stage.ASSETS_PROCESSING, 3)),
+        (Stage.COMPONENTS_REVIEW, Decision.REJECT, (Stage.COMPONENTS_PROCESSING, 4)),
+        (Stage.ASSETS_REVIEW, Decision.APPROVE, (Stage.EXPORTING, 3)),
+        (Stage.ASSETS_REVIEW, Decision.REJECT, (Stage.ASSETS_PROCESSING, 4)),
+    ],
+)
+def test_decision_target(stage: Stage, decision: Decision, expected: tuple[Stage, int]) -> None:
+    assert decision_target(stage, decision, 3) == expected
+    assert decision_target(stage, decision, 3, components_gate=True) == expected
 
 
 @pytest.mark.parametrize(
@@ -40,15 +63,24 @@ from basis.db.repositories.study import decode_cursor, encode_cursor
         (Stage.ASSETS_REVIEW, Decision.REJECT, (Stage.ASSETS_PROCESSING, 4)),
     ],
 )
-def test_decision_target(stage: Stage, decision: Decision, expected: tuple[Stage, int]) -> None:
-    assert decision_target(stage, decision, 3) == expected
+def test_decision_target_single_rooms_gate(
+    stage: Stage, decision: Decision, expected: tuple[Stage, int]
+) -> None:
+    """A study whose workflow has the single rooms review (before components-gate-v1)."""
+    assert decision_target(stage, decision, 3, components_gate=False) == expected
 
 
 def test_decision_table_covers_exactly_review_stages_and_both_decisions() -> None:
-    assert set(DECISION_TRANSITIONS) == {(s, d) for s in REVIEW_STAGES for d in Decision}
+    every = {(s, d) for s in REVIEW_STAGES for d in Decision}
+    assert set(DECISION_TRANSITIONS) == every
+    assert set(SINGLE_ROOMS_GATE_TRANSITIONS) == every
     # A decision always leaves the review stage, so the same revision cannot be decided twice.
-    for (stage, _), target in DECISION_TRANSITIONS.items():
-        assert target is not stage
+    for table in (DECISION_TRANSITIONS, SINGLE_ROOMS_GATE_TRANSITIONS):
+        for (stage, _), target in table.items():
+            assert target is not stage
+    # The single gate never reaches the components stages from the rooms review.
+    differ = {k for k in every if DECISION_TRANSITIONS[k] != SINGLE_ROOMS_GATE_TRANSITIONS[k]}
+    assert differ == {(Stage.ROOMS_REVIEW, Decision.APPROVE)}
 
 
 @pytest.mark.parametrize("stage", sorted(set(Stage) - REVIEW_STAGES))
@@ -64,6 +96,8 @@ def test_decision_on_non_review_stage_is_stale(stage: Stage) -> None:
         (Stage.EXTRACTING, StudyStatus.PROCESSING),
         (Stage.APPRAISAL_REVIEW, StudyStatus.WAITING_REVIEW),
         (Stage.ROOMS_REVIEW, StudyStatus.WAITING_REVIEW),
+        (Stage.COMPONENTS_PROCESSING, StudyStatus.PROCESSING),
+        (Stage.COMPONENTS_REVIEW, StudyStatus.WAITING_REVIEW),
         (Stage.ASSETS_PROCESSING, StudyStatus.PROCESSING),
         (Stage.ASSETS_REVIEW, StudyStatus.WAITING_REVIEW),
         (Stage.EXPORTING, StudyStatus.PROCESSING),

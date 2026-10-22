@@ -18,7 +18,11 @@ from basis.workflow.contracts import CorrectionInput, Decision, StudyWorkflowInp
 from basis.workflow.study_workflow import ALREADY_APPLIED, INVALID_DECISION, StudyWorkflow
 
 
-def workflow_at(stage: str | None = "appraisal_review", revision: int = 1) -> StudyWorkflow:
+def workflow_at(
+    stage: str | None = "appraisal_review", revision: int = 1, *, components_gate: bool = False
+) -> StudyWorkflow:
+    """A workflow waiting at ``stage``; ``components_gate`` as ``run`` would set it (patch
+    components-gate-v1; false: the single rooms review)."""
     wf = StudyWorkflow(
         StudyWorkflowInput(
             study_id=str(uuid.uuid4()),
@@ -31,6 +35,7 @@ def workflow_at(stage: str | None = "appraisal_review", revision: int = 1) -> St
     wf._awaiting = stage  # type: ignore[assignment]
     wf._stage = stage or "extracting"  # type: ignore[assignment]
     wf._revision = revision
+    wf._components_gate = components_gate
     return wf
 
 
@@ -146,10 +151,83 @@ def test_rejects_an_unknown_decision_kind() -> None:
     ],
 )
 def test_correction_types_are_checked_per_stage(stage: str, allowed: str, refused: str) -> None:
+    """The single rooms review (an execution without the components gate)."""
     wf = workflow_at(stage)
     wf.validate_decide(decision(stage, kind="reject", corrections=(correction(allowed),)))
     message = rejected(wf, decision(stage, kind="reject", corrections=(correction(refused),)))
     assert f"does not accept corrections of type '{refused}'" in message
+
+
+def move(room_id: str | None = None, **extra: Any) -> CorrectionInput:
+    after = {"room_id": room_id or str(uuid.uuid4()), **extra}
+    return CorrectionInput(entity_type="photo_room", entity_id=str(uuid.uuid4()), after=after)
+
+
+GATED = {
+    "appraisal_review": ["extraction_field"],
+    "rooms_review": ["room", "photo_room"],
+    "components_review": ["component", "room_component", "photo"],
+    "assets_review": ["asset"],
+}
+EVERY_TYPE = sorted({t for types in GATED.values() for t in types})
+
+
+@pytest.mark.parametrize(
+    ("stage", "entity_type"),
+    [(stage, entity_type) for stage in GATED for entity_type in EVERY_TYPE],
+)
+def test_correction_types_with_the_components_gate(stage: str, entity_type: str) -> None:
+    """Patch components-gate-v1: the rooms review takes the grouping only, the components
+    review the components, counts and re-analysis; every other pairing is refused."""
+    wf = workflow_at(stage, components_gate=True)
+    one = move() if entity_type == "photo_room" else correction(entity_type)
+    d = decision(stage, kind="reject", corrections=(one,))
+    if entity_type in GATED[stage]:
+        wf.validate_decide(d)
+    else:
+        assert f"does not accept corrections of type '{entity_type}'" in rejected(wf, d)
+
+
+def test_without_the_gate_the_rooms_review_refuses_moves() -> None:
+    wf = workflow_at("rooms_review")
+    d = decision("rooms_review", kind="reject", corrections=(move(),))
+    assert "does not accept corrections of type 'photo_room'" in rejected(wf, d)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"room_id": "not-a-uuid"},
+        {"room": str(uuid.uuid4())},
+        {"room_id": str(uuid.uuid4()), "name": "Kitchen"},
+        {},
+    ],
+)
+def test_a_move_takes_exactly_a_room_id(bad: dict[str, Any]) -> None:
+    wf = workflow_at("rooms_review", components_gate=True)
+    one = CorrectionInput(entity_type="photo_room", entity_id=str(uuid.uuid4()), after=bad)
+    message = rejected(wf, decision("rooms_review", kind="reject", corrections=(one,)))
+    assert "exactly a room_id" in message
+
+
+@pytest.mark.parametrize(
+    ("awaiting", "decided"),
+    [("rooms_review", "components_review"), ("components_review", "rooms_review")],
+)
+def test_a_decision_for_the_other_rooms_gate_is_refused(awaiting: str, decided: str) -> None:
+    wf = workflow_at(awaiting, 2, components_gate=True)
+    assert "wrong stage" in rejected(wf, decision(decided, 2))
+    assert "stale revision" in rejected(wf, decision(awaiting, 1))
+    wf.validate_decide(decision(awaiting, 2))
+
+
+def test_an_approval_at_either_rooms_gate_cannot_carry_corrections() -> None:
+    rooms = workflow_at("rooms_review", components_gate=True)
+    d = decision("rooms_review", kind="approve", corrections=(move(),))
+    assert "approval cannot carry corrections" in rejected(rooms, d)
+    components = workflow_at("components_review", components_gate=True)
+    d = decision("components_review", kind="approve", corrections=(correction("component"),))
+    assert "approval cannot carry corrections" in rejected(components, d)
 
 
 @pytest.mark.parametrize("entity_id", ["", "12", "not-a-uuid", str(uuid.uuid4()) + "0"])

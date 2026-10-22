@@ -117,7 +117,9 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
     finally:
         await run.cleanup()
     assert result.outcome == "completed" and result.flagged_photos == ()
-    assert Counter(sequence)["reconcile_rooms"] == 1
+    # The rooms' vote before the rooms review and the room step after its approval (patch
+    # components-gate-v1); only the room step calls a model (the request counts below).
+    assert Counter(sequence)["reconcile_rooms"] == 2
     assert sequence.index("reconcile_rooms") > max(
         i for i, name in enumerate(sequence) if name == "analyze_photo"
     )
@@ -148,20 +150,29 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
     assert len(assets) == 4 and all(is_inventory(by_id[a.component_id]) for a in assets)
 
 
-async def test_a_rooms_rejection_rebuilds_the_changed_room(harness: Harness) -> None:
+@pytest.mark.parametrize("components_gate", [True, False], ids=["components_gate", "single_gate"])
+async def test_a_rooms_rejection_rebuilds_the_changed_room(
+    harness: Harness, components_gate: bool
+) -> None:
+    """A kitchen photo flagged for re-analysis at the components review (patch
+    components-gate-v1; the room step runs after the rooms review, and again for the
+    rejection) or at the single rooms review of an execution without it."""
+    gate = "components_review" if components_gate else "rooms_review"
     provider = FixtureVisionProvider()
     run = production(harness, provider)
     try:
         async with run.worker():
-            started = await run.start()
+            started = await run.start(components_gate=components_gate)
             handle, sid = started.handle, started.study_id
             await run.approve(handle, "appraisal_review")
-            await run.wait_awaiting(handle, "rooms_review", 1)
+            if components_gate:
+                await run.approve(handle, "rooms_review")
+            await run.wait_awaiting(handle, gate, 1)  # type: ignore[arg-type]
             flagged = started.study.photo_ids[0]  # a kitchen photo
             await run.decide(
                 handle,
                 run.decision(
-                    "rooms_review",
+                    gate,  # type: ignore[arg-type]
                     1,
                     "reject",
                     corrections=[
@@ -169,17 +180,18 @@ async def test_a_rooms_rejection_rebuilds_the_changed_room(harness: Harness) -> 
                     ],
                 ),
             )
-            await run.wait_awaiting(handle, "rooms_review", 2)
+            await run.wait_awaiting(handle, gate, 2)  # type: ignore[arg-type]
             room_calls = [r for r in provider.requests if r.prompt_version.startswith("room_")]
             assert len(room_calls) == 2  # revision 1 and the rebuilt Kitchen of revision 2
-            await run.approve(handle, "rooms_review", 2)
+            await run.approve(handle, gate, 2)  # type: ignore[arg-type]
             await run.approve(handle, "assets_review", 2)
             result = await run.result(handle)
         sequence = await run.activity_sequence(handle)
     finally:
         await run.cleanup()
     assert result.outcome == "completed" and result.revision == 2
-    assert Counter(sequence)["reconcile_rooms"] == 2
+    # With the gate also the rooms' vote of revision 1.
+    assert Counter(sequence)["reconcile_rooms"] == (3 if components_gate else 2)
     inventory = [c for c in await rows(run, Component, sid, 2) if is_inventory(c)]
     kitchen = [c for c in inventory if c.label == "kitchen_cabinet"]
     assert len(kitchen) == 1 and kitchen[0].raw["count"] == 6
@@ -204,9 +216,13 @@ async def test_a_failed_room_step_flags_the_review_and_the_study_completes(
             started = await run.start()
             handle, sid = started.handle, started.study_id
             status = await run.wait_awaiting(handle, "appraisal_review", 1)
-            assert "rooms_review" in status.needs_review_stages
+            assert "rooms_review" in status.needs_review_stages  # the rooms' vote
             assert status.flagged_photos == ()
-            await run.approve_all(handle)
+            await run.approve(handle, "appraisal_review")
+            await run.approve(handle, "rooms_review")
+            status = await run.wait_awaiting(handle, "components_review", 1)
+            assert "components_review" in status.needs_review_stages  # the room step
+            await run.approve_rest(handle)
             result = await run.result(handle)
     finally:
         await run.cleanup()

@@ -6,9 +6,10 @@ Replicate's throttle) although it reviews only the extraction, done at +94 s. Wi
 
 * the appraisal review opens while the photos are still being analyzed and localized
   (timing: in history order, the gate's transition completes before any photo finishes);
-* the rooms review opens only after every analysis and the room step (SAM 3 localization
+* the rooms review opens only after every analysis and the rooms' vote (SAM 3 localization
   no longer holds it since patch ``localize-background-v1``, EVAL_REPORT 30:
-  ``test_localize_background.py``);
+  ``test_localize_background.py``), and the room step runs after the rooms review approves
+  the grouping, before the components review (patch ``components-gate-v1``);
 * an appraisal rejection while photos are in flight waits for them, so the next revision
   carries every photo's outputs.
 """
@@ -106,6 +107,7 @@ async def test_the_appraisal_gate_opens_while_photos_run_and_the_rooms_gate_afte
         assert (status.pending_photos, status.completed_photos) == (0, 3)
         assert await assigned(harness, sid, 1) == 3
         await harness.approve(handle, "rooms_review")
+        await harness.approve(handle, "components_review")
         await harness.approve(handle, "assets_review")
         result = await harness.result(handle)
     assert result.outcome == "completed"
@@ -116,9 +118,15 @@ async def test_the_appraisal_gate_opens_while_photos_run_and_the_rooms_gate_afte
     # stage finished (the slow photo's analysis completed later) ...
     assert first(events, "completed", "extract_fields:r1") < gate_1
     assert gate_1 < last(events, "completed", "analyze_photo:")
-    # ... and the rooms gate only after every analysis and the room step.
+    # ... the rooms gate only after every analysis and the rooms' vote (patch
+    # components-gate-v1) ...
     assert last(events, "completed", "analyze_photo:") < gate_2
-    assert last(events, "completed", "reconcile_rooms:r1") < gate_2
+    assert events.index(("completed", "reconcile_rooms:r1:vote")) < gate_2
+    # ... and the room step runs after the grouping is approved, before the components gate.
+    step = events.index(("scheduled", "reconcile_rooms:r1"))
+    gate_3 = first(events, "scheduled", "transition:components_review:r1")
+    assert first(events, "scheduled", "transition:components_processing:r1") < step
+    assert gate_2 < step < events.index(("completed", "reconcile_rooms:r1")) < gate_3
 
 
 async def test_an_appraisal_rejection_waits_for_the_photos_it_carries_over(
@@ -141,6 +149,6 @@ async def test_an_appraisal_rejection_waits_for_the_photos_it_carries_over(
         result = await harness.result(handle)
     assert (result.outcome, result.revision) == ("completed", 2)
     events = await activity_events(handle)
-    assert last(events, "completed", "reconcile_rooms:r1") < first(
+    assert events.index(("completed", "reconcile_rooms:r1:vote")) < first(
         events, "scheduled", "apply_corrections:appraisal_review:r1"
     )

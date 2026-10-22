@@ -103,6 +103,7 @@ async def test_deadline_marks_stalled_and_a_late_decision_completes(
             Stage.ROOMS_REVIEW,
         )
         await harness.approve(handle, "rooms_review")
+        await harness.approve(handle, "components_review")
         await harness.approve(handle, "assets_review")
         result = await harness.result(handle)
     assert result.outcome == "completed"

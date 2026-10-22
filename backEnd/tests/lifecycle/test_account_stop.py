@@ -218,7 +218,8 @@ async def test_an_account_error_at_the_appraisal_review_is_recorded_there(
 
 
 class RefusedOnce:
-    """``reconcile_rooms`` refused once for the account, then the real activity."""
+    """``reconcile_rooms`` refused once for the account, then the real activity. The rooms'
+    vote (patch components-gate-v1) makes no model call, so it is never refused."""
 
     def __init__(self, harness: Harness) -> None:
         self.real = ReconcileRooms(harness.deps)
@@ -226,6 +227,8 @@ class RefusedOnce:
 
     @activity.defn(name="reconcile_rooms")
     async def run(self, input: ReconcileRoomsInput) -> ReconcileRoomsOutput:
+        if input.vote_only:
+            return await self.real.run(input)
         self.ids.append(activity.info().activity_id)
         if len(self.ids) == 1:
             error = ProviderAccountError(
@@ -241,9 +244,43 @@ class RefusedOnce:
 async def test_an_account_error_in_the_room_step_is_held_and_retried(
     harness: Harness,
 ) -> None:
+    """Patch components-gate-v1: the room step runs after the grouping is approved; an
+    account error there fails the study at ``components_processing`` (the stage the API
+    moved it to), and the retry runs the room step again before the components review."""
     rooms = RefusedOnce(harness)
     async with harness.worker(reconcile_rooms=rooms.run):
         started = await harness.start()
+        handle, sid = started.handle, started.study_id
+        await harness.approve(handle, "appraisal_review")
+        await harness.approve(handle, "rooms_review")
+        status = await harness.wait_for(
+            handle, lambda s: s.failed_stage is not None, "the room step to fail"
+        )
+        assert status.failed_stage == "components_processing"
+        assert status.failure is not None
+        assert status.failure.startswith("reconcile_rooms: ProviderAccountError: ")
+        row = await harness.study_row(sid)
+        assert (row.status, row.current_stage.value) == (
+            StudyStatus.FAILED,
+            "components_processing",
+        )
+        assert status.awaiting is None  # the components review is not open
+        await handle.execute_update(StudyWorkflow.retry)
+        await harness.approve_rest(handle)
+        result = await harness.result(handle)
+        final = await harness.status(handle)
+    assert result.outcome == "completed"
+    assert rooms.ids == ["reconcile_rooms:r1", "reconcile_rooms:r1:retry1"]
+    assert "components_review" not in final.needs_review_stages  # held, not flagged
+    await replays(handle)
+
+
+async def test_an_account_error_in_the_room_step_is_held_and_retried_single_rooms_gate(
+    harness: Harness,
+) -> None:
+    rooms = RefusedOnce(harness)
+    async with harness.worker(reconcile_rooms=rooms.run):
+        started = await harness.start(components_gate=False)
         handle, sid = started.handle, started.study_id
         status = await harness.wait_for(
             handle, lambda s: s.failed_stage is not None, "the room step to fail"

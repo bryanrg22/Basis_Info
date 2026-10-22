@@ -1,12 +1,17 @@
-"""``record_run_start``: insert the ``runs`` row of this workflow execution (idempotent)."""
+"""``record_run_start``: insert the ``runs`` row of this workflow execution (idempotent), and
+record on the study whether the execution has the components review (patch
+``components-gate-v1``: ``studies.components_gate``, which the decision route and the object
+edits read). A later execution of the study overwrites it with its own."""
 
 from __future__ import annotations
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
 from basis.activities._support import activity_key, parse_uuid, run_once_no_output
 from basis.activities.deps import Deps
+from basis.db.models import Study
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
 from basis.workflow.contracts import RunStartInput
@@ -30,6 +35,11 @@ class RecordRunStart:
             )
 
         async def work(session: AsyncSession) -> None:
-            return None
+            await session.execute(
+                update(Study)
+                .where(Study.id == study_id)
+                .values(components_gate=input.components_gate)
+                .execution_options(synchronize_session=False)
+            )
 
         await run_once_no_output(self._deps, name="record_run_start", key=activity_key(), work=work)

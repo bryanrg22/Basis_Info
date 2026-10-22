@@ -721,3 +721,43 @@ async def test_a_file_name_room_of_ambiguous_photos_is_still_planned(
         plan = await plan_rooms(session, study.study_id, 1)
     assert [p.room.id for p in plan.todo] == [den.id]
     assert plan.rooms == 1
+
+
+# --------------------------------------------------------------------------- vote only
+# Patch components-gate-v1: the photo stage and a rooms rejection re-vote the file-name
+# rooms so the rooms review shows the voted rooms; the room step waits for the approval.
+
+
+async def test_vote_only_votes_the_rooms_and_builds_nothing(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    names = ("Den photo 1.jpg", "Den photo 2.jpg", "Den photo 3.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    for photo in study.photo_ids[1:]:
+        await put_scene(deps, photo, "01_kitchen.jpg")
+    await analyze_all(deps, study, activity_env)
+    voting = with_llm(room_settings(deps), None)  # no model call is possible
+    vote = reconcile(study).model_copy(update={"vote_only": True})
+    output = await activity_env.run(ReconcileRooms(voting).run, vote)
+    assert (output.enabled, output.rooms, output.built, output.cost_usd) == (True, 1, 0, 0.0)
+    [room] = await rows(deps, Room, study.study_id)
+    assert (room.room_type, room.floor) == ("kitchen", "1")  # voted and committed
+    assert await inventory(deps, study.study_id) == []
+    assert await llm_calls(deps, study.study_id) == 0
+
+
+async def test_vote_only_with_the_room_step_off_does_nothing(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    names = ("Den photo 1.jpg", "Den photo 2.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    await put_scene(deps, study.photo_ids[1], "01_kitchen.jpg")
+    await analyze_all(deps, study, activity_env)
+    [before] = await rows(deps, Room, study.study_id)
+    vote = reconcile(study).model_copy(update={"vote_only": True})
+    output = await activity_env.run(ReconcileRooms(deps).run, vote)  # the suite pins it off
+    assert output.enabled is False
+    [after] = await rows(deps, Room, study.study_id)
+    assert (after.room_type, after.floor) == (before.room_type, before.floor)

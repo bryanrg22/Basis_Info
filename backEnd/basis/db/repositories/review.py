@@ -2,13 +2,19 @@
 
 Where a decision moves the study (``DECISION_TRANSITIONS``):
 
-=================  ===================  ===================================
-stage              approve              reject (revision + 1)
-=================  ===================  ===================================
-appraisal_review   rooms_review         extracting
-rooms_review       assets_processing    extracting
-assets_review      exporting            assets_processing
-=================  ===================  ===================================
+=================  =====================  ===================================
+stage              approve                reject (revision + 1)
+=================  =====================  ===================================
+appraisal_review   rooms_review           extracting
+rooms_review       components_processing  extracting
+components_review  assets_processing      components_processing
+assets_review      exporting              assets_processing
+=================  =====================  ===================================
+
+A study whose workflow has the single rooms review (``studies.components_gate`` is not
+true: an execution started before patch ``components-gate-v1``) goes from an approved
+rooms review to ``assets_processing`` (``SINGLE_ROOMS_GATE_TRANSITIONS``) and never reaches
+the components stages.
 
 A rejection sends the study back to the stage that produced the rejected output and
 starts a new revision (S1_SPEC §1: outputs are grouped by revision per study), so the
@@ -23,8 +29,9 @@ Temporal update from the message alone.
 :meth:`ReviewRepository.missing_targets` answers which correction targets do not exist in
 a study's revision (``CORRECTION_TARGET_TYPES``: extraction fields, rooms, components and
 assets of that revision, and for ``room_component`` the room a component is added to;
-photos are documents of kind ``photo``, which are not revisioned). The API uses it to
-refuse a correction the workflow's ``apply_corrections`` would refuse later.
+photos, also of ``photo_room``, are documents of kind ``photo``, which are not
+revisioned). The API uses it to refuse a correction the workflow's ``apply_corrections``
+would refuse later.
 """
 
 from __future__ import annotations
@@ -65,18 +72,28 @@ from basis.db.repositories.study import StudyRepository
 DECISION_TRANSITIONS: Final[dict[tuple[Stage, Decision], Stage]] = {
     (Stage.APPRAISAL_REVIEW, Decision.APPROVE): Stage.ROOMS_REVIEW,
     (Stage.APPRAISAL_REVIEW, Decision.REJECT): Stage.EXTRACTING,
-    (Stage.ROOMS_REVIEW, Decision.APPROVE): Stage.ASSETS_PROCESSING,
+    (Stage.ROOMS_REVIEW, Decision.APPROVE): Stage.COMPONENTS_PROCESSING,
     (Stage.ROOMS_REVIEW, Decision.REJECT): Stage.EXTRACTING,
+    (Stage.COMPONENTS_REVIEW, Decision.APPROVE): Stage.ASSETS_PROCESSING,
+    (Stage.COMPONENTS_REVIEW, Decision.REJECT): Stage.COMPONENTS_PROCESSING,
     (Stage.ASSETS_REVIEW, Decision.APPROVE): Stage.EXPORTING,
     (Stage.ASSETS_REVIEW, Decision.REJECT): Stage.ASSETS_PROCESSING,
 }
+# The single rooms review of a study without the components gate (module doc).
+SINGLE_ROOMS_GATE_TRANSITIONS: Final[dict[tuple[Stage, Decision], Stage]] = {
+    **DECISION_TRANSITIONS,
+    (Stage.ROOMS_REVIEW, Decision.APPROVE): Stage.ASSETS_PROCESSING,
+}
 
 
-def decision_target(stage: Stage, decision: Decision, revision: int) -> tuple[Stage, int]:
+def decision_target(
+    stage: Stage, decision: Decision, revision: int, *, components_gate: bool = True
+) -> tuple[Stage, int]:
     """``(to_stage, new_revision)`` for a decision; ``StaleStateError`` if not a review stage."""
     if stage not in REVIEW_STAGES:
         raise StaleStateError(f"{stage.value} is not a review stage")
-    to_stage = DECISION_TRANSITIONS[(stage, decision)]
+    table = DECISION_TRANSITIONS if components_gate else SINGLE_ROOMS_GATE_TRANSITIONS
+    to_stage = table[(stage, decision)]
     return to_stage, revision + 1 if decision is Decision.REJECT else revision
 
 
@@ -94,7 +111,7 @@ def _target_query(
                 ExtractionField.id.in_(ids),
             )
         )
-    if entity_type == "photo":
+    if entity_type in ("photo", "photo_room"):
         return select(Document.id).where(
             Document.study_id == study_id,
             Document.kind == DocumentKind.PHOTO,
@@ -118,7 +135,7 @@ def _target_query(
 # Every entity type a correction can target (the union of
 # ``basis.workflow.contracts.CORRECTION_TYPES``; a unit test keeps the two equal).
 CORRECTION_TARGET_TYPES: Final = frozenset(
-    {"extraction_field", "room", "component", "room_component", "asset", "photo"}
+    {"extraction_field", "room", "component", "room_component", "asset", "photo", "photo_room"}
 )
 
 
@@ -143,20 +160,30 @@ class ReviewRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def _ensure_gate_open(self, study_id: uuid.UUID, stage: Stage, revision: int) -> None:
+    async def _ensure_gate_open(self, study_id: uuid.UUID, stage: Stage, revision: int) -> bool:
         """``GateNotOpenError`` when the study is at ``stage``/``revision`` but not waiting
         for a decision (``waiting_review``, or ``stalled`` past the deadline). The row is
-        locked, so the workflow's transition and this decision serialize."""
-        status = await self._session.scalar(
-            select(Study.status)
-            .where(Study.id == study_id, Study.current_stage == stage, Study.revision == revision)
-            .with_for_update()
-        )
-        if status is not None and status not in (StudyStatus.WAITING_REVIEW, StudyStatus.STALLED):
+        locked, so the workflow's transition and this decision serialize. Returns whether
+        the study's workflow has the components gate (``studies.components_gate``; false
+        when the study is elsewhere, where the transition is stale anyway)."""
+        found = (
+            await self._session.execute(
+                select(Study.status, Study.components_gate)
+                .where(
+                    Study.id == study_id, Study.current_stage == stage, Study.revision == revision
+                )
+                .with_for_update()
+            )
+        ).one_or_none()
+        if found is None:
+            return False
+        status, components_gate = found
+        if status not in (StudyStatus.WAITING_REVIEW, StudyStatus.STALLED):
             raise GateNotOpenError(
                 f"{stage.value} revision {revision} of study {study_id} is not open for a "
                 f"decision yet (status {status.value})"
             )
+        return components_gate is True
 
     async def record_decision(
         self,
@@ -179,8 +206,11 @@ class ReviewRepository:
         transition. Nothing is committed here; any exception leaves the caller to roll
         back everything.
         """
-        to_stage, new_revision = decision_target(stage, decision, revision)
-        await self._ensure_gate_open(study_id, stage, revision)
+        decision_target(stage, decision, revision)  # a stage that is not a review: stale
+        components_gate = await self._ensure_gate_open(study_id, stage, revision)
+        to_stage, new_revision = decision_target(
+            stage, decision, revision, components_gate=components_gate
+        )
         study = await StudyRepository(self._session).transition(
             study_id, stage, to_stage, revision, new_revision=new_revision
         )
