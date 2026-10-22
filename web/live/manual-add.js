@@ -59,6 +59,13 @@
  function missingLabels(room){return (room.suggested_counts||[]).filter(s=>s.inventory_count===0)}
 
  function validCount(value){const n=Number(value);return Number.isInteger(n)&&n>=1&&n<=MAX_COUNT?n:null}
+ /* A drag from (x0, y0) to (x1, y1), screen pixels, as a box normalized to the photo's
+  * pixels on screen (`photo`: their left, top, width and height, the letterbox excluded),
+  * corners sorted and clamped to the photo. */
+ function dragBox(photo,x0,y0,x1,y1){
+  const u=x=>Math.min(1,Math.max(0,(x-photo.left)/photo.width)),v=y=>Math.min(1,Math.max(0,(y-photo.top)/photo.height));
+  return {x1:u(Math.min(x0,x1)),y1:v(Math.min(y0,y1)),x2:u(Math.max(x0,x1)),y2:v(Math.max(y0,y1))};
+ }
  /* A count correction of an inventory row; merged with the row's pending edit, if any. */
  function countCorrection(room,item,count,pending,labelName){
   const current=pending?.after||{},after={...current,count};
@@ -72,6 +79,6 @@
   return {key:`room_component:${room.id}:${label}`,entity_type:'room_component',entity_id:room.id,before:null,after,reason:null,
    title:room.name,summary:`add ${count} ${labelName(label).toLowerCase()}${material?' ('+material+')':''}`};
  }
- const api={MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,outlineText,addedMessage,isDuplicate,suggestions,raised,rowFor,missingLabels,validCount,countCorrection,roomComponentCorrection};
+ const api={MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,dragBox,outlineText,addedMessage,isDuplicate,suggestions,raised,rowFor,missingLabels,validCount,countCorrection,roomComponentCorrection};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisManualAdd=api;
 })(typeof globalThis==='object'?globalThis:this);

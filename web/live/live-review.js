@@ -209,11 +209,13 @@
  const selectedAddLabel=()=>root.querySelector('#live-add-label')?.value||L.viewer.addLabel||L.viewer.focusLabel||'light_fixture';
  function startBox(ev){
   if(L.viewer.tool!=='box'||ev.button!==0)return;ev.preventDefault();
-  const img=ev.currentTarget,r=img.getBoundingClientRect(),band=document.createElement('div');band.className='live-box-band';img.parentElement.append(band);
+  // The photo's pixels inside the <img> box (object-fit letterboxes a 4:3 photo in the
+  // design's 3:2 frame): the box is clamped to them and normalized to them, as the masks are.
+  const img=ev.currentTarget,el=img.getBoundingClientRect(),c=BasisMaskLayer.contentRect(img),r={left:el.left+c.x,top:el.top+c.y,right:el.left+c.x+c.w,bottom:el.top+c.y+c.h,width:c.w,height:c.h},band=document.createElement('div');band.className='live-box-band';img.parentElement.append(band);
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),x0=clamp(ev.clientX,r.left,r.right),y0=clamp(ev.clientY,r.top,r.bottom);
-  const move=e=>{const x=clamp(e.clientX,r.left,r.right),y=clamp(e.clientY,r.top,r.bottom);Object.assign(band.style,{left:(Math.min(x,x0)-r.left+img.offsetLeft)+'px',top:(Math.min(y,y0)-r.top+img.offsetTop)+'px',width:Math.abs(x-x0)+'px',height:Math.abs(y-y0)+'px'})};
+  const move=e=>{const x=clamp(e.clientX,r.left,r.right),y=clamp(e.clientY,r.top,r.bottom);Object.assign(band.style,{left:(Math.min(x,x0)-el.left+img.offsetLeft)+'px',top:(Math.min(y,y0)-el.top+img.offsetTop)+'px',width:Math.abs(x-x0)+'px',height:Math.abs(y-y0)+'px'})};
   const up=e=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);band.remove();
-   const x=clamp(e.clientX,r.left,r.right),y=clamp(e.clientY,r.top,r.bottom),box={x1:(Math.min(x,x0)-r.left)/r.width,y1:(Math.min(y,y0)-r.top)/r.height,x2:(Math.max(x,x0)-r.left)/r.width,y2:(Math.max(y,y0)-r.top)/r.height};
+   const box=M.dragBox(r,x0,y0,clamp(e.clientX,r.left,r.right),clamp(e.clientY,r.top,r.bottom));
    if(box.x2-box.x1<0.01||box.y2-box.y1<0.01){toast('Drag a larger box around the object.');return}
    addObject({kind:'box',label:selectedAddLabel(),box},'Outlining it with SAM 3…');
   };
@@ -225,8 +227,9 @@
    v.busy=busy;Live.render();
    try{
     const r=await api.addObject(L.studyId,doc,body);
+    // Nothing was added: no reload (a reload would re-render the page under the dialog).
+    if(M.isDuplicate(r)){v.busy=null;Object.assign(v,{tool:null,tap:null,focusLabel:r.object.label,selectedId:r.object.id,mode:'single'});Live.render();askDuplicate(body,r);return}
     Live.invalidate(`objects:${L.studyId}:${L.study.revision}:${doc}`);Live.invalidate(`rooms:${L.studyId}`);
-    if(M.isDuplicate(r)){Object.assign(v,{tool:null,tap:null,focusLabel:r.object.label,selectedId:r.object.id,mode:'single'});Live.render();askDuplicate(body,r);return}
     Object.assign(v,{tool:null,tap:null,focusLabel:r.object.label,selectedId:r.object.id,mode:'single'});
     toast(M.addedMessage(r,name));
     Live.render();

@@ -51,6 +51,14 @@ test('suggestions become a count correction on the room’s row or a component t
  assert.deepEqual([add.key,add.entity_type,add.entity_id],['room_component:r1:light_fixture','room_component','r1']);
  assert.deepEqual(add.after,{label:'light_fixture',count:3,material:'metal'});
 });
+test('a drag is normalized to the photo’s pixels, not the letterboxed frame',()=>{
+ // A 4:3 photo contained in an 800 x 533 frame at (151, 71): 711 x 533, 44.4 px bars each side.
+ const photo={left:151+44.5,top:71,width:711,height:533};
+ const b=M.dragBox(photo,photo.left+71.1,71+53.3,photo.left+142.2,71+106.6);
+ for(const [k,want] of Object.entries({x1:0.1,y1:0.1,x2:0.2,y2:0.2}))assert.ok(Math.abs(b[k]-want)<1e-9,k);
+ assert.deepEqual(M.dragBox(photo,photo.left+711,71+533,photo.left,71),{x1:0,y1:0,x2:1,y2:1});// corners sorted
+ assert.deepEqual(M.dragBox(photo,0,0,10,10),{x1:0,y1:0,x2:0,y2:0});// on the left bar: clamped to the photo
+});
 test('a count is a whole number from 1 to the API maximum',()=>{
  assert.equal(M.validCount('3'),3);assert.equal(M.validCount(M.MAX_COUNT),M.MAX_COUNT);
  for(const bad of ['0','-1','2.5','',null,'x',M.MAX_COUNT+1])assert.equal(M.validCount(bad),null,String(bad));
