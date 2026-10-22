@@ -76,6 +76,23 @@ Sign in with **Continue with Google** (the emulator offers test identities) or w
 local test account (email and password; shown only when the emulator is configured).
 Browsers that block pop-ups can use `?mode=live&signin=redirect`.
 
+4. A firm. Firms are invite-only: a new account belongs to no firm and sees "Not a member
+   of a firm yet". Create the first firm and invite its admin from the command line (there
+   is no sign-up and no HTTP route for it), then sign in with Google as that email and
+   accept the invitation on the join screen:
+
+   ```sh
+   docker compose … exec api python -m basis.admin create-firm --name "Basis" --owner-email you@example.com
+   docker compose … exec api python -m basis.admin list-firms
+   ```
+
+   Accepting needs a verified email: the emulator's Google provider verifies it, its
+   email/password accounts do not (they can sign in but cannot accept). The admin then
+   invites everyone else on **Team & invitations** (`#team`). No email is sent: an invited
+   person sees the invitation when they sign in with that address. A membership belongs to
+   the emulator account (its uid): if the emulator restarts without its saved state, the same
+   email is a new account and needs a new invitation (`python -m basis.admin invite`).
+
 ### Configuration (`live/config.js`)
 
 | Setting | Default | Notes |
@@ -100,6 +117,8 @@ edits the defaults. The API's `CORS_ALLOWED_ORIGINS` must list the frontend's or
 | Screen | API |
 |---|---|
 | Sign in | Firebase Auth (official JS SDK 10.14.1); the ID token is the API bearer token |
+| Firm access | `GET /v1/me` after sign-in decides the screen: no firm and no invitation is "Not a member of a firm yet" (signed in as, sign out / another account); invitations show the join page (`POST /v1/invitations/{id}/accept` or `/decline`; expired, revoked, declined, wrong-account and unverified-email states from the API's problem types). The sidebar names the firm and the role (Admin / Employee / Viewer for the API's owner / engineer / viewer); several firms get a switcher in the top bar, and the studies list and Start a study use the current firm (`org_id`) |
+| Team & invitations (`#team`, admins only) | `GET …/orgs/{id}/members` with role change (`POST …/members/{user}/role`) and removal (`DELETE`), `GET …/orgs/{id}/invitations` with create (email and role, each role's scope shown next to it) and revoke (`DELETE`). The last-admin, existing-member and pending-invitation refusals are shown as the API answers them. Anyone else opening `#team` sees "Admin access required" |
 | Studies, Library | `GET /v1/studies` (all pages). Search by name, status filters and sort run in the browser |
 | Start a study | `POST /v1/studies`; per file: SHA-256 in the browser, `POST …/documents`, `PUT` to the signed URL (with progress), `POST …/complete`; then `POST …/start`. A retry after a failure reuses the study, the confirmed files and the idempotency keys |
 | Progress | `GET …/workflow`, polled with backoff (1.5 s doubling to 15 s while unchanged, paused in a hidden tab); `POST …/retry`, `POST …/cancel` |
@@ -121,7 +140,7 @@ so a gate that opened while the app was elsewhere shows its decision bar without
 
 Marked in the UI with a "Mock" or "Not saved" tag, or hidden:
 
-* Team & access, owner overview, invitations, roles (`team-review.js`, `TEAM_HANDOFF.md`)
+* The owner overview (`#admin`) and its workload figures (`team-review.js`, `workspace-review.js`)
 * Editing presence and leases (the banner is hidden in live mode)
 * Study drafts saved in the browser (their leave-page guard is off in live mode)
 * Activity history
@@ -132,8 +151,12 @@ Marked in the UI with a "Mock" or "Not saved" tag, or hidden:
 
 Fields the design shows that the API does not have:
 
-* The signed-in user's own record (no `GET /v1/me`): name, role, workspace. The studies
-  list cannot say "created by you", and owner/engineer views cannot be chosen.
+* Creator-scoped visibility (`TEAM_HANDOFF.md`): the API shows every member of a firm all of
+  the firm's studies; "an engineer sees only their own studies" is not enforced, so the
+  design's My studies / Workspace studies split is not shown in live mode.
+* Invitation email delivery: none (no mail service). The admin tells the person to sign in.
+* Creating or renaming a firm in the app (the operator CLI creates firms); a firm's
+  settings page.
 * Creator and last-editor display names (studies carry `created_by` ids only).
 * Client name, property address and type, a cover photo per study.
 * Server-side study search, filters and sort; counts per status.
@@ -169,11 +192,14 @@ API data the design does not show yet:
 ## Tests
 
 ```sh
-node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons)
-node web/tests/live-smoke.mjs --origin http://127.0.0.1:3100   # against the local stack
+node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons, firms)
+node web/tests/live-smoke.mjs --origin http://127.0.0.1:3100 --owner-email you@example.com   # against the local stack
 ```
 
-`live-smoke.mjs` signs in to the Auth emulator, checks CORS for the origin, creates a study,
+`live-smoke.mjs` checks that a new account is refused (403 `no-firm`), signs in to the Auth
+emulator as the firm admin given by `--owner-email` (an owner in the local database), invites a
+throwaway user who accepts, checks CORS for the origin, creates a study,
 replays the create with the same idempotency key, uploads a generated PDF and PNG through
-signed URLs, reads them back, checks error problems and archives the study. It uses only
-synthetic files and does not start the workflow unless given `--start`.
+signed URLs, reads them back, checks error problems, archives the study and removes the
+throwaway user from the firm. It uses only synthetic files and does not start the workflow
+unless given `--start`.

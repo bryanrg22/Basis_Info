@@ -60,3 +60,11 @@
 .live-workbench .photo-stage{justify-content:flex-start}
 .live-workbench .object-aside{position:sticky;top:12px;max-height:calc(100vh - 24px);display:flex;flex-direction:column}
 .live-workbench .object-list{overflow:auto;min-height:0;flex:1}
+/* Invite-only firms (live/live-team.js) */
+.live-firm-switch{display:inline-flex;align-items:center;gap:6px}
+.live-firm-switch select{max-width:220px}
+.live-firm-page .invitation-card+.invitation-card{margin-top:0}
+.live-join-note{text-align:center}
+.live-team-policy{grid-template-columns:repeat(3,1fr)}
+@media(max-width:850px){.live-team-policy{grid-template-columns:1fr}}
+.live-members .select-field{min-width:120px}
