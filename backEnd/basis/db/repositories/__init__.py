@@ -6,6 +6,13 @@ transaction (``basis.db.session.get_session`` commits once per request).
 
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.idempotency import IdempotencyClaim, IdempotencyRepository, scoped_key
+from basis.db.repositories.invitation import (
+    Answer,
+    InvitationRepository,
+    InvitationStatus,
+    InvitationView,
+)
+from basis.db.repositories.org import FirmSummary, Member, Membership, OrgRepository
 from basis.db.repositories.outbox import NOTIFICATION, WORKFLOW_SIGNAL, OutboxRepository
 from basis.db.repositories.review import (
     DECISION_TRANSITIONS,
@@ -21,11 +28,19 @@ __all__ = [
     "DECISION_TRANSITIONS",
     "NOTIFICATION",
     "WORKFLOW_SIGNAL",
+    "Answer",
     "CorrectionInput",
     "DecisionRecord",
     "DocumentRepository",
+    "FirmSummary",
     "IdempotencyClaim",
     "IdempotencyRepository",
+    "InvitationRepository",
+    "InvitationStatus",
+    "InvitationView",
+    "Member",
+    "Membership",
+    "OrgRepository",
     "OutboxRepository",
     "ReviewRepository",
     "StudyPage",

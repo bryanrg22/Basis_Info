@@ -16,6 +16,9 @@
   ``studies.room_aliases`` (``{}`` for existing studies), and downgrades back to ``0004``;
 * ``0006_study_failed`` adds ``failed`` to ``study_status`` and ``studies.failure_reason``;
   its downgrade turns failed studies back into ``processing`` and recreates the enum;
+* ``0007_invitations`` adds ``invitations`` (normalized email, known role, one outcome
+  recorded with who, one open invitation per firm and email) and changes no existing row;
+  it downgrades back to ``0006``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -48,8 +51,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0006"
-HISTORY = ["0006", "0005", "0004", "0003", "0002", "0001"]
+HEAD = "0007"
+HISTORY = ["0007", "0006", "0005", "0004", "0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -576,3 +579,68 @@ async def test_0006_failed_status_and_downgrade(empty_database_url: str) -> None
     assert status == "processing" and "draft" in default and column == 0
     await upgrade(empty_database_url)  # and back up again
     assert await _labels(empty_database_url) == [*before, "failed"]
+
+
+# --------------------------------------------------------------------------- 0007
+
+
+async def test_0007_invitations_constraints_and_downgrade(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0006")
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        study, _, user = await _photo(connection)
+        org = await connection.fetchval("SELECT org_id FROM studies WHERE id = $1", study)
+        before = await connection.fetch("SELECT org_id, user_id, role FROM org_members")
+    finally:
+        await connection.close()
+    at_0006 = await snapshot(empty_database_url)
+    await upgrade(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        # Existing orgs and memberships are untouched.
+        assert await connection.fetch("SELECT org_id, user_id, role FROM org_members") == before
+        insert = (
+            "INSERT INTO invitations (org_id, email, role, expires_at, accepted_at, accepted_by, "
+            "revoked_at, revoked_by) VALUES ($1, $2, $3, now() + interval '14 days', $4, $5, "
+            "$6, $7) RETURNING id"
+        )
+        first = await connection.fetchval(
+            insert, org, "a@x.test", "engineer", None, None, None, None
+        )
+        with pytest.raises(asyncpg.UniqueViolationError):  # one open per firm and email
+            await connection.fetchval(insert, org, "a@x.test", "owner", None, None, None, None)
+        await connection.execute(
+            "UPDATE invitations SET revoked_at = now(), revoked_by = $2 WHERE id = $1", first, user
+        )
+        await connection.fetchval(insert, org, "a@x.test", "owner", None, None, None, None)
+        bad = [
+            (org, "A@x.test", "engineer", None, None, None, None),  # not lower case
+            (org, " b@x.test", "engineer", None, None, None, None),  # not trimmed
+            (org, "", "engineer", None, None, None, None),
+            (org, "c@x.test", "admin", None, None, None, None),
+            (org, "d@x.test", "viewer", None, user, None, None),  # accepted_by without when
+            (org, "e@x.test", "viewer", None, None, None, user),  # revoked_by without when
+        ]
+        for values in bad:
+            with pytest.raises(asyncpg.CheckViolationError):
+                await connection.fetchval(insert, *values)
+        with pytest.raises(asyncpg.CheckViolationError):  # two outcomes
+            await connection.execute(
+                "INSERT INTO invitations (org_id, email, role, expires_at, accepted_at, "
+                "accepted_by, declined_at, declined_by) VALUES ($1, 'f@x.test', 'viewer', "
+                "now() + interval '1 day', now(), $2, now(), $2)",
+                org,
+                user,
+            )
+        with pytest.raises(asyncpg.CheckViolationError):  # expires before it was created
+            await connection.execute(
+                "INSERT INTO invitations (org_id, email, role, expires_at) "
+                "VALUES ($1, 'g@x.test', 'viewer', now() - interval '1 day')",
+                org,
+            )
+    finally:
+        await connection.close()
+    await downgrade(empty_database_url, "0006")
+    assert await snapshot(empty_database_url) == at_0006
+    await upgrade(empty_database_url)  # and back up again
+    assert "invitations" in (await snapshot(empty_database_url))["tables"]  # type: ignore[operator]

@@ -2,8 +2,9 @@
 
 * Every ``/v1`` route: no token, a malformed header, an expired or a revoked token is 401
   with ``WWW-Authenticate`` and nothing is written.
-* First sight of a uid creates the user, a personal org and an ``owner`` membership;
-  later requests reuse them.
+* First sight of a uid creates the user and nothing else (firms are invite-only: no org,
+  no membership); later requests reuse the user. (Before invite-only firms, first sight
+  also created a personal org with an ``owner`` membership.)
 * A study in an org the caller does not belong to is 404, exactly like a study that does
   not exist; a visible study with too low a role is 403.
 
@@ -110,42 +111,42 @@ async def test_every_route_needs_a_valid_token(
 # --------------------------------------------------------------------------- users
 
 
-async def test_first_request_creates_user_personal_org_and_owner_membership(
-    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+async def test_first_request_creates_the_user_and_no_org(
+    invite_only_api: Api, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    assert (await api.get("alice", "/v1/studies")).status_code == 200
+    assert (await invite_only_api.get("alice", "/v1/me")).status_code == 200
 
     async with sessionmaker() as session:
         (user,) = (await session.scalars(select(User))).all()
-        (org,) = (await session.scalars(select(Org))).all()
-        (member,) = (await session.scalars(select(OrgMember))).all()
     assert (user.firebase_uid, user.email, user.display_name) == (
         "alice",
         "alice@example.test",
         "Alice",
     )
     assert user.last_seen_at is not None
-    assert org.name == "Alice (personal)"
-    assert (member.org_id, member.user_id, member.role) == (org.id, user.id, "owner")
+    assert await table_count(sessionmaker, Org) == 0
+    assert await table_count(sessionmaker, OrgMember) == 0
 
 
-async def test_later_requests_reuse_the_user_and_org(
-    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+async def test_later_requests_reuse_the_user(
+    invite_only_api: Api, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
     for _ in range(3):
-        assert (await api.get("alice", "/v1/studies")).status_code == 200
-    await api.create_study("alice")
+        assert (await invite_only_api.get("alice", "/v1/me")).status_code == 200
+    assert (
+        await invite_only_api.post("alice", "/v1/studies", {"property_name": "X"})
+    ).status_code == 403
     assert await table_count(sessionmaker, User) == 1
-    assert await table_count(sessionmaker, Org) == 1
+    assert await table_count(sessionmaker, Org) == 0
 
 
 async def test_concurrent_first_requests_create_one_user(
-    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+    invite_only_api: Api, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    responses = await asyncio.gather(*(api.get("dana", "/v1/studies") for _ in range(5)))
+    responses = await asyncio.gather(*(invite_only_api.get("dana", "/v1/me") for _ in range(5)))
     assert [r.status_code for r in responses] == [200] * 5
     assert await table_count(sessionmaker, User) == 1
-    assert await table_count(sessionmaker, Org) == 1
+    assert await table_count(sessionmaker, Org) == 0
 
 
 async def test_last_seen_is_refreshed_only_after_the_resolution(
@@ -376,7 +377,13 @@ async def test_real_verifier_against_the_auth_emulator(
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url=BASE_URL
     ) as client:
-        ok = await client.get("/v1/studies", headers={"Authorization": f"Bearer {token}"})
+        headers = {"Authorization": f"Bearer {token}"}
+        ok = await client.get("/v1/me", headers=headers)
+        studies = await client.get("/v1/studies", headers=headers)
         bad = await client.get("/v1/studies", headers={"Authorization": "Bearer not-a-jwt"})
     assert ok.status_code == 200, ok.text
+    # The emulator's email/password accounts are unverified, and a new user is in no firm.
+    assert ok.json()["email_verified"] is False
+    assert ok.json()["memberships"] == [] and ok.json()["pending_invitations"] == []
+    assert studies.status_code == 403 and studies.json()["type"].endswith("/no-firm")
     assert bad.status_code == 401

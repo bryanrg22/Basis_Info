@@ -62,6 +62,9 @@ class Principal:
     uid: str
     email: str | None = None
     display_name: str | None = None
+    # The ``email_verified`` claim: Google sign-in asserts it; an email/password account
+    # does not until the address is confirmed. Answering a firm invitation needs it.
+    email_verified: bool = False
 
 
 def ensure_emulator_not_deployed(settings: Settings, environ: Mapping[str, str]) -> None:
@@ -152,4 +155,6 @@ def principal_from_claims(claims: Mapping[str, Any]) -> Principal:
         uid=uid,
         email=email if isinstance(email, str) else None,
         display_name=name if isinstance(name, str) else None,
+        # Only a JSON true counts: a missing, string or other value is unverified.
+        email_verified=claims.get("email_verified") is True,
     )

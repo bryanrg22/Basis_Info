@@ -10,7 +10,9 @@
   by :class:`apitest_support.FakeVerifier`. Rate limits are raised so only
   ``test_rate_limit.py`` (which builds its own app) is limited.
 * ``api``: :class:`apitest_support.Api` over an httpx ASGI client; ``seed``: direct
-  writes for preconditions.
+  writes for preconditions. Each new user of ``api`` owns a firm of their own.
+* ``invite_only_api``: the same app without that: users join firms only by invitation,
+  as in the product (``tests/api/test_firms.py``).
 
 Tests that use these fixtures are marked ``integration`` in their own modules.
 """
@@ -83,3 +85,18 @@ def api(http: httpx.AsyncClient) -> Api:
 @pytest.fixture
 def seed(sessionmaker: async_sessionmaker[AsyncSession]) -> Seed:
     return Seed(sessionmaker)
+
+
+@pytest.fixture
+async def invite_only_api(
+    database_url: str,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    verifier: FakeVerifier,
+) -> AsyncIterator[Api]:
+    app = build_api_app(
+        api_settings(database_url), sessionmaker, storage, verifier, own_firms=False
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
+        yield Api(client)

@@ -63,7 +63,7 @@ def app(settings: Settings, verifier: FakeVerifier) -> FastAPI:
     app = create_app(settings)
     app.dependency_overrides[get_token_verifier] = lambda: verifier
 
-    @app.get("/v1/me")
+    @app.get("/v1/whoami")
     async def me(principal: CurrentPrincipal) -> dict[str, Any]:
         return {"uid": principal.uid, "email": principal.email, "name": principal.display_name}
 
@@ -102,14 +102,14 @@ def assert_401(response: httpx.Response, detail: str, challenge: str) -> None:
 async def test_valid_token_yields_principal(
     client: httpx.AsyncClient, verifier: FakeVerifier
 ) -> None:
-    response = await client.get("/v1/me", headers=bearer(GOOD_TOKEN))
+    response = await client.get("/v1/whoami", headers=bearer(GOOD_TOKEN))
     assert response.status_code == 200
     assert response.json() == {"uid": "alice", "email": "alice@example.com", "name": "Alice"}
     assert verifier.tokens == [GOOD_TOKEN]
 
 
 async def test_missing_header_is_401(client: httpx.AsyncClient, verifier: FakeVerifier) -> None:
-    response = await client.get("/v1/me")
+    response = await client.get("/v1/whoami")
     assert_401(response, DETAIL_MISSING, "Bearer")
     assert verifier.tokens == []
 
@@ -121,7 +121,7 @@ async def test_missing_header_is_401(client: httpx.AsyncClient, verifier: FakeVe
 async def test_malformed_header_is_401(
     client: httpx.AsyncClient, verifier: FakeVerifier, header: str
 ) -> None:
-    response = await client.get("/v1/me", headers={"Authorization": header})
+    response = await client.get("/v1/whoami", headers={"Authorization": header})
     assert_401(response, DETAIL_MALFORMED, "Bearer")
     assert verifier.tokens == []
 
@@ -129,14 +129,14 @@ async def test_malformed_header_is_401(
 async def test_rejected_token_is_401_invalid_token(
     client: httpx.AsyncClient, verifier: FakeVerifier
 ) -> None:
-    response = await client.get("/v1/me", headers=bearer("forged"))
+    response = await client.get("/v1/whoami", headers=bearer("forged"))
     assert_401(response, DETAIL_INVALID, 'Bearer error="invalid_token"')
     assert verifier.tokens == ["forged"]
 
 
 @pytest.mark.parametrize("scheme", ["bearer", "BEARER", "BeArEr"])
 async def test_scheme_is_case_insensitive(client: httpx.AsyncClient, scheme: str) -> None:
-    response = await client.get("/v1/me", headers={"Authorization": f"{scheme} {GOOD_TOKEN}"})
+    response = await client.get("/v1/whoami", headers={"Authorization": f"{scheme} {GOOD_TOKEN}"})
     assert response.status_code == 200
 
 
@@ -147,7 +147,7 @@ def test_parse_bearer_tolerates_surrounding_whitespace() -> None:
 async def test_verification_runs_in_a_worker_thread(
     client: httpx.AsyncClient, verifier: FakeVerifier
 ) -> None:
-    await client.get("/v1/me", headers=bearer(GOOD_TOKEN))
+    await client.get("/v1/whoami", headers=bearer(GOOD_TOKEN))
     assert verifier.threads and verifier.threads[0] is not threading.main_thread()
 
 
@@ -173,7 +173,7 @@ async def test_principal_override_replaces_authentication(
     app: FastAPI, client: httpx.AsyncClient, verifier: FakeVerifier
 ) -> None:
     app.dependency_overrides[get_principal] = lambda: Principal(uid="test-user")
-    response = await client.get("/v1/me")
+    response = await client.get("/v1/whoami")
     assert response.status_code == 200
     assert response.json()["uid"] == "test-user"
     assert verifier.tokens == []
@@ -195,4 +195,4 @@ def test_openapi_declares_bearer_scheme(app: FastAPI) -> None:
         "scheme": "bearer",
         "description": "Firebase ID token",
     }
-    assert {"FirebaseIdToken": []} in spec["paths"]["/v1/me"]["get"]["security"]
+    assert {"FirebaseIdToken": []} in spec["paths"]["/v1/whoami"]["get"]["security"]

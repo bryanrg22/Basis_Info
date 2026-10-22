@@ -33,7 +33,9 @@ PROBLEM_SCHEMA_REF: Final = "#/components/schemas/ProblemDetail"
 _PROBLEM_DESCRIPTIONS: Final[dict[int, str]] = {
     400: "Missing or malformed `Idempotency-Key`.",
     401: "Missing, malformed, expired or revoked bearer token.",
-    403: "The study is visible but your role is too low for this action.",
+    403: "Your role is too low for this action (the study or firm is visible to you); "
+    "`no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not "
+    "verify the invited email.",
     404: "Not found, or not visible to you (the two are indistinguishable).",
     409: "Conflicts with the current state (stale stage or revision, duplicate, archived, "
     "upload mismatch, or the same `Idempotency-Key` still in flight).",

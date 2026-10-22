@@ -82,6 +82,9 @@ SPEC_TABLES = {
     "carried_from_revision",
     "photo_objects": "id study_id document_id revision label phrase score x1 y1 x2 y2 mask "
     "area source counted derived_from carried_from created_by deleted_at deleted_by",
+    # Invite-only firms: migration 0007_invitations.
+    "invitations": "id org_id email role created_by expires_at accepted_at accepted_by "
+    "declined_at declined_by revoked_at revoked_by",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -171,6 +174,11 @@ SPEC_SIMPLE_FKS = {
     ("eval_results", "eval_run_id", "eval_runs"),
     ("photo_objects", "created_by", "users"),
     ("photo_objects", "deleted_by", "users"),
+    ("invitations", "org_id", "orgs"),
+    ("invitations", "created_by", "users"),
+    ("invitations", "accepted_by", "users"),
+    ("invitations", "declined_by", "users"),
+    ("invitations", "revoked_by", "users"),
 }
 
 SPEC_UNIQUES = {
@@ -218,6 +226,13 @@ SPEC_CHECKS = {
     "ck_photo_objects_area_range",
     "ck_photo_objects_model_has_no_author",
     "ck_photo_objects_deleted_by_whom",
+    "ck_invitations_role_valid",
+    "ck_invitations_email_normalized",
+    "ck_invitations_expires_after_created",
+    "ck_invitations_accepted_by_whom",
+    "ck_invitations_declined_by_whom",
+    "ck_invitations_revoked_by_whom",
+    "ck_invitations_one_outcome",
 }
 
 SPEC_NOT_NULL = {
@@ -243,6 +258,7 @@ SPEC_NOT_NULL = {
     "outbox": "kind payload status attempts next_attempt_at",
     "photo_localizations": "status instances",
     "photo_objects": "revision label x1 y1 x2 y2 area source counted",
+    "invitations": "org_id email role expires_at",
 }
 
 STUDY_SCOPED = {
@@ -504,6 +520,21 @@ def test_indexes() -> None:
         "photo_objects.document_id",
         "photo_objects.revision",
     ]
+    assert indexes["ix_invitations_email"] == ["invitations.email"]
+    assert indexes["uq_invitations_org_id_email_open"] == [
+        "invitations.org_id",
+        "invitations.email",
+    ]
+
+
+def test_one_open_invitation_per_firm_and_email() -> None:
+    """Partial unique index: an answered or revoked invitation does not block a new one."""
+    (index,) = [
+        i for i in table("invitations").indexes if i.name == "uq_invitations_org_id_email_open"
+    ]
+    assert index.unique
+    where = str(index.dialect_options["postgresql"]["where"])
+    assert where == "accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL"
 
 
 def test_server_defaults() -> None:

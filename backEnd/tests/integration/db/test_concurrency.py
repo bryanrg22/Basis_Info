@@ -19,11 +19,16 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from basis.api.errors import Forbidden
+from basis.api.routes.orgs import lock_as_owner
+from basis.api.users import CurrentUser
+from basis.auth.firebase import Principal
 from basis.db.enums import Decision, OrgRole, Stage, StudyStatus
 from basis.db.errors import StaleStateError, constraint_name
 from basis.db.models import Org, OrgMember, OutboxMessage, Review, Study, User
 from basis.db.repositories import (
     IdempotencyRepository,
+    OrgRepository,
     OutboxRepository,
     ReviewRepository,
     StudyRepository,
@@ -155,7 +160,7 @@ async def test_unique_review_constraint_holds_without_the_transition(
     assert constraint_name(errors[0]) == "uq_reviews_study_id_stage_revision"
 
 
-async def test_concurrent_first_logins_create_one_user_and_one_personal_org(
+async def test_concurrent_first_logins_create_one_user_and_no_org(
     committed: async_sessionmaker[AsyncSession],
 ) -> None:
     async def login(session: AsyncSession) -> User:
@@ -169,9 +174,43 @@ async def test_concurrent_first_logins_create_one_user_and_one_personal_org(
     assert len({user.id for user in users}) == 1
     async with committed() as session:
         assert await session.scalar(select(func.count()).select_from(User)) == 1
-        assert await session.scalar(select(func.count()).select_from(Org)) == 1
-        member = (await session.scalars(select(OrgMember))).one()
-        assert member.role == OrgRole.OWNER.value
+        # Firms are invite-only: signing in creates no org and no membership.
+        assert await session.scalar(select(func.count()).select_from(Org)) == 0
+        assert await session.scalar(select(func.count()).select_from(OrgMember)) == 0
+
+
+async def test_two_owners_demoting_each_other_at_once_leave_one_owner(
+    committed: async_sessionmaker[AsyncSession],
+) -> None:
+    """The route's sequence (lock the firm, re-check the caller is an owner, change the
+    role) in two transactions released together: the second waits for the firm's lock,
+    then finds its caller demoted and is refused. Without the lock both would pass their
+    checks on the same snapshot and leave the firm with no owner."""
+    async with session_scope(committed) as session:
+        make = Factory(session)
+        org = await make.org("Two owners")
+        first, second = await make.user(), await make.user()
+        for user in (first, second):
+            await make.member(org.id, user, OrgRole.OWNER)
+
+    def demote(caller: User, target: User) -> Callable[[AsyncSession], Awaitable[OrgRole]]:
+        async def action(session: AsyncSession) -> OrgRole:
+            principal = Principal(uid=caller.firebase_uid)
+            await lock_as_owner(session, CurrentUser(user=caller, principal=principal), org.id)
+            member = await OrgRepository(session).set_role(org.id, target.id, OrgRole.ENGINEER)
+            return member.role
+
+        return action
+
+    results = await race(committed, demote(first, second), demote(second, first))
+    done, errors = split(results)
+    assert done == [OrgRole.ENGINEER]
+    assert len(errors) == 1 and isinstance(errors[0], Forbidden)
+    async with committed() as session:
+        owners = await session.scalar(
+            select(func.count()).where(OrgMember.org_id == org.id, OrgMember.role == "owner")
+        )
+    assert owners == 1
 
 
 async def test_concurrent_idempotency_claims_have_one_owner(

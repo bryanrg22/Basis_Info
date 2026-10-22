@@ -27,7 +27,6 @@ from basis.db.errors import (
 from basis.db.repositories import DECISION_TRANSITIONS, decision_target, scoped_key
 from basis.db.repositories.document import normalize_sha256
 from basis.db.repositories.study import decode_cursor, encode_cursor
-from basis.db.repositories.user import personal_org_name
 
 
 @pytest.mark.parametrize(
@@ -121,12 +120,6 @@ def test_normalize_sha256() -> None:
     for bad in ("", "ab" * 31, "zz" * 32, "ab" * 33):
         with pytest.raises(ValueError):
             normalize_sha256(bad)
-
-
-def test_personal_org_name() -> None:
-    assert personal_org_name("a@x.test", "Ada") == "Ada (personal)"
-    assert personal_org_name("a@x.test", "  ") == "a@x.test (personal)"
-    assert personal_org_name(None, None) == "Personal workspace (personal)"
 
 
 def test_error_hierarchy() -> None:

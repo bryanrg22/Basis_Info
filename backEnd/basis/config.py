@@ -109,6 +109,8 @@ class Settings(BaseSettings):
     photo_concurrency: int = Field(default=5, ge=1, le=32)
     review_reminder_days: int = Field(default=7, ge=1)
     review_deadline_days: int = Field(default=30, ge=1)
+    # How long a firm invitation can be accepted (basis.db.repositories.invitation).
+    invitation_ttl_days: int = Field(default=14, ge=1, le=90)
     study_budget_usd: float = Field(default=25.0, gt=0)
     relay_poll_seconds: float = Field(default=2.0, gt=0)
     gcs_bucket: str | None = None

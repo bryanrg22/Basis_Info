@@ -186,5 +186,6 @@ async def test_app_built_from_settings_serves_v1_after_startup(
         app.router.lifespan_context(app),
         httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE_URL) as client,
     ):
-        response = await client.get("/v1/studies", headers=bearer("alice"))
+        # /v1/me, not /v1/studies: a new user is in no firm, so the study list is 403 no-firm.
+        response = await client.get("/v1/me", headers=bearer("alice"))
     assert response.status_code == 200

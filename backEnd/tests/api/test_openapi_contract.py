@@ -17,6 +17,8 @@ Schemathesis setup, and why:
   ``study_id`` values are replaced by that study's id in valid-data cases (``DELETE`` gets
   a second study, since it archives), so the routes run past the 404; the random-id 404
   path is still exercised by invalid-data cases and the other API tests.
+* Generated ``org_id`` values are replaced by the seeded user's firm (the user is its
+  owner) in valid-data cases, so the firm administration routes run past the 404.
 * ``Idempotency-Key`` is replaced by a fresh UUID in valid-data cases: the generator
   reuses short values across operations, and a reused key with a different body is
   (correctly) 422, which is not what the case is testing.
@@ -151,7 +153,7 @@ def contract_app(database_url: str, tmp_path_factory: pytest.TempPathFactory) ->
             main = await studies.create(org, user.id, "Contract test")
             archivable = await studies.create(org, user.id, "Contract test (DELETE)")
         await seed.stage(main.id, Stage.APPRAISAL_REVIEW)
-        return {"main": str(main.id), "archivable": str(archivable.id)}
+        return {"main": str(main.id), "archivable": str(archivable.id), "org": str(org)}
 
     study_ids = asyncio.run(prepare())
     app = build_api_app(
@@ -195,6 +197,8 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         # DELETE archives; it gets its own study so the others keep accepting writes.
         which = "archivable" if case.method.upper() == "DELETE" else "main"
         case.path_parameters["study_id"] = study_ids[which]
+    if case.path_parameters and "org_id" in case.path_parameters:
+        case.path_parameters["org_id"] = study_ids["org"]
     if case.headers and IDEMPOTENCY_HEADER in case.headers:
         case.headers[IDEMPOTENCY_HEADER] = str(uuid.uuid4())
     if case.query and "cursor" in case.query:

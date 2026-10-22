@@ -285,16 +285,16 @@ async def test_mark_uploaded_is_scoped_and_idempotent(session: AsyncSession, mak
 # --------------------------------------------------------------------- users
 
 
-async def test_first_login_creates_user_personal_org_and_owner_membership(
+async def test_first_login_creates_the_user_and_no_org(
     session: AsyncSession,
 ) -> None:
+    """Firms are invite-only: first sight creates the user only (before, it also created a
+    personal org with an owner membership)."""
     repo = UserRepository(session)
     user = await repo.upsert_by_firebase_uid("uid-ada", "ada@example.test", "Ada")
     assert user.last_seen_at is not None
-    memberships = await repo.memberships(user.id)
-    assert list(memberships.values()) == [OrgRole.OWNER]
-    org = await session.get(Org, next(iter(memberships)))
-    assert org is not None and org.name == "Ada (personal)"
+    assert await repo.memberships(user.id) == {}
+    assert await session.scalar(select(func.count()).select_from(Org)) == 0
 
 
 async def test_later_login_updates_without_new_org_and_keeps_missing_claims(
@@ -315,7 +315,7 @@ async def test_later_login_updates_without_new_org_and_keeps_missing_claims(
     assert again.display_name == "Robert"
     assert backdated is not None and again.last_seen_at is not None
     assert again.last_seen_at > backdated
-    assert await session.scalar(select(func.count()).select_from(OrgMember)) == 1
+    assert await session.scalar(select(func.count()).select_from(OrgMember)) == 0
     assert await repo.get_by_firebase_uid("uid-bob") is not None
     assert await repo.get(first.id) is not None
 
@@ -329,6 +329,17 @@ async def test_add_membership_inserts_then_changes_role(
     await repo.add_membership(org.id, user.id, OrgRole.VIEWER)
     await repo.add_membership(org.id, user.id, OrgRole.ENGINEER)
     assert (await repo.memberships(user.id))[org.id] is OrgRole.ENGINEER
+
+
+async def test_grant_membership_never_lowers_a_role(session: AsyncSession, make: Factory) -> None:
+    """Accepting an invitation: insert, raise a lower role, keep a higher one."""
+    user, org = await make.user(), await make.org()
+    repo = UserRepository(session)
+    assert await repo.grant_membership(org.id, user.id, OrgRole.ENGINEER) is OrgRole.ENGINEER
+    assert await repo.grant_membership(org.id, user.id, OrgRole.VIEWER) is OrgRole.ENGINEER
+    assert await repo.grant_membership(org.id, user.id, OrgRole.OWNER) is OrgRole.OWNER
+    assert await repo.grant_membership(org.id, user.id, OrgRole.ENGINEER) is OrgRole.OWNER
+    assert (await repo.memberships(user.id))[org.id] is OrgRole.OWNER
 
 
 # --------------------------------------------------------------------- idempotency
