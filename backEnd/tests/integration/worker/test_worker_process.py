@@ -190,7 +190,8 @@ async def test_worker_process_runs_a_study_and_drains_on_sigterm(
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
-        for stage in ("appraisal_review", "rooms_review", "assets_review"):
+        # v0.12: the components review follows the rooms review (components-gate-v1).
+        for stage in ("appraisal_review", "rooms_review", "components_review", "assets_review"):
             await wait_gate(handle, stage)
             await handle.execute_update(
                 StudyWorkflow.decide,

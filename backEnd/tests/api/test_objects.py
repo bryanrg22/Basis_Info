@@ -55,13 +55,20 @@ def mask(r0: int, r1: int, c0: int, c1: int) -> dict[str, Any]:
 
 
 async def seeded_photo(
-    api: Api, seed: Seed, sm: async_sessionmaker[AsyncSession], stage: Stage = Stage.ROOMS_REVIEW
+    api: Api,
+    seed: Seed,
+    sm: async_sessionmaker[AsyncSession],
+    stage: Stage = Stage.ROOMS_REVIEW,
+    *,
+    components_gate: bool | None = None,
 ) -> tuple[str, str, dict[str, uuid.UUID]]:
-    """(study id, photo id, {name: object id}) with three model rows and a status."""
+    """(study id, photo id, {name: object id}) with three model rows and a status. The
+    study's ``components_gate`` is left null (the single rooms review, where these tests
+    edit at ``rooms_review``) unless given."""
     study = await api.create_study("alice")
     sid = str(study["id"])
     outputs = await seed.outputs(sid)
-    await seed.stage(sid, stage)
+    await seed.stage(sid, stage, components_gate=components_gate)
     photo = uuid.UUID(outputs["photo"])
     ids: dict[str, uuid.UUID] = {}
     async with session_scope(sm) as session:
@@ -295,6 +302,65 @@ async def test_edits_outside_rooms_review_are_409(
     assert added.status_code == 409
     deleted = await api.delete("alice", f"{path(sid, photo)}/{ids['window']}")
     assert deleted.status_code == 409
+    assert await object_rows(sessionmaker) == 3
+
+
+@pytest.mark.parametrize(
+    ("components_gate", "stage", "editable"),
+    [
+        # Patch components-gate-v1: the objects are edited at the components review only.
+        (True, Stage.COMPONENTS_REVIEW, True),
+        (True, Stage.ROOMS_REVIEW, False),
+        (True, Stage.COMPONENTS_PROCESSING, False),
+        (True, Stage.ASSETS_REVIEW, False),
+        # A study whose workflow has the single rooms review keeps editing there.
+        (False, Stage.ROOMS_REVIEW, True),
+        (None, Stage.ROOMS_REVIEW, True),
+        (False, Stage.COMPONENTS_REVIEW, False),
+    ],
+)
+async def test_the_edit_stage_follows_the_studys_gates(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    components_gate: bool | None,
+    stage: Stage,
+    editable: bool,
+) -> None:
+    sid, photo, ids = await seeded_photo(
+        api, seed, sessionmaker, stage=stage, components_gate=components_gate
+    )
+    added = await api.post("alice", path(sid, photo), box("window", 0.6, 0.6, 0.7, 0.7))
+    if not editable:
+        assert added.status_code == 409, added.text
+        assert added.json()["type"].endswith("stale-state")
+        expected = "components_review" if components_gate else "rooms_review"
+        assert f"only while the study waits at {expected}" in added.json()["detail"]
+        deleted = await api.delete("alice", f"{path(sid, photo)}/{ids['window']}")
+        assert deleted.status_code == 409
+        assert await object_rows(sessionmaker) == 3
+        return
+    assert added.status_code == 201, added.text
+    manual = added.json()["object"]
+    deleted = await api.delete("alice", f"{path(sid, photo)}/{manual['id']}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted_at"] is not None
+
+
+async def test_edits_before_the_components_gate_opens_are_409(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """At components_review but not waiting (a failed room step holds it): no edit."""
+    sid, photo, _ = await seeded_photo(
+        api, seed, sessionmaker, stage=Stage.COMPONENTS_REVIEW, components_gate=True
+    )
+    async with session_scope(sessionmaker) as session:
+        await session.execute(
+            update(Study).where(Study.id == uuid.UUID(sid)).values(status=StudyStatus.FAILED)
+        )
+    added = await api.post("alice", path(sid, photo), box("window", 0.6, 0.6, 0.7, 0.7))
+    assert added.status_code == 409 and added.json()["type"].endswith("gate-not-open")
+    assert "components review is not open" in added.json()["detail"]
     assert await object_rows(sessionmaker) == 3
 
 

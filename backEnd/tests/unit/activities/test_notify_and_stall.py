@@ -58,6 +58,28 @@ async def test_a_reminder_is_one_notification_row_even_when_retried(
     assert message.delivered_at is None
 
 
+async def test_the_components_review_is_reminded_and_stalled_like_any_gate(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """Patch components-gate-v1: the new gate's reminder and stall."""
+    await at_stage(deps, seeded, Stage.COMPONENTS_REVIEW, revision=3)
+    await activity_env.run(
+        NotifyReviewPending(deps).run,
+        NotifyInput(
+            study_id=str(seeded.study_id), stage="components_review", revision=3, waiting_days=7
+        ),
+    )
+    async with session_scope(deps.sessionmaker) as session:
+        [message] = await OutboxRepository(session).list_for_study(seeded.study_id)
+    assert (message.kind, message.payload["stage"]) == (NOTIFICATION, "components_review")
+    activity_env.with_info(activity_id="stall")
+    await activity_env.run(
+        MarkStalled(deps).run,
+        MarkStalledInput(study_id=str(seeded.study_id), stage="components_review", revision=3),
+    )
+    assert await status_of(deps, seeded) is StudyStatus.STALLED
+
+
 async def test_mark_stalled_while_still_waiting(
     deps: Deps, seeded: SeededStudy, activity_env: Env
 ) -> None:

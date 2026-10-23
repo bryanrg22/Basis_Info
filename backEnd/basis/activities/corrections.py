@@ -8,7 +8,8 @@ and ``asset`` corrections with the same parsers.
 Counts (v0.11, manual add): a ``component`` correction may set ``count``, the quantity
 ``process_assets`` takes off and prices (``components.raw["count"]``); a ``room_component``
 correction adds a component the room's inventory is missing (``entity_id`` is the room).
-Their values follow :mod:`basis.domain.counts`, which the decision route checks too.
+Their values follow :mod:`basis.domain.counts`, which the decision route checks too. A
+``photo_room`` correction (v0.12) moves a photo to another room of the revision.
 """
 
 from __future__ import annotations
@@ -34,6 +35,10 @@ MERGE_INTO: Final = "merge_into"
 COMPONENT_FIELDS: Final = frozenset({"label", "material", "attachment", "count"})
 ASSET_FIELDS: Final = frozenset({"category", "bucket", "recovery_period", "irs_section"})
 PHOTO_FIELDS: Final = frozenset[str]()
+# A ``photo_room`` correction (v0.12, the rooms review of patch ``components-gate-v1``)
+# ``{"room_id": "<room id>"}`` moves the photo named by ``entity_id`` to that room of the
+# same revision.
+PHOTO_ROOM_FIELDS: Final = frozenset({"room_id"})
 
 
 def check_fields(kind: str, after: dict[str, Any], allowed: frozenset[str]) -> None:
@@ -87,6 +92,12 @@ def check_component(after: dict[str, Any]) -> None:
     problem = count_problem(after["count"]) if "count" in after else None
     if problem is not None:
         raise validation_error(problem)
+
+
+def check_photo_room(after: dict[str, Any]) -> None:
+    """Exactly a ``room_id`` (the target room is checked against the revision by the caller)."""
+    if set(after) != PHOTO_ROOM_FIELDS:
+        raise validation_error("a photo_room correction takes exactly room_id")
 
 
 def check_room_component(after: dict[str, Any]) -> None:

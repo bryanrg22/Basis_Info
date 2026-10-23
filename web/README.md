@@ -110,7 +110,19 @@ edits the defaults. The API's `CORS_ALLOWED_ORIGINS` must list the frontend's or
 ### Routes
 
 `#<screen>/<study id>[/<document or asset id>]`, e.g. `#rooms/<study>`,
-`#viewer/<study>/<photo document>`, `#asset-detail/<study>/<asset>`.
+`#components/<study>`, `#viewer/<study>/<photo document>`, `#asset-detail/<study>/<asset>`.
+
+### Review gates
+
+A study's step bar is **Upload · Appraisal · Rooms · Components · Assets · Schedule**. The
+rooms review approves the grouping (room names, types and floors, merges, a photo moved to
+another room); Basis then counts each room's components on the approved rooms (the progress
+page says "Preparing components", about a minute for a 33-room study) and the components
+review opens with the inventories, the counts and each photo's component page. A study
+started before the components review existed (`components_gate: false` on the study) keeps
+its five steps and its single rooms review, where all of this happens on one page, as
+before. `live/gates.js` holds these rules without the DOM (`web/tests/gates.test.cjs`).
+`#components` is a live screen only; mock mode is unchanged.
 
 ## What live mode connects
 
@@ -121,10 +133,11 @@ edits the defaults. The API's `CORS_ALLOWED_ORIGINS` must list the frontend's or
 | Team & invitations (`#team`, admins only) | `GET …/orgs/{id}/members` with role change (`POST …/members/{user}/role`) and removal (`DELETE`), `GET …/orgs/{id}/invitations` with create (email and role, each role's scope shown next to it) and revoke (`DELETE`). The last-admin, existing-member and pending-invitation refusals are shown as the API answers them. Anyone else opening `#team` sees "Admin access required" |
 | Studies, Library | `GET /v1/studies` (all pages). Search by name, status filters and sort run in the browser |
 | Start a study | `POST /v1/studies`; per file: SHA-256 in the browser, `POST …/documents`, `PUT` to the signed URL (with progress), `POST …/complete`; then `POST …/start`. A retry after a failure reuses the study, the confirmed files and the idempotency keys |
-| Progress | `GET …/workflow`, polled with backoff (1.5 s doubling to 15 s while unchanged, paused in a hidden tab); `POST …/retry`, `POST …/cancel` |
+| Progress | `GET …/workflow`, polled with backoff (1.5 s doubling to 15 s while unchanged, paused in a hidden tab); `POST …/retry`, `POST …/cancel`. After the rooms review is approved the study is at `components_processing`: "Preparing components" until the components review opens |
 | Appraisal review | `GET …/fields` (by section, page, confidence, critical); the cited page drawn inline with PDF.js from `GET …/documents/{id}/content`; `extraction_field` corrections |
-| Rooms review | `GET …/rooms` (photos, inventories, `suggested_counts`); `room` (rename, retype, merge), `component` (label, count, material, attachment), `room_component` (add a component the inventory is missing) and `photo` (re-analyze) corrections. A row whose label the photos show more of than the room counts says "Photos show N" with **Use N**; labels the photos show and the inventory lacks get **Add N to the room**; **Add a component to this room** takes a taxonomy label, a count and optional material and attachment (see "Adding what the pipeline missed") |
-| Photo components | `GET …/photos/{doc}/objects`; SAM 3 masks decoded in the browser (`live/rle.js`) and drawn on a canvas (`live/mask-layer.js`): **Spotlight** (default: one component, glow, numbered pins), **Show all** (every counted instance, tinted by component), one instance (score, size, where its outline came from, delete). **Add object** (`live/manual-add.js`): **Draw a box** (the default) or **Tap it** to preview and cycle the candidates under the tap. Delete: `DELETE` (manual objects only; the API keeps the model's) |
+| Rooms review | `GET …/rooms` (the rooms and their photos); `room` (rename, retype, merge) and `photo_room` (**Move to another room**: `after: {room_id}`) corrections. Nothing is analyzed again: a rejection regroups and the rooms review opens again |
+| Components review (`#components`) | `GET …/rooms` (photos, inventories, `suggested_counts`); `component` (label, count, material, attachment), `room_component` (add a component the inventory is missing) and `photo` (re-analyze, in the room the rooms review approved) corrections. A row whose label the photos show more of than the room counts says "Photos show N" with **Use N**; labels the photos show and the inventory lacks get **Add N to the room**; **Add a component to this room** takes a taxonomy label, a count and optional material and attachment (see "Adding what the pipeline missed"). For a study with the single rooms review all of this is on the rooms page, with the rooms corrections |
+| Photo components | `GET …/photos/{doc}/objects` (edits at the components review, or the single rooms review); SAM 3 masks decoded in the browser (`live/rle.js`) and drawn on a canvas (`live/mask-layer.js`): **Spotlight** (default: one component, glow, numbered pins), **Show all** (every counted instance, tinted by component), one instance (score, size, where its outline came from, delete). **Add object** (`live/manual-add.js`): **Draw a box** (the default) or **Tap it** to preview and cycle the candidates under the tap. Delete: `DELETE` (manual objects only; the API keeps the model's) |
 | Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with their document, page, section and verification, `live/citations.js`; review reasons as sentences, `live/review-reasons.js`); `asset` corrections (category, class, recovery period, IRS section) |
 | Schedule | totals by recovery class from `GET …/assets`; a CSV of the table |
 | Files | the study's documents; open and download through the API |
@@ -150,7 +163,8 @@ When the API answers that the selection is an object already counted (`created: 
 **Add anyway** (the same selection with `allow_duplicate: true`, for two objects one
 outline covers).
 
-Counts reach the assets through the rooms review: the API suggests, per component, the most
+Counts reach the assets through the components review (the single rooms review for a study
+without it): the API suggests, per component, the most
 instances counted in one photo of the room (SAM 3's and the ones added) against the room's
 count; **Use N**, an edited count, or an added component are corrections like any other,
 sent with **Request corrections**. The next revision's assets are built with them (the rules
@@ -188,7 +202,7 @@ Fields the design shows that the API does not have:
 * Creator and last-editor display names (studies carry `created_by` ids only).
 * Client name, property address and type, a cover photo per study.
 * Server-side study search, filters and sort; counts per status.
-* Moving a single photo to another room (only whole-room merges), adding a room.
+* Adding a room (a photo can be moved to another existing room, or rooms merged).
 * Editing a component's count directly (counts follow the photo's objects), or an
   asset's quantity and cost (asset corrections take category, class, recovery period
   and IRS section only).

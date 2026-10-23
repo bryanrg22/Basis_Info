@@ -37,6 +37,7 @@ def fields(model: type[BaseModel]) -> list[str]:
                 "photo_concurrency",
                 "localize_concurrency",
                 "rooms_gate_waits_for_localization",
+                "components_gate",  # v0.12 (patch components-gate-v1): additive, default True
                 "review_reminder_days",
                 "review_deadline_days",
                 "simulate_photos",
@@ -88,6 +89,49 @@ def test_stage_vocabulary_matches_the_database_enum() -> None:
     assert set(get_args(c.StageName)) == {stage.value for stage in Stage}
     assert set(get_args(c.ReviewStage)) == {stage.value for stage in REVIEW_STAGES}
     assert set(c.CORRECTION_TYPES) == set(get_args(c.ReviewStage))
+
+
+def test_correction_types_per_gate() -> None:
+    """v0.12 (patch components-gate-v1): the rooms review takes the grouping and the
+    components review the components; without the gate the single rooms review takes both."""
+    gate = {s: c.correction_types(s, components_gate=True) for s in c.CORRECTION_TYPES}
+    assert gate == {
+        "appraisal_review": {"extraction_field"},
+        "rooms_review": {"room", "photo_room"},
+        "components_review": {"component", "room_component", "photo"},
+        "assets_review": {"asset"},
+    }
+    single = {s: c.correction_types(s, components_gate=False) for s in c.CORRECTION_TYPES}
+    assert single == {**gate, "rooms_review": {"room", "component", "room_component", "photo"}}
+    assert c.SINGLE_ROOMS_GATE_TYPES == single["rooms_review"]
+    with pytest.raises(KeyError):
+        c.correction_types("extracting", components_gate=True)
+
+
+def test_old_payloads_take_the_flow_defaults() -> None:
+    """Payloads recorded before the patch lack the new fields: a workflow input defaults to
+    the components gate (the replayed patch marker decides), every activity input to the
+    flow before it."""
+    workflow_input = c.StudyWorkflowInput(
+        study_id="s", org_id="o", input_revision=1, workflow_version="v", budget_usd=1.0
+    )
+    assert workflow_input.components_gate is True
+    run_start = c.RunStartInput(
+        study_id="s", workflow_id="w", run_id="r", workflow_version="v", input_revision=1
+    )
+    assert run_start.components_gate is False
+    apply = c.ApplyCorrectionsInput(
+        study_id="s", stage="rooms_review", from_revision=1, to_revision=2, corrections=()
+    )
+    assert apply.components_gate is False
+    analyze = c.AnalyzePhotoInput(
+        study_id="s", document_id="d", revision=1, idempotency_key="k", budget_remaining_usd=1
+    )
+    assert analyze.keep_room is False
+    rooms = c.ReconcileRoomsInput(
+        study_id="s", revision=1, idempotency_key="k", budget_remaining_usd=1
+    )
+    assert rooms.vote_only is False
 
 
 def test_models_are_frozen_and_reject_unknown_fields() -> None:

@@ -5,7 +5,8 @@ At the production defaults (the room step on, so rooms have reconciled inventori
 Temporal server and the activities are real, SAM 3 is replaced by rows written as
 ``localize_photo`` and the objects route write them.
 
-The rooms review (``GET /rooms``) shows each room's count beside the most instances one
+The components review (``GET /rooms``; the single rooms review of an execution without
+patch ``components-gate-v1``) shows each room's count beside the most instances one
 photo of it holds, SAM 3's and the engineer's (``suggested_counts``). The engineer
 confirms a raised count (a ``component`` correction of the inventory row) and adds the
 component the inventory is missing (a ``room_component`` correction) with a rejection; the
@@ -73,17 +74,23 @@ def instance(label: str, at: int, *, user: uuid.UUID | None = None) -> NewObject
     )
 
 
+@pytest.mark.parametrize("components_gate", [True, False], ids=["components_gate", "single_gate"])
 async def test_a_count_correction_and_an_added_component_reach_the_assets(
-    harness: Harness,
+    harness: Harness, components_gate: bool
 ) -> None:
+    """At the components review (patch components-gate-v1), or at the single rooms review
+    of an execution without it."""
+    gate = "components_review" if components_gate else "rooms_review"
     run = production(harness, FixtureVisionProvider())
     try:
         async with run.worker():
-            started = await run.start()
+            started = await run.start(components_gate=components_gate)
             handle, sid = started.handle, started.study_id
             owner = started.study.owner_id
             await run.approve(handle, "appraisal_review")
-            await run.wait_awaiting(handle, "rooms_review", 1)
+            if components_gate:
+                await run.approve(handle, "rooms_review")
+            await run.wait_awaiting(handle, gate, 1)  # type: ignore[arg-type]
             kitchen = next(r for r in await rows(run, Room, sid, revision=1) if r.name == "Kitchen")
             [cabinets] = [
                 c
@@ -129,9 +136,10 @@ async def test_a_count_correction_and_an_added_component_reach_the_assets(
                 ),
             ]
             await run.decide(
-                handle, run.decision("rooms_review", 1, "reject", corrections=corrections)
+                handle,
+                run.decision(gate, 1, "reject", corrections=corrections),  # type: ignore[arg-type]
             )
-            await run.wait_awaiting(handle, "rooms_review", 2)
+            await run.wait_awaiting(handle, gate, 2)  # type: ignore[arg-type]
 
             kitchen_2 = next(
                 r for r in await rows(run, Room, sid, revision=2) if r.name == "Kitchen"
@@ -158,7 +166,7 @@ async def test_a_count_correction_and_an_added_component_reach_the_assets(
                 for label, s in (await suggestions(run, sid, 2)).items()
             } == {"kitchen_cabinet": (8, 8), "light_fixture": (3, 3)}
 
-            await run.approve(handle, "rooms_review", 2)
+            await run.approve(handle, gate, 2)  # type: ignore[arg-type]
             await run.wait_awaiting(handle, "assets_review", 2)
             assets = {a.component_id: a for a in await rows(run, Asset, sid, revision=2)}
             assert len(assets) == 5  # the four inventory objects and the added fixtures

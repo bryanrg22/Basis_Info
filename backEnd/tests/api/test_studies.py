@@ -49,10 +49,12 @@ async def test_create_returns_201_with_the_study(api: Api, seed: Seed) -> None:
         "revision",
         "room_aliases",
         "failure_reason",
+        "components_gate",  # v0.12: null until the workflow starts (record_run_start)
         "created_at",
         "updated_at",
     }
     assert body["failure_reason"] is None
+    assert body["components_gate"] is None
     assert body["room_aliases"] == {}
 
 

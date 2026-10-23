@@ -57,10 +57,12 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
             "extract_fields": 1,
             "analyze_photo": 3,
             "localize_photo": 3,  # recorded skipped: no localizer in this harness
-            "reconcile_rooms": 1,  # a no-op here: the suite pins ROOM_RECONCILE off
-            # extracting, appraisal_review, rooms_review, assets_processing, assets_review,
-            # exporting, completed
-            "transition": 7,
+            # The rooms' vote before the rooms review and the room step after it (patch
+            # components-gate-v1); no-ops here: the suite pins ROOM_RECONCILE off.
+            "reconcile_rooms": 2,
+            # extracting, appraisal_review, rooms_review, components_processing,
+            # components_review, assets_processing, assets_review, exporting, completed
+            "transition": 9,
             "process_assets": 1,
             "export_report": 1,
             "record_run_end": 1,
@@ -76,6 +78,7 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         StudyStatus.COMPLETED,
         1,
     )
+    assert study.components_gate is True  # recorded by record_run_start
     [run] = await harness.runs(started.study_id)
     assert (run.workflow_id, run.outcome) == (workflow_id, "completed")
     assert run.ended_at is not None

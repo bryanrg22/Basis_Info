@@ -155,15 +155,23 @@ async def test_a_failing_localizer_never_fails_the_photo_or_the_study(harness: H
     assert await rows(run, PhotoObject, sid) == []
 
 
-async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(harness: Harness) -> None:
+@pytest.mark.parametrize("components_gate", [True, False], ids=["components_gate", "single_gate"])
+async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(
+    harness: Harness, components_gate: bool
+) -> None:
+    """A photo flagged for re-analysis at the components review (patch
+    components-gate-v1), or at the single rooms review of an execution without it."""
+    gate = "components_review" if components_gate else "rooms_review"
     localizer = FakeLocalizer(script=SCRIPT)
     run = with_localizer(harness, localizer)
     try:
         async with run.worker():
-            started = await run.start()
+            started = await run.start(components_gate=components_gate)
             handle, sid = started.handle, started.study_id
             await run.approve(handle, "appraisal_review")
-            await run.wait_awaiting(handle, "rooms_review", 1)
+            if components_gate:
+                await run.approve(handle, "rooms_review")
+            await run.wait_awaiting(handle, gate, 1)  # type: ignore[arg-type]
             await wait_rows(run, PhotoLocalization, sid, 3, revision=1)  # SAM 3 runs behind
             kitchen, flagged = started.study.photo_ids[0], started.study.photo_ids[2]
             # An engineer's manual box on a kitchen photo, before the rejection.
@@ -188,7 +196,7 @@ async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(harness: Harne
             await run.decide(
                 handle,
                 run.decision(
-                    "rooms_review",
+                    gate,  # type: ignore[arg-type]
                     1,
                     "reject",
                     corrections=[
@@ -196,13 +204,13 @@ async def test_rooms_reject_relocalizes_only_the_reanalyzed_photo(harness: Harne
                     ],
                 ),
             )
-            await run.wait_awaiting(handle, "rooms_review", 2)
+            await run.wait_awaiting(handle, gate, 2)  # type: ignore[arg-type]
             assert len(localizer.calls) == 4  # only the re-analyzed photo
             ids = await scheduled_ids(handle)
             assert [i for i in ids if i.startswith("localize_photo:") and i.endswith(":r2")] == [
                 f"localize_photo:{flagged}:r2"
             ]
-            await run.approve(handle, "rooms_review", 2)
+            await run.approve(handle, gate, 2)  # type: ignore[arg-type]
             await run.approve(handle, "assets_review", 2)
             result = await run.result(handle)
     finally:

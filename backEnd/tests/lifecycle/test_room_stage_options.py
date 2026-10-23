@@ -77,7 +77,7 @@ async def test_room_call_mode_runs_end_to_end(harness: Harness) -> None:
     provider = FixtureVisionProvider()
     run = with_options(harness, provider, None, room_step_mode="room_call")
     sid, sequence = await run_study(run)
-    assert Counter(sequence)["reconcile_rooms"] == 1
+    assert Counter(sequence)["reconcile_rooms"] == 2  # the vote, then the room step
     by_prompt = Counter((r.model, r.prompt_version) for r in provider.requests)
     # The Kitchen (two photos) and the Bathroom (one) each get the room call; no
     # reconciliation call, no second look.

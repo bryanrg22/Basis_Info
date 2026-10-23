@@ -220,8 +220,24 @@ class Harness:
         return await self.decide(handle, self.decision(stage, revision))
 
     async def approve_all(self, handle: WorkflowHandle[Any, Any], revision: int = 1) -> None:
-        for stage in ("appraisal_review", "rooms_review", "assets_review"):
+        """Approve every gate from the appraisal review on; the components review (patch
+        ``components-gate-v1``) when the workflow opens it after the rooms review."""
+        for stage in ("appraisal_review", "rooms_review"):
             await self.approve(handle, stage, revision)  # type: ignore[arg-type]
+        await self.approve_rest(handle, revision)
+
+    async def approve_rest(self, handle: WorkflowHandle[Any, Any], revision: int = 1) -> None:
+        """After the rooms review: the components review if the workflow has it, then the
+        assets review."""
+        status = await self.wait_for(
+            handle,
+            lambda s: s.awaiting in ("components_review", "assets_review"),
+            "the gate after the rooms review",
+        )
+        if status.awaiting == "components_review":
+            await self.approve(handle, "components_review", status.revision)
+            revision = status.revision
+        await self.approve(handle, "assets_review", revision)
 
     async def result(self, handle: WorkflowHandle[Any, StudyWorkflowResult]) -> StudyWorkflowResult:
         return await asyncio.wait_for(handle.result(), WAIT_TIMEOUT_S)

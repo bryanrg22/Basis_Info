@@ -23,6 +23,10 @@
   and ``photo_objects.mask_source``/``mask_reason``/``prompt_id``, backfilling existing
   manual rows (``candidate`` when derived from one, else ``none``) and requiring a mask
   source on manual rows only; it downgrades back to ``0007``;
+* ``0009_components_gate`` adds ``components_processing`` and ``components_review`` to
+  ``stage`` before ``assets_processing`` and ``studies.components_gate`` (``false`` for
+  existing studies, null for new ones); its downgrade refuses while a study or a review is
+  at a components stage, else restores ``0008`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -55,8 +59,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0008"
-HISTORY = ["0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
+HEAD = "0009"
+HISTORY = ["0009", "0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -720,3 +724,67 @@ async def test_0008_backfills_mask_sources_and_constrains_them(empty_database_ur
         await connection.close()
     await downgrade(empty_database_url, "0007")
     assert await snapshot(empty_database_url) == at_0007
+
+
+# --------------------------------------------------------------------------- 0009
+
+
+async def _stages(url: str) -> list[str]:
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        rows = await connection.fetch(
+            "SELECT enumlabel FROM pg_enum JOIN pg_type t ON t.oid = enumtypid "
+            "WHERE t.typname = 'stage' ORDER BY enumsortorder"
+        )
+    finally:
+        await connection.close()
+    return [r["enumlabel"] for r in rows]
+
+
+async def test_0009_components_stages_and_gate_round_trip(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0008")
+    before = await _stages(empty_database_url)
+    at_0008 = await snapshot(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        existing, _, user = await _photo(connection)
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)
+    at = before.index("assets_processing")
+    stages = [*before[:at], "components_processing", "components_review", *before[at:]]
+    assert await _stages(empty_database_url) == stages
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        # Existing studies ran the single rooms review; a new one is null until it starts.
+        assert (
+            await connection.fetchval("SELECT components_gate FROM studies WHERE id = $1", existing)
+            is False
+        )
+        new, _, _ = await _other_study(connection, user)
+        assert (
+            await connection.fetchval("SELECT components_gate FROM studies WHERE id = $1", new)
+            is None
+        )
+        await connection.execute(
+            "UPDATE studies SET current_stage = 'components_review', components_gate = true "
+            "WHERE id = $1",
+            new,
+        )
+    finally:
+        await connection.close()
+    # A study at a components stage blocks the downgrade (nothing is rewritten) ...
+    with pytest.raises(Exception, match="components stage"):
+        await downgrade(empty_database_url, "0008")
+    assert await _stages(empty_database_url) == stages
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        await connection.execute("DELETE FROM studies WHERE id = $1", new)
+    finally:
+        await connection.close()
+    # ... and without one it restores 0008 exactly, and upgrades again.
+    await downgrade(empty_database_url, "0008")
+    assert await snapshot(empty_database_url) == at_0008
+    assert await _stages(empty_database_url) == before
+    await upgrade(empty_database_url)
+    assert await _stages(empty_database_url) == stages

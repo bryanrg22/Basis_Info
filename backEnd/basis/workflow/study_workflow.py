@@ -7,7 +7,9 @@ Shape of a run::
     in parallel: ingest_appraisal -> extract_fields ;
                  analyze_photo -> localize_photo, x N (bounded) ; reconcile_rooms
     gate appraisal_review   (reject: apply_corrections, extract_fields again, revision + 1)
-    gate rooms_review       (reject: apply_corrections, re-analyze and re-localize flagged
+    gate rooms_review       (the grouping; reject: apply_corrections, the rooms re-voted)
+    transition -> components_processing ; reconcile_rooms (and every localize_photo done)
+    gate components_review  (reject: apply_corrections, re-analyze and re-localize flagged
                              photos only, reconcile_rooms)
     transition -> assets_processing ; process_assets
     gate assets_review      (reject: apply_corrections, process_assets again)
@@ -97,6 +99,24 @@ Patches in this file:
   localizations still running (the next revision carries the photos' objects over), so
   does the drain after a failed extraction, and the study exports only once every
   localization is recorded. Executions recorded before the patch replay without it.
+* ``components-gate-v1`` (v0.12; only with every patch above, which an execution that records
+  it always has): the single rooms review is split in two. It is decided first, before
+  ``record_run_start``, which records it on the study (``studies.components_gate``) so the
+  API knows which gates the study has. The photo stage analyzes and localizes the photos and
+  re-votes the file-name rooms (``reconcile_rooms`` with ``vote_only``: no model call)
+  instead of running the room step, and the rooms review opens on the grouping: room fields,
+  merges and photo moves (``photo_room``). A rejection starts the next revision with the
+  grouping corrected and re-voted, re-analyzing no photo (``analyze_photo`` does not depend
+  on the room), and the rooms review opens again. On approval the study moves to
+  ``components_processing`` and the room step runs on the approved grouping while the
+  localizations still running finish; the components review opens when both are done. It
+  takes ``component`` (label, material, attachment, count), ``room_component`` and ``photo``
+  (re-analysis) corrections; a rejection re-analyzes and re-localizes the flagged photos in
+  the rooms the engineer approved (``keep_room``), runs the room step again (only rooms whose
+  photos changed are rebuilt) and opens the components review again. The input's
+  ``components_gate=False`` keeps the single rooms review (tests run that flow afresh);
+  executions recorded before the patch replay with it, and the API keeps their manual edits
+  at ``rooms_review``.
 """
 
 from __future__ import annotations
@@ -121,7 +141,6 @@ with workflow.unsafe.imports_passed_through():
         options_for,
     )
     from basis.workflow.contracts import (
-        CORRECTION_TYPES,
         AnalyzePhotoInput,
         AnalyzePhotoOutput,
         ApplyCorrectionsInput,
@@ -155,6 +174,7 @@ with workflow.unsafe.imports_passed_through():
         StudyWorkflowInput,
         StudyWorkflowResult,
         TransitionInput,
+        correction_types,
     )
 
 WORKFLOW_NAME: Final = "StudyWorkflow"
@@ -177,6 +197,7 @@ STAGE_RETRY_PATCH: Final = "stage-failure-retry-v1"
 EARLY_GATE_PATCH: Final = "appraisal-gate-early-v1"
 ACCOUNT_STOP_PATCH: Final = "provider-account-stop-v1"
 LOCALIZE_BACKGROUND_PATCH: Final = "localize-background-v1"
+COMPONENTS_GATE_PATCH: Final = "components-gate-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
@@ -251,6 +272,10 @@ class StudyWorkflow:
         self._localize_slots: asyncio.Semaphore | None = None
         self._localize_background = False
         self._localizations: list[asyncio.Task[None]] = []
+        # Patch components-gate-v1: whether the components review follows the rooms review,
+        # and whether the grouping is approved (a re-analysis then keeps the photo's room).
+        self._components_gate = False
+        self._grouping_approved = False
 
     # ------------------------------------------------------------------ handlers
 
@@ -328,7 +353,7 @@ class StudyWorkflow:
             )
         if decision.decision not in ("approve", "reject"):
             raise _invalid(f"unknown decision {decision.decision!r}")
-        allowed = CORRECTION_TYPES[decision.stage]
+        allowed = correction_types(decision.stage, components_gate=self._components_gate)
         for correction in decision.corrections:
             if correction.entity_type not in allowed:
                 raise _invalid(
@@ -337,6 +362,11 @@ class StudyWorkflow:
                 )
             if not _is_uuid(correction.entity_id):
                 raise _invalid(f"correction entity_id {correction.entity_id!r} is not a UUID")
+            if correction.entity_type == "photo_room" and (
+                set(correction.after) != {"room_id"}
+                or not _is_uuid(str(correction.after["room_id"]))
+            ):
+                raise _invalid("a photo_room correction takes exactly a room_id (a UUID)")
         if decision.decision == "approve" and decision.corrections:
             raise _invalid("an approval cannot carry corrections; reject with corrections")
 
@@ -357,6 +387,8 @@ class StudyWorkflow:
                 STAGE_ATTR.value_set(self._stage),
             ]
         )
+        # Decided before anything is recorded, so record_run_start stores it on the study.
+        self._components_gate = input.components_gate and workflow.patched(COMPONENTS_GATE_PATCH)
         await self._activity(
             "record_run_start",
             RunStartInput(
@@ -365,6 +397,7 @@ class StudyWorkflow:
                 run_id=info.run_id,
                 workflow_version=input.workflow_version,
                 input_revision=input.input_revision,
+                components_gate=self._components_gate,
             ),
             None,
             "record_run_start",
@@ -431,7 +464,9 @@ class StudyWorkflow:
         # Gate 2: rooms review, once the photo stage is done.
         if photo_task is not None:
             await photo_task
-        while True:
+        if self._components_gate:
+            await self._grouping_then_components()
+        while not self._components_gate:
             decision = await self._await_decision("rooms_review")
             if decision.decision == "approve":
                 break
@@ -456,6 +491,32 @@ class StudyWorkflow:
         return self._result("completed", export)
 
     # ------------------------------------------------------------------ stages
+
+    async def _grouping_then_components(self) -> None:
+        """Patch ``components-gate-v1``: the rooms review (the grouping), the room step on the
+        approved grouping, the components review (module doc)."""
+        while True:
+            decision = await self._await_decision("rooms_review")
+            if decision.decision == "approve":
+                break
+            new_revision, _ = await self._reject(decision, "extracting")
+            await self._reconcile_rooms(new_revision, vote_only=True)
+        self._grouping_approved = True
+        await self._transition("components_processing")
+        await self._prepare_components([], self._revision)
+        while True:
+            decision = await self._await_decision("components_review")
+            if decision.decision == "approve":
+                break
+            new_revision, corrections = await self._reject(decision, "components_processing")
+            flagged = [c.entity_id for c in corrections if c.entity_type == "photo"]
+            await self._prepare_components(flagged, new_revision)
+
+    async def _prepare_components(self, photo_ids: list[str], revision: int) -> None:
+        """Re-analyze ``photo_ids`` in their approved rooms, run the room step, and wait for
+        every localization (the components review shows the photos' outlines)."""
+        await self._photo_pass(photo_ids, revision)
+        await self._localized()
 
     async def _export(self, suffix: str = "") -> ExportReportOutput:
         activity_id = f"export_report:r{self._revision}{suffix}"
@@ -510,12 +571,15 @@ class StudyWorkflow:
             await self._localizations.pop(0)
 
     async def _photo_stage(self, photo_ids: list[str], revision: int) -> None:
-        await self._photo_pass(photo_ids, revision)
+        # Patch components-gate-v1: the room step waits for the approved grouping.
+        await self._photo_pass(photo_ids, revision, vote_only=self._components_gate)
 
-    async def _photo_pass(self, photo_ids: list[str], revision: int) -> None:
-        """Analyze ``photo_ids`` and run the room step. With patch
-        ``provider-account-stop-v1`` an account error stops the photos, is held for a
-        retry, and the photos it stopped run again (fresh activity ids) before the room
+    async def _photo_pass(
+        self, photo_ids: list[str], revision: int, *, vote_only: bool = False
+    ) -> None:
+        """Analyze ``photo_ids`` and run the room step (``vote_only``: the rooms' vote alone).
+        With patch ``provider-account-stop-v1`` an account error stops the photos, is held
+        for a retry, and the photos it stopped run again (fresh activity ids) before the room
         step; without it (or with no account error) this is analyze, then the room step."""
         todo, attempt = photo_ids, 0
         while True:
@@ -530,7 +594,7 @@ class StudyWorkflow:
             if self._photos_stopping:
                 return  # the extraction failed meanwhile; its retry reruns the stage
             attempt += 1
-        await self._reconcile_rooms(revision)
+        await self._reconcile_rooms(revision, vote_only=vote_only)
 
     async def _hold_photos(self, error: ActivityError) -> None:
         """Hold a photo-stage failure at the study's current stage, once no stage change
@@ -724,6 +788,7 @@ class StudyWorkflow:
                         idempotency_key=self._key(activity_id),
                         budget_remaining_usd=self._budget,
                         simulate=self._input.simulate_photos.get(document_id),
+                        keep_room=self._grouping_approved,
                     ),
                     AnalyzePhotoOutput,
                     activity_id,
@@ -749,14 +814,17 @@ class StudyWorkflow:
                 self._flag(document_id, budget=False)
             return True
 
-    async def _reconcile_rooms(self, revision: int) -> None:
-        """The room step for ``revision`` (patch ``reconcile-rooms-v1``); a failure flags
-        the rooms review and is otherwise ignored (the per-photo rows stand)."""
+    async def _reconcile_rooms(self, revision: int, *, vote_only: bool = False) -> None:
+        """The room step for ``revision`` (patch ``reconcile-rooms-v1``; ``vote_only``: the
+        rooms' vote alone, patch ``components-gate-v1``); a failure flags the review that
+        shows its output and is otherwise ignored (the per-photo rows stand)."""
         if not workflow.patched(RECONCILE_ROOMS_PATCH):
             return
+        review = "rooms_review" if vote_only else self._photos_review()
+        step = f"reconcile_rooms:r{revision}" + (":vote" if vote_only else "")
         attempt = 0
         while True:
-            activity_id = f"reconcile_rooms:r{revision}" + (f":retry{attempt}" if attempt else "")
+            activity_id = step + (f":retry{attempt}" if attempt else "")
             try:
                 output = await self._activity(
                     "reconcile_rooms",
@@ -765,6 +833,7 @@ class StudyWorkflow:
                         revision=revision,
                         idempotency_key=self._key(activity_id),
                         budget_remaining_usd=max(self._budget, 0.0),
+                        vote_only=vote_only,
                     ),
                     ReconcileRoomsOutput,
                     activity_id,
@@ -782,11 +851,11 @@ class StudyWorkflow:
                 workflow.logger.warning(
                     "rooms of revision %s not reconciled: %s", revision, error.cause or error
                 )
-                self._mark_needs_review("rooms_review")
+                self._mark_needs_review(review)
                 return
         self._budget -= output.cost_usd
         if output.needs_review:
-            self._mark_needs_review("rooms_review")
+            self._mark_needs_review(review)
 
     async def _process_assets(self, corrections: tuple[CorrectionInput, ...]) -> None:
         revision = self._revision
@@ -871,6 +940,7 @@ class StudyWorkflow:
                 from_revision=old_revision,
                 to_revision=old_revision + 1,
                 corrections=corrections,
+                components_gate=self._components_gate,
             ),
             ApplyCorrectionsOutput,
             f"apply_corrections:{stage}:r{old_revision}{suffix}",
@@ -1040,7 +1110,11 @@ class StudyWorkflow:
         if document_id not in self._flagged:
             self._flagged.append(document_id)
         if budget:
-            self._mark_needs_review("rooms_review")
+            self._mark_needs_review(self._photos_review())
+
+    def _photos_review(self) -> ReviewStage:
+        """The review that shows the photos' components (patch ``components-gate-v1``)."""
+        return "components_review" if self._components_gate else "rooms_review"
 
     def _mark_needs_review(self, stage: str) -> None:
         if stage not in self._needs_review_stages:

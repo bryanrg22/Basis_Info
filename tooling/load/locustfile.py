@@ -66,7 +66,8 @@ from plan import (  # noqa: E402
     unique_bytes,
 )
 
-GATES = ("appraisal_review", "rooms_review", "assets_review")
+# v0.12: the components review follows the rooms review (patch components-gate-v1).
+GATES = ("appraisal_review", "rooms_review", "components_review", "assets_review")
 POLL_S = 5.0  # the frontend's (and the live client's) workflow poll interval
 CSV_FLUSH_S = 2.5
 
@@ -395,6 +396,9 @@ class StudyEngineer(Engineer, HttpUser):
         if gate == "appraisal_review":
             self.pages(f"/v1/studies/{sid}/fields", "GET /v1/studies/{id}/fields")
         elif gate == "rooms_review":
+            # v0.12: the grouping only (the photos' objects are read at the components review).
+            self.pages(f"/v1/studies/{sid}/rooms", "GET /v1/studies/{id}/rooms")
+        elif gate == "components_review":
             self.pages(f"/v1/studies/{sid}/rooms", "GET /v1/studies/{id}/rooms")
             docs = self.call("GET", f"/v1/studies/{sid}", "GET /v1/studies/{id}").json()
             for d in docs.get("documents", []):

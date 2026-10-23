@@ -29,10 +29,15 @@ from basis.db.enums import (
     status_for_stage,
 )
 from basis.db.models import Correction, Document, OutboxMessage, Review, Study
-from basis.db.repositories import DECISION_TRANSITIONS, WORKFLOW_SIGNAL, scoped_key
+from basis.db.repositories import (
+    DECISION_TRANSITIONS,
+    SINGLE_ROOMS_GATE_TRANSITIONS,
+    WORKFLOW_SIGNAL,
+    scoped_key,
+)
 from basis.db.repositories.review import CORRECTION_TARGET_TYPES
 from basis.db.session import session_scope
-from basis.workflow.contracts import CORRECTION_TYPES
+from basis.workflow.contracts import CORRECTION_TYPES, SINGLE_ROOMS_GATE_TYPES, correction_types
 
 pytestmark = pytest.mark.integration
 
@@ -46,10 +51,16 @@ async def counts(sm: async_sessionmaker[AsyncSession]) -> tuple[int, int, int]:
 
 
 async def study_at(
-    api: Api, seed: Seed, stage: Stage, revision: int = 1, uid: str = "alice"
+    api: Api,
+    seed: Seed,
+    stage: Stage,
+    revision: int = 1,
+    uid: str = "alice",
+    *,
+    components_gate: bool | None = None,
 ) -> str:
     study = await api.create_study(uid)
-    await seed.stage(study["id"], stage, revision)
+    await seed.stage(study["id"], stage, revision, components_gate=components_gate)
     return str(study["id"])
 
 
@@ -60,19 +71,36 @@ def decision(
 
 
 @pytest.mark.parametrize(
-    ("stage", "verdict", "to_stage"),
-    [(stage, verdict, to) for (stage, verdict), to in DECISION_TRANSITIONS.items()],
-    ids=[f"{s.value}-{d.value}" for (s, d) in DECISION_TRANSITIONS],
+    ("components_gate", "stage", "verdict", "to_stage"),
+    [(True, stage, verdict, to) for (stage, verdict), to in DECISION_TRANSITIONS.items()]
+    + [
+        (gate, stage, verdict, to)
+        for (stage, verdict), to in SINGLE_ROOMS_GATE_TRANSITIONS.items()
+        if stage in (Stage.ROOMS_REVIEW, Stage.ASSETS_REVIEW)
+        for gate in (False, None)
+    ],
+    ids=[f"{s.value}-{d.value}" for (s, d) in DECISION_TRANSITIONS]
+    + [
+        f"single_gate_{'null' if gate is None else 'false'}-{s.value}-{d.value}"
+        for (s, d) in SINGLE_ROOMS_GATE_TRANSITIONS
+        if s in (Stage.ROOMS_REVIEW, Stage.ASSETS_REVIEW)
+        for gate in (False, None)
+    ],
 )
 async def test_each_transition(
     api: Api,
     seed: Seed,
     sessionmaker: async_sessionmaker[AsyncSession],
+    components_gate: bool | None,
     stage: Stage,
     verdict: Decision,
     to_stage: Stage,
 ) -> None:
-    sid = await study_at(api, seed, stage, revision=3)
+    """Every transition of the study's flow: with the components gate (patch
+    components-gate-v1), and for a study whose workflow has the single rooms review
+    (``components_gate`` false, or null: the API never moves such a study to a components
+    stage)."""
+    sid = await study_at(api, seed, stage, revision=3, components_gate=components_gate)
     key = str(uuid.uuid4())
 
     response = await api.post(
@@ -442,13 +470,20 @@ async def test_missing_idempotency_key_is_400(api: Api, seed: Seed) -> None:
 STAGE_TYPES = sorted(
     (stage, entity_type) for stage, types in CORRECTION_TYPES.items() for entity_type in types
 )
+# v0.12: the types above are those of a study with the components gate (patch
+# components-gate-v1, ``studies.components_gate``); these tests seed it so.
+GATE = True
 
 
-def correction(entity_type: str, entity_id: str) -> dict[str, Any]:
-    # A room_component's values are checked (basis.domain.counts): it adds a real component.
-    after = (
-        {"label": "window", "count": 2} if entity_type == "room_component" else {"name": "Kitchen"}
-    )
+def correction(entity_type: str, entity_id: str, room_id: str | None = None) -> dict[str, Any]:
+    # A room_component's values are checked (basis.domain.counts): it adds a real component;
+    # a photo_room's is a room of the revision (``room_id``, else a random one).
+    if entity_type == "room_component":
+        after: dict[str, Any] = {"label": "window", "count": 2}
+    elif entity_type == "photo_room":
+        after = {"room_id": room_id or str(uuid.uuid4())}
+    else:
+        after = {"name": "Kitchen"}
     return {"entity_type": entity_type, "entity_id": entity_id, "after": after}
 
 
@@ -462,24 +497,28 @@ async def assert_nothing_written(
 
 
 def test_target_types_cover_the_contract() -> None:
-    every_type: set[str] = set().union(*CORRECTION_TYPES.values())
+    every_type: set[str] = set().union(*CORRECTION_TYPES.values(), SINGLE_ROOMS_GATE_TYPES)
     assert every_type == CORRECTION_TARGET_TYPES
 
 
-@pytest.mark.parametrize(("stage", "entity_type"), STAGE_TYPES)
+@pytest.mark.parametrize(
+    ("components_gate", "stage", "entity_type"),
+    [(GATE, stage, entity_type) for stage, entity_type in STAGE_TYPES]
+    + [(False, "rooms_review", entity_type) for entity_type in sorted(SINGLE_ROOMS_GATE_TYPES)],
+)
 async def test_a_real_target_of_an_accepted_type_is_202(
     api: Api,
     seed: Seed,
     sessionmaker: async_sessionmaker[AsyncSession],
+    components_gate: bool,
     stage: str,
     entity_type: str,
 ) -> None:
-    sid = await study_at(api, seed, Stage(stage), revision=2)
+    sid = await study_at(api, seed, Stage(stage), revision=2, components_gate=components_gate)
     targets = await seed.outputs(sid, revision=2)
+    one = correction(entity_type, targets[entity_type], room_id=targets["room"])
     response = await api.post(
-        "alice",
-        f"/v1/studies/{sid}/decisions",
-        decision(stage, 2, "reject", corrections=[correction(entity_type, targets[entity_type])]),
+        "alice", f"/v1/studies/{sid}/decisions", decision(stage, 2, "reject", corrections=[one])
     )
     assert response.status_code == 202, response.text
     assert response.json()["corrections_recorded"] == 1
@@ -493,25 +532,32 @@ async def test_a_real_target_of_an_accepted_type_is_202(
 
 
 @pytest.mark.parametrize(
-    ("stage", "entity_type"),
+    ("components_gate", "stage", "entity_type"),
     [
-        (stage, entity_type)
+        (GATE, stage, entity_type)
         for stage, allowed in sorted(CORRECTION_TYPES.items())
         for entity_type in [*sorted(CORRECTION_TARGET_TYPES - allowed), "widget"]
+    ]
+    + [
+        (False, "rooms_review", entity_type)
+        for entity_type in [*sorted(CORRECTION_TARGET_TYPES - SINGLE_ROOMS_GATE_TYPES), "widget"]
     ],
 )
 async def test_a_type_the_stage_does_not_accept_is_422_with_its_index(
     api: Api,
     seed: Seed,
     sessionmaker: async_sessionmaker[AsyncSession],
+    components_gate: bool,
     stage: str,
     entity_type: str,
 ) -> None:
-    sid = await study_at(api, seed, Stage(stage))
+    sid = await study_at(api, seed, Stage(stage), components_gate=components_gate)
     targets = await seed.outputs(sid)
-    good_type = sorted(CORRECTION_TYPES[stage])[0]
-    good = correction(good_type, targets[good_type])
-    bad = correction(entity_type, targets.get(entity_type, str(uuid.uuid4())))
+    good_type = sorted(correction_types(stage, components_gate=components_gate))[0]
+    good = correction(good_type, targets[good_type], room_id=targets["room"])
+    bad = correction(
+        entity_type, targets.get(entity_type, str(uuid.uuid4())), room_id=targets["room"]
+    )
 
     response = await api.post(
         "alice",
@@ -567,14 +613,13 @@ async def test_a_target_of_another_study_is_422(
     stage: str,
     entity_type: str,
 ) -> None:
-    sid = await study_at(api, seed, Stage(stage))
-    other = await study_at(api, seed, Stage(stage))
-    await seed.outputs(sid)
+    sid = await study_at(api, seed, Stage(stage), components_gate=GATE)
+    other = await study_at(api, seed, Stage(stage), components_gate=GATE)
+    ours = await seed.outputs(sid)
     theirs = await seed.outputs(other)
+    one = correction(entity_type, theirs[entity_type], room_id=ours["room"])
     response = await api.post(
-        "alice",
-        f"/v1/studies/{sid}/decisions",
-        decision(stage, 1, "reject", corrections=[correction(entity_type, theirs[entity_type])]),
+        "alice", f"/v1/studies/{sid}/decisions", decision(stage, 1, "reject", corrections=[one])
     )
     assert response.status_code == 422, response.text
     assert response.json()["errors"][0]["loc"] == ["body", "corrections", 0, "entity_id"]
@@ -753,3 +798,160 @@ async def test_a_count_and_an_added_component_are_recorded(
         ),
     )
     assert approve.status_code == 422
+
+
+# --------------------------------------------------------------------------- two rooms gates
+# v0.12 (patch components-gate-v1): the rooms review takes the grouping (room fields,
+# merges, photo moves), the components review the components, counts and re-analysis.
+
+
+async def test_a_move_and_a_rename_at_the_rooms_review_are_recorded(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, revision=2, components_gate=True)
+    targets = await seed.outputs(sid, revision=2)
+    move = {
+        "entity_type": "photo_room",
+        "entity_id": targets["photo"],
+        "before": {"room_id": None},
+        "after": {"room_id": targets["room"]},
+    }
+    rename = {"entity_type": "room", "entity_id": targets["room"], "after": {"name": "Galley"}}
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 2, "reject", corrections=[move, rename]),
+    )
+    assert response.status_code == 202, response.text
+    assert (response.json()["current_stage"], response.json()["revision"]) == ("extracting", 3)
+    async with sessionmaker() as session:
+        (signal,) = (await session.scalars(select(OutboxMessage))).all()
+    assert signal.payload["corrections"][0] == {
+        "entity_type": "photo_room",
+        "entity_id": targets["photo"],
+        "after": {"room_id": targets["room"]},
+        "reason": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "after",
+    [
+        {"room_id": "not-a-room"},
+        {"room_id": 7},
+        {"room_id": None},
+        {},
+        {"room": "x"},
+        {"room_id": "00000000-0000-0000-0000-000000000000", "name": "Kitchen"},
+    ],
+)
+async def test_a_move_that_is_not_exactly_a_room_id_is_422_at_after(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession], after: dict[str, Any]
+) -> None:
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    bad = {"entity_type": "photo_room", "entity_id": targets["photo"], "after": after}
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 1, "reject", corrections=[bad]),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 0, "after"],
+        "correction_value",
+    )
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 1)
+
+
+@pytest.mark.parametrize("where", ["unknown", "earlier_revision", "other_study"])
+async def test_a_move_to_a_room_not_in_the_revision_is_422_at_after(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession], where: str
+) -> None:
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, revision=2, components_gate=True)
+    old = await seed.outputs(sid, revision=1)
+    targets = await seed.outputs(sid, revision=2)
+    other = await study_at(api, seed, Stage.ROOMS_REVIEW, components_gate=True)
+    rooms = {
+        "unknown": str(uuid.uuid4()),
+        "earlier_revision": old["room"],
+        "other_study": (await seed.outputs(other))["room"],
+    }
+    move = correction("photo_room", targets["photo"], room_id=rooms[where])
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 2, "reject", corrections=[move]),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 0, "after"],
+        "correction_target",
+    )
+    assert rooms[where] in error["detail"]
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 2)
+
+
+async def test_the_single_rooms_review_still_takes_components_and_refuses_moves(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """A study whose workflow has the single rooms review (started before the patch)."""
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, components_gate=False)
+    targets = await seed.outputs(sid)
+    count = {"entity_type": "component", "entity_id": targets["component"], "after": {"count": 3}}
+    move = correction("photo_room", targets["photo"], room_id=targets["room"])
+    refused = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 1, "reject", corrections=[count, move]),
+    )
+    assert refused.status_code == 422, refused.text
+    assert [e["loc"] for e in refused.json()["errors"]] == [
+        ["body", "corrections", 1, "entity_type"]
+    ]
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 1)
+    accepted = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 1, "reject", corrections=[count]),
+    )
+    assert accepted.status_code == 202, accepted.text
+
+
+async def test_approving_the_rooms_review_leaves_the_components_review_closed(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The row goes to components_processing; a decision for the components review before
+    the workflow opens it is 409 (stale: the study is not at it yet)."""
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, components_gate=True)
+    path = f"/v1/studies/{sid}/decisions"
+    approved = await api.post("alice", path, decision("rooms_review", 1, "approve"))
+    assert approved.status_code == 202, approved.text
+    assert approved.json()["current_stage"] == "components_processing"
+    early = await api.post("alice", path, decision("components_review", 1, "approve"))
+    assert early.status_code == 409
+    assert early.json()["type"].endswith("/stale-state")
+    async with sessionmaker() as session:
+        study = await session.get(Study, uuid.UUID(sid))
+    assert study is not None
+    assert (study.current_stage, study.status) == (
+        Stage.COMPONENTS_PROCESSING,
+        StudyStatus.PROCESSING,
+    )
+
+
+async def test_an_approval_at_the_components_review_cannot_carry_corrections(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    count = {"entity_type": "component", "entity_id": targets["component"], "after": {"count": 3}}
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("components_review", 1, "approve", corrections=[count]),
+    )
+    assert response.status_code == 422, response.text
+    await assert_nothing_written(sessionmaker, sid, Stage.COMPONENTS_REVIEW, 1)

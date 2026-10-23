@@ -5,7 +5,8 @@
  * reuses the design's helpers (heading, btn, icon, esc, modal, toast) and CSS classes, so
  * the design files stay the source of truth for the look. Mock mode is untouched.
  *
- * Routes: #<screen>/<study id>[/<document id>], e.g. #rooms/3f2c.../ or #viewer/<id>/<doc>.
+ * Routes: #<screen>/<study id>[/<document id>], e.g. #rooms/3f2c.../ or #viewer/<id>/<doc>;
+ * #components (the components review) is a live screen the design does not have.
  * Live actions use data-live="..." attributes, handled here before the design's handlers.
  *
  * Firms (live/live-team.js): after sign-in GET /v1/me decides the screen (Live.gate): the
@@ -21,17 +22,19 @@
  const L={authReady:false,user:null,authError:'',studies:null,studiesError:null,studyId:null,docId:null,study:null,cache:new Map(),blobs:new Map(),poller:null,workflow:null,upload:null,returnTo:null,busy:new Set(),corrections:{},viewer:{mode:'spotlight',focusLabel:null,selectedId:null,tool:null,addLabel:null},assetsFilter:'all',studiesFilter:'All studies',studiesQuery:'',studiesSort:'updated'};
  const api=BasisApi.createClient({baseUrl:C.apiBase,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')}});
  const Live=globalThis.BasisLive={config:C,api,state:L};
- const STAGE={uploading:'Waiting for documents',extracting:'Extracting the appraisal and analyzing photos',appraisal_review:'Appraisal review',rooms_review:'Rooms review',assets_processing:'Building the asset schedule',assets_review:'Assets review',exporting:'Preparing the schedule',completed:'Completed'};
+ const STAGE={uploading:'Waiting for documents',extracting:'Extracting the appraisal and analyzing photos',appraisal_review:'Appraisal review',rooms_review:'Rooms review',components_processing:'Preparing components',components_review:'Components review',assets_processing:'Building the asset schedule',assets_review:'Assets review',exporting:'Preparing the schedule',completed:'Completed'};
  const STATUS={draft:'Draft',processing:'Processing',waiting_review:'Ready for review',stalled:'Needs attention',completed:'Completed',archived:'Archived',failed:'Failed'};
- const GATE_SCREEN={appraisal_review:'appraisal',rooms_review:'rooms',assets_review:'assets'};
+ // The gates (live/gates.js): the rooms review, then the components review, unless the
+ // study's workflow has the single rooms review (studies.components_gate false).
+ const G=globalThis.BasisGates,GATE_SCREEN=G.GATE_SCREEN;
  const PUBLIC=new Set(['landing','login']);
- Live.STAGE=STAGE;Live.STATUS=STATUS;Live.GATE_SCREEN=GATE_SCREEN;
+ Live.STAGE=STAGE;Live.STATUS=STATUS;Live.GATE_SCREEN=GATE_SCREEN;Live.gates=G;
  Live.labelName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
  Live.when=v=>v?new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(v)):'—';
  Live.route=(screen,studyId=L.studyId,docId)=>`#${screen}${studyId?'/'+encodeURIComponent(studyId):''}${docId?'/'+encodeURIComponent(docId):''}`;
  Live.go=(screen,studyId=L.studyId,docId)=>{const hash=Live.route(screen,studyId,docId);if(location.hash===hash)render();else location.hash=hash};
  Live.errorText=e=>e?(e.status?`${e.message}${e.requestId?` (request ${e.requestId})`:''}`:e.message||String(e)):'';
- function nextScreen(s){if(s.status==='completed')return 'complete';if(s.status==='waiting_review'&&GATE_SCREEN[s.current_stage])return GATE_SCREEN[s.current_stage];return 'processing'}
+ const nextScreen=G.nextScreen;
  Live.nextScreen=nextScreen;
  // A study's gate is open for a decision when it waits at that stage.
  Live.gateOpen=(stage)=>L.study&&L.study.current_stage===stage&&L.study.status==='waiting_review';
@@ -60,7 +63,7 @@
   * leaves it: a gate that opened meanwhile stayed read-only until a reload. Entering a study
   * screen (another screen or study) revalidates the cached study in the background: the
   * cached copy stays on screen and the page renders again only if the study changed. */
- const REVALIDATE=new Set(['appraisal','rooms','viewer','assets','asset-detail','complete','files']);
+ const REVALIDATE=new Set(['appraisal','rooms','components','viewer','assets','asset-detail','complete','files']);
  let entered='';
  function revalidateOnEntry(){
   const at=state.screen+'/'+L.studyId;if(at===entered)return;entered=at;
@@ -114,7 +117,9 @@
   const gated=L.user&&Live.gate?Live.gate():'';
   if(gated){root.innerHTML=liveBar()+gated;document.title='Basis · Firm access';return}
   if(L.user)revalidateOnEntry();
-  baseRender();
+  // The components review is a live screen the design's screen table does not have.
+  if(state.screen==='components'&&L.user&&Live.componentsScreen){root.innerHTML=reviewbar()+shell(Live.componentsScreen());document.title='Basis · Components review'}
+  else baseRender();
   afterRender();
  };
  Live.render=()=>render();
@@ -128,7 +133,7 @@
    for(const el of root.querySelectorAll('.account .account-role'))el.textContent='Signed in';
    root.querySelector('#account-menu-trigger')?.setAttribute('aria-label',who+' — account menu');}
   for(const link of root.querySelectorAll('aside a[href="#activity"], aside a[href="#admin"]'))if(!link.querySelector('.live-mock-tag'))link.insertAdjacentHTML('beforeend','<span class="live-mock-tag" title="Not connected to the API yet: sample data">Mock</span>');
-  const crumb=root.querySelector('.breadcrumbs .strong');if(crumb&&L.study&&['appraisal','rooms','viewer','assets','asset-detail','complete','processing','files'].includes(state.screen))crumb.textContent=L.study.property_name;
+  const crumb=root.querySelector('.breadcrumbs .strong');if(crumb&&L.study&&['appraisal','rooms','components','viewer','assets','asset-detail','complete','processing','files'].includes(state.screen))crumb.textContent=L.study.property_name;
   for(const meta of root.querySelectorAll('.topbar .right-meta'))meta.innerHTML=L.study&&L.studyId&&state.screen!=='dashboard'&&state.screen!=='library'?`<span>Revision ${L.study.revision}</span>${statusBadge(L.study.status)}`:'';
   hydrateImages();
   Live.afterRender.forEach(fn=>fn());
@@ -275,12 +280,16 @@
    const gate=s.status==='waiting_review'&&GATE_SCREEN[s.current_stage]?s.current_stage:null;
    const total=p?(p.pending_photos+p.completed_photos):photos.length;
    const title=s.status==='failed'?'Processing stopped':s.status==='stalled'?'This study needs attention':gate?`${STAGE[gate]} is ready`:notStarted?'Ready to start':s.status==='completed'?'Study completed':STAGE[s.current_stage]||'Processing';
-   const desc=s.status==='failed'?(s.failure_reason||p?.failure||'The workflow stopped at a stage. Retry it to continue from there.'):s.status==='stalled'?'The processing budget was reached or a step needs a decision. Review the flagged photos, then retry.':gate?'The study is waiting for your decision.':notStarted?`${confirmed.length} of ${docs.length} documents confirmed. Start the study when the appraisal and photos are in.`:s.status==='completed'?'Every review is approved. The schedule is final for revision '+s.revision+'.':'Basis is working on this study. You can leave this screen; it keeps running.';
-   return `${Live.steps(s)}${heading(esc(title),esc(desc),`<a class="button" href="#dashboard">Back to studies</a>`)}<div class="two-col"><section class="panel"><div class="panel-head"><h2>Study progress</h2>${statusBadge(s.status)}</div><div class="panel-body"><div class="row between"><h3>Property photos</h3><span class="small num">${p?`${p.completed_photos} of ${total} analyzed`:`${photos.length} uploaded`}</span></div>${p&&total?`<div class="progress" style="margin-top:17px"><span style="width:${Math.round(100*p.completed_photos/total)}%"></span></div>`:''}<div class="timeline" style="margin-top:25px">${['extracting','appraisal_review','rooms_review','assets_processing','assets_review','completed'].map((stage,n)=>{const order=['uploading','extracting','appraisal_review','rooms_review','assets_processing','assets_review','exporting','completed'],at=order.indexOf(s.current_stage),i=order.indexOf(stage),done=i<at||s.status==='completed',current=i===at&&s.status!=='completed';return `<div><span class="check">${done?'✓':current?(s.status==='failed'||s.status==='stalled'?'!':'•'):n+1}</span><div><strong class="small">${STAGE[stage]}</strong><p>${current?(gate===stage?`<a href="${Live.route(GATE_SCREEN[stage])}">Open the review</a>`:s.status==='failed'?'Stopped here.':'In progress.'):done?'Done.':'Not started.'}</p></div></div>`}).join('')}</div>${p?.flagged_photos?.length?`<div class="note" style="margin-top:20px"><h3>${p.flagged_photos.length} flagged ${p.flagged_photos.length===1?'photo':'photos'}</h3><p>These photos could not be analyzed fully. They stay visible in the rooms review.</p></div>`:''}${w?.error&&w.error.status!==404?`<p class="live-upload-error">Status unavailable: ${esc(Live.errorText(w.error))}. The last confirmed state is shown; checking again…</p>`:''}</div></section><aside class="stack" style="align-content:start"><div class="panel panel-body"><h3>${esc(s.property_name)}</h3><div class="line-item"><span>Revision</span><strong>${s.revision}</strong></div><div class="line-item"><span>Workflow</span><strong>${esc(w?.data?.execution_status||(notStarted?'Not started':'—'))}</strong></div>${p?`<div class="line-item"><span>Remaining processing budget</span><strong class="num">$${Number(p.budget_remaining_usd).toFixed(2)}</strong></div>`:''}<div class="line-item"><span>Last update</span><strong>${Live.when(s.updated_at)}</strong></div><p class="footnote">The processing budget caps model spend for this study; it is not an invoice.</p></div><div class="panel panel-body"><h3>Documents</h3><div class="line-item"><span>Appraisal</span><strong>${docs.filter(d=>d.kind==='appraisal'&&d.uploaded_at).length?'Confirmed':'Missing'}</strong></div><div class="line-item"><span>Photos</span><strong>${photos.filter(d=>d.uploaded_at).length}</strong></div><a class="screen-link" href="${Live.route('files')}">All files</a></div></aside></div><div class="actionbar"><p>${gate?'Decisions apply to revision '+s.revision+'.':s.status==='failed'||s.status==='stalled'?'Retry continues from the stage that stopped.':'Progress updates automatically.'}</p><div class="row">${!['completed','archived'].includes(s.status)&&!notStarted?`<button class="button danger" data-live="cancel">Cancel study</button>`:''}${s.status==='failed'||s.status==='stalled'?`<button class="button primary" data-live="retry">Retry</button>`:''}${notStarted&&confirmed.length?`<button class="button primary" data-live="start">Start the study</button>`:''}${gate?`<a class="button primary" href="${Live.route(GATE_SCREEN[gate])}">Open ${esc(STAGE[gate].toLowerCase())}</a>`:''}${s.status==='completed'?`<a class="button primary" href="${Live.route('complete')}">View the schedule</a>`:''}</div></div>`;
+   // After the rooms review approves the grouping the room step counts each room's
+   // components, and the components review opens when it and SAM 3's outlines are done.
+   const preparing=s.current_stage==='components_processing'&&s.status==='processing';
+   const desc=s.status==='failed'?(s.failure_reason||p?.failure||'The workflow stopped at a stage. Retry it to continue from there.'):s.status==='stalled'?'The processing budget was reached or a step needs a decision. Review the flagged photos, then retry.':gate?'The study is waiting for your decision.':notStarted?`${confirmed.length} of ${docs.length} documents confirmed. Start the study when the appraisal and photos are in.`:s.status==='completed'?'Every review is approved. The schedule is final for revision '+s.revision+'.':preparing?'Basis is counting each room’s components across its photos, using the rooms you approved, and finishing the photo outlines. The components review opens when that is done, usually within a few minutes.':'Basis is working on this study. You can leave this screen; it keeps running.';
+   return `${Live.steps(s)}${heading(esc(title),esc(desc),`<a class="button" href="#dashboard">Back to studies</a>`)}<div class="two-col"><section class="panel"><div class="panel-head"><h2>Study progress</h2>${statusBadge(s.status)}</div><div class="panel-body"><div class="row between"><h3>Property photos</h3><span class="small num">${p?`${p.completed_photos} of ${total} analyzed`:`${photos.length} uploaded`}</span></div>${p&&total?`<div class="progress" style="margin-top:17px"><span style="width:${Math.round(100*p.completed_photos/total)}%"></span></div>`:''}<div class="timeline" style="margin-top:25px">${G.timeline(s).map((stage,n)=>{const order=G.ORDER,at=order.indexOf(s.current_stage),i=order.indexOf(stage),done=i<at||s.status==='completed',current=i===at&&s.status!=='completed';return `<div><span class="check">${done?'✓':current?(s.status==='failed'||s.status==='stalled'?'!':'•'):n+1}</span><div><strong class="small">${STAGE[stage]}</strong><p>${current?(gate===stage?`<a href="${Live.route(GATE_SCREEN[stage])}">Open the review</a>`:s.status==='failed'?'Stopped here.':'In progress.'):done?'Done.':'Not started.'}</p></div></div>`}).join('')}</div>${p?.flagged_photos?.length?`<div class="note" style="margin-top:20px"><h3>${p.flagged_photos.length} flagged ${p.flagged_photos.length===1?'photo':'photos'}</h3><p>These photos could not be analyzed fully. They stay visible in the ${G.componentsGate(s)?'components':'rooms'} review.</p></div>`:''}${w?.error&&w.error.status!==404?`<p class="live-upload-error">Status unavailable: ${esc(Live.errorText(w.error))}. The last confirmed state is shown; checking again…</p>`:''}</div></section><aside class="stack" style="align-content:start"><div class="panel panel-body"><h3>${esc(s.property_name)}</h3><div class="line-item"><span>Revision</span><strong>${s.revision}</strong></div><div class="line-item"><span>Workflow</span><strong>${esc(w?.data?.execution_status||(notStarted?'Not started':'—'))}</strong></div>${p?`<div class="line-item"><span>Remaining processing budget</span><strong class="num">$${Number(p.budget_remaining_usd).toFixed(2)}</strong></div>`:''}<div class="line-item"><span>Last update</span><strong>${Live.when(s.updated_at)}</strong></div><p class="footnote">The processing budget caps model spend for this study; it is not an invoice.</p></div><div class="panel panel-body"><h3>Documents</h3><div class="line-item"><span>Appraisal</span><strong>${docs.filter(d=>d.kind==='appraisal'&&d.uploaded_at).length?'Confirmed':'Missing'}</strong></div><div class="line-item"><span>Photos</span><strong>${photos.filter(d=>d.uploaded_at).length}</strong></div><a class="screen-link" href="${Live.route('files')}">All files</a></div></aside></div><div class="actionbar"><p>${gate?'Decisions apply to revision '+s.revision+'.':s.status==='failed'||s.status==='stalled'?'Retry continues from the stage that stopped.':'Progress updates automatically.'}</p><div class="row">${!['completed','archived'].includes(s.status)&&!notStarted?`<button class="button danger" data-live="cancel">Cancel study</button>`:''}${s.status==='failed'||s.status==='stalled'?`<button class="button primary" data-live="retry">Retry</button>`:''}${notStarted&&confirmed.length?`<button class="button primary" data-live="start">Start the study</button>`:''}${gate?`<a class="button primary" href="${Live.route(GATE_SCREEN[gate])}">Open ${esc(STAGE[gate].toLowerCase())}</a>`:''}${s.status==='completed'?`<a class="button primary" href="${Live.route('complete')}">View the schedule</a>`:''}</div></div>`;
   });
  };
- Live.steps=s=>{const labels=[['upload','Upload','processing'],['appraisal_review','Appraisal','appraisal'],['rooms_review','Rooms','rooms'],['assets_review','Assets','assets'],['completed','Schedule','complete']],order=['uploading','extracting','appraisal_review','rooms_review','assets_processing','assets_review','exporting','completed'],at=order.indexOf(s.current_stage),index=[0,1,2,3,4].find(i=>{const st=labels[i][0];return st==='upload'?at<=1:order.indexOf(st)>=at})??4;
-  return `<nav class="steps" aria-label="Study progress">${labels.map(([,label,screen],i)=>`<a href="${Live.route(screen)}" class="step ${i<index||s.status==='completed'?'done':i===index?'active':''}"><span>${i<index||s.status==='completed'?'✓':i+1}</span>${label}</a>`).join('')}</nav>`};
+ // Upload · Appraisal · Rooms · Components · Assets · Schedule (no Components step for a
+ // study with the single rooms review).
+ Live.steps=s=>`<nav class="steps" aria-label="Study progress">${G.steps(s).map(({label,screen,state:st},i)=>`<a href="${Live.route(screen)}" class="step ${st}"><span>${st==='done'?'✓':i+1}</span>${label}</a>`).join('')}</nav>`;
 
  /* ---------- files ---------- */
  studyFiles=function(){

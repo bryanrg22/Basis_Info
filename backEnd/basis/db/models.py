@@ -294,6 +294,11 @@ class Study(Base):
     )
     # Why the study's current stage failed, while ``status`` is ``failed`` (record_failure).
     failure_reason: Mapped[str | None]
+    # Whether the study's workflow has the components review after the rooms review
+    # (patch ``components-gate-v1``), recorded by ``record_run_start``: ``false`` for a
+    # study whose execution has the single rooms review (started before the patch),
+    # ``null`` until the workflow starts. The decision route and the object edits read it.
+    components_gate: Mapped[bool | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 

@@ -73,7 +73,7 @@ def summarize_studies(rows: list[dict[str, Any]], scale: float) -> dict[str, Any
         "rate_limited_429": sum(r.get("rate_limited", 0) for r in rows),
         "polls": sum(r.get("polls", 0) for r in rows),
     }
-    for gate in ("appraisal_review", "rooms_review", "assets_review"):
+    for gate in ("appraisal_review", "rooms_review", "components_review", "assets_review"):
         vals = [r["gates"][gate] for r in done if gate in r.get("gates", {})]
         out[f"to_{gate}_real_s"] = {q: _div(percentile(vals, q), scale) for q in (50, 95, 100)}
     return out

@@ -242,8 +242,9 @@ class Seed:
         Synthetic rows only: an appraisal and a photo document (random sha256, URIs that
         point at nothing), an extraction with one field, a room, a component of the photo
         in that room, and an asset of the component. Returns ``{entity_type: id}`` for
-        ``extraction_field``, ``room``, ``component``, ``asset`` and ``photo``, and
-        ``room_component`` (the room: a component is added to a room).
+        ``extraction_field``, ``room``, ``component``, ``asset`` and ``photo``,
+        ``room_component`` (the room: a component is added to a room) and ``photo_room``
+        (the photo; the room it moves to is in ``after``).
         """
         sid = uuid.UUID(str(study_id))
         async with session_scope(self.sessionmaker) as session:
@@ -311,12 +312,28 @@ class Seed:
                 "room_component": str(room.id),
                 "asset": str(asset.id),
                 "photo": str(ids["photo"]),
+                "photo_room": str(ids["photo"]),
             }
 
-    async def stage(self, study_id: str | uuid.UUID, stage: Stage, revision: int = 1) -> None:
+    async def stage(
+        self,
+        study_id: str | uuid.UUID,
+        stage: Stage,
+        revision: int = 1,
+        *,
+        components_gate: bool | None = None,
+    ) -> None:
+        """Put the study at ``stage``; ``components_gate`` as ``record_run_start`` records
+        it (patch components-gate-v1; left as it is when not given: null for a new study,
+        which the API treats as the single rooms review)."""
+        values: dict[str, Any] = {
+            "current_stage": stage,
+            "status": status_for_stage(stage),
+            "revision": revision,
+        }
+        if components_gate is not None:
+            values["components_gate"] = components_gate
         async with session_scope(self.sessionmaker) as session:
             await session.execute(
-                update(Study)
-                .where(Study.id == uuid.UUID(str(study_id)))
-                .values(current_stage=stage, status=status_for_stage(stage), revision=revision)
+                update(Study).where(Study.id == uuid.UUID(str(study_id))).values(values)
             )

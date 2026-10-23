@@ -104,8 +104,10 @@ async def test_appraisal_reject_reextracts_with_corrections(harness: Harness) ->
 async def test_rooms_reject_renames_rooms_and_reanalyzes_only_flagged_photos(
     harness: Harness,
 ) -> None:
+    """The single rooms review (an execution without the components gate). With the gate
+    the same corrections split over the two reviews: ``test_components_gate.py``."""
     async with harness.worker():
-        started = await harness.start()
+        started = await harness.start(components_gate=False)
         handle, sid = started.handle, started.study_id
         await harness.approve(handle, "appraisal_review")
         await harness.wait_awaiting(handle, "rooms_review", 1)
@@ -159,6 +161,7 @@ async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harn
         handle, sid = started.handle, started.study_id
         await harness.approve(handle, "appraisal_review")
         await harness.approve(handle, "rooms_review")
+        await harness.approve(handle, "components_review")
         await harness.wait_awaiting(handle, "assets_review", 1)
 
         assets_r1 = await rows(harness, Asset, sid, revision=1)

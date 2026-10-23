@@ -55,6 +55,10 @@
  /* The inventory row a raised count belongs on: the first row of that label not added by
   * an engineer (an added component's count is set where it was added). */
  function rowFor(room,label){return (room.inventory||[]).find(c=>c.label===label&&!c.added)||null}
+ /* The count that brings the room to the suggestion when set on `item`: inventory_count
+  * sums every row of the label, so the row takes the difference, not the suggestion
+  * itself (rows 1 + 6 with "Use 8": this row becomes 2, not 8). */
+ function suggestedRowCount(item,s){return Math.min(MAX_COUNT,Math.max(1,item.count+s.suggested-s.inventory_count))}
  /* Labels the photos show that the room's inventory lacks. */
  function missingLabels(room){return (room.suggested_counts||[]).filter(s=>s.inventory_count===0)}
 
@@ -79,6 +83,6 @@
   return {key:`room_component:${room.id}:${label}`,entity_type:'room_component',entity_id:room.id,before:null,after,reason:null,
    title:room.name,summary:`add ${count} ${labelName(label).toLowerCase()}${material?' ('+material+')':''}`};
  }
- const api={MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,dragBox,outlineText,addedMessage,isDuplicate,suggestions,raised,rowFor,missingLabels,validCount,countCorrection,roomComponentCorrection};
+ const api={MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,dragBox,outlineText,addedMessage,isDuplicate,suggestions,raised,rowFor,suggestedRowCount,missingLabels,validCount,countCorrection,roomComponentCorrection};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisManualAdd=api;
 })(typeof globalThis==='object'?globalThis:this);

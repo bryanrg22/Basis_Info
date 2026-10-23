@@ -28,10 +28,18 @@ Count values (manual add, :mod:`basis.domain.counts`) are checked with the types
 anything is written: a ``component`` ``count`` and a ``room_component``'s ``after`` (a
 component added to the room named by ``entity_id``) that ``apply_corrections`` would refuse
 are a 422 located at ``["body", "corrections", <i>, "after"]``.
+
+Two gates for rooms (v0.12, patch ``components-gate-v1``): a study whose workflow has the
+components gate (``studies.components_gate``) reviews the grouping at ``rooms_review``
+(``room``, ``photo_room``: a photo moved to the room ``after.room_id``, which must be a room
+of the decided revision, else 422 at ``after``) and the components at ``components_review``
+(``component``, ``room_component``, ``photo``); a study without it keeps the single rooms
+review (:func:`basis.workflow.contracts.correction_types`).
 """
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from typing import Annotated, Any, Final
 
@@ -46,7 +54,7 @@ from basis.db.enums import OrgRole, Stage
 from basis.db.repositories import CorrectionInput, ReviewRepository, VisibleStudy
 from basis.db.session import SessionDep
 from basis.domain.counts import count_problem, room_component_problems
-from basis.workflow.contracts import CORRECTION_TYPES
+from basis.workflow.contracts import correction_types
 
 DECISION_ROLE: Final = OrgRole.ENGINEER
 # Pydantic-style error ``type`` values of the two correction checks.
@@ -61,9 +69,12 @@ def _correction_error(index: int, member: str, message: str, kind: str) -> dict[
     return {"loc": ("body", "corrections", index, member), "msg": message, "type": kind}
 
 
-def check_correction_types(stage: str, corrections: Sequence[CorrectionIn]) -> None:
-    """422 naming every correction whose type the decided stage does not accept."""
-    allowed = CORRECTION_TYPES[stage]
+def check_correction_types(
+    stage: str, corrections: Sequence[CorrectionIn], *, components_gate: bool = True
+) -> None:
+    """422 naming every correction whose type the decided stage does not accept (in the
+    study's flow: ``components_gate``)."""
+    allowed = correction_types(stage, components_gate=components_gate)
     errors = [
         _correction_error(
             index,
@@ -85,11 +96,20 @@ async def check_correction_targets(
     revision: int,
     corrections: Sequence[CorrectionIn],
 ) -> None:
-    """422 naming every correction whose target is not in the study at ``revision``."""
+    """422 naming every correction whose target is not in the study at ``revision`` (and
+    every ``photo_room`` whose ``after.room_id`` is not a room of it)."""
     if not corrections:
         return
+    moves = {
+        index: uuid.UUID(str(item.after["room_id"]))
+        for index, item in enumerate(corrections)
+        if item.entity_type == "photo_room"
+    }
     missing = await reviews.missing_targets(
-        study.study.id, revision, [(item.entity_type, item.entity_id) for item in corrections]
+        study.study.id,
+        revision,
+        [(item.entity_type, item.entity_id) for item in corrections]
+        + [("room", room_id) for room_id in moves.values()],
     )
     errors = [
         _correction_error(
@@ -100,6 +120,15 @@ async def check_correction_targets(
         )
         for index, item in enumerate(corrections)
         if (item.entity_type, item.entity_id) in missing
+    ] + [
+        _correction_error(
+            index,
+            "after",
+            f"room {room_id} is not in revision {revision} of this study",
+            CORRECTION_TARGET_ERROR,
+        )
+        for index, room_id in moves.items()
+        if ("room", room_id) in missing
     ]
     if errors:
         raise RequestValidationError(errors)
@@ -108,9 +137,10 @@ async def check_correction_targets(
 def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
     """422 naming every count the rooms review would refuse (:mod:`basis.domain.counts`): a
     ``component`` ``count`` that is not a whole number from 1, or a ``room_component`` that
-    is not a known label with a count (and known material and attachment). Refused here,
-    because ``apply_corrections`` refusing one would start the next revision without any
-    of the rejection's corrections."""
+    is not a known label with a count (and known material and attachment), and a
+    ``photo_room`` that is not exactly a ``room_id`` UUID. Refused here, because
+    ``apply_corrections`` refusing one would start the next revision without any of the
+    rejection's corrections."""
     errors = []
     for index, item in enumerate(corrections):
         problems: list[str] = []
@@ -119,12 +149,24 @@ def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
             problems = [problem] if problem is not None else []
         elif item.entity_type == "room_component":
             problems = room_component_problems(item.after)
+        elif item.entity_type == "photo_room" and not _is_move(item.after):
+            problems = ["a photo_room correction takes exactly a room_id (a room id)"]
         errors += [
             _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR)
             for problem in problems
         ]
     if errors:
         raise RequestValidationError(errors)
+
+
+def _is_move(after: dict[str, Any]) -> bool:
+    if set(after) != {"room_id"} or not isinstance(after["room_id"], str):
+        return False
+    try:
+        uuid.UUID(after["room_id"])
+    except ValueError:
+        return False
+    return True
 
 
 def check_no_corrections_on_approve(decision: str, corrections: Sequence[CorrectionIn]) -> None:
@@ -156,9 +198,12 @@ def check_no_corrections_on_approve(decision: str, corrections: Sequence[Correct
         "workflow has not opened yet (`gate-not-open`: the study is at the stage but "
         "`processing` or `failed`). Each correction's "
         "`entity_type` must be one the stage accepts (appraisal_review: extraction_field; "
-        "rooms_review: room, component, room_component, photo; assets_review: asset) and "
-        "its `entity_id` must exist in the study at the decided revision (a photo: a photo "
-        "document of the study; a room_component: the room it adds a component to); a "
+        "rooms_review: room, photo_room; components_review: component, room_component, "
+        "photo; assets_review: asset; a study whose `components_gate` is false has the single "
+        "rooms_review: room, component, room_component, photo) and "
+        "its `entity_id` must exist in the study at the decided revision (a photo or "
+        "photo_room: a photo document of the study; a room_component: the room it adds a "
+        "component to); a `photo_room` `after` is exactly a `room_id` of that revision; a "
         "`component` `count` must be a whole number from 1, and a `room_component` "
         "`after` a taxonomy `label` with a `count` (optional `material`, `attachment` from "
         "their vocabularies); otherwise 422 with one `errors` entry per offending "
@@ -176,7 +221,9 @@ async def record_decision(
 ) -> DecisionAccepted:
     # Already validated by the idempotency dependency; read again for the review row.
     key = parse_idempotency_key(request.headers.get(IDEMPOTENCY_HEADER))
-    check_correction_types(body.stage, body.corrections)
+    check_correction_types(
+        body.stage, body.corrections, components_gate=access.study.components_gate is True
+    )
     check_no_corrections_on_approve(body.decision, body.corrections)
     check_correction_values(body.corrections)
     reviews = ReviewRepository(session)

@@ -986,7 +986,7 @@
           "reviews"
         ],
         "summary": "Approve or reject the current review stage",
-        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field; rooms_review: room, component, room_component, photo; assets_review: asset) and its `entity_id` must exist in the study at the decided revision (a photo: a photo document of the study; a room_component: the room it adds a component to); a `component` `count` must be a whole number from 1, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\"]`.",
+        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field; rooms_review: room, photo_room; components_review: component, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\"]`.",
         "operationId": "record_decision_v1_studies__study_id__decisions_post",
         "security": [
           {
@@ -1852,8 +1852,8 @@
         "tags": [
           "objects"
         ],
-        "summary": "Add an engineer's selection (a box, a tap or a candidate) at rooms_review",
-        "description": "A `box` resolves to the stored instance of its label it overlaps at IoU >= 0.5; with none, SAM 3 is prompted with the label's phrases and the box and the instance overlapping the box best at IoU >= 0.5 with score >= 0.5 is stored with its outline (`mask_source: sam_box_prompt`), else the box alone (`none`, `mask_reason` says why; a failed or timed-out call never fails the add). A tap (`point`) resolves to the stored instance under it, 422 when there is none (draw a box). A `candidate` names a stored instance by id. An uncounted candidate becomes a manual instance with its outline (201, `mask_source: candidate`). A selection that is, or covers at intersection over the smaller >= 0.5, a counted instance of its label adds nothing (200, `created: false`, `duplicate_of`) unless `allow_duplicate`. Only while the study waits at `rooms_review`, on its current revision, once the photo's localization is recorded (409 otherwise; `localization-pending` while SAM 3 still runs).",
+        "summary": "Add an engineer's selection (a box, a tap or a candidate) at the components review",
+        "description": "A `box` resolves to the stored instance of its label it overlaps at IoU >= 0.5; with none, SAM 3 is prompted with the label's phrases and the box and the instance overlapping the box best at IoU >= 0.5 with score >= 0.5 is stored with its outline (`mask_source: sam_box_prompt`), else the box alone (`none`, `mask_reason` says why; a failed or timed-out call never fails the add). A tap (`point`) resolves to the stored instance under it, 422 when there is none (draw a box). A `candidate` names a stored instance by id. An uncounted candidate becomes a manual instance with its outline (201, `mask_source: candidate`). A selection that is, or covers at intersection over the smaller >= 0.5, a counted instance of its label adds nothing (200, `created: false`, `duplicate_of`) unless `allow_duplicate`. Only while the study waits at `components_review` (`rooms_review` when its `components_gate` is false), on its current revision, once the photo's localization is recorded (409 otherwise; `localization-pending` while SAM 3 still runs).",
         "operationId": "add_object_v1_studies__study_id__photos__document_id__objects_post",
         "security": [
           {
@@ -2040,8 +2040,8 @@
         "tags": [
           "objects"
         ],
-        "summary": "Delete a manual instance at rooms_review",
-        "description": "Soft delete: the row keeps who deleted it and when. Only manual instances (409 for a model instance), only while the study waits at `rooms_review`, on its current revision.",
+        "summary": "Delete a manual instance at the components review",
+        "description": "Soft delete: the row keeps who deleted it and when. Only manual instances (409 for a model instance), only while the study waits at `components_review` (`rooms_review` when its `components_gate` is false), on its current revision.",
         "operationId": "delete_object_v1_studies__study_id__photos__document_id__objects__object_id__delete",
         "security": [
           {
@@ -4921,6 +4921,7 @@
             "enum": [
               "appraisal_review",
               "rooms_review",
+              "components_review",
               "assets_review"
             ],
             "title": "Stage",
@@ -6847,6 +6848,8 @@
           "extracting",
           "appraisal_review",
           "rooms_review",
+          "components_processing",
+          "components_review",
           "assets_processing",
           "assets_review",
           "exporting",
@@ -6956,6 +6959,18 @@
             ],
             "title": "Failure Reason",
             "description": "Why the current stage failed, while `status` is `failed` (retry with `POST /v1/studies/{id}/retry`)."
+          },
+          "components_gate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Components Gate",
+            "description": "Whether the study's workflow reviews the components after the rooms (`rooms_review` takes the grouping, `components_review` the components and counts); false for a study with the single rooms review (started before it); null until the workflow starts."
           },
           "created_at": {
             "type": "string",
@@ -7093,6 +7108,18 @@
             ],
             "title": "Failure Reason",
             "description": "Why the current stage failed, while `status` is `failed` (retry with `POST /v1/studies/{id}/retry`)."
+          },
+          "components_gate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Components Gate",
+            "description": "Whether the study's workflow reviews the components after the rooms (`rooms_review` takes the grouping, `components_review` the components and counts); false for a study with the single rooms review (started before it); null until the workflow starts."
           },
           "created_at": {
             "type": "string",
@@ -7335,6 +7362,7 @@
                 "enum": [
                   "appraisal_review",
                   "rooms_review",
+                  "components_review",
                   "assets_review"
                 ]
               },

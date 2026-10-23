@@ -43,6 +43,11 @@ test('suggestions become a count correction on the room’s row or a component t
  const s=M.suggestions(room);
  assert.equal(M.raised(s.get('window')),true);assert.equal(M.raised(s.get('toilet')),false);assert.equal(M.raised(undefined),false);
  assert.equal(M.rowFor(room,'window').component_id,'c1');// not the engineer's added row
+ // Rows 1 + 2 + 1 = 4, photos show 5: the chosen row takes the difference (2 -> 3), so the
+ // room totals 5, not 4 - 2 + 5 = 7.
+ assert.equal(M.suggestedRowCount(room.inventory[1],s.get('window')),3);
+ assert.equal(M.suggestedRowCount({count:1},{suggested:8,inventory_count:7}),2);// 1 + 6, "Use 8"
+ assert.equal(M.suggestedRowCount({count:1},{suggested:1,inventory_count:3}),1);// never below 1
  assert.deepEqual(M.missingLabels(room).map(x=>x.label),['light_fixture']);
  const c=M.countCorrection(room,room.inventory[1],5,{after:{material:'wood'},reason:'checked'},name);
  assert.deepEqual([c.key,c.entity_type,c.entity_id],['component:c1','component','c1']);

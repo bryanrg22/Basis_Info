@@ -33,13 +33,15 @@ async def test_budget_exceeded_flags_items_and_the_study_still_completes(
         handle = started.handle
         status = await harness.wait_awaiting(handle, "appraisal_review", 1)
         [third] = status.flagged_photos
-        assert status.needs_review_stages == ("rooms_review",)
+        # The photo is re-analyzed from the components review (patch components-gate-v1).
+        assert status.needs_review_stages == ("components_review",)
         assert status.budget_remaining_usd == pytest.approx(0.005)
 
         await harness.approve(handle, "appraisal_review")
         await harness.approve(handle, "rooms_review")
+        await harness.approve(handle, "components_review")
         status = await harness.wait_awaiting(handle, "assets_review", 1)
-        assert status.needs_review_stages == ("rooms_review", "assets_review")
+        assert status.needs_review_stages == ("components_review", "assets_review")
         await harness.approve(handle, "assets_review")
         result = await harness.result(handle)
 

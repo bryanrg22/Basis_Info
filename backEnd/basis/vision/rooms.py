@@ -142,12 +142,15 @@ async def write_photo(
     room_id: uuid.UUID,
     analysis: PhotoAnalysis,
     context: dict[str, Any],
+    assign: bool = True,
 ) -> int:
-    """The ``photo_rooms`` row and one ``components`` row per component kind."""
+    """The ``photo_rooms`` row (unless ``assign`` is false: the photo is in ``room_id``
+    already) and one ``components`` row per component kind."""
     rooms = RoomRepository(session)
-    await rooms.assign_photo(
-        study_id=study_id, document_id=document_id, room_id=room_id, revision=revision
-    )
+    if assign:
+        await rooms.assign_photo(
+            study_id=study_id, document_id=document_id, room_id=room_id, revision=revision
+        )
     for component in analysis.components:
         await rooms.add_component(
             study_id=study_id,

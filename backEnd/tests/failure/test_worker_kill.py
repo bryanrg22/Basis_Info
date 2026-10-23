@@ -260,7 +260,8 @@ async def photo_in_flight(rig: Rig, handle: WorkflowHandle[Any, Any]) -> None:
 
 
 async def approve_and_finish(handle: WorkflowHandle[Any, Any]) -> StudyWorkflowResult:
-    for stage in ("appraisal_review", "rooms_review", "assets_review"):
+    # v0.12: the components review follows the rooms review (patch components-gate-v1).
+    for stage in ("appraisal_review", "rooms_review", "components_review", "assets_review"):
         await wait_status(handle, lambda s, stage=stage: s.awaiting == stage, stage)
         await handle.execute_update(
             StudyWorkflow.decide,

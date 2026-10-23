@@ -25,6 +25,13 @@ revision is returned as is, with cost 0: carried over by a rejection, or an earl
 execution), then the model call outside any transaction, then ``run_once`` writes the
 rows and completes the idempotency key in one transaction.
 
+``keep_room`` (patch ``components-gate-v1``): a photo re-analyzed after a components
+rejection stays in the room the rooms review approved. ``apply_corrections`` carried its
+assignment (not its rows), so the check above treats the photo as analyzed only once its
+component rows are written or this activity's key completed; the analysis is written into
+that room and the room is not chosen again. The analysis itself never depends on the room
+(the model sees the photo alone); only the room choice does.
+
 Errors: a missing file or an image that cannot be analyzed (empty, not an image, too
 small, too many pixels) -> non-retryable ``ValidationError`` (never an "unknown" room);
 no model provider configured -> non-retryable ``ProviderNotConfigured``; the budget cannot
@@ -65,6 +72,7 @@ from basis.activities._support import (
 from basis.activities.deps import Deps
 from basis.config import Settings
 from basis.db.enums import DocumentKind
+from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
@@ -132,6 +140,10 @@ class AnalyzePhoto:
             if document is None or document.kind is not DocumentKind.PHOTO:
                 raise validation_error(f"photo {document_id} not found in study {study_id}")
             existing = await RoomRepository(session).photo_room(document_id, input.revision)
+            pinned: uuid.UUID | None = None
+            if existing is not None and input.keep_room:
+                if not await _analyzed(session, study_id, document_id, input):
+                    pinned, existing = existing.room_id, None
             run_id = await run_pk(session)
             gcs_uri = document.gcs_uri
             filename = document.filename
@@ -147,15 +159,19 @@ class AnalyzePhoto:
         async def work(session: AsyncSession) -> AnalyzePhotoOutput:
             rooms = RoomRepository(session)
             written = await rooms.photo_room(document_id, input.revision)
-            if written is not None:
-                count = await rooms.count_components(study_id, input.revision, document_id)
+            count = await rooms.count_components(study_id, input.revision, document_id)
+            if written is not None and (pinned is None or count > 0):
                 return AnalyzePhotoOutput(
                     document_id=str(document_id), room_id=str(written.room_id), components=count
                 )
             if result is None:  # pragma: no cover - only if the row vanished meanwhile
                 raise RuntimeError("photo assignment disappeared between the check and the write")
             analysis = result.analysis
-            room_id = await self._room(session, study_id, input.revision, filename, analysis)
+            room_id = (
+                pinned
+                if pinned is not None
+                else await self._room(session, study_id, input.revision, filename, analysis)
+            )
             if simulate is not None and simulate.sleep_seconds > 0:
                 await sleep_heartbeating(simulate.sleep_seconds)
             count = await write_photo(
@@ -165,6 +181,7 @@ class AnalyzePhoto:
                 revision=input.revision,
                 room_id=room_id,
                 analysis=analysis,
+                assign=pinned is None,
                 context={
                     "analysis_uri": uri,
                     "room_type": analysis.room_type.value,
@@ -270,6 +287,17 @@ class AnalyzePhoto:
         except ProviderError as exc:
             raise provider_failure(exc, f"photo {document_id}") from exc
         return result, round(budget.spent_usd, 6)
+
+
+async def _analyzed(
+    session: AsyncSession, study_id: uuid.UUID, document_id: uuid.UUID, input: AnalyzePhotoInput
+) -> bool:
+    """Whether a ``keep_room`` photo is analyzed at this revision already: its component
+    rows are written, or this activity's key completed (a photo with no component)."""
+    if await RoomRepository(session).count_components(study_id, input.revision, document_id):
+        return True
+    done = await ActivityResultRepository(session).get(input.idempotency_key)
+    return done is not None and done.status == COMPLETED
 
 
 def fusion_config(settings: Settings) -> FusionConfig | None:
