@@ -8,23 +8,28 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncEngine
 from temporalio.common import VersioningBehavior
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 
-from basis.config import Settings
+from basis.config import ConfigError, Settings
 from basis.db.engine import create_engine
+from basis.llm.pool import ProviderPool, unserved_models
 from basis.llm.prompts import PromptError
 from basis.obs.logging import get_context
+from basis.vision import room_step
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
 from basis.worker.main import (
     MAX_HEARTBEAT_THROTTLE,
     SHUTDOWN_GRACE,
     build_deps,
+    check_models_served,
     deployment_config,
     parse_args,
+    pipeline_models,
 )
 
 
@@ -324,3 +329,163 @@ async def test_build_deps_fails_at_startup_when_the_room_call_prompt_is_not_rele
             build_deps(chosen, engine)
     finally:
         await engine.dispose()
+
+
+# --------------------------------------------------------------------------- served models
+# The live failure: a worker started with an old .env (Azure OpenAI only) ran a study whose
+# Claude calls had no provider; the fusion call fell back on every photo. Now it refuses to
+# start, naming the models and what would serve them.
+
+AZURE_ONLY: dict[str, Any] = {
+    "azure_openai_endpoint": "https://example-resource.openai.azure.com",
+    "azure_openai_api_key": SecretStr("azure-key"),  # pragma: allowlist secret
+    "azure_openai_deployment_name": "gpt-4o-mini",
+    "openai_api_key": None,
+    "anthropic_api_key": None,
+}
+ANTHROPIC = {"anthropic_api_key": SecretStr("sk-ant-test")}  # pragma: allowlist secret
+# The tests' environment pins cheaper models (tests/conftest.py); these are the defaults.
+PRODUCTION_MODELS: dict[str, Any] = {
+    name: Settings.model_fields[name].default
+    for name in (
+        "vision_model",
+        "vision_surfaces_model",
+        "vision_count_fusion",
+        "vision_fusion_model",
+        "text_model",
+        "room_model",
+        "room_materials_model",
+        "classify_model",
+    )
+}
+
+
+async def test_a_worker_with_azure_alone_refuses_to_start_and_names_the_claude_models(
+    settings: Settings,
+) -> None:
+    """The production defaults (decomposed photos with fusion, the room step with the
+    Sonnet second look, the Sonnet classifier) on Azure alone: every claude-* model the
+    pipeline calls is listed with the settings that name it."""
+    chosen = settings.model_copy(
+        update={
+            **AZURE_ONLY,
+            **PRODUCTION_MODELS,
+            "room_reconcile": True,
+            "vision_photo_mode": "decomposed",
+        }
+    )
+    engine = offline_engine(chosen)
+    try:
+        with pytest.raises(ConfigError) as caught:
+            build_deps(chosen, engine)
+    finally:
+        await engine.dispose()
+    message = str(caught.value)
+    assert message.startswith(
+        "no configured provider serves these models the pipeline calls (configured: azure): "
+        "claude-opus-5-5 (VISION_FUSION_MODEL); "
+        "claude-sonnet-5-5 (ROOM_MATERIALS_MODEL, CLASSIFY_MODEL). Set ANTHROPIC_API_KEY"
+    )
+    assert "gpt-6.1-sol" not in message  # Azure routes every other name to its deployment
+    assert "azure-key" not in message
+
+
+async def test_a_fully_configured_worker_starts(settings: Settings) -> None:
+    chosen = settings.model_copy(update={**AZURE_ONLY, **ANTHROPIC, "room_reconcile": True})
+    engine = offline_engine(chosen)
+    try:
+        deps = build_deps(chosen, engine)
+    finally:
+        await engine.dispose()
+    assert deps.llm is not None and deps.llm.name == "azure+anthropic"
+
+
+async def test_claude_only_names_the_openai_models_and_their_variables(
+    settings: Settings,
+) -> None:
+    chosen = settings.model_copy(
+        update={
+            **AZURE_ONLY,
+            **ANTHROPIC,
+            **PRODUCTION_MODELS,
+            "vision_photo_mode": "decomposed",
+            "azure_openai_endpoint": None,
+            "room_reconcile": False,
+        }
+    )
+    with pytest.raises(ConfigError) as caught:
+        check_models_served(chosen, ProviderPool.from_settings(chosen), None)
+    message = str(caught.value)
+    assert "gpt-6.1-sol (VISION_MODEL)" in message
+    assert "gpt-6-luna (VISION_SURFACES_MODEL, TEXT_MODEL)" in message
+    assert "claude" not in message.split(":", 2)[1]  # the Claude models are served
+    assert "OPENAI_API_KEY (or AZURE_OPENAI_ENDPOINT" in message
+
+
+def test_pipeline_models_follow_the_settings_the_activities_read(settings: Settings) -> None:
+    single = settings.model_copy(
+        update={**PRODUCTION_MODELS, "vision_photo_mode": "single", "room_reconcile": False}
+    )
+    assert pipeline_models(single, None) == {
+        single.vision_model: ["VISION_MODEL"],
+        single.text_model: ["TEXT_MODEL"],
+        single.classify_model: ["CLASSIFY_MODEL"],
+    }  # no surfaces call and no fusion in the single-call mode, no room step
+    every = settings.model_copy(
+        update={
+            "vision_photo_mode": "decomposed",
+            "vision_count_fusion": "per_class",
+            "room_reconcile": True,
+            "room_step_mode": "room_call",
+            "materials_second_look": "surface_crops",
+            "vision_fusion_model": "claude-fusion",
+            "room_model": "room-model",
+            "room_materials_model": "look-model",
+            "room_call_model": "claude-room-call",
+            "surface_crop_model": "claude-crops",
+        }
+    )
+    rooms = room_step.load_config(
+        prompt_version=every.room_prompt_version,
+        model=every.room_model,
+        reasoning_effort=every.room_reasoning_effort,
+        single_photo=every.room_single_photo,
+        materials=every.room_materials,
+        mode=every.room_step_mode,
+        room_call_model=every.room_call_model,
+        room_call_reasoning_effort=every.room_call_reasoning_effort,
+        materials_model=every.room_materials_model,
+        materials_reasoning_effort=every.room_materials_reasoning_effort,
+    )
+    models = pipeline_models(every, rooms)
+    assert models["claude-fusion"] == ["VISION_FUSION_MODEL"]
+    assert models["room-model"] == ["ROOM_MODEL"]
+    assert models["look-model"] == ["ROOM_MATERIALS_MODEL"]
+    assert models["claude-room-call"] == ["ROOM_CALL_MODEL"]
+    assert models["claude-crops"] == ["SURFACE_CROP_MODEL"]
+    no_fusion = every.model_copy(update={"vision_count_fusion": "off"})
+    assert "claude-fusion" not in pipeline_models(no_fusion, rooms)
+
+
+def test_no_provider_at_all_starts_in_dev_and_test_only(settings: Settings) -> None:
+    """The offline mode the worker-process test runs (photos fail as ProviderNotConfigured,
+    flagged) stays in dev and test; a deployed worker with no provider is refused."""
+    bare = settings.model_copy(
+        update={"openai_api_key": None, "anthropic_api_key": None, "azure_openai_endpoint": None}
+    )
+    for env in ("dev", "test"):
+        check_models_served(bare.model_copy(update={"env": env}), None, None)
+    for env in ("staging", "prod"):
+        with pytest.raises(ConfigError, match="no model provider configured"):
+            check_models_served(bare.model_copy(update={"env": env}), None, None)
+
+
+def test_unserved_models_is_routing_only() -> None:
+    from basis.llm.anthropic_provider import AnthropicProvider
+    from basis.llm.providers import AzureOpenAIProvider
+
+    assert unserved_models([AzureOpenAIProvider], ["gpt-x", "claude-a", "claude-a"]) == [  # type: ignore[list-item]
+        "claude-a"
+    ]
+    assert unserved_models([AnthropicProvider], ["gpt-x", "claude-a"]) == ["gpt-x"]  # type: ignore[list-item]
+    assert unserved_models([], ["m"]) == ["m"]

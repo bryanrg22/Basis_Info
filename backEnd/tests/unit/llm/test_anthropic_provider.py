@@ -42,7 +42,10 @@ from basis.llm.cost import (
 from basis.llm.errors import (
     ProviderAccountError,
     ProviderBadResponse,
+    ProviderConfigError,
+    ProviderNotConfigured,
     ProviderRateLimited,
+    ProviderRequestRejected,
     ProviderUnavailable,
 )
 from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec, Usage
@@ -206,9 +209,10 @@ async def test_effort_setting_reaches_the_request() -> None:
     # The request's own reasoning_effort (the runner's --reasoning-effort) wins.
     await provider(server, effort="high").complete(request(reasoning_effort="xhigh"))
     assert server.body()["output_config"]["effort"] == "xhigh"
-    with pytest.raises(ProviderBadResponse, match="not a Claude effort level") as caught:
+    # A configuration error (every request would get the API's 400), not an unusable answer.
+    with pytest.raises(ProviderConfigError, match="not a Claude effort level") as caught:
         await provider(server).complete(request(reasoning_effort="minimal"))
-    assert caught.value.status == 400 and server.call_count == 2  # nothing was sent
+    assert caught.value.status is None and server.call_count == 2  # nothing was sent
     with pytest.raises(ValueError):
         provider(server, effort="extreme")
     with pytest.raises(ValueError):
@@ -494,12 +498,23 @@ async def test_overloaded_then_success() -> None:
     assert (await provider(server).complete(request())).parsed is not None
 
 
-@pytest.mark.parametrize("code", [400, 404, 413, 422])
-async def test_4xx_is_a_bad_response_and_not_retried(code: int) -> None:
+@pytest.mark.parametrize("code", [400, 404, 422])
+async def test_an_unexplained_4xx_is_a_configuration_error_and_not_retried(code: int) -> None:
+    """Before: a bad response (retried once by the vision step, then an ambiguous photo). A
+    4xx refused the request; one that does not name the input is the configuration's."""
     server = Server(status(code))
-    with pytest.raises(ProviderBadResponse) as caught:
+    with pytest.raises(ProviderConfigError) as caught:
         await provider(server).complete(request())
     assert server.call_count == 1 and caught.value.status == code
+    assert isinstance(caught.value, ProviderAccountError)
+    assert not isinstance(caught.value, ProviderBadResponse)
+
+
+async def test_413_is_an_input_rejection_and_not_retried() -> None:
+    server = Server(status(413))
+    with pytest.raises(ProviderRequestRejected) as caught:
+        await provider(server).complete(request())
+    assert server.call_count == 1 and caught.value.status == 413
 
 
 async def test_timeout_is_unavailable_and_not_retried_here() -> None:
@@ -548,7 +563,7 @@ def test_model_family_detection(model: str, claude: bool) -> None:
 
 async def test_a_non_claude_request_is_refused_without_a_call() -> None:
     server = Server(ok())
-    with pytest.raises(ProviderBadResponse, match="does not serve"):
+    with pytest.raises(ProviderNotConfigured, match="does not serve"):
         await provider(server).complete(request(model="gpt-4.1"))
     assert server.call_count == 0
 
@@ -702,10 +717,134 @@ def test_the_credit_message_is_kept_and_a_key_is_not() -> None:
     assert isinstance(credit, ProviderAccountError) and CREDIT_LOW in str(credit)
 
 
-async def test_a_plain_400_stays_a_bad_response() -> None:
+async def test_a_plain_400_is_a_configuration_error_not_an_account_error() -> None:
+    """Only the credit and spend-limit messages make a 400 an account error; any other
+    ``invalid_request_error`` that does not name the input is the configuration's (before:
+    a bad response)."""
     server = Server(error_response(400, "invalid_request_error", "messages: field required"))
-    with pytest.raises(ProviderBadResponse):
+    with pytest.raises(ProviderConfigError) as caught:
         await provider(server).complete(request())
+    assert str(caught.value).startswith(
+        "anthropic rejected the request (HTTP 400, invalid_request_error): messages: field"
+    )
+
+
+# --------------------------------------------------------------------------- refused requests
+# https://platform.claude.com/docs/en/api/errors (read 2026-10-23): 404 ``not_found_error``,
+# 413 ``request_too_large``, 400 ``invalid_request_error`` "an issue with the format or
+# content of your request". The image messages are the API's for an image it cannot read or
+# that breaks the vision limits (https://platform.claude.com/docs/en/build-with-claude/vision).
+
+
+@pytest.mark.parametrize(
+    ("response", "code", "expected_code"),
+    [
+        (error_response(404, "not_found_error", "model: claude-opus-9-9"), 404, "not_found_error"),
+        (
+            error_response(
+                400,
+                "invalid_request_error",
+                "output_config.effort: Input should be 'low', 'medium', 'high', 'xhigh' or 'max'",
+            ),
+            400,
+            "invalid_request_error",
+        ),
+        (
+            error_response(
+                400,
+                "invalid_request_error",
+                '"thinking.type.disabled" is not supported for this model. Use '
+                '"thinking.type.adaptive" and "output_config.effort" to control thinking '
+                "behavior.",
+            ),
+            400,
+            "invalid_request_error",
+        ),
+    ],
+)
+async def test_anthropic_configuration_errors_stop_and_are_not_retried(
+    response: httpx2.Response, code: int, expected_code: str
+) -> None:
+    server = Server(response)
+    waits = Waits()
+    with pytest.raises(ProviderConfigError) as caught:
+        await provider(server, waits).complete(request())
+    error = caught.value
+    assert server.call_count == 1 and waits.sleeps == []
+    assert (error.provider, error.status, error.code) == ("anthropic", code, expected_code)
+    assert isinstance(error, ProviderAccountError)
+    assert str(error).endswith("; check the model and deployment settings")
+    assert "account" not in str(error)
+
+
+@pytest.mark.parametrize(
+    ("response", "code"),
+    [
+        (error_response(400, "invalid_request_error", "Could not process image"), 400),
+        (
+            error_response(
+                400,
+                "invalid_request_error",
+                "messages.0.content.0.image.source.base64: image exceeds 5 MB maximum: "
+                "5316852 bytes > 5242880 bytes",
+            ),
+            400,
+        ),
+        (
+            error_response(
+                400,
+                "invalid_request_error",
+                "messages.0.content.0.image.source.base64.data: Image does not match the "
+                "provided media type image/jpeg",
+            ),
+            400,
+        ),
+        (
+            error_response(
+                413, "request_too_large", "Request exceeds the maximum allowed number of bytes."
+            ),
+            413,
+        ),
+    ],
+)
+async def test_anthropic_input_rejections_fail_the_input_and_are_not_retried(
+    response: httpx2.Response, code: int
+) -> None:
+    server = Server(response)
+    waits = Waits()
+    with pytest.raises(ProviderRequestRejected) as caught:
+        await provider(server, waits).complete(request())
+    error = caught.value
+    assert server.call_count == 1 and waits.sleeps == []
+    assert (error.provider, error.status) == ("anthropic", code)
+    assert not isinstance(error, ProviderAccountError | ProviderBadResponse)
+    assert str(error).startswith(f"anthropic rejected the input (HTTP {code}")
+
+
+async def test_a_conflict_is_transient() -> None:
+    server = Server(error_response(409, "conflict_error", "conflict"))
+    with pytest.raises(ProviderUnavailable) as caught:
+        await provider(server).complete(request())
+    assert caught.value.status == 409
+
+
+def test_a_configuration_error_keeps_the_message_and_not_a_key() -> None:
+    error = map_error(
+        anthropic.NotFoundError(
+            "Error code: 404",
+            response=httpx2.Response(404, request=httpx2.Request("POST", BASE)),
+            body={
+                "type": "error",
+                "error": {
+                    "type": "not_found_error",
+                    "message": "model: claude-x (key sk-ant-api03-SECRETSECRET-abc)",
+                },
+            },
+        )
+    )
+    assert isinstance(error, ProviderConfigError)
+    assert "SECRETSECRET" not in str(error) and "[redacted]" in str(error)
+    assert "model: claude-x" in str(error)
 
 
 async def test_a_rate_limit_429_is_still_retried() -> None:

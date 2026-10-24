@@ -18,10 +18,14 @@ from pydantic import BaseModel, Field, SecretStr
 
 from basis.config import ConfigError, Settings
 from basis.llm.errors import (
+    CONFIG_HINT,
     ProviderAccountError,
     ProviderBadResponse,
+    ProviderConfigError,
     ProviderRateLimited,
+    ProviderRequestRejected,
     ProviderUnavailable,
+    classify_rejection,
 )
 from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec
 from basis.llm.providers import (
@@ -385,12 +389,25 @@ async def test_5xx_then_success() -> None:
     assert (await provider(server).complete(request())).parsed is not None
 
 
-@pytest.mark.parametrize("code", [400, 404, 409, 422])
-async def test_4xx_is_a_bad_response_and_not_retried(code: int) -> None:
+@pytest.mark.parametrize("code", [400, 404, 422])
+async def test_an_unexplained_4xx_is_a_configuration_error_and_not_retried(code: int) -> None:
+    """Before: a bad response, which the vision step retried once and turned into an
+    ambiguous photo with no component. A 4xx refused the request, not the answer; one whose
+    code and message do not name the input is the configuration's, which stops the study."""
     server = Server(status(code))
-    with pytest.raises(ProviderBadResponse) as caught:
+    with pytest.raises(ProviderConfigError) as caught:
         await provider(server).complete(request())
     assert server.call_count == 1 and caught.value.status == code
+    assert isinstance(caught.value, ProviderAccountError)  # every account stop applies
+    assert not isinstance(caught.value, ProviderBadResponse)
+
+
+@pytest.mark.parametrize("code", [408, 409])
+async def test_408_and_409_are_transient_as_the_sdk_treats_them(code: int) -> None:
+    server = Server(status(code))
+    with pytest.raises(ProviderUnavailable) as caught:
+        await provider(server).complete(request())
+    assert caught.value.status == code and server.call_count == 1  # Temporal retries it
 
 
 async def test_timeout_is_unavailable_and_not_retried_here() -> None:
@@ -657,3 +674,204 @@ async def test_an_azure_token_rate_limit_is_still_retried() -> None:
     )
     assert azure is not None
     assert (await azure.complete(request())).parsed is not None and server.call_count == 2
+
+
+# --------------------------------------------------------------------------- refused requests
+# A 4xx that is not an account error and not a 429 refused the request, not the answer: the
+# request as configured (ProviderConfigError, which stops the study like an account error)
+# or this request's content (ProviderRequestRejected, which fails the photo). Bodies as the
+# providers document them: OpenAI's error-codes guide and the 400 ``unsupported_parameter``
+# reports for reasoning models; Azure's content-filtering page (HTTP 400, ``code:
+# "content_filter"``, ``innererror.code: "ResponsibleAIPolicyViolation"``) and Microsoft Q&A
+# for ``DeploymentNotFound`` (404) and ``OperationNotSupported``; all read 2026-10-23.
+
+UNSUPPORTED_PARAMETER = error_body(
+    "Unsupported parameter: 'max_tokens' is not supported with this model. Use "
+    "'max_completion_tokens' instead.",
+    type="invalid_request_error",
+    code="unsupported_parameter",
+)
+UNSUPPORTED_VALUE = error_body(
+    "Unsupported value: 'temperature' does not support 0.0 with this model. Only the default "
+    "(1) value is supported.",
+    type="invalid_request_error",
+    code="unsupported_value",
+)
+MODEL_NOT_FOUND = error_body(
+    "The model `gpt-6.1-sol` does not exist or you do not have access to it.",
+    type="invalid_request_error",
+    code="model_not_found",
+)
+NOT_A_VISION_MODEL = error_body(
+    "Invalid content type. image_url is only supported by certain models.",
+    type="invalid_request_error",
+)
+BAD_SCHEMA = error_body(
+    "Invalid schema for response_format 'Answer': In context=(), 'required' is required to "
+    "be supplied and to be an array including every key in properties.",
+    type="invalid_request_error",
+    code="invalid_value",
+)
+UNSUPPORTED_IMAGE = error_body(
+    "You uploaded an unsupported image. Please make sure your image is below 20 MB in size "
+    "and is of one the following formats: ['png', 'jpeg', 'gif', 'webp'].",
+    type="invalid_request_error",
+    code="invalid_image_format",
+)
+INVALID_IMAGE = error_body("Invalid image.", type="invalid_request_error")
+AZURE_DEPLOYMENT_NOT_FOUND = {
+    "error": {
+        "code": "DeploymentNotFound",
+        "message": "The API deployment for this resource does not exist. If you created the "
+        "deployment within the last 5 minutes, please wait a moment and try again.",
+    }
+}
+AZURE_OPERATION_NOT_SUPPORTED = {
+    "error": {
+        "code": "OperationNotSupported",
+        "message": "The chatCompletion operation does not work with the specified model, "
+        "gpt-35-turbo-instruct. Please choose different model and try again.",
+    }
+}
+AZURE_UNRECOGNIZED_ARGUMENT = error_body(
+    "Unrecognized request argument supplied: reasoning_effort", type="invalid_request_error"
+)
+AZURE_CONTENT_FILTER = {
+    "error": {
+        "message": "The response was filtered due to the prompt triggering Azure OpenAI's "
+        "content management policy. Please modify your prompt and retry.",
+        "type": None,
+        "param": "prompt",
+        "code": "content_filter",
+        "status": 400,
+        "innererror": {
+            "code": "ResponsibleAIPolicyViolation",
+            "content_filter_result": {"violence": {"filtered": True, "severity": "high"}},
+        },
+    }
+}
+
+
+@pytest.mark.parametrize(
+    ("code", "body", "expected_code"),
+    [
+        (400, UNSUPPORTED_PARAMETER, "unsupported_parameter"),
+        (400, UNSUPPORTED_VALUE, "unsupported_value"),
+        (404, MODEL_NOT_FOUND, "model_not_found"),
+        (400, NOT_A_VISION_MODEL, "invalid_request_error"),
+        (400, BAD_SCHEMA, "invalid_value"),
+        (422, error_body("Unprocessable entity."), None),
+    ],
+)
+async def test_openai_configuration_errors_stop_and_are_not_retried(
+    code: int, body: dict[str, Any], expected_code: str | None
+) -> None:
+    server = Server(httpx2.Response(code, json=body))
+    waits = Recorder()
+    with pytest.raises(ProviderConfigError) as caught:
+        await provider(server, waits).complete(request(model="gpt-6.1-sol"))
+    error = caught.value
+    assert server.call_count == 1 and waits.sleeps == []
+    assert (error.provider, error.status, error.code) == ("openai", code, expected_code)
+    assert isinstance(error, ProviderAccountError)
+    assert not isinstance(error, ProviderBadResponse | ProviderRequestRejected)
+    where = f"HTTP {code}, {expected_code}" if expected_code else f"HTTP {code}"
+    assert str(error) == (
+        f"openai rejected the request ({where}): {body['error']['message']}; {CONFIG_HINT}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("code", "body", "expected_code"),
+    [
+        (400, UNSUPPORTED_IMAGE, "invalid_image_format"),
+        (400, INVALID_IMAGE, "invalid_request_error"),
+        (413, error_body("Request too large."), None),
+    ],
+)
+async def test_openai_input_rejections_fail_the_input_and_are_not_retried(
+    code: int, body: dict[str, Any], expected_code: str | None
+) -> None:
+    server = Server(httpx2.Response(code, json=body))
+    waits = Recorder()
+    with pytest.raises(ProviderRequestRejected) as caught:
+        await provider(server, waits).complete(request())
+    error = caught.value
+    assert server.call_count == 1 and waits.sleeps == []
+    assert (error.provider, error.status, error.code) == ("openai", code, expected_code)
+    assert not isinstance(error, ProviderAccountError | ProviderBadResponse)
+    assert str(error).startswith(f"openai rejected the input (HTTP {code}")
+    assert body["error"]["message"] in str(error)
+
+
+@pytest.mark.parametrize(
+    ("code", "body", "expected", "expected_code"),
+    [
+        (404, AZURE_DEPLOYMENT_NOT_FOUND, ProviderConfigError, "DeploymentNotFound"),
+        (400, AZURE_OPERATION_NOT_SUPPORTED, ProviderConfigError, "OperationNotSupported"),
+        (400, AZURE_UNRECOGNIZED_ARGUMENT, ProviderConfigError, "invalid_request_error"),
+        (400, UNSUPPORTED_PARAMETER, ProviderConfigError, "unsupported_parameter"),
+        (400, AZURE_CONTENT_FILTER, ProviderRequestRejected, "content_filter"),
+    ],
+)
+async def test_azure_refusals_are_classified_by_code_and_message(
+    code: int,
+    body: dict[str, Any],
+    expected: type[ProviderConfigError | ProviderRequestRejected],
+    expected_code: str,
+) -> None:
+    server = Server(httpx2.Response(code, json=body))
+    azure = AzureOpenAIProvider.from_settings(
+        azure_settings(), http_client=server.client(), jitter=lambda: 0.0, sleep=Recorder().sleep
+    )
+    assert azure is not None
+    with pytest.raises(expected) as caught:
+        await azure.complete(request(model="gpt-6.1-sol"))
+    error = caught.value
+    assert type(error) is expected and server.call_count == 1
+    assert (error.provider, error.status, error.code) == ("azure", code, expected_code)
+    assert body["error"]["message"] in str(error)
+
+
+async def test_azure_deployment_not_found_reads_as_configuration() -> None:
+    server = Server(httpx2.Response(404, json=AZURE_DEPLOYMENT_NOT_FOUND))
+    azure = AzureOpenAIProvider.from_settings(azure_settings(), http_client=server.client())
+    assert azure is not None
+    with pytest.raises(ProviderConfigError) as caught:
+        await azure.complete(request())
+    text = str(caught.value)
+    assert text.startswith("azure rejected the request (HTTP 404, DeploymentNotFound): ")
+    assert text.endswith("; check the model and deployment settings")
+    assert "account" not in text
+
+
+async def test_a_configuration_error_never_carries_a_key() -> None:
+    """The provider's message is kept, a key in it is not (OpenAI keys and Azure's 32-hex
+    keys), as for account errors."""
+    azure_key = "0123456789abcdef0123456789abcdef"  # pragma: allowlist secret
+    body = error_body(
+        f"Unsupported parameter for key sk-proj-abcdEFGH1234wxyz and {azure_key}.",
+        code="unsupported_parameter",
+    )
+    server = Server(httpx2.Response(400, json=body))
+    with pytest.raises(ProviderConfigError) as caught:
+        await provider(server).complete(request())
+    text = f"{caught.value} {caught.value.args}"
+    assert "sk-proj" not in text and "abcdEFGH" not in text and azure_key not in text
+    assert text.count("[redacted]") >= 2
+
+
+def test_classify_rejection_edges() -> None:
+    """Codes match whatever their case (Azure's inner ``ResponsibleAIPolicyViolation``);
+    a bare mention of images is not an input refusal; 408/409 are transient."""
+    inner = classify_rejection(400, [None, None, "ResponsibleAIPolicyViolation"], "x", provider="a")
+    assert isinstance(inner, ProviderRequestRejected)
+    assert inner.code == "ResponsibleAIPolicyViolation"
+    vision = classify_rejection(
+        400, [], "image_url is only supported by certain models", provider="a"
+    )
+    assert isinstance(vision, ProviderConfigError) and vision.code is None
+    assert isinstance(classify_rejection(408, [], "timeout", provider="a"), ProviderUnavailable)
+    assert isinstance(classify_rejection(409, [], "conflict", provider="a"), ProviderUnavailable)
+    too_large = classify_rejection(413, ["request_too_large"], "too big", provider="a")
+    assert isinstance(too_large, ProviderRequestRejected)

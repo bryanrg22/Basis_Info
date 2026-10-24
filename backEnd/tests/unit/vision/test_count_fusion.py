@@ -23,8 +23,10 @@ from basis.llm.call import CallContext
 from basis.llm.errors import (
     ProviderAccountError,
     ProviderBadResponse,
+    ProviderConfigError,
     ProviderNotConfigured,
     ProviderRateLimited,
+    ProviderRequestRejected,
     ProviderUnavailable,
 )
 from basis.llm.provider import ChatRequest, ChatResponse
@@ -87,6 +89,9 @@ SECOND_COUNTABLES = answer(
     comp("kitchen_cabinet", 4, "wood"),  # a repeated label: deduplicated like the base
 )
 SURFACES = answer(comp("tile", 1, "ceramic"), comp("wall_finish", 1, "drywall"), conf=0.8)
+REJECTED = ProviderRequestRejected(
+    "Could not process image", provider="anthropic", status=400, code="invalid_request_error"
+)
 
 
 def turn(parsed: ModelPhotoAnalysis) -> ScriptedTurn:
@@ -295,7 +300,9 @@ def test_the_record_keeps_both_answers_and_the_choice() -> None:
             "provider_unavailable",
         ),
         ([bad(), bad()], "invalid_model_output"),
-        ([ScriptedTurn(raise_error=ProviderNotConfigured("no key"))], "ProviderNotConfigured"),
+        # The second model refused this photo: the base calls analyzed it, so the base
+        # counts stand (flagged); the next photo may well be accepted.
+        ([ScriptedTurn(raise_error=REJECTED)], "ProviderRequestRejected"),
         ([ScriptedTurn(raise_error=BudgetExceededError("spent"))], "BudgetExceededError"),
     ],
 )
@@ -324,6 +331,31 @@ async def test_an_account_error_on_the_second_model_stops_the_photo() -> None:
     with pytest.raises(ProviderAccountError) as caught:
         await analyze_photo_decomposed(KITCHEN, context(chat))
     assert caught.value is credit
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        # What the pool raises when no configured provider serves the fusion model (the
+        # Azure-only worker): before, every photo was flagged
+        # count_fusion_fallback:ProviderNotConfigured and the study went on.
+        ProviderNotConfigured(
+            f"no configured provider serves model {SECOND!r} (configured: azure)"
+        ),
+        ProviderConfigError(
+            "model: claude-opus-5-5", provider="anthropic", status=404, code="not_found_error"
+        ),
+    ],
+)
+async def test_a_configuration_error_on_the_second_model_stops_the_photo(
+    error: ProviderConfigError,
+) -> None:
+    chat = provider([ScriptedTurn(raise_error=error), turn(SECOND_COUNTABLES)])
+    with pytest.raises(ProviderConfigError) as caught:
+        await analyze_photo_decomposed(KITCHEN, context(chat))
+    assert caught.value is error
+    second = [r for r in chat.requests if r.model == SECOND]
+    assert len(second) == 1  # not retried as a transient error
 
 
 async def test_a_transient_error_is_retried_then_fused() -> None:

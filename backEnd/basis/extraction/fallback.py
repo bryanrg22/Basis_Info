@@ -34,7 +34,11 @@ Guards:
   a provider error leaves the fields as they were and is reported in ``outcome.status``;
   the extraction still finishes (and is ``needs_review`` because the fields failed). An
   account error (no credit, a bad key) is the exception: it propagates, so the stage fails
-  with the reason instead of finishing with fields that were never asked.
+  with the reason instead of finishing with fields that were never asked; so does a
+  configuration error (a :class:`~basis.llm.errors.ProviderConfigError` is an account error
+  by type: an unknown model or deployment, a parameter the model refuses). A refused input
+  (:class:`~basis.llm.errors.ProviderRequestRejected`, this document's text) is reported
+  like any other provider error.
 """
 
 from __future__ import annotations

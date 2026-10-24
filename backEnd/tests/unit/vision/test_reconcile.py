@@ -5,15 +5,22 @@ from __future__ import annotations
 
 import base64
 import uuid
+from dataclasses import replace
 
 import pytest
 from fixtures import fixture_path
 
 from basis.llm import Budget, BudgetExceededError, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
-from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderBadResponse,
+    ProviderConfigError,
+    ProviderRequestRejected,
+    ProviderUnavailable,
+)
 from basis.llm.prompts import load
 from basis.llm.recorder import MemoryRecorder
+from basis.vision import overlap
 from basis.vision.prep import PreparedImage, prepare_image
 from basis.vision.reconcile import (
     INVALID_OUTPUT,
@@ -303,6 +310,48 @@ async def test_transient_errors_propagate() -> None:
     )
     with pytest.raises(ProviderUnavailable):
         await reconcile_room("1_kitchen", photos(2), context(provider))
+
+
+async def test_a_refused_room_falls_back_flagged_without_a_retry() -> None:
+    """This room's photos refused (a content filter): the room falls back to the heuristic
+    merge and is flagged, as after unusable answers, but the same input is not sent again;
+    the other rooms are unaffected (no exception)."""
+    refused = ProviderRequestRejected(
+        "The response was filtered", provider="azure", status=400, code="content_filter"
+    )
+    provider = ScriptedProvider([ScriptedTurn(raise_error=refused)], model=MODEL)
+    result = await reconcile_room("1_kitchen", photos(2), context(provider))
+    assert result.source == "heuristic" and result.needs_review
+    [call] = result.calls
+    assert call.attempts == 1 and "content_filter" in call.errors[0]
+    assert len(provider.requests) == 1
+
+
+async def test_a_configuration_error_propagates() -> None:
+    config = ProviderConfigError("model: x", provider="anthropic", status=404)
+    provider = ScriptedProvider([ScriptedTurn(raise_error=config)], model=MODEL)
+    with pytest.raises(ProviderConfigError):
+        await reconcile_room("1_kitchen", photos(2), context(provider))
+
+
+async def test_a_refused_overlap_pair_has_no_judgment_and_no_retry() -> None:
+    """The pair-overlap step (``evals.predict_rooms``) treats a refused pair like an unusable
+    one, without sending it again; a configuration error propagates."""
+    refused = ProviderRequestRejected("Could not process image", provider="x", status=400)
+    provider = ScriptedProvider([ScriptedTurn(raise_error=refused)], model=MODEL)
+    ctx = overlap.OverlapContext(
+        call=context(provider).call,
+        provider=provider,
+        prompt=load(overlap.PROMPT_NAME, "v1"),
+        model=MODEL,
+    )
+    judgment = await overlap.judge_pair(photos(2), 0, 1, ctx)
+    assert judgment.overlap is None and judgment.attempts == 1
+    assert "Could not process image" in judgment.errors[0] and len(provider.requests) == 1
+    config = ProviderConfigError("model: x", provider="anthropic", status=404)
+    failing = ScriptedProvider([ScriptedTurn(raise_error=config)], model=MODEL)
+    with pytest.raises(ProviderConfigError):
+        await overlap.judge_pair(photos(2), 0, 1, replace(ctx, provider=failing))
 
 
 # --------------------------------------------------------------------------- splitting

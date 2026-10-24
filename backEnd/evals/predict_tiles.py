@@ -52,7 +52,12 @@ from pydantic import BaseModel
 from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderBadResponse,
+    ProviderRateLimited,
+    ProviderRequestRejected,
+    ProviderUnavailable,
+)
 from basis.llm.pool import ProviderPool
 from basis.llm.prompts import Prompt
 from basis.llm.provider import Budget, ChatProvider, ChatRequest, ImagePart, Message
@@ -193,6 +198,11 @@ async def ask_structured(
             except ProviderBadResponse as exc:
                 errors.append(f"attempt {attempt}: {exc}")
                 break
+            except ProviderRequestRejected as exc:
+                # The input refused: no answer and no second attempt; configuration and
+                # account errors propagate and stop the run.
+                errors.append(f"attempt {attempt}: {exc}")
+                return None, attempt, errors, model
         if response is None:
             continue
         model = response.model

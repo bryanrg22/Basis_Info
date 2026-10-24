@@ -38,14 +38,16 @@ from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import Interceptor, Worker, WorkerDeploymentConfig
 
 from basis.activities import Deps, build_activities
+from basis.activities.analyze_photo import fusion_config
 from basis.api.app import default_storage
-from basis.config import Settings, load_settings
+from basis.config import ConfigError, Settings, load_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
 from basis.domain.cost_table import cost_table_for
 from basis.extraction.azure_di import AzureDocumentIntelligence
 from basis.llm import prompts
-from basis.llm.pool import ProviderPool
+from basis.llm.cost import is_anthropic_model
+from basis.llm.pool import ProviderPool, unserved_models
 from basis.obs.logging import configure_logging
 from basis.retrieval import default_retrieval
 from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
@@ -66,6 +68,11 @@ SHUTDOWN_GRACE: Final = timedelta(seconds=8)
 # Activities heartbeat every second; capping the send interval at 5 s keeps "heartbeat
 # every <= 15 s" true and delivers a cancellation to a running activity within ~5 s.
 MAX_HEARTBEAT_THROTTLE: Final = timedelta(seconds=5)
+# What serves a model of each family (basis.llm.providers.providers_from_settings).
+ANTHROPIC_VARS: Final = "ANTHROPIC_API_KEY"
+OPENAI_VARS: Final = (
+    "OPENAI_API_KEY (or AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and a deployment name)"
+)
 
 logger = logging.getLogger("basis.worker")
 
@@ -77,10 +84,12 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
 
     One :class:`~basis.llm.pool.ProviderPool` serves photo analysis, the extraction
     fallback and the residual classifier; the chunk store is Postgres, sharing the
-    process BM25 registry with retrieval. A missing provider is logged, not fatal: photo
-    analysis then fails non-retryably (flagged), extraction uses the text layer only and
-    residual components are written ``classifier_unavailable``. The embedding model is
-    loaded on first use, not here. The per-photo vision step's prompts
+    process BM25 registry with retrieval. Every model the configured pipeline calls must
+    have a configured provider, or the worker refuses to start naming the models
+    (:func:`check_models_served`). No provider at all is allowed in dev and test only, and
+    logged: photo analysis then fails non-retryably (flagged), extraction uses the text
+    layer only and residual components are written ``classifier_unavailable``. The
+    embedding model is loaded on first use, not here. The per-photo vision step's prompts
     (``VISION_PHOTO_MODE``: one ``photo_analysis`` call, or the ``photo_countables`` +
     ``photo_surfaces`` pair) and the room step's (``ROOM_PROMPT_VERSION`` of
     ``room_inventory`` and the ``surface_material`` second look) are loaded and checked
@@ -110,6 +119,7 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         settings.vision_fusion_reasoning_effort,
         fusion.TABLE_VERSION,
     )
+    rooms: room_step.RoomStepConfig | None = None
     if settings.room_reconcile:
         rooms = room_step.load_config(
             prompt_version=settings.room_prompt_version,
@@ -179,6 +189,7 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     sessionmaker = create_sessionmaker(engine)
     retrieval = default_retrieval(settings)
     llm = ProviderPool.from_settings(settings)
+    check_models_served(settings, llm, rooms)
     azure_di = AzureDocumentIntelligence.from_settings(settings)
     if llm is None:
         logger.warning(
@@ -204,6 +215,78 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         chunk_store=PostgresChunkStore(sessionmaker, registry=retrieval.registry),
         localizer=localizer,
         segmenter=build_surface_segmenter(settings),
+    )
+
+
+def pipeline_models(
+    settings: Settings, rooms: room_step.RoomStepConfig | None
+) -> dict[str, list[str]]:
+    """``{model: [setting, ...]}`` for every model the configured pipeline calls, read from
+    what the activities read: the per-photo calls (``VISION_MODEL``; in the decomposed mode
+    ``VISION_SURFACES_MODEL`` and, when fusion is active, the fusion model of
+    :func:`~basis.activities.analyze_photo.fusion_config`), the room step's configuration
+    (``rooms``, from :func:`basis.vision.room_step.load_config`; ``None`` when
+    ``ROOM_RECONCILE`` is off: its reconciliation, second-look and room-call models, and the
+    surface-crop model when ``MATERIALS_SECOND_LOOK=surface_crops``), the extraction fallback
+    (``TEXT_MODEL``) and the residual classifier (``CLASSIFY_MODEL``)."""
+    used: list[tuple[str, str]] = [("VISION_MODEL", settings.vision_model)]
+    if settings.vision_photo_mode == "decomposed":
+        used.append(("VISION_SURFACES_MODEL", settings.vision_surfaces_model))
+    fusion_call = fusion_config(settings)
+    if fusion_call is not None:
+        used.append(("VISION_FUSION_MODEL", fusion_call.model))
+    if rooms is not None:
+        used.append(("ROOM_MODEL", rooms.model))
+        if rooms.materials_prompt is not None:
+            look = "ROOM_MATERIALS_MODEL" if rooms.materials_model is not None else "ROOM_MODEL"
+            used.append((look, rooms.look_model))
+        if rooms.room_call is not None:
+            used.append(("ROOM_CALL_MODEL", rooms.room_call.model))
+        if settings.materials_second_look == "surface_crops":
+            used.append(("SURFACE_CROP_MODEL", settings.surface_crop_model))
+    used += [("TEXT_MODEL", settings.text_model), ("CLASSIFY_MODEL", settings.classify_model)]
+    models: dict[str, list[str]] = {}
+    for setting, model in used:
+        names = models.setdefault(model, [])
+        if setting not in names:
+            names.append(setting)
+    return models
+
+
+def check_models_served(
+    settings: Settings, llm: ProviderPool | None, rooms: room_step.RoomStepConfig | None
+) -> None:
+    """Refuse to start when a model the pipeline calls (:func:`pipeline_models`) has no
+    configured provider (``ConfigError`` listing each model, the settings that name it, and
+    the variables that would serve it).
+
+    Fail fast at startup instead of on every photo: a worker started with Azure alone (an
+    old ``.env``) once ran a whole study whose fusion call found no provider for
+    ``claude-opus-5-5`` on every photo. With no provider at all the worker still starts in
+    dev and test (the offline mode the process tests run: photo analysis fails non-retryably
+    and every photo is flagged) and is refused elsewhere. Routing is all this can check:
+    Azure accepts every non-Claude name, and a deployment that refuses it does so at call
+    time, as a configuration error that stops the study (``basis.llm.errors``).
+    """
+    models = pipeline_models(settings, rooms)
+    if llm is None:
+        if settings.env in ("dev", "test"):
+            return
+        raise ConfigError(
+            f"no model provider configured, but the pipeline calls {', '.join(models)}; "
+            f"set {ANTHROPIC_VARS} for claude-* models and {OPENAI_VARS} for the others"
+        )
+    unserved = unserved_models(llm.providers, models)
+    if not unserved:
+        return
+    listed = "; ".join(f"{model} ({', '.join(models[model])})" for model in unserved)
+    fixes = sorted(
+        {ANTHROPIC_VARS if is_anthropic_model(model) else OPENAI_VARS for model in unserved}
+    )
+    raise ConfigError(
+        f"no configured provider serves these models the pipeline calls (configured: "
+        f"{llm.name}): {listed}. Set {' and '.join(fixes)}, or point those settings at a "
+        "model a configured provider serves"
     )
 
 

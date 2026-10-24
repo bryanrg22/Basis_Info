@@ -14,14 +14,19 @@ provider would answer it with a different account and, on Azure, possibly a diff
 deployment than the model the run or study asked for (an evaluation pinned to ``gpt-4.1``
 was once answered by Azure that way when the OpenAI account ran dry); and the outage would
 stay hidden until the second account ran dry too. The error is raised at once so the run
-or the stage stops and someone fixes the account.
+or the stage stops and someone fixes the account. A configuration error
+(:class:`~basis.llm.errors.ProviderConfigError`, an account error by type: an unknown model
+or deployment, a parameter the model refuses) is raised the same way, and so is a refused
+input (:class:`~basis.llm.errors.ProviderRequestRejected`): neither is a status the
+secondary could answer differently for this model.
 
 Routing by model: a provider may declare ``accepts(model)`` (the Anthropic provider serves
 ``claude-*`` names, the OpenAI and Azure providers everything else). Each call considers only
 the providers that accept its model, in the pool's order: the first is its primary, the
 second its one fallback. A ``claude-*`` request is therefore never sent to OpenAI, whatever
 ``LLM_PRIMARY`` says, and a ``gpt-*`` request never to Anthropic. A model no configured
-provider serves is :class:`ProviderNotConfigured`.
+provider serves is :class:`ProviderNotConfigured` (a configuration error; the worker refuses
+to start when its pipeline names such a model, :func:`unserved_models`).
 
 The semaphore bounds concurrent model calls in one worker process (the legacy
 ``HybridVisionPool`` bounded photos per provider; with per-call fallback one bound is
@@ -32,7 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from basis.config import Settings
 from basis.llm.errors import (
@@ -51,6 +56,19 @@ def accepts(provider: ChatProvider, model: str) -> bool:
     """Whether ``provider`` serves ``model`` (a provider without ``accepts`` serves any)."""
     check = getattr(provider, "accepts", None)
     return True if check is None else bool(check(model))
+
+
+def unserved_models(providers: Sequence[ChatProvider], models: Iterable[str]) -> list[str]:
+    """The models of ``models`` (each once, in order) that none of ``providers`` serves.
+
+    Routing only: Azure accepts every non-Claude name (it sends it to its deployment), so a
+    served model can still be refused at call time; that is a
+    :class:`~basis.llm.errors.ProviderConfigError` then, which stops the stage."""
+    seen: list[str] = []
+    for model in models:
+        if model not in seen and not any(accepts(p, model) for p in providers):
+            seen.append(model)
+    return seen
 
 
 class ProviderPool:
@@ -86,10 +104,8 @@ class ProviderPool:
             primary = candidates[0]
             try:
                 return await primary.complete(request)
-            except ProviderAccountError as error:
-                logger.error(
-                    "%s refused the account for %s: %s", primary.name, request.activity, error
-                )
+            except ProviderAccountError as error:  # configuration errors included
+                logger.error("%s stopped %s: %s", primary.name, request.activity, error)
                 raise
             except ProviderError as error:
                 if len(candidates) < 2 or not is_retryable_status(error):

@@ -17,7 +17,7 @@ from basis.activities.process_assets import asset_components
 from basis.db.models import Component as ComponentRow
 from basis.llm import Budget, ScriptedTurn, Usage
 from basis.llm.call import CallContext
-from basis.llm.errors import ProviderBadResponse
+from basis.llm.errors import ProviderBadResponse, ProviderConfigError, ProviderRequestRejected
 from basis.llm.prompts import PromptError
 from basis.llm.recorder import MemoryRecorder
 from basis.vision import room_step
@@ -220,6 +220,36 @@ async def test_the_second_look_reaches_a_one_photo_room_too() -> None:
     )
     assert out.step == "per_photo"
     assert out.result.inventory.objects[0].material is Material.PAINTED_MASONRY
+
+
+async def test_a_refused_second_look_keeps_the_material_without_a_retry() -> None:
+    refused = ScriptedTurn(
+        raise_error=ProviderRequestRejected("Could not process image", provider="x", status=400)
+    )
+    chat = ModelKeyedProvider(turns={(MODEL, "surface_material"): [refused]})
+    out = await room_step.inventory_room(
+        "r", [photo("a", comp("wall_finish", 1, "concrete"))], config(), call=call(), provider=chat
+    )
+    [looked] = out.looks
+    assert looked.answer is None and not looked.applied and looked.attempts == 1
+    assert "Could not process image" in looked.errors[0]
+    assert out.result.inventory.objects[0].material is Material.CONCRETE
+    assert len(chat.requests) == 1
+
+
+async def test_a_configuration_error_in_the_second_look_propagates() -> None:
+    config_error = ScriptedTurn(
+        raise_error=ProviderConfigError("model: x", provider="anthropic", status=404)
+    )
+    chat = ModelKeyedProvider(turns={(MODEL, "surface_material"): [config_error]})
+    with pytest.raises(ProviderConfigError):
+        await room_step.inventory_room(
+            "r",
+            [photo("a", comp("wall_finish", 1, "concrete"))],
+            config(),
+            call=call(),
+            provider=chat,
+        )
 
 
 async def test_the_disagree_trigger_skips_surfaces_every_photo_agrees_on() -> None:

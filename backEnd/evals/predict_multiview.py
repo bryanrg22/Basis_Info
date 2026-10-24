@@ -43,7 +43,12 @@ from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import cost_usd, is_anthropic_model
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderBadResponse,
+    ProviderRateLimited,
+    ProviderRequestRejected,
+    ProviderUnavailable,
+)
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider, ChatRequest
 from basis.llm.recorder import MemoryRecorder
@@ -115,6 +120,12 @@ async def call_with_retries(
                 if exc.usage is not None:
                     record["cost_usd"] += cost_usd(exc.model or request.model, exc.usage)
                 break
+            except ProviderRequestRejected as exc:
+                # The input refused: no answer and no second attempt (same input, same
+                # refusal). Configuration and account errors propagate and stop the run.
+                record["errors"].append(f"attempt {attempt}: {exc}")
+                record["seconds"] = round(time.monotonic() - started, 2)
+                return None, record
             except (ProviderRateLimited, ProviderUnavailable) as exc:
                 if delay is None:
                     raise

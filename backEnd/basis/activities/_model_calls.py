@@ -3,11 +3,19 @@
 * :func:`heartbeating` keeps heartbeating while a long provider call is awaited (an Azure
   DI analysis or a vision call can take longer than the 30 s heartbeat timeout).
 * :func:`provider_failure` turns provider and storage errors into Temporal errors:
-  transient ones (429, 5xx, timeouts) stay retryable; a bad response from Azure DI (4xx)
-  or a missing file is a non-retryable ``ValidationError``; no provider configured is a
-  non-retryable ``ProviderNotConfigured``; a provider account error (no credit or quota,
-  a bad key) is a non-retryable ``ProviderAccountError`` naming the provider, so the
-  workflow fails the stage with that reason and waits for a retry (EVAL_REPORT 26.12).
+  transient ones (429, 5xx, timeouts) stay retryable; a bad response from Azure DI (4xx),
+  an input the provider refused (:class:`~basis.llm.errors.ProviderRequestRejected`: an
+  image it cannot process, a content-filter block) or a missing file is a non-retryable
+  ``ValidationError`` naming the reason, so the workflow fails that item (flags the photo);
+  a provider account error (no credit or quota, a bad key) is a non-retryable
+  ``ProviderAccountError`` naming the provider, so the workflow fails the stage with that
+  reason and waits for a retry (EVAL_REPORT 26.12). A configuration error
+  (:class:`~basis.llm.errors.ProviderConfigError`: an unknown model or deployment, a
+  parameter the model refuses, a model no configured provider serves) takes the same type
+  and the same stop, with a message that names the configuration instead of the account.
+  (An activity with no provider at all raises its own non-retryable
+  ``ProviderNotConfigured``, which the workflow flags; the worker refuses to start that way
+  outside dev and test.)
 * :func:`run_pk` finds the ``runs`` row so ``llm_calls`` can reference it.
 """
 
@@ -27,8 +35,9 @@ from basis.db.repositories.run import RunRepository
 from basis.llm.errors import (
     ProviderAccountError,
     ProviderBadResponse,
+    ProviderConfigError,
     ProviderError,
-    ProviderNotConfigured,
+    ProviderRequestRejected,
 )
 from basis.workflow.activity_options import PROVIDER_ACCOUNT_ERROR
 
@@ -54,16 +63,23 @@ async def heartbeating(detail: str, every_s: float = HEARTBEAT_EVERY_S) -> Async
 
 
 def provider_failure(error: ProviderError, what: str) -> ApplicationError:
+    if isinstance(error, ProviderConfigError):
+        # Type ProviderAccountError on purpose: it is the type the workflow stops the study
+        # on (provider-account-stop-v1) and never retries, so no workflow change (and no
+        # patch) is needed; the message says it is the configuration, not the account.
+        return ApplicationError(
+            f"{what}: {error}, then retry the study",
+            type=PROVIDER_ACCOUNT_ERROR,
+            non_retryable=True,
+        )
     if isinstance(error, ProviderAccountError):
         return ApplicationError(
             f"{what}: {error}; fix the account, then retry the study",
             type=PROVIDER_ACCOUNT_ERROR,
             non_retryable=True,
         )
-    if isinstance(error, ProviderNotConfigured):
-        return ApplicationError(
-            f"{what}: {error}", type=PROVIDER_NOT_CONFIGURED, non_retryable=True
-        )
+    if isinstance(error, ProviderRequestRejected):
+        return validation_error(f"{what}: {error}")
     if isinstance(error, ProviderBadResponse):
         return validation_error(f"{what}: {error.provider} rejected the input: {error}")
     return ApplicationError(f"{what}: {error}", type=PROVIDER_UNAVAILABLE)
