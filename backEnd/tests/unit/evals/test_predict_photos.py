@@ -18,7 +18,7 @@ from fixtures import fixture_path
 from llm_fakes import FixtureVisionProvider, photo_labels
 
 from basis.llm import prompts
-from basis.llm.errors import ProviderAccountError, ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderRequestRejected, ProviderUnavailable
 from evals import account_stop, predict_photos
 
 pytestmark = pytest.mark.asyncio
@@ -299,6 +299,45 @@ async def test_the_first_account_error_stops_the_run_with_a_partial_run_json(
     assert not (out / "photo_rooms.json").exists()  # no prediction file looks complete
     err = capsys.readouterr().err
     assert "STOPPED: openai account error (HTTP 429, insufficient_quota)" in err
+
+
+class RefusesFirstPhoto:
+    """Refuses the input of the first call (a content filter), answers the rest."""
+
+    name = "refuses"
+
+    def __init__(self) -> None:
+        self.inner = FixtureVisionProvider()
+        self.calls = 0
+
+    async def complete(self, request: Any) -> Any:
+        self.calls += 1
+        if self.calls == 1:
+            raise ProviderRequestRejected(
+                "The response was filtered", provider="azure", status=400, code="content_filter"
+            )
+        return await self.inner.complete(request)
+
+
+async def test_a_refused_photo_is_recorded_as_rejected_and_the_run_goes_on(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Like a photo the preparation rejects: recorded, not retried, never an analysis with
+    no component; the other photos are analyzed and the run completes."""
+    provider = RefusesFirstPhoto()
+    monkeypatch.setattr(
+        predict_photos.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
+    )
+    out = tmp_path / "out"
+    code = await predict_photos.run(
+        predict_photos.parse_args(
+            ["--photos", str(photo_dir), "--out", str(out), "--concurrency", "1"]
+        )
+    )
+    assert code == 0 and provider.calls == 2
+    raw = [json.loads(line) for line in (out / "photo_raw.jsonl").read_text().splitlines()]
+    assert raw[0]["file"] == "01_kitchen.jpg" and "content_filter" in raw[0]["rejected"]
+    assert "analysis" not in raw[0] and "analysis" in raw[1]
 
 
 class HangThenRefuse:

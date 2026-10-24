@@ -11,6 +11,9 @@ S2_SPEC section 1 and BUILD_PLAN 13.1:
   retrying cannot fix a bad input, an exhausted budget, or a provider account with no
   credit or a bad key. Activities also raise them with ``non_retryable=True``;
   the list here is the backstop for an error raised without that flag.
+  ``ProviderAccountError`` also carries a provider configuration error (an unknown model
+  or deployment, a parameter the model refuses, a model no configured provider serves):
+  the same stop, with a message naming the configuration (``basis.llm.errors``).
 * Cancellation waits for the activity to acknowledge (``WAIT_CANCELLATION_COMPLETED``):
   when a study is cancelled, ``record_run_end`` runs only after every in-flight activity
   has stopped (it learns of the cancellation at its next heartbeat, within ~5 s), so no

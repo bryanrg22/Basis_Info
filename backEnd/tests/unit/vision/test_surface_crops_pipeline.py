@@ -25,7 +25,9 @@ from basis.llm.call import CallContext
 from basis.llm.errors import (
     ProviderAccountError,
     ProviderBadResponse,
+    ProviderConfigError,
     ProviderRateLimited,
+    ProviderRequestRejected,
 )
 from basis.llm.prompts import load as load_prompt
 from basis.llm.provider import BudgetExceededError
@@ -183,9 +185,28 @@ async def test_an_unreadable_photo_is_a_segmenter_fallback() -> None:
     assert found.errors and found.errors[0].startswith("segmenter: unreadable photo")
 
 
+async def test_a_refused_crop_is_left_unanswered_and_flagged_without_a_retry() -> None:
+    refused = ScriptedTurn(
+        raise_error=ProviderRequestRejected(
+            "Could not process image", provider="anthropic", status=400
+        )
+    )
+    chat = provider(
+        refused, answer(sc.CropMaterial.PAINTED_DRYWALL), answer(sc.CropMaterial.PLASTER)
+    )
+    found = await sc.photo_crops("a.jpg", PHOTO, FakeSegmenter(), ctx(provider=chat))
+    assert found.crops[0].answer is None and found.crops[0].attempts == 1
+    assert found.errors == ["request_rejected: floor"]
+    assert sc.RoomCrops(photos=[found]).flags == ["request_rejected"]
+    assert found.crops[1].answer is not None
+
+
 @pytest.mark.parametrize(
     "error",
-    [ProviderAccountError("credit balance is too low", provider="anthropic", status=400)],
+    [
+        ProviderAccountError("credit balance is too low", provider="anthropic", status=400),
+        ProviderConfigError("model: x", provider="anthropic", status=404),
+    ],
 )
 async def test_an_account_error_propagates(error: Exception) -> None:
     chat = provider(ScriptedTurn(raise_error=error))

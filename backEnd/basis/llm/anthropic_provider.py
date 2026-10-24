@@ -37,9 +37,15 @@ Sources (Anthropic docs, read 2026-10-15):
 * Errors, https://platform.claude.com/docs/en/api/errors: 429 ``rate_limit_error``, 500
   ``api_error``, 504 ``timeout_error``, 529 ``overloaded_error``; 413 ``request_too_large``.
   Mapped like the OpenAI providers: 429 -> :class:`ProviderRateLimited`, 5xx (529 included),
-  timeouts and connection failures -> :class:`ProviderUnavailable`, other 4xx and unusable
-  output -> :class:`ProviderBadResponse`. The SDK's own retries are off; the provider retries
-  once on 429/5xx (``retry-after`` honoured up to a cap), the pool and Temporal do the rest.
+  408/409, timeouts and connection failures -> :class:`ProviderUnavailable`, unusable output
+  -> :class:`ProviderBadResponse`; any other 4xx refused the request (:func:`rejection`):
+  413 and an image the API cannot read -> :class:`ProviderRequestRejected` (this input), 404
+  ``not_found_error`` (an unknown model) and every other ``invalid_request_error`` ->
+  :class:`ProviderConfigError` (the request as configured; it stops the study like an
+  account error). An effort level Claude does not know and a model this provider does not
+  serve are configuration errors too, raised before anything is sent. The SDK's own
+  retries are off; the provider retries once on 429/5xx (``retry-after`` honoured up to a
+  cap), the pool and Temporal do the rest.
   Account errors come first and are :class:`ProviderAccountError` (never retried, never
   sent elsewhere): 401 ``authentication_error``, 402 ``billing_error``, 403
   ``permission_error``; a 400 whose message says the credit balance is too low (what the
@@ -81,9 +87,12 @@ from basis.llm.cost import is_anthropic_model, output_ceiling
 from basis.llm.errors import (
     ProviderAccountError,
     ProviderBadResponse,
+    ProviderConfigError,
     ProviderError,
+    ProviderNotConfigured,
     ProviderRateLimited,
     ProviderUnavailable,
+    classify_rejection,
     is_retryable_status,
 )
 from basis.llm.provider import ChatRequest, ChatResponse, Message, ToolCall, Usage
@@ -114,6 +123,7 @@ __all__ = [
     "map_error",
     "output_schema",
     "parse_message",
+    "rejection",
 ]
 
 
@@ -198,18 +208,17 @@ def build_request_body(request: ChatRequest, *, effort: str = "low") -> dict[str
     """The ``messages.create`` keyword arguments for ``request``.
 
     ``effort`` is the provider's default (``ANTHROPIC_EFFORT``); a ``request.reasoning_effort``
-    overrides it. An effort Claude does not know is a :class:`ProviderBadResponse` (the API
-    would answer 400; nothing is sent).
+    overrides it. An effort Claude does not know is a :class:`ProviderConfigError` (the API
+    would answer 400 to every request; nothing is sent, so there is no status).
     """
     if effort not in EFFORT_LEVELS:
         raise ValueError(f"effort must be one of {EFFORT_LEVELS}, not {effort!r}")
     if request.reasoning_effort is not None:
         if request.reasoning_effort not in EFFORT_LEVELS:
-            raise ProviderBadResponse(
+            raise ProviderConfigError(
                 f"reasoning_effort {request.reasoning_effort!r} is not a Claude effort level "
                 f"{EFFORT_LEVELS}",
                 provider=PROVIDER_NAME,
-                status=400,
             )
         effort = request.reasoning_effort
     body: dict[str, Any] = {
@@ -345,9 +354,23 @@ def account_error(exc: Exception, provider: str = PROVIDER_NAME) -> ProviderAcco
     return ProviderAccountError(message, provider=provider, status=status, code=code)
 
 
+def rejection(exc: anthropic.APIStatusError, provider: str = PROVIDER_NAME) -> ProviderError:
+    """Any other 4xx, by :func:`basis.llm.errors.classify_rejection` on ``error.type`` and
+    the message: 413 ``request_too_large`` and an image the API cannot read ("Could not
+    process image", an image over the size or dimension limit, a media type that does not
+    match) are the input's; 404 ``not_found_error`` (an unknown model) and every other
+    ``invalid_request_error`` are the configuration's."""
+    body = exc.body if isinstance(exc.body, dict) else {}
+    error = _dict(body.get("error"))
+    message = str(error.get("message") or exc.message or f"HTTP {exc.status_code}")
+    codes = [exc.type or error.get("type")]
+    return classify_rejection(exc.status_code, codes, message, provider=provider)
+
+
 def map_error(exc: Exception, provider: str = PROVIDER_NAME) -> ProviderError:
     """An SDK exception as a :mod:`basis.llm.errors` error (account errors first: a
-    credit-balance 400 is not a bad request, a spend-cap 429 is not a rate limit)."""
+    credit-balance 400 is not a bad request, a spend-cap 429 is not a rate limit; then any
+    other 4xx is the configuration's or the input's, :func:`rejection`)."""
     if isinstance(exc, ProviderError):
         return exc
     account = account_error(exc, provider)
@@ -358,7 +381,7 @@ def map_error(exc: Exception, provider: str = PROVIDER_NAME) -> ProviderError:
     if isinstance(exc, anthropic.APIStatusError):
         if exc.status_code >= 500:  # 500 api_error, 504 timeout_error, 529 overloaded_error
             return ProviderUnavailable(str(exc), provider=provider, status=exc.status_code)
-        return ProviderBadResponse(str(exc), provider=provider, status=exc.status_code)
+        return rejection(exc, provider)
     if isinstance(exc, anthropic.APITimeoutError | asyncio.TimeoutError):
         return ProviderUnavailable(f"timed out: {exc}", provider=provider)
     if isinstance(exc, anthropic.APIConnectionError):
@@ -399,7 +422,7 @@ class AnthropicProvider:
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
         if not self.accepts(request.model):
-            raise ProviderBadResponse(
+            raise ProviderNotConfigured(
                 f"{self.name} does not serve model {request.model!r}", provider=self.name
             )
         body = build_request_body(request, effort=self.effort)

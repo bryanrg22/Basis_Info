@@ -22,10 +22,11 @@ room's ``wall_finish``, ``wainscoting``, ``tile`` and ``ceiling_finish`` objects
 crops' majority class over the room's photos (:data:`LABEL_KIND`, :data:`TO_MATERIAL`),
 exactly ``evals.predict_surface_crops apply``; where no crop answered the object keeps its
 material (the per-photo or room-call one), which is section 26.3's "crops, else per-photo".
-Failures never fail the room: a segmenter error, an answer unusable twice or a transient
-provider error leave that photo or surface unanswered and are listed in
-:attr:`RoomCrops.flags`. An exhausted budget, a provider account error and a missing
-provider propagate (the activity's budget guard and account-error stop apply).
+Failures never fail the room: a segmenter error, an answer unusable twice, a transient
+provider error or a crop the provider refuses (``request_rejected``) leave that photo or
+surface unanswered and are listed in :attr:`RoomCrops.flags`. An exhausted budget, a
+provider account or configuration error and a missing provider propagate (the activity's
+budget guard and account-error stop apply).
 """
 
 from __future__ import annotations
@@ -44,7 +45,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import cost_usd
-from basis.llm.errors import ProviderBadResponse, ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderBadResponse,
+    ProviderRateLimited,
+    ProviderRequestRejected,
+    ProviderUnavailable,
+)
 from basis.llm.prompts import Prompt
 from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision.prep import prepare_image
@@ -63,6 +69,8 @@ CROP_SIDE: Final = 768  # longest side of the enlarged crop
 GREY: Final = 0.75  # how far non-surface pixels are blended toward grey
 MAX_TOKENS: Final = 500
 MAX_ATTEMPTS: Final = 2  # an unusable answer is asked once more, as in evals.predict_multiview
+# Why a crop ended unanswered without an unusable answer (error prefixes, also flag kinds).
+_NOT_ANSWERED: Final = ("provider_unavailable", "request_rejected")
 # The released prompt the study measured (EVAL_REPORT 26.3).
 PROMPT_VERSION: Final = "v1"
 
@@ -425,14 +433,15 @@ class RoomCrops:
 
     @property
     def flags(self) -> list[str]:
-        """``segmenter``, ``provider_unavailable`` or ``invalid_model_output`` (sorted,
-        distinct) when some photo or surface fell back to the per-photo material."""
+        """``segmenter``, ``provider_unavailable``, ``request_rejected`` or
+        ``invalid_model_output`` (sorted, distinct) when some photo or surface fell back to
+        the per-photo material."""
         kinds = {e.split(":", 1)[0] for p in self.photos for e in p.errors}
         kinds |= {
             "invalid_model_output"
             for p in self.photos
             for c in p.crops
-            if c.answer is None and not any(e.startswith("provider_unavailable") for e in c.errors)
+            if c.answer is None and not any(e.startswith(_NOT_ANSWERED) for e in c.errors)
         }
         return sorted(kinds)
 
@@ -461,8 +470,9 @@ async def ask_crop(
     surface: Surface, photo: bytes, crop: bytes, record: CropRecord, ctx: CropContext
 ) -> None:
     """One surface's question, an unusable answer asked once more; fills ``record``. A
-    transient provider error is recorded (``provider_unavailable``) and ends the crop
-    unanswered; budget, account and configuration errors propagate."""
+    transient provider error (``provider_unavailable``) or a refused crop
+    (``request_rejected``) is recorded and ends the crop unanswered; budget, account and
+    configuration errors propagate."""
     request = build_request(
         surface,
         photo,
@@ -487,6 +497,11 @@ async def ask_crop(
             continue
         except (ProviderRateLimited, ProviderUnavailable) as exc:
             record.errors.append(f"provider_unavailable: attempt {attempt}: {exc}"[:500])
+            return
+        except ProviderRequestRejected as exc:
+            # This crop refused (an image it cannot process, a content filter): unanswered
+            # like an unusable one, not retried; the photo keeps its material.
+            record.errors.append(f"request_rejected: attempt {attempt}: {exc}"[:500])
             return
         record.raw.append(response.raw)
         record.cost_usd += cost_usd(response.model, response.usage)
@@ -529,8 +544,9 @@ async def photo_crops(
             continue
         record = CropRecord(file=file, surface=surface, box=box, share=share)
         await ask_crop(surface, photo, jpeg_bytes(crop), record, ctx)
-        if any(e.startswith("provider_unavailable") for e in record.errors):
-            out.errors.append(f"provider_unavailable: {surface}")
+        for kind in _NOT_ANSWERED:
+            if any(e.startswith(kind) for e in record.errors):
+                out.errors.append(f"{kind}: {surface}")
         out.crops.append(record)
     return out
 

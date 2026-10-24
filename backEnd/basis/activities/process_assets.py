@@ -36,7 +36,8 @@ non-retryable ``BudgetExceededError`` is raised up front and nothing is written 
 workflow flags the stage and continues to review). The output's ``cost_usd`` is what the
 model calls actually cost. Without a wired provider (``Deps.chat_provider is None``)
 nothing is reserved and residual components are written ``classifier_unavailable``.
-A provider account error (no credit, a bad key) stops the classification at once (the
+A provider account or configuration error (no credit, a bad key, an unknown model or a
+parameter it refuses) stops the classification at once (the
 other components' calls are cancelled) and is the non-retryable ``ProviderAccountError``;
 nothing is written, and the workflow fails the stage with the reason until a retry.
 

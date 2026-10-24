@@ -16,7 +16,14 @@ What every call does (S3_SPEC sections 0 and 2):
   budget; Temporal retries the activity instead). Every failure is mapped to
   :mod:`basis.llm.errors` so no caller imports the SDK. Account failures (401/402/403, and
   a 429 whose code says the credit or quota is gone) are :class:`ProviderAccountError`
-  and are not retried (:func:`account_error`).
+  and are not retried (:func:`account_error`). Any other 4xx refused the request, not the
+  answer (:func:`rejection`): a configuration error (404 ``model_not_found``, Azure
+  ``DeploymentNotFound`` or ``OperationNotSupported``, 400 ``unsupported_parameter``/
+  ``unsupported_value``, and any 400/404/422 that does not name the input) is
+  :class:`~basis.llm.errors.ProviderConfigError`, which stops the study like an account
+  error; an input the provider refuses (an image it cannot read, 413, Azure's
+  ``content_filter`` 400) is :class:`~basis.llm.errors.ProviderRequestRejected`; 408/409
+  are transient, as the SDK itself treats them.
 * Timeouts come from ``settings.llm_request_timeout_seconds``; latency is measured around
   the HTTP call and returned in ``ChatResponse.latency_ms``.
 
@@ -53,6 +60,7 @@ from basis.llm.errors import (
     ProviderNotConfigured,
     ProviderRateLimited,
     ProviderUnavailable,
+    classify_rejection,
     is_retryable_status,
 )
 from basis.llm.families import is_reasoning_model as is_reasoning_model  # re-exported
@@ -329,9 +337,23 @@ def account_error(exc: Exception, provider: str) -> ProviderAccountError | None:
     return ProviderAccountError(message, provider=provider, status=exc.status_code, code=code)
 
 
+def rejection(exc: openai.APIStatusError, provider: str) -> ProviderError:
+    """Any other 4xx, by :func:`basis.llm.errors.classify_rejection` on the error's code,
+    type and inner code (Azure's content filter nests ``ResponsibleAIPolicyViolation`` in
+    ``innererror``) and the provider's message: configuration (``model_not_found``,
+    ``DeploymentNotFound``, ``unsupported_parameter``, ...) or this request's content."""
+    body = exc.body if isinstance(exc.body, dict) else {}
+    inner = body.get("innererror")
+    inner_code = inner.get("code") if isinstance(inner, dict) else None
+    message = str(body.get("message") or exc.message or f"HTTP {exc.status_code}")
+    codes = [exc.code, exc.type, None if inner_code is None else str(inner_code)]
+    return classify_rejection(exc.status_code, codes, message, provider=provider)
+
+
 def map_error(exc: Exception, provider: str) -> ProviderError:
     """An SDK exception as a :mod:`basis.llm.errors` error (account errors first: an
-    out-of-quota 429 is not a rate limit)."""
+    out-of-quota 429 is not a rate limit; then any other 4xx is the configuration's or the
+    input's, :func:`rejection`)."""
     if isinstance(exc, ProviderError):
         return exc
     account = account_error(exc, provider)
@@ -342,7 +364,7 @@ def map_error(exc: Exception, provider: str) -> ProviderError:
     if isinstance(exc, openai.APIStatusError):
         if exc.status_code >= 500:
             return ProviderUnavailable(str(exc), provider=provider, status=exc.status_code)
-        return ProviderBadResponse(str(exc), provider=provider, status=exc.status_code)
+        return rejection(exc, provider)
     if isinstance(exc, openai.APITimeoutError | asyncio.TimeoutError):
         return ProviderUnavailable(f"timed out: {exc}", provider=provider)
     if isinstance(exc, openai.APIConnectionError):

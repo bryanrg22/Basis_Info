@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from basis.llm import ScriptedProvider, ScriptedTurn
-from basis.llm.errors import ProviderAccountError, ProviderUnavailable
+from basis.llm.errors import ProviderAccountError, ProviderConfigError, ProviderUnavailable
 from basis.llm.provider import Budget, ChatRequest, Message
 from evals import account_stop
 
@@ -99,6 +99,32 @@ async def test_the_decorator_writes_the_stop_record_and_returns_the_exit_code(
         "spent_usd": 0.05,
         "files_written": ["raw.jsonl"],
     }
+
+
+async def test_a_configuration_error_stops_the_run_and_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A model or deployment the provider refuses (an account error by type) stops the run
+    the same way, exit 3, with a reason and advice about the settings, not the account."""
+    config = ProviderConfigError(
+        "The API deployment for this resource does not exist.",
+        provider="azure",
+        status=404,
+        code="DeploymentNotFound",
+    )
+
+    @account_stop.stops_on_account_error
+    async def run(args: argparse.Namespace) -> int:
+        raise RuntimeError("wrapped") from config
+
+    out = tmp_path / "out"
+    assert await run(argparse.Namespace(out=out)) == account_stop.ACCOUNT_STOPPED
+    stopped = json.loads((out / "run.json").read_text())["stopped"]
+    assert stopped["reason"] == "provider_config_error"
+    assert stopped["message"].startswith("azure rejected the request (HTTP 404, Deployment")
+    err = capsys.readouterr().err
+    assert "Fix the model or deployment settings and run again." in err
+    assert "account" not in err.split("\n", 1)[0]
 
 
 async def test_the_decorator_lets_every_other_error_through(tmp_path: Path) -> None:

@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import cost_usd
-from basis.llm.errors import ProviderBadResponse
+from basis.llm.errors import ProviderBadResponse, ProviderRequestRejected
 from basis.llm.prompts import Prompt
 from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision.reconcile import NOTE_MAX, InventoryObject, RoomPhoto, clip_text
@@ -240,6 +240,12 @@ async def look(
             if exc.usage is not None:
                 result.cost_usd += cost_usd(exc.model or request.model, exc.usage)
             continue
+        except ProviderRequestRejected as exc:
+            # This photo crop refused (not retried: the same input gets the same answer);
+            # the object keeps its material, as after an unusable answer. Configuration and
+            # account errors propagate and stop the step.
+            result.errors.append(f"attempt {attempt}: {exc}")
+            return result
         result.cost_usd += cost_usd(response.model, response.usage)
         result.model = response.model
         if isinstance(response.parsed, ModelSurfaceMaterial):

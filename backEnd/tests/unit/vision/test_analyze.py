@@ -20,7 +20,13 @@ from llm_fakes import PHOTO_MODEL, FixtureVisionProvider, ModelKeyedProvider, Pr
 from basis.activities.analyze_photo import _raw_json
 from basis.llm import Budget, BudgetExceededError, ScriptedProvider, ScriptedTurn, Usage
 from basis.llm.call import CallContext
-from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderUnavailable
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderBadResponse,
+    ProviderConfigError,
+    ProviderRequestRejected,
+    ProviderUnavailable,
+)
 from basis.llm.prompts import PromptError
 from basis.llm.provider import ChatRequest, ChatResponse
 from basis.llm.recorder import MemoryRecorder
@@ -203,6 +209,61 @@ async def test_decomposed_account_error_fails_the_photo_not_one_half() -> None:
     )
     with pytest.raises(ProviderAccountError):  # the error itself, not an ambiguous photo
         await analyze_photo_decomposed(KITCHEN, context(provider))
+
+
+# The live failure: an Azure deployment that could not run the configured model answered
+# HTTP 400 to every photo; mapped to a bad response, each photo was retried once and became
+# an ambiguous analysis with no component and no cost.
+CONFIG = ProviderConfigError(
+    "Unsupported parameter: 'reasoning_effort' is not supported with this model.",
+    provider="azure",
+    status=400,
+    code="unsupported_parameter",
+)
+REJECTED = ProviderRequestRejected(
+    "You uploaded an unsupported image.", provider="openai", status=400, code="invalid_image"
+)
+
+
+@pytest.mark.parametrize("error", [CONFIG, REJECTED])
+async def test_a_refused_request_propagates_unretried_and_is_never_an_analysis(
+    error: ProviderConfigError | ProviderRequestRejected,
+) -> None:
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error), ScriptedTurn(parsed=kitchen())])
+    ctx = context(provider)
+    with pytest.raises(type(error)) as caught:
+        await analyze_photo_detailed(KITCHEN, ctx)
+    assert caught.value is error
+    assert len(provider.requests) == 1  # not retried as an unusable answer
+    assert records(ctx) == []
+
+
+@pytest.mark.parametrize("error", [CONFIG, REJECTED])
+async def test_decomposed_refused_request_fails_the_photo_not_one_half(
+    error: ProviderConfigError | ProviderRequestRejected,
+) -> None:
+    """The first call refused cancels the other and propagates itself: no ambiguous photo
+    with no component, whichever call it was."""
+    provider = PromptKeyedProvider(
+        {
+            "photo_countables": [ScriptedTurn(raise_error=error)],
+            "photo_surfaces": [ScriptedTurn(parsed=kitchen())],
+        }
+    )
+    with pytest.raises(type(error)) as caught:
+        await analyze_photo_decomposed(KITCHEN, context(provider))
+    assert caught.value is error
+
+
+async def test_an_unusable_answer_is_still_retried_once_then_ambiguous() -> None:
+    """Regression: only refused requests changed; an answer that does not parse is still
+    retried once and then an ambiguous analysis that says why."""
+    provider = ScriptedProvider([bad(), bad()])
+    result = await analyze_photo_detailed(KITCHEN, context(provider))
+    assert len(provider.requests) == 2
+    assert result.analysis.room_type is RoomType.AMBIGUOUS
+    assert result.analysis.needs_review
+    assert result.analysis.review_reason == "invalid_model_output"
 
 
 async def test_an_unusable_image_never_reaches_the_model() -> None:

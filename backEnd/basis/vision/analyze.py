@@ -11,7 +11,12 @@ twice when the room came back ``unknown``, and on any exception returned
   strict mode, so the room type and labels come from the controlled vocabularies.
 * An unusable answer (invalid JSON for the schema, refusal, truncation) is retried once;
   a second unusable answer returns an ``ambiguous`` analysis with ``needs_review`` and the
-  reason, not a guess.
+  reason, not a guess. A request the provider refuses is not an answer and never becomes
+  an analysis: a configuration error (:class:`~basis.llm.errors.ProviderConfigError`: an
+  unknown model or deployment, a parameter the model refuses) and an account error
+  propagate at once, unretried, so the activity stops the study; an input refusal
+  (:class:`~basis.llm.errors.ProviderRequestRejected`: an image the provider cannot
+  process, a content-filter block) propagates too, so the activity fails this photo.
 * Budget: reserved before and charged after every attempt through
   :func:`basis.llm.call.call_model`; :class:`BudgetExceededError` propagates (the
   activity turns it into a non-retryable error). Transient provider errors propagate too
@@ -42,12 +47,17 @@ default), concurrently with the other two calls, and each count class in
 :data:`basis.vision.fusion.PER_CLASS_SOURCE` takes its components from the source the table
 names (:func:`fuse_components`); labels, materials and room type stay the base model's.
 The second call never fails the photo: a transient provider error is retried
-(:data:`FUSION_RETRY_DELAYS_S`), and if it stays unavailable or unusable (or no provider
-serves the model, or the budget cannot cover it) the photo keeps the base model's counts
-and is flagged ``needs_review`` with reason ``count_fusion_fallback:<why>``; an account
-error on the second model (no credit, a bad key) is the exception and propagates like one on
-the base model, so a run or a study stops instead of quietly losing the fusion. Both raw
-answers and the chosen source per class are in :class:`FusionOutcome`.
+(:data:`FUSION_RETRY_DELAYS_S`), and if it stays unavailable or unusable (or the provider
+refuses this photo, or the budget cannot cover it) the photo keeps the base model's counts
+and is flagged ``needs_review`` with reason ``count_fusion_fallback:<why>``. An account or
+configuration error on the second model (no credit, a bad key, an unknown model, a
+parameter it refuses, or no configured provider serving it) is the exception and propagates
+like one on the base model, so a run or a study stops instead of quietly losing the fusion
+on every photo (a worker started with Azure alone once flagged every photo
+``count_fusion_fallback:ProviderNotConfigured``). A refused input stays a fallback on
+purpose: the base calls analyzed the photo, and the second model's refusal of this one
+image says nothing about the next. Both raw answers and the chosen source per class are in
+:class:`FusionOutcome`.
 
 Every attempt's raw provider response is returned in :class:`PhotoResult` for storage;
 ``PhotoResult.calls`` keeps them per prompt.
@@ -451,10 +461,13 @@ async def _fusion_call(
     image: PreparedImage, ctx: VisionContext, config: FusionConfig, prompt: Prompt
 ) -> tuple[CallOutcome, str | None]:
     """The countables prompt on the fusion model: the outcome and, when it gave no usable
-    answer, why (``None`` when usable). Never raises a provider or budget error: a
-    transient one is retried after each of :data:`FUSION_RETRY_DELAYS_S`, anything else
-    ends the call, and the whole call stops at :data:`FUSION_DEADLINE_S`; the caller then
-    falls back to the base counts."""
+    answer, why (``None`` when usable). Raises only an account or configuration error
+    (:class:`~basis.llm.errors.ProviderAccountError`, which covers
+    :class:`~basis.llm.errors.ProviderConfigError` and
+    :class:`~basis.llm.errors.ProviderNotConfigured`): a transient one is retried after
+    each of :data:`FUSION_RETRY_DELAYS_S`, any other provider or budget error ends the call,
+    and the whole call stops at :data:`FUSION_DEADLINE_S`; the caller then falls back to the
+    base counts."""
     errors: list[str] = []
     try:
         return await asyncio.wait_for(
@@ -493,8 +506,9 @@ async def _fusion_attempts(
             errors.append(f"{label}{type(exc).__name__}: {exc}")
             continue
         except ProviderAccountError:
-            raise
+            raise  # account, configuration (an unknown model, no provider serving it)
         except (ProviderError, BudgetExceededError) as exc:
+            # Unusable, a refused input (ProviderRequestRejected), or no budget: fall back.
             errors.append(f"{label}{type(exc).__name__}: {exc}")
             failed = CallOutcome(prompt.version_id, None, attempts + 1, errors=errors)
             return failed, type(exc).__name__
