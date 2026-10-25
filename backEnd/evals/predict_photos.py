@@ -37,7 +37,7 @@ from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.cost import is_anthropic_model
-from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import ProviderRateLimited, ProviderRequestRejected, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.llm.recorder import MemoryRecorder
@@ -184,7 +184,9 @@ async def run(args: argparse.Namespace) -> int:
             started = time.monotonic()
             try:
                 result = await analyze_with_retries(file.read_bytes(), ctx)
-            except ImageRejected as exc:
+            except (ImageRejected, ProviderRequestRejected) as exc:
+                # Prepared and refused alike: the photo cannot be analyzed (the activity
+                # fails it the same way); recorded, the run goes on.
                 return {"file": file.name, "repeat": repeat, "rejected": str(exc)}
             except (ProviderRateLimited, ProviderUnavailable) as exc:
                 # Transient after every retry: recorded, not fatal (Temporal retries the

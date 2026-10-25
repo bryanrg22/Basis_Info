@@ -52,7 +52,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import cost_usd
-from basis.llm.errors import ProviderBadResponse
+from basis.llm.errors import ProviderBadResponse, ProviderRequestRejected
 from basis.llm.prompts import Prompt, version_number
 from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision.prep import PreparedImage
@@ -478,9 +478,10 @@ async def attempt_inventory(
 ) -> ModelRoomInventory | None:
     """``request`` (structured as :class:`ModelRoomInventory`) with one retry of an unusable
     answer; every attempt's raw answer, cost, model and error goes into ``record``. The
-    parsed answer, or None after :data:`MAX_ATTEMPTS` unusable ones. Transient provider
-    errors and an exhausted budget propagate. Shared by the reconciliation call and the
-    room call (:func:`basis.vision.room_step.room_call`)."""
+    parsed answer, or None after :data:`MAX_ATTEMPTS` unusable ones or one refused request
+    (:class:`~basis.llm.errors.ProviderRequestRejected`, not retried). Transient provider
+    errors, account and configuration errors and an exhausted budget propagate. Shared by
+    the reconciliation call and the room call (:func:`basis.vision.room_step.room_call`)."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         ctx.heartbeat(f"{what} attempt {attempt}")
         record.attempts = attempt
@@ -493,6 +494,11 @@ async def attempt_inventory(
             if exc.usage is not None:
                 record.cost_usd += cost_usd(exc.model or request.model, exc.usage)
             continue
+        except ProviderRequestRejected as exc:
+            # This room's photos refused: no answer, as after unusable ones (the caller's
+            # fallback flags the room), but not retried. Configuration errors propagate.
+            record.errors.append(f"attempt {attempt}: {exc}")
+            return None
         record.raw.append(response.raw)
         record.cost_usd += cost_usd(response.model, response.usage)
         record.provider, record.model = response.provider, response.model

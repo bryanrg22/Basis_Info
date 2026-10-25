@@ -2,3 +2,4 @@
 # gitleaks scans the pull request's commit history, where a later edit does not remove
 # the line, so the historical fingerprint is listed here.
 e7efbb2bc628904fdf6665fb66c578747f875122:backEnd/tests/unit/config/test_settings.py:generic-api-key:359
+0ddd7bce41126fcc4ebd6b5bcddc755d0dadcf98:backEnd/tests/unit/llm/test_providers.py:generic-api-key:851

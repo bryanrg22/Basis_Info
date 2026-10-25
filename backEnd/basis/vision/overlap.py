@@ -46,7 +46,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import cost_usd
-from basis.llm.errors import ProviderBadResponse
+from basis.llm.errors import ProviderBadResponse, ProviderRequestRejected
 from basis.llm.prompts import Prompt
 from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision.reconcile import (
@@ -210,6 +210,11 @@ async def judge_pair(
             if exc.usage is not None:
                 judgment.cost_usd += cost_usd(exc.model or request.model, exc.usage)
             continue
+        except ProviderRequestRejected as exc:
+            # This pair refused: no judgment, not retried (the same input gets the same
+            # answer). Configuration and account errors propagate.
+            judgment.errors.append(f"attempt {attempt}: {exc}")
+            return judgment
         judgment.cost_usd += cost_usd(response.model, response.usage)
         judgment.model = response.model
         if isinstance(response.parsed, ModelPairOverlap):

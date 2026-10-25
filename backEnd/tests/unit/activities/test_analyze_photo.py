@@ -30,7 +30,14 @@ from basis.db.repositories.activity_result import COMPLETED
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm import ScriptedProvider, ScriptedTurn, Usage
-from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderRateLimited
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderBadResponse,
+    ProviderConfigError,
+    ProviderNotConfigured,
+    ProviderRateLimited,
+    ProviderRequestRejected,
+)
 from basis.workflow.contracts import AnalyzePhotoInput, SimulateFault
 
 from .conftest import Env
@@ -393,6 +400,70 @@ async def test_an_account_error_is_non_retryable_and_names_the_provider(
     assert len(provider.requests) == 1  # not retried as an unusable answer
     assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
     assert await count_rows(deps.sessionmaker, PhotoRoom, study_id=seeded.study_id) == 0
+
+
+async def test_a_configuration_error_stops_like_an_account_error_and_says_what_to_check(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """The live failure: an Azure deployment answered 400 to every photo, and each photo was
+    completed with no component, no cost and ``needs_review``. Now the activity fails with
+    the type the workflow stops the study on, and the reason names the configuration."""
+    error = ProviderConfigError(
+        "Unsupported parameter: 'reasoning_effort' is not supported with this model.",
+        provider="azure",
+        status=400,
+        code="unsupported_parameter",
+    )
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)])
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(AnalyzePhoto(with_llm(deps, provider)).run, analyze(seeded, 0))
+    assert caught.value.type == "ProviderAccountError" and caught.value.non_retryable
+    text = str(caught.value)
+    assert "azure rejected the request (HTTP 400, unsupported_parameter): Unsupported" in text
+    assert text.endswith("check the model and deployment settings, then retry the study")
+    assert "account" not in text.split(": ", 1)[1]
+    assert len(provider.requests) == 1
+    assert await count_rows(deps.sessionmaker, PhotoRoom, study_id=seeded.study_id) == 0
+    assert await count_rows(deps.sessionmaker, Component, study_id=seeded.study_id) == 0
+
+
+async def test_no_provider_for_a_model_stops_the_study_instead_of_skipping_it(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """A model no configured provider serves (the pool's ProviderNotConfigured) is a
+    configuration stop, not a photo failure the study goes past."""
+    error = ProviderNotConfigured(
+        "no configured provider serves model 'claude-opus-5-5' (configured: azure)"
+    )
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)])
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(AnalyzePhoto(with_llm(deps, provider)).run, analyze(seeded, 0))
+    assert caught.value.type == "ProviderAccountError" and caught.value.non_retryable
+    assert "no configured provider serves model 'claude-opus-5-5'" in str(caught.value)
+
+
+async def test_a_refused_photo_fails_visibly_and_is_never_a_photo_without_components(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """An input the provider refuses fails this photo (non-retryable ``ValidationError``
+    with the reason, as an image the preparation rejects), which the workflow flags; no
+    room, assignment or component row is written."""
+    error = ProviderRequestRejected(
+        "The response was filtered due to the prompt triggering Azure OpenAI's content "
+        "management policy.",
+        provider="azure",
+        status=400,
+        code="content_filter",
+    )
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)])
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(AnalyzePhoto(with_llm(deps, provider)).run, analyze(seeded, 0))
+    assert caught.value.type == "ValidationError" and caught.value.non_retryable
+    assert "azure rejected the input (HTTP 400, content_filter)" in str(caught.value)
+    assert len(provider.requests) == 1
+    assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
+    assert await count_rows(deps.sessionmaker, PhotoRoom, study_id=seeded.study_id) == 0
+    assert await count_rows(deps.sessionmaker, Component, study_id=seeded.study_id) == 0
 
 
 async def test_fail_attempts_fails_early_attempts_then_succeeds(

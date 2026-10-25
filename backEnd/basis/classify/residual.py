@@ -9,9 +9,12 @@ Every way the loop can fail ends in an outcome with ``classification=None`` and 
 ``reason`` (``tool_cap_exceeded``, ``iteration_cap``, ``invalid_output``, ``timeout``,
 ``budget_exceeded``, ``provider_error:<type>``): the caller writes the component as
 ``needs_review``; nothing is retried behind its back and nothing raises, except an account
-error (:class:`~basis.llm.errors.ProviderAccountError`: no credit, a bad key), which would
+error (:class:`~basis.llm.errors.ProviderAccountError`: no credit, a bad key, or a
+configuration error such as an unknown model or a parameter it refuses), which would
 otherwise turn every residual component of the study into ``provider_error`` rows; it
-propagates so the assets stage fails with the reason.
+propagates so the assets stage fails with the reason. A refused input
+(:class:`~basis.llm.errors.ProviderRequestRejected`) is about that one component and ends
+it as ``provider_error:ProviderRequestRejected``.
 
 Tool results go back as ``Message(role="tool", name=<tool>, tool_call_id=<id>)`` with the
 JSON payload as content. The assistant's tool-call turn is replayed as an assistant

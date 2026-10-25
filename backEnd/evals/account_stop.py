@@ -15,8 +15,12 @@ error it cancels the run's outstanding model calls, writes ``<out>/run.json`` as
      "spent_usd": ..., "files_written": [...]}
 
 (the provider's message, never a key), prints what happened and how to resume, and returns
-:data:`ACCOUNT_STOPPED`. Whatever the run had already written to ``<out>`` stays (completed
-repeats, raw records); ``run.json`` is the one place that says the run is partial.
+:data:`ACCOUNT_STOPPED`. A configuration error (:class:`~basis.llm.errors.ProviderConfigError`,
+an account error by type: an unknown model or deployment, a parameter the model refuses, no
+provider serving the model) stops the run the same way, with ``"reason":
+"provider_config_error"`` and a message that says to fix the model or deployment settings.
+Whatever the run had already written to ``<out>`` stays (completed repeats, raw records);
+``run.json`` is the one place that says the run is partial.
 :func:`track` lets a runner name the budget whose spend the stop record reports, and
 :func:`guard` wraps its provider so that, once one call has been refused, the calls already
 queued behind the concurrency limit fail at once without reaching the provider (with
@@ -33,11 +37,12 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any, Final, cast
 
-from basis.llm.errors import ProviderAccountError
+from basis.llm.errors import ProviderAccountError, ProviderConfigError
 from basis.llm.provider import Budget, ChatProvider, ChatRequest, ChatResponse
 
 ACCOUNT_STOPPED: Final = 3
 REASON: Final = "provider_account_error"
+CONFIG_REASON: Final = "provider_config_error"
 _BUDGET_ATTR: Final = "_account_stop_budget"
 
 
@@ -94,7 +99,7 @@ def find_account_error(exc: BaseException | None) -> ProviderAccountError | None
 
 def stop_record(error: ProviderAccountError) -> dict[str, Any]:
     return {
-        "reason": REASON,
+        "reason": CONFIG_REASON if isinstance(error, ProviderConfigError) else REASON,
         "provider": error.provider,
         "status": error.status,
         "code": error.code,
@@ -140,11 +145,16 @@ def stops_on_account_error[**P](
             path = write_stopped(
                 out, error, spent_usd=budget.spent_usd if isinstance(budget, Budget) else None
             )
+            fix = (
+                "the model or deployment settings"
+                if isinstance(error, ProviderConfigError)
+                else "the account (credit, quota or key)"
+            )
             print(
                 f"STOPPED: {error}\n"
                 f"Every later call would fail the same way, so the run stopped at the first "
-                f"one. Partial results are in {out}; {path.name} has complete=false. Fix the "
-                f"account (credit, quota or key) and run again.",
+                f"one. Partial results are in {out}; {path.name} has complete=false. Fix "
+                f"{fix} and run again.",
                 file=sys.stderr,
             )
             return ACCOUNT_STOPPED

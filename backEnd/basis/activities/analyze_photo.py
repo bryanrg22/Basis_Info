@@ -18,7 +18,9 @@ analysis gets a ``fusion`` block (table version, status, per class the source, m
 both counts, and the second model's raw answer; its responses are in ``responses`` and
 ``calls`` like the other two), and each component row's ``raw.fusion`` names the table
 version, the status and the classes the second model counted. A second call that fails
-leaves the base counts and flags the photo (``count_fusion_fallback``); it never fails it.
+leaves the base counts and flags the photo (``count_fusion_fallback``); it never fails it,
+except with an account or configuration error (no provider serves the fusion model, the
+model is unknown), which stops the study like one on the base calls.
 
 Order of work: a read-only check first (an assignment already written for this photo and
 revision is returned as is, with cost 0: carried over by a rejection, or an earlier
@@ -33,11 +35,17 @@ that room and the room is not chosen again. The analysis itself never depends on
 (the model sees the photo alone); only the room choice does.
 
 Errors: a missing file or an image that cannot be analyzed (empty, not an image, too
-small, too many pixels) -> non-retryable ``ValidationError`` (never an "unknown" room);
-no model provider configured -> non-retryable ``ProviderNotConfigured``; the budget cannot
-cover the call -> non-retryable ``BudgetExceededError`` (no rows); provider 429/5xx and
-timeouts -> retryable. An answer that stays invalid after one retry is an ``ambiguous``
-analysis with ``needs_review`` (the workflow flags the photo).
+small, too many pixels), or a photo the provider refuses (an image it cannot process, a
+request too large, a content-filter block: ``ProviderRequestRejected``) -> non-retryable
+``ValidationError`` naming the reason (never an "unknown" room, never a photo with no
+component; the workflow flags it); no model provider configured -> non-retryable
+``ProviderNotConfigured``; the budget cannot cover the call -> non-retryable
+``BudgetExceededError`` (no rows); a provider account or configuration error (no credit, a
+bad key, an unknown model or deployment, a parameter the model refuses, a model no
+configured provider serves) -> non-retryable ``ProviderAccountError``, on which the workflow
+stops the study (``provider-account-stop-v1``); provider 429/5xx and timeouts -> retryable.
+An answer that stays invalid after one retry is an ``ambiguous`` analysis with
+``needs_review`` (the workflow flags the photo).
 
 Test hooks (``SimulateFault``) are honoured only when ``BASIS_ENV`` is dev or test:
 ``fail_attempts`` fails the first N attempts (retryable), ``fail_permanently`` fails with
