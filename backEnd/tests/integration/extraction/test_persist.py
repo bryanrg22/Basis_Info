@@ -153,6 +153,20 @@ def test_stored_azure_result_ignores_other_payloads() -> None:
     assert stored_azure_result({"azure_di": {"pages": "bad"}}) is None
 
 
+def test_a_stored_analysis_without_geometry_is_analyzed_again() -> None:
+    """A real analysis stored before word boxes were kept would give the new revision's
+    fields no highlight regions: it is not reused (a fixture, synthetic, still is)."""
+    page = {"page_number": 1, "lines": ["Property Address 1290 Example Way"]}
+    old = {"azure_di": {"pages": [page], "synthetic": False}}
+    assert stored_azure_result(old) is None
+    fixture = {"azure_di": {"pages": [page], "synthetic": True}}
+    assert stored_azure_result(fixture) is not None
+    word = {"text": "1290", "bbox": [0.1, 0.1, 0.15, 0.12]}
+    current = {"azure_di": {"pages": [{**page, "words": [word]}], "synthetic": False}}
+    reused = stored_azure_result(current)
+    assert reused is not None and reused.pages[0].words[0].text == "1290"
+
+
 async def test_regions_are_stored_and_a_correction_keeps_them(
     sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:

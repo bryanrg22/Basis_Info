@@ -50,10 +50,15 @@ async def persist_extraction(
 
 
 def stored_azure_result(raw: object) -> AzureDiResult | None:
-    """The Azure DI analysis stored in an earlier extraction's ``raw``, if any."""
+    """The Azure DI analysis stored in an earlier extraction's ``raw``, if any. A real analysis
+    stored before the geometry was kept (pages without words) is not reused: the new revision's
+    fields would get no highlight regions, so the document is analyzed again (once)."""
     if not isinstance(raw, dict) or not isinstance(raw.get("azure_di"), dict):
         return None
     try:
-        return AzureDiResult.model_validate(raw["azure_di"])
+        result = AzureDiResult.model_validate(raw["azure_di"])
     except ValueError:
         return None
+    if not result.synthetic and result.pages and not any(p.words for p in result.pages):
+        return None
+    return result
