@@ -23,6 +23,8 @@ from typing import Any, Final
 from lifecycletest_support import DEFAULT_APPRAISAL, DEFAULT_PHOTOS, SeededStudy, seed_study
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from temporalio.api.enums.v1 import EventType
+from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.testing import WorkflowEnvironment
@@ -122,7 +124,15 @@ class Harness:
         values.update(overrides)
         return StudyWorkflowInput(**values)
 
-    async def start(self, study: SeededStudy | None = None, **overrides: Any) -> Started:
+    async def start(
+        self,
+        study: SeededStudy | None = None,
+        *,
+        task_timeout: timedelta | None = None,
+        **overrides: Any,
+    ) -> Started:
+        """Start the study's workflow; ``overrides`` are workflow input fields and
+        ``task_timeout`` the workflow task timeout (the server's 10 s by default)."""
         study = study or await self.seed()
         handle = await self.client.start_workflow(
             StudyWorkflow.run,
@@ -131,6 +141,7 @@ class Harness:
             task_queue=self.task_queue,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            task_timeout=task_timeout,
         )
         self.handles.append(handle)
         return Started(study=study, handle=handle)
@@ -170,6 +181,24 @@ class Harness:
             ),
             f"{stage} (revision {revision})",
         )
+
+    async def wait_settled(
+        self, handle: WorkflowHandle[Any, Any], holding: str, timeout: float = WAIT_TIMEOUT_S
+    ) -> None:
+        """Wait until, per the history, no workflow task is open and the only open activity
+        is ``holding`` (an activity id): the workflow can schedule nothing more until that
+        activity completes. Stopping a worker at this point leaves no task the server could
+        hand to the stopping worker's polls; a task handed to them while it shuts down is
+        lost until its timeout (a workflow task's 10 s, an activity's heartbeat timeout)."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        open_now: set[str] = set()
+        while loop.time() < deadline:
+            open_now = open_tasks((await handle.fetch_history()).events)
+            if open_now == {holding}:
+                return
+            await asyncio.sleep(POLL_INTERVAL_S)
+        raise AssertionError(f"timed out waiting for only {holding} open; open: {open_now}")
 
     async def wait_photos(self, handle: WorkflowHandle[Any, Any], count: int) -> StudyStatusView:
         """The photo stage done: ``count`` photos completed and none pending. Since v0.9
@@ -279,6 +308,34 @@ class Harness:
                 await handle.terminate("test finished")
             except Exception:  # already completed, failed or terminated
                 pass
+
+
+def open_tasks(events: Sequence[HistoryEvent]) -> set[str]:
+    """The open tasks in a history: each scheduled activity's id until it closes, and
+    ``"workflow task"`` while one is scheduled or started and not yet closed."""
+    activities: dict[int, str] = {}
+    workflow_tasks: set[int] = set()
+    for e in events:
+        match e.event_type:
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+                activities[e.event_id] = e.activity_task_scheduled_event_attributes.activity_id
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+                del activities[e.activity_task_completed_event_attributes.scheduled_event_id]
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+                del activities[e.activity_task_failed_event_attributes.scheduled_event_id]
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
+                del activities[e.activity_task_timed_out_event_attributes.scheduled_event_id]
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_CANCELED:
+                del activities[e.activity_task_canceled_event_attributes.scheduled_event_id]
+            case EventType.EVENT_TYPE_WORKFLOW_TASK_SCHEDULED:
+                workflow_tasks.add(e.event_id)
+            case EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED:
+                workflow_tasks.remove(e.workflow_task_completed_event_attributes.scheduled_event_id)
+            case EventType.EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT:
+                workflow_tasks.remove(e.workflow_task_timed_out_event_attributes.scheduled_event_id)
+            case EventType.EVENT_TYPE_WORKFLOW_TASK_FAILED:
+                workflow_tasks.remove(e.workflow_task_failed_event_attributes.scheduled_event_id)
+    return set(activities.values()) | ({"workflow task"} if workflow_tasks else set())
 
 
 async def skip(env: WorkflowEnvironment, delta: timedelta) -> None:
