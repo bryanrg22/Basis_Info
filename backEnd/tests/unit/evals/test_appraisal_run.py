@@ -180,6 +180,28 @@ async def test_live_records_and_replay_reproduces(tmp_path: Path, settings: Sett
     assert again is not None and _fields(tmp_path / "again", repeat=1) == live_fields
 
 
+async def test_live_reuses_a_recorded_analysis_unless_fresh(
+    tmp_path: Path, settings: Settings
+) -> None:
+    setup_data(tmp_path)
+    azure = FakeRawAzure(raw_azure(LINES))
+    for out in ("first", "second"):
+        provider = ScriptedProvider([gla_answer()], model="gpt-4o-mini")
+        await run_eval(
+            opts(tmp_path, mode="live", out=tmp_path / out),
+            settings=settings,
+            live=LiveDeps(azure=azure, provider=provider),
+        )
+    assert azure.calls == 1  # the second live run paid nothing for the layout
+    provider = ScriptedProvider([gla_answer()], model="gpt-4o-mini")
+    await run_eval(
+        opts(tmp_path, mode="live", fresh_azure=True, out=tmp_path / "fresh"),
+        settings=settings,
+        live=LiveDeps(azure=azure, provider=provider),
+    )
+    assert azure.calls == 2
+
+
 async def test_missing_recording_fails_only_its_document(
     tmp_path: Path, settings: Settings
 ) -> None:

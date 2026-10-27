@@ -103,6 +103,7 @@ class Options:
     repeats: int = 1
     documents: tuple[str, ...] = ()
     no_azure: bool = False
+    fresh_azure: bool = False  # live: analyze again even when a recording exists
     azure_only: bool = False
     accept_baseline: bool = False
     out: Path | None = None
@@ -245,7 +246,11 @@ def _layout_client(
 ) -> AzureDiClient | None:
     if options.no_azure:
         return None
-    if options.mode == "replay":
+    # A live run reuses a recorded analysis of the same PDF bytes (Azure DI is deterministic
+    # for a document and billed per page; the sweep would otherwise pay again per system).
+    if options.mode == "replay" or (
+        not options.fresh_azure and (directory / recordings.AZURE_RAW).exists()
+    ):
         return recordings.ReplayAzureClient(directory)
     assert live is not None and live.azure is not None
     return recordings.RecordingAzureClient(live.azure, directory)
@@ -256,7 +261,9 @@ def _mortgage_client(
 ) -> RawAnalyzer | None:
     if not needs_mortgage(options.system):
         return None
-    if options.mode == "replay":
+    if options.mode == "replay" or (
+        not options.fresh_azure and (directory / recordings.AZURE_1004_RAW).exists()
+    ):
         return recordings.ReplayRawModel(directory)
     assert live is not None and live.mortgage is not None
     return recordings.RecordingRawModel(live.mortgage, directory)
@@ -594,6 +601,11 @@ def parse_args(argv: Sequence[str] | None) -> Options:
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--documents", default="", help="comma-separated document names")
     parser.add_argument("--no-azure", action="store_true", help="text layer and model only")
+    parser.add_argument(
+        "--fresh-azure",
+        action="store_true",
+        help="live: call Azure DI again even when the document's analysis is recorded",
+    )
     parser.add_argument("--azure-only", action="store_true", help="no model fallback")
     parser.add_argument("--accept-baseline", action="store_true")
     parser.add_argument("--out", type=Path, default=None, help="run directory (default runs/<id>)")
@@ -654,6 +666,7 @@ def parse_args(argv: Sequence[str] | None) -> Options:
         repeats=args.repeats,
         documents=tuple(d.strip() for d in args.documents.split(",") if d.strip()),
         no_azure=args.no_azure,
+        fresh_azure=args.fresh_azure,
         azure_only=args.azure_only,
         accept_baseline=args.accept_baseline,
         out=args.out,
