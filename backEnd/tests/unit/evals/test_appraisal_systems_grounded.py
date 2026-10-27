@@ -29,15 +29,14 @@ from evals.appraisal.systems.grounded import (
     GroundedAnswer,
     GroundedValue,
     check_answer,
-    checkbox_selected,
     form_pages,
     is_form_page,
     llm_all,
     llm_pages,
     llm_sections,
-    option_selected,
 )
 from evals.appraisal.systems.layout import fold_chars, from_raw, locate
+from evals.appraisal.systems.marks import labelled_texts
 
 from .appraisal_systems_support import (
     RawClient,
@@ -131,28 +130,9 @@ def test_locate_words_nearest_and_within() -> None:
 # --------------------------------------------------------------------------- checks
 
 
-def test_checkbox_marks() -> None:
-    quote = "Occupant :selected: Owner :unselected: Tenant :unselected: Vacant"
-    assert option_selected("Owner", quote)
-    assert not option_selected("Tenant", quote)
-    assert not option_selected("Landlord", quote)
-    assert option_selected("Public", "Electricity Public :selected:")  # mark after, none before
-    assert not option_selected("Public", "Water :unselected: Public :selected: Other")
-    assert checkbox_selected("Concrete Slab, Crawl Space", PAGE_2[4])
-    assert not checkbox_selected("Concrete Slab, Full Basement", PAGE_2[4])
-    assert checkbox_selected("Other Municipal well", PAGE_2[1])  # write-in after a checked Other
-    assert not checkbox_selected("Municipal", PAGE_2[1])  # text beside a box is not an option
-    assert not checkbox_selected("", PAGE_2[1])
-    made = 'This appraisal is made :selected: "as is", :unselected: subject to completion'
-    assert checkbox_selected("as is", made)
-    assert checkbox_selected('"as is"', made)
-    assert not checkbox_selected("subject to completion", made)
-    assert checkbox_selected("Det", ":selected: Det. :unselected: Att.")  # model dropped the dot
-
-
 def check(*items: GroundedValue, asked: tuple[str, ...] | None = None) -> Any:
     geometry = from_raw(layout())
-    texts = geometry.texts()
+    texts = labelled_texts(geometry)
     keys = asked or tuple(i.key for i in items)
     return check_answer(GroundedAnswer(fields=list(items)), keys, texts, [1, 2, 3], geometry)
 
@@ -285,14 +265,14 @@ def test_llm_all_one_call_every_key_with_marks() -> None:
     env = make_env(layout=RawClient(layout()), provider=provider)
     output = run(llm_all(MODEL, dpi=72, min_page_words=3).run(env))
     [request] = provider.requests
-    assert request.prompt_version == "appraisal_fields_grounded/v1"
+    assert request.prompt_version == "appraisal_fields_grounded/v2"
     assert (request.model, request.reasoning_effort, request.max_tokens) == (
         "gpt-6-luna",
         "low",
         8000,
     )
     content = request.messages[0].content
-    assert ":selected: Owner :unselected: Tenant" in content
+    assert ":selected:[Owner] Owner :unselected:[Tenant] Tenant" in content  # labelled marks
     assert "<page number=3>" in content  # the text of every page
     assert all(f"- {key}:" in content for key in ASKED_KEYS)
     assert "site.area_acres" not in content  # derived keys are never asked
@@ -330,7 +310,7 @@ def test_llm_pages_sends_images_of_form_pages_only() -> None:
     assert again.requests[0].messages[0].images == images
 
 
-def test_llm_sections_one_call_per_group_with_its_pages() -> None:
+def test_llm_sections_one_call_per_group_every_page() -> None:
     turns = [answer() for _ in SECTION_GROUPS]
     turns[0] = answer(value("subject.occupant", "Owner", 1, PAGE_1[2]))
     provider = ScriptedProvider(turns, model="gpt-6-luna")
@@ -338,21 +318,19 @@ def test_llm_sections_one_call_per_group_with_its_pages() -> None:
     system = llm_sections(MODEL, dpi=50, min_page_words=3, with_images=True)
     output = run(system.run(env))
     assert len(provider.requests) == len(SECTION_GROUPS)
-    calls = {c["name"]: c for c in output.result.fallback["calls"]}
-    assert calls["subject_contract"]["pages"] == [1]  # its headings are on page 1 only
-    assert calls["subject_contract"]["images"] == [1]  # the photo page has no image
-    assert calls["neighborhood_site"]["pages"] == [2]
-    assert calls["improvements"]["pages"] == [2, 3]  # a section runs on until the next heading
-    assert calls["cost_approach"]["pages"] == [1, 2, 3]  # no heading: every page
+    # Every call gets every page's text (heading routing lost page 1 on the synthetic 1004s)
+    # and the images of the form pages (the photo page has none).
+    for call in output.result.fallback["calls"]:
+        assert call["pages"] == [1, 2, 3]
+        assert call["images"] == [1, 2]
     asked = [k for r in provider.requests for k in ASKED_KEYS if f"- {k}:" in r.messages[0].content]
     assert sorted(asked) == sorted(ASKED_KEYS)  # each key asked once, in exactly one call
     assert output.result.fields["subject.occupant"].value_text == "Owner"
 
 
 def test_answer_checked_against_its_own_call_pages() -> None:
-    # The improvements call sent page 2 only: a value cited on page 1 is a bad page there.
     turns = [answer() for _ in SECTION_GROUPS]
-    turns[2] = answer(value("improvements.year_built", "1,740", 1, "Contract Price $ 412,000"))
+    turns[2] = answer(value("improvements.year_built", "1,740", 4, "Gross Living Area 1,740"))
     provider = ScriptedProvider(turns, model="gpt-6-luna")
     env = make_env(layout=RawClient(layout()), provider=provider)
     output = run(llm_sections(MODEL, dpi=50, min_page_words=3, with_images=False).run(env))

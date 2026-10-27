@@ -1,11 +1,12 @@
 """Grounded model extraction: ``llm_all``, ``llm_pages``, ``llm_sections`` (and the re-ask).
 
 One structured call asks for every catalogue key (:data:`ASKED_KEYS`) given Azure DI's page
-text *with* selection marks; per key the model answers ``{status, value, page, quote}``
-(prompt ``appraisal_fields_grounded``; research section 5, stage 3: "require JSON {value,
-page, verbatim_quote, status}, verify mechanically"). The mechanical checks
-(:func:`check_answer`), each failure leaving the key not predicted and recorded in
-``fallback.dropped``:
+text *with* selection marks, each mark followed by its box's label
+(:func:`~evals.appraisal.systems.marks.labelled_texts`); per key the model answers
+``{status, value, page, quote}`` (prompt ``appraisal_fields_grounded``; research section 5,
+stage 3: "require JSON {value, page, verbatim_quote, status}, verify mechanically"). The
+mechanical checks (:func:`check_answer`), each failure leaving the key not predicted and
+recorded in ``fallback.dropped``:
 
 * ``not_asked`` / ``duplicate``: a key that was not asked, or answered twice;
 * status ``absent`` / ``not_developed``: no value (recorded in ``fallback.statuses``);
@@ -15,9 +16,11 @@ page, verbatim_quote, status}, verify mechanically"). The mechanical checks
   :func:`~basis.extraction.fallback.appears_in`);
 * ``value_not_in_quote``: the value must occur in the quote (the value parses *from* the
   quote, not from the model's memory);
-* ``checkbox_not_selected``: for a checkbox key each option of the value must be marked
-  checked in the quote: preceded by ``:selected:``, or followed by it when no mark precedes
-  it; one preceded by ``:unselected:`` is refused (the "text beside the box" defect);
+* ``checkbox_not_selected``: for a checkbox key each option of the value that is a box's label
+  (:mod:`~evals.appraisal.systems.marks`: labels read from the page geometry) must be a
+  checked box, in the quote or else on the page; an option no box on the page carries (the
+  UAD 3.6 form prints the answer as text) must occur in the quote
+  (:func:`~evals.appraisal.systems.marks.checkbox_problem`);
 * ``unparseable:...``: the production cleaner cannot parse it as the key's type.
 
 An accepted value is an ``llm`` field at confidence :data:`LLM_CONFIDENCE_CAP` (0.6): the
@@ -31,9 +34,10 @@ region is the quote's words located among Azure DI's word polygons on that page
   form pages only: a page with fewer than ``--min-page-words`` Azure DI words, or mostly
   covered by figures, is a photo/sketch/map page and gets no image (its text is still sent).
   Vision models only.
-* ``llm_sections``: one call per form section group (:data:`SECTION_GROUPS`), each with the
-  pages on which its sections' headings are printed (Azure DI lines; all pages when no
-  heading is found), calls in parallel; ``--with-images`` adds those pages' images.
+* ``llm_sections``: one call per form section group (:data:`SECTION_GROUPS`), calls in
+  parallel, each with every page's text (routing a group to the pages of its headings lost
+  page 1 on most synthetic 1004s, where Azure DI reads the vertical section headings as
+  single letters); ``--with-images`` adds the images of the form pages.
 """
 
 from __future__ import annotations
@@ -41,7 +45,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -49,7 +52,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from basis.extraction.fallback import appears_in, context_pages
+from basis.extraction.fallback import appears_in
 from basis.extraction.field_mappings import FIELD_BY_KEY, LLM_CONFIDENCE_CAP
 from basis.extraction.results import Candidate, ExtractedField
 from basis.llm import prompts
@@ -72,6 +75,7 @@ from evals.appraisal.systems.base import (
     finish,
 )
 from evals.appraisal.systems.layout import Layout, Page, locate, region
+from evals.appraisal.systems.marks import checkbox_problem, labelled_texts, without_labels
 from evals.appraisal.systems.production import caption_box
 
 logger = logging.getLogger("evals.appraisal.systems.grounded")
@@ -225,50 +229,6 @@ def render_pages(pdf: bytes, numbers: Sequence[int], dpi: int) -> list[ImagePart
 
 # --------------------------------------------------------------------------- checks
 
-# A mark, then only spaces and opening quotes or brackets, then the option (the form prints
-# 'This appraisal is made :selected: "as is",'); after the option, closing punctuation.
-_MARK_BEFORE: Final = re.compile(r""":(un)?selected:[\s"'(\[]*$""", re.IGNORECASE)
-_MARK_AFTER: Final = re.compile(r"""^[\s"'),.\]]*:selected:""", re.IGNORECASE)
-_SPLIT: Final = re.compile(r"\s*[,;]\s*")
-_WS: Final = re.compile(r"\s+")
-
-
-def _fold(text: str) -> str:
-    return _WS.sub(" ", text).strip().casefold()
-
-
-def option_selected(option: str, quote: str) -> bool:
-    """``option`` is marked checked in ``quote`` (module doc, ``checkbox_not_selected``)."""
-    target = _fold(option)
-    haystack = _fold(quote)
-    if not target:
-        return False
-    start = haystack.find(target)
-    while start >= 0:
-        before = _MARK_BEFORE.search(haystack[:start])
-        if before is not None and before.group(1) is None:
-            return True
-        if before is None and _MARK_AFTER.match(haystack[start + len(target) :]):
-            return True
-        start = haystack.find(target, start + 1)
-    return False
-
-
-def checkbox_selected(value: str, quote: str) -> bool:
-    """Every option of a checkbox value is checked in the quote; an ``Other`` write-in
-    ("Other Infloor") needs its ``Other`` box checked."""
-    options = [o for o in _SPLIT.split(value.strip()) if o]
-    if not options:
-        return False
-    for option in options:
-        if option_selected(option, quote):
-            continue
-        head = option.split(":", 1)[0].split()[0] if option.split() else ""
-        if head.casefold() == "other" and option_selected("Other", quote):
-            continue
-        return False
-    return True
-
 
 @dataclass
 class Checked:
@@ -317,14 +277,19 @@ def check_answer(
         if not quote:
             out.dropped[item.key] = "no_quote"
             continue
-        if not appears_in(quote, texts[item.page - 1]):
+        page_text = texts[item.page - 1]
+        if not (
+            appears_in(quote, page_text)
+            or appears_in(without_labels(quote), without_labels(page_text))
+        ):
             out.dropped[item.key] = "quote_not_on_page"
             continue
         if item.key in CHECKBOX_KEYS:
-            # Several checked options are joined by ", " in the value but stand apart in
-            # the quote: each must be in it, marked checked.
-            if not checkbox_selected(value, quote):
-                out.dropped[item.key] = "checkbox_not_selected"
+            problem = checkbox_problem(
+                value, quote, geometry.page(item.page) if geometry is not None else None
+            )
+            if problem is not None:
+                out.dropped[item.key] = problem
                 continue
         elif not appears_in(value, quote):
             out.dropped[item.key] = "value_not_in_quote"
@@ -421,7 +386,7 @@ async def run_plans(
     prompt_name: str = PROMPT,
 ) -> tuple[Checked, list[str], list[str]]:
     """Run ``plans`` in parallel and check each answer against its own pages."""
-    texts = geometry.texts()
+    texts = labelled_texts(geometry)
 
     async def one(plan: Plan) -> tuple[Plan, list[int], CallResult]:
         context, sent = page_block(texts, plan.pages)
@@ -476,24 +441,21 @@ class Grounded:
         self.dpi = dpi
         self.min_page_words = min_page_words
 
-    def plans(self, geometry: Layout, lines: Sequence[str]) -> list[Plan]:
+    def plans(self, geometry: Layout) -> list[Plan]:
         every = tuple(p.number for p in geometry.pages)
         if not self.sections:
             images = tuple(form_pages(geometry, every, self.min_page_words)) if self.images else ()
             return [Plan("all", ASKED_KEYS, every, images)]
         plans = []
+        images = tuple(form_pages(geometry, every, self.min_page_words)) if self.images else ()
         for name, sections in SECTION_GROUPS:
             keys = tuple(k for k in ASKED_KEYS if FIELD_BY_KEY[k].section in sections)
-            pages = tuple(context_pages(keys, lines)) or every
-            images = tuple(form_pages(geometry, pages, self.min_page_words)) if self.images else ()
-            plans.append(Plan(name, keys, pages, images))
+            plans.append(Plan(name, keys, every, images))
         return plans
 
     async def run(self, env: SystemEnv) -> SystemOutput:
         geometry = await env.sources.geometry(env.pdf)
-        azure = await env.sources.layout(env.pdf)
-        lines = azure.page_texts() if azure is not None else geometry.texts()
-        plans = self.plans(geometry, lines)
+        plans = self.plans(geometry)
         checked, statuses, errors = await run_plans(
             env, plans, model=self.model, geometry=geometry, dpi=self.dpi
         )

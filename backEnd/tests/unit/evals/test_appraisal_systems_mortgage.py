@@ -306,10 +306,12 @@ def test_checkbox_context_sends_marks_and_asks_every_checkbox() -> None:
     env = make_env(layout=RawClient(layout_raw()), provider=provider, pdf=pdf)
     output = run(CheckboxContext(ModelChoice()).run(env))
     [request] = provider.requests
-    assert request.prompt_version == "appraisal_field_fallback_marks/v1"
+    assert request.prompt_version == "appraisal_field_fallback_marks/v2"
     assert (request.model, request.reasoning_effort) == ("gpt-6-luna", "low")  # TEXT_MODEL
     content = request.messages[0].content
-    assert "Water :selected: Public :unselected: Other Municipal" in content
+    assert (
+        "Water :selected:[Public] Public :unselected:[Other Municipal] Other Municipal" in content
+    )
     assert "- site.utilities_water:" in content  # Azure DI read it ("Municipal"): asked anyway
     assert all(f"- {key}:" in content for key in CHECKBOX_KEYS)
     water = output.result.fields["site.utilities_water"]

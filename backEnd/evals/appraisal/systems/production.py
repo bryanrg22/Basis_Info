@@ -9,9 +9,11 @@ polygons, so today's review page cannot highlight a value (the highlight metric 
 ``always_ask``), aimed at the dominant measured defect: the fallback model was given Azure DI's
 page *lines*, which carry no ``:selected:`` marks, so it read the free text beside a box
 ("Municipal" instead of the checked Public). Here the model gets each page's ``content``
-*with* the marks, every checkbox key (:data:`CHECKBOX_KEYS`) is asked even when an Azure DI
-key-value pair filled it (the wrong-box pairs: foundation "Walls"), and the prompt
-``appraisal_field_fallback_marks`` explains the marks. Everything else (the verbatim guard,
+*with* the marks, each followed by its box's label read from the page geometry
+(:mod:`~evals.appraisal.systems.marks`: ``:selected:[Public]``), every checkbox key
+(:data:`CHECKBOX_KEYS`) is asked even when an Azure DI key-value pair filled it (the wrong-box
+pairs: foundation "Walls"), and the prompt ``appraisal_field_fallback_marks`` explains the
+marks. Everything else (the verbatim guard,
 the 0.6 confidence cap of a model value, the review gate) is production's.
 
 Regions for ``checkbox_context`` (it has the raw layout): an Azure DI key-value value's own
@@ -39,6 +41,7 @@ from evals.appraisal.systems.base import (
     SystemOutput,
 )
 from evals.appraisal.systems.layout import Box, Layout, box_of, locate, region
+from evals.appraisal.systems.marks import labelled_texts
 
 MARKS_PROMPT: Final = "appraisal_field_fallback_marks"
 
@@ -103,7 +106,7 @@ class CheckboxContext:
             geometry = env.sources.geometry_if_loaded()
             if geometry is None:  # no raw layout: production's lines (and say so)
                 return azure.page_texts()
-            return geometry.texts()
+            return labelled_texts(geometry)
 
         ctx.fallback_pages = pages_with_marks
         ctx.always_ask = CHECKBOX_KEYS

@@ -27,6 +27,8 @@ from typing import Any, Final
 Box = tuple[float, float, float, float]
 
 MARK_TOKEN: Final = re.compile(r":(?:un)?selected:", re.IGNORECASE)
+# A mark with the label :mod:`~evals.appraisal.systems.marks` writes after it.
+LABELLED_MARK_TOKEN: Final = re.compile(r":(?:un)?selected:(?:\[[^\]\n]*\])?", re.IGNORECASE)
 _QUOTES: Final = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"'})
 _SPACES: Final = re.compile(r"\s+")
 
@@ -166,9 +168,9 @@ def from_raw(raw: Mapping[str, Any]) -> Layout:
 
 
 def fold_chars(text: str) -> str:
-    """NFKC, casefold, typographic quotes straight, selection-mark tokens and all whitespace
-    removed: what :func:`locate` compares."""
-    folded = unicodedata.normalize("NFKC", MARK_TOKEN.sub(" ", text)).translate(_QUOTES)
+    """NFKC, casefold, typographic quotes straight, selection-mark tokens (with their labels)
+    and all whitespace removed: what :func:`locate` compares."""
+    folded = unicodedata.normalize("NFKC", LABELLED_MARK_TOKEN.sub(" ", text)).translate(_QUOTES)
     return _SPACES.sub("", folded.casefold())
 
 

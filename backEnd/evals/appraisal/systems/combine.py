@@ -47,6 +47,7 @@ from evals.appraisal.systems.grounded import (
     page_block,
     render_pages,
 )
+from evals.appraisal.systems.marks import labelled_texts
 from evals.appraisal.systems.validators import VALIDATOR_RULES, validate
 
 REASK_PROMPT: Final = "appraisal_fields_reask"
@@ -83,7 +84,7 @@ class ValidateReask:
         base = await self.base.run(env)
         geometry = await env.sources.geometry(env.pdf)
         azure = await env.sources.layout(env.pdf)
-        texts = geometry.texts()
+        texts = labelled_texts(geometry)
         lines = azure.page_texts() if azure is not None else texts
         carried = own_issues(base.result)
         found = validate(base.result.fields, lines)

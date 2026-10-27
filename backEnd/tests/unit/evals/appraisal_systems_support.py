@@ -1,9 +1,10 @@
 """Fabricated Azure DI analyses (raw ``as_dict()`` shape) for the sweep-system tests.
 
 :func:`raw_layout` lays out pages of tokens on an 8.5 x 11 inch page: line ``i`` at
-``y = 1 + 0.25 i`` inches, tokens left to right with 0.08 inch per character and 0.1 inch
-between tokens. A token ``:selected:`` / ``:unselected:`` is a selection mark (in
-``selectionMarks`` and in ``content``), anything else a word. ``content`` joins tokens with
+``y = 1 + 0.25 i`` inches, tokens left to right with 0.08 inch per character and 0.03 inch
+between tokens (the word gap measured on the forms: 0.0029-0.0045 page widths). A token
+``:selected:`` / ``:unselected:`` is a selection mark (in ``selectionMarks`` and in
+``content``), anything else a word. ``content`` joins tokens with
 spaces, lines with newlines and pages with a newline, and every word, mark and page carries
 its span, as a real analysis does. :func:`token_box` gives the page-fraction box a token gets.
 """
@@ -22,7 +23,7 @@ from evals.appraisal.systems.base import DocumentSources, ExtractionSettings, Sy
 WIDTH = 8.5
 HEIGHT = 11.0
 CHAR = 0.08
-GAP = 0.1
+GAP = 0.03
 LINE = 0.25
 TOP = 1.0
 TALL = 0.15

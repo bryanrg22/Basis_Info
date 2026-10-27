@@ -296,7 +296,7 @@ def test_reask_touches_only_implicated_keys_and_a_misread_resolves() -> None:
     output = asyncio.run(system.run(env))
     [request] = provider.requests
     content = request.messages[0].content
-    assert request.prompt_version == "appraisal_fields_reask/v1"
+    assert request.prompt_version == "appraisal_fields_reask/v2"
     assert "- cost_approach.indicated_value:" in content
     assert "- reconciliation.indicated_value_cost_approach:" in content
     assert "site_value" not in content and "final_market_value" not in content  # not implicated
