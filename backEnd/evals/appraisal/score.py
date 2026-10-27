@@ -18,6 +18,23 @@ Which fields count where:
 * a document whose prediction failed (``missing_recording``, an error) is listed with its
   status and excluded from the field metrics.
 
+Sweep additions (``evals/appraisal/systems``):
+
+* **highlight correct** (:func:`highlight_status`): over correct predictions whose truth has a
+  page and a printed value, of a system that reports regions: the field's first region is on
+  the truth ``page`` (or ``also_on``) and the PDF text-layer words (pdfplumber) whose centres
+  fall inside its box contain the printed value's characters (whitespace and case folded;
+  for a checkbox enum or bool, the label of a checked option). A correct prediction with no
+  region is a miss (``no_region``); a system with no regions (``production``) is n/a. Next to
+  page strict/lenient, overall and by tier, source and origin.
+* **usage** (:func:`usage_metrics`): per document, model dollars, tokens and calls from the
+  recorder; Azure DI pages per model id priced at :data:`AZURE_USD_PER_1000_PAGES`; wall time
+  and the models' own latency, p50/p95 (nearest rank). Replay reports the recorded calls'
+  usage, so a replayed run prices the system as the live run did; its wall time is not a
+  latency.
+* **by origin**: which reader produced the value (``azure``, ``llm``, ``azure_1004``,
+  ``llm_reask``, ``vote_agree`` ...), when the prediction says (else its source).
+
 Intervals: field-level rates carry a document-clustered standard error
 (:func:`evals.metrics.clustered_standard_error`, CR1); proportions whose unit is the
 document (per-key accuracy, document-level gate checks) carry a Wilson 95 % interval when
@@ -27,6 +44,8 @@ at least two documents contribute. pass^k is over fields across repeats.
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -35,6 +54,7 @@ from typing import Any, Final
 from basis.extraction.fallback import appears_in
 from basis.extraction.field_mappings import FIELD_BY_KEY
 from evals.appraisal.normalize import (
+    ENUMS,
     Columns,
     anls,
     canonical_display,
@@ -51,7 +71,24 @@ SCHEMA: Final = 1
 OUTCOMES: Final = ("correct", "wrong", "missed", "spurious", "correct_absent")
 GATE_THRESHOLDS: Final = (0.6, 0.7, 0.9)
 SUCCESS: Final = frozenset({"correct", "correct_absent"})
-BREAKDOWNS: Final = ("tier", "type", "source", "section", "set", "document", "critical_flag")
+BREAKDOWNS: Final = (
+    "tier",
+    "type",
+    "source",
+    "origin",
+    "section",
+    "set",
+    "document",
+    "critical_flag",
+)
+HIGHLIGHT_BREAKDOWNS: Final = ("tier", "source", "origin")
+HIGHLIGHT_STATUSES: Final = ("correct", "wrong_page", "wrong_box", "no_region")
+# Azure DI S0 pay-as-you-go, dollars per 1,000 pages: "S0 Pre-built Pages" $10 (prebuilt-layout
+# is a prebuilt model; its keyValuePairs feature is free per the add-on capabilities page),
+# Azure retail prices API (prices.azure.com, productName "Azure Document Intelligence",
+# eastus), read 2026-10-26. The mortgage models have no meter of their own in that API or on
+# the pricing page; they are assumed to bill as "Pre-built Pages" (unverified).
+AZURE_USD_PER_1000_PAGES: Final = {"prebuilt-layout": 10.0, "prebuilt-mortgage.us.1004": 10.0}
 # Production source names -> the names the report uses (SPEC §8).
 SOURCE_NAMES: Final = {"azure": "azure_di"}
 
@@ -113,6 +150,19 @@ MEDIUM_TIER: Final = frozenset(
 PageTexts = Callable[[DocumentTruth], Sequence[str] | None]
 
 
+@dataclass(frozen=True)
+class PageWords:
+    """One page's text-layer words (pdfplumber ``extract_words``): ``(text, x0, top, x1,
+    bottom)`` in points, with the page size."""
+
+    width: float
+    height: float
+    words: tuple[tuple[str, float, float, float, float], ...]
+
+
+PageWordsFor = Callable[[DocumentTruth], Sequence[PageWords] | None]
+
+
 def tier_for(key: str, override: str | None = None) -> str:
     """The cost-seg tier of a key (SPEC §5); a truth entry's ``tier`` overrides it."""
     if override is not None:
@@ -157,6 +207,9 @@ class FieldResult:
     grounded: bool | None  # None: no page cited, or no text layer on the cited page
     display_ok: bool | None  # over correct predictions only
     anls: float | None  # text fields with present truth
+    origin: str = "none"  # the reader the value came from (the source when not given)
+    # correct | wrong_page | wrong_box | no_region over correct predictions; None: n/a
+    highlight: str | None = None
 
     @property
     def error(self) -> bool:
@@ -209,6 +262,83 @@ def _page_status(truth: FieldTruth, page: int | None) -> str | None:
     return "wrong"
 
 
+# Selection marks and an "X" box mark before an option (normalize._MARK's glyphs: ballot
+# box with X, ballot box with check, black square).
+_BOX_GLYPHS: Final = "|".join(chr(c) for c in (0x2612, 0x2611, 0x25A0))
+_MARKS: Final = re.compile(rf":(?:un)?selected:|(?<![^\s;,])(?:[xX]|{_BOX_GLYPHS})(?=\s)")
+_NO_SPACE: Final = re.compile(r"\s+")
+# Typographic single and double quotes read as straight ones.
+_HIGHLIGHT_QUOTES: Final = str.maketrans(
+    {chr(0x2019): "'", chr(0x2018): "'", chr(0x201C): '"', chr(0x201D): '"'}
+)
+
+
+def fold_highlight(text: str) -> str:
+    """NFKC, casefold, typographic quotes straight, all whitespace removed."""
+    folded = unicodedata.normalize("NFKC", text).translate(_HIGHLIGHT_QUOTES).casefold()
+    return _NO_SPACE.sub("", folded)
+
+
+def highlight_targets(truth: FieldTruth) -> list[str]:
+    """What the highlighted words must contain: the printed value; for a checkbox enum the
+    label (or a synonym) of a checked option, for a bool its Yes/No; empty: not checkable."""
+    if truth.type in ("enum", "enum_multi"):
+        values = truth.value if isinstance(truth.value, list) else [truth.value]
+        codes = {v.get("code") if isinstance(v, Mapping) else v for v in values}
+        targets = [
+            form
+            for item in ENUMS.get(truth.key, ())
+            if item.code in codes
+            for form in (item.label, *item.synonyms)
+        ]
+        return [t for t in (fold_highlight(t) for t in targets) if t]
+    if truth.type == "bool" and isinstance(truth.value, bool):
+        return ["yes"] if truth.value else ["no"]
+    if truth.printed:
+        printed = fold_highlight(_MARKS.sub(" ", truth.printed))
+        return [printed] if printed else []
+    return []
+
+
+def words_in(page: PageWords, bbox: Sequence[float]) -> str:
+    """The folded text of the words whose centres fall in ``bbox`` (page fractions), in
+    reading order (top, then left)."""
+    if page.width <= 0 or page.height <= 0 or len(bbox) != 4:
+        return ""
+    x0, y0, x1, y1 = (float(v) for v in bbox)
+    inside = []
+    for text, left, top, right, bottom in page.words:
+        cx, cy = (left + right) / 2 / page.width, (top + bottom) / 2 / page.height
+        if x0 <= cx <= x1 and y0 <= cy <= y1:
+            inside.append((round(top, 1), left, text))
+    return "".join(fold_highlight(t) for _, _, t in sorted(inside))
+
+
+def highlight_status(
+    truth: FieldTruth,
+    regions: Sequence[Mapping[str, Any]] | None,
+    words: Sequence[PageWords] | None,
+) -> str | None:
+    """``correct`` / ``wrong_page`` / ``wrong_box`` / ``no_region`` for a correct prediction
+    (module doc); ``None`` when not checkable (no regions reported, no truth page or printed
+    value, no text layer)."""
+    if regions is None or truth.page is None or words is None:
+        return None
+    targets = highlight_targets(truth)
+    if not targets:
+        return None
+    if not regions:
+        return "no_region"
+    first = regions[0]
+    page = first.get("page")
+    if page != truth.page and page not in truth.also_on:
+        return "wrong_page"
+    if not isinstance(page, int) or not 0 < page <= len(words):
+        return None
+    inside = words_in(words[page - 1], first.get("bbox") or ())
+    return "correct" if any(t in inside for t in targets) else "wrong_box"
+
+
 def score_field(
     set_name: str,
     doc: DocumentTruth,
@@ -218,6 +348,7 @@ def score_field(
     repeat: int,
     named: set[str],
     pages: Sequence[str] | None,
+    words: Sequence[PageWords] | None = None,
 ) -> FieldResult:
     columns = Columns.from_json(item) if item is not None else None
     outcome, _ = _outcome(truth, columns)
@@ -238,6 +369,11 @@ def score_field(
         similarity = anls(text_value, str(truth.value))
     confidence = item.get("confidence") if item is not None and predicted else None
     raw_source = str(item.get("source")) if item is not None and predicted else "none"
+    source = SOURCE_NAMES.get(raw_source, raw_source)
+    origin = str(item.get("origin") or source) if item is not None and predicted else "none"
+    highlight = None
+    if outcome == "correct" and item is not None:
+        highlight = highlight_status(truth, item.get("regions"), words)
     return FieldResult(
         set=set_name,
         document=doc.document,
@@ -246,7 +382,7 @@ def score_field(
         outcome=outcome,
         tier=tier_for(truth.key, truth.tier),
         type=truth.type or "untyped",
-        source=SOURCE_NAMES.get(raw_source, raw_source),
+        source=source,
         section=truth.key.split(".", 1)[0],
         critical_flag=production_critical(truth.key),
         verified=truth.verified,
@@ -258,6 +394,8 @@ def score_field(
         grounded=grounded,
         display_ok=display_ok,
         anls=similarity,
+        origin=origin,
+        highlight=highlight,
     )
 
 
@@ -381,6 +519,99 @@ def display_metrics(results: Sequence[FieldResult]) -> dict[str, Any]:
         "rate": _rate(ok, len(checked)),
         "rate_se": _clustered(checked, lambda r: bool(r.display_ok)),
         "by_type": {t: {"matches": m, "checked": n} for t, (m, n) in sorted(by_type.items())},
+    }
+
+
+def _highlight_block(results: Sequence[FieldResult]) -> dict[str, Any]:
+    checked = [r for r in results if r.highlight is not None]
+    counts = {status: sum(r.highlight == status for r in checked) for status in HIGHLIGHT_STATUSES}
+    return {
+        "checked": len(checked),
+        **counts,
+        "rate": _rate(counts["correct"], len(checked)),
+        "rate_se": _clustered(checked, lambda r: r.highlight == "correct"),
+    }
+
+
+def highlight_metrics(results: Sequence[FieldResult]) -> dict[str, Any]:
+    """Highlight correct over the correct predictions it can check (module doc); ``n/a``
+    when no prediction carried regions."""
+    checked = [r for r in results if r.highlight is not None]
+    by: dict[str, Any] = {}
+    for attribute in HIGHLIGHT_BREAKDOWNS:
+        grouped: dict[str, list[FieldResult]] = defaultdict(list)
+        for r in checked:
+            grouped[str(getattr(r, attribute)).lower()].append(r)
+        by[attribute] = {name: _highlight_block(grouped[name]) for name in sorted(grouped)}
+    return {"available": bool(checked), **_highlight_block(results), "by": by}
+
+
+def _percentile(values: Sequence[float], q: float) -> float:
+    """Nearest-rank percentile (``q`` in 0..100); NaN for no values."""
+    if not values:
+        return math.nan
+    ordered = sorted(values)
+    rank = max(1, math.ceil(q / 100 * len(ordered)))
+    return float(ordered[rank - 1])
+
+
+def usage_metrics(
+    documents: Sequence[Mapping[str, Any]], prices: Mapping[str, float] | None = None
+) -> dict[str, Any]:
+    """Cost, tokens and latency per scored document (first repeat; module doc)."""
+    prices = AZURE_USD_PER_1000_PAGES if prices is None else prices
+    rows = []
+    pages: dict[str, int] = defaultdict(int)
+    unpriced: set[str] = set()
+    for document in documents:
+        ok = _ok_repeats(document)
+        if not ok or ok[0].get("repeat", 1) != 1:
+            continue
+        first = ok[0]
+        azure_usd = 0.0
+        for model, count in (document.get("azure_pages") or {}).items():
+            pages[model] += int(count)
+            if model in prices:
+                azure_usd += prices[model] * int(count) / 1000
+            else:
+                unpriced.add(model)
+        rows.append(
+            {
+                "model_usd": float(first.get("cost_usd") or 0.0),
+                "azure_usd": azure_usd,
+                "tokens_input": int(first.get("tokens_input") or 0),
+                "tokens_output": int(first.get("tokens_output") or 0),
+                "calls": int(first.get("llm_calls") or 0),
+                "seconds": float(first.get("seconds") or 0.0),
+                "model_seconds": float(first.get("model_latency_ms") or 0) / 1000,
+            }
+        )
+    n = len(rows)
+
+    def total(name: str) -> float:
+        return float(sum(r[name] for r in rows))
+
+    def per(name: str) -> float:
+        return total(name) / n if n else math.nan
+
+    return {
+        "documents": n,
+        "model_usd": total("model_usd"),
+        "model_usd_per_document": per("model_usd"),
+        "azure_pages": dict(sorted(pages.items())),
+        "azure_usd": total("azure_usd"),
+        "azure_usd_per_document": per("azure_usd"),
+        "azure_unpriced_models": sorted(unpriced),
+        "usd_per_document": per("model_usd") + per("azure_usd") if n else math.nan,
+        "tokens_input": int(total("tokens_input")),
+        "tokens_output": int(total("tokens_output")),
+        "tokens_input_per_document": per("tokens_input"),
+        "tokens_output_per_document": per("tokens_output"),
+        "llm_calls": int(total("calls")),
+        "seconds_p50": _percentile([r["seconds"] for r in rows], 50),
+        "seconds_p95": _percentile([r["seconds"] for r in rows], 95),
+        "model_seconds_p50": _percentile([r["model_seconds"] for r in rows], 50),
+        "model_seconds_p95": _percentile([r["model_seconds"] for r in rows], 95),
     }
 
 
@@ -531,6 +762,7 @@ def score_run(
     predictions: Mapping[str, Any],
     *,
     page_texts: PageTexts | None = None,
+    page_words: PageWordsFor | None = None,
 ) -> dict[str, Any]:
     """Score ``predictions`` (the ``predictions.json`` shape) against ``truths``."""
     by_doc = {(d["set"], d["document"]): d for d in predictions.get("documents", ())}
@@ -557,6 +789,7 @@ def score_run(
                 )
                 continue
             pages = page_texts(doc) if page_texts is not None else None
+            words = page_words(doc) if page_words is not None else None
             repeats = max(repeats, len(prediction.get("repeats", ())))
             first = ok[0]
             needs_review[(set_name, doc.document)] = bool(first.get("needs_review"))
@@ -579,6 +812,7 @@ def score_run(
                             repeat=int(rep.get("repeat", 1)),
                             named=named,
                             pages=pages,
+                            words=words,
                         )
                     )
     first_repeat = [r for r in results if r.repeat == 1]
@@ -599,6 +833,8 @@ def score_run(
         "by": {name: _breakdown(headline, name) for name in BREAKDOWNS},
         "keys": per_key(headline),
         "page": page_metrics(headline),
+        "highlight": highlight_metrics(headline),
+        "usage": usage_metrics(predictions.get("documents", ())),
         "display": display_metrics(headline),
         "text_anls": text_anls(headline),
         "review_gate": {
@@ -663,9 +899,12 @@ def render_report(score: Mapping[str, Any], run: Mapping[str, Any] | None = None
     """``report.md``: keys, outcomes and counts only (SPEC §8)."""
     out: list[str] = ["# Appraisal extraction evaluation", ""]
     if run:
-        for name in ("run", "mode", "sets", "git_sha", "repeats", "systems"):
+        for name in ("run", "mode", "sets", "git_sha", "repeats", "systems", "models"):
             if name in run:
                 out.append(f"- {name}: `{run[name]}`")
+        system = run.get("system")
+        if isinstance(system, Mapping):
+            out.append(f"- system: `{system.get('label', system.get('name'))}`")
         out.append("")
     docs = score["documents"]
     out += [
@@ -711,8 +950,53 @@ def render_report(score: Mapping[str, Any], run: Mapping[str, Any] | None = None
         f"| {_fmt(display['rate'])} |",
         f"| text ANLS (mean) | {score['text_anls']['fields']} "
         f"| {_fmt(score['text_anls']['mean_anls'])} |",
-        "",
     ]
+    highlight = score.get("highlight")
+    if highlight is not None:
+        rate = _fmt(highlight["rate"]) if highlight["available"] else "n/a (no regions)"
+        out.append(f"| highlight correct (correct values) | {highlight['checked']} | {rate} |")
+    out.append("")
+    if highlight is not None and highlight["available"]:
+        out += [
+            "## Highlight",
+            "",
+            "| breakdown | name | checked | correct | wrong page | wrong box | no region | rate |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for attribute, groups in highlight["by"].items():
+            for name, h in groups.items():
+                out.append(
+                    f"| {attribute} | {name} | {h['checked']} | {h['correct']} "
+                    f"| {h['wrong_page']} | {h['wrong_box']} | {h['no_region']} "
+                    f"| {_fmt(h['rate'])} |"
+                )
+        out.append("")
+    usage = score.get("usage")
+    if usage is not None:
+        out += [
+            "## Cost and latency (per scored document, first repeat)",
+            "",
+            "| documents | model $ / doc | Azure DI $ / doc (est.) | total $ / doc "
+            "| input tokens / doc | output tokens / doc | calls | wall s p50 | wall s p95 "
+            "| model s p50 | model s p95 |",
+            "|---|---|---|---|---|---|---|---|---|---|---|",
+            f"| {usage['documents']} | {_fmt(usage['model_usd_per_document'])} "
+            f"| {_fmt(usage['azure_usd_per_document'])} | {_fmt(usage['usd_per_document'])} "
+            f"| {_fmt(usage['tokens_input_per_document'])} "
+            f"| {_fmt(usage['tokens_output_per_document'])} | {usage['llm_calls']} "
+            f"| {_fmt(usage['seconds_p50'])} | {_fmt(usage['seconds_p95'])} "
+            f"| {_fmt(usage['model_seconds_p50'])} | {_fmt(usage['model_seconds_p95'])} |",
+            "",
+            f"Azure DI pages by model: `{usage['azure_pages']}`"
+            + (
+                f"; unpriced: `{usage['azure_unpriced_models']}`"
+                if usage["azure_unpriced_models"]
+                else ""
+            )
+            + ". A replay reports the recorded calls' tokens and dollars; its wall time is "
+            "not a latency (the model seconds are the recorded calls' own, summed).",
+            "",
+        ]
     gate = score["review_gate"]
     out += [
         "## Review gate",

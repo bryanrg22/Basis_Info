@@ -194,6 +194,10 @@ exercise the OCR path. Truth is exact by construction (`verified: true`).
   context changed: re-run live). Replay is deterministic and is what the regression tests
   run.
 * `--repeats N` (live) for pass^k; `--azure-only` / `--no-azure` systems for ablations.
+* `--system NAME` (default `production`) runs one of the sweep's alternative extraction
+  systems (`evals/appraisal/systems/`, listed in `evals/README.md`); each adds per-field
+  regions, the reader a value came from and, for the grounded model systems, the quote. The
+  1004 model's analysis is recorded as `recordings/<sha>/azure_1004.json`.
 * Output `runs/<id>/predictions.json`: per document, per key, every stored column
   (`value_text`, `value_num`, `value_date`, `confidence`, `source`, `page`), plus the
   document's `issues`, `review_reasons`, `needs_review`, and the display string (section 8).

@@ -1,29 +1,37 @@
-"""Run the production appraisal extraction over a truth set, live or replayed, and score it.
+"""Run an appraisal extraction system over a truth set, live or replayed, and score it.
 
 ``python -m evals.appraisal.run --set client|gse_d1|synthetic_1004|all --mode live|replay``
 (``SPEC.md`` §7). Writes ``BASIS_EVAL_DATA_DIR/appraisal/runs/<id>/`` (or ``--out``):
 ``predictions.json``, ``score.json``, ``report.md``, ``run.json``.
 
-* **live**: :func:`basis.extraction.pipeline.extract_appraisal` with the context the
-  ``extract_fields`` activity builds (``TEXT_MODEL``, ``EXTRACTION_REVIEW_THRESHOLD``,
+* **live**: the system with the configured clients. For ``production``,
+  :func:`basis.extraction.pipeline.extract_appraisal` with the context the ``extract_fields``
+  activity builds (``TEXT_MODEL``, ``EXTRACTION_REVIEW_THRESHOLD``,
   ``EXTRACTION_OUTPUT_BUDGET``/``_REASONING_EFFORT``/``_FALLBACK_SCOPE``/
   ``_FALLBACK_CONTEXT_CHARS``, the latest ``appraisal_field_fallback`` prompt), the
   configured Azure DI client and the provider pool. Differences from the activity: the
   budget is ``--budget-usd`` per document (default $1) instead of the study's, calls are
   recorded in memory (:class:`~basis.llm.recorder.MemoryRecorder`) instead of
-  ``llm_calls``, and there is no earlier revision to reuse. The Azure DI analysis and
+  ``llm_calls``, and there is no earlier revision to reuse. The Azure DI analyses and
   every model call are recorded under ``recordings/<pdf sha256>/``; with ``--repeats N``
   the document is analyzed by Azure DI once and the model is called N times. Prints the
   model cost.
-* **replay**: no network. Azure DI and the model answers come from the recordings, with
-  the extraction settings the recording was made with (``context.json``); the review
-  threshold is the current setting. A missing recording fails that document with
-  ``missing_recording`` and the run continues.
+* **replay**: no network. Azure DI and the model answers come from the recordings; the
+  production-based systems use the extraction settings the recording was made with
+  (``context.json``); the review threshold is the current setting. A missing recording fails
+  that document with ``missing_recording`` and the run continues.
 
-Systems for ablations: ``--no-azure`` (text layer and the model only), ``--azure-only`` (no
-model fallback). ``--accept-baseline`` writes ``appraisal/baseline.json`` from this run.
-A set whose truth file does not exist yet is skipped with a message. Exit status 1 when a
-document failed or a baseline field regressed.
+Systems (``--system``, default ``production``; designs in :mod:`evals.appraisal.systems`):
+``production``, ``azure_1004``, ``production_plus_1004``, ``checkbox_context``, ``llm_all``,
+``llm_pages``, ``llm_sections`` (``--with-images``), ``validate_reask`` (``--base``,
+``--base-model``), ``vote`` (``--voters system@model[@effort],system@model[@effort]``).
+``--model``/``--effort``/``--max-tokens`` choose the model of the model systems (for
+``checkbox_context`` they override ``TEXT_MODEL``); ``--dpi``/``--min-page-words`` the page
+images. A document's analyses (Azure DI layout, the 1004 model) run once per run, whatever
+the system and its voters ask. Ablations of ``production``: ``--no-azure`` (text layer and
+the model only), ``--azure-only`` (no model fallback). ``--accept-baseline`` writes
+``appraisal/baseline.json`` from this run. A set whose truth file does not exist yet is
+skipped with a message. Exit status 1 when a document failed or a baseline field regressed.
 """
 
 from __future__ import annotations
@@ -46,24 +54,46 @@ from pathlib import Path
 from typing import Any, Final
 
 from basis.config import Settings, load_settings
-from basis.extraction.azure_di import AzureDiClient, AzureDiResult, AzureDocumentIntelligence
+from basis.extraction.azure_di import AzureDiClient, AzureDocumentIntelligence
 from basis.extraction.fallback import PROMPT_NAME
-from basis.extraction.pipeline import ExtractionContext, extract_appraisal
-from basis.extraction.results import ExtractionResult
 from basis.llm import prompts
 from basis.llm.call import CallContext
+from basis.llm.families import CLAUDE_EFFORTS, is_claude_model, refuses_no_effort
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider
-from basis.llm.recorder import MemoryRecorder
+from basis.llm.recorder import CallRecord, MemoryRecorder
 from evals.appraisal import baseline, recordings
 from evals.appraisal.normalize import Columns, review_display
-from evals.appraisal.score import render_report, score_run
+from evals.appraisal.score import PageWords, render_report, score_run
+from evals.appraisal.systems import (
+    SYSTEMS,
+    ModelChoice,
+    SystemEnv,
+    SystemOutput,
+    SystemSpec,
+    VoterSpec,
+    build_system,
+    needs_mortgage,
+    uses_production_settings,
+)
+from evals.appraisal.systems.base import (
+    DEFAULT_DPI,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MIN_PAGE_WORDS,
+    DocumentSources,
+    ExtractionSettings,
+    MissingInput,
+    RawAnalyzer,
+)
+from evals.appraisal.systems.mortgage import AzureModelClient
 from evals.appraisal.truth import SETS, DocumentTruth, TruthSet, appraisal_dir, load_truth
 
 logger = logging.getLogger("evals.appraisal.run")
 
 ACTIVITY: Final = "extract_fields"
 DEFAULT_BUDGET_USD: Final = 1.0
+
+__all__ = ["ExtractionSettings", "LiveDeps", "Options", "main", "run_eval"]
 
 
 @dataclass(frozen=True)
@@ -78,48 +108,17 @@ class Options:
     out: Path | None = None
     budget_usd: float = DEFAULT_BUDGET_USD
     data_dir: Path | None = None
-
-
-@dataclass(frozen=True)
-class ExtractionSettings:
-    """The settings that shape the extraction (what ``context.json`` records)."""
-
-    text_model: str
-    reasoning_effort: str | None
-    output_budget: int
-    fallback_scope: str
-    context_chars: int
-    review_threshold: float
-
-    @classmethod
-    def from_settings(cls, settings: Settings) -> ExtractionSettings:
-        return cls(
-            text_model=settings.text_model,
-            reasoning_effort=settings.extraction_reasoning_effort,
-            output_budget=settings.extraction_output_budget,
-            fallback_scope=settings.extraction_fallback_scope,
-            context_chars=settings.extraction_fallback_context_chars,
-            review_threshold=settings.extraction_review_threshold,
-        )
-
-    @classmethod
-    def from_json(cls, data: dict[str, Any], review_threshold: float) -> ExtractionSettings:
-        return cls(
-            text_model=str(data["text_model"]),
-            reasoning_effort=data.get("reasoning_effort"),
-            output_budget=int(data["output_budget"]),
-            fallback_scope=str(data["fallback_scope"]),
-            context_chars=int(data["context_chars"]),
-            review_threshold=review_threshold,
-        )
+    system: SystemSpec = field(default_factory=SystemSpec)
 
 
 @dataclass
 class LiveDeps:
-    """What a live run calls: the raw Azure DI client and the model provider."""
+    """What a live run calls: the raw Azure DI client, the model provider and, for the 1004
+    systems, the ``prebuilt-mortgage.us.1004`` client."""
 
     azure: recordings.RawAzureClient | None
     provider: ChatProvider | None
+    mortgage: recordings.RawModelClient | None = None
 
 
 @dataclass
@@ -146,22 +145,34 @@ def git_sha() -> str:
     return done.stdout.strip()
 
 
+def _needs_model(options: Options) -> bool:
+    return options.system.name != "azure_1004" and not options.azure_only
+
+
 def build_live_deps(settings: Settings, options: Options) -> LiveDeps:
     """The production clients from settings; refuses a live run that would silently drop
-    a system (Azure DI or the model) the options ask for."""
+    a system (Azure DI, the model, the 1004 model) the options ask for."""
     azure = None if options.no_azure else AzureDocumentIntelligence.from_settings(settings)
     if azure is None and not options.no_azure:
         raise SystemExit(
             "Azure DI is not configured (AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/_KEY); "
             "pass --no-azure to run without it"
         )
-    provider = None if options.azure_only else ProviderPool.from_settings(settings)
-    if provider is None and not options.azure_only:
+    provider = ProviderPool.from_settings(settings) if _needs_model(options) else None
+    if provider is None and _needs_model(options):
         raise SystemExit("no model provider is configured; pass --azure-only to run without one")
-    return LiveDeps(azure=azure, provider=provider)
+    mortgage = None
+    if needs_mortgage(options.system):
+        mortgage = AzureModelClient.from_settings(settings)
+        if mortgage is None:
+            raise SystemExit("the 1004 systems need AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/_KEY")
+    return LiveDeps(azure=azure, provider=provider, mortgage=mortgage)
 
 
-def _field_json(result: ExtractionResult) -> dict[str, Any]:
+def _field_json(output: SystemOutput) -> dict[str, Any]:
+    """Every stored column, plus the system's regions (``None``: the system has none), the
+    reader the value came from (``origin``) and the grounded quote."""
+    result = output.result
     fields: dict[str, Any] = {}
     for key in sorted(result.fields):
         item = result.fields[key]
@@ -172,16 +183,31 @@ def _field_json(result: ExtractionResult) -> dict[str, Any]:
             "value_date": item.value_date.isoformat() if item.value_date else None,
             "confidence": item.confidence,
             "source": item.source,
+            "origin": output.origin(key),
             "page": item.page,
             "critical": item.critical,
             "display": review_display(columns),
+            "regions": output.regions.get(key, []) if output.regions is not None else None,
+            "quote": output.quotes.get(key),
         }
     return fields
 
 
+def _usage(records: Sequence[CallRecord]) -> dict[str, Any]:
+    """Tokens, calls and the models' own latency of one repeat's model calls."""
+    return {
+        "llm_calls": len(records),
+        "tokens_input": sum(r.usage.input_tokens for r in records),
+        "tokens_output": sum(r.usage.output_tokens for r in records),
+        "model_latency_ms": sum(int(r.latency_ms or 0) for r in records),
+        "models": sorted({r.model for r in records}),
+    }
+
+
 def _repeat_json(
-    result: ExtractionResult, repeat: int, cost: float, seconds: float
+    output: SystemOutput, repeat: int, cost: float, seconds: float, usage: dict[str, Any]
 ) -> dict[str, Any]:
+    result = output.result
     fallback = result.fallback
     return {
         "repeat": repeat,
@@ -197,15 +223,58 @@ def _repeat_json(
             "asked": fallback.get("asked", []),
             "filled": fallback.get("filled", []),
             "dropped": fallback.get("dropped", {}),
+            **{
+                k: fallback[k]
+                for k in ("statuses", "calls", "reask", "disagree", "error")
+                if k in fallback
+            },
         },
-        "fields": _field_json(result),
+        "fields": _field_json(output),
         "cost_usd": cost,
         "seconds": round(seconds, 3),
+        **usage,
     }
 
 
 def _failed(repeat: int, status: str, error: str | None) -> dict[str, Any]:
     return {"repeat": repeat, "status": status, "error": error}
+
+
+def _layout_client(
+    options: Options, live: LiveDeps | None, directory: Path
+) -> AzureDiClient | None:
+    if options.no_azure:
+        return None
+    if options.mode == "replay":
+        return recordings.ReplayAzureClient(directory)
+    assert live is not None and live.azure is not None
+    return recordings.RecordingAzureClient(live.azure, directory)
+
+
+def _mortgage_client(
+    options: Options, live: LiveDeps | None, directory: Path
+) -> RawAnalyzer | None:
+    if not needs_mortgage(options.system):
+        return None
+    if options.mode == "replay":
+        return recordings.ReplayRawModel(directory)
+    assert live is not None and live.mortgage is not None
+    return recordings.RecordingRawModel(live.mortgage, directory)
+
+
+def _provider(
+    options: Options, live: LiveDeps | None, state: RunState, directory: Path
+) -> ChatProvider | None:
+    if not _needs_model(options):
+        return None
+    if options.mode == "replay":
+        return recordings.ReplayProvider(directory / recordings.LLM_DIR)
+    assert live is not None and live.provider is not None
+    if directory not in state.providers:
+        state.providers[directory] = recordings.RecordingProvider(
+            live.provider, directory / recordings.LLM_DIR
+        )
+    return state.providers[directory]
 
 
 async def predict_document(
@@ -238,66 +307,54 @@ async def predict_document(
         return entry
     directory = recordings.recording_dir(appraisal, doc.sha256)
     current = ExtractionSettings.from_settings(settings)
+    production_settings = uses_production_settings(options.system)
     if options.mode == "live":
         extraction = current
-        recordings.write_context(directory, asdict(current))
+        if production_settings:  # what a production replay rebuilds its context from
+            recordings.write_context(directory, asdict(current))
     else:
-        recorded = recordings.read_context(directory)
+        recorded = recordings.read_context(directory) if production_settings else None
         extraction = (
             ExtractionSettings.from_json(recorded, current.review_threshold)
             if recorded is not None
             else current
         )
     entry["context"] = asdict(extraction)
-    azure_result: AzureDiResult | None = None
+    system = build_system(options.system)
+    # The document's analyses, shared by every repeat: Azure DI runs once per document.
+    layout = _layout_client(options, live, directory)
+    mortgage = _mortgage_client(options, live, directory)
+    sources = DocumentSources(layout, mortgage)
     started_doc = time.monotonic()
     for repeat in range(1, options.repeats + 1):
         started = time.monotonic()
-        azure: AzureDiClient | None = None
-        provider: ChatProvider | None = None
+        budget = Budget(remaining_usd=options.budget_usd)
+        env = SystemEnv(
+            pdf=pdf,
+            doc_id=doc.document,
+            call=CallContext(
+                study_id=uuid.uuid4(),
+                run_id=None,
+                activity=ACTIVITY,
+                budget=budget,
+                recorder=state.recorder,
+            ),
+            provider=_provider(options, live, state, directory),
+            sources=sources,
+            extraction=extraction,
+        )
+        before = len(state.recorder.records)
         try:
-            if not options.no_azure:
-                if azure_result is not None:
-                    azure = recordings.StaticAzureClient(azure_result)
-                elif options.mode == "replay":
-                    azure = recordings.ReplayAzureClient(directory)
-                else:
-                    assert live is not None and live.azure is not None
-                    azure = recordings.RecordingAzureClient(live.azure, directory)
-            if not options.azure_only:
-                if options.mode == "replay":
-                    provider = recordings.ReplayProvider(directory / recordings.LLM_DIR)
-                else:
-                    assert live is not None and live.provider is not None
-                    if directory not in state.providers:
-                        state.providers[directory] = recordings.RecordingProvider(
-                            live.provider, directory / recordings.LLM_DIR
-                        )
-                    provider = state.providers[directory]
-            budget = Budget(remaining_usd=options.budget_usd)
-            ctx = ExtractionContext(
-                call=CallContext(
-                    study_id=uuid.uuid4(),
-                    run_id=None,
-                    activity=ACTIVITY,
-                    budget=budget,
-                    recorder=state.recorder,
-                ),
-                provider=provider,
-                azure=azure,
-                prompt=prompts.latest(PROMPT_NAME),
-                text_model=extraction.text_model,
-                review_threshold=extraction.review_threshold,
-                fallback_max_tokens=extraction.output_budget,
-                fallback_reasoning_effort=extraction.reasoning_effort,
-                fallback_scope="missing" if extraction.fallback_scope == "missing" else "critical",
-                fallback_context_chars=extraction.context_chars,
-            )
-            result = await extract_appraisal(pdf, doc.document, ctx)
+            output = await system.run(env)
         except recordings.MissingRecording as exc:
             logger.warning("%s/%s: %s", set_name, doc.document, exc)
             entry["repeats"].append(_failed(repeat, "missing_recording", str(exc)))
             entry["status"] = "missing_recording"
+            break
+        except MissingInput as exc:
+            logger.warning("%s/%s: %s", set_name, doc.document, exc)
+            entry["repeats"].append(_failed(repeat, "missing_input", str(exc)))
+            entry["status"] = "missing_input"
             break
         except Exception as exc:  # one document's failure must not stop the run
             logger.exception("%s/%s repeat %d failed", set_name, doc.document, repeat)
@@ -306,14 +363,15 @@ async def predict_document(
             if entry["status"] == "ok":
                 entry["status"] = status
             continue
-        if isinstance(azure, recordings.RecordingAzureClient):
-            state.azure_calls += azure.calls
-            state.azure_pages += azure.pages
-        if isinstance(azure, recordings.RecordingAzureClient | recordings.ReplayAzureClient):
-            azure_result = azure.result  # analyzed once; later repeats reuse it
+        usage = _usage(state.recorder.records[before:])
         entry["repeats"].append(
-            _repeat_json(result, repeat, budget.spent_usd, time.monotonic() - started)
+            _repeat_json(output, repeat, budget.spent_usd, time.monotonic() - started, usage)
         )
+    for client in (layout, mortgage):
+        if isinstance(client, recordings.RecordingAzureClient | recordings.RecordingRawModel):
+            state.azure_calls += client.calls
+            state.azure_pages += client.pages
+    entry["azure_pages"] = dict(sorted(sources.pages_by_model.items()))
     state.timings[f"{set_name}/{doc.document}"] = round(time.monotonic() - started_doc, 3)
     return entry
 
@@ -326,12 +384,43 @@ def _pdf_pages(path: str) -> tuple[str, ...]:
         return tuple((page.extract_text() or "") for page in pdf.pages)
 
 
+@lru_cache(maxsize=64)
+def _pdf_words(path: str) -> tuple[PageWords, ...]:
+    import pdfplumber
+
+    pages: list[PageWords] = []
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            words = tuple(
+                (
+                    str(w["text"]),
+                    float(w["x0"]),
+                    float(w["top"]),
+                    float(w["x1"]),
+                    float(w["bottom"]),
+                )
+                for w in page.extract_words()
+            )
+            pages.append(PageWords(float(page.width), float(page.height), words))
+    return tuple(pages)
+
+
 def page_texts_for(appraisal: Path) -> Any:
     def texts(doc: DocumentTruth) -> Sequence[str] | None:
         path = appraisal / doc.pdf
         return _pdf_pages(str(path)) if path.is_file() else None
 
     return texts
+
+
+def page_words_for(appraisal: Path) -> Any:
+    """pdfplumber words per page (the highlight metric's text layer)."""
+
+    def words(doc: DocumentTruth) -> Sequence[PageWords] | None:
+        path = appraisal / doc.pdf
+        return _pdf_words(str(path)) if path.is_file() else None
+
+    return words
 
 
 def load_sets(options: Options, appraisal: Path) -> dict[str, TruthSet]:
@@ -362,6 +451,12 @@ class RunOutput:
     regressions: list[dict[str, str]]
 
 
+def _system_json(spec: SystemSpec) -> dict[str, Any]:
+    data = asdict(spec)
+    data["label"] = spec.label()
+    return data
+
+
 async def run_eval(
     options: Options, *, settings: Settings | None = None, live: LiveDeps | None = None
 ) -> RunOutput | None:
@@ -375,7 +470,7 @@ async def run_eval(
     if options.mode == "live" and live is None:
         live = build_live_deps(settings, options)
     started = datetime.now(UTC)
-    run_id = f"{started.strftime('%Y%m%dT%H%M%SZ')}-{options.mode}"
+    run_id = f"{started.strftime('%Y%m%dT%H%M%SZ')}-{options.mode}-{options.system.label()}"
     directory = options.out or appraisal / "runs" / run_id
     directory.mkdir(parents=True, exist_ok=True)
     state = RunState()
@@ -398,20 +493,36 @@ async def run_eval(
             )
             print(f"{set_name}/{doc.document}: {entry['status']}", flush=True)
             documents.append(entry)
-    predictions = {"run": run_id, "mode": options.mode, "documents": documents}
-    score = score_run(truths, predictions, page_texts=page_texts_for(appraisal))
+    predictions = {
+        "run": run_id,
+        "mode": options.mode,
+        "system": _system_json(options.system),
+        "documents": documents,
+    }
+    score = score_run(
+        truths,
+        predictions,
+        page_texts=page_texts_for(appraisal),
+        page_words=page_words_for(appraisal),
+    )
     sha = git_sha()
     cost = float(sum(r.cost_usd for r in state.recorder.records))
     run: dict[str, Any] = {
         "run": run_id,
         "mode": options.mode,
+        "system": _system_json(options.system),
         "sets": sorted(truths),
         "documents": sorted(f"{s}/{d}" for s, d in attempted),
         "repeats": options.repeats,
-        "systems": {"azure_di": not options.no_azure, "llm": not options.azure_only},
+        "systems": {
+            "azure_di": not options.no_azure,
+            "llm": _needs_model(options),
+            "azure_1004": needs_mortgage(options.system),
+        },
         "git_sha": sha,
         "settings": asdict(ExtractionSettings.from_settings(settings)),
         "prompt_version": prompts.latest(PROMPT_NAME).version_id,
+        "prompt_versions": sorted({r.prompt_version or "" for r in state.recorder.records} - {""}),
         "budget_usd_per_document": options.budget_usd,
         "models": sorted({r.model for r in state.recorder.records}),
         "llm_calls": len(state.recorder.records),
@@ -436,12 +547,50 @@ async def run_eval(
     return RunOutput(directory=directory, score=score, run=run, regressions=found)
 
 
+# --------------------------------------------------------------------------- CLI
+
+
+def _check_effort(parser: argparse.ArgumentParser, model: str | None, effort: str | None) -> None:
+    if model is None or effort is None:
+        return
+    if is_claude_model(model) and effort not in CLAUDE_EFFORTS:
+        parser.error(f"{model} takes effort {', '.join(CLAUDE_EFFORTS)}, not {effort!r}")
+    if refuses_no_effort(model) and effort == "none":
+        parser.error(f"{model} refuses reasoning effort 'none'")
+
+
+def parse_voters(
+    parser: argparse.ArgumentParser, text: str, max_tokens: int
+) -> tuple[VoterSpec, ...]:
+    """``system@model[@effort],system@model[@effort]`` (``system`` alone: no model)."""
+    voters = []
+    for part in (p.strip() for p in text.split(",") if p.strip()):
+        name, _, rest = part.partition("@")
+        model, _, effort = rest.partition("@")
+        if name not in SYSTEMS or name in ("vote", "validate_reask"):
+            parser.error(f"--voters: {name!r} is not a system that can vote")
+        _check_effort(parser, model or None, effort or None)
+        voters.append(VoterSpec(name, ModelChoice(model or None, effort or None, max_tokens)))
+    return tuple(voters)
+
+
 def parse_args(argv: Sequence[str] | None) -> Options:
     parser = argparse.ArgumentParser(
         prog="python -m evals.appraisal.run", description=__doc__.split("\n")[0]
     )
     parser.add_argument("--set", required=True, choices=(*SETS, "all"))
     parser.add_argument("--mode", required=True, choices=("live", "replay"))
+    parser.add_argument("--system", default="production", choices=SYSTEMS)
+    parser.add_argument("--model", default=None, help="the model systems' model")
+    parser.add_argument("--effort", default=None, help="its reasoning effort")
+    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument("--base", default=None, choices=SYSTEMS, help="validate_reask's base")
+    parser.add_argument("--base-model", default=None, help="the base's model (default --model)")
+    parser.add_argument("--base-effort", default=None)
+    parser.add_argument("--voters", default="", help="vote: system@model[@effort],...")
+    parser.add_argument("--dpi", type=int, default=DEFAULT_DPI)
+    parser.add_argument("--min-page-words", type=int, default=DEFAULT_MIN_PAGE_WORDS)
+    parser.add_argument("--with-images", action="store_true", help="llm_sections: page images")
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--documents", default="", help="comma-separated document names")
     parser.add_argument("--no-azure", action="store_true", help="text layer and model only")
@@ -457,8 +606,48 @@ def parse_args(argv: Sequence[str] | None) -> Options:
         parser.error("replay is deterministic: --repeats applies to live runs only")
     if args.no_azure and args.azure_only:
         parser.error("--no-azure and --azure-only together leave nothing to run")
+    if (args.no_azure or args.azure_only) and args.system != "production":
+        parser.error("--no-azure / --azure-only are ablations of --system production")
     if args.budget_usd <= 0:
         parser.error("--budget-usd must be positive")
+    if args.max_tokens < 1 or args.dpi < 36 or args.min_page_words < 0:
+        parser.error("--max-tokens >= 1, --dpi >= 36 and --min-page-words >= 0")
+    _check_effort(parser, args.model, args.effort)
+    model = ModelChoice(args.model, args.effort, args.max_tokens)
+    if args.system in ("llm_all", "llm_pages", "llm_sections", "validate_reask") and not args.model:
+        parser.error(f"--system {args.system} needs --model")
+    if (args.system == "validate_reask") != bool(args.base):
+        parser.error("--base goes with --system validate_reask (and it needs one)")
+    if args.base in ("validate_reask", "vote"):
+        parser.error("--base must be a single system")
+    base_model = None
+    if args.base_model or args.base_effort:
+        _check_effort(parser, args.base_model or args.model, args.base_effort)
+        base_model = ModelChoice(
+            args.base_model or args.model, args.base_effort or args.effort, args.max_tokens
+        )
+    if args.base in ("llm_all", "llm_pages", "llm_sections") and not (base_model or model).model:
+        parser.error("the base model system needs --base-model or --model")
+    voters: tuple[VoterSpec, ...] = ()
+    if args.system == "vote":
+        voters = parse_voters(parser, args.voters, args.max_tokens)
+        if len(voters) != 2:
+            parser.error("--system vote needs --voters with two system@model entries")
+        for voter in voters:
+            if voter.system in ("llm_all", "llm_pages", "llm_sections") and not voter.model.model:
+                parser.error(f"--voters: {voter.system} needs a model (system@model)")
+    elif args.voters:
+        parser.error("--voters goes with --system vote")
+    spec = SystemSpec(
+        name=args.system,
+        model=model,
+        base=args.base,
+        base_model=base_model,
+        voters=voters,
+        dpi=args.dpi,
+        with_images=args.with_images,
+        min_page_words=args.min_page_words,
+    )
     return Options(
         sets=SETS if args.set == "all" else (args.set,),
         mode=args.mode,
@@ -470,6 +659,7 @@ def parse_args(argv: Sequence[str] | None) -> Options:
         out=args.out,
         budget_usd=args.budget_usd,
         data_dir=args.data_dir,
+        system=spec,
     )
 
 
@@ -485,10 +675,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     overall = output.score["overall"]
     failed = output.score["documents"]["failed"]
+    usage = output.score["usage"]
     print(
         f"wrote {output.directory}: {output.score['documents']['scored']} documents scored, "
         f"{len(failed)} failed; headline accuracy {overall['accuracy']:.3f} "
         f"({overall['correct']}/{overall['present']}), spurious {overall['spurious']}"
+    )
+    print(
+        f"per document: model ${usage['model_usd_per_document']:.4f}, Azure DI "
+        f"${usage['azure_usd_per_document']:.4f} (estimated), "
+        f"{usage['tokens_input_per_document']:.0f} in / "
+        f"{usage['tokens_output_per_document']:.0f} out tokens"
     )
     if options.mode == "live":
         print(

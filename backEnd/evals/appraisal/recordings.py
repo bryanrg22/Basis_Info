@@ -10,6 +10,10 @@ Layout (``SPEC.md`` §2), under ``BASIS_EVAL_DATA_DIR/appraisal/recordings/<pdf 
 * ``azure_di_result.json`` (optional): an already converted :class:`AzureDiResult` (what a
   live study stores in ``extractions.raw["azure_di"]``); used when ``azure_di.json`` is
   absent.
+* ``azure_1004.json`` (sweep systems ``azure_1004`` and ``production_plus_1004``): the raw
+  ``prebuilt-mortgage.us.1004`` result (``as_dict()``), recorded and replayed like the layout
+  analysis by :class:`RecordingRawModel` / :class:`ReplayRawModel`; a refused document is
+  ``azure_1004_error.json``.
 * ``context.json``: the extraction settings the recording was made with (model, effort,
   output budget, fallback scope and context size); replay builds the same context, so a
   recording made under ``BASIS_ENV=dev`` replays under ``BASIS_ENV=test``.
@@ -44,6 +48,8 @@ SCHEMA: Final = 1
 AZURE_RAW: Final = "azure_di.json"
 AZURE_CONVERTED: Final = "azure_di_result.json"
 AZURE_ERROR: Final = "azure_di_error.json"
+AZURE_1004_RAW: Final = "azure_1004.json"
+AZURE_1004_ERROR: Final = "azure_1004_error.json"
 CONTEXT: Final = "context.json"
 LLM_DIR: Final = "llm"
 # Provider errors a replay can raise again (same constructor as ProviderError).
@@ -257,6 +263,7 @@ class RecordingAzureClient:
         self.calls = 0
         self.pages = 0
         self.result: AzureDiResult | None = None
+        self.raw: dict[str, Any] | None = None  # the recorded ``as_dict()`` (words, marks)
 
     async def analyze(self, pdf_bytes: bytes) -> AzureDiResult:
         try:
@@ -279,6 +286,7 @@ class RecordingAzureClient:
         self.calls += 1
         self.pages += len(result.pages)
         self.result = result
+        self.raw = data
         return result
 
 
@@ -300,6 +308,7 @@ class ReplayAzureClient:
     def __init__(self, directory: Path) -> None:
         self._directory = directory
         self.result: AzureDiResult | None = None
+        self.raw: dict[str, Any] | None = None  # None when only the converted result exists
 
     async def analyze(self, pdf_bytes: bytes) -> AzureDiResult:
         refused = self._directory / AZURE_ERROR
@@ -309,6 +318,8 @@ class ReplayAzureClient:
                 str(data.get("message", "")), provider="azure_di", status=data.get("status")
             )
         self.result = load_azure(self._directory)
+        raw = self._directory / AZURE_RAW
+        self.raw = json.loads(raw.read_text()) if raw.is_file() else None
         return self.result
 
 
@@ -333,6 +344,74 @@ def load_azure(directory: Path) -> AzureDiResult:
     if converted.is_file():
         return AzureDiResult.model_validate_json(converted.read_text())
     raise MissingRecording(f"no Azure DI recording in {directory.name}")
+
+
+class RawModelClient(Protocol):
+    """A live client for another Document Intelligence model (the raw SDK result)."""
+
+    async def analyze_raw(self, pdf_bytes: bytes) -> Any: ...
+
+
+class RecordingRawModel:
+    """Calls a live Document Intelligence model, writes its ``as_dict()`` (``raw_name``) and
+    returns it; a refused document (:class:`ProviderBadResponse`) is written to
+    ``error_name`` and raised, like :class:`RecordingAzureClient`."""
+
+    def __init__(
+        self,
+        inner: RawModelClient,
+        directory: Path,
+        *,
+        raw_name: str = AZURE_1004_RAW,
+        error_name: str = AZURE_1004_ERROR,
+    ) -> None:
+        self._inner = inner
+        self._directory = directory
+        self._raw_name = raw_name
+        self._error_name = error_name
+        self.calls = 0
+        self.pages = 0
+
+    async def analyze(self, pdf_bytes: bytes) -> dict[str, Any]:
+        try:
+            raw = await self._inner.analyze_raw(pdf_bytes)
+        except ProviderBadResponse as error:
+            _write_json(self._directory / self._error_name, error_record_azure(error))
+            raise
+        (self._directory / self._error_name).unlink(missing_ok=True)
+        data: dict[str, Any] = _jsonable(raw.as_dict())
+        _write_json(self._directory / self._raw_name, data)
+        self.calls += 1
+        self.pages += len(data.get("pages") or ())
+        return data
+
+
+class ReplayRawModel:
+    """Answers from ``raw_name`` (or a recorded refusal, or :class:`MissingRecording`)."""
+
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        raw_name: str = AZURE_1004_RAW,
+        error_name: str = AZURE_1004_ERROR,
+    ) -> None:
+        self._directory = directory
+        self._raw_name = raw_name
+        self._error_name = error_name
+
+    async def analyze(self, pdf_bytes: bytes) -> dict[str, Any]:
+        raw = self._directory / self._raw_name
+        refused = self._directory / self._error_name
+        if raw.is_file():
+            data: dict[str, Any] = json.loads(raw.read_text())
+            return data
+        if refused.is_file():
+            error = json.loads(refused.read_text())
+            raise ProviderBadResponse(
+                str(error.get("message", "")), provider="azure_di", status=error.get("status")
+            )
+        raise MissingRecording(f"no {self._raw_name} recording in {self._directory.name}")
 
 
 def write_context(directory: Path, context: Mapping[str, Any]) -> None:

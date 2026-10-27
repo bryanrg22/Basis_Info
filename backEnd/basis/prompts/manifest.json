@@ -123,6 +123,21 @@
       "v1": {
         "sha256": "6db5fa15beaafbe192f068304440dc624e9633bf27ef60016d086e85d13ae3e5"
       }
+    },
+    "appraisal_field_fallback_marks": {
+      "v1": {
+        "sha256": "865a0e959c06dc9389f39c027e4b6f1a6924c350ecae8746a911a2012cfb2f6a"
+      }
+    },
+    "appraisal_fields_grounded": {
+      "v1": {
+        "sha256": "43037559b3ab046d29b264b91a572310dd53079e0916c8520eeb5e1469d1e464"
+      }
+    },
+    "appraisal_fields_reask": {
+      "v1": {
+        "sha256": "692fa82c1c00e2f20e22ddcc7907cfec1d457c9f2cb18a125113033132fb6486"
+      }
     }
   }
 }
