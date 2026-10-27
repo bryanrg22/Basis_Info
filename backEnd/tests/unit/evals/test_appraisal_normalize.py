@@ -302,6 +302,10 @@ def test_no_in_a_currency_box_scores_against_a_zero_truth() -> None:
         # Without ";" in the truth the comparison stays plain folded equality.
         ("Tile, Carpet", "Carpet, Tile", False),
         ("Carpet, Tile.", "carpet, tile", True),
+        # A list read without its separators: same words, same order.
+        ("Refrigerator Range/Oven Dishwasher", "Refrigerator, Range/Oven, Dishwasher", True),
+        ("Range/Oven Refrigerator Dishwasher", "Refrigerator, Range/Oven, Dishwasher", False),
+        ("Refrigerator Range/Oven", "Refrigerator, Range/Oven, Dishwasher", False),
     ],
 )
 def test_text_with_several_values(prediction: str, truth: str, expected: bool) -> None:

@@ -792,10 +792,18 @@ def text_parts(text: str, *, truth: bool) -> frozenset[str]:
     return frozenset(p for p in (fold_text(piece) for piece in pieces) if p)
 
 
+def _without_separators(text: str) -> str:
+    return " ".join(re.sub(r"[,;|]", " ", fold_text(text)).split())
+
+
 def text_matches(prediction: str, truth: str) -> bool:
     """Folded equality; a truth that joins several values with ``;`` is compared as a set of
     parts, so the order and the join of the prediction do not matter."""
     if prediction == truth:
+        return True
+    # A list read without its separators ("Refrigerator Range/Oven Dishwasher" for the
+    # printed "Refrigerator, Range/Oven, Dishwasher"): same words in the same order.
+    if _without_separators(prediction) == _without_separators(truth):
         return True
     if ";" not in truth and "|" not in truth:
         return False
