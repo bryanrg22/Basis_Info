@@ -16,7 +16,7 @@ from datetime import timedelta
 from typing import Any, Final
 
 import pytest
-from lifecycle_support import Harness
+from lifecycle_support import Harness, completed_activities, open_tasks
 from lifecycletest_support import sample_appraisal_chunks
 from sqlalchemy import func, select
 from temporalio import activity
@@ -36,8 +36,8 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")
 # sticky queue after a timeout; the time-skipping test server does not for queries. A query
 # to such a worker is a task on the normal queue, which the test server hands out even while
 # a workflow task of the same run is in flight; one of the two is then lost (observed: a
-# workflow task timed out after 10 s, or the query RPC timed out). So where a test can, it
-# waits on that worker in the history (Harness.wait_settled), not with the status query.
+# workflow task timed out after 10 s, or the query RPC timed out). So the tests wait on that
+# worker in the history (Harness.wait_history, wait_settled), never with the status query.
 NO_STICKY: dict[str, Any] = {"max_cached_workflows": 0}
 # A workflow task the test server hands to a poll the stopped worker sent just before it
 # shut down is lost until this timeout (the server's default is 10 s). The slowest workflow
@@ -232,17 +232,36 @@ async def test_worker_stopped_between_activities(harness: Harness) -> None:
 
 
 async def test_worker_stopped_in_the_middle_of_an_activity(harness: Harness) -> None:
+    """The worker is stopped while the slow photo's analysis runs; it is retried once.
+
+    The stopped worker has no cache, so the test reads the history rather than querying
+    it (see ``NO_STICKY``). It stops the worker once the workflow has reached the appraisal
+    gate and only the slow analysis and the gate's ``transition`` are in flight (the
+    transition waits for the analysis's transaction): nothing else can be scheduled until
+    they finish, so no task reaches the worker as it stops. (Observed before: stopping a
+    fixed second after the other photo finished could coincide with the transition being
+    scheduled; it was handed to the stopping worker and lost for its 30 s timeout, longer
+    than the harness waits; 1 run in ~140 under load.)
+    """
     study = await harness.seed(photos=["kitchen_1.jpg", "bathroom_1.jpg"])
     slow = str(study.photo_ids[0])
+    analysis, gate = f"analyze_photo:{slow}:r1", "transition:appraisal_review:r1"
     # Shut down without a grace period: the running activity is cancelled mid-transaction.
     async with harness.worker({**NO_STICKY, "graceful_shutdown_timeout": timedelta(0)}):
-        started = await harness.start(study, simulate_photos={slow: SimulateFault(sleep_seconds=4)})
-        await harness.wait_for(
+        # Long enough to outlast extraction under load (the stop comes after it): with 4 s,
+        # the estimated time left between the stop and its end fell to ~0 s under heavy load.
+        started = await harness.start(study, simulate_photos={slow: SimulateFault(sleep_seconds=6)})
+        await harness.wait_history(
             started.handle,
-            lambda s: s.pending_photos == 1 and s.completed_photos == 1,
-            "slow photo in flight",
+            lambda events: (
+                open_tasks(events) == {analysis, gate}
+                or (open_tasks(events) == {analysis} and gate in completed_activities(events))
+            ),
+            "the slow photo and the appraisal gate in flight",
         )
-        await asyncio.sleep(1)
+        # Lets the transition, scheduled moments ago, reach the worker: the stop then
+        # cancels it like the analysis instead of racing its dispatch.
+        await asyncio.sleep(0.5)
 
     async with harness.worker():
         status = await harness.wait_awaiting(started.handle, "appraisal_review", 1)

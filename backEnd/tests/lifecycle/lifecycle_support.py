@@ -198,22 +198,38 @@ class Harness:
         completes or a decision arrives. Stopping a worker at this point leaves no task the
         server could hand to the stopping worker's polls; a task handed to them while it
         shuts down is lost until its timeout (a workflow task's 10 s, an activity's
-        heartbeat timeout). Unlike :meth:`wait_for`, this never queries a worker. Returns
-        the id of the history's last event at that point."""
+        heartbeat timeout). Returns the id of the history's last event at that point."""
+        want = {holding} if holding else set()
+        events = await self.wait_history(
+            handle,
+            lambda events: (
+                open_tasks(events) == want and (stage is None or stage_in(events) == stage)
+            ),
+            f"open {want or 'nothing'} at stage {stage}",
+            timeout,
+        )
+        return events[-1].event_id
+
+    async def wait_history(
+        self,
+        handle: WorkflowHandle[Any, Any],
+        predicate: Callable[[Sequence[HistoryEvent]], bool],
+        what: str,
+        timeout: float = WAIT_TIMEOUT_S,
+    ) -> Sequence[HistoryEvent]:
+        """Wait until ``predicate`` holds for the history; returns that history. Unlike
+        :meth:`wait_for`, this never queries a worker (see ``NO_STICKY`` in
+        test_restart_recovery.py for why a test would avoid that)."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
-        want = {holding} if holding else set()
-        open_now: set[str] = set()
-        stage_now: str | None = None
+        events: Sequence[HistoryEvent] = ()
         while loop.time() < deadline:
             events = (await handle.fetch_history()).events
-            open_now, stage_now = open_tasks(events), stage_in(events)
-            if open_now == want and (stage is None or stage_now == stage):
-                return events[-1].event_id
+            if predicate(events):
+                return events
             await asyncio.sleep(POLL_INTERVAL_S)
         raise AssertionError(
-            f"timed out waiting for open {want or 'nothing'} at stage {stage}; "
-            f"open: {open_now}, stage: {stage_now}"
+            f"timed out waiting for {what}; open: {open_tasks(events)}, stage: {stage_in(events)}"
         )
 
     async def wait_photos(self, handle: WorkflowHandle[Any, Any], count: int) -> StudyStatusView:
@@ -352,6 +368,20 @@ def open_tasks(events: Sequence[HistoryEvent]) -> set[str]:
             case EventType.EVENT_TYPE_WORKFLOW_TASK_FAILED:
                 workflow_tasks.remove(e.workflow_task_failed_event_attributes.scheduled_event_id)
     return set(activities.values()) | ({"workflow task"} if workflow_tasks else set())
+
+
+def completed_activities(events: Sequence[HistoryEvent]) -> set[str]:
+    """The ids of the activities that completed in a history."""
+    scheduled = {
+        e.event_id: e.activity_task_scheduled_event_attributes.activity_id
+        for e in events
+        if e.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+    }
+    return {
+        scheduled[e.activity_task_completed_event_attributes.scheduled_event_id]
+        for e in events
+        if e.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED
+    }
 
 
 def stage_in(events: Sequence[HistoryEvent]) -> str | None:
