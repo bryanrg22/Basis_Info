@@ -41,6 +41,12 @@ ACRE_ROUNDING: Final = Decimal("0.005")
 _SPACES: Final = re.compile(r"\s+")
 _NUMBER: Final = re.compile(r"-?\d[\d,]*(?:\.\d+)?|-?\.\d+")
 _NOT_A_VALUE: Final = frozenset({"", "-", "--", "n/a", "na", "none", "not applicable"})
+# In a currency box "No"/"None" is 0, not a missing value (SPEC principle 2, §4).
+_CURRENCY_ZERO_WORDS: Final = frozenset({"no", "none"})
+# A text truth listing several values joins them with "; " (borrowers, owners, parcel
+# numbers in the GSE D-1 truth); such a truth is compared as a set of parts.
+_TRUTH_PARTS: Final = re.compile(r"\s*[;|]\s*")
+_PREDICTION_PARTS: Final = re.compile(r"\s*(?:,|&|/|\band\b)\s*", re.IGNORECASE)
 _ACRES: Final = re.compile(r"\d\s*(?:ac|acres?)\b\.?", re.IGNORECASE)
 _DATE_MDY: Final = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _DATE_MDY_SHORT: Final = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2})\b")
@@ -79,10 +85,14 @@ _FALSE: Final = frozenset({"no", "n", "false", "unchecked", "unselected", "0"})
 # --------------------------------------------------------------------------- folding
 
 
+_QUOTES: Final = str.maketrans({"\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"'})
+
+
 def fold_text(value: object) -> str:
-    """NFKC, casefold, whitespace collapsed, trailing ``.``/``,`` stripped (§4 ``text``)."""
-    text = _SPACES.sub(" ", unicodedata.normalize("NFKC", str(value)).casefold()).strip()
-    return text.rstrip(".,").rstrip()
+    """NFKC, casefold, whitespace collapsed, trailing ``.``/``,`` stripped (§4 ``text``);
+    typographic quotes read as straight ones (NFKC keeps them apart)."""
+    text = unicodedata.normalize("NFKC", str(value)).translate(_QUOTES).casefold()
+    return _SPACES.sub(" ", text).strip().rstrip(".,").rstrip()
 
 
 def fold_enum(value: object) -> str:
@@ -158,13 +168,16 @@ def parse_currency(value: object, *, key: str | None = None) -> Decimal | None:
     """Dollars: ``$``, ``=``, spaces and commas stripped; ``-x`` negative; ``(x)`` negative
     except right after ``=$`` or ``$`` in the cost approach (``key`` under ``cost_approach.``),
     where the parentheses are the form's subtraction marks (``"=$( 156,240)"`` is 156240);
-    ``n/a``, ``none``, empty -> no value. A cost-approach line prints the column amount and
-    then ``=$`` and the line's amount (``"156,240 =$( 156,240)"``): the amount after the last
-    ``=$`` is the value. ``$0`` is a value (0)."""
+    ``no`` and ``none`` are 0 (a box such as "Known Sales Concessions No"); only ``n/a`` and an
+    empty box are no value. A cost-approach line prints the column amount and then ``=$`` and
+    the line's amount (``"156,240 =$( 156,240)"``): the amount after the last ``=$`` is the
+    value. ``$0`` is a value (0)."""
     number = _decimal(value)
     if number is not None or value is None or isinstance(value, bool):
         return number
     text = unicodedata.normalize("NFKC", str(value)).strip()
+    if fold_enum(text) in _CURRENCY_ZERO_WORDS:
+        return Decimal(0)
     if _is_nothing(text):
         return None
     squeezed = _SPACES.sub("", text)
@@ -251,7 +264,24 @@ def parse_month(value: object, *, today: date | None = None) -> str | None:
     return f"{year:04d}-{month:02d}" if 1 <= month <= 12 else None
 
 
+# A checked box as the text layer reads it: an "X" (or a box glyph) before the option.
+_MARK: Final = re.compile(r"(?:^|(?<=[\s;,]))(?:[xX]|\u2612|\u2611|\u25a0|\[[xX]\])(?=\s)")
+
+
+def marked_options(text: str) -> list[str] | None:
+    """The options a box marks with an ``X`` ("Asphalt; X Public" -> ["Public"]; "X Det.;
+    X Garage" -> ["Det.", "Garage"]): what follows each mark up to the next ``;``, or the
+    next mark. ``None`` when nothing is marked (the text is read as it is)."""
+    pieces = _MARK.split(text)
+    if len(pieces) < 2:
+        return None
+    options = [piece.split(";", 1)[0].strip(" ,;") for piece in pieces[1:]]
+    return [option for option in options if option]
+
+
 def parse_bool(value: object) -> bool | None:
+    """yes/no/x/checked/selected, read by words as the production ``clean_checkbox`` reads
+    them ("No Hazard Zone Noted" is no); a word for each side is unclear (``None``)."""
     if isinstance(value, bool):
         return value
     number = _decimal(value)
@@ -259,11 +289,19 @@ def parse_bool(value: object) -> bool | None:
         return None if number not in (0, 1) else bool(number)
     if value is None:
         return None
-    word = fold_enum(value)
-    if word in _TRUE:
-        return True
-    if word in _FALSE:
+    text = str(value)
+    lowered = text.casefold()
+    if ":unselected:" in lowered:
         return False
+    if ":selected:" in lowered or lowered.strip() == "x":
+        return True
+    marked = marked_options(text)
+    if marked is not None:
+        text = " ".join(marked)
+    words = set(re.findall(r"[a-z0-9]+", text.casefold()))
+    yes, no = bool(words & _TRUE), bool(words & _FALSE)
+    if yes != no:
+        return yes
     return None
 
 
@@ -323,7 +361,10 @@ def _vocab(*codes: EnumCode) -> tuple[EnumCode, ...]:
 _UTILITIES: Final = _vocab(
     EnumCode("public", "Public"), EnumCode("other", "Other"), EnumCode("none", "None")
 )
-_OFF_SITE: Final = _vocab(EnumCode("public", "Public"), EnumCode("private", "Private"))
+_OFF_SITE: Final = _vocab(
+    EnumCode("public", "Public", ("Public Street",)),
+    EnumCode("private", "Private", ("Private Street",)),
+)
 
 # Legacy 1004 checkbox vocabularies (SPEC §4). Matching is fold_enum equality with the code,
 # the label or a synonym.
@@ -407,6 +448,12 @@ ENUMS: Final[dict[str, tuple[EnumCode, ...]]] = {
         EnumCode("detached", "Det.", ("det",)),
         EnumCode("built_in", "Built-in"),
     ),
+    # An extra key (SPEC §3): the car-storage box's garage attachment, same codes.
+    "improvements.garage_type": _vocab(
+        EnumCode("attached", "Att.", ("att",)),
+        EnumCode("detached", "Det.", ("det",)),
+        EnumCode("built_in", "Built-in"),
+    ),
     "reconciliation.appraisal_made": _vocab(
         EnumCode("as_is", "As is"),
         EnumCode(
@@ -418,6 +465,7 @@ ENUMS: Final[dict[str, tuple[EnumCode, ...]]] = {
             "subject_to_repairs",
             "Subject to repairs",
             (
+                "subject to repair",
                 "subject to repairs or alterations",
                 "subject to the following repairs or alterations",
             ),
@@ -475,6 +523,9 @@ def parse_enum(value: object, key: str | None) -> EnumValue | None:
             fold_text(text) if text is not None else None,
         )
     text = str(value)
+    marked = marked_options(text)
+    if marked is not None:
+        text = "; ".join(marked)
     folded = fold_enum(text)
     table = _lookup(key)
     if folded in table:  # before the "no value" words: "None" is a code of some boxes
@@ -561,6 +612,9 @@ def parse_enum_multi(value: object, key: str | None) -> MultiValue | None:
             codes.add(code)
         return MultiValue(tuple(sorted(codes)), other_text)
     text = str(value)
+    marked = marked_options(text)
+    if marked is not None:
+        text = "; ".join(marked)
     table = _lookup(key)
     if fold_enum(text) in table:  # "None" is a code of car storage
         return MultiValue((table[fold_enum(text)],))
@@ -723,7 +777,29 @@ def matches(kind: str, prediction: Any, truth: Any, *, tolerance: float | None =
         if truth.code == "other" and truth.text is not None:
             return prediction.text == truth.text
         return True
+    if kind == "text" and isinstance(prediction, str) and isinstance(truth, str):
+        return text_matches(prediction, truth)
     return bool(prediction == truth)
+
+
+def text_parts(text: str, *, truth: bool) -> frozenset[str]:
+    """The folded parts of a multi-value text. The truth is split on ``;``; a prediction on
+    ``;`` when it has one, else on ``,``, ``&``, ``/`` or ``and`` (how a reader joins names)."""
+    if truth or ";" in text or "|" in text:
+        pieces = _TRUTH_PARTS.split(text)
+    else:
+        pieces = _PREDICTION_PARTS.split(text)
+    return frozenset(p for p in (fold_text(piece) for piece in pieces) if p)
+
+
+def text_matches(prediction: str, truth: str) -> bool:
+    """Folded equality; a truth that joins several values with ``;`` is compared as a set of
+    parts, so the order and the join of the prediction do not matter."""
+    if prediction == truth:
+        return True
+    if ";" not in truth and "|" not in truth:
+        return False
+    return text_parts(prediction, truth=False) == text_parts(truth, truth=True)
 
 
 # --------------------------------------------------------------------------- display

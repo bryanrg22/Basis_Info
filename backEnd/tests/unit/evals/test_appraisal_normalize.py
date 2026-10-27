@@ -27,6 +27,7 @@ from evals.appraisal.normalize import (
     first_number,
     fold_text,
     levenshtein,
+    marked_options,
     matches,
     normalize,
     normalize_truth,
@@ -59,12 +60,20 @@ REPO = Path(__file__).resolve().parents[4]
         ("0", Decimal(0)),
         ("$0", Decimal(0)),  # a printed $0 is a value (SPEC principle 2)
         ("85,000 (rounded)", Decimal(85000)),
+        # "No"/"None" in a currency box is 0 (UAD 3.6 "Known Sales Concessions No");
+        # only n/a and an empty box are no value (SPEC principle 2, bb44501).
+        ("No", Decimal(0)),
+        ("no", Decimal(0)),
+        ("None", Decimal(0)),
+        ("$ None", Decimal(0)),
         ("n/a", None),
         ("N/A", None),
-        ("none", None),
+        ("na", None),
         ("", None),
         ("   ", None),
+        ("-", None),
         ("see addendum", None),
+        ("Not known", None),  # "no" only as a whole word
     ],
 )
 def test_currency(printed: str, expected: Decimal | None) -> None:
@@ -245,6 +254,12 @@ def test_date(printed: str, expected: str | None) -> None:
         (":selected:", True),
         ("No", False),
         ("unchecked", False),
+        (":unselected:", False),
+        ("X Yes", True),  # the box's mark is not a "yes"
+        ("X No", False),
+        ("No Hazard Zone Noted", False),  # by words, as clean_checkbox reads it
+        ("Yes and no", None),  # a word for each side: unclear
+        ("USGS Lava Flow Zone", None),
         (Decimal(1), True),
         (Decimal(0), False),
         ("maybe", None),
@@ -253,6 +268,97 @@ def test_date(printed: str, expected: str | None) -> None:
 )
 def test_bool(printed: object, expected: bool | None) -> None:
     assert parse_bool(printed) == expected
+
+
+def test_no_in_a_currency_box_scores_against_a_zero_truth() -> None:
+    truth = normalize_truth("currency", 0)
+    # Production stores "No" as text with no number: the text is read, and it is 0.
+    assert prediction_value("currency", Columns("No", None, None)) == Decimal(0)
+    assert matches("currency", prediction_value("currency", Columns("No", None, None)), truth)
+    assert prediction_value("currency", Columns("N/A", None, None)) is None
+    # The zero words are a currency rule only: other numeric types read no number.
+    assert normalize("int", "None") is None
+
+
+@pytest.mark.parametrize(
+    ("prediction", "truth", "expected"),
+    [
+        # A truth joined with "; " is a set of parts: order and join do not matter.
+        ("Jane Fab; John Fab", "John Fab; Jane Fab", True),
+        ("John Fab and Jane Fab", "John Fab; Jane Fab", True),
+        ("John Fab & Jane Fab", "John Fab; Jane Fab", True),
+        ("John Fab, Jane Fab", "John Fab; Jane Fab", True),
+        ("JOHN FAB;JANE FAB.", "John Fab; Jane Fab", True),
+        # The GSE builder also joins with " | ".
+        ("Crawl Space; Pier", "Crawl Space | Pier", True),
+        ("Pier | Crawl Space", "Crawl Space | Pier", True),
+        ("123-45-678 / 123-45-679", "123-45-678; 123-45-679", True),
+        # Every part must be there, and nothing else.
+        ("John Fab", "John Fab; Jane Fab", False),
+        ("John Fab; Jane Fab; Jim Fab", "John Fab; Jane Fab", False),
+        # Names with commas: the prediction's ";" decides its split.
+        ("Fab, John; Fab, Jane", "Fab, Jane; Fab, John", True),
+        ("Fab, John and Fab, Jane", "Fab, John; Fab, Jane", False),  # conservative
+        # Without ";" in the truth the comparison stays plain folded equality.
+        ("Tile, Carpet", "Carpet, Tile", False),
+        ("Carpet, Tile.", "carpet, tile", True),
+    ],
+)
+def test_text_with_several_values(prediction: str, truth: str, expected: bool) -> None:
+    assert (
+        matches("text", normalize("text", prediction), normalize_truth("text", truth)) is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("printed", "expected"),
+    [
+        ("X Suburban", ["Suburban"]),
+        ("Asphalt; X Public", ["Public"]),  # description beside the box is not an option
+        ("X Public; Propane gas", ["Public"]),
+        ("X Detached; X Garage; X Att.", ["Detached", "Garage", "Att."]),
+        ("X Refrigerator X Range/Oven", ["Refrigerator", "Range/Oven"]),
+        ("[x] As is", ["As is"]),
+        ("\u2612 Owner", ["Owner"]),
+        ("Suburban", None),  # nothing marked: read as is
+        ("2 x 4 studs", ["4 studs"]),  # an x between words reads as a mark (enums only)
+    ],
+)
+def test_marked_options(printed: str, expected: list[str] | None) -> None:
+    assert marked_options(printed) == expected
+
+
+def test_checkbox_marks_select_the_options() -> None:
+    assert parse_enum("X Suburban", "neighborhood.location") == EnumValue("suburban")
+    assert parse_enum("X Over 75%", "neighborhood.built_up") == EnumValue("over_75")
+    assert parse_enum('X "as is"', "reconciliation.appraisal_made") == EnumValue("as_is")
+    assert parse_enum("Asphalt; X Public", "site.off_site_improvements_street") == EnumValue(
+        "public"
+    )
+    assert parse_enum("X Public; Propane gas", "site.utilities_gas") == EnumValue("public")
+    # Two marks in a one-choice box name no single code: unmatched.
+    assert parse_enum("X Urban X Rural", "neighborhood.location") == EnumValue(None)
+    storage = "improvements.car_storage"
+    assert parse_enum_multi("X Detached; X Garage; X Att.", storage) == MultiValue(
+        ("attached", "detached", "garage")
+    )
+    assert parse_enum_multi("X FWA; X Other Infloor", "improvements.heating_type") == MultiValue(
+        ("fwa", "other"), "infloor"
+    )
+
+
+def test_uad_synonyms() -> None:
+    street = "site.off_site_improvements_street"
+    assert parse_enum("Public Street", street) == EnumValue("public")
+    assert parse_enum("Private Street", street) == EnumValue("private")
+    assert parse_enum("Subject to Repair", "reconciliation.appraisal_made") == EnumValue(
+        "subject_to_repairs"
+    )
+
+
+def test_typographic_quotes_fold() -> None:
+    assert fold_text("The subject\u2019s market area") == "the subject's market area"
+    assert fold_text("\u201cAs is\u201d") == '"as is"'
 
 
 def test_text_folding_and_anls() -> None:
@@ -323,7 +429,9 @@ def test_enum_unmatched_and_other() -> None:
     assert not matches("enum", parse_enum("FWA", "improvements.heating_type"), truth)
     assert parse_enum("n/a", "improvements.heating_type") is None
     # A key without a vocabulary (an extra key) compares folded text with the code.
-    assert matches("enum", parse_enum("Built-In", "improvements.garage_type"), EnumValue("builtin"))
+    assert matches("enum", parse_enum("Built-In", "improvements.pool_type"), EnumValue("builtin"))
+    # The extra garage key shares car storage's attachment codes.
+    assert parse_enum("X Att.", "improvements.garage_type") == EnumValue("attached")
 
 
 def test_enum_multi() -> None:
