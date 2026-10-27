@@ -448,6 +448,17 @@ ENUMS: Final[dict[str, tuple[EnumCode, ...]]] = {
         EnumCode("detached", "Det.", ("det",)),
         EnumCode("built_in", "Built-in"),
     ),
+    # The 1004 appliance checkboxes (the synthetic set labels them as codes; the client set
+    # as the printed text, compared as text).
+    "improvements.appliances": _vocab(
+        EnumCode("refrigerator", "Refrigerator", ("fridge",)),
+        EnumCode("range_oven", "Range/Oven", ("range", "oven", "range oven", "stove")),
+        EnumCode("dishwasher", "Dishwasher"),
+        EnumCode("disposal", "Disposal", ("garbage disposal",)),
+        EnumCode("microwave", "Microwave"),
+        EnumCode("washer_dryer", "Washer/Dryer", ("washer dryer", "washer and dryer")),
+        EnumCode("other", "Other"),
+    ),
     # An extra key (SPEC §3): the car-storage box's garage attachment, same codes.
     "improvements.garage_type": _vocab(
         EnumCode("attached", "Att.", ("att",)),

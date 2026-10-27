@@ -601,3 +601,20 @@ def test_canonical_display(
 def test_unknown_type_is_refused() -> None:
     with pytest.raises(ValueError):
         normalize("colour", "red")
+
+
+def test_appliance_checkboxes_compare_as_a_set_of_codes() -> None:
+    key = "improvements.appliances"
+    truth = normalize_truth("enum_multi", ["dishwasher", "range_oven", "refrigerator"], key=key)
+    assert matches(
+        "enum_multi", parse_enum_multi("Refrigerator, Range/Oven, Dishwasher", key), truth
+    )
+    assert matches(
+        "enum_multi", parse_enum_multi("X Range/Oven X Dishwasher X Refrigerator", key), truth
+    )
+    assert not matches("enum_multi", parse_enum_multi("Refrigerator, Range/Oven", key), truth)
+    assert not matches(
+        "enum_multi",
+        parse_enum_multi("Refrigerator, Range/Oven, Dishwasher, Microwave", key),
+        truth,
+    )
