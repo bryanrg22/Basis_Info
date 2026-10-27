@@ -382,6 +382,25 @@ class Report:
     def texts(self, name: str, anchor: ET.Element | None = None) -> list[str]:
         return [t for t in (_text(e) for e in self.all(name, anchor)) if t is not None]
 
+    def printed(self, name: str, anchor: ET.Element | None = None) -> list[str]:
+        """The printed wording of an enumeration element: ``Other`` is replaced by its
+        sibling ``<Element>OtherDescription``, which is what the URAR prints."""
+        anchor_name, path = XPATHS[name]
+        base = anchor if anchor is not None else self.anchors[anchor_name]
+        parent_path, _, tag = path.rpartition("/")
+        parents = base.findall(parent_path) if parent_path else [base]
+        out = []
+        for parent in parents:
+            for el in parent.findall(tag):
+                value = _text(el)
+                if value == "Other":
+                    value = _child(parent, tag + "OtherDescription") or value
+                elif value is not None:
+                    value = printed_enum(value)
+                if value is not None:
+                    out.append(value)
+        return out
+
     def flag(self, name: str, anchor: ET.Element | None = None) -> bool | None:
         value = self.text(name, anchor)
         return None if value is None else value == "true"
@@ -719,8 +738,21 @@ def area(sqft: float) -> str:
 
 
 def us_date(iso: str) -> str:
-    y, m, d = iso.split("-")
+    """``YYYY-MM-DD`` as MM/DD/YYYY; a year-month ``YYYY-MM`` as MM/YYYY."""
+    parts = iso[:10].split("-")
+    if len(parts) == 2:
+        return f"{parts[1]}/{parts[0]}"
+    y, m, d = parts
     return f"{m}/{d}/{y}"
+
+
+def date_fact(value: str) -> Fact:
+    """A MISMO date as a ``date`` (YYYY-MM-DD) or a ``month`` (YYYY-MM) truth."""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}(T.*)?", value):
+        return present("date", value[:10], us_date(value))
+    if re.fullmatch(r"\d{4}-\d{2}", value):
+        return present("month", value, us_date(value))
+    return Fact("unscorable", note=f"unrecognized date {value!r}")
 
 
 def absent(note: str) -> Fact:
@@ -896,9 +928,10 @@ def _rights(r: Report) -> Fact:
     value = r.text("estate_type")
     if value is None:
         return absent("no estate type in the XML")
+    wording = r.printed("estate_type")[0]
     code = {"FeeSimple": "fee_simple", "Leasehold": "leasehold"}.get(value)
-    enum = code if code else {"code": "other", "text": printed_enum(value)}
-    return present("enum", enum, printed_enum(value))
+    enum = code if code else {"code": "other", "text": wording}
+    return present("enum", enum, wording)
 
 
 @rule("subject.assignment_type", ["assignment"], ["Assignment Reason"])
@@ -906,9 +939,10 @@ def _assignment(r: Report) -> Fact:
     value = r.text("assignment_type")
     if value is None:
         return absent("no assignment type in the XML")
+    wording = r.printed("assignment_type")[0]
     code = {"Purchase": "purchase", "Refinance": "refinance"}.get(value)
-    enum = code if code else {"code": "other", "text": printed_enum(value)}
-    return present("enum", enum, printed_enum(value))
+    enum = code if code else {"code": "other", "text": wording}
+    return present("enum", enum, wording)
 
 
 @rule("subject.lender_client", ["assignment"], ["Company Name", "Client/Lender"], window=120)
@@ -945,7 +979,7 @@ def _contract_date(r: Report) -> Fact:
     value = _child(_contract(r), "SalesContractDate")
     if value is None:
         return absent(NO_CONTRACT)
-    return present("date", value, us_date(value))
+    return date_fact(value)
 
 
 def _listing(r: Report) -> ET.Element | None:
@@ -976,7 +1010,7 @@ def _listing_date(r: Report) -> Fact:
     value = _child(_listing(r), "ListingStartDate")
     if value is None:
         return absent("no listing of the subject in the look-back period")
-    return present("date", value, us_date(value))
+    return date_fact(value)
 
 
 @rule("listing_and_contract.days_on_market", ["listing"], ["Total DOM", "DOM"])
@@ -1115,10 +1149,9 @@ def _view(r: Report) -> Fact:
     if not views:
         return absent("no view in the XML")
     primary = [v for v in views if _child(v, "ViewPrimaryIndicator") == "true"] or views
-    value = _child(primary[0], "ViewType")
-    if value is None:
+    text = _enum_text(primary[0], "ViewType")
+    if text is None:
         return absent("no view type in the XML")
-    text = printed_enum(value)
     note = "primary view; other views are listed" if len(views) > 1 else None
     return present("text", text, text, note=note)
 
@@ -1292,12 +1325,12 @@ def _same(values: list[str | None]) -> str | None:
 @rule("improvements.design_style", ["dwelling_exterior"], ["Dwelling Style", "Structure Design"])
 def _design(r: Report) -> Fact:
     dwellings = r.dwellings()
-    style = _same([r.text("design_style", d) for d in dwellings])
+    style = _same([next(iter(r.printed("design_style", d)), None) for d in dwellings])
     if style is None:
-        style = _same([r.text("structural_design", d) for d in dwellings])
+        style = _same([next(iter(r.printed("structural_design", d)), None) for d in dwellings])
     if style is None:
         return absent("no dwelling style in the XML")
-    return present("text", printed_enum(style), printed_enum(style))
+    return present("text", style, style)
 
 
 @rule("improvements.year_built", ["dwelling_exterior"], ["Year Built"])
@@ -1373,9 +1406,9 @@ def _foundation(r: Report) -> Fact:
 @rule("improvements.foundation_walls", ["dwelling_exterior"], ["Foundation"])
 def _foundation_walls(r: Report) -> Fact:
     materials = [
-        printed_enum(m)
+        m
         for c in _dwelling_components(r, "Foundation")
-        for m in r.texts("foundation_material", c)
+        for m in r.printed("foundation_material", c)
     ]
     if not materials:
         return absent("no foundation material in the XML")
@@ -1383,7 +1416,7 @@ def _foundation_walls(r: Report) -> Fact:
 
 
 def _component_text(r: Report, kind: str, name: str) -> list[str]:
-    return [printed_enum(t) for c in _dwelling_components(r, kind) for t in r.texts(name, c)]
+    return [t for c in _dwelling_components(r, kind) for t in r.printed(name, c)]
 
 
 @rule("improvements.exterior_walls", ["dwelling_exterior"], ["Exterior Walls and Trim"])
@@ -1430,7 +1463,7 @@ def _floors(r: Report) -> Fact:
     unit = _primary_unit(r)
     if unit is None:
         return Fact("unscorable", note=MULTI_UNIT.format(n=_unit_count(r)))
-    values = [printed_enum(v) for v in r.texts("flooring", unit)]
+    values = r.printed("flooring", unit)
     if not values:
         return absent("no flooring listed")
     return present(
@@ -1542,20 +1575,22 @@ def _heating(r: Report) -> Fact:
 @rule("improvements.heating_fuel", ["dwelling_exterior"], ["Heating"])
 def _fuel(r: Report) -> Fact:
     fuels = [
-        _child(h, "HeatingFuelType") for d in r.dwellings()[:1] for h in r.all("heating_system", d)
+        _enum_text(h, "HeatingFuelType")
+        for d in r.dwellings()[:1]
+        for h in r.all("heating_system", d)
     ]
     found = [f for f in fuels if f]
     if not found:
         return Fact("not_developed", note="no heating fuel (no heating system)")
-    return present("text", printed_enum(found[0]), printed_enum(found[0]))
+    return present("text", found[0], found[0])
 
 
 @rule("improvements.cooling", ["dwelling_exterior"], ["Cooling"])
 def _cooling(r: Report) -> Fact:
-    values = [v for d in r.dwellings()[:1] for v in r.texts("cooling_system", d)]
+    values = [v for d in r.dwellings()[:1] for v in r.printed("cooling_system", d)]
     if not values:
         return Fact("not_developed", note="no cooling system in the XML")
-    return present("text", printed_enum(values[0]), printed_enum(values[0]))
+    return present("text", values[0], values[0])
 
 
 def _amenities(r: Report, category: str) -> list[ET.Element]:
@@ -1841,7 +1876,7 @@ def _effective(r: Report) -> Fact:
     value = r.text("effective_date")
     if value is None:
         return absent("no effective date in the XML")
-    return present("date", value, us_date(value))
+    return date_fact(value)
 
 
 # --- cost approach ----------------------------------------------------------------------
@@ -2007,8 +2042,16 @@ _line_rule("cost_approach.garage_cost_per_sqft", GARAGE_LINE, "per_sqft", "Garag
 _line_rule("cost_approach.garage_cost", GARAGE_LINE, "cost", "Garage", "garage")
 
 
-@_cost_rule("cost_approach.mechanicals_misc", ["Mechanicals"])
+MECHANICALS_LINE: Final = re.compile(r"mechanical|misc", re.IGNORECASE)
+
+
+@_cost_rule("cost_approach.mechanicals_misc", ["Mechanicals", "Misc"], window=60)
 def _mechanicals(r: Report) -> Fact:
+    """A cost line whose area type (or its OtherDescription) names mechanicals/misc."""
+    for imp in cost_improvements(r):
+        for line in imp.lines:
+            if MECHANICALS_LINE.search(line.area_type) and line.cost is not None:
+                return present("currency", line.cost, money(line.cost))
     return absent(
         "no mechanicals/misc. line (the manufactured-home delivery, installation and setup"
         " line is extra cost_approach.mh_delivery_installation_setup)"
@@ -2035,7 +2078,7 @@ def _cost_date(r: Report) -> Fact:
     value = _child(_cost_service(r), "DataSourceEffectiveDate")
     if value is None:
         return absent("no cost data effective date")
-    return present("date", value, us_date(value))
+    return date_fact(value)
 
 
 @_cost_rule("cost_approach.cost_data_source", ["Cost Data Source"])
@@ -2182,7 +2225,7 @@ def _signed(r: Report) -> Fact:
         if s.get("label", "").lower().endswith("appraiser"):
             value = _child(s, "EXECUTION/EXECUTION_DETAIL/ExecutionDate")
             if value:
-                return present("date", value, us_date(value))
+                return date_fact(value)
     return absent("no appraiser signature date")
 
 
@@ -2521,6 +2564,14 @@ def place(pages: Pages, rule_: Rule, fact: Fact) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------
 
 
+def _line_key(area_type: str) -> str:
+    if area_type in BASEMENT_LINE:
+        return "cost_approach.basement_cost"
+    if area_type in GARAGE_LINE:
+        return "cost_approach.garage_cost"
+    return "cost_approach.dwelling_cost"
+
+
 def cost_issues(r: Report) -> tuple[list[ExpectedIssue], list[str]]:
     """Cost-approach arithmetic: inconsistencies become issues; checks done are listed."""
     if r.cost() is None:
@@ -2530,10 +2581,12 @@ def cost_issues(r: Report) -> tuple[list[ExpectedIssue], list[str]]:
     for imp in cost_improvements(r):
         lines_total = 0.0
         for line in imp.lines:
+            # every printed line counts toward the improvement's total, with or without an
+            # area (a Mechanicals/Misc. line is a lump sum)
+            lines_total += line.cost or 0.0
             if line.sqft is None or line.per_sqft is None or line.cost is None:
                 continue
             product = line.sqft * line.per_sqft
-            lines_total += line.cost
             ok = abs(product - line.cost) <= max(1.0, 0.005 * line.cost)
             checks.append(
                 f"{imp.label} {line.area_type}: {line.sqft:g} x {line.per_sqft:g} = {product:,.2f},"
@@ -2543,7 +2596,7 @@ def cost_issues(r: Report) -> tuple[list[ExpectedIssue], list[str]]:
                 issues.append(
                     ExpectedIssue(
                         rule="cost_line_product",
-                        keys=("cost_approach.dwelling_cost",),
+                        keys=(_line_key(line.area_type),),
                         note=f"{imp.label}: {line.sqft:g} x {line.per_sqft:g} = {product:,.2f},"
                         f" printed {line.cost:,.0f}",
                     )

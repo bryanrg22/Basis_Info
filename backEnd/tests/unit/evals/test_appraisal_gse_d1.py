@@ -415,6 +415,143 @@ def test_every_catalogue_key_has_a_rule_or_an_absent_reason() -> None:
     assert set(gse_d1.mapped_keys()) == {s.key for s in FIELDS} - set(gse_d1.NOT_ON_UAD36)
 
 
+OTHER_STRUCTURE = """
+       <STRUCTURE>
+         <ARCHITECTURAL_DESIGN>
+           <ArchitecturalDesignCategoryType>Other</ArchitecturalDesignCategoryType>
+           <ArchitecturalDesignCategoryTypeOtherDescription>Barn Loft
+           </ArchitecturalDesignCategoryTypeOtherDescription>
+         </ARCHITECTURAL_DESIGN>
+         <STRUCTURE_COMPONENTS>
+           <STRUCTURE_COMPONENT>
+             <EXTERIOR_WALLS><EXTERIOR_WALL><WallMaterialType>Other</WallMaterialType>
+               <WallMaterialTypeOtherDescription>Faux Log</WallMaterialTypeOtherDescription>
+             </EXTERIOR_WALL></EXTERIOR_WALLS>
+             <STRUCTURE_COMPONENT_DETAIL><ImprovementComponentType>ExteriorWallsAndTrim</ImprovementComponentType></STRUCTURE_COMPONENT_DETAIL>
+           </STRUCTURE_COMPONENT>
+           <STRUCTURE_COMPONENT>
+             <ROOF><ROOF_MATERIALS><ROOF_MATERIAL><RoofMaterialType>Other</RoofMaterialType>
+               <RoofMaterialTypeOtherDescription>Green Sod</RoofMaterialTypeOtherDescription>
+             </ROOF_MATERIAL></ROOF_MATERIALS></ROOF>
+             <STRUCTURE_COMPONENT_DETAIL><ImprovementComponentType>Roof</ImprovementComponentType></STRUCTURE_COMPONENT_DETAIL>
+           </STRUCTURE_COMPONENT>
+           <STRUCTURE_COMPONENT>
+             <FOUNDATIONS><FOUNDATION><FOUNDATION_MATERIALS><FOUNDATION_MATERIAL>
+               <FoundationMaterialType>Other</FoundationMaterialType>
+               <FoundationMaterialTypeOtherDescription>Rammed Earth
+               </FoundationMaterialTypeOtherDescription>
+             </FOUNDATION_MATERIAL></FOUNDATION_MATERIALS></FOUNDATION></FOUNDATIONS>
+             <STRUCTURE_COMPONENT_DETAIL><ImprovementComponentType>Foundation</ImprovementComponentType></STRUCTURE_COMPONENT_DETAIL>
+           </STRUCTURE_COMPONENT>
+         </STRUCTURE_COMPONENTS>
+       </STRUCTURE>"""
+
+OTHER_FLOORING = """
+        <INTERIOR_COMPONENTS><INTERIOR_COMPONENT><FLOOR_COVERINGS>
+          <FLOOR_COVERING><FlooringType>Carpet</FlooringType></FLOOR_COVERING>
+          <FLOOR_COVERING><FlooringType>Other</FlooringType>
+            <FlooringTypeOtherDescription>Cork Plank</FlooringTypeOtherDescription></FLOOR_COVERING>
+        </FLOOR_COVERINGS></INTERIOR_COMPONENT></INTERIOR_COMPONENTS>
+        <PROPERTY_UNIT_DETAIL>"""
+
+MECHANICALS_LINE = """
+                  <REPLACEMENT_REPRODUCTION_COST>
+                    <ReplacementOrReproductionCostAmount>10000</ReplacementOrReproductionCostAmount>
+                    <ReplacementOrReproductionCostAreaType>Other</ReplacementOrReproductionCostAreaType>
+                    <ReplacementOrReproductionCostAreaTypeOtherDescription>Mechanicals/Misc</ReplacementOrReproductionCostAreaTypeOtherDescription>
+                  </REPLACEMENT_REPRODUCTION_COST>
+                </REPLACEMENT_REPRODUCTION_COSTS>"""
+
+
+def derive(xml: str, key: str) -> gse_d1.Fact:
+    report = gse_d1.Report(gse_d1.ET.fromstring(xml))
+    return gse_d1.RULES[key].derive(report)
+
+
+def test_other_codes_take_their_other_description() -> None:
+    """Gap 1: the URAR prints the OtherDescription, never the code ``Other``."""
+    xml = report_xml().replace("</IMPROVEMENT_DETAIL>", "</IMPROVEMENT_DETAIL>" + OTHER_STRUCTURE)
+    xml = xml.replace("<PROPERTY_UNIT_DETAIL>", OTHER_FLOORING, 1)
+    expected = {
+        "improvements.design_style": "Barn Loft",
+        "improvements.exterior_walls": "Faux Log",
+        "improvements.roof_surface": "Green Sod",
+        "improvements.foundation_walls": "Rammed Earth",
+        "improvements.floors": "Carpet, Cork Plank",
+    }
+    for key, value in expected.items():
+        fact = derive(xml, key)
+        assert (fact.status, fact.value) == ("present", value), key
+        assert "Other" not in fact.search, key
+
+
+def test_year_month_cost_data_date_is_a_month() -> None:
+    """Gap 2: a cost-data effective date given as YYYY-MM is a ``month`` (MM/YYYY)."""
+    assert gse_d1.us_date("2025-01") == "01/2025"
+    assert gse_d1.us_date("2019-09-17") == "09/17/2019"
+    month = gse_d1.date_fact("2025-01")
+    assert (month.type, month.value, month.search) == ("month", "2025-01", ("01/2025",))
+    day = gse_d1.date_fact("2019-09-17T00:00:00")
+    assert (day.type, day.value) == ("date", "2019-09-17")
+    assert gse_d1.date_fact("soon").status == "unscorable"
+    source = """<DATA_SOURCES><DATA_SOURCE>
+        <DataSourceEffectiveDate>2025-01</DataSourceEffectiveDate>
+        <DataSourceName>Cost Book</DataSourceName><DataSourceType>CostService</DataSourceType>
+      </DATA_SOURCE></DATA_SOURCES>
+   <PROPERTIES>"""
+    xml = report_xml().replace("<PROPERTIES>", source, 1)
+    fact = derive(xml, "cost_approach.effective_date_of_cost_data")
+    assert (fact.status, fact.type, fact.value) == ("present", "month", "2025-01")
+
+
+def with_mechanicals(xml: str, improvement_total: int = 305000) -> str:
+    xml = xml.replace("</REPLACEMENT_REPRODUCTION_COSTS>", MECHANICALS_LINE, 1)
+    xml = xml.replace(
+        "<ImprovementEstimatedTotalCostAmount>295000",
+        f"<ImprovementEstimatedTotalCostAmount>{improvement_total}",
+    )
+    return xml.replace(
+        "<DepreciatedCostDwellingsTotalAmount>295000",
+        f"<DepreciatedCostDwellingsTotalAmount>{improvement_total}",
+    )
+
+
+def test_mechanicals_line_is_read() -> None:
+    """Gap 3: a printed Mechanicals/Misc. cost line fills cost_approach.mechanicals_misc."""
+    fact = derive(with_mechanicals(report_xml(indicated=435_000)), "cost_approach.mechanicals_misc")
+    assert (fact.status, fact.type, fact.value, fact.search) == (
+        "present",
+        "currency",
+        10000,
+        ("$10,000",),
+    )
+    assert derive(report_xml(), "cost_approach.mechanicals_misc").status == "absent"
+
+
+def test_lines_without_an_area_count_in_the_improvement_total(tmp_path: Path) -> None:
+    """Gap 4: 300,008 + 24,000 + 10,000 (no area) - 29,008 = 305,000 is consistent."""
+    doc = build(tmp_path, with_mechanicals(report_xml(indicated=435_000)))
+    assert doc.expected_issues == ()
+    assert "300,008 +" not in (doc.note or "")  # the lump-sum line is in the lines total
+    assert "334,008 + 0 - 29,008 = 305,000" in (doc.note or "")
+
+
+def test_improvement_total_missing_the_lump_sum_line_is_an_issue(tmp_path: Path) -> None:
+    xml = with_mechanicals(report_xml(indicated=425_000), improvement_total=295000)
+    rules = [i.rule for i in build(tmp_path / "a", xml).expected_issues]
+    assert rules == ["cost_improvement_total"]
+
+
+def test_line_product_issue_names_the_line_key(tmp_path: Path) -> None:
+    xml = report_xml().replace(
+        "<PricePerAreaAmount>50</PricePerAreaAmount>", "<PricePerAreaAmount>60</PricePerAreaAmount>"
+    )
+    issues = build(tmp_path, xml).expected_issues
+    assert [(i.rule, i.keys) for i in issues] == [
+        ("cost_line_product", ("cost_approach.garage_cost",))
+    ]
+
+
 def test_cli_writes_the_truth_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     write_scenario(tmp_path, "T1", report_xml(), pdf_pages())
     write_scenario(tmp_path, "T2", report_xml(cost=False), pdf_pages())
