@@ -89,6 +89,10 @@ PRICES: Final[dict[str, Price]] = {
     "claude-fable-5-1": _p("10.00", "50.00"),
     "claude-opus-5-5": _p("4.00", "20.00"),
     "claude-sonnet-5-5": _p("2.00", "10.00"),
+    # 2026-10-26, platform.claude.com/docs/en/about-claude/pricing (Anthropic's model table,
+    # cached 2026-10-06): prompts up to 100K tokens; above that $0.50 / $2.50, which this
+    # table does not model (an appraisal request is about 10-40K tokens).
+    "claude-haiku-5-5": _p("0.10", "0.50"),
 }
 UNKNOWN_MODEL_PRICE: Final = Price(
     max(p.input_per_million for p in PRICES.values()),

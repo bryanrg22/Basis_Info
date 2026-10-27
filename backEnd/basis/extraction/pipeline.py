@@ -19,13 +19,19 @@ S3_SPEC section 2 (binding signature) and section 4. One call per appraisal revi
    ``critical``; :mod:`basis.extraction.fallback`), then the derived site-area fields
    (:mod:`basis.extraction.derived`), then validate again.
 5. The review gate (:mod:`basis.extraction.confidence`).
+
+Two context hooks exist for the appraisal extraction sweep (``evals/appraisal/systems``) and
+default to today's behaviour: ``fallback_pages`` replaces the page texts the model is given
+(the sweep's ``checkbox_context`` passes Azure DI's page ``content`` with its ``:selected:``
+marks instead of the page lines, which carry none), and ``always_ask`` adds keys the model is
+asked even when Azure DI or the text layer read them (the checkbox boxes).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,6 +39,7 @@ from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.derived import derive_fields
 from basis.extraction.fallback import WHOLE_DOCUMENT_CHARS, Scope, fallback_fields, fallback_keys
+from basis.extraction.field_mappings import FIELDS
 from basis.extraction.pdf_text import read_pdf
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
@@ -74,6 +81,10 @@ class ExtractionContext:
     # EXTRACTION_FALLBACK_CONTEXT_CHARS; a caller that sets nothing gets S3's "critical".
     fallback_scope: Scope = "critical"
     fallback_context_chars: int = WHOLE_DOCUMENT_CHARS
+    # Module doc: the page texts the fallback is given when Azure DI analyzed the document
+    # (``None`` = the Azure DI page lines), and keys always asked of the fallback.
+    fallback_pages: Callable[[AzureDiResult], Sequence[str]] | None = None
+    always_ask: frozenset[str] = frozenset()
 
 
 async def extract_appraisal(
@@ -119,7 +130,9 @@ async def extract_appraisal(
         primary, comparables = azure_candidates(azure)
         fields, merge_issues = merge(primary, [*regex, *tables])
         comparables = comparables or pdf_comparables
-        context_pages = azure.page_texts()
+        context_pages = (
+            list(ctx.fallback_pages(azure)) if ctx.fallback_pages else azure.page_texts()
+        )
     else:
         fields, merge_issues = merge(regex, tables)
         comparables = pdf_comparables
@@ -130,6 +143,9 @@ async def extract_appraisal(
     fields = {**fields, **derive_fields(fields)}
     issues = merge_issues + validate_fields(fields)
     wanted = fallback_keys(fields, issues, ctx.fallback_scope)
+    if ctx.always_ask:
+        asked = set(wanted) | ctx.always_ask
+        wanted = [spec.key for spec in FIELDS if spec.key in asked]
     ctx.heartbeat("fallback")
     outcome = await fallback_fields(
         wanted,

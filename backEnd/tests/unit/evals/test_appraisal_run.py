@@ -135,7 +135,7 @@ def test_replay_from_a_hand_written_recording_via_the_cli(
     site = predictions["documents"][0]["repeats"][0]["fields"]["cost_approach.site_value"]
     assert (site["source"], site["page"], site["value_num"]) == ("azure", 1, "85000")
     run = json.loads((out / "run.json").read_text())
-    assert run["systems"] == {"azure_di": True, "llm": False}
+    assert run["systems"] == {"azure_di": True, "llm": False, "azure_1004": False}
     assert run["sets"] == ["synthetic_1004"] and run["git_sha"]
     assert "85,000" not in (out / "report.md").read_text()
 
