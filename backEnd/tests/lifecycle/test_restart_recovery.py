@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from datetime import timedelta
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from lifecycle_support import Harness
@@ -35,6 +35,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")
 # next task or query to its (now dead) sticky queue. A real server falls back from a dead
 # sticky queue after a timeout; the time-skipping test server does not for queries.
 NO_STICKY: dict[str, Any] = {"max_cached_workflows": 0}
+# A workflow task the test server hands to a poll the stopped worker sent just before it
+# shut down is lost until this timeout (the server's default is 10 s). The slowest workflow
+# task measured under heavy load (three suites in parallel on saturated cores) took 0.8 s.
+STOPPED_WORKER_TASK_TIMEOUT: Final = timedelta(seconds=3)
 
 
 async def started_counts(handle: WorkflowHandle[Any, Any]) -> Counter[str]:
@@ -50,6 +54,23 @@ async def started_counts(handle: WorkflowHandle[Any, Any]) -> Counter[str]:
         for e in history.events
         if e.HasField("activity_task_started_event_attributes")
     )
+
+
+async def started_by(handle: WorkflowHandle[Any, Any]) -> dict[str, str]:
+    """The identity of the worker that ran each activity id (its final attempt)."""
+    history = await handle.fetch_history()
+    scheduled = {
+        e.event_id: e.activity_task_scheduled_event_attributes.activity_id
+        for e in history.events
+        if e.HasField("activity_task_scheduled_event_attributes")
+    }
+    return {
+        scheduled[e.activity_task_started_event_attributes.scheduled_event_id]: (
+            e.activity_task_started_event_attributes.identity
+        )
+        for e in history.events
+        if e.HasField("activity_task_started_event_attributes")
+    }
 
 
 async def assert_no_duplicates(harness: Harness, handle: WorkflowHandle[Any, Any]) -> None:
@@ -111,31 +132,71 @@ async def test_new_worker_resumes_a_study_waiting_for_review(harness: Harness) -
 
 
 async def test_worker_stopped_between_activities(harness: Harness) -> None:
-    ingested = asyncio.Event()
+    """The stopped worker ingests the appraisal (and runs the photo stage); the new worker
+    extracts.
 
-    def ingest_then_signal(real: IngestAppraisal) -> Any:
+    A task the server hands to the stopping worker's polls is lost until its timeout. So
+    the worker stops only once the workflow is settled (nothing open but the ingestion,
+    which the test holds), and the ingestion's result is delivered (async completion)
+    after it has shut down: no activity can then be scheduled while it stops. (Before,
+    observed: the photo stage's ``localize_photo`` and ``reconcile_rooms``, scheduled as it
+    stopped, waited out their 30 s heartbeat timeout, longer than the harness waits; the
+    shape of the CI failure in run 40157838312.) The one task
+    still exposed is the workflow task after the ingestion: the test server can hand it
+    to a poll the stopped worker sent just before shutting down (4 of 570 runs under
+    heavy load), so the workflow runs with a short workflow task timeout.
+    """
+    held: list[tuple[bytes, IngestAppraisalOutput]] = []
+
+    def ingest_then_hold(real: IngestAppraisal) -> Any:
         @activity.defn(name="ingest_appraisal")
         async def wrapped(input: IngestAppraisalInput) -> IngestAppraisalOutput:
-            output = await real.run(input)
-            ingested.set()
-            return output
+            held.append((activity.info().task_token, await real.run(input)))
+            activity.raise_complete_async()
 
         return wrapped
 
     study = await harness.seed(photos=["kitchen_1.jpg"])
     async with harness.worker(
-        NO_STICKY, ingest_appraisal=ingest_then_signal(IngestAppraisal(harness.deps))
+        {**NO_STICKY, "identity": "stopped"},
+        ingest_appraisal=ingest_then_hold(IngestAppraisal(harness.deps)),
     ):
-        started = await harness.start(study)
-        await asyncio.wait_for(ingested.wait(), 30)
+        started = await harness.start(study, task_timeout=STOPPED_WORKER_TASK_TIMEOUT)
+        # The photo stage done too, so the worker stops with no task in flight. (The held
+        # ingestion sends no heartbeats; this takes ~1 s of its 30 s heartbeat timeout.)
+        await harness.wait_settled(started.handle, holding="ingest_appraisal:r1")
 
-    async with harness.worker():
+    [(task_token, output)] = held
+    await harness.client.get_async_activity_handle(task_token=task_token).complete(output)
+    async with harness.worker({"identity": "resumed"}):
         await harness.approve_all(started.handle)
         result = await harness.result(started.handle)
     assert result.outcome == "completed"
     counts = await started_counts(started.handle)
     assert counts["ingest_appraisal:r1"] == 1
     assert counts["extract_fields:r1"] == 1  # resumed at the next step, not re-ingested
+    workers = await started_by(started.handle)
+    assert (workers["ingest_appraisal:r1"], workers["extract_fields:r1"]) == ("stopped", "resumed")
+    # No activity was lost (a lost one is retried after its timeout, with no timed-out
+    # event), and a workflow task timed out only if the stopped worker's poll took it.
+    history = await started.handle.fetch_history()
+    assert {
+        e.activity_task_started_event_attributes.attempt
+        for e in history.events
+        if e.HasField("activity_task_started_event_attributes")
+    } == {1}
+    workflow_task_started_by = {
+        e.workflow_task_started_event_attributes.scheduled_event_id: (
+            e.workflow_task_started_event_attributes.identity
+        )
+        for e in history.events
+        if e.HasField("workflow_task_started_event_attributes")
+    }
+    assert {
+        workflow_task_started_by[e.workflow_task_timed_out_event_attributes.scheduled_event_id]
+        for e in history.events
+        if e.HasField("workflow_task_timed_out_event_attributes")
+    } <= {"stopped"}
     await assert_no_duplicates(harness, started.handle)
     outputs = await output_counts(harness, study.study_id)
     assert (outputs["extractions"], outputs["photo_rooms"], outputs["chunks"]) == (
