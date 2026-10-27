@@ -19,7 +19,7 @@ from evals.datasets import Split, data_dir
 
 SCHEMA_VERSION: Final = 2
 CATALOGUE_KEYS: Final = frozenset(spec.key for spec in FIELDS)
-SETS: Final = ("client", "gse_d1", "synthetic_1004")
+SETS: Final = ("client", "client_uad36", "gse_d1", "synthetic_1004")
 
 Status = Literal["present", "absent", "not_developed", "unscorable"]
 TruthType = Literal[
