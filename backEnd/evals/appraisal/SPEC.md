@@ -19,7 +19,9 @@ whether the review gate catches the errors. Research behind every choice:
    `present`, `absent` (the document does not carry the box at all, e.g. no certification
    pages), `not_developed` (the box exists and the appraiser left it blank, `0`, `N/A` or
    checked "not developed"; e.g. the income approach), or `unscorable` (a human could not
-   decide; excluded, with a note). A value predicted for `absent` / `not_developed` is a
+   decide; excluded, with a note). A printed `0` is `not_developed` only for a valuation
+   approach or a cost-approach line the appraiser skipped; elsewhere (HOA dues, special
+   assessments, concessions) `$0` is a real value and the field is `present` with 0. A value predicted for `absent` / `not_developed` is a
    *spurious* value, scored as an error.
 3. **Documents are the independent unit.** Intervals are clustered by document; a claim
    about accuracy needs many documents (rule of three: 0 errors in 59 documents bounds the
@@ -103,7 +105,7 @@ have no tolerance.
 |---|---|---|
 | `text` | string | NFKC, casefold, collapse whitespace, strip trailing `.`/`,`. Correct = equal; also report ANLS (normalized Levenshtein similarity, 0.5 threshold) as a secondary metric. |
 | `int` / `float` | number | first number in the string, commas removed; `int` exact. |
-| `currency` | integer dollars (or decimal when cents are printed) | strip `$`, `=`, spaces, commas; `(x)` and `-x` negative; `n/a`, `none`, empty → no value. |
+| `currency` | integer dollars (or decimal when cents are printed) | strip `$`, `=`, spaces, commas; `-x` negative; `(x)` negative except after `=$` or `$` in the cost approach, where the parentheses are the form's subtraction marks (`=$( 156,240)` is 156240); `n/a`, `none`, empty → no value. |
 | `percent` | number 0-100 | strip `%`. |
 | `date` | ISO `YYYY-MM-DD` | M/D/YYYY, M/D/YY (century: not more than a year ahead), ISO, "Month D, YYYY". |
 | `month` | `YYYY-MM` | MM/YYYY, M/YY, ISO month. |
@@ -131,7 +133,7 @@ use `extra` keys):
 | `improvements.units` | one, one_with_accessory_unit |
 | `improvements.type` | det, att, s_det_end_unit |
 | `improvements.foundation_type` (multi) | concrete_slab, crawl_space, full_basement, partial_basement |
-| `improvements.heating_type` | fwa, hwbb, radiant, other |
+| `improvements.heating_type` (multi) | fwa, hwbb, radiant, other (an appraiser can check two boxes; `other` carries its text as `{"code": "other", "text": ...}` inside the list) |
 | `improvements.car_storage` (multi) | none, driveway, garage, carport, attached, detached, built_in |
 | `reconciliation.appraisal_made` | as_is, subject_to_completion, subject_to_repairs, subject_to_inspection |
 | `site.utilities_*` | public, other (with text), none |
