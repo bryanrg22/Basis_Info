@@ -97,6 +97,68 @@ def test_highlight_status(pdf_path: Path) -> None:
         highlight_status(occupant, [{"page": 1, "bbox": around(words[0], "Tenant")}], words)
         == "wrong_box"
     )
+    # A scanned page has no text layer: the box cannot be checked (not "wrong_box").
+    scanned = [PageWords(page.width, page.height, ()) for page in words]
+    assert highlight_status(price, good, scanned) is None
+
+
+def _line(*tokens: str) -> PageWords:
+    """One line of words at y 100-110 on a 600 x 800 page, 10 points per token, 5 apart."""
+    words, x = [], 50.0
+    for token in tokens:
+        words.append((token, x, 100.0, x + 10.0 * len(token), 110.0))
+        x += 10.0 * len(token) + 5.0
+    return PageWords(600.0, 800.0, tuple(words))
+
+
+def _box(page: PageWords, first: int, last: int) -> list[dict[str, Any]]:
+    w = page.words
+    return [{"page": 1, "bbox": [w[first][1] / 600, 0.12, w[last][3] / 600, 0.14]}]
+
+
+def test_highlight_targets_are_the_value_not_its_print_conventions() -> None:
+    # An "x" between numbers is part of the value (it was stripped as a checkbox mark).
+    dims = _line("Dimensions", "50", "x", "150")
+    site = truth("site.dimensions", type="text", value="50 x 150", printed="50 x 150")
+    assert highlight_status(site, _box(dims, 1, 3), [dims]) == "correct"
+    # An en dash prints where the vocabulary label has a hyphen.
+    time = _line("Marketing", "Time", "3\u20136", "mths")
+    months = truth(
+        "neighborhood.marketing_time", type="enum", value="3_6_mths", printed="3\u20136 mths"
+    )
+    assert highlight_status(months, _box(time, 2, 3), [time]) == "correct"
+    # An Other box's write-in is what the box reads.
+    gas = _line("Gas", "Propane")
+    other = truth(
+        "site.utilities_gas",
+        type="enum",
+        value={"code": "other", "text": "Propane"},
+        printed="Propane",
+    )
+    assert highlight_status(other, _box(gas, 1, 1), [gas]) == "correct"
+    # A number may be boxed without the caption or unit the truth's print carries, but only as
+    # a whole word: "2" is not inside "2244".
+    fire = _line("Total", "Number", "-", "4", "2244")
+    four = truth("improvements.fireplaces", type="int", value=4, printed="Total Number - 4")
+    assert highlight_status(four, _box(fire, 3, 3), [fire]) == "correct"
+    two = truth("improvements.fireplaces", type="int", value=2, printed="Total Number - 2")
+    assert highlight_status(two, _box(fire, 4, 4), [fire]) == "wrong_box"
+    grouped = _line("Area", "2,244")
+    assert highlight_status(two, _box(grouped, 1, 1), [grouped]) == "wrong_box"  # not in 2,244
+    # A number glued to the next word by a semicolon is still that number.
+    dom = _line("DOM", "250;The")
+    days = truth("listing_and_contract.days_on_market", type="int", value=250, printed="DOM 250")
+    assert highlight_status(days, _box(dom, 1, 1), [dom]) == "correct"
+    # A text value's words in another reading order (a wrapped or offset line) still count.
+    lender = PageWords(
+        600.0,
+        800.0,
+        (("Piper", 50.0, 101.0, 90.0, 111.0), ("Mortgage", 95.0, 100.0, 155.0, 110.0)),
+    )
+    name = truth(
+        "subject.lender_client", type="text", value="Piper Mortgage", printed="Piper Mortgage"
+    )
+    assert highlight_status(name, _box(lender, 0, 1), [lender]) == "correct"
 
 
 def test_highlight_in_the_score_and_report(pdf_path: Path) -> None:

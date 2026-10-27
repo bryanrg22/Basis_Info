@@ -52,7 +52,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Final
 
 from basis.extraction.fallback import appears_in
-from basis.extraction.field_mappings import FIELD_BY_KEY
+from basis.extraction.field_mappings import CHECKBOX_KEYS, FIELD_BY_KEY
 from evals.appraisal.normalize import (
     ENUMS,
     Columns,
@@ -267,21 +267,34 @@ def _page_status(truth: FieldTruth, page: int | None) -> str | None:
 _BOX_GLYPHS: Final = "|".join(chr(c) for c in (0x2612, 0x2611, 0x25A0))
 _MARKS: Final = re.compile(rf":(?:un)?selected:|(?<![^\s;,])(?:[xX]|{_BOX_GLYPHS})(?=\s)")
 _NO_SPACE: Final = re.compile(r"\s+")
-# Typographic single and double quotes read as straight ones.
+# Typographic quotes read as straight ones, en and em dashes as hyphens ("3–6 mths").
 _HIGHLIGHT_QUOTES: Final = str.maketrans(
-    {chr(0x2019): "'", chr(0x2018): "'", chr(0x201C): '"', chr(0x201D): '"'}
+    {
+        chr(0x2019): "'",
+        chr(0x2018): "'",
+        chr(0x201C): '"',
+        chr(0x201D): '"',
+        chr(0x2013): "-",
+        chr(0x2014): "-",
+    }
 )
+_NUMBER: Final = re.compile(r"\d[\d,]*(?:\.\d+)?")
+_NUMERIC_TYPES: Final = frozenset({"int", "float", "currency", "percent", "area_sqft"})
 
 
 def fold_highlight(text: str) -> str:
-    """NFKC, casefold, typographic quotes straight, all whitespace removed."""
+    """NFKC, casefold, typographic quotes straight, dashes as hyphens, all whitespace removed."""
     folded = unicodedata.normalize("NFKC", text).translate(_HIGHLIGHT_QUOTES).casefold()
     return _NO_SPACE.sub("", folded)
 
 
 def highlight_targets(truth: FieldTruth) -> list[str]:
-    """What the highlighted words must contain: the printed value; for a checkbox enum the
-    label (or a synonym) of a checked option, for a bool its Yes/No; empty: not checkable."""
+    """What the highlighted words must contain (any one of the targets): the printed value;
+    for a checkbox enum the label (or a synonym) of a checked option, or an ``Other`` box's
+    write-in; for a bool its Yes/No; for a number the printed number itself (the box may
+    leave out the caption or unit the truth's ``printed`` carries: "Total Number - 4",
+    "1,982 sq.ft."); empty: not checkable. An "X" mark is stripped from a checkbox field's
+    printed value only ("50 x 150" keeps its x)."""
     if truth.type in ("enum", "enum_multi"):
         values = truth.value if isinstance(truth.value, list) else [truth.value]
         codes = {v.get("code") if isinstance(v, Mapping) else v for v in values}
@@ -291,27 +304,43 @@ def highlight_targets(truth: FieldTruth) -> list[str]:
             if item.code in codes
             for form in (item.label, *item.synonyms)
         ]
+        targets += [str(v["text"]) for v in values if isinstance(v, Mapping) and v.get("text")]
         return [t for t in (fold_highlight(t) for t in targets) if t]
     if truth.type == "bool" and isinstance(truth.value, bool):
         return ["yes"] if truth.value else ["no"]
     if truth.printed:
-        printed = fold_highlight(_MARKS.sub(" ", truth.printed))
+        text = _MARKS.sub(" ", truth.printed) if truth.key in CHECKBOX_KEYS else truth.printed
+        printed = fold_highlight(text)
         return [printed] if printed else []
     return []
 
 
-def words_in(page: PageWords, bbox: Sequence[float]) -> str:
-    """The folded text of the words whose centres fall in ``bbox`` (page fractions), in
-    reading order (top, then left)."""
+def number_target(truth: FieldTruth) -> str | None:
+    """A number field's printed number: a box holding it as a whole word is on the value
+    (module doc of :func:`highlight_targets`)."""
+    if truth.type not in _NUMERIC_TYPES or not truth.printed:
+        return None
+    found = _NUMBER.findall(truth.printed)
+    return found[0] if found else None
+
+
+def words_inside(page: PageWords, bbox: Sequence[float]) -> list[str]:
+    """The folded words whose centres fall in ``bbox`` (page fractions), in reading order
+    (top, then left)."""
     if page.width <= 0 or page.height <= 0 or len(bbox) != 4:
-        return ""
+        return []
     x0, y0, x1, y1 = (float(v) for v in bbox)
     inside = []
     for text, left, top, right, bottom in page.words:
         cx, cy = (left + right) / 2 / page.width, (top + bottom) / 2 / page.height
         if x0 <= cx <= x1 and y0 <= cy <= y1:
             inside.append((round(top, 1), left, text))
-    return "".join(fold_highlight(t) for _, _, t in sorted(inside))
+    return [fold_highlight(t) for _, _, t in sorted(inside)]
+
+
+def words_in(page: PageWords, bbox: Sequence[float]) -> str:
+    """The folded text of the words in ``bbox``, joined (:func:`words_inside`)."""
+    return "".join(words_inside(page, bbox))
 
 
 def highlight_status(
@@ -325,7 +354,8 @@ def highlight_status(
     if regions is None or truth.page is None or words is None:
         return None
     targets = highlight_targets(truth)
-    if not targets:
+    number = number_target(truth)
+    if not targets and number is None:
         return None
     if not regions:
         return "no_region"
@@ -335,8 +365,20 @@ def highlight_status(
         return "wrong_page"
     if not isinstance(page, int) or not 0 < page <= len(words):
         return None
-    inside = words_in(words[page - 1], first.get("bbox") or ())
-    return "correct" if any(t in inside for t in targets) else "wrong_box"
+    if not words[page - 1].words:
+        return None  # a scanned page has no text layer to check the box against
+    inside = words_inside(words[page - 1], first.get("bbox") or ())
+    joined = "".join(inside)
+    if any(t in joined for t in targets):
+        return "correct"
+    if number is not None and any(
+        part.strip("$=()+:,%") == number for w in inside for part in w.split(";")
+    ):
+        return "correct"
+    tokens = [fold_highlight(t) for t in (truth.printed or "").split()]
+    if truth.type == "text" and tokens and all(any(t in w for w in inside) for t in tokens):
+        return "correct"  # every printed word inside, read in another order (wrapped lines)
+    return "wrong_box"
 
 
 def score_field(
