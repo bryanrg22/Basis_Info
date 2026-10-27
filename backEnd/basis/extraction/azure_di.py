@@ -208,6 +208,12 @@ class AzureDocumentIntelligence:
         self._timeout_s = timeout_s
 
     async def analyze(self, pdf_bytes: bytes) -> AzureDiResult:
+        return from_sdk(await self.analyze_raw(pdf_bytes))
+
+    async def analyze_raw(self, pdf_bytes: bytes) -> Any:
+        """The SDK ``AnalyzeResult`` itself, before :func:`from_sdk` (the appraisal eval
+        harness records it with ``result.as_dict()``). Same request, timeout and error
+        mapping as :meth:`analyze`."""
         from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
         from azure.ai.documentintelligence.models import (
             AnalyzeDocumentRequest,
@@ -232,7 +238,7 @@ class AzureDocumentIntelligence:
             raise
         except Exception as exc:
             raise map_azure_error(exc) from exc
-        return from_sdk(result)
+        return result
 
     @classmethod
     def from_settings(cls, settings: Settings) -> AzureDocumentIntelligence | None:
