@@ -21,7 +21,8 @@ Layout (``SPEC.md`` §2), under ``BASIS_EVAL_DATA_DIR/appraisal/recordings/<pdf 
   :func:`request_hash` over the request's model, system prompt, messages (images by
   digest), response schema name, reasoning effort, max tokens, temperature and tools. The
   study id and activity are not hashed (they change per run). The request's content is
-  not stored, only its hash and a few settings.
+  not stored, only its hash and a few settings. A later live run of the same request adds
+  ``llm/<hash>.take<n>.json`` and never replaces the first answer (:func:`take_path`).
 
 A request with no recording raises :class:`MissingRecording`, which is not a provider error,
 so it propagates through the pipeline's fallback and fails the document (the prompt or the
@@ -153,12 +154,27 @@ def error_record(request: ChatRequest, error: ProviderError) -> dict[str, Any]:
     }
 
 
-class RecordingProvider:
-    """Wraps the real provider; writes ``llm/<hash>.json`` for each answer.
+def take_path(directory: Path, digest: str) -> Path:
+    """Where a new answer to request ``digest`` goes: ``<hash>.json`` for the first, then
+    ``<hash>.take2.json``, ``<hash>.take3.json``... A recording is never overwritten: a
+    replay (and the baseline accepted from one) keeps answering from the first take, and
+    the later takes stay for measuring how much a model's answers vary."""
+    first = directory / f"{digest}.json"
+    if not first.exists():
+        return first
+    n = 2
+    while (directory / f"{digest}.take{n}.json").exists():
+        n += 1
+    return directory / f"{digest}.take{n}.json"
 
-    In one run a hash is written once (the first repeat's answer), so a replay reproduces
-    the run's first repeat. Provider errors other than account errors are recorded too
-    (the pipeline continues past them); an account error stops the document."""
+
+class RecordingProvider:
+    """Wraps the real provider; records each answer (:func:`take_path`).
+
+    In one run a hash is recorded once (the first repeat's answer); a later live run adds
+    a take instead of replacing the first, so a replay reproduces the first live run.
+    Provider errors other than account errors are recorded too (the pipeline continues past
+    them); an account error stops the document."""
 
     def __init__(self, inner: ChatProvider, directory: Path) -> None:
         self._inner = inner
@@ -166,23 +182,19 @@ class RecordingProvider:
         self.name = getattr(inner, "name", "recording")
         self.written: set[str] = set()
 
-    def _path(self, request: ChatRequest) -> tuple[str, Path]:
-        digest = request_hash(request)
-        return digest, self._directory / f"{digest}.json"
-
     async def complete(self, request: ChatRequest) -> ChatResponse:
-        digest, path = self._path(request)
+        digest = request_hash(request)
         try:
             response = await self._inner.complete(request)
         except ProviderAccountError:
             raise
         except ProviderError as error:
             if digest not in self.written:
-                _write_json(path, error_record(request, error))
+                _write_json(take_path(self._directory, digest), error_record(request, error))
                 self.written.add(digest)
             raise
         if digest not in self.written:
-            _write_json(path, response_record(request, response))
+            _write_json(take_path(self._directory, digest), response_record(request, response))
             self.written.add(digest)
         return response
 

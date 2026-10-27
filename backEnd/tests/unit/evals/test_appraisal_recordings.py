@@ -148,6 +148,23 @@ async def test_a_hash_is_written_once_per_run(tmp_path: Path) -> None:
     assert replayed.parsed == ANSWER  # the first repeat's answer
 
 
+async def test_a_later_run_adds_a_take_and_never_replaces_the_first(tmp_path: Path) -> None:
+    # Two live runs (two recorders) of the same request: the sweep's second run used to
+    # overwrite the first answer, so the baseline accepted from it no longer replayed.
+    second = FallbackAnswer(fields=[])
+    for answer in (ANSWER, second, second):
+        recorder = recordings.RecordingProvider(
+            ScriptedProvider([ScriptedTurn(parsed=answer)]), tmp_path
+        )
+        await recorder.complete(request())
+    digest = recordings.request_hash(request())
+    assert sorted(f.name for f in tmp_path.glob("*.json")) == sorted(
+        [f"{digest}.json", f"{digest}.take2.json", f"{digest}.take3.json"]
+    )
+    replayed = await recordings.ReplayProvider(tmp_path).complete(request())
+    assert replayed.parsed == ANSWER  # the first take
+
+
 async def test_replay_miss_raises_missing_recording(tmp_path: Path) -> None:
     with pytest.raises(recordings.MissingRecording):
         await recordings.ReplayProvider(tmp_path).complete(request())
