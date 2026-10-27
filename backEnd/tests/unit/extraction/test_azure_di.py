@@ -13,6 +13,7 @@ from fixtures import fixture_path
 from basis.config import Settings
 from basis.extraction import azure_di
 from basis.extraction.azure_di import (
+    MAX_POLL_DELAY_S,
     AzureDiResult,
     AzureDocumentIntelligence,
     from_sdk,
@@ -157,6 +158,7 @@ class FakePoller:
 
 class FakeClient:
     calls: list[dict[str, Any]] = []
+    polling: Any = None
     result: Any = None
     delay: float = 0.0
 
@@ -174,6 +176,7 @@ class FakeClient:
         FakeClient.calls.append(
             {"model_id": model_id, "bytes": body.bytes_source, "features": kwargs["features"]}
         )
+        FakeClient.polling = kwargs.get("polling")
         return FakePoller(FakeClient.result, FakeClient.delay)
 
 
@@ -198,6 +201,32 @@ async def test_analyze_sends_layout_with_key_value_pairs(fake_sdk: type[FakeClie
         "features": [DocumentAnalysisFeature.KEY_VALUE_PAIRS],
     }
     assert result.key_value_pairs[0].key == "Year Built"
+
+
+def _poll_response(headers: dict[str, str]) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(http_response=SimpleNamespace(headers=headers))
+
+
+async def test_analyze_caps_the_retry_after_between_polls(fake_sdk: type[FakeClient]) -> None:
+    """Azure DI answered a poll of a 32-page form with ``Retry-After: 1587`` and finished
+    the analysis in about 60 s; the SDK's poller slept on it and the 180 s timeout failed the
+    document. The poller is the SDK's own, with the delay capped."""
+    from azure.core.polling.async_base_polling import AsyncLROBasePolling
+
+    client = AzureDocumentIntelligence("https://x.cognitiveservices.azure.com/", "k", timeout_s=5)
+    await client.analyze(b"%PDF-")
+    polling = fake_sdk.polling
+    assert isinstance(polling, AsyncLROBasePolling)
+    assert polling._path_format_arguments == {"endpoint": "https://x.cognitiveservices.azure.com"}
+    for headers, delay in (
+        ({"Retry-After": "1587"}, MAX_POLL_DELAY_S),  # the measured header
+        ({"Retry-After": "2"}, 2.0),  # a short one is kept
+        ({}, 1.0),  # none: the polling interval
+    ):
+        polling._pipeline_response = _poll_response(headers)
+        assert polling._extract_delay() == delay
 
 
 async def test_analyze_times_out_as_unavailable(fake_sdk: type[FakeClient]) -> None:

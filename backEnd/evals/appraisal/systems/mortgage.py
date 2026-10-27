@@ -44,7 +44,7 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 from basis.config import Settings
-from basis.extraction.azure_di import map_azure_error
+from basis.extraction.azure_di import capped_polling, map_azure_error
 from basis.extraction.field_mappings import FIELD_BY_KEY
 from basis.extraction.results import Candidate, ExtractedField, ValidationIssue
 from evals.appraisal.systems.base import (
@@ -177,7 +177,9 @@ class AzureModelClient:
                 endpoint=self._endpoint, credential=AzureKeyCredential(self._key)
             ) as client:
                 poller = await client.begin_analyze_document(
-                    self.model_id, AnalyzeDocumentRequest(bytes_source=pdf_bytes)
+                    self.model_id,
+                    AnalyzeDocumentRequest(bytes_source=pdf_bytes),
+                    polling=capped_polling(self._endpoint),
                 )
                 return await poller.result()
 

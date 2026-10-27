@@ -39,6 +39,10 @@ logger = logging.getLogger("basis.extraction.azure_di")
 
 MODEL_ID: Final = "prebuilt-layout"
 PROVIDER: Final = "azure_di"
+# The longest wait between two polls of an analysis. Azure DI can answer a poll with a
+# Retry-After far beyond the analysis time (measured: 1,587 s on a 32-page form it finished in
+# about 60 s), and the SDK's poller honours it, so the client timeout fires first.
+MAX_POLL_DELAY_S: Final = 5.0
 
 
 class _Frozen(BaseModel):
@@ -197,6 +201,18 @@ def map_azure_error(exc: Exception) -> ProviderError:
     return ProviderUnavailable(f"{type(exc).__name__}: {exc}", provider=PROVIDER)
 
 
+def capped_polling(endpoint: str) -> Any:
+    """The SDK's own poller (``AsyncLROBasePolling``, as ``begin_analyze_document`` builds it)
+    with the server's Retry-After capped at :data:`MAX_POLL_DELAY_S`."""
+    from azure.core.polling.async_base_polling import AsyncLROBasePolling
+
+    class CappedPolling(AsyncLROBasePolling[Any, Any, Any]):
+        def _extract_delay(self) -> float:
+            return float(min(super()._extract_delay(), MAX_POLL_DELAY_S))
+
+    return CappedPolling(1, path_format_arguments={"endpoint": endpoint.rstrip("/")})
+
+
 class AzureDocumentIntelligence:
     """The real client (``azure.ai.documentintelligence.aio``)."""
 
@@ -229,6 +245,7 @@ class AzureDocumentIntelligence:
                     MODEL_ID,
                     AnalyzeDocumentRequest(bytes_source=pdf_bytes),
                     features=[DocumentAnalysisFeature.KEY_VALUE_PAIRS],
+                    polling=capped_polling(self._endpoint),
                 )
                 return await poller.result()
 
