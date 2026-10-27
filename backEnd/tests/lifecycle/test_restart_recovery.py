@@ -33,7 +33,11 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")
 
 # The worker that is stopped runs without a workflow cache, so the server never routes the
 # next task or query to its (now dead) sticky queue. A real server falls back from a dead
-# sticky queue after a timeout; the time-skipping test server does not for queries.
+# sticky queue after a timeout; the time-skipping test server does not for queries. A query
+# to such a worker is a task on the normal queue, which the test server hands out even while
+# a workflow task of the same run is in flight; one of the two is then lost (observed: a
+# workflow task timed out after 10 s, or the query RPC timed out). So where a test can, it
+# waits on that worker in the history (Harness.wait_settled), not with the status query.
 NO_STICKY: dict[str, Any] = {"max_cached_workflows": 0}
 # A workflow task the test server hands to a poll the stopped worker sent just before it
 # shut down is lost until this timeout (the server's default is 10 s). The slowest workflow
@@ -73,6 +77,32 @@ async def started_by(handle: WorkflowHandle[Any, Any]) -> dict[str, str]:
     }
 
 
+async def assert_nothing_lost(handle: WorkflowHandle[Any, Any], stopped_at: int) -> None:
+    """No activity was lost (a lost one is retried after its timeout, with no timed-out
+    event), and a workflow task timed out only if it was scheduled after the worker stopped
+    (``stopped_at``: the last event id then) and the stopped worker's poll took it."""
+    history = await handle.fetch_history()
+    assert {
+        e.activity_task_started_event_attributes.attempt
+        for e in history.events
+        if e.HasField("activity_task_started_event_attributes")
+    } == {1}
+    workflow_task_started_by = {
+        e.workflow_task_started_event_attributes.scheduled_event_id: (
+            e.workflow_task_started_event_attributes.identity
+        )
+        for e in history.events
+        if e.HasField("workflow_task_started_event_attributes")
+    }
+    timed_out = [
+        e.workflow_task_timed_out_event_attributes.scheduled_event_id
+        for e in history.events
+        if e.HasField("workflow_task_timed_out_event_attributes")
+    ]
+    assert all(scheduled > stopped_at for scheduled in timed_out)
+    assert {workflow_task_started_by[scheduled] for scheduled in timed_out} <= {"stopped"}
+
+
 async def assert_no_duplicates(harness: Harness, handle: WorkflowHandle[Any, Any]) -> None:
     workflow_id = handle.id
     results = await harness.activity_results(workflow_id)
@@ -107,16 +137,24 @@ async def output_counts(harness: Harness, study_id: Any) -> dict[str, int]:
 
 
 async def test_new_worker_resumes_a_study_waiting_for_review(harness: Harness) -> None:
-    async with harness.worker(NO_STICKY):
-        started = await harness.start()
+    """The stopped worker runs the study to the rooms review; the new worker finishes it.
+
+    The stopped worker has no cache, so the test waits for its gates in the history, not
+    with the status query (see ``NO_STICKY``; observed before: 1 run in ~150 under load
+    lost a workflow task for 10 s while the test polled the query). At the rooms review
+    nothing is in flight, so the worker stops with no task to lose (see
+    :meth:`Harness.wait_settled`).
+    """
+    async with harness.worker({**NO_STICKY, "identity": "stopped"}):
+        started = await harness.start(task_timeout=STOPPED_WORKER_TASK_TIMEOUT)
         handle = started.handle
-        await harness.wait_awaiting(handle, "appraisal_review", 1)
+        await harness.wait_settled(handle, stage="appraisal_review")
         await harness.decide(handle, harness.decision("appraisal_review", 1))
-        await harness.wait_awaiting(handle, "rooms_review", 1)
+        stopped_at = await harness.wait_settled(handle, stage="rooms_review")
     before = await output_counts(harness, started.study_id)
 
     # No worker: the study waits durably. A new worker replays and continues.
-    async with harness.worker():
+    async with harness.worker({"identity": "resumed"}):
         status = await harness.status(handle)
         assert (status.awaiting, status.revision) == ("rooms_review", 1)
         await harness.approve(handle, "rooms_review")
@@ -127,6 +165,12 @@ async def test_new_worker_resumes_a_study_waiting_for_review(harness: Harness) -
     assert result.outcome == "completed"
     after = await output_counts(harness, started.study_id)
     assert {k: after[k] for k in before} == before  # nothing recomputed
+    workers = await started_by(handle)
+    assert (workers["transition:rooms_review:r1"], workers["reconcile_rooms:r1"]) == (
+        "stopped",
+        "resumed",
+    )
+    await assert_nothing_lost(handle, stopped_at)
     await assert_no_duplicates(harness, handle)
     assert len(await harness.runs(started.study_id)) == 1
 
@@ -164,7 +208,7 @@ async def test_worker_stopped_between_activities(harness: Harness) -> None:
         started = await harness.start(study, task_timeout=STOPPED_WORKER_TASK_TIMEOUT)
         # The photo stage done too, so the worker stops with no task in flight. (The held
         # ingestion sends no heartbeats; this takes ~1 s of its 30 s heartbeat timeout.)
-        await harness.wait_settled(started.handle, holding="ingest_appraisal:r1")
+        stopped_at = await harness.wait_settled(started.handle, holding="ingest_appraisal:r1")
 
     [(task_token, output)] = held
     await harness.client.get_async_activity_handle(task_token=task_token).complete(output)
@@ -177,26 +221,7 @@ async def test_worker_stopped_between_activities(harness: Harness) -> None:
     assert counts["extract_fields:r1"] == 1  # resumed at the next step, not re-ingested
     workers = await started_by(started.handle)
     assert (workers["ingest_appraisal:r1"], workers["extract_fields:r1"]) == ("stopped", "resumed")
-    # No activity was lost (a lost one is retried after its timeout, with no timed-out
-    # event), and a workflow task timed out only if the stopped worker's poll took it.
-    history = await started.handle.fetch_history()
-    assert {
-        e.activity_task_started_event_attributes.attempt
-        for e in history.events
-        if e.HasField("activity_task_started_event_attributes")
-    } == {1}
-    workflow_task_started_by = {
-        e.workflow_task_started_event_attributes.scheduled_event_id: (
-            e.workflow_task_started_event_attributes.identity
-        )
-        for e in history.events
-        if e.HasField("workflow_task_started_event_attributes")
-    }
-    assert {
-        workflow_task_started_by[e.workflow_task_timed_out_event_attributes.scheduled_event_id]
-        for e in history.events
-        if e.HasField("workflow_task_timed_out_event_attributes")
-    } <= {"stopped"}
+    await assert_nothing_lost(started.handle, stopped_at)
     await assert_no_duplicates(harness, started.handle)
     outputs = await output_counts(harness, study.study_id)
     assert (outputs["extractions"], outputs["photo_rooms"], outputs["chunks"]) == (
