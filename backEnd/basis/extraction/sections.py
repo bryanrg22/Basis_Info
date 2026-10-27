@@ -26,7 +26,7 @@ from typing import Any
 from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.field_mappings import key_for_label, normalize_label
 from basis.extraction.regex_fields import Line, section_lines, table_candidates
-from basis.extraction.results import Candidate, ExtractedField, ValidationIssue
+from basis.extraction.results import Candidate, ExtractedField, Region, ValidationIssue
 
 
 def _sections_on_page(lines: Sequence[Line], page: int | None) -> list[str]:
@@ -65,12 +65,14 @@ def azure_candidates(result: AzureDiResult) -> tuple[list[Candidate], list[dict[
         )
         if key is None or key in found:
             continue
+        box = pair.value_region
         found[key] = Candidate(
             key=key,
             raw_text=pair.value,
             page=pair.page,
             confidence=pair.confidence,
             source="azure",
+            regions=(Region(page=box.page, bbox=box.bbox),) if box is not None else (),
         )
     table_fields, comparables = table_candidates(
         ((table.page, table.rows()) for table in result.tables), source="azure"

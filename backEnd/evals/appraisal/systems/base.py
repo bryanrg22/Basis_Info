@@ -25,6 +25,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Final, Protocol
 
+import basis.extraction.field_mappings as _catalogue
 from basis.config import Settings
 from basis.extraction.azure_di import MODEL_ID as LAYOUT_MODEL_ID
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
@@ -53,43 +54,11 @@ DEFAULT_MIN_PAGE_WORDS: Final = 60
 DERIVED_KEYS: Final = frozenset({"site.area", "site.area_acres"})
 ASKED_KEYS: Final[tuple[str, ...]] = tuple(s.key for s in FIELDS if s.key not in DERIVED_KEYS)
 
-# Boxes the legacy 1004 prints as checkbox groups (the form, not the scorer's vocabulary:
-# tests check that every scored enum key is here). One option is checked in a single group;
-# several may be in a multi group.
-SINGLE_CHECKBOX_KEYS: Final = frozenset(
-    {
-        "subject.occupant",
-        "subject.property_rights_appraised",
-        "subject.assignment_type",
-        "neighborhood.location",
-        "neighborhood.built_up",
-        "neighborhood.growth",
-        "neighborhood.property_values",
-        "neighborhood.demand_supply",
-        "neighborhood.marketing_time",
-        "site.zoning_compliance",
-        "site.utilities_electric",
-        "site.utilities_gas",
-        "site.utilities_water",
-        "site.utilities_sewer",
-        "site.off_site_improvements_street",
-        "site.off_site_improvements_alley",
-        "site.special_flood_hazard",
-        "improvements.units",
-        "improvements.type",
-        "reconciliation.appraisal_made",
-    }
-)
-MULTI_CHECKBOX_KEYS: Final = frozenset(
-    {
-        "improvements.foundation_type",
-        "improvements.heating_type",
-        "improvements.cooling",
-        "improvements.appliances",
-        "improvements.car_storage",
-    }
-)
-CHECKBOX_KEYS: Final = SINGLE_CHECKBOX_KEYS | MULTI_CHECKBOX_KEYS
+# The legacy 1004's checkbox groups live in the catalogue (the pipeline's highlight regions use
+# them too); re-exported here for the sweep systems.
+CHECKBOX_KEYS: Final = _catalogue.CHECKBOX_KEYS
+SINGLE_CHECKBOX_KEYS: Final = _catalogue.SINGLE_CHECKBOX_KEYS
+MULTI_CHECKBOX_KEYS: Final = _catalogue.MULTI_CHECKBOX_KEYS
 
 
 class MissingInput(RuntimeError):

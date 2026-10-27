@@ -15,6 +15,16 @@ Source = Literal["azure", "regex", "table", "llm", "manual"]
 Severity = Literal["error", "warning"]
 
 
+class Region(BaseModel):
+    """Where a value is printed: a page and a box as page fractions ``(x0, y0, x1, y1)``,
+    origin top-left (what the review page highlights; :mod:`basis.extraction.regions`)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    page: int = Field(ge=1)
+    bbox: tuple[float, float, float, float]
+
+
 class Candidate(BaseModel):
     """One raw value for a field as one extractor saw it, before cleaning."""
 
@@ -25,6 +35,8 @@ class Candidate(BaseModel):
     page: int | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     source: Source
+    # The value's own box when the extractor knows it (an Azure DI key-value pair's value).
+    regions: tuple[Region, ...] = ()
 
 
 class ExtractedField(BaseModel):
@@ -42,6 +54,7 @@ class ExtractedField(BaseModel):
     page: int | None = None
     parse_error: str | None = None
     corroborated_by: tuple[str, ...] = ()  # other sources that read the same value
+    regions: tuple[Region, ...] = ()  # where the value is printed (empty: not located)
 
     @property
     def section(self) -> str:
@@ -81,6 +94,7 @@ class ExtractedField(BaseModel):
             source=candidate.source,
             page=candidate.page,
             parse_error=value.error,
+            regions=candidate.regions,
         )
 
 

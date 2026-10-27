@@ -49,9 +49,45 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+# A box as page fractions ``(x0, y0, x1, y1)``, origin top-left (polygon x / page width,
+# y / page height): what the review page scales to the rendered page to highlight a value.
+BBox = tuple[float, float, float, float]
+
+
+class AzureDiWord(_Frozen):
+    text: str
+    bbox: BBox
+    offset: int = -1  # into ``AzureDiResult.content``; -1 when the analysis has no span
+
+
+class AzureDiMark(_Frozen):
+    """A selection mark (checkbox): ``:selected:`` / ``:unselected:`` in ``content``."""
+
+    selected: bool
+    bbox: BBox
+    offset: int = -1
+
+
+class AzureDiRegion(_Frozen):
+    page: int = Field(ge=1)
+    bbox: BBox
+
+
 class AzureDiPage(_Frozen):
+    """A page's lines (no selection marks: what the pipeline maps) and, for highlighting
+    and checkbox reading, its geometry. Results stored before the geometry existed validate
+    with the geometry empty."""
+
     page_number: int = Field(ge=1)
     lines: tuple[str, ...] = ()
+    width: float = 0.0
+    height: float = 0.0
+    unit: str | None = None
+    words: tuple[AzureDiWord, ...] = ()
+    marks: tuple[AzureDiMark, ...] = ()
+    # The page's slices of ``content`` as ``(offset, length)``: its text with the marks.
+    spans: tuple[tuple[int, int], ...] = ()
+    figure_fraction: float = Field(default=0.0, ge=0.0, le=1.0)  # page area inside figures
 
 
 class AzureDiKeyValue(_Frozen):
@@ -59,6 +95,8 @@ class AzureDiKeyValue(_Frozen):
     value: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     page: int | None = Field(default=None, ge=1)
+    key_region: AzureDiRegion | None = None
+    value_region: AzureDiRegion | None = None
 
 
 class AzureDiCell(_Frozen):
@@ -98,6 +136,13 @@ class AzureDiResult(_Frozen):
         """One string per page (lines joined by newlines), in page order."""
         return ["\n".join(page.lines) for page in sorted(self.pages, key=lambda p: p.page_number)]
 
+    def page_text_with_marks(self, page: AzureDiPage) -> str:
+        """``page``'s slices of ``content``: its text with the ``:selected:`` /
+        ``:unselected:`` marks in reading order (the lines when no spans were kept)."""
+        if self.content and page.spans:
+            return "".join(self.content[o : o + n] for o, n in page.spans)
+        return "\n".join(page.lines)
+
     @property
     def mean_confidence(self) -> float | None:
         values = [kv.confidence for kv in self.key_value_pairs]
@@ -120,15 +165,97 @@ def _kind(cell: Any) -> str | None:
     return str(getattr(kind, "value", kind))
 
 
+def bbox_of(polygon: Any, width: float, height: float) -> BBox | None:
+    """The bounding box of an Azure polygon ``[x1, y1, ..., x4, y4]`` as page fractions."""
+    if not polygon or len(polygon) < 4 or width <= 0 or height <= 0:
+        return None
+    xs = [float(v) for v in polygon[0::2]]
+    ys = [float(v) for v in polygon[1::2]]
+
+    def clamp(value: float) -> float:
+        return min(1.0, max(0.0, value))
+
+    return (
+        clamp(min(xs) / width),
+        clamp(min(ys) / height),
+        clamp(max(xs) / width),
+        clamp(max(ys) / height),
+    )
+
+
+def _offset(element: Any) -> int:
+    span = getattr(element, "span", None)
+    offset = getattr(span, "offset", None)
+    return int(offset) if offset is not None else -1
+
+
+def _area(box: BBox) -> float:
+    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
+
+
+def _region_of(element: Any, sizes: dict[int, tuple[float, float]]) -> AzureDiRegion | None:
+    for bounding in getattr(element, "bounding_regions", None) or ():
+        number = int(getattr(bounding, "page_number", 0) or 0)
+        width, height = sizes.get(number, (0.0, 0.0))
+        box = bbox_of(getattr(bounding, "polygon", None), width, height)
+        if box is not None:
+            return AzureDiRegion(page=number, bbox=box)
+    return None
+
+
+def _page_of_sdk(page: Any, figures: dict[int, list[BBox]]) -> AzureDiPage:
+    number = int(page.page_number)
+    width = float(getattr(page, "width", None) or 0.0)
+    height = float(getattr(page, "height", None) or 0.0)
+    words = tuple(
+        AzureDiWord(text=str(word.content or ""), bbox=box, offset=_offset(word))
+        for word in (getattr(page, "words", None) or ())
+        if (box := bbox_of(getattr(word, "polygon", None), width, height)) is not None
+    )
+    marks = tuple(
+        AzureDiMark(
+            selected=str(getattr(mark.state, "value", mark.state) or "").lower() == "selected",
+            bbox=box,
+            offset=_offset(mark),
+        )
+        for mark in (getattr(page, "selection_marks", None) or ())
+        if (box := bbox_of(getattr(mark, "polygon", None), width, height)) is not None
+    )
+    spans = tuple(
+        (int(span.offset), int(span.length)) for span in (getattr(page, "spans", None) or ())
+    )
+    return AzureDiPage(
+        page_number=number,
+        lines=tuple(line.content for line in (page.lines or ())),
+        width=width,
+        height=height,
+        unit=str(getattr(page.unit, "value", page.unit)) if getattr(page, "unit", None) else None,
+        words=words,
+        marks=marks,
+        spans=spans,
+        figure_fraction=min(1.0, sum(_area(b) for b in figures.get(number, ()))),
+    )
+
+
 def from_sdk(result: Any) -> AzureDiResult:
-    """Copy the parts of an SDK ``AnalyzeResult`` the pipeline uses."""
-    pages = tuple(
-        AzureDiPage(
-            page_number=int(page.page_number),
-            lines=tuple(line.content for line in (page.lines or ())),
+    """Copy the parts of an SDK ``AnalyzeResult`` the pipeline uses, with the geometry the
+    review page highlights from (word, mark and key-value boxes as page fractions)."""
+    sizes = {
+        int(page.page_number): (
+            float(getattr(page, "width", None) or 0.0),
+            float(getattr(page, "height", None) or 0.0),
         )
         for page in (result.pages or ())
-    )
+    }
+    figures: dict[int, list[BBox]] = {}
+    for figure in getattr(result, "figures", None) or ():
+        for bounding in getattr(figure, "bounding_regions", None) or ():
+            number = int(getattr(bounding, "page_number", 0) or 0)
+            width, height = sizes.get(number, (0.0, 0.0))
+            box = bbox_of(getattr(bounding, "polygon", None), width, height)
+            if box is not None:
+                figures.setdefault(number, []).append(box)
+    pages = tuple(_page_of_sdk(page, figures) for page in (result.pages or ()))
     pairs = []
     for pair in result.key_value_pairs or ():
         if pair.key is None or not (pair.key.content or "").strip():
@@ -141,6 +268,8 @@ def from_sdk(result: Any) -> AzureDiResult:
                 value=value,
                 confidence=float(pair.confidence or 0.0),
                 page=page,
+                key_region=_region_of(pair.key, sizes),
+                value_region=_region_of(pair.value, sizes) if pair.value is not None else None,
             )
         )
     tables = tuple(

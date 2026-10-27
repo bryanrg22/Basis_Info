@@ -18,7 +18,8 @@ S3_SPEC section 2 (binding signature) and section 4. One call per appraisal revi
    with ``EXTRACTION_FALLBACK_SCOPE=missing``, the default; only the critical ones with
    ``critical``; :mod:`basis.extraction.fallback`), then the derived site-area fields
    (:mod:`basis.extraction.derived`), then validate again.
-5. The review gate (:mod:`basis.extraction.confidence`).
+5. Each field's highlight regions from Azure DI's geometry (:mod:`basis.extraction.regions`;
+   none without Azure DI), then the review gate (:mod:`basis.extraction.confidence`).
 
 Two context hooks exist for the appraisal extraction sweep (``evals/appraisal/systems``) and
 default to today's behaviour: ``fallback_pages`` replaces the page texts the model is given
@@ -42,6 +43,7 @@ from basis.extraction.fallback import WHOLE_DOCUMENT_CHARS, Scope, fallback_fiel
 from basis.extraction.field_mappings import FIELDS
 from basis.extraction.pdf_text import read_pdf
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
+from basis.extraction.regions import with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.validation import validate_fields
@@ -165,6 +167,7 @@ async def extract_appraisal(
         fields = {**filled, **derive_fields(filled)}
         issues = merge_issues + validate_fields(fields)
 
+    fields = with_regions(fields, azure)
     gate = review_gate(fields, issues, threshold=ctx.review_threshold)
     raw: dict[str, Any] = {
         "method": method,

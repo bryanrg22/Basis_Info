@@ -1,6 +1,6 @@
 """``azure_1004`` mapping, the ``production_plus_1004`` merge rules, ``checkbox_context``, the
-production system unchanged, the key-value-pair regions, and recording/replay of the 1004
-analysis (fabricated SDK-shaped results; no network)."""
+production system unchanged, the key-value-pair regions (the pipeline's own), and
+recording/replay of the 1004 analysis (fabricated SDK-shaped results; no network)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ from evals.appraisal.systems.mortgage import (
 from evals.appraisal.systems.production import (
     CheckboxContext,
     Production,
-    kv_regions,
     production_context,
 )
 
@@ -262,14 +261,13 @@ def layout_raw() -> dict[str, Any]:
     return raw_layout([FORM], key_value_pairs=PAIRS)
 
 
-def test_kv_regions_follow_azure_candidates() -> None:
-    raw = layout_raw()
-    client = RawClient(raw)
-    found = kv_regions(client.result, raw)
+def test_azure_candidates_carry_their_pair_value_box() -> None:
+    client = RawClient(layout_raw())
     candidates, _ = azure_candidates(client.result)
-    assert set(found) == {c.key for c in candidates}
-    assert found["listing_and_contract.contract_price"][2] == "$ 412,000"
-    page, box, _ = found["listing_and_contract.contract_price"]
+    price = next(c for c in candidates if c.key == "listing_and_contract.contract_price")
+    assert price.raw_text == "$ 412,000"
+    [found] = price.regions
+    page, box = found.page, found.bbox
     tokens = FORM[7].split(" ")
     assert page == 1 and box == pytest.approx(
         (
@@ -290,7 +288,9 @@ def test_production_system_is_extract_appraisal_unchanged() -> None:
             pdf, "doc_a", production_context(make_env(layout=RawClient(layout_raw()), pdf=pdf))
         )
     )
-    assert output.regions is None  # today's pipeline keeps no polygons
+    # The pipeline's own regions (each field's highlight box), the same as a direct call.
+    assert output.regions is not None
+    assert output.regions["listing_and_contract.contract_price"][0]["page"] == 1
     assert output.result.model_dump(exclude={"raw"}) == direct.model_dump(exclude={"raw"})
 
 
@@ -320,7 +320,10 @@ def test_checkbox_context_sends_marks_and_asks_every_checkbox() -> None:
     # Regions: the Azure DI pair's own value box; a model value located on its page.
     price = output.regions["listing_and_contract.contract_price"]  # type: ignore[index]
     assert price[0]["page"] == 1
-    water_box = token_box(4, FORM[4].split(" "), 2)
+    # A checkbox field: the checked box with its label ("[x] Public"), not the word alone.
+    tokens = FORM[4].split(" ")
+    mark, label = token_box(4, tokens, 1), token_box(4, tokens, 2)
+    water_box = (mark[0], mark[1], label[2], label[3])
     [water_region] = output.regions["site.utilities_water"]  # type: ignore[index]
     assert water_region["bbox"] == pytest.approx([round(v, 4) for v in water_box], abs=1e-4)
 

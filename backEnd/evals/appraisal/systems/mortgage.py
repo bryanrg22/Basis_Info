@@ -57,7 +57,7 @@ from evals.appraisal.systems.base import (
     same_value,
 )
 from evals.appraisal.systems.layout import Box, Layout, box_of, from_raw, locate, region
-from evals.appraisal.systems.production import Production, production_regions
+from evals.appraisal.systems.production import Production, result_regions
 
 DISAGREE_CONFIDENCE: Final = 0.5
 
@@ -431,12 +431,7 @@ class ProductionPlus1004:
             raw={**base.result.raw, "merge_origins": origins},
         )
         result.comparables = base.result.comparables
-        geometry = env.sources.geometry_if_loaded()
-        regions: dict[str, list[dict[str, Any]]] = (
-            production_regions(base.result, geometry, env.sources.layout_raw())
-            if geometry is not None
-            else {}
-        )
+        regions: dict[str, list[dict[str, Any]]] = result_regions(base.result) or {}
         for key, origin in origins.items():
             if origin == "azure_1004":
                 regions[key] = mortgage_regions.get(key, [])

@@ -54,6 +54,7 @@ from pydantic import BaseModel, ConfigDict
 
 from basis.extraction.fallback import appears_in
 from basis.extraction.field_mappings import FIELD_BY_KEY, LLM_CONFIDENCE_CAP
+from basis.extraction.regions import caption_box
 from basis.extraction.results import Candidate, ExtractedField
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
@@ -76,7 +77,6 @@ from evals.appraisal.systems.base import (
 )
 from evals.appraisal.systems.layout import Layout, Page, locate, region
 from evals.appraisal.systems.marks import checkbox_problem, labelled_texts, without_labels
-from evals.appraisal.systems.production import caption_box
 
 logger = logging.getLogger("evals.appraisal.systems.grounded")
 
@@ -321,8 +321,8 @@ def quote_region(
     """The quote's words on ``page`` (nearest the caption), else the value's; else none."""
     if geometry is None:
         return []
-    near = caption_box(geometry, page, key)
     target = geometry.page(page)
+    near = caption_box(target, key)
     box = locate(target, quote, near=near) or locate(target, value, near=near)
     return [region(page, box)] if box is not None else []
 
