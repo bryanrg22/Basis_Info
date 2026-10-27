@@ -85,6 +85,7 @@ MULTI_CHECKBOX_KEYS: Final = frozenset(
         "improvements.foundation_type",
         "improvements.heating_type",
         "improvements.cooling",
+        "improvements.appliances",
         "improvements.car_storage",
     }
 )

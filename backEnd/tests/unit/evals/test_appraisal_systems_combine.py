@@ -163,6 +163,45 @@ def test_client_style_planted_error() -> None:
     assert "cost_approach.indicated_value" in total.keys  # matches the truth's expected issue
 
 
+def test_reading_defects_from_the_live_baselines() -> None:
+    from evals.appraisal.systems.validators import money_keys
+
+    # A key-value value that joined a row's cells: the cleaner glues the digits.
+    glued = fields(**{**COST, "cost_approach__depreciation": "130,708 0 0 =$( 130,708)"})
+    found = validate(glued, [])
+    assert "concatenated_cells" in rules(found)
+    assert any(
+        i.rule == "implausible_amount" and i.keys == ("cost_approach.depreciation",) for i in found
+    )
+    # The first figure of a row taken as the dwelling cost.
+    row = fields(**{**COST, "cost_approach__dwelling_cost": "2,071 Sq. Ft. @ $ 194.95 =$ 403,741"})
+    assert "concatenated_cells" in rules(validate(row, []))
+    assert (
+        "cost_approach.dwelling_cost_per_sqft" not in money_keys()
+    )  # rates and areas are not money
+    # One glued headline cannot move the reference (median of those read).
+    headline = fields(
+        reconciliation__final_market_value="41,200,000",
+        appraiser__appraised_value="412,000",
+        listing_and_contract__contract_price="410,000",
+        cost_approach__site_value="85,000",
+    )
+    flagged = [i.keys for i in validate(headline, []) if i.rule == "implausible_amount"]
+    assert flagged == [("reconciliation.final_market_value",)]
+    # The cost data's date read as the effective date; a date after signing.
+    for effective in ("01/01/2024", "04/02/2026"):
+        dated = fields(
+            reconciliation__effective_date_of_appraisal=effective,
+            appraiser__signature_date="03/20/2026",
+        )
+        assert rules(validate(dated, [])) == ["effective_date_vs_signature"]
+    ok = fields(
+        reconciliation__effective_date_of_appraisal="03/15/2026",
+        appraiser__signature_date="03/20/2026",
+    )
+    assert validate(ok, []) == []
+
+
 def test_gla_mentions_and_rule() -> None:
     pages = [
         "Gross Living Area 1,740 sq.ft. 1,650 sq.ft.\n1,740 Square Feet of Gross Living Area",

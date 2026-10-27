@@ -29,6 +29,20 @@ box read as text ("N/A") has no number and skips it.
 * ``checkbox_multiple_selected``: a single-choice checkbox key (:data:`SINGLE_CHECKBOX_KEYS`)
   whose value names more than one option.
 
+Guards for reading defects measured on the live baselines (2026-10-26):
+
+* ``concatenated_cells``: a money box (catalogue type currency, or any cost-approach amount)
+  whose read text holds more than one figure: an Azure DI key-value value that joined a
+  row's cells ("130,708 0 0 =$( 130,708)", which the cleaner glues into 13,070,800;
+  "2,071 Sq. Ft. @ $ 194.95 =$ 403,741", whose first figure 2,071 became the dwelling cost).
+* ``implausible_amount``: a money box more than :data:`IMPLAUSIBLE_FACTOR` times the
+  document's headline value (the median of the final market value, the certification's
+  appraised value, the contract price and the sales-comparison indication that were read; a
+  median so one glued headline cannot move it). Glued digits multiply a figure by 100 or more.
+* ``effective_date_vs_signature``: the effective date of the appraisal (reconciliation, else
+  certification) after the signature date, or more than 365 days before it (the cost data's
+  effective date read as the appraisal's is months to years old).
+
 Each issue names every key it compares (the scorer flags them for review; a re-ask re-reads
 them).
 """
@@ -40,6 +54,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Final
 
+from basis.extraction.field_mappings import FIELD_BY_KEY
 from basis.extraction.results import ExtractedField, ValidationIssue
 from evals.appraisal.systems.base import SINGLE_CHECKBOX_KEYS, value_parts
 
@@ -47,6 +62,15 @@ ABSOLUTE: Final = Decimal(1)
 RELATIVE: Final = Decimal("0.005")
 GLA_TOLERANCE: Final = Decimal(1)
 MIN_GLA: Final = Decimal(100)
+IMPLAUSIBLE_FACTOR: Final = Decimal(5)
+MAX_EFFECTIVE_AGE_DAYS: Final = 365
+HEADLINE_KEYS: Final = (
+    "reconciliation.final_market_value",
+    "appraiser.appraised_value",
+    "listing_and_contract.contract_price",
+    "reconciliation.indicated_value_sales_comparison",
+)
+_FIGURE: Final = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 ROWS: Final = (
     (
@@ -87,6 +111,9 @@ VALIDATOR_RULES: Final = frozenset(
         "effective_date_mismatch",
         "gla_vs_sketch",
         "checkbox_multiple_selected",
+        "concatenated_cells",
+        "implausible_amount",
+        "effective_date_vs_signature",
     }
 )
 _GLA_LINE: Final = re.compile(
@@ -262,6 +289,77 @@ def gla_issues(fields: Mapping[str, ExtractedField], pages: Sequence[str]) -> li
     ]
 
 
+def money_keys() -> list[str]:
+    """Catalogue keys holding a dollar amount: currency types and the cost-approach amounts."""
+    return [
+        key
+        for key, spec in FIELD_BY_KEY.items()
+        if spec.type in ("currency", "currency_or_text")
+        or (
+            key.startswith("cost_approach.")
+            and spec.type in ("currency", "float", "int")
+            and not key.endswith(("_sqft", "remaining_economic_life"))  # areas, rates, years
+        )
+    ]
+
+
+def reading_issues(fields: Mapping[str, ExtractedField]) -> list[ValidationIssue]:
+    """``concatenated_cells``, ``implausible_amount``, ``effective_date_vs_signature``."""
+    issues: list[ValidationIssue] = []
+    money = money_keys()
+    for key in money:
+        item = fields.get(key)
+        if item is not None and item.raw_text and len(_FIGURE.findall(item.raw_text)) > 1:
+            issues.append(
+                _issue(
+                    "concatenated_cells",
+                    f"{key}: the box read holds several figures ({item.raw_text!r})",
+                    (key,),
+                )
+            )
+    headline = sorted(abs(v) for k in HEADLINE_KEYS if (v := _num(fields, k)) is not None and v)
+    if headline:
+        reference = headline[(len(headline) - 1) // 2]
+        for key in money:
+            value = _num(fields, key)
+            if value is not None and abs(value) > reference * IMPLAUSIBLE_FACTOR:
+                issues.append(
+                    _issue(
+                        "implausible_amount",
+                        f"{key} = {value} is more than {IMPLAUSIBLE_FACTOR} x the headline "
+                        f"value {reference}",
+                        (key,),
+                    )
+                )
+    effective_key = "reconciliation.effective_date_of_appraisal"
+    effective = fields.get(effective_key)
+    if effective is None or effective.value_date is None:
+        effective_key = "appraiser.effective_date"
+        effective = fields.get(effective_key)
+    signed = fields.get("appraiser.signature_date")
+    if (
+        effective is not None
+        and effective.value_date is not None
+        and signed is not None
+        and signed.value_date is not None
+    ):
+        days = (signed.value_date - effective.value_date).days
+        if days < 0 or days > MAX_EFFECTIVE_AGE_DAYS:
+            issues.append(
+                _issue(
+                    "effective_date_vs_signature",
+                    f"effective date {effective.value_date}, signed {signed.value_date}",
+                    (effective_key, "appraiser.signature_date"),
+                )
+            )
+    return issues
+
+
 def validate(fields: Mapping[str, ExtractedField], pages: Sequence[str]) -> list[ValidationIssue]:
     """Every validator issue for ``fields`` (``pages``: the page texts, for GLA mentions)."""
-    return [*cost_issues(fields), *cross_box_issues(fields), *gla_issues(fields, pages)]
+    return [
+        *cost_issues(fields),
+        *cross_box_issues(fields),
+        *gla_issues(fields, pages),
+        *reading_issues(fields),
+    ]
