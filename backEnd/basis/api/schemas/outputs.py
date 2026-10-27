@@ -13,6 +13,18 @@ from basis.api.schemas.evidence import RoomRefOut
 from basis.db.enums import Bucket
 
 
+class FieldRegionOut(ResponseModel):
+    page: int = Field(ge=1, description="The 1-based PDF page the box is on.")
+    bbox: list[float] = Field(
+        min_length=4,
+        max_length=4,
+        description=(
+            "`[x0, y0, x1, y1]` as fractions of the page's width and height (0..1), origin "
+            "top-left: multiply by the rendered page's size in pixels to draw it."
+        ),
+    )
+
+
 class ExtractionFieldOut(ResponseModel):
     id: uuid.UUID = Field(
         description="The field's id (the `entity_id` of an `extraction_field` correction)."
@@ -30,6 +42,13 @@ class ExtractionFieldOut(ResponseModel):
     confidence: float | None
     source: str = Field(description="`azure`, `regex`, `table`, `llm` or `manual`.")
     page: int | None
+    regions: list[FieldRegionOut] = Field(
+        description=(
+            "Where the value is printed, to highlight on the PDF (docs/api/FIELD_REGIONS.md): "
+            "boxes on `page` as page fractions, origin top-left. Empty when the value was not "
+            "located (then fall back to searching the page's text)."
+        )
+    )
 
 
 class ExtractionFieldsPageOut(ResponseModel):

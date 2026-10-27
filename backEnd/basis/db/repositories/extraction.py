@@ -79,9 +79,12 @@ class ExtractionRepository:
         confidence: float | None,
         source: str,
         page: int | None = None,
+        regions: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Insert the field, or overwrite it (unique per extraction, section, field)."""
-        values = {
+        """Insert the field, or overwrite it (unique per extraction, section, field).
+        ``regions=None`` leaves a row's regions as they are (a correction changes the value,
+        not where the document printed it)."""
+        values: dict[str, Any] = {
             "extraction_id": extraction.id,
             "study_id": extraction.study_id,
             "section": section,
@@ -93,6 +96,10 @@ class ExtractionRepository:
             "source": source,
             "page": page,
         }
+        updated = ["value_text", "value_num", "value_date", "confidence", "source"]
+        if regions is not None:
+            values["regions"] = regions
+            updated.append("regions")
         stmt = pg_insert(ExtractionField).values(values)
         await self._session.execute(
             stmt.on_conflict_do_update(
@@ -101,10 +108,7 @@ class ExtractionRepository:
                     ExtractionField.section,
                     ExtractionField.field,
                 ],
-                set_={
-                    name: stmt.excluded[name]
-                    for name in ("value_text", "value_num", "value_date", "confidence", "source")
-                },
+                set_={name: stmt.excluded[name] for name in updated},
             )
         )
 

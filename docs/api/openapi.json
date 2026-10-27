@@ -5263,6 +5263,14 @@
               }
             ],
             "title": "Page"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/FieldRegionOut"
+            },
+            "type": "array",
+            "title": "Regions",
+            "description": "Where the value is printed, to highlight on the PDF (docs/api/FIELD_REGIONS.md): boxes on `page` as page fractions, origin top-left. Empty when the value was not located (then fall back to searching the page's text)."
           }
         },
         "type": "object",
@@ -5280,7 +5288,8 @@
           "value_date",
           "confidence",
           "source",
-          "page"
+          "page",
+          "regions"
         ],
         "title": "ExtractionFieldOut"
       },
@@ -5317,6 +5326,32 @@
           "next_cursor"
         ],
         "title": "ExtractionFieldsPageOut"
+      },
+      "FieldRegionOut": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page",
+            "description": "The 1-based PDF page the box is on."
+          },
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Bbox",
+            "description": "`[x0, y0, x1, y1]` as fractions of the page's width and height (0..1), origin top-left: multiply by the rendered page's size in pixels to draw it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "bbox"
+        ],
+        "title": "FieldRegionOut"
       },
       "Health": {
         "properties": {

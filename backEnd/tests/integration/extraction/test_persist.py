@@ -22,7 +22,7 @@ from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.session import create_sessionmaker, session_scope
 from basis.extraction.persist import persist_extraction, stored_azure_result
 from basis.extraction.pipeline import ExtractionContext, extract_appraisal
-from basis.extraction.results import ExtractionResult
+from basis.extraction.results import ExtractionResult, Region
 from basis.llm import Budget
 from basis.llm.call import CallContext
 from basis.llm.prompts import latest
@@ -151,3 +151,51 @@ def test_stored_azure_result_ignores_other_payloads() -> None:
     assert stored_azure_result(None) is None
     assert stored_azure_result({"azure_di": "nope"}) is None
     assert stored_azure_result({"azure_di": {"pages": "bad"}}) is None
+
+
+async def test_regions_are_stored_and_a_correction_keeps_them(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    study = await seed_study(sessionmaker, photos=())
+    assert study.appraisal_id is not None
+    result = await extracted()
+    key = next(iter(sorted(result.fields)))
+    item = result.fields[key]
+    where = Region(page=1, bbox=(0.123456, 0.2, 0.3, 0.25))
+    result = result.model_copy(
+        update={"fields": {**result.fields, key: item.model_copy(update={"regions": (where,)})}}
+    )
+    async with session_scope(sessionmaker) as session:
+        extraction = await persist_extraction(
+            session,
+            study_id=study.study_id,
+            document_id=study.appraisal_id,
+            revision=1,
+            result=result,
+        )
+        extraction_id = extraction.id
+    expected = [{"page": 1, "bbox": [0.1235, 0.2, 0.3, 0.25]}]  # 4 decimals
+    async with session_scope(sessionmaker) as session:
+        rows = {
+            f"{f.section}.{f.field}": f
+            for f in await ExtractionRepository(session).fields(extraction_id)
+        }
+        assert rows[key].regions == expected
+        assert all(r.regions == [] for k, r in rows.items() if k != key)
+        # A reviewer's correction (regions=None) changes the value, not where it is printed.
+        extraction_row = await session.get(Extraction, extraction_id)
+        assert extraction_row is not None
+        await ExtractionRepository(session).set_field(
+            extraction=extraction_row,
+            section=item.section,
+            field=item.field,
+            value_text="corrected",
+            confidence=1.0,
+            source="manual",
+        )
+    async with session_scope(sessionmaker) as session:
+        rows = {
+            f"{f.section}.{f.field}": f
+            for f in await ExtractionRepository(session).fields(extraction_id)
+        }
+        assert (rows[key].value_text, rows[key].regions) == ("corrected", expected)

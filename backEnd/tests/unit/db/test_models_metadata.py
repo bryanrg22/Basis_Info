@@ -47,8 +47,9 @@ SPEC_TABLES = {
     "document_pages": "document_id page_no gcs_uri",
     "extractions": "id study_id document_id revision method overall_confidence needs_review "
     "raw audit created_at",
+    # v0.13: regions (migration 0010_field_regions): where each value is printed.
     "extraction_fields": "id extraction_id study_id section field value_text value_num "
-    "value_date confidence source page",
+    "value_date confidence source page regions",
     "rooms": "id study_id revision name room_type floor source group_key created_at",
     "photo_rooms": "study_id document_id room_id revision",
     "components": "id study_id revision document_id room_id label material attachment "
@@ -517,8 +518,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
         if isinstance(c.type, JSONB)
     ]
     # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
-    # manual add: object_prompts.params
-    assert len(jsonb) == 17
+    # manual add: object_prompts.params; v0.13: extraction_fields.regions
+    assert len(jsonb) == 18
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

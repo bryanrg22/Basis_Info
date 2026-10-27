@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from basis.db.models import Extraction
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.extraction.azure_di import AzureDiResult
+from basis.extraction.regions import region_json
 from basis.extraction.results import ExtractionResult
 
 
@@ -43,6 +44,7 @@ async def persist_extraction(
             confidence=item.confidence,
             source=item.source,
             page=item.page,
+            regions=region_json(item.regions),
         )
     return extraction
 
