@@ -21,7 +21,9 @@ whether the review gate catches the errors. Research behind every choice:
    checked "not developed"; e.g. the income approach), or `unscorable` (a human could not
    decide; excluded, with a note). A printed `0` is `not_developed` only for a valuation
    approach or a cost-approach line the appraiser skipped; elsewhere (HOA dues, special
-   assessments, concessions) `$0` is a real value and the field is `present` with 0. A value predicted for `absent` / `not_developed` is a
+   assessments, concessions) `$0` is a real value and the field is `present` with 0; the same
+   holds when such a box prints `No` or `None` (UAD 3.6 "Known Sales Concessions No"), so the
+   currency normalizer reads `no` / `none` as 0 and only `n/a` or an empty box as no value. A value predicted for `absent` / `not_developed` is a
    *spurious* value, scored as an error.
 3. **Documents are the independent unit.** Intervals are clustered by document; a claim
    about accuracy needs many documents (rule of three: 0 errors in 59 documents bounds the
@@ -105,14 +107,14 @@ have no tolerance.
 |---|---|---|
 | `text` | string | NFKC, casefold, collapse whitespace, strip trailing `.`/`,`. Correct = equal; also report ANLS (normalized Levenshtein similarity, 0.5 threshold) as a secondary metric. |
 | `int` / `float` | number | first number in the string, commas removed; `int` exact. |
-| `currency` | integer dollars (or decimal when cents are printed) | strip `$`, `=`, spaces, commas; `-x` negative; `(x)` negative except after `=$` or `$` in the cost approach, where the parentheses are the form's subtraction marks (`=$( 156,240)` is 156240); `n/a`, `none`, empty → no value. |
+| `currency` | integer dollars (or decimal when cents are printed) | strip `$`, `=`, spaces, commas; `-x` negative; `(x)` negative except after `=$` or `$` in the cost approach, where the parentheses are the form's subtraction marks (`=$( 156,240)` is 156240); `no`, `none` → 0; `n/a`, empty → no value. |
 | `percent` | number 0-100 | strip `%`. |
 | `date` | ISO `YYYY-MM-DD` | M/D/YYYY, M/D/YY (century: not more than a year ahead), ISO, "Month D, YYYY". |
 | `month` | `YYYY-MM` | MM/YYYY, M/YY, ISO month. |
 | `bool` | true / false | yes/no/x/checked/selected. |
 | `enum` | one canonical code (vocabulary below) | case- and punctuation-folded match against the code and its synonyms. `other` codes carry text: `{"code": "other", "text": "Infloor"}`, correct when the code matches and the text matches as `text`. |
 | `enum_multi` | sorted list of codes | set equality. |
-| `area_sqft` | integer square feet | numbers with units: `sq ft`, `sf`, `sq.ft.` as is; `ac`/`acres` × 43,560 rounded. A bare number is square feet. Truth for a box printed in acres is `{"sqft": 60548, "printed_unit": "ac"}`; correct within the rounding of the printed acres (±0.005 ac). |
+| `area_sqft` | integer square feet (a derived total, e.g. UAD 3.6 below-grade finished + unfinished, carries `tolerance`) | numbers with units: `sq ft`, `sf`, `sq.ft.` as is; `ac`/`acres` × 43,560 rounded. A bare number is square feet. Truth for a box printed in acres is `{"sqft": 60548, "printed_unit": "ac"}`; correct within the rounding of the printed acres (±0.005 ac). |
 | `baths` | `{"full": 2, "half": 1}` | UAD notation `2.1` (= 2 full, 1 half); `2.5` read as 2 full 1 half; `{"full","half"}` objects. |
 
 Enum vocabularies (legacy 1004 checkboxes; UAD 3.6 converters map onto the same codes or
