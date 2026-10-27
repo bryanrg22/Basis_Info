@@ -470,6 +470,39 @@ uv run python -m evals.run --predictions ~/basis-eval-data/predictions/rooms_x \
     --inventory-file room_inventory.heuristic.json --no-db
 ```
 
+## Appraisal extraction (v2)
+
+The contract is [`appraisal/SPEC.md`](appraisal/SPEC.md): truth files per set
+(`appraisal/truth.py`), absence as a value, cost-seg tiers, the outcomes and metrics. It
+replaces `appraisal_fields_v1.json` for appraisal work. Everything it reads and writes is
+under `BASIS_EVAL_DATA_DIR/appraisal/`; nothing from it enters the repository.
+
+```bash
+cd backEnd
+# live: the production extract_appraisal (Azure DI + the configured TEXT_MODEL), recorded
+BASIS_ENV=dev uv run python -m evals.appraisal.run --set all --mode live [--repeats 3]
+# replay: no network, from appraisal/recordings/<pdf sha256>/
+BASIS_ENV=dev uv run python -m evals.appraisal.run --set client --mode replay
+# ablations; one document; accept the run as the regression baseline
+... --no-azure | --azure-only    ... --documents client_a    ... --accept-baseline
+BASIS_ENV=test uv run pytest -m eval_data tests/evals/test_appraisal_regression.py
+```
+
+* `normalize.py`: per-type normalizers, the enum synonym table, the review page's display
+  rule (`fieldValue` in `web/live/live-review.js`) and the canonical display.
+* `score.py`: outcomes and every §8 metric; `score.json` and `report.md` (keys, outcomes and
+  counts only).
+* `recordings.py`: the raw Azure DI result (`azure_di.json`) and the model answers
+  (`llm/<request hash>.json`); replay rebuilds the SDK result and runs the production
+  `from_sdk`. A request without a recording fails its document with `missing_recording`
+  (the prompt or the context changed: run live again).
+* `run.py`: writes `runs/<id>/{predictions.json,score.json,report.md,run.json}`; live prints
+  the model cost (Azure DI is billed separately and reported as pages). The budget is $1 per
+  document (`--budget-usd`). Replay uses the extraction settings the recording was made with
+  (`context.json`) and the current review threshold.
+* `baseline.py`: `appraisal/baseline.json` (keys and outcomes). Accept it from the default
+  system (no `--no-azure`/`--azure-only`): the regression test replays that system.
+
 ## Metrics
 
 `evals/metrics.py`, unit-tested against hand-computed values in
