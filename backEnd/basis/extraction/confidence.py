@@ -30,10 +30,14 @@ class Gate:
     reasons: tuple[str, ...]
 
 
-def aggregate_confidence(fields: Mapping[str, ExtractedField]) -> float:
-    """Minimum confidence over the critical fields; 0 when one is missing."""
+def aggregate_confidence(
+    fields: Mapping[str, ExtractedField], not_on_form: frozenset[str] = frozenset()
+) -> float:
+    """Minimum confidence over the critical fields the form carries; 0 when one is missing."""
     values: list[float] = []
     for key in CRITICAL_FIELDS:
+        if key in not_on_form:
+            continue
         item = fields.get(key)
         if item is None or item.is_empty:
             return 0.0
@@ -46,9 +50,14 @@ def review_gate(
     issues: Sequence[ValidationIssue],
     *,
     threshold: float,
+    not_on_form: frozenset[str] = frozenset(),
 ) -> Gate:
+    """``not_on_form``: catalogue keys the document's form does not carry (a critical one of
+    them is not required: the UAD 3.6 URAR prints no total room count)."""
     reasons: list[str] = []
     for key in CRITICAL_FIELDS:
+        if key in not_on_form:
+            continue
         item = fields.get(key)
         if item is None or item.is_empty:
             reasons.append(f"missing:{key}")
@@ -61,7 +70,7 @@ def review_gate(
         ):
             reasons.append(reason)
     return Gate(
-        overall_confidence=aggregate_confidence(fields),
+        overall_confidence=aggregate_confidence(fields, not_on_form),
         needs_review=bool(reasons),
         reasons=tuple(reasons),
     )

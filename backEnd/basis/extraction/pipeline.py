@@ -36,11 +36,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from basis.extraction import uad36_pdf
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.derived import derive_fields
 from basis.extraction.fallback import WHOLE_DOCUMENT_CHARS, Scope, fallback_fields, fallback_keys
 from basis.extraction.field_mappings import FIELDS
+from basis.extraction.forms import FormDetection, detect_form
 from basis.extraction.geometry import has_geometry, layout_of
 from basis.extraction.mismo36 import InvalidMismo, extract_mismo
 from basis.extraction.package import (
@@ -55,6 +57,7 @@ from basis.extraction.regions import with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.validation import validate_fields
+from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderBadResponse
 from basis.llm.prompts import Prompt
@@ -64,6 +67,13 @@ logger = logging.getLogger("basis.extraction.pipeline")
 
 METHOD_AZURE = "azure_di+regex"
 METHOD_REGEX = "regex"
+# Appended to the method when the PDF is a UAD 3.6 URAR (read by its own captions).
+METHOD_UAD36_SUFFIX = "+uad36"
+UAD36_PROMPT_NAME = "appraisal_field_fallback_uad36"
+
+
+def _uad36_prompt() -> Prompt:
+    return prompts.latest(UAD36_PROMPT_NAME)
 
 
 def _no_heartbeat(_: str) -> None:
@@ -95,6 +105,8 @@ class ExtractionContext:
     # (``None`` = the Azure DI page lines), and keys always asked of the fallback.
     fallback_pages: Callable[[AzureDiResult], Sequence[str]] | None = None
     always_ask: frozenset[str] = frozenset()
+    # The fallback prompt of a UAD 3.6 URAR (``prompt`` is the 1004's).
+    uad36_prompt: Prompt = field(default_factory=_uad36_prompt)
 
 
 async def extract_appraisal(
@@ -132,12 +144,24 @@ async def extract_appraisal(
         notes.append("Azure DI not configured: text layer and tables only")
 
     ctx.heartbeat("map_fields")
-    regex = extract_appraisal_fields(pdf.pages)
+    form = detect_form(pdf.pages, azure.page_texts() if azure is not None else ())
+    if form.is_uad36:
+        method += METHOD_UAD36_SUFFIX
+        notes.append(f"UAD 3.6 URAR (footer on {len(form.uad36_pages)} pages): its captions")
+    regex = (
+        uad36_pdf.text_candidates(pdf.pages)
+        if form.is_uad36
+        else extract_appraisal_fields(pdf.pages)
+    )
     tables, pdf_comparables = table_candidates(
         ((table.page, table.rows) for table in pdf.tables), source="table"
     )
+    if form.is_uad36:  # the 1004 cost-table rows are not this form's (the comparables stay)
+        tables = []
     if azure is not None:
         primary, comparables = azure_candidates(azure)
+        if form.is_uad36:
+            primary = uad36_pdf.azure_candidates(azure)
         fields, merge_issues = merge(primary, [*regex, *tables])
         comparables = comparables or pdf_comparables
         context_pages = (
@@ -150,33 +174,38 @@ async def extract_appraisal(
 
     if rejected is not None:
         merge_issues.append(rejected)
+    # Keys the form does not carry: never asked, never required (forms module doc).
+    off_form = uad36_pdf.NOT_CARRIED if form.is_uad36 else frozenset()
     fields = {**fields, **derive_fields(fields)}
-    issues = merge_issues + validate_fields(fields)
+    issues = merge_issues + validate_fields(fields, not_on_form=off_form)
     wanted = fallback_keys(fields, issues, ctx.fallback_scope)
     if ctx.always_ask:
         asked = set(wanted) | ctx.always_ask
         wanted = [spec.key for spec in FIELDS if spec.key in asked]
+    if form.is_uad36:
+        wanted = [key for key in wanted if key not in off_form]
     ctx.heartbeat("fallback")
     outcome = await fallback_fields(
         wanted,
         context_pages,
         provider=ctx.provider,
         ctx=ctx.call,
-        prompt=ctx.prompt,
+        prompt=ctx.uad36_prompt if form.is_uad36 else ctx.prompt,
         model=ctx.text_model,
         max_tokens=ctx.fallback_max_tokens,
         reasoning_effort=ctx.fallback_reasoning_effort,
         whole_document=ctx.fallback_scope == "missing",
         max_context_chars=ctx.fallback_context_chars,
+        describe=uad36_pdf.describe if form.is_uad36 else None,
     )
     if outcome.fields:
         filled: dict[str, ExtractedField] = dict(fields)
         filled.update(outcome.fields)
         fields = {**filled, **derive_fields(filled)}
-        issues = merge_issues + validate_fields(fields)
+        issues = merge_issues + validate_fields(fields, not_on_form=off_form)
 
     fields = with_regions(fields, azure)
-    gate = review_gate(fields, issues, threshold=ctx.review_threshold)
+    gate = review_gate(fields, issues, threshold=ctx.review_threshold, not_on_form=off_form)
     raw: dict[str, Any] = {
         "method": method,
         "doc_id": doc_id,
@@ -190,6 +219,7 @@ async def extract_appraisal(
         "fallback": outcome.summary(),
         "fallback_scope": ctx.fallback_scope,
         "comparables": comparables,
+        "form": _form_json(form),
     }
     if azure is not None:
         raw["azure_di"] = azure.model_dump(mode="json")
@@ -207,6 +237,13 @@ async def extract_appraisal(
         notes=notes,
         raw=raw,
     )
+
+
+def _form_json(form: FormDetection) -> dict[str, Any]:
+    data = form.as_json()
+    if form.is_uad36:
+        data["not_on_form"] = sorted(uad36_pdf.NOT_CARRIED)
+    return data
 
 
 async def extract_appraisal_upload(

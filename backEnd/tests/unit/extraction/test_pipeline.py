@@ -11,7 +11,7 @@ import pytest
 from fixtures import fixture_path
 from llm_fakes import FixtureAzureDi, load_azure_fixture
 
-from basis.extraction.azure_di import AzureDiKeyValue, AzureDiResult
+from basis.extraction.azure_di import AzureDiKeyValue, AzureDiPage, AzureDiResult
 from basis.extraction.fallback import FallbackAnswer, FallbackValue
 from basis.extraction.pdf_text import MAX_TEXT_PAGES, InvalidDocument
 from basis.extraction.pipeline import ExtractionContext, extract_appraisal
@@ -308,3 +308,122 @@ async def test_the_site_area_is_kept_as_printed_alongside_square_feet() -> None:
     assert result.fields["site.area_sqft"].value_num == Decimal("60548")
     assert result.fields["site.area"].value_text == "1.39 ac"
     assert result.fields["site.area_acres"].value_num == Decimal("1.39")
+
+
+# --------------------------------------------------------------------------- UAD 3.6 URAR
+
+UAD36_PAGES = [
+    [
+        "Uniform Residential Appraisal Report",
+        "SUMMARY",
+        "Opinion of Market Value $500,000 Market Value Condition As Is",
+        "Effective Date of Appraisal 03/01/2026",
+    ],
+    [
+        "Uniform Residential Appraisal Report",
+        "Subject Property",
+        "Physical Address 9 Test Ln Sampleton, ZZ 00001",
+        "Dwelling Exterior",
+        "Year Built 1999",
+        "Unit Interior",
+        "Finished Above Grade 1,800 Sq. Ft.",
+        "Total Bedrooms 3",
+        "Total Bathrooms - Full 2",
+    ],
+    [
+        "Uniform Residential Appraisal Report",
+        "Sales Contract",
+        "Contract Price $495,000",
+    ],
+]
+UAD36_FOOTER = (
+    "Appraisal Version #1 Fannie Mae | Freddie Mac September 2024 Appraiser Reference ID T1"
+)
+
+
+def uad36_pdf() -> bytes:
+    import pymupdf
+
+    document = pymupdf.open()
+    for lines in UAD36_PAGES:
+        sheet = document.new_page()
+        y = 60.0
+        for line in [*lines, UAD36_FOOTER]:
+            sheet.insert_text((40, y), line, fontname="helv", fontsize=9)
+            y += 16
+    data: bytes = document.tobytes()
+    document.close()
+    return data
+
+
+def uad36_azure() -> AzureDiResult:
+    pages = []
+    for number, lines in enumerate(UAD36_PAGES, start=1):
+        split: list[str] = []
+        for line in [*lines, UAD36_FOOTER]:
+            split.append(line)
+        pages.append(AzureDiPage(page_number=number, lines=tuple(split)))
+    pairs = [
+        AzureDiKeyValue(key="Year Built", value="1999", confidence=0.97, page=2),
+        # a 1004 caption on this form names something else: never the 1004 key
+        AzureDiKeyValue(key="Location", value="Section of Roof", confidence=0.97, page=2),
+    ]
+    return AzureDiResult(pages=tuple(pages), key_value_pairs=tuple(pairs), synthetic=True)
+
+
+async def test_a_uad36_report_is_read_by_its_own_captions_and_asked_only_its_keys() -> None:
+    provider = ScriptedProvider(
+        [
+            ScriptedTurn(
+                parsed=FallbackAnswer(
+                    fields=[
+                        FallbackValue(
+                            key="improvements.bathrooms", value="2", page=2, confidence=0.9
+                        ),
+                        # not carried by the form, not asked: dropped
+                        FallbackValue(key="subject.tax_year", value="2025", page=2, confidence=0.9),
+                    ]
+                ),
+                usage=Usage(input_tokens=5000, output_tokens=300),
+            )
+        ]
+    )
+    azure = StaticAzure(uad36_azure())
+    ctx = dataclasses.replace(context(azure, provider), fallback_scope="missing")
+    result = await extract_appraisal(uad36_pdf(), "u", ctx)
+    assert result.method == "azure_di+regex+uad36"
+    assert result.raw["form"]["form"] == "uad36_urar"
+    assert result.raw["form"]["uad36_pages"] == [1, 2, 3]
+    assert "improvements.total_rooms" in result.raw["form"]["not_on_form"]
+    assert any("UAD 3.6 URAR" in note for note in result.notes)
+    # Azure DI by the UAD 3.6 caption; the text layer's typed values by theirs
+    assert result.fields["improvements.year_built"].source == "azure"
+    assert result.fields["reconciliation.final_market_value"].value_num == Decimal("500000")
+    assert result.fields["listing_and_contract.contract_price"].source == "regex"
+    assert "neighborhood.location" not in result.fields
+    [request] = provider.requests
+    assert request.prompt_version == "appraisal_field_fallback_uad36/v1"
+    asked = request.messages[0].content.split("Page text")[0]
+    assert '- improvements.bathrooms (float): means "Bath(s)"; UAD 3.6 caption' in asked
+    for key in ("subject.tax_year", "improvements.total_rooms", "neighborhood.location"):
+        assert key not in asked and key not in result.fallback["asked"]
+    assert "improvements.year_built" not in asked  # read by its caption
+    assert result.fields["improvements.bathrooms"].source == "llm"
+    assert result.fields["improvements.bedrooms"].source == "regex"  # one Unit Interior
+    assert result.fallback["dropped"] == {"subject.tax_year": "not_asked"}
+    # the form has no room count: it is not required
+    assert not any("total_rooms" in reason for reason in result.review_reasons)
+
+
+async def test_a_legacy_report_keeps_the_1004_prompt_and_request() -> None:
+    azure = StaticAzure(edit_pair(load_azure_fixture(), "Gross Living Area", drop=True))
+    provider = ScriptedProvider([ScriptedTurn(parsed=FallbackAnswer(fields=[]))])
+    ctx = dataclasses.replace(context(azure, provider), fallback_scope="missing")
+    result = await extract_appraisal(SCAN, "d", ctx)
+    assert result.method == "azure_di+regex"
+    assert result.raw["form"]["form"] in ("urar_1004_2005", "unknown")
+    [request] = provider.requests
+    assert request.prompt_version == "appraisal_field_fallback/v1"
+    assert '- improvements.gla_sqft: printed as "Gross Living Area" (int)' in (
+        request.messages[0].content
+    )

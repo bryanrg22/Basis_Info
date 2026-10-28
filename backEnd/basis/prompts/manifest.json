@@ -147,6 +147,11 @@
       "v2": {
         "sha256": "2e4e06fdea7c0685d21d3ba2dbcdbd42e53462dde862c3ba9b4e5974dcef88a9"
       }
+    },
+    "appraisal_field_fallback_uad36": {
+      "v1": {
+        "sha256": "4f63391cf901eca0ca263000fbc31d9f479b0de730c9c3c480a5dcd5ac9c3d90"
+      }
     }
   }
 }

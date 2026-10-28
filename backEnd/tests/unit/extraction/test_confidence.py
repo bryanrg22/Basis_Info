@@ -90,3 +90,20 @@ def test_no_fields_at_all() -> None:
     gate = review_gate({}, [], threshold=0.90)
     assert gate.needs_review and gate.overall_confidence == 0.0
     assert len(gate.reasons) == len(CRITICAL_FIELDS)
+
+
+def test_a_critical_key_the_form_does_not_carry_is_not_required() -> None:
+    """The UAD 3.6 URAR prints no total room count (uad36_map: no_equivalent)."""
+    from basis.extraction.validation import validate_fields
+
+    fields = golden()
+    del fields["improvements.total_rooms"]
+    issues = validate_fields(fields)
+    assert review_gate(fields, issues, threshold=0.90).needs_review
+    assert aggregate_confidence(fields) == 0.0
+    skip = frozenset({"improvements.total_rooms"})
+    issues = validate_fields(fields, not_on_form=skip)
+    assert not any(i.rule == "missing_critical" for i in issues)
+    gate = review_gate(fields, issues, threshold=0.90, not_on_form=skip)
+    assert not gate.needs_review
+    assert aggregate_confidence(fields, skip) == gate.overall_confidence > 0.9
