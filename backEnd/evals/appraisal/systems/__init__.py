@@ -14,6 +14,7 @@ Every system reads the PDF (and the document's recorded analyses) and returns th
 ``llm_sections``       one grounded call per section group, in parallel (:mod:`.grounded`)
 ``validate_reask``     validators on a base system, implicated keys re-asked (:mod:`.combine`)
 ``vote``               two systems or models, agreement kept, disagreement flagged (:mod:`.combine`)
+``mismo_xml``          the UAD 3.6 XML beside the PDF, located on the PDF (:mod:`.mismo`)
 =====================  ============================================================
 """
 
@@ -31,6 +32,7 @@ from evals.appraisal.systems.base import (
 )
 from evals.appraisal.systems.combine import ValidateReask, Vote
 from evals.appraisal.systems.grounded import llm_all, llm_pages, llm_sections
+from evals.appraisal.systems.mismo import MismoXml
 from evals.appraisal.systems.mortgage import Azure1004, ProductionPlus1004
 from evals.appraisal.systems.production import CheckboxContext, Production
 
@@ -44,15 +46,19 @@ SYSTEMS: Final = (
     "llm_sections",
     "validate_reask",
     "vote",
+    "mismo_xml",
 )
 # Systems whose answer comes from a model named by --model (the others use TEXT_MODEL or none).
 MODEL_SYSTEMS: Final = frozenset({"llm_all", "llm_pages", "llm_sections", "validate_reask"})
 MORTGAGE_SYSTEMS: Final = frozenset({"azure_1004", "production_plus_1004"})
+# Systems that call no model at all.
+NO_MODEL_SYSTEMS: Final = frozenset({"azure_1004", "mismo_xml"})
 # Systems that run the production pipeline, whose replay uses the recorded context.json.
 PRODUCTION_SYSTEMS: Final = frozenset({"production", "checkbox_context", "production_plus_1004"})
 
 __all__ = [
     "MODEL_SYSTEMS",
+    "NO_MODEL_SYSTEMS",
     "SYSTEMS",
     "ModelChoice",
     "System",
@@ -71,6 +77,8 @@ def _simple(name: str, spec: SystemSpec, model: ModelChoice) -> System:
         return Production()
     if name == "azure_1004":
         return Azure1004()
+    if name == "mismo_xml":
+        return MismoXml()
     if name == "production_plus_1004":
         return ProductionPlus1004()
     if name == "checkbox_context":

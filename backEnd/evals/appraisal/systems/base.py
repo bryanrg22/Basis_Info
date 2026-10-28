@@ -23,6 +23,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Final, Protocol
 
 import basis.extraction.field_mappings as _catalogue
@@ -246,6 +247,7 @@ class SystemEnv:
     provider: ChatProvider | None
     sources: DocumentSources
     extraction: ExtractionSettings
+    pdf_path: Path | None = None  # the PDF on disk (mismo_xml reads the XML beside it)
 
 
 @dataclass

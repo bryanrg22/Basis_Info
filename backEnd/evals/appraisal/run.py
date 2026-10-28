@@ -24,7 +24,8 @@
 Systems (``--system``, default ``production``; designs in :mod:`evals.appraisal.systems`):
 ``production``, ``azure_1004``, ``production_plus_1004``, ``checkbox_context``, ``llm_all``,
 ``llm_pages``, ``llm_sections`` (``--with-images``), ``validate_reask`` (``--base``,
-``--base-model``), ``vote`` (``--voters system@model[@effort],system@model[@effort]``).
+``--base-model``), ``vote`` (``--voters system@model[@effort],system@model[@effort]``),
+``mismo_xml`` (the UAD 3.6 XML beside the PDF; no model).
 ``--model``/``--effort``/``--max-tokens`` choose the model of the model systems (for
 ``checkbox_context`` they override ``TEXT_MODEL``); ``--dpi``/``--min-page-words`` the page
 images. A document's analyses (Azure DI layout, the 1004 model) run once per run, whatever
@@ -66,6 +67,7 @@ from evals.appraisal import baseline, recordings
 from evals.appraisal.normalize import Columns, review_display
 from evals.appraisal.score import PageWords, render_report, score_run
 from evals.appraisal.systems import (
+    NO_MODEL_SYSTEMS,
     SYSTEMS,
     ModelChoice,
     SystemEnv,
@@ -147,7 +149,7 @@ def git_sha() -> str:
 
 
 def _needs_model(options: Options) -> bool:
-    return options.system.name != "azure_1004" and not options.azure_only
+    return options.system.name not in NO_MODEL_SYSTEMS and not options.azure_only
 
 
 def build_live_deps(settings: Settings, options: Options) -> LiveDeps:
@@ -349,6 +351,7 @@ async def predict_document(
             provider=_provider(options, live, state, directory),
             sources=sources,
             extraction=extraction,
+            pdf_path=pdf_path,
         )
         before = len(state.recorder.records)
         try:
