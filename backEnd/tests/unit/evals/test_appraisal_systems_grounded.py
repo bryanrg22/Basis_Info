@@ -357,3 +357,28 @@ def test_needs_the_raw_layout() -> None:
         run(llm_all(MODEL, dpi=50, min_page_words=3).run(env))
     with pytest.raises(MissingInput, match="layout analysis"):
         run(llm_all(MODEL, dpi=50, min_page_words=3).run(make_env(provider=ScriptedProvider([]))))
+
+
+def test_llm_all_on_a_uad36_report_asks_only_its_keys_by_their_captions() -> None:
+    from basis.extraction.uad36_pdf import CARRIED, NOT_CARRIED
+
+    footer = "Fannie Mae | Freddie Mac Appraiser Reference ID A1"
+    pages = [
+        ["Dwelling Exterior", "Year Built 2004", footer],
+        ["Unit Interior", "Total Bedrooms 3", footer],
+    ]
+    provider = ScriptedProvider(
+        [answer(value("improvements.year_built", "2004", 1, "Year Built 2004"))],
+        model="gpt-6-luna",
+    )
+    env = make_env(layout=RawClient(raw_layout(pages)), provider=provider)
+    output = run(llm_all(MODEL, dpi=72, min_page_words=3).run(env))
+    [request] = provider.requests
+    content = request.messages[0].content
+    assert content.startswith("This report is printed on the redesigned URAR (UAD 3.6).")
+    assert '- improvements.year_built (int): means "Year Built"; UAD 3.6 caption' in content
+    assert all(f"- {key} (" in content for key in ASKED_KEYS if key in CARRIED)
+    assert not any(f"- {key} " in content or f"- {key}:" in content for key in NOT_CARRIED)
+    assert output.result.fields["improvements.year_built"].value_num == 2004
+    assert output.result.fallback["form"] == "uad36_urar"
+    assert "subject.tax_year" not in output.result.fallback["asked"]
