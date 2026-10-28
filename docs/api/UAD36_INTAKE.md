@@ -12,7 +12,7 @@ extraction recognizes the bytes, not the label (`basis/extraction/package.py`):
 
 | Upload | Values from | Highlight regions from |
 |---|---|---|
-| PDF | the PDF (Azure DI layout + text layer + model fallback), unchanged | the PDF |
+| PDF | the PDF (Azure DI layout + text layer + model fallback), read by its form's captions (below) | the PDF |
 | UAD 3.6 ZIP | the XML | the ZIP's PDF (the one the XML names in `VIEW_FILE/FOREIGN_OBJECT/ObjectURL`, else the only one) |
 | bare MISMO 3.6 XML | the XML | the study's latest other uploaded appraisal PDF, if any (else no regions) |
 
@@ -21,6 +21,24 @@ external entities; a root that is not a MISMO `MESSAGE`; an XML over 25 MB; a ZI
 absolute, `..`, drive or backslash path, an encrypted entry, more than 2,000 entries, an entry
 that expands past 60 MB (whatever its header claims) or 120 MB in all, no MISMO XML or more than
 one, or several PDFs the XML does not choose between.
+
+## A UAD 3.6 report uploaded as a PDF alone
+
+`basis/extraction/forms.py` tells the two URARs apart by their page footers: the legacy 1004's
+"Fannie Mae Form 1004 / Freddie Mac Form 70 March 2005" and the redesigned URAR's A-1 footer
+("Fannie Mae | Freddie Mac" with the Appraiser or Client Reference ID). Two or more UAD 3.6
+pages that outnumber 1004 pages make a UAD 3.6 report; anything else takes the 1004 path,
+unchanged. The result records the form in `raw["form"]` (with the pages that carry each footer
+and, for UAD 3.6, the catalogue keys the form does not carry) and the method gets `+uad36`.
+
+On a UAD 3.6 PDF (`basis/extraction/uad36_pdf.py`), Azure DI key-value pairs and the text
+layer are mapped by the A-1 captions, scoped by the A-1 section printed above them and, for a
+caption several boxes share, by the nearest printed A-1 subsection ("Company Name" under
+"Client/Lender" vs under "Appraiser"); the comparable grids are never read. Keys whose value
+combines several printed boxes or a table row are left to the model fallback, which uses the
+prompt `appraisal_field_fallback_uad36` and is told each key's UAD 3.6 captions and sections.
+Keys the redesigned form does not carry (`no_equivalent` / `unresolved` in `uad36_map`) are
+neither extracted, asked nor required by the review gate (the form has no total room count).
 
 ## How XML values and PDF regions combine
 
