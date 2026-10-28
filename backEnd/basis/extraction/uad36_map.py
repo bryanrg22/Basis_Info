@@ -2129,7 +2129,7 @@ MAPPING: Final[dict[str, dict[str, Any]]] = {
         "where": {},
         "scope": None,
         "gate": (),
-        "captions": ("Storage", "Vehicle Storage Exhibits", "Detail", "Feature"),
+        "captions": ("Storage", "Vehicle Storage Exhibits", "Feature", "Detail"),
         "legacy": (
             ("1-195", "Car Storage / None / Driveway / Garage / Carport / Garage/Carport"),
             (

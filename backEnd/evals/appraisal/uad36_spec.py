@@ -866,10 +866,11 @@ def captions_of(locations: Iterable[str], *, grid: bool = False) -> list[str]:
             label = _clean_label(parts[-2])
         if not label:
             continue
-        target = summary if section == "1" else main
-        if label not in main and label not in summary:
-            target.append(label)
-    return main + summary
+        if section != "1" and label not in main:
+            main.append(label)
+        elif section == "1" and label not in summary:
+            summary.append(label)
+    return main + [label for label in summary if label not in main]
 
 
 def _clean_label(text: str) -> str:
