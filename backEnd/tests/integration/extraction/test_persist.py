@@ -105,8 +105,11 @@ async def test_fields_land_in_typed_columns(
     assert baths.value_num == Decimal("2.1")
     flood = fields["site.special_flood_hazard"]
     assert (flood.value_text, flood.value_num) == ("No", Decimal(0))
-    income = fields["reconciliation.indicated_value_income_approach"]
-    assert (income.value_text, income.value_num) == ("Not Developed", None)
+    # "Not Developed" is not a value (basis.extraction.presence): no row, the reason in raw
+    assert "reconciliation.indicated_value_income_approach" not in fields
+    assert row.raw["presence"]["reconciliation.indicated_value_income_approach"] == (
+        "not_developed:no_number"
+    )
     assert {f.source for f in fields.values()} == {"azure"}
 
     # The stored Azure DI analysis round-trips, so a later revision can reuse it.

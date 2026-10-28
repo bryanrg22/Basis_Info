@@ -18,7 +18,11 @@ S3_SPEC section 2 (binding signature) and section 4. One call per appraisal revi
    with ``EXTRACTION_FALLBACK_SCOPE=missing``, the default; only the critical ones with
    ``critical``; :mod:`basis.extraction.fallback`), then the derived site-area fields
    (:mod:`basis.extraction.derived`), then validate again.
-5. Each field's highlight regions from Azure DI's geometry (:mod:`basis.extraction.regions`;
+5. The presence rules (:mod:`basis.extraction.presence`): a value for an approach or a
+   cost-approach line the appraiser did not develop, or a certification box cited off the
+   signature page, is dropped (after the fallback, so a dropped key is never re-asked), then
+   validate again.
+6. Each field's highlight regions from Azure DI's geometry (:mod:`basis.extraction.regions`;
    none without Azure DI), then the review gate (:mod:`basis.extraction.confidence`).
 
 Two context hooks exist for the appraisal extraction sweep (``evals/appraisal/systems``) and
@@ -52,6 +56,7 @@ from basis.extraction.package import (
     read_appraisal_upload,
 )
 from basis.extraction.pdf_text import InvalidDocument, read_pdf
+from basis.extraction.presence import apply_presence_rules
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
 from basis.extraction.regions import with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
@@ -203,9 +208,15 @@ async def extract_appraisal(
         filled.update(outcome.fields)
         fields = {**filled, **derive_fields(filled)}
         issues = merge_issues + validate_fields(fields, not_on_form=off_form)
+    sources = [pdf.pages] if azure is None else [pdf.pages, azure.page_texts()]
+    presence = apply_presence_rules(fields, sources, not_on_form=off_form)
+    if presence.dropped:
+        fields = presence.fields
+        issues = merge_issues + validate_fields(fields, not_on_form=off_form)
 
     fields = with_regions(fields, azure)
     gate = review_gate(fields, issues, threshold=ctx.review_threshold, not_on_form=off_form)
+    summary = {**outcome.summary(), "presence": presence.dropped}
     raw: dict[str, Any] = {
         "method": method,
         "doc_id": doc_id,
@@ -216,8 +227,9 @@ async def extract_appraisal(
         "issues": [i.model_dump(mode="json") for i in issues],
         "review_reasons": list(gate.reasons),
         "review_threshold": ctx.review_threshold,
-        "fallback": outcome.summary(),
+        "fallback": summary,
         "fallback_scope": ctx.fallback_scope,
+        "presence": presence.dropped,
         "comparables": comparables,
         "form": _form_json(form),
     }
@@ -233,7 +245,7 @@ async def extract_appraisal(
         needs_review=gate.needs_review,
         review_reasons=list(gate.reasons),
         comparables=comparables,
-        fallback=outcome.summary(),
+        fallback=summary,
         notes=notes,
         raw=raw,
     )

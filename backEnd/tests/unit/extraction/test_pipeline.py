@@ -71,7 +71,7 @@ def edit_pair(result: AzureDiResult, label: str, **changes: object) -> AzureDiRe
 
 async def test_azure_di_and_text_layer_agree_and_pass_the_gate() -> None:
     result = await extract_appraisal(SAMPLE, "SYN_URAR_0001", context(FixtureAzureDi()))
-    hits, misses = compare(result.fields)
+    hits, misses = compare(result.fields, presence=True)
     assert misses == [] and len(hits) == 110
     assert result.method == "azure_di+regex"
     assert not result.needs_review and result.issues == []
@@ -84,6 +84,32 @@ async def test_azure_di_and_text_layer_agree_and_pass_the_gate() -> None:
     assert result.raw["azure_di"]["model_id"] == "prebuilt-layout"
 
 
+async def test_presence_rules_drop_the_approaches_not_developed_and_keep_real_zeros() -> None:
+    result = await extract_appraisal(SAMPLE, "d", context(FixtureAzureDi()))
+    assert (
+        result.raw["presence"]
+        == result.fallback["presence"]
+        == {
+            "reconciliation.indicated_value_income_approach": "not_developed:no_number",
+            "cost_approach.depreciation_functional": "not_developed:zero",
+            "cost_approach.depreciation_external": "not_developed:zero",
+        }
+    )
+    for key in ("subject.hoa_dues", "subject.special_assessments"):  # $0 is a value here
+        assert result.fields[key].value_num == Decimal("0")
+    # the certification boxes are cited on the signature page (7): kept
+    appraised = result.fields["appraiser.appraised_value"]
+    assert (appraised.value_num, appraised.page) == (Decimal("410000"), 7)
+    assert result.fields["appraiser.effective_date"].page == 7
+
+
+async def test_a_certification_value_off_the_signature_page_is_dropped() -> None:
+    moved = edit_pair(load_azure_fixture(), "Appraised Value of Subject Property", page=5)
+    result = await extract_appraisal(SCAN, "d", context(StaticAzure(moved)))
+    assert "appraiser.appraised_value" not in result.fields
+    assert result.raw["presence"]["appraiser.appraised_value"] == "absent:not_on_signature_page"
+
+
 async def test_low_azure_confidence_on_a_critical_field_goes_to_review() -> None:
     ctx = context(FixtureAzureDi("urar_sample_low_confidence.json"))
     result = await extract_appraisal(SAMPLE, "d", ctx)
@@ -94,7 +120,7 @@ async def test_low_azure_confidence_on_a_critical_field_goes_to_review() -> None
 
 async def test_without_azure_the_text_layer_reads_every_field_but_is_reviewed() -> None:
     result = await extract_appraisal(SAMPLE, "d", context(None))
-    hits, misses = compare(result.fields)
+    hits, misses = compare(result.fields, presence=True)
     assert misses == [] and len(hits) == 110
     assert result.method == "regex"
     assert result.needs_review
@@ -104,7 +130,7 @@ async def test_without_azure_the_text_layer_reads_every_field_but_is_reviewed() 
 
 async def test_a_scan_is_read_by_azure_di_alone() -> None:
     result = await extract_appraisal(SCAN, "d", context(FixtureAzureDi()))
-    hits, misses = compare(result.fields)
+    hits, misses = compare(result.fields, presence=True)
     assert misses == []
     assert not result.needs_review
     assert "the PDF has no text layer (scanned)" in result.notes
@@ -207,7 +233,7 @@ class RefusingAzure:
 
 async def test_azure_refusing_the_request_falls_back_to_the_text_layer_and_review() -> None:
     result = await extract_appraisal(SAMPLE, "d", context(RefusingAzure()))
-    hits, _ = compare(result.fields)
+    hits, _ = compare(result.fields, presence=True)
     assert len(hits) == 110 and result.method == "regex"
     assert result.needs_review and "azure_di_rejected" in result.review_reasons
     assert "Azure DI rejected the request (401): text layer only" in result.notes

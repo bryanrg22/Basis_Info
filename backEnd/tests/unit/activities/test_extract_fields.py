@@ -34,7 +34,14 @@ from .conftest import Env
 pytestmark = pytest.mark.integration
 
 GOLDEN: dict[str, Any] = load_fixture_json("urar_sample.expected.json")
-GOLDEN_KEYS = {f["key"] for f in GOLDEN["fields"]}
+# The fixture's "Not Developed" income approach and "$0" depreciation lines are not developed
+# (basis.extraction.presence): the extraction leaves them empty.
+NOT_DEVELOPED = {
+    "reconciliation.indicated_value_income_approach",
+    "cost_approach.depreciation_functional",
+    "cost_approach.depreciation_external",
+}
+GOLDEN_KEYS = {f["key"] for f in GOLDEN["fields"]} - NOT_DEVELOPED
 
 
 def extract(
@@ -110,6 +117,7 @@ async def test_extracts_every_golden_field_from_azure_di(
     assert not output.needs_review
     found = await fields(deps, output.extraction_id or "")
     assert GOLDEN_KEYS <= set(found)
+    assert not NOT_DEVELOPED & set(found)
     assert output.fields == len(found)
     assert found["subject.property_address"].value_text == "1290 Example Way"
     assert found["listing_and_contract.contract_price"].value_num == Decimal("412000")
@@ -119,6 +127,9 @@ async def test_extracts_every_golden_field_from_azure_di(
     assert found["subject.property_address"].source == "azure"
     row = await extraction(deps, output.extraction_id or "")
     assert row.method == "azure_di+regex"
+    assert row.raw["presence"] == {key: "not_developed:zero" for key in NOT_DEVELOPED} | {
+        "reconciliation.indicated_value_income_approach": "not_developed:no_number"
+    }
     assert row.raw["azure_di"]["synthetic"] is True
     assert row.raw["fallback"]["status"] == "not_needed"
     assert await count_rows(deps.sessionmaker, LlmCall) == 0
