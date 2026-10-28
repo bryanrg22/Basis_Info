@@ -41,7 +41,15 @@ from basis.extraction.confidence import review_gate
 from basis.extraction.derived import derive_fields
 from basis.extraction.fallback import WHOLE_DOCUMENT_CHARS, Scope, fallback_fields, fallback_keys
 from basis.extraction.field_mappings import FIELDS
-from basis.extraction.pdf_text import read_pdf
+from basis.extraction.geometry import has_geometry, layout_of
+from basis.extraction.mismo36 import InvalidMismo, extract_mismo
+from basis.extraction.package import (
+    InvalidPackage,
+    is_zip,
+    looks_like_xml,
+    read_appraisal_upload,
+)
+from basis.extraction.pdf_text import InvalidDocument, read_pdf
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
 from basis.extraction.regions import with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
@@ -199,3 +207,68 @@ async def extract_appraisal(
         notes=notes,
         raw=raw,
     )
+
+
+async def extract_appraisal_upload(
+    data: bytes,
+    doc_id: str,
+    ctx: ExtractionContext,
+    *,
+    companion_pdf: bytes | None = None,
+) -> ExtractionResult:
+    """An uploaded appraisal of any accepted kind (:mod:`basis.extraction.package`).
+
+    A PDF goes through :func:`extract_appraisal`, unchanged. A UAD 3.6 XML (bare, or in its
+    delivery ZIP) is read by :func:`basis.extraction.mismo36.extract_mismo`: the values come
+    from the XML; the PDF (the ZIP's, else ``companion_pdf``, a PDF uploaded separately for the
+    same study) is analyzed by Azure DI layout (or the earlier revision's analysis is reused)
+    only to place each value's highlight region and cross-check that it is printed. No model is
+    called. Unreadable input raises :class:`InvalidDocument`."""
+    if not is_zip(data) and not looks_like_xml(data):
+        return await extract_appraisal(data, doc_id, ctx)  # a PDF (or not one: its errors)
+    try:
+        upload = read_appraisal_upload(data)
+    except InvalidPackage as exc:
+        raise InvalidDocument(str(exc)) from exc
+    assert upload.xml is not None
+    notes = list(upload.notes)
+    pdf = upload.pdf if upload.pdf is not None else companion_pdf
+    if upload.pdf is None and companion_pdf is not None:
+        notes.append("the report PDF is the study's separately uploaded appraisal PDF")
+    azure: AzureDiResult | None = None
+    page_count = 0
+    if pdf is not None:
+        ctx.heartbeat("read_pdf")
+        page_count = (await asyncio.to_thread(read_pdf, pdf)).page_count
+        azure = ctx.previous_azure
+        if azure is not None:
+            notes.append("reused the Azure DI analysis of an earlier revision")
+        elif ctx.azure is not None:
+            ctx.heartbeat("azure_di")
+            try:
+                azure = await ctx.azure.analyze(pdf)
+            except ProviderBadResponse as exc:
+                logger.error("Azure DI rejected the appraisal PDF (%s): %s", exc.status, exc)
+                notes.append(f"Azure DI rejected the PDF ({exc.status}): no highlight regions")
+        else:
+            notes.append("Azure DI not configured: no highlight regions")
+    else:
+        notes.append("no PDF of the report: the XML values have no highlight regions")
+    layout = layout_of(azure) if azure is not None and has_geometry(azure) else None
+    ctx.heartbeat("mismo_xml")
+    try:
+        result = await asyncio.to_thread(
+            extract_mismo,
+            upload.xml,
+            doc_id,
+            layout=layout,
+            page_count=page_count,
+            review_threshold=ctx.review_threshold,
+            notes=notes,
+        )
+    except InvalidMismo as exc:
+        raise InvalidDocument(str(exc)) from exc
+    result.raw["upload_kind"] = upload.kind
+    if azure is not None:
+        result.raw["azure_di"] = azure.model_dump(mode="json")
+    return result

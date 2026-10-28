@@ -3959,9 +3959,22 @@
             "title": "Kind"
           },
           "content_type": {
-            "type": "string",
-            "const": "application/pdf",
-            "title": "Content Type"
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "application/pdf"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "application/zip",
+                  "application/xml",
+                  "text/xml"
+                ]
+              }
+            ],
+            "title": "Content Type",
+            "description": "`application/pdf`, or a UAD 3.6 delivery: its ZIP (`application/zip`) or its MISMO 3.6 XML (`application/xml`, `text/xml`); the extraction recognizes the bytes, not this label."
           }
         },
         "additionalProperties": false,
@@ -5251,7 +5264,7 @@
           "source": {
             "type": "string",
             "title": "Source",
-            "description": "`azure`, `regex`, `table`, `llm` or `manual`."
+            "description": "`azure`, `regex`, `table`, `llm`, `mismo_xml` (a UAD 3.6 XML) or `manual`."
           },
           "page": {
             "anyOf": [

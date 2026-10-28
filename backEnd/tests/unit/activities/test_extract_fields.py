@@ -472,3 +472,76 @@ async def test_the_previous_fallback_configuration_is_one_setting_away(
     provider sends no reasoning effort to a non-reasoning model)."""
     request = await _fallback_request(deps, seeded, activity_env, text_model="gpt-4o-mini")
     assert (request.model, request.max_tokens) == ("gpt-4o-mini", 800)
+
+
+# --------------------------------------------------------------------------- UAD 3.6
+
+
+async def test_a_uad36_delivery_zip_persists_xml_fields_with_their_pdf_regions(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    from uad36_fakes import azure_printing, fabricated_xml, fabricated_zip
+
+    pdf = await _fixture_bytes("urar_sample.pdf")
+    await put_bytes(deps, seeded, fabricated_zip({"m.xml": fabricated_xml(), "m.pdf": pdf}))
+    azure = StaticAzure(azure_printing([["Opinion", "of", "Market", "Value", "$300,000"]]))
+    out = await activity_env.run(
+        ExtractFields(with_deps(deps, azure_di=azure, llm=None)).run, extract(seeded)
+    )
+    assert out.extraction_id is not None and azure.calls == 1
+    rows = await fields(deps, out.extraction_id)
+    value = rows["reconciliation.final_market_value"]
+    assert value.source == "mismo_xml" and value.value_num == Decimal(300000)
+    assert value.confidence == 1.0 and value.page == 1 and value.regions
+    assert rows["subject.property_address"].value_text == "100 Test Ln"
+    assert {row.source for row in rows.values()} == {"mismo_xml"}
+    stored = await extraction(deps, out.extraction_id)
+    assert stored.method == "mismo_xml+azure_di" and stored.raw["upload_kind"] == "zip"
+    assert await count_rows(deps.sessionmaker, LlmCall) == 0
+
+
+async def test_a_bare_uad36_xml_uses_the_studys_uploaded_pdf_for_regions(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    from uad36_fakes import azure_printing, fabricated_xml
+
+    from basis.db.enums import DocumentKind
+    from basis.db.repositories.document import DocumentRepository
+
+    await put_bytes(deps, seeded, fabricated_xml())
+    pdf = await _fixture_bytes("urar_sample.pdf")
+    async with session_scope(deps.sessionmaker) as session:
+        repo = DocumentRepository(session)
+        document = await repo.create(
+            study_id=seeded.study_id,
+            kind=DocumentKind.APPRAISAL,
+            filename="report.pdf",
+            content_type="application/pdf",
+            size_bytes=len(pdf),
+            sha256="ab" * 32,
+            gcs_uri=f"gs://basis-test/{seeded.study_id}/report.pdf",
+            uploaded_by=None,
+        )
+        await repo.mark_uploaded(seeded.study_id, document.id)
+        uri = document.gcs_uri
+    await deps.storage.put(uri, pdf, "application/pdf")
+    azure = StaticAzure(azure_printing([["Opinion", "of", "Market", "Value", "$300,000"]]))
+    out = await activity_env.run(
+        ExtractFields(with_deps(deps, azure_di=azure, llm=None)).run, extract(seeded)
+    )
+    assert out.extraction_id is not None and azure.calls == 1
+    rows = await fields(deps, out.extraction_id)
+    assert rows["reconciliation.final_market_value"].regions
+    stored = await extraction(deps, out.extraction_id)
+    assert stored.raw["upload_kind"] == "xml"
+
+
+async def test_a_hostile_uad36_xml_is_not_retried(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    hostile = b'<?xml version="1.0"?><!DOCTYPE m [<!ENTITY a "x">]><MESSAGE>&a;</MESSAGE>'
+    await put_bytes(deps, seeded, hostile)
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(ExtractFields(deps).run, extract(seeded))
+    assert caught.value.type == "ValidationError" and caught.value.non_retryable
+    assert await count_rows(deps.sessionmaker, Extraction) == 0

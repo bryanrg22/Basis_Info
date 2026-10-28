@@ -1,6 +1,9 @@
 """``extract_fields``: the appraisal's fields for one revision (S3 body).
 
-Runs :func:`basis.extraction.pipeline.extract_appraisal` on the uploaded PDF: Azure DI
+Runs :func:`basis.extraction.pipeline.extract_appraisal_upload` on the uploaded appraisal. A
+UAD 3.6 delivery (MISMO 3.6 XML, bare or in its ZIP) takes its values from the XML and its
+highlight regions from the PDF (the ZIP's, else the study's latest other appraisal PDF);
+docs/api/UAD36_INTAKE.md. A PDF runs :func:`basis.extraction.pipeline.extract_appraisal`: Azure DI
 (when configured) merged with the text layer, cleaned, validated, with one LLM call for
 critical fields that are missing or failed, and the review gate. The result is written
 to ``extractions`` (``raw`` keeps the Azure DI analysis, candidates, issues and the
@@ -54,9 +57,10 @@ from basis.db.session import session_scope
 from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.fallback import PROMPT_NAME
+from basis.extraction.package import is_pdf, is_zip
 from basis.extraction.pdf_text import InvalidDocument
 from basis.extraction.persist import persist_extraction, stored_azure_result
-from basis.extraction.pipeline import ExtractionContext, extract_appraisal
+from basis.extraction.pipeline import ExtractionContext, extract_appraisal_upload
 from basis.extraction.results import ExtractedField, ExtractionResult
 from basis.extraction.validation import validate_fields
 from basis.llm import prompts
@@ -103,10 +107,13 @@ class ExtractFields:
             run_id = await run_pk(session)
             spent = await LlmCallRepository(session).spent_usd(study_id)
             gcs_uri = document.gcs_uri
+            companion_uri = await _companion_pdf_uri(session, study_id, document_id)
 
         result: ExtractionResult | None = None
         if not done:
-            result = await self._extract(study_id, document_id, gcs_uri, run_id, spent, reuse)
+            result = await self._extract(
+                study_id, document_id, gcs_uri, run_id, spent, reuse, companion_uri
+            )
 
         async def work(session: AsyncSession) -> ExtractFieldsOutput:
             repo = ExtractionRepository(session)
@@ -150,12 +157,19 @@ class ExtractFields:
         run_id: uuid.UUID | None,
         spent: Decimal,
         reuse: AzureDiResult | None,
+        companion_uri: str | None = None,
     ) -> ExtractionResult:
         settings = self._deps.settings
         try:
-            pdf_bytes = await self._deps.storage.read(gcs_uri)
+            data = await self._deps.storage.read(gcs_uri)
         except ObjectNotFound:
             raise validation_error(f"appraisal file {gcs_uri} is missing from storage") from None
+        companion: bytes | None = None
+        if companion_uri is not None and not is_pdf(data) and not is_zip(data):
+            try:  # a bare UAD 3.6 XML: its PDF was uploaded as another appraisal document
+                companion = await self._deps.storage.read(companion_uri)
+            except ObjectNotFound:
+                companion = None
         ctx = ExtractionContext(
             call=CallContext(
                 study_id=study_id,
@@ -178,11 +192,32 @@ class ExtractFields:
         )
         try:
             async with heartbeating("extracting"):
-                return await extract_appraisal(pdf_bytes, str(document_id), ctx)
+                return await extract_appraisal_upload(
+                    data, str(document_id), ctx, companion_pdf=companion
+                )
         except InvalidDocument as exc:
             raise validation_error(f"appraisal {document_id}: {exc}") from exc
         except ProviderError as exc:
             raise provider_failure(exc, f"appraisal {document_id}") from exc
+
+
+async def _companion_pdf_uri(
+    session: AsyncSession, study_id: uuid.UUID, document_id: uuid.UUID
+) -> str | None:
+    """The study's latest uploaded appraisal PDF other than ``document_id``: the report PDF of
+    a UAD 3.6 XML uploaded on its own."""
+    documents = await DocumentRepository(session).list_for_study(study_id)
+    pdfs = [
+        d
+        for d in documents
+        if d.id != document_id
+        and d.kind is DocumentKind.APPRAISAL
+        and d.content_type == "application/pdf"
+        and d.uploaded_at is not None
+    ]
+    if not pdfs:
+        return None
+    return max(pdfs, key=lambda d: (d.uploaded_at or d.created_at, d.created_at)).gcs_uri
 
 
 def _check_correction(correction: CorrectionInput) -> None:
