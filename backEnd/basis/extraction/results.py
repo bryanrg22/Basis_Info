@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from basis.extraction.cleaners import CleanValue, clean_field
 from basis.extraction.field_mappings import FIELD_BY_KEY
 
-Source = Literal["azure", "regex", "table", "llm", "manual"]
+Source = Literal["azure", "regex", "table", "llm", "manual", "mismo_xml"]
 Severity = Literal["error", "warning"]
 
 

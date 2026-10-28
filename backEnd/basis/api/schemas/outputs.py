@@ -40,7 +40,9 @@ class ExtractionFieldOut(ResponseModel):
     value_num: Decimal | None
     value_date: date | None
     confidence: float | None
-    source: str = Field(description="`azure`, `regex`, `table`, `llm` or `manual`.")
+    source: str = Field(
+        description="`azure`, `regex`, `table`, `llm`, `mismo_xml` (a UAD 3.6 XML) or `manual`."
+    )
     page: int | None
     regions: list[FieldRegionOut] = Field(
         description=(
