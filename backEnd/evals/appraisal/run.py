@@ -228,7 +228,7 @@ def _repeat_json(
             "dropped": fallback.get("dropped", {}),
             **{
                 k: fallback[k]
-                for k in ("statuses", "calls", "reask", "disagree", "error")
+                for k in ("statuses", "calls", "reask", "disagree", "presence", "error")
                 if k in fallback
             },
         },

@@ -286,6 +286,33 @@ def test_llm_all_one_call_every_key_with_marks() -> None:
     assert env.call.budget.calls == 1
 
 
+def test_llm_all_applies_the_presence_rules() -> None:
+    page = [
+        "Reconciliation",
+        "Income Approach (if developed) $ 0 HOA $ 0",
+        "APPRAISED VALUE OF SUBJECT PROPERTY $ 412,000",
+    ]
+    provider = ScriptedProvider(
+        [
+            answer(
+                value("reconciliation.indicated_value_income_approach", "$ 0", 1, page[1]),
+                value("subject.hoa_dues", "$ 0", 1, page[1]),  # a real $0: kept
+                # no signature block on the page: a restatement of the final value
+                value("appraiser.appraised_value", "$ 412,000", 1, page[2]),
+            )
+        ],
+        model="gpt-6-luna",
+    )
+    env = make_env(layout=RawClient(raw_layout([page])), provider=provider)
+    output = run(llm_all(MODEL, dpi=72, min_page_words=3).run(env))
+    assert set(output.result.fields) == {"subject.hoa_dues"}
+    assert set(output.quotes) == set(output.regions or {}) == {"subject.hoa_dues"}
+    assert output.result.fallback["presence"] == {
+        "reconciliation.indicated_value_income_approach": "not_developed:zero",
+        "appraiser.appraised_value": "absent:not_on_signature_page",
+    }
+
+
 def test_llm_pages_sends_images_of_form_pages_only() -> None:
     geometry = from_raw(layout())
     assert is_form_page(geometry.page(1), 3)  # type: ignore[arg-type]

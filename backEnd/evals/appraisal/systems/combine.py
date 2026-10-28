@@ -213,6 +213,14 @@ class Vote:
                 "voters": self.labels,
                 "disagree": disagree,
                 "voter_fallbacks": [o.result.fallback for o in outputs],
+                # the presence rules' drops (production's, applied by each voter) of the keys
+                # the vote has no value for; the first voter's reason when both dropped
+                "presence": {
+                    key: why
+                    for o in reversed(outputs)
+                    for key, why in o.result.fallback.get("presence", {}).items()
+                    if key not in fields
+                },
             },
             notes=[n for o in outputs for n in o.result.notes],
         )

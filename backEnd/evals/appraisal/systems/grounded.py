@@ -23,6 +23,11 @@ recorded in ``fallback.dropped``:
   (:func:`~evals.appraisal.systems.marks.checkbox_problem`);
 * ``unparseable:...``: the production cleaner cannot parse it as the key's type.
 
+Then production's presence rules (:func:`basis.extraction.presence.apply_presence_rules`: an
+approach or cost-approach line not developed, a certification box cited off the signature
+page) drop what they drop, recorded in ``fallback.presence``, so a vote over these systems
+gets them too.
+
 An accepted value is an ``llm`` field at confidence :data:`LLM_CONFIDENCE_CAP` (0.6): the
 production rule for a model value (a suggestion below the review threshold; model
 self-reports are poorly calibrated, research 3.3), so the model is not asked for one. Its
@@ -56,6 +61,7 @@ from basis.extraction import uad36_pdf
 from basis.extraction.fallback import appears_in
 from basis.extraction.field_mappings import FIELD_BY_KEY, LLM_CONFIDENCE_CAP
 from basis.extraction.forms import detect_form
+from basis.extraction.presence import apply_presence_rules
 from basis.extraction.regions import caption_box
 from basis.extraction.results import Candidate, ExtractedField
 from basis.llm import prompts
@@ -491,7 +497,17 @@ class Grounded:
         checked, statuses, errors = await run_plans(
             env, plans, model=self.model, geometry=geometry, dpi=self.dpi, uad36=uad36
         )
+        presence = apply_presence_rules(
+            checked.fields,
+            [labelled_texts(geometry)],
+            not_on_form=uad36_pdf.NOT_CARRIED if uad36 else frozenset(),
+        )
+        for key in presence.dropped:
+            checked.fields.pop(key, None)
+            checked.quotes.pop(key, None)
+            checked.regions.pop(key, None)
         fallback = summary(checked, asked, statuses)
+        fallback["presence"] = presence.dropped
         if uad36:
             fallback["form"] = "uad36_urar"
         fallback["error"] = "; ".join(errors) or None

@@ -405,3 +405,29 @@ def test_vote_system_reasons_and_parallel_voters() -> None:
     assert output.result.method == "vote:a,b"
     with pytest.raises(ValueError, match="two voters"):
         Vote([a], ["a"])
+
+
+class Dropping(Fixed):
+    """A voter whose presence rules dropped a key (recorded in its fallback)."""
+
+    def __init__(self, values: dict[str, ExtractedField], presence: dict[str, str]) -> None:
+        super().__init__(values)
+        self.presence = presence
+
+    async def run(self, env: SystemEnv) -> SystemOutput:
+        output = await super().run(env)
+        output.result.fallback["presence"] = self.presence
+        return output
+
+
+def test_vote_reports_the_voters_presence_drops_of_keys_it_has_no_value_for() -> None:
+    income = "reconciliation.indicated_value_income_approach"
+    a = Dropping({"subject.zip": f("subject.zip", "12345")}, {income: "not_developed:zero"})
+    b = Dropping(
+        {"subject.zip": f("subject.zip", "12345"), "appraiser.name": f("appraiser.name", "A")},
+        {income: "not_developed:no_number", "appraiser.name": "absent:not_on_signature_page"},
+    )
+    output = asyncio.run(Vote([a, b], ["a", "b"]).run(make_env()))
+    # the first voter's reason; a key the vote kept a value for is not reported
+    assert output.result.fallback["presence"] == {income: "not_developed:zero"}
+    assert income not in output.result.fields
