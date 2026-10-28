@@ -255,3 +255,80 @@ def test_the_generated_map_carries_the_report_layout() -> None:
     assert all(isinstance(place[0], int) and len(place) == 4 for place in PLACES)
     for key in CARRIED:
         assert MAPPING[key]["locations"], key
+
+
+# --------------------------------------------------------------------------- units
+
+
+def test_units_come_from_the_property_counts_not_the_per_unit_adu_flag() -> None:
+    entry = MAPPING["improvements.units"]
+    assert entry["rule"] == "units"
+    # A-1 0100.0022 Units Excluding ADUs, 0100.0019 Accessory Dwelling Units (Subject Property)
+    assert [s["uid"] for s in entry["sources"]] == ["0100.0022", "0100.0019"]
+    assert [s["captions"] for s in entry["sources"]] == [
+        ("Units Excluding ADUs",),
+        ("Accessory Dwelling Units",),
+    ]
+    assert "ADU" not in entry["captions"]  # the Unit Interior Yes/No (G-1 1-128)
+    text = describe("improvements.units")
+    assert '"Units Excluding ADUs", "Accessory Dwelling Units" in Subject Property' in text
+
+
+SUBJECT_COUNTS = (
+    "Subject Property",
+    "Physical Address 9 Test Ln Units Excluding ADUs {units}",
+    "Sampleton, ZZ 00001 Accessory Dwelling Units {adus}",
+)
+
+
+def counts_page(units: str, adus: str) -> str:
+    return page(*(line.format(units=units, adus=adus) for line in SUBJECT_COUNTS))
+
+
+def units_of(pages: list[str]) -> str | None:
+    found = uad36_pdf.unit_count_candidate(pages, source="regex")
+    return found.raw_text if found is not None else None
+
+
+def test_the_unit_count_on_the_text_layer() -> None:
+    assert units_of([counts_page("1", "0")]) == "One"
+    assert units_of([counts_page("1", "1")]) == "One with Accessory Unit"
+    assert units_of([counts_page("2", "0")]) == "2"
+    assert units_of([counts_page("4", "1")]) == "4"  # 2-4 units: the count
+    # one unit and no readable ADU count: cannot tell One from One with Accessory Unit
+    assert units_of([counts_page("1", "")]) is None
+    assert units_of([counts_page("", "0")]) is None
+    assert units_of([counts_page("one", "0")]) is None  # a count, or nothing
+    found = uad36_pdf.unit_count_candidate([counts_page("2", "0")], source="regex")
+    assert found is not None and (found.page, found.source, found.key) == (
+        1,
+        "regex",
+        "improvements.units",
+    )
+
+
+def test_the_unit_count_is_read_in_its_own_sections_only() -> None:
+    # the caption in the income approach grid (the comparables' counts) is not the subject's
+    grid = page("Income Approach", "Units Excluding ADUs 3 2 2 4", "Accessory Dwelling Units 0")
+    assert units_of([grid]) is None
+    # the subject's section before the Summary
+    summary = page("Summary", "Units Excluding ADUs 3", "Accessory Dwelling Units 0")
+    assert units_of([summary]) == "3"
+    assert units_of([summary, counts_page("2", "0")]) == "2"
+
+
+def test_azure_page_text_prints_the_count_on_the_line_below_its_caption() -> None:
+    lines = page(
+        "Subject Property",
+        "Units Excluding ADUs",
+        "1",
+        "Accessory Dwelling Units",
+        "1",
+    )
+    result = azure([lines], [(1, "Units Excluding ADUs", None)])
+    [found] = [c for c in azure_candidates(result) if c.key == "improvements.units"]
+    assert (found.raw_text, found.source) == ("One with Accessory Unit", "azure")
+    # an empty box: the next line is the next caption, not a count
+    empty = page("Subject Property", "Units Excluding ADUs", "Accessory Dwelling Units", "0")
+    assert units_of([empty]) is None
+    assert [c.key for c in text_candidates([counts_page("1", "0")])] == ["improvements.units"]

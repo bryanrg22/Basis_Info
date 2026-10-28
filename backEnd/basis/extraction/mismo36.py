@@ -25,7 +25,9 @@ data source (``DATA_SOURCE_IsDataSourceFor_COST_APPROACH``), the appraiser's sig
 The catalogue keys are single-unit (1004). For one living unit (plus an accessory unit at most)
 they are that unit's values; for a 2-4 unit property the per-unit keys (occupant, bedrooms,
 bathrooms) are left empty with a note, ``improvements.gla_sqft`` is the sum over the living units
-(accessory units excluded) and ``improvements.units`` is the unit count.
+(accessory units excluded). ``improvements.units`` comes from the subject's own counts (A-1
+Units Excluding ADUs, Accessory Dwelling Units; :func:`units_value`): One, One with Accessory
+Unit, or the count of a 2-4 unit property.
 
 **Values.** Each value is written the way the PDF prints it (``$489,000``, ``09/20/2019``, an
 enumeration as its A-1 *Output Report Display Text*, an ``Other`` as its ``...OtherDescription``)
@@ -752,7 +754,39 @@ def rule_gla(values: Values) -> Reading | None:
     return Reading(_grouped(total), [_grouped(a) for a in amounts], verify=len(amounts) == 1)
 
 
+def units_value(count: int, adus: int | None) -> str | None:
+    """The 1004 Units box from a property's unit counts (A-1 0100.0022 Units Excluding ADUs,
+    0100.0019 Accessory Dwelling Units): one unit is "One", or "One with Accessory Unit" with
+    an ADU; a 2-4 unit property (no legacy 1004 code) is its count. ``None`` when the counts
+    cannot say (no unit, or one unit and the ADU count unknown)."""
+    if count < 1:
+        return None
+    if count > 1:
+        return str(count)
+    if adus is None:
+        return None
+    return "One with Accessory Unit" if adus > 0 else "One"
+
+
+def _count(node: Element | None) -> int | None:
+    number = _decimal(_text(node)) if node is not None else None
+    if number is None or number < 0 or number != number.to_integral_value():
+        return None
+    return int(number)
+
+
 def rule_units(values: Values) -> Reading | None:
+    """:func:`units_value` of the subject's counts (``sources`` 0 and 1); a delivery without
+    the living-unit count falls back to counting its PROPERTY_UNIT containers (living units
+    of the dwellings, accessory units anywhere)."""
+    count_node, adu_node = _first(values, 0), _first(values, 1)
+    count, adus = _count(count_node), _count(adu_node)
+    if count is not None:
+        if adus is None and count == 1:
+            adus = len(values.doc.living_units()[1])
+        text = units_value(count, adus)
+        parts = [_text(n) for n in (count_node, adu_node) if n is not None and _text(n)]
+        return Reading(text, parts, verify=False) if text is not None else None
     living, accessory = values.doc.living_units()
     if not living:
         return None

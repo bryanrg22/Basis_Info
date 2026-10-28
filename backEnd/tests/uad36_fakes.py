@@ -46,8 +46,15 @@ def _property(
     units: Sequence[str] = (),
     estate: str = "FeeSimple",
     heating: str = "ForcedWarmAir",
+    unit_counts: tuple[int, int | None] | None = None,
 ) -> str:
     unit_xml = "".join(units) or _unit(gla, 3, "OwnerOccupied")
+    counts = ""
+    if unit_counts is not None:
+        living, adus = unit_counts
+        counts = f"<LivingUnitExcludingADUCount>{living}</LivingUnitExcludingADUCount>"
+        if adus is not None:
+            counts += f"<AccessoryDwellingUnitTotalCount>{adus}</AccessoryDwellingUnitTotalCount>"
     return f"""
 <PROPERTY ValuationUseType="{use}">
   <ADDRESS><AddressLineText>{address}</AddressLineText><CityName>Faketown</CityName>
@@ -60,7 +67,7 @@ def _property(
       <HeatingSystemTypeOtherDescription>Geothermal loop</HeatingSystemTypeOtherDescription>
     </HEATING_SYSTEM></HEATING_SYSTEMS></SYSTEM>
   </IMPROVEMENT></IMPROVEMENTS>
-  <PROPERTY_DETAIL><PropertyEstateType>{estate}</PropertyEstateType>
+  <PROPERTY_DETAIL>{counts}<PropertyEstateType>{estate}</PropertyEstateType>
     <AttachmentType>Detached</AttachmentType></PROPERTY_DETAIL>
   <SALES_CONTRACTS><SALES_CONTRACT><SALES_CONTRACT_DETAIL>
     <SalesContractAmount>250000</SalesContractAmount>
@@ -83,13 +90,20 @@ def fabricated_xml(
     estate: str = "FeeSimple",
     heating: str = "ForcedWarmAir",
     with_subject_marker: bool = True,
+    unit_counts: tuple[int, int | None] | None = None,
 ) -> bytes:
     """A small UAD 3.6 MESSAGE: subject "100 Test Ln" (2,000 sq ft), one sales comparable
     "999 Comp Rd" (9,999 sq ft), an appraiser and a borrower, an opinion of value of $300,000,
     effective 2026-01-15, and a cost approach (site value $55,000) when ``cost_developed``."""
     subject_use = "SubjectProperty" if with_subject_marker else ""
     subject = _property(
-        subject_use, "100 Test Ln", 2000, units=units, estate=estate, heating=heating
+        subject_use,
+        "100 Test Ln",
+        2000,
+        units=units,
+        estate=estate,
+        heating=heating,
+        unit_counts=unit_counts,
     )
     if not with_subject_marker:
         subject = subject.replace(' ValuationUseType=""', "")

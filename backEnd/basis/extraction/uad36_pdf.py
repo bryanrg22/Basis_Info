@@ -32,6 +32,13 @@ from the sample reports:
   (:data:`SINGLE_BOX_RULES`, the reader's rule for the key in ``uad36_map``); a key read by
   combining several printed values (a sum, the full/half bath counts, the table rows of a
   material) is left to the model fallback, which is told the captions.
+* **Units.** ``improvements.units`` (the 1004's One / One with Accessory Unit) combines two
+  printed counts, A-1's Units Excluding ADUs and Accessory Dwelling Units (the ``units`` rule's
+  two sources, each found by its own captions in the sections A-1 prints it in, the subject's
+  sections before the Summary; the value follows the caption on its line, or is the next line
+  when the caption line has none, as Azure DI's page text prints it): :func:`unit_count_candidate`,
+  from the text layer and from Azure DI's page text, by
+  :func:`basis.extraction.mismo36.units_value` like the XML reader.
 * **Text-layer pass.** Without Azure DI key-value pairs, a printed line holds several
   "Caption value" pairs and no colon; a value runs from its caption to the next A-1 caption
   on the line (``LABELS``, longest first, as printed). The extent of a free-text value cannot
@@ -54,7 +61,8 @@ from basis.extraction.field_mappings import (
     REGEX_CONFIDENCE,
     normalize_label,
 )
-from basis.extraction.results import Candidate, Region
+from basis.extraction.mismo36 import units_value
+from basis.extraction.results import Candidate, Region, Source
 from basis.extraction.uad36_map import LABELS, MAPPING, PLACES, SECTIONS
 
 # The reader rules (uad36_map ``rule``) whose value is one printed box: one data point, or a
@@ -306,11 +314,66 @@ def _allowed(key: str, units: int) -> bool:
     return MAPPING[key]["rule"] not in _PER_UNIT_RULES or units <= 1
 
 
+UNITS_KEY: Final = "improvements.units"
+_COUNT: Final = re.compile(r"\d{1,3}")
+
+
+def _printed_counts(lines: Sequence[Line], source: Mapping[str, Any]) -> list[tuple[int, int]]:
+    """``(count, page)`` of each printing of one count data point (``source``, a mapping
+    source with its A-1 captions) in the sections A-1 prints it in, outside the comparable
+    grids: the subject's sections first, the Summary after (module doc)."""
+    captions = {normalize_label(c) for c in source.get("captions", ())}
+    sections = {
+        section: _section_number(fid)
+        for fid, section, _, label in MAPPING[UNITS_KEY]["locations"]
+        if normalize_label(label) in captions and _section_number(fid) not in GRID_SECTIONS
+    }
+    found: list[tuple[bool, int, int]] = []  # (in the Summary, count, page)
+    for index, line in enumerate(lines):
+        if line.section not in sections:
+            continue
+        for caption, value in caption_values(line.text):
+            if normalize_label(caption) not in captions:
+                continue
+            if not value and index + 1 < len(lines):  # Azure DI: the value on the next line
+                below = lines[index + 1]
+                if (below.page, below.section) == (line.page, line.section):
+                    value = below.text
+            if _COUNT.fullmatch(value):
+                found.append((sections[line.section] == 1, int(value), line.page))
+    return [(count, page) for _, count, page in sorted(found, key=lambda f: f[0])]
+
+
+def unit_count_candidate(
+    pages: Sequence[str], *, source: Source, confidence: float = REGEX_CONFIDENCE
+) -> Candidate | None:
+    """``improvements.units`` from the printed Units Excluding ADUs and Accessory Dwelling
+    Units counts (module doc); ``None`` when they are not printed or cannot say. Two counts
+    make the value, no single box's reading confidence applies: the text pass's."""
+    entry = MAPPING[UNITS_KEY]
+    if entry["status"] != "mapped" or entry["rule"] != "units" or len(entry["sources"]) != 2:
+        return None
+    lines = section_lines(pages)
+    counts = _printed_counts(lines, entry["sources"][0])
+    if not counts:
+        return None
+    adus = _printed_counts(lines, entry["sources"][1])
+    (count, page), adu = counts[0], (adus[0][0] if adus else None)
+    text = units_value(count, adu)
+    if text is None:
+        return None
+    return Candidate(key=UNITS_KEY, raw_text=text, page=page, confidence=confidence, source=source)
+
+
 def azure_candidates(result: AzureDiResult) -> list[Candidate]:
-    """Candidates from Azure DI key-value pairs whose caption maps to a key (module doc)."""
+    """Candidates from Azure DI key-value pairs whose caption maps to a key (module doc), and
+    the unit count from Azure DI's page text (:func:`unit_count_candidate`)."""
     lines = section_lines(result.page_texts())
     units = unit_interiors(lines)
     found: dict[str, Candidate] = {}
+    counted = unit_count_candidate(result.page_texts(), source="azure")
+    if counted is not None:
+        found[UNITS_KEY] = counted
     seen: dict[tuple[int | None, str], int] = {}
     for pair in result.key_value_pairs:
         norm = normalize_label(pair.key)
@@ -361,10 +424,14 @@ def caption_values(text: str) -> list[tuple[str, str]]:
 
 
 def text_candidates(pages: Sequence[str]) -> list[Candidate]:
-    """Typed values from the text layer by their UAD 3.6 captions (module doc)."""
+    """Typed values from the text layer by their UAD 3.6 captions, and the unit count
+    (module doc)."""
     lines = section_lines(pages)
     units = unit_interiors(lines)
     found: dict[str, Candidate] = {}
+    counted = unit_count_candidate(pages, source="regex")
+    if counted is not None:
+        found[UNITS_KEY] = counted
     for index, line in enumerate(lines):
         if line.section is None:
             continue

@@ -18,6 +18,7 @@ from basis.extraction.mismo36 import (
     extract_mismo,
     parse_mismo,
     read_document,
+    units_value,
     variants,
 )
 from basis.extraction.uad36_map import MAPPING
@@ -140,6 +141,39 @@ def test_an_accessory_unit_is_not_a_living_unit() -> None:
     assert values["improvements.gla_sqft"] == "1,500"
     assert values["improvements.bedrooms"] == "3"
     assert values["subject.occupant"] == "Owner"
+
+
+def test_units_come_from_the_property_counts_when_the_delivery_has_them() -> None:
+    # the counts (A-1 0100.0022 / 0100.0019) win over the PROPERTY_UNIT containers
+    assert read(fabricated_xml(unit_counts=(2, 0)))["improvements.units"] == "2"
+    assert read(fabricated_xml(unit_counts=(1, 1)))["improvements.units"] == (
+        "One with Accessory Unit"
+    )
+    adu = [unit(1500, 3, "OwnerOccupied"), unit(400, 1, "Tenant", adu=True, label="ADU")]
+    assert read(fabricated_xml(units=adu, unit_counts=(1, 0)))["improvements.units"] == "One"
+    # no ADU count: the accessory PROPERTY_UNITs say
+    assert read(fabricated_xml(units=adu, unit_counts=(1, None)))["improvements.units"] == (
+        "One with Accessory Unit"
+    )
+    assert read(fabricated_xml(unit_counts=(1, None)))["improvements.units"] == "One"
+    # a count that is no count: nothing (not the structure's guess)
+    assert "improvements.units" not in read(fabricated_xml(unit_counts=(0, 0)))
+
+
+@pytest.mark.parametrize(
+    ("count", "adus", "text"),
+    [
+        (1, 0, "One"),
+        (1, 2, "One with Accessory Unit"),
+        (2, 0, "2"),
+        (4, 1, "4"),
+        (1, None, None),
+        (0, 0, None),
+        (3, None, "3"),
+    ],
+)
+def test_units_value(count: int, adus: int | None, text: str | None) -> None:
+    assert units_value(count, adus) == text
 
 
 # --------------------------------------------------------------------------- hostile XML

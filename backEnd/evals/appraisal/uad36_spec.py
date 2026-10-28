@@ -485,12 +485,19 @@ SELECTORS: Final[dict[str, Selector]] = {
     "site.fema_map_number": NONE(NO_XREF),
     "site.fema_map_date": NONE(NO_XREF),
     # Improvements
-    "improvements.units": G(
-        "1-128",
-        "AccessoryDwellingUnitIndicator",
+    # G-1 cross-references 1004 1-128/1-129 (Units One / One with Accessory Unit) only to the
+    # per-unit AccessoryDwellingUnitIndicator (10.011 "ADU", printed in each Unit Interior): a
+    # Yes/No that cannot say how many units the property has. A-1 carries the box as the
+    # subject property's own counts, printed in Subject Property (and the Summary).
+    "improvements.units": A(
+        ("3.005", "3.006"),
+        "LivingUnitExcludingADUCount",
+        "AccessoryDwellingUnitTotalCount",
         rule="units",
-        note="One / One with Accessory Unit for a one-unit property (G-1); a 2-4 unit "
-        "property has no legacy 1004 code and reads as its unit count",
+        note="the 1004 Units box from A-1's property counts (3.005 Units Excluding ADUs, "
+        "3.006 Accessory Dwelling Units): 1 unit and no ADU is One, 1 unit and an ADU is One "
+        "with Accessory Unit, 2-4 units (no legacy 1004 code) read as the count; G-1's "
+        "1-128 cross-reference (the per-unit ADU indicator) cannot produce a count",
     ),
     "improvements.stories": G("1-130", "StoriesCount", rule="number", where=_DWELLING),
     "improvements.type": G("1-131", "AttachmentType", rule="enum"),
@@ -1037,6 +1044,7 @@ def resolve(specs: Specs, key: str, selector: Selector) -> dict[str, Any]:
                 "attribute": a1.attribute.lstrip("@") if a1.point and a1.attribute else None,
                 "format": a1.fmt,
                 "enums": specs.enum_codes(element, a1.uid),
+                "captions": tuple(captions_of(a1.locations)),
             }
         )
     extra_captions: list[str] = []
@@ -1055,6 +1063,7 @@ def resolve(specs: Specs, key: str, selector: Selector) -> dict[str, Any]:
                 "attribute": row.attribute.lstrip("@") or None,
                 "format": row.fmt,
                 "enums": specs.enum_codes(row.point, row.uid),
+                "captions": tuple(captions_of(row.locations, grid=True)),
             }
         )
     where = _resolve_where(specs, key, selector.where)
@@ -1129,9 +1138,10 @@ Per catalogue key (:data:`basis.extraction.field_mappings.FIELDS`):
 * ``status``: ``mapped``; ``no_equivalent`` (the redesigned URAR does not carry the 1004 box,
   ``reason``); ``unresolved`` (a related data point exists but none carries the box, ``reason``).
 * ``sources``: the MISMO data points read, each with its A-1 Unique ID, full xPath from
-  ``MESSAGE``, the attribute holding its unit (``AreaUnitOfMeasureType``), A-1 format type, and
-  its enumerations with the A-1 Output Report Display Text (``<<Does Not Display>>`` for an
-  ``Other`` whose text is in the companion ``...OtherDescription``).
+  ``MESSAGE``, the attribute holding its unit (``AreaUnitOfMeasureType``), A-1 format type, its
+  enumerations with the A-1 Output Report Display Text (``<<Does Not Display>>`` for an
+  ``Other`` whose text is in the companion ``...OtherDescription``) and the captions it is
+  printed under (a reader that combines several printed values finds each by its own).
 * ``rule``: how :mod:`basis.extraction.mismo36` turns the values into the field;
   ``where``: per repeating container, the enumeration values a sibling data point must hold;
   ``scope``: a container the reader resolves through the document's relationships;

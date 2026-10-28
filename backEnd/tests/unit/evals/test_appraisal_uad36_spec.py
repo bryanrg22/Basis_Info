@@ -144,3 +144,8 @@ def test_a_mapped_entry_carries_its_locations_and_the_report_lists_sections_and_
     labels = report_labels(built)
     assert "Appraiser Reference ID" in labels and "Site Value" not in labels
     assert list(labels) == sorted(labels, key=lambda label: (-len(label), label))
+
+
+def test_each_source_carries_its_own_captions() -> None:
+    entry = resolve(specs(), "cost_approach.site_value", G("3-14", "SiteEstimatedValueAmount"))
+    assert entry["sources"][0]["captions"] == ("Opinion of Site Value",)
