@@ -13,6 +13,10 @@ from evals.appraisal.uad36_spec import (
     SpecRow,
     Specs,
     captions_of,
+    locations_of,
+    report_labels,
+    report_places,
+    report_sections,
     resolve,
 )
 
@@ -96,3 +100,47 @@ def test_captions_skip_grids_and_unlabelled_boxes_use_their_subsection() -> None
     ]
     assert captions_of(lines) == ["Opinion of Market Value", "Legal Description"]
     assert "Indicated Value" in captions_of(lines, grid=True)
+
+
+def test_locations_keep_section_subsection_and_label() -> None:
+    lines = [
+        "2.019: Assignment Information - Contact Information - Appraiser - Company Name",
+        "2.012: Assignment Information - Contact Information - Client/[Party Role Type] - "
+        "Company Name",
+        "3.031: Subject Property - Legal Description - {No Label}",
+        "1.000: Summary - {No Subsection} - {No Label}",
+        "HF.003: Header and Footer - Footer - Fannie Mae | Freddie Mac",
+    ]
+    assert locations_of(lines) == [
+        ("2.019", "Assignment Information", "Contact Information - Appraiser", "Company Name"),
+        ("2.012", "Assignment Information", "Contact Information - Client/", "Company Name"),
+        ("3.031", "Subject Property", "Legal Description", "Legal Description"),
+    ]
+
+
+def test_a_mapped_entry_carries_its_locations_and_the_report_lists_sections_and_places() -> None:
+    entry = resolve(specs(), "cost_approach.site_value", G("3-14", "SiteEstimatedValueAmount"))
+    assert entry["locations"] == (
+        ("4.105", "Site", "Site Valuation Methodology", "Opinion of Site Value"),
+    )
+    other = SpecRow(
+        uid="9000.0009",
+        xpath=PATH,
+        point="Other",
+        attribute="",
+        locations=(
+            "26.007: Reconciliation - Appraisal Summary - Opinion of Market Value",
+            "HF.005: Header and Footer - Footer - Appraiser Reference ID",
+        ),
+        subject=True,
+    )
+    built = specs(other)
+    assert report_sections(built) == ((4, "Site"), (26, "Reconciliation"))
+    assert (26, "Reconciliation", "Appraisal Summary", "Opinion of Market Value") in (
+        report_places(built)
+    )
+    # the comparable row is no subject or report box; footer captions delimit values
+    assert all(place[0] != 22 for place in report_places(built))
+    labels = report_labels(built)
+    assert "Appraiser Reference ID" in labels and "Site Value" not in labels
+    assert list(labels) == sorted(labels, key=lambda label: (-len(label), label))

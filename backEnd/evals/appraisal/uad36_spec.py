@@ -878,6 +878,76 @@ def _clean_label(text: str) -> str:
     return re.sub(r"\s+", " ", label)
 
 
+def locations_of(locations: Iterable[str]) -> list[tuple[str, str, str, str]]:
+    """``(field id, section, subsection, label)`` of each A-1 Report Location line, the label
+    cleaned as :func:`captions_of` does (an unlabelled box takes its subsection's last part),
+    the subsection's parts joined by " - " ("" for ``{No Subsection}``). Every section,
+    grids included: the PDF caption mapping scopes a label by the section it is printed in."""
+    out: list[tuple[str, str, str, str]] = []
+    for line in locations:
+        fid, _, rest = line.partition(":")
+        parts = [p.strip() for p in rest.split(" - ")]
+        if not rest.strip() or len(parts) < 2 or not fid.strip()[:1].isdigit():
+            continue
+        section = _clean_label(parts[0])
+        middle = [_clean_label(p) for p in parts[1:-1]]
+        label = _clean_label(parts[-1]) or (middle[-1] if middle else "")
+        if not label or not section:
+            continue
+        item = (fid.strip(), section, " - ".join(m for m in middle if m), label)
+        if item not in out:
+            out.append(item)
+    return out
+
+
+def report_sections(specs: Specs) -> tuple[tuple[int, str], ...]:
+    """The URAR's numbered sections in report order (A-1 Report Location field ids number the
+    sections as the report prints them: 1 Summary ... 29 Certifications)."""
+    found: dict[int, str] = {}
+    for row in specs.a1:
+        for line in row.locations:
+            fid, _, rest = line.partition(":")
+            number = fid.strip().split(".")[0]
+            name = _clean_label(rest.split(" - ")[0]) if rest.strip() else ""
+            if number.isdigit() and name:
+                found.setdefault(int(number), name)
+    return tuple(sorted(found.items()))
+
+
+def report_places(specs: Specs) -> tuple[tuple[int, str, str, str], ...]:
+    """``(section number, section, subsection, label)`` of every box A-1 prints for the subject
+    or the report: the boxes no catalogue key reads too, so the PDF caption mapping can tell
+    that a caption sits in another subsection (the AMC's "ID" is not the appraiser's)."""
+    places: set[tuple[int, str, str, str]] = set()
+    for row in specs.a1:
+        if not _subject_or_report(row):
+            continue
+        for fid, section, subsection, label in locations_of(row.locations):
+            number = fid.split(".")[0]
+            if number.isdigit():
+                places.add((int(number), section, subsection, label))
+    return tuple(sorted(places))
+
+
+def report_labels(specs: Specs) -> tuple[str, ...]:
+    """Every caption A-1 prints for the subject or the report (header and footer included),
+    longest first: the delimiters of the PDF caption pass, where one caption's value ends at
+    the next caption printed on the line."""
+    labels: set[str] = set()
+    for row in specs.a1:
+        if not _subject_or_report(row):
+            continue
+        for line in row.locations:
+            fid, _, rest = line.partition(":")
+            parts = [p.strip() for p in rest.split(" - ")]
+            if len(parts) < 2:
+                continue
+            label = _clean_label(parts[-1])
+            if label and not label.startswith("<<"):
+                labels.add(label)
+    return tuple(sorted(labels, key=lambda label: (-len(label), label)))
+
+
 # Qualifier values that are not printed next to the value (the party role, the improvement
 # type): not used as captions.
 _UNPRINTED_QUALIFIERS: Final = frozenset({"PartyRoleType", "ImprovementType"})
@@ -970,12 +1040,14 @@ def resolve(specs: Specs, key: str, selector: Selector) -> dict[str, Any]:
             }
         )
     extra_captions: list[str] = []
+    extra_locations: list[str] = []
     for fid, point in selector.extra:
         rows = _a1_rows(specs, fid, point, None)
         if len(rows) != 1:
             raise SpecError(f"{key}: a1 {fid} {point}: {len(rows)} rows")
         row = rows[0]
         extra_captions.extend(captions_of(row.locations, grid=True))
+        extra_locations.extend(row.locations)
         sources.append(
             {
                 "uid": row.uid,
@@ -1001,6 +1073,7 @@ def resolve(specs: Specs, key: str, selector: Selector) -> dict[str, Any]:
                 [*_qualifier_captions(specs, where), *captions_of(locations), *extra_captions]
             )
         ),
+        locations=tuple(locations_of([*locations, *extra_locations])),
         legacy=tuple(legacy),
         label_match=label_match if selector.via == "g1" else None,
         via=f"{selector.via}:{','.join(selector.ref)}",
@@ -1066,6 +1139,13 @@ Per catalogue key (:data:`basis.extraction.field_mappings.FIELDS`):
   developed leaves the key empty).
 * ``captions``: the URAR captions (A-1 Report Location labels) the value is printed next to,
   used to pick which occurrence on the PDF to highlight.
+* ``locations``: each A-1 Report Location of the key's data points as ``(field id, section,
+  subsection, label)``: where the redesigned URAR prints the value, which the PDF extraction
+  of a UAD 3.6 report maps captions by (:mod:`basis.extraction.uad36_pdf`).
+
+:data:`SECTIONS` are the report's numbered sections in print order, :data:`LABELS` every
+caption A-1 prints for the subject or the report (longest first) and :data:`PLACES` every such
+box as ``(section number, section, subsection, label)``.
 """
 
 from __future__ import annotations
@@ -1075,8 +1155,17 @@ from typing import Any, Final
 '''
 
 
-def render(mapping: Mapping[str, Mapping[str, Any]], versions: Mapping[str, str]) -> str:
+def render(
+    mapping: Mapping[str, Mapping[str, Any]],
+    versions: Mapping[str, str],
+    sections: Sequence[tuple[int, str]] = (),
+    labels: Sequence[str] = (),
+    places: Sequence[tuple[int, str, str, str]] = (),
+) -> str:
     lines = [_HEADER, f"SPEC_FILES: Final = {dict(versions)!r}\n\n"]
+    lines.append(f"SECTIONS: Final[tuple[tuple[int, str], ...]] = {tuple(sections)!r}\n\n")
+    lines.append(f"LABELS: Final[tuple[str, ...]] = {tuple(labels)!r}\n\n")
+    lines.append(f"PLACES: Final[tuple[tuple[int, str, str, str], ...]] = {tuple(places)!r}\n\n")
     lines.append("MAPPING: Final[dict[str, dict[str, Any]]] = {\n")
     for key, entry in mapping.items():
         lines.append(f"    {key!r}: {dict(entry)!r},\n")
@@ -1124,7 +1213,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     specs, versions = load_specs(args.data_dir)
     mapping = build(specs)
-    rendered = _format(render(mapping, versions))
+    rendered = _format(
+        render(
+            mapping,
+            versions,
+            report_sections(specs),
+            report_labels(specs),
+            report_places(specs),
+        )
+    )
     print(summary(mapping))
     if args.check:
         current = OUTPUT.read_text() if OUTPUT.exists() else ""
