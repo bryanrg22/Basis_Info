@@ -485,6 +485,21 @@ def test_other_codes_take_their_other_description() -> None:
         assert "Other" not in fact.search, key
 
 
+def test_parties_are_read_from_every_service() -> None:
+    """A message may carry a SERVICE before the valuation service (GSE Condo1: a property data
+    collection service holding only its collector): the borrower, lender and appraiser are
+    still read, from whichever SERVICE carries them."""
+    collector = """<SERVICE><PARTIES><PARTY><INDIVIDUAL><NAME><FirstName>Data</FirstName>
+     <LastName>Collector</LastName></NAME></INDIVIDUAL><ROLES><ROLE><ROLE_DETAIL>
+     <PartyRoleType>PropertyDataCollector</PartyRoleType></ROLE_DETAIL></ROLE></ROLES></PARTY>
+     </PARTIES></SERVICE>"""
+    xml = report_xml().replace("<SERVICES><SERVICE>", "<SERVICES>" + collector + "<SERVICE>", 1)
+    assert derive(xml, "subject.borrower").value == "Pat Buyer"
+    assert derive(xml, "subject.lender_client").value == "Test Lending"
+    report = gse_d1.Report(gse_d1.ET.fromstring(xml))
+    assert report.anchors["service"].find(".//VALUATION_ANALYSIS") is not None
+
+
 def test_year_month_cost_data_date_is_a_month() -> None:
     """Gap 2: a cost-data effective date given as YYYY-MM is a ``month`` (MM/YYYY)."""
     assert gse_d1.us_date("2025-01") == "01/2025"

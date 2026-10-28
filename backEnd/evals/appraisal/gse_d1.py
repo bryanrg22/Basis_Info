@@ -60,9 +60,9 @@ NOT_ON: Final = "not on the UAD 3.6 URAR"
 # ---------------------------------------------------------------------------------------
 # The element map. Paths are ElementTree XPath over the XML with namespaces stripped,
 # relative to an anchor: ``subject`` (PROPERTY with ValuationUseType="SubjectProperty"),
-# ``report`` (VALUATION_REPORT), ``analysis`` (VALUATION_ANALYSIS), ``service`` (SERVICE),
-# ``message`` (the root). Party, unit and improvement selections that need a predicate
-# ElementTree cannot express are filtered in the readers below.
+# ``report`` (VALUATION_REPORT), ``analysis`` (VALUATION_ANALYSIS), ``service`` (the SERVICE
+# that carries the VALUATION_ANALYSIS), ``message`` (the root). Party, unit and improvement
+# selections that need a predicate ElementTree cannot express are filtered in the readers.
 # ---------------------------------------------------------------------------------------
 XPATHS: Final[dict[str, tuple[str, str]]] = {
     # subject
@@ -238,8 +238,10 @@ XPATHS: Final[dict[str, tuple[str, str]]] = {
         "VALUATION_RECONCILIATION_SUMMARY_DETAIL/AppraisalReportEffectiveDate",
     ),
     "cost_service": ("analysis", "DATA_SOURCES/DATA_SOURCE"),
-    # parties
-    "party": ("service", "PARTIES/PARTY"),
+    # parties: every SERVICE's (A-1 reads ``SERVICES/SERVICE/PARTIES/PARTY`` without naming
+    # the service, and a message may carry more than one: Condo1 puts its property data
+    # collector in a SERVICE of its own, before the valuation service and its parties)
+    "party": ("message", ".//SERVICES/SERVICE/PARTIES/PARTY"),
     "signatory": ("message", ".//SIGNATORIES/SIGNATORY"),
 }
 
@@ -350,7 +352,13 @@ class Report:
         self.root = _strip_namespaces(root)
         analysis = self.root.find(".//VALUATION_ANALYSIS")
         report = self.root.find(".//VALUATION_REPORT")
-        service = self.root.find(".//SERVICES/SERVICE")
+        # The valuation service (the first SERVICE need not be it: Condo1's is a data
+        # collection service).
+        services = self.root.findall(".//SERVICES/SERVICE")
+        service = next(
+            (s for s in services if s.find(".//VALUATION_ANALYSIS") is not None),
+            services[0] if services else None,
+        )
         subject = self.root.find(".//PROPERTY[@ValuationUseType='SubjectProperty']")
         if analysis is None or report is None or service is None or subject is None:
             raise ValueError("not a UAD 3.6 appraisal message (no subject property or report)")
