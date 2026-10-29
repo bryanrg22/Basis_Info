@@ -615,16 +615,17 @@ def parse_enum_multi(value: object, key: str | None) -> MultiValue | None:
         return value
     if isinstance(value, list | tuple):
         codes: set[str] = set()
-        other_text: str | None = None
+        others: list[str] = []
         for element in value:
             if isinstance(element, Mapping):
                 code = str(element.get("code"))
                 if code == "other" and element.get("text") is not None:
-                    other_text = fold_text(element["text"])
+                    others.append(fold_text(element["text"]))
             else:
                 code = str(element)
             codes.add(code)
-        return MultiValue(tuple(sorted(codes)), other_text)
+        # several write-ins join in order, as the text form joins its write-in parts
+        return MultiValue(tuple(sorted(codes)), " ".join(others) or None)
     text = str(value)
     marked = marked_options(text)
     if marked is not None:

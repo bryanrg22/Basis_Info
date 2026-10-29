@@ -459,6 +459,18 @@ def test_enum_multi() -> None:
     assert parse_enum_multi("None", storage) == MultiValue(("none",))
 
 
+def test_enum_multi_truth_with_two_write_ins_keeps_both() -> None:
+    heating = "improvements.heating_type"
+    truth = normalize_truth(
+        "enum_multi",
+        [{"code": "other", "text": "Baseboard"}, {"code": "other", "text": "Infloor"}],
+        key=heating,
+    )
+    assert truth == MultiValue(("other",), "baseboard infloor")
+    assert matches("enum_multi", parse_enum_multi("Baseboard, Infloor", heating), truth)
+    assert not matches("enum_multi", parse_enum_multi("Infloor", heating), truth)
+
+
 def test_parking_garage_is_the_garage_code() -> None:
     """UAD 3.6 prints a condo or co-op unit's space as "Parking Garage" (A-1 3200.0006
     ParkingGarage); the legacy box it stands for is Garage (the 1073's Car Storage Garage)."""
