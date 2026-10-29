@@ -6,12 +6,22 @@
 {
   "key": "subject.county",
   "value_text": "Montrose",
+  "document_id": "0b7e...",
+  "pdf_document_id": "9d42...",
   "page": 1,
   "regions": [
     { "page": 1, "bbox": [0.7918, 0.085, 0.8497, 0.0943] }
   ]
 }
 ```
+
+**Which PDF.** The boxes are on the PDF of `pdf_document_id`, fetched with
+`GET /v1/studies/{id}/documents/{pdf_document_id}/pdf`: the appraisal itself for a PDF upload,
+the report PDF inside a UAD 3.6 ZIP (same id as `document_id`), or a bare MISMO XML's companion
+PDF (docs/api/UAD36_INTAKE.md). It is recorded on the field's extraction revision; never draw a
+revision's regions on another PDF (for example the latest upload). `null`: there is no report
+PDF (an XML alone): draw nothing and say so (the extraction has the `no_report_pdf` issue;
+`GET /v1/studies/{id}/extraction` summarizes the revision).
 
 | Member | Meaning |
 |---|---|
@@ -45,7 +55,9 @@ Scroll to the first box. Draw every box in `regions`: a checkbox under a column 
 utilities grid's "Public") has two, the header and the checked box in the field's row.
 
 When `regions` is empty, keep the current behaviour (search the page's text layer for the
-value and say how many matches there are). Fields stored before regions existed have `[]`.
+value and say how many matches there are), on the `pdf_document_id` PDF. Fields stored
+before regions existed have `[]`; fields stored before `pdf_document_id` was recorded report
+the appraisal itself (or `null` for a bare XML).
 
 ## How the boxes are chosen (backend)
 
