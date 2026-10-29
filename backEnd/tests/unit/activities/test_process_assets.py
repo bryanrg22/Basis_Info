@@ -522,3 +522,209 @@ async def test_no_connection_is_held_while_the_model_classifies(
     assert watcher.checked_out == [0] * MODEL_CALLS
     assert output.assets == 6
     assert await count_rows(deps.sessionmaker, LlmCall, study_id=analyzed.study_id) == MODEL_CALLS
+
+
+# --------------------------------------------------------------- measured quantities (35)
+
+
+async def seed_extraction(deps: Deps, seeded: SeededStudy, fields: dict[str, Any]) -> None:
+    """A fabricated appraisal extraction for the study's appraisal (revision 1)."""
+    from datetime import date
+
+    from basis.db.repositories.extraction import ExtractionRepository
+
+    assert seeded.appraisal_id is not None
+    async with session_scope(deps.sessionmaker) as session:
+        repo = ExtractionRepository(session)
+        extraction = await repo.create(
+            study_id=seeded.study_id,
+            document_id=seeded.appraisal_id,
+            revision=1,
+            method="test",
+            overall_confidence=0.99,
+            needs_review=False,
+            raw={},
+        )
+        for key, value in fields.items():
+            section, field = key.split(".", 1)
+            await repo.set_field(
+                extraction=extraction,
+                section=section,
+                field=field,
+                value_text=str(value),
+                value_num=Decimal(str(value)) if isinstance(value, int | float) else None,
+                value_date=value if isinstance(value, date) else None,
+                confidence=0.99,
+                source="azure",
+            )
+
+
+MEASURED_FIELDS: dict[str, Any] = {
+    "improvements.gla_sqft": 2400,
+    "improvements.stories": 2,
+    "cost_approach.garage_sqft": 440,
+    "site.area_sqft": 8000,
+    "improvements.total_rooms": 8,
+    "improvements.bedrooms": 4,
+    "improvements.bathrooms": 2.5,
+    "subject.state": "IL",
+}
+
+
+async def add_site_components(deps: Deps, seeded: SeededStudy) -> None:
+    async with session_scope(deps.sessionmaker) as session:
+        repo = RoomRepository(session)
+        exterior, _ = await repo.get_or_create(
+            study_id=seeded.study_id, revision=1, name="Front", room_type="exterior", source="stub"
+        )
+        for label, count in (("roof", 1), ("roof", 2), ("patio", 1), ("landscaping", 1)):
+            await repo.add_component(
+                study_id=seeded.study_id,
+                revision=1,
+                document_id=None,
+                room_id=exterior.id,
+                label=label,
+                material=None,
+                attachment=None,
+                confidence=0.9,
+                raw={"source": "vision", "count": count},
+            )
+
+
+async def takeoffs_and_costs(
+    deps: Deps, study_id: uuid.UUID
+) -> tuple[dict[uuid.UUID, Takeoff], dict[uuid.UUID, CostEstimate]]:
+    async with session_scope(deps.sessionmaker) as session:
+        takeoffs = {t.asset_id: t for t in (await session.scalars(select(Takeoff))).all()}
+        costs = {c.asset_id: c for c in (await session.scalars(select(CostEstimate))).all()}
+    return takeoffs, costs
+
+
+async def test_measured_areas_price_the_property_items_and_size_the_rooms(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT section 35: with the appraisal's fields, room areas are GLA shares,
+    the roof is derived from the footprint and priced from the table, a site label the
+    appraisal cannot size stays COST_NEEDS_QUANTITY with the measurement named, and the
+    cost row carries the state's factor and the appraisal's year with their sources."""
+    from datetime import date
+
+    settings = deps.settings.model_copy(
+        update={"cost_table_path": str(fixture_path("cost_table.json")), "cost_year": 2026}
+    )
+    priced = make_deps(deps.sessionmaker, deps.storage, settings)
+    await seed_extraction(
+        deps,
+        analyzed,
+        {**MEASURED_FIELDS, "reconciliation.effective_date_of_appraisal": date(2025, 6, 1)},
+    )
+    await add_site_components(deps, analyzed)
+    output = await activity_env.run(ProcessAssets(priced).run, process(analyzed))
+    assert output.assets == 10
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+
+    # Bathroom tile (the stub's tile_flooring): 2400 x 75 / 1540 = 116.88 SF; x 1.15 waste.
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert (takeoffs[tile.id].quantity, takeoffs[tile.id].unit) == (Decimal("134.41"), "SF")
+    assert takeoffs[tile.id].inputs["room_area_source"] == "gla_share"
+    assert takeoffs[tile.id].inputs["room_area_formula"] == (
+        "2400 SF GLA x 75 / 1540 (bathroom weight / program weight)"
+    )
+    assert takeoffs[tile.id].inputs["gla_field"] == "improvements.gla_sqft (azure)"
+
+    # Roof: ground footprint 1,200 + 440 = 1,640; (1,640 + 165.33) x 1.118 = 2,018.36 SF,
+    # measured once per property; the second roof row is 0 and points at the first.
+    roofs = sorted(
+        (takeoffs[a.id] for label, a in rows if label == "roof"), key=lambda t: -t.quantity
+    )
+    assert [(t.quantity, t.unit) for t in roofs] == [(Decimal("2018.36"), "SF"), (Decimal(0), "SF")]
+    assert roofs[0].inputs["quantity_source"] == "appraisal_derived"
+    assert roofs[0].inputs["pitch_factor"] == "1.118"
+    assert roofs[1].formula == f"measured once per property: see asset {roofs[0].asset_id}"
+    roof_cost = costs[roofs[0].asset_id]
+    # synthetic_2020 roof: (100 + 50) x 0.01 = 1.50/SF x 1.18 (2025) x 1.05 (IL) = 1.86.
+    assert (roof_cost.unit_cost, roof_cost.total) == (Decimal("1.86"), Decimal("3754.15"))
+    assert (roof_cost.cost_year, roof_cost.location_factor) == (2025, Decimal("1.05"))
+    assert roof_cost.source_row is not None and roof_cost.source_row.endswith(
+        "(base 2020, x1.18 for 2025 from appraisal effective date 2025-06-01 "
+        "(reconciliation.effective_date_of_appraisal (azure)), x1.05 location from "
+        "state IL (subject.state (azure)))"
+    )
+    roof_assets = [a for label, a in rows if label == "roof"]
+    assert not any("COST_NEEDS_QUANTITY" in (a.review_reason or "") for a in roof_assets)
+
+    # Patio: no appraisal input; still a count, COST_NEEDS_QUANTITY, the measurement named.
+    patio = next(a for label, a in rows if label == "patio")
+    assert patio.review_reason and "cross:COST_NEEDS_QUANTITY" in patio.review_reason
+    assert takeoffs[patio.id].inputs["needs_measurement"] == (
+        "patio area in SF (site plan or aerial measurement)"
+    )
+    assert costs[patio.id].total is None
+
+    # Landscaping: site 8,000 - 1,640 = 6,360 SF, an upper bound the engineer must confirm
+    # (no row in the synthetic table, so unpriced here; the reason is the takeoff's).
+    landscaping = next(a for label, a in rows if label == "landscaping")
+    assert takeoffs[landscaping.id].quantity == Decimal("6360.00")
+    assert takeoffs[landscaping.id].inputs["quantity_bound"] == "upper"
+    assert landscaping.review_reason and "takeoff:upper_bound" in landscaping.review_reason
+
+
+async def test_without_extraction_fields_the_takeoffs_are_the_legacy_ones(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """Regression: no extraction (the seeded study has none) keeps today's typical areas,
+    the settings' year and location, and the source row text unchanged."""
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert takeoffs[tile.id].quantity == Decimal("86.25")  # 75 x 1.15
+    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
+    assert "room_area_formula" not in takeoffs[tile.id].inputs
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
+        "(base 2020, x1.22 for 2026, x1.0 location)"
+    )
+    assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2026, Decimal("1.0"))
+
+
+async def test_takeoff_areas_typical_and_cost_index_setting_ignore_the_appraisal(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    settings = deps.settings.model_copy(
+        update={"takeoff_areas": "typical", "cost_index": "setting"}
+    )
+    legacy = make_deps(deps.sessionmaker, deps.storage, settings)
+    await seed_extraction(deps, analyzed, MEASURED_FIELDS)
+    await add_site_components(deps, analyzed)
+    await activity_env.run(ProcessAssets(legacy).run, process(analyzed))
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert takeoffs[tile.id].quantity == Decimal("86.25")
+    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
+    roof = next(a for label, a in rows if label == "roof")
+    assert (takeoffs[roof.id].unit, takeoffs[roof.id].inputs["method"]) == ("EA", "count")
+    assert "needs_measurement" not in takeoffs[roof.id].inputs
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
+        "(base 2020, x1.22 for 2026, x1.0 location)"
+    )
+
+
+async def test_cost_index_from_the_study_with_typical_areas(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """COST_INDEX=study alone: the state's factor applies, the areas stay typical."""
+    settings = deps.settings.model_copy(update={"takeoff_areas": "typical"})
+    mixed = make_deps(deps.sessionmaker, deps.storage, settings)
+    await seed_extraction(deps, analyzed, {"subject.state": "NY"})
+    await activity_env.run(ProcessAssets(mixed).run, process(analyzed))
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
+    assert costs[tile.id].location_factor == Decimal("1.20")
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
+        "(base 2020, x1.22 for 2026 from COST_YEAR setting, x1.20 location from state NY "
+        "(subject.state (azure)))"
+    )

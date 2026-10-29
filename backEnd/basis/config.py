@@ -343,6 +343,18 @@ class Settings(BaseSettings):
     property_class: Literal["residential_rental", "nonresidential"] = "residential_rental"
     cost_year: int = Field(default=2026, ge=2020, le=2026)  # the cost table's range
     cost_location_factor: float = Field(default=1.0, gt=0, le=3)
+    # Where the takeoff's areas come from (basis.domain.measurements; EVAL_REPORT section
+    # 35). appraisal: room areas from the appraisal's GLA, basement and garage fields,
+    # roof/siding/gutter/landscaping from the footprint and site area, the typical areas
+    # only where a field is missing; typical: the legacy typical area per room type for
+    # every room and no property-level quantities (the behaviour before section 35).
+    takeoff_areas: Literal["appraisal", "typical"] = "appraisal"
+    # Where the cost year and location factor come from. study: the state's factor
+    # (basis.domain.costs.REGIONAL_COST_FACTORS) from the appraisal's subject.state and the
+    # year of its effective date (the placed-in-service date once the intake carries it),
+    # each falling back to the setting with the reason on the cost row; setting: COST_YEAR
+    # and COST_LOCATION_FACTOR for every study.
+    cost_index: Literal["study", "setting"] = "study"
     # The engineer's unit-cost table (basis.domain.cost_table: JSON, licensed data, never
     # in the repository); unset: only the six legacy rows price (EVAL_REPORT 27, item 6).
     cost_table_path: str | None = None
