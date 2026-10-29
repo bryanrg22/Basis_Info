@@ -5055,3 +5055,75 @@ predictions are unchanged, and the GSE truth has been revised since (scored on t
 - **Open**: re-record the grounded call live for the 7 UAD 3.6 documents of the subset (about
   $0.50) and for the 25 documents with no Sol recording (about $1.80), then accept the
   grounded baseline on all 41.
+
+## 36. Basis and land allocation (2026-10-29)
+
+Question: the review of 2026-10-29 (`WORKFLOW_REVIEW_2026-10-29.md` section 3, items 4 and 6)
+found no basis or land math anywhere in the code and no served result: the pipeline priced what
+the photos show and stopped. What does a defensible allocation step look like, does it reproduce
+the design partner's printed worksheet exactly, and what does it say about the pipeline's own
+replacement-cost schedule? Research: `BASIS_RESEARCH.md`. Code: `basis/domain/basis.py` (pure
+Decimal arithmetic), `basis/domain/intake.py` (the intake document), `basis/evidence/result.py`
+(the result shared by the export's `summary.basis` and `GET /v1/studies/{id}/result`), migration
+`0011_study_intake`. Contract: `docs/api/STUDY_RESULT.md`. No model calls; the private
+measurement is `BASIS_EVAL_DATA_DIR/reports/BASIS_STEP_RESULTS.md`. No client dollar appears
+here.
+
+**Method.** `B = price − land`, `CC = Σ capitalized acquisition costs`, `T = B + CC`; one
+factor `f = T / ΣRCN` on every row, bucket totals and percentages, `B` and `CC` split pro rata
+per bucket, and the twelve building systems when every row is a report row of the taxonomy. The
+land comes from one chosen source in the ATG's order (the appraisal's site value, a land
+appraisal, or a flat percentage with its source); the assessor's ratio is only a check, and
+there is no residual method. Every worksheet carries its checks (land share 5–60 %, hierarchy,
+site-value tolerance 5 %, assessor ratio, value date within 365 days, the 80 % test, placed in
+service), and every allocation carries the `uniform_factor` check: a warning for a uniform
+write-down (ATG ch. 3 A(6)) and an error for a step-up (ch. 3 D(3)–(5)). Non-capitalizable
+settlement lines (points, loan costs, escrows, prepaid interest, insurance, tax prorations) are
+refused at the intake with the reason. Rounding is stated once in the module: half up to the
+cent; residual cents to the largest remainders (ties by schedule order); the pro-rata building
+column reconciled the same way with closing = bucket − building; split parts rounded with the
+last part the remainder.
+
+**Deterministic reproduction (the engineer's 46 RCNs, B and CC).** Feeding the allocation the
+engineer's building basis, closing costs and the 46 replacement costs recovered from their
+printed rows reproduces the printed worksheet: the total, all 46 rows, the four bucket totals
+and percentages, the 2×5 pro-rata block (both row totals) and the twelve-system depreciable
+costs and their total, to the cent: **90 of 91 printed numbers** (87 of 88 by the anatomy's
+count). The one miss is one cent on one system's replacement-cost column: the engineer derived
+that column by dividing the rounded depreciable dollars by the factor, which on the one row split
+80/20 between two systems differs by a cent from summing the split replacement costs; Basis sums
+the replacement costs (the primary data) and reports the difference rather than copying the
+artifact. Two of the printed pro-rata cells are not plain half-up rounding (one would round the
+other way); the largest-remainder rule reproduces both because the column must sum to B. Half-up
+rounding alone already sums the 46 rows to T on this study (no residual cent moved).
+
+**The pipeline's schedule (export 11217e4e rev-3, 376 assets, 249 priced).** Allocated to the
+same basis, with the pipeline's 27.5-year rows counted as the building: the schedule's
+replacement cost new covers **0.317** of the basis, so the factor is a **3.15 step-up** and the
+`uniform_factor` check is an error, as it should be: the schedule is missing the concealed
+building systems (about a third of the engineer's dollars), the unpriceable site labels and the
+measured quantities. Bucket shares against the engineer's: 5-year +30.7 points, 7-year +5.5,
+15-year −4.2, building −32.0; mean absolute share error 18.1 points. These are the same shares
+as the schedule's RCN shares (the uniform factor cannot change them), so the number to move is
+the schedule, not the allocation: the measured takeoff (quantities from the appraisal's areas)
+and a building-systems cost are the next two steps (spec 5.3, review section 6 items 2 and 5).
+The twelve-system regrouping is not produced for the pipeline's schedule: its categories are
+the rules table's, not the report-row vocabulary (`by_system_reason` says so).
+
+**With the ATG-preferred land** (the appraisal's site value instead of the engineer's flat
+percentage) the depreciable basis is about 0.6 % lower on this study and every land check is
+`ok`; with the flat percentage the worksheet warns twice (`land_hierarchy`: the site value was
+available; `land_flat_percentage`: a rule of thumb) and the site-value check passes at −4 %
+inside the 5 % tolerance. That is spec question 9.2 for the engineer, now with the numbers.
+
+**Tests.** 62 unit cases on the arithmetic and checks, 48 on the intake document, 5 on the
+result, API tests for the intake routes (create, replace, appraisal defaults, 9 refusals, roles,
+archived) and the result route (with and without intake, history, access), the migration round
+trip; the OpenAPI contract test covers the new routes with a valid intake substituted for the
+generated body. `tests/LEDGER.md`.
+
+**Open.** Per-class depreciation before reconciliation (ATG A(6)) needs the appraisal's effective
+age, condition and remaining life per class; a depreciation schedule export (CSV/XLSX) and the
+report PDF; the intake is not yet required before `start` (a study without one runs and its
+result says `missing: ["intake"]`); the engineer's closing-cost categories and the source of
+their land percentage (spec questions 9.2).
