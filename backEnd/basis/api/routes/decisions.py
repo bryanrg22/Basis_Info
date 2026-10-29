@@ -61,6 +61,7 @@ DECISION_ROLE: Final = OrgRole.ENGINEER
 CORRECTION_TYPE_ERROR: Final = "correction_type"
 CORRECTION_TARGET_ERROR: Final = "correction_target"
 CORRECTION_VALUE_ERROR: Final = "correction_value"
+APPROVAL_CORRECTIONS_ERROR: Final = "approval_with_corrections"
 
 writes = write_router(tags=["reviews"])
 
@@ -182,7 +183,7 @@ def check_no_corrections_on_approve(decision: str, corrections: Sequence[Correct
                 {
                     "loc": ("body", "corrections"),
                     "msg": "an approval cannot carry corrections; reject with corrections",
-                    "type": CORRECTION_TYPE_ERROR,
+                    "type": APPROVAL_CORRECTIONS_ERROR,
                 }
             ]
         )

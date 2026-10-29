@@ -56,6 +56,7 @@ from basis.db.models import Component, PhotoLocalization
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository
 from basis.db.session import session_scope
+from basis.errors.codes import E, tag
 from basis.storage import ObjectNotFound
 from basis.vision.localize import (
     CANDIDATE_THRESHOLD,
@@ -94,7 +95,9 @@ class LocalizePhoto:
         async with session_scope(self._deps.sessionmaker) as session:
             document = await DocumentRepository(session).get(study_id, document_id)
             if document is None or document.kind is not DocumentKind.PHOTO:
-                raise validation_error(f"photo {document_id} not found in study {study_id}")
+                raise validation_error(
+                    f"photo {document_id} not found in study {study_id}", E.LOCALIZE_PHOTO_NOT_FOUND
+                )
             objects = PhotoObjectRepository(session)
             existing = await objects.localization(document_id, input.revision)
             if existing is not None:
@@ -119,26 +122,33 @@ class LocalizePhoto:
         found: Localization | None = None
         status, reason = "done", None
         if localizer is None:
-            status, reason = "skipped", NO_LOCALIZER
+            status, reason = "skipped", tag(E.PROVIDER_NO_LOCALIZER, NO_LOCALIZER)
         elif input.budget_remaining_usd <= 0:
-            status, reason = "skipped", NO_BUDGET
+            status, reason = "skipped", tag(E.BUDGET_LOCALIZE_SKIPPED, NO_BUDGET)
         else:
             try:
                 image = prepare_image(await self._deps.storage.read(gcs_uri))
                 async with heartbeating("localizing"):
                     found = await localizer.localize(image, phrases, threshold=CANDIDATE_THRESHOLD)
             except ObjectNotFound:
-                status, reason = "failed", f"photo file {gcs_uri} is missing from storage"
+                status = "failed"
+                reason = tag(
+                    E.LOCALIZE_FILE_MISSING, f"photo file {gcs_uri} is missing from storage"
+                )
             except ImageRejected as exc:
-                status, reason = "failed", f"the photo cannot be prepared: {exc}"
+                status = "failed"
+                reason = tag(E.LOCALIZE_IMAGE_REJECTED, f"the photo cannot be prepared: {exc}")
             except LocalizerUnavailable as exc:
                 if activity.info().attempt < options_for(ACTIVITY).maximum_attempts:
                     raise ApplicationError(
-                        f"photo {document_id}: {exc}", type=LOCALIZER_UNAVAILABLE
+                        tag(E.PROVIDER_LOCALIZER_UNAVAILABLE, f"photo {document_id}: {exc}"),
+                        type=LOCALIZER_UNAVAILABLE,
                     ) from exc
-                status, reason = "failed", f"{type(exc).__name__}: {exc}"
+                status = "failed"
+                reason = tag(E.PROVIDER_LOCALIZER_UNAVAILABLE, f"{type(exc).__name__}: {exc}")
             except LocalizerError as exc:
-                status, reason = "failed", f"{type(exc).__name__}: {exc}"
+                status = "failed"
+                reason = tag(E.PROVIDER_LOCALIZER_FAILED, f"{type(exc).__name__}: {exc}")
 
         model_version = getattr(localizer, "version", None) if localizer is not None else None
 

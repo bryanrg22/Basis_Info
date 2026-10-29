@@ -129,10 +129,13 @@ from typing import Any, Final, Literal, TypeVar, cast, overload
 from temporalio import workflow
 from temporalio.common import SearchAttributeKey
 from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
+from temporalio.exceptions import TimeoutError as ActivityTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic import BaseModel
 
+    from basis.errors.catalogue import BY_TEMPORAL_TYPE, TIMEOUT_CODES
+    from basis.errors.codes import E, code_in, tag
     from basis.workflow.activity_options import (
         ACTIVITY_CANCELLATION,
         BUDGET_EXCEEDED_ERROR,
@@ -255,6 +258,7 @@ class StudyWorkflow:
         self._stage_retry = False
         self._failed_stage: StageName | None = None
         self._failure: str | None = None
+        self._failure_code: str | None = None
         self._retry_requested = False
         self._failures = 0
         # Set while the photo stage drains after a failed extraction: no photo activity
@@ -300,6 +304,7 @@ class StudyWorkflow:
             needs_review_stages=tuple(self._needs_review_stages),
             failed_stage=self._failed_stage,
             failure=self._failure,
+            failure_code=self._failure_code,
         )
 
     @workflow.update(name=RETRY_UPDATE)
@@ -419,7 +424,11 @@ class StudyWorkflow:
         if not body.done():
             await self._stop(body)
             await self._record_end("cancelled")
-            workflow.logger.info("study cancelled: %s", self._cancel_reason)
+            workflow.logger.info(
+                "study cancelled: %s",
+                self._cancel_reason,
+                extra={"error_code": E.WF_STUDY_CANCELLED},
+            )
             return self._result("cancelled")
         try:
             result = body.result()
@@ -633,18 +642,25 @@ class StudyWorkflow:
         stage finishing the activities it had started), clear the failure."""
         self._failures += 1
         number = self._failures
-        reason = _failure_reason(error)
-        workflow.logger.warning("stage %s failed, waiting for a retry: %s", stage, reason)
+        reason, code = _failure(error)
+        workflow.logger.warning(
+            "stage %s failed, waiting for a retry: %s", stage, reason, extra={"error_code": code}
+        )
         await self._activity(
             "record_failure",
             RecordFailureInput(
-                study_id=self._input.study_id, stage=stage, revision=self._revision, reason=reason
+                study_id=self._input.study_id,
+                stage=stage,
+                revision=self._revision,
+                reason=reason,
+                code=code,
             ),
             None,
             f"record_failure:{stage}:r{self._revision}:{number}",
         )
         # Exposed (status query, retry validator) once the study row says failed.
-        self._failed_stage, self._failure, self._retry_requested = stage, reason, False
+        self._failed_stage, self._failure, self._failure_code = stage, reason, code
+        self._retry_requested = False
         await workflow.wait_condition(lambda: self._retry_requested)
         if drain is not None:
             await drain
@@ -654,7 +670,7 @@ class StudyWorkflow:
             None,
             f"record_failure:{stage}:r{self._revision}:{number}:cleared",
         )
-        self._failed_stage, self._failure = None, None
+        self._failed_stage, self._failure, self._failure_code = None, None, None
 
     def _extractor(
         self, document_id: str | None, revision: int, corrections: tuple[CorrectionInput, ...]
@@ -785,6 +801,11 @@ class StudyWorkflow:
                     self._completed_photos -= 1  # not done: the finally counts it
                     return False
                 if self._budget <= 0:
+                    workflow.logger.warning(
+                        "photo %s not analyzed: the budget is exhausted",
+                        document_id,
+                        extra={"error_code": E.BUDGET_PHOTO_SKIPPED},
+                    )
                     self._flag(document_id, budget=True)
                     return False
                 output = await self._activity(
@@ -872,7 +893,11 @@ class StudyWorkflow:
             lambda suffix: self._assets_once(revision, corrections, suffix),
         )
         if output is None:
-            workflow.logger.warning("assets for revision %s exceed the budget", revision)
+            workflow.logger.warning(
+                "assets for revision %s exceed the budget",
+                revision,
+                extra={"error_code": E.ASSETS_BUDGET_FLAGGED},
+            )
             self._mark_needs_review("assets_review")
             return
         self._budget -= output.cost_usd
@@ -925,12 +950,18 @@ class StudyWorkflow:
         except ActivityError as error:
             if not corrections or not _is_validation_error(error):
                 raise
+            reason, code = _failure(error)
             workflow.logger.warning(
-                "corrections of review %s refused: %s", decision.review_id, error.cause
+                "corrections of review %s refused: %s",
+                decision.review_id,
+                error.cause,
+                extra={"error_code": E.CORRECT_REFUSED, "refused_code": code},
             )
             self._mark_needs_review(decision.stage)
             corrections = ()
-            await self._apply_corrections(decision.stage, old_revision, (), ":uncorrected")
+            await self._apply_corrections(
+                decision.stage, old_revision, (), ":uncorrected", refused=(code, reason)
+            )
         return new_revision, corrections
 
     async def _apply_corrections(
@@ -939,6 +970,7 @@ class StudyWorkflow:
         old_revision: int,
         corrections: tuple[CorrectionInput, ...],
         suffix: str,
+        refused: tuple[str, str] | None = None,
     ) -> None:
         await self._activity(
             "apply_corrections",
@@ -949,6 +981,8 @@ class StudyWorkflow:
                 to_revision=old_revision + 1,
                 corrections=corrections,
                 components_gate=self._components_gate,
+                refused_code=refused[0] if refused else None,
+                refused_reason=refused[1] if refused else None,
             ),
             ApplyCorrectionsOutput,
             f"apply_corrections:{stage}:r{old_revision}{suffix}",
@@ -1144,15 +1178,34 @@ class StudyWorkflow:
         )
 
 
-def _failure_reason(error: ActivityError) -> str:
-    """``<activity>: <error type>: <message>`` of a failed activity, for the reviewer."""
+def _failure(error: ActivityError) -> tuple[str, str]:
+    """``(reason, code)`` of a failed activity: ``<activity>: <error type>: [BASIS-...]
+    <message>`` for the reviewer (the prefix is what earlier releases wrote; the code sits
+    inside the message, docs/ERROR_CODES.md), and the code alone for ``failure_code``.
+
+    An ``ApplicationError`` raised by this release carries its code in its message; one
+    without (a type from before the catalogue, a test fake) gets its type's fallback, else
+    the generic activity failure. A Temporal ``TimeoutError`` (a dead worker: the heartbeat
+    timeout of EVAL_REPORT 38) is coded by its timeout type; anything else is unexpected.
+    """
     cause = error.cause
-    detail = (
-        f"{cause.type}: {cause.message}"
-        if isinstance(cause, ApplicationError)
-        else str(cause or error)
-    )
-    return f"{error.activity_type}: {detail}"[:MAX_FAILURE_CHARS]
+    if isinstance(cause, ApplicationError):
+        code = code_in(cause.message) or BY_TEMPORAL_TYPE.get(
+            cause.type or "", E.WF_ACTIVITY_FAILED
+        )
+        detail = f"{cause.type}: {tag(code, cause.message)}"
+    elif isinstance(cause, ActivityTimeoutError):
+        kind = cause.type.name if cause.type is not None else ""
+        code = TIMEOUT_CODES.get(kind, E.WF_ACTIVITY_FAILED)
+        detail = tag(code, str(cause))
+    elif isinstance(cause, CancelledError):
+        code = E.WF_ACTIVITY_CANCELLED
+        detail = tag(code, str(cause))
+    else:
+        text = str(cause or error)
+        code = code_in(text) or E.WF_UNEXPECTED_ERROR
+        detail = tag(code, text)
+    return f"{error.activity_type}: {detail}"[:MAX_FAILURE_CHARS], code
 
 
 def _invalid(message: str) -> ApplicationError:

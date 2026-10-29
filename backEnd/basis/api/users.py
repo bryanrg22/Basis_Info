@@ -46,6 +46,7 @@ from basis.db.enums import OrgRole
 from basis.db.models import User
 from basis.db.repositories import OrgRepository, StudyRepository, UserRepository, VisibleStudy
 from basis.db.session import SESSIONMAKER_STATE_ATTR, SessionDep, session_scope
+from basis.errors.codes import E
 
 LAST_SEEN_RESOLUTION: Final = timedelta(minutes=5)
 DETAIL_NO_DATABASE: Final = "The database is not configured."
@@ -74,7 +75,7 @@ def get_sessionmaker(request: Request) -> async_sessionmaker[AsyncSession]:
         request.app.state, SESSIONMAKER_STATE_ATTR, None
     )
     if sessionmaker is None:
-        raise ServiceUnavailable(DETAIL_NO_DATABASE)
+        raise ServiceUnavailable(DETAIL_NO_DATABASE, code=E.API_NO_DATABASE)
     return sessionmaker
 
 
@@ -113,7 +114,7 @@ async def require_study_access(
     """The study and the caller's role in its org; 404 if not visible, 403 if role too low."""
     visible = await StudyRepository(session).get_visible(study_id, user.id)
     if visible is None:
-        raise NotFound(DETAIL_STUDY_NOT_FOUND)
+        raise NotFound(DETAIL_STUDY_NOT_FOUND, code=E.STUDY_NOT_FOUND)
     if visible.role.rank < min_role.rank:
         raise Forbidden(
             f"This action needs the {min_role.value} role or higher in the study's "
@@ -151,7 +152,7 @@ async def require_org_role(
     """The caller's role in the firm; 404 if not a member, 403 if the role is too low."""
     role = await OrgRepository(session).role_of(org_id, user.id)
     if role is None:
-        raise NotFound(DETAIL_ORG_NOT_FOUND)
+        raise NotFound(DETAIL_ORG_NOT_FOUND, code=E.API_ORG_NOT_FOUND)
     if role.rank < min_role.rank:
         raise Forbidden(
             f"This action needs the {min_role.value} role in the organization; you are "

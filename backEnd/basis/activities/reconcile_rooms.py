@@ -97,7 +97,9 @@ from basis.activities.deps import Deps
 from basis.db.models import Component, Room
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
+from basis.errors.codes import E, tag
 from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderError
@@ -294,7 +296,10 @@ class ReconcileRooms:
             )
         if self._deps.llm is None:
             raise ApplicationError(
-                "no model provider is configured for the room step",
+                tag(
+                    E.PROVIDER_NOT_CONFIGURED_ROOMS,
+                    "no model provider is configured for the room step",
+                ),
                 type=PROVIDER_NOT_CONFIGURED,
                 non_retryable=True,
             )
@@ -338,7 +343,7 @@ class ReconcileRooms:
             async with heartbeating("reconciling rooms"):
                 results = await _all_or_none([one(p) for p in plan.todo])
         except BudgetExceededError as exc:
-            raise budget_exceeded(f"room step of study {study_id}: {exc}") from exc
+            raise budget_exceeded(f"room step of study {study_id}: {exc}", E.BUDGET_ROOMS) from exc
         except ProviderError as exc:
             raise provider_failure(exc, f"room step of study {study_id}") from exc
         output = ReconcileRoomsOutput(
@@ -391,9 +396,13 @@ class ReconcileRooms:
                 originals.append(original)
                 image = prepare_image(original)
             except ObjectNotFound:
-                raise validation_error(f"photo file {photo.gcs_uri} is missing") from None
+                raise validation_error(
+                    f"photo file {photo.gcs_uri} is missing", E.ROOMS_FILE_MISSING
+                ) from None
             except ImageRejected as exc:  # pragma: no cover - it was analyzed before
-                raise validation_error(f"photo {photo.document_id}: {exc}") from exc
+                raise validation_error(
+                    f"photo {photo.document_id}: {exc}", E.ROOMS_IMAGE_REJECTED
+                ) from exc
             analysis = room_step.analysis_from_rows(
                 planned.room.room_type, photo.rows, _room_confidence(photo.rows)
             )
@@ -520,6 +529,21 @@ async def _write(
     if stale:
         await session.execute(delete(Component).where(Component.id.in_(stale)))
     result = outcome.result
+    await StudyEventRepository(session).record(
+        study_id,
+        "inventory.rebuilt",
+        actor="model",
+        revision=revision,
+        entity_type="room",
+        entity_id=planned.room.id,
+        detail={
+            "deleted": [str(c) for c in stale],
+            "written": len(result.inventory.objects),
+            "step": outcome.step,
+            "model": _model_of(outcome),
+            "record_uri": uri,
+        },
+    )
     looks: dict[str, list[dict[str, Any]]] = {}
     for look in outcome.looks:
         looks.setdefault(look.label, []).append(look.record())

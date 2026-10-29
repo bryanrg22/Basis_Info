@@ -131,6 +131,8 @@ class StudyStatusView(_Frozen):
     # a retry (the ``retry`` update); null otherwise.
     failed_stage: StageName | None = None
     failure: str | None = None
+    # The catalogue code behind ``failure`` (docs/ERROR_CODES.md), additive.
+    failure_code: str | None = None
 
 
 class StudyWorkflowResult(_Frozen):
@@ -352,6 +354,9 @@ class RecordFailureInput(_Frozen):
     stage: StageName
     revision: int
     reason: str | None = None
+    # The catalogue code of the failure (docs/ERROR_CODES.md); None for inputs recorded
+    # before it existed, and when the failure is cleared.
+    code: str | None = None
 
 
 class RetryAck(_Frozen):
@@ -377,6 +382,11 @@ class ApplyCorrectionsInput(_Frozen):
     # Patch components-gate-v1: the execution has the components review (which correction
     # types each gate takes, and what the rooms and components rejections carry over).
     components_gate: bool = False
+    # Set on the second call after the first refused the rejection's corrections
+    # (``StudyWorkflow._reject``): the refusal's error code and reason, recorded on the
+    # timeline as ``corrections.refused`` (additive; None otherwise).
+    refused_code: str | None = None
+    refused_reason: str | None = None
 
 
 class ApplyCorrectionsOutput(_Frozen):

@@ -18,6 +18,7 @@ from basis.db.errors import NotVisibleError, StaleStateError
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
+from basis.errors.codes import E, code_in, tag
 from basis.workflow.activity_options import BUDGET_EXCEEDED_ERROR, VALIDATION_ERROR
 
 logger = logging.getLogger("basis.activities")
@@ -32,23 +33,25 @@ class _NoOutput(BaseModel):
 NO_OUTPUT: Final = _NoOutput()
 
 
-def validation_error(message: str) -> ApplicationError:
-    """Bad input: never retried (S2_SPEC section 4)."""
-    return ApplicationError(message, type=VALIDATION_ERROR, non_retryable=True)
+def validation_error(message: str, code: str = E.WF_ACTIVITY_FAILED) -> ApplicationError:
+    """Bad input: never retried (S2_SPEC section 4). ``code`` is the catalogue code
+    (docs/ERROR_CODES.md), carried at the front of the message (:func:`basis.errors.codes.tag`)
+    so it reaches ``activity_results.error``, the study's failure reason and the logs."""
+    return ApplicationError(tag(code, message), type=VALIDATION_ERROR, non_retryable=True)
 
 
-def budget_exceeded(message: str) -> ApplicationError:
+def budget_exceeded(message: str, code: str = E.BUDGET_PHOTO) -> ApplicationError:
     """The study's LLM budget cannot cover this call: never retried."""
-    return ApplicationError(message, type=BUDGET_EXCEEDED_ERROR, non_retryable=True)
+    return ApplicationError(tag(code, message), type=BUDGET_EXCEEDED_ERROR, non_retryable=True)
 
 
 def parse_uuid(value: str | None, what: str) -> uuid.UUID:
     if value is None:
-        raise validation_error(f"{what} is required")
+        raise validation_error(f"{what} is required", E.WF_BAD_UUID)
     try:
         return uuid.UUID(value)
     except ValueError:
-        raise validation_error(f"{what} {value!r} is not a UUID") from None
+        raise validation_error(f"{what} {value!r} is not a UUID", E.WF_BAD_UUID) from None
 
 
 def activity_key(explicit: str | None = None) -> str:
@@ -63,7 +66,9 @@ def workflow_execution() -> tuple[str, str]:
     """``(workflow_id, run_id)`` of the workflow that scheduled this activity."""
     info = activity.info()
     if info.workflow_id is None or info.workflow_run_id is None:
-        raise validation_error("these activities only run on behalf of a workflow")
+        raise validation_error(
+            "these activities only run on behalf of a workflow", E.WF_NOT_IN_WORKFLOW
+        )
     return info.workflow_id, info.workflow_run_id
 
 
@@ -94,7 +99,8 @@ async def run_once[Out: BaseModel](
         run = await RunRepository(session).get_by_execution(workflow_id, run_id)
         if run is None:
             raise validation_error(
-                f"no runs row for {workflow_id}/{run_id}; record_run_start must run first"
+                f"no runs row for {workflow_id}/{run_id}; record_run_start must run first",
+                E.WF_NO_RUN_ROW,
             )
         claimed = await ActivityResultRepository(session).claim(run.id, name, key)
         if claimed.status == COMPLETED:
@@ -112,9 +118,12 @@ async def run_once[Out: BaseModel](
     except asyncio.CancelledError:
         logger.info("activity cancelled; its transaction was rolled back")
         raise
-    except (NotVisibleError, StaleStateError) as exc:
+    except StaleStateError as exc:
         await _record_failure(deps, key, exc)
-        raise validation_error(str(exc)) from exc
+        raise validation_error(str(exc), E.WF_STALE_TRANSITION) from exc
+    except NotVisibleError as exc:
+        await _record_failure(deps, key, exc)
+        raise validation_error(str(exc), E.WF_STUDY_GONE) from exc
     except Exception as exc:
         await _record_failure(deps, key, exc)
         raise
@@ -136,9 +145,20 @@ def _stored[Out: BaseModel](output_ref: str | None, output_type: type[Out]) -> O
     return output_type.model_validate_json(output_ref or "{}")
 
 
+def failure_text(exc: BaseException) -> str:
+    """``[code] <ExceptionType>: <message>`` for ``activity_results.error`` and the events: the
+    code the message carries, else the one for an exception that is not an ApplicationError
+    (a bug, a database error on an established connection)."""
+    message = str(exc)
+    code = code_in(message)
+    if code is None:
+        return f"[{E.WF_UNEXPECTED_ERROR}] {type(exc).__name__}: {message}"
+    return f"{type(exc).__name__}: {message}"
+
+
 async def _record_failure(deps: Deps, key: str, exc: BaseException) -> None:
     try:
         async with session_scope(deps.sessionmaker) as session:
-            await ActivityResultRepository(session).fail(key, f"{type(exc).__name__}: {exc}")
+            await ActivityResultRepository(session).fail(key, failure_text(exc))
     except Exception:  # the original error matters more than the bookkeeping
         logger.warning("could not record the activity failure", exc_info=True)

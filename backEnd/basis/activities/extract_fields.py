@@ -44,6 +44,7 @@ from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import Final
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
@@ -64,12 +65,14 @@ from basis.activities.corrections import (
 )
 from basis.activities.deps import Deps
 from basis.db.enums import DocumentKind
-from basis.db.models import Document, Extraction
+from basis.db.models import Correction, Document, Extraction
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.llm_call import LlmCallRepository
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
+from basis.errors.codes import E
 from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.fallback import PROMPT_NAME
@@ -117,7 +120,10 @@ class ExtractFields:
         async with session_scope(self._deps.sessionmaker) as session:
             document = await DocumentRepository(session).get(study_id, document_id)
             if document is None or document.kind is not DocumentKind.APPRAISAL:
-                raise validation_error(f"appraisal {document_id} not found in study {study_id}")
+                raise validation_error(
+                    f"appraisal {document_id} not found in study {study_id}",
+                    E.EXTRACT_APPRAISAL_NOT_FOUND,
+                )
             repo = ExtractionRepository(session)
             done = await repo.get_for_revision(document_id, input.revision) is not None
             claimed = await ActivityResultRepository(session).get(input.idempotency_key)
@@ -155,6 +161,7 @@ class ExtractFields:
                 revision=input.revision,
                 result=final,
             )
+            await _record_corrected(session, repo, study_id, extraction, input.corrections)
             return await _output(repo, extraction)
 
         return await self._run_once(input, work)
@@ -186,7 +193,9 @@ class ExtractFields:
         try:
             data = await self._deps.storage.read(gcs_uri)
         except ObjectNotFound:
-            raise validation_error(f"appraisal file {gcs_uri} is missing from storage") from None
+            raise validation_error(
+                f"appraisal file {gcs_uri} is missing from storage", E.EXTRACT_FILE_MISSING
+            ) from None
         kind = upload_kind(data)
         companion: bytes | None = None
         if report is not None and kind == "xml":
@@ -194,11 +203,13 @@ class ExtractFields:
                 companion = await self._deps.storage.read(report[1])
             except ObjectNotFound:
                 raise validation_error(
-                    f"report PDF {report[0]} of appraisal {document_id} is missing from storage"
+                    f"report PDF {report[0]} of appraisal {document_id} is missing from storage",
+                    E.EXTRACT_REPORT_PDF_MISSING,
                 ) from None
             if not is_pdf(companion):
                 raise validation_error(
-                    f"report PDF {report[0]} of appraisal {document_id} is not a PDF"
+                    f"report PDF {report[0]} of appraisal {document_id} is not a PDF",
+                    E.EXTRACT_REPORT_PDF_NOT_PDF,
                 )
         ctx = ExtractionContext(
             call=CallContext(
@@ -236,7 +247,9 @@ class ExtractFields:
                 pdf_id = document_id
             return with_source(result, document_id=document_id, kind=kind, pdf_document_id=pdf_id)
         except InvalidDocument as exc:
-            raise validation_error(f"appraisal {document_id}: {exc}") from exc
+            raise validation_error(
+                f"appraisal {document_id}: {exc}", E.EXTRACT_INVALID_DOCUMENT
+            ) from exc
         except ProviderError as exc:
             raise provider_failure(exc, f"appraisal {document_id}") from exc
 
@@ -259,7 +272,10 @@ async def _report_pdf(
         return None  # a PDF or ZIP is its own report
     found = await repo.get(study_id, pdf_id)
     if found is None or found.kind is not DocumentKind.APPRAISAL or found.uploaded_at is None:
-        raise validation_error(f"report PDF {pdf_id} is not a confirmed appraisal of {study_id}")
+        raise validation_error(
+            f"report PDF {pdf_id} is not a confirmed appraisal of {study_id}",
+            E.EXTRACT_REPORT_PDF_NOT_CONFIRMED,
+        )
     return found
 
 
@@ -274,7 +290,10 @@ def _same_pdf(raw: object, report: Document | None) -> bool:
 
 def _check_correction(correction: CorrectionInput) -> None:
     if correction.entity_type != "extraction_field":
-        raise validation_error(f"extract_fields cannot apply a {correction.entity_type} correction")
+        raise validation_error(
+            f"extract_fields cannot apply a {correction.entity_type} correction",
+            E.EXTRACT_CORRECTION_TYPE,
+        )
     check_extraction_field(correction.after)
     parse_uuid(correction.entity_id, "entity_id")
 
@@ -294,7 +313,9 @@ async def _with_corrections(
         _check_correction(correction)
         target = await repo.get_field(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if target is None:
-            raise validation_error(f"extraction field {correction.entity_id} not found")
+            raise validation_error(
+                f"extraction field {correction.entity_id} not found", E.EXTRACT_FIELD_NOT_FOUND
+            )
         key = f"{target.section}.{target.field}"
         fields[key] = ExtractedField(
             key=key,
@@ -337,6 +358,65 @@ async def _with_corrections(
             "raw": raw,
         }
     )
+
+
+async def _record_corrected(
+    session: AsyncSession,
+    repo: ExtractionRepository,
+    study_id: uuid.UUID,
+    extraction: Extraction,
+    corrections: tuple[CorrectionInput, ...],
+) -> None:
+    """One ``entity.corrected`` timeline event per corrected field of the new extraction
+    (``basis.db.repositories.study_event``): the new row, the field it replaced, the
+    correction rows and the reviewer."""
+    if not corrections:
+        return
+    written = {f"{f.section}.{f.field}": f for f in await repo.fields(extraction.id)}
+    events = StudyEventRepository(session)
+    rows = (
+        await session.scalars(
+            select(Correction).where(
+                Correction.study_id == study_id,
+                Correction.entity_type == "extraction_field",
+                Correction.revision == extraction.revision - 1,
+            )
+        )
+    ).all()
+    by_target: dict[uuid.UUID, list[Correction]] = {}
+    for row in rows:
+        by_target.setdefault(row.entity_id, []).append(row)
+    for correction in corrections:
+        target_id = parse_uuid(correction.entity_id, "entity_id")
+        target = await repo.get_field(study_id, target_id)
+        if target is None:
+            continue
+        new = written.get(f"{target.section}.{target.field}")
+        if new is None:
+            continue
+        matched = by_target.get(target_id, [])
+        await events.record(
+            study_id,
+            "entity.corrected",
+            actor="engineer",
+            actor_id=matched[0].reviewer_id if matched else None,
+            revision=extraction.revision,
+            entity_type="extraction_field",
+            entity_id=new.id,
+            before={
+                "value_text": target.value_text,
+                "value_num": None if target.value_num is None else str(target.value_num),
+                "value_date": None if target.value_date is None else target.value_date.isoformat(),
+            },
+            after=dict(correction.after),
+            detail={
+                "carried_from": str(target.id),
+                "correction_ids": [str(row.id) for row in matched],
+                "reasons": [row.reason for row in matched if row.reason],
+                "from_revision": extraction.revision - 1,
+                "key": f"{target.section}.{target.field}",
+            },
+        )
 
 
 async def _output(repo: ExtractionRepository, extraction: Extraction) -> ExtractFieldsOutput:

@@ -36,6 +36,7 @@ from firebase_admin import credentials as firebase_credentials
 
 from basis.api.errors import ServiceUnavailable, Unauthorized
 from basis.config import ConfigError, Settings
+from basis.errors.codes import E
 
 EMULATOR_ENV_VAR: Final = "FIREBASE_AUTH_EMULATOR_HOST"
 FIREBASE_APP_NAME: Final = "basis"
@@ -128,27 +129,29 @@ class FirebaseTokenVerifier:
             claims = self._verify_fn(token, app=app, check_revoked=self._check_revoked)
         # Expired and Revoked subclass InvalidIdTokenError, so they come first.
         except firebase_auth.ExpiredIdTokenError as exc:
-            raise Unauthorized(DETAIL_EXPIRED) from exc
+            raise Unauthorized(DETAIL_EXPIRED, code=E.API_AUTH_EXPIRED) from exc
         except firebase_auth.RevokedIdTokenError as exc:
-            raise Unauthorized(DETAIL_REVOKED) from exc
+            raise Unauthorized(DETAIL_REVOKED, code=E.API_AUTH_REVOKED) from exc
         except firebase_auth.UserDisabledError as exc:
-            raise Unauthorized(DETAIL_DISABLED) from exc
+            raise Unauthorized(DETAIL_DISABLED, code=E.API_AUTH_DISABLED) from exc
         except firebase_auth.UserNotFoundError as exc:
             # check_revoked reads the user record; a deleted user's token is still signed.
-            raise Unauthorized(DETAIL_DELETED) from exc
+            raise Unauthorized(DETAIL_DELETED, code=E.API_AUTH_DELETED) from exc
         except firebase_auth.InvalidIdTokenError as exc:
-            raise Unauthorized(DETAIL_INVALID) from exc
+            raise Unauthorized(DETAIL_INVALID, code=E.API_AUTH_INVALID) from exc
         except firebase_auth.CertificateFetchError as exc:
             logger.warning("firebase certificate fetch failed", exc_info=True)
             # Google's public keys were unreachable: the server, not the token, is at fault.
-            raise ServiceUnavailable(DETAIL_CERTIFICATES) from exc
+            raise ServiceUnavailable(
+                DETAIL_CERTIFICATES, code=E.API_AUTH_CERTIFICATES_UNAVAILABLE
+            ) from exc
         return principal_from_claims(claims)
 
 
 def principal_from_claims(claims: Mapping[str, Any]) -> Principal:
     uid = claims.get("uid") or claims.get("sub")
     if not isinstance(uid, str) or not uid:
-        raise Unauthorized(DETAIL_NO_UID)
+        raise Unauthorized(DETAIL_NO_UID, code=E.API_AUTH_NO_UID)
     email = claims.get("email")
     name = claims.get("name")
     return Principal(

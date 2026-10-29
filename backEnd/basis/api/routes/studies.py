@@ -29,8 +29,10 @@ from basis.db.repositories import (
     VisibleStudy,
 )
 from basis.db.repositories.study import MAX_PAGE_SIZE
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import SessionDep
 from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
+from basis.errors.codes import E
 
 DEFAULT_PAGE_SIZE: Final = 50
 MAX_CURSOR_LENGTH: Final = 512
@@ -55,7 +57,7 @@ async def choose_org(
     if org_id is not None:
         role = memberships.get(org_id)
         if role is None:
-            raise NotFound(DETAIL_ORG_NOT_FOUND)
+            raise NotFound(DETAIL_ORG_NOT_FOUND, code=E.API_ORG_NOT_FOUND)
         if role.rank < CREATE_ROLE.rank:
             raise Forbidden(
                 f"Creating a study needs the {CREATE_ROLE.value} role or higher in the "
@@ -90,6 +92,15 @@ async def create_study(
     study = await StudyRepository(session).create(
         org_id, user.id, body.property_name, body.room_aliases, intake
     )
+    await StudyEventRepository(session).record(
+        study.id,
+        "study.created",
+        actor="engineer",
+        actor_id=user.id,
+        stage=study.current_stage,
+        revision=study.revision,
+        detail={"intake": intake is not None},
+    )
     response.headers["Location"] = f"/v1/studies/{study.id}"
     return StudyOut.model_validate(study)
 
@@ -118,10 +129,24 @@ async def stored_intake(
 async def put_intake(
     body: StudyIntakeIn,
     access: Annotated[VisibleStudy, Depends(study_access(OrgRole.ENGINEER))],
+    user: CurrentUserDep,
     session: SessionDep,
 ) -> StudyOut:
     intake = await stored_intake(session, access.study.id, body)
+    previous = access.study.intake
     study = await StudyRepository(session).set_intake(access.study.id, intake)
+    await StudyEventRepository(session).record(
+        study.id,
+        "study.intake_set",
+        actor="engineer",
+        actor_id=user.id,
+        stage=study.current_stage,
+        revision=study.revision,
+        entity_type="study",
+        entity_id=study.id,
+        before=None if previous is None else previous.model_dump(mode="json"),
+        after=intake.model_dump(mode="json"),
+    )
     return StudyOut.model_validate(study)
 
 
@@ -181,7 +206,17 @@ async def get_study(
     responses=problems(403, 404),
 )
 async def archive_study(
-    access: Annotated[VisibleStudy, Depends(study_access(OrgRole.OWNER))], session: SessionDep
+    access: Annotated[VisibleStudy, Depends(study_access(OrgRole.OWNER))],
+    user: CurrentUserDep,
+    session: SessionDep,
 ) -> StudyOut:
     study = await StudyRepository(session).archive(access.study.id)
+    await StudyEventRepository(session).record(
+        study.id,
+        "study.archived",
+        actor="engineer",
+        actor_id=user.id,
+        stage=study.current_stage,
+        revision=study.revision,
+    )
     return StudyOut.model_validate(study)

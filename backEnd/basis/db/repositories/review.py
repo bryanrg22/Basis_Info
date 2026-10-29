@@ -68,6 +68,7 @@ from basis.db.models import (
 from basis.db.repositories.idempotency import scoped_key
 from basis.db.repositories.outbox import WORKFLOW_SIGNAL, OutboxRepository
 from basis.db.repositories.study import StudyRepository
+from basis.db.repositories.study_event import StudyEventRepository
 
 DECISION_TRANSITIONS: Final[dict[tuple[Stage, Decision], Stage]] = {
     (Stage.APPRAISAL_REVIEW, Decision.APPROVE): Stage.ROOMS_REVIEW,
@@ -212,7 +213,13 @@ class ReviewRepository:
             stage, decision, revision, components_gate=components_gate
         )
         study = await StudyRepository(self._session).transition(
-            study_id, stage, to_stage, revision, new_revision=new_revision
+            study_id,
+            stage,
+            to_stage,
+            revision,
+            new_revision=new_revision,
+            actor="engineer",
+            actor_id=reviewer_id,
         )
         if to_stage in REVIEW_STAGES:
             # The next gate opens when the workflow says so (its transition converges the
@@ -264,6 +271,42 @@ class ReviewRepository:
         if rows:
             self._session.add_all(rows)
             await self._session.flush()
+        events = StudyEventRepository(self._session)
+        await events.record(
+            study_id,
+            "review.decided",
+            actor="engineer",
+            actor_id=reviewer_id,
+            stage=stage,
+            revision=revision,
+            entity_type="review",
+            entity_id=review.id,
+            detail={
+                "decision": decision.value,
+                "comment": comment,
+                "corrections": len(rows),
+                "to_stage": to_stage.value,
+                "new_revision": new_revision,
+            },
+        )
+        for row in rows:
+            await events.record(
+                study_id,
+                "correction.recorded",
+                actor="engineer",
+                actor_id=reviewer_id,
+                stage=stage,
+                revision=revision,
+                entity_type=row.entity_type,
+                entity_id=row.entity_id,
+                before=row.before,
+                after=row.after,
+                detail={
+                    "correction_id": str(row.id),
+                    "review_id": str(review.id),
+                    "reason": row.reason,
+                },
+            )
 
         signal = await OutboxRepository(self._session).enqueue(
             WORKFLOW_SIGNAL,

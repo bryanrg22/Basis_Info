@@ -67,6 +67,7 @@ from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepos
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
+from basis.errors.codes import E
 from basis.extraction.package import InvalidPackage, is_pdf, read_appraisal_upload
 from basis.retrieval import Retrieval
 from basis.retrieval.ingest import PreparedIngest, SourcePdf, prepare_documents, write_prepared
@@ -133,7 +134,7 @@ class IngestAppraisal:
 
         async def work(session: AsyncSession) -> IngestAppraisalOutput:
             if await StudyRepository(session).get(study_id) is None:
-                raise validation_error(f"study {study_id} not found")
+                raise validation_error(f"study {study_id} not found", E.INGEST_STUDY_NOT_FOUND)
             current = await _sources(session, study_id)
             if current is None:
                 return IngestAppraisalOutput(
@@ -161,7 +162,9 @@ class IngestAppraisal:
                 try:
                     await store.discard_unpublished(existing.id)
                 except CorpusError as exc:
-                    raise validation_error(f"study {study_id}: {exc}") from exc
+                    raise validation_error(
+                        f"study {study_id}: {exc}", E.INGEST_CORPUS_DISCARD_FAILED
+                    ) from exc
                 logger.info(
                     "discarded an unpublished study corpus version",
                     extra={"corpus_version_id": str(existing.id), "study_id": str(study_id)},
@@ -217,7 +220,9 @@ class IngestAppraisal:
             try:  # the package's own limits; never a PDF parser on a ZIP or an XML
                 upload = await asyncio.to_thread(read_appraisal_upload, data)
             except InvalidPackage as exc:
-                raise validation_error(f"appraisal {source.id}: {exc}") from exc
+                raise validation_error(
+                    f"appraisal {source.id}: {exc}", E.INGEST_INVALID_PACKAGE
+                ) from exc
             pdf_bytes = upload.pdf
             if upload.kind == "xml":
                 pdf_document = sources.companion
@@ -227,7 +232,8 @@ class IngestAppraisal:
                     if not is_pdf(pdf_bytes):
                         raise validation_error(
                             f"appraisal {pdf_document.id}, the report PDF of the UAD 3.6 XML "
-                            f"{source.id}, is not a PDF"
+                            f"{source.id}, is not a PDF",
+                            E.INGEST_COMPANION_NOT_PDF,
                         )
         if pdf_document is None or pdf_bytes is None:
             return _Plan(sources=sources, pdf_document=None, prepared=None)
@@ -244,7 +250,9 @@ class IngestAppraisal:
                 overlap_tokens=settings.retrieval_chunk_overlap,
             )
         except PdfError as exc:
-            raise validation_error(f"appraisal {pdf_document.id}: {exc}") from exc
+            raise validation_error(
+                f"appraisal {pdf_document.id}: {exc}", E.INGEST_PDF_UNREADABLE
+            ) from exc
         return _Plan(sources=sources, pdf_document=pdf_document, prepared=prepared)
 
 
@@ -286,5 +294,6 @@ async def _download(deps: Deps, document: Document) -> bytes:
     except ObjectNotFound as exc:
         # The row says "uploaded" but the object is gone: retrying cannot bring it back.
         raise validation_error(
-            f"appraisal {document.id} is missing from storage ({document.gcs_uri})"
+            f"appraisal {document.id} is missing from storage ({document.gcs_uri})",
+            E.INGEST_FILE_MISSING,
         ) from exc

@@ -44,6 +44,8 @@ from basis.api.errors import (
 )
 from basis.api.middleware import REQUEST_ID_HEADER
 from basis.config import Settings
+from basis.errors.catalogue import code_for_problem
+from basis.errors.codes import E
 from basis.obs.logging import bound, configure_logging
 
 SECRET_MESSAGE = "db password is hunter2"  # pragma: allowlist secret
@@ -163,6 +165,9 @@ async def test_api_error_renders_problem(
         "detail": detail,
         "instance": f"/raise/{name}",
         "request_id": f"req-{name}",
+        # The catalogue code (docs/ERROR_CODES.md): the suffix's generic, or the plain HTTP
+        # error's for a suffix the catalogue does not know (the teapot).
+        "code": code_for_problem(suffix) or E.API_HTTP_ERROR,
     }
 
 
@@ -296,6 +301,7 @@ async def test_unexpected_exception_is_opaque_500(client: httpx.AsyncClient) -> 
         "detail": INTERNAL_ERROR_DETAIL,
         "instance": "/boom",
         "request_id": "req-500",
+        "code": E.API_INTERNAL_ERROR,
     }
     assert "hunter2" not in response.text
     assert "RuntimeError" not in response.text
@@ -342,7 +348,12 @@ def test_problem_response_reads_request_id_from_context() -> None:
 
 def test_problem_response_without_context_has_no_request_id() -> None:
     body = json.loads(problem_response(status=400).body)
-    assert body == {"type": ABOUT_BLANK, "title": "Bad Request", "status": 400}
+    assert body == {
+        "type": ABOUT_BLANK,
+        "title": "Bad Request",
+        "status": 400,
+        "code": E.API_HTTP_ERROR,
+    }
 
 
 def test_unknown_status_gets_generic_title() -> None:

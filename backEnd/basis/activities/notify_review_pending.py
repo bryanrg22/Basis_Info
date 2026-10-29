@@ -16,6 +16,7 @@ from temporalio import activity
 from basis.activities._support import activity_key, parse_uuid, run_once_no_output
 from basis.activities.deps import Deps
 from basis.db.repositories.outbox import OutboxRepository
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.workflow.contracts import NotifyInput
 
 NOTIFICATION: Final = "notification"
@@ -41,6 +42,14 @@ class NotifyReviewPending:
                     "revision": input.revision,
                     "waiting_days": input.waiting_days,
                 },
+            )
+            await StudyEventRepository(session).record(
+                study_id,
+                "review.reminded",
+                actor="system",
+                stage=input.stage,
+                revision=input.revision,
+                detail={"waiting_days": input.waiting_days},
             )
             logger.info(
                 "review pending: study %s %s revision %s for %s days",

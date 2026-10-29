@@ -98,7 +98,9 @@ from basis.db.enums import DocumentKind, OrgRole, Stage, StudyStatus
 from basis.db.models import Document, PhotoObject, Study
 from basis.db.repositories import DocumentRepository, VisibleStudy
 from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository, counts
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import SessionDep, session_scope
+from basis.errors.codes import E, tag
 from basis.storage import ObjectNotFound, Storage
 from basis.vision.localize import (
     DEFAULT_PHRASE_SET,
@@ -180,6 +182,21 @@ def object_out(row: PhotoObject) -> PhotoObjectOut:
     )
 
 
+def _id(value: uuid.UUID | None) -> str | None:
+    return None if value is None else str(value)
+
+
+def _object_fields(row: PhotoObject) -> dict[str, Any]:
+    """What the timeline records of a manual instance (no mask: the row has it)."""
+    return {
+        "label": row.label,
+        "box": [row.x1, row.y1, row.x2, row.y2],
+        "mask_source": row.mask_source,
+        "derived_from": _id(row.derived_from),
+        "counted": row.counted,
+    }
+
+
 def as_instance(row: PhotoObject) -> Instance:
     """A stored row as a localizer instance (a manual box without a score scores 1)."""
     return Instance(
@@ -211,7 +228,10 @@ def plan(rows: Sequence[PhotoObject], selection: ManualSelectionIn) -> Plan:
     if isinstance(selection, CandidateSelection):
         index = next((i for i, row in enumerate(rows) if row.id == selection.candidate_id), None)
         if index is None:
-            raise NotFound("No instance with that id on this photo at the current revision.")
+            raise NotFound(
+                "No instance with that id on this photo at the current revision.",
+                code=E.OBJECT_NOT_FOUND,
+            )
         return plan_candidate(stored, index)
     if isinstance(selection, PointSelection):
         point = Point(x=selection.point.x, y=selection.point.y)
@@ -275,10 +295,11 @@ async def prompt_box(
                 image, label=label, boxes=[box], threshold=DEFAULT_THRESHOLD
             )
     except TimeoutError:
-        reason = f"SAM 3 did not answer within {timeout_s:g} s"
+        reason = tag(E.OBJECT_PROMPT_FAILED, f"SAM 3 did not answer within {timeout_s:g} s")
         return PromptOutcome(None, reason, "failed", params, model_version=model_version)
     except LocalizerError as exc:
-        reason = f"SAM 3 failed: {type(exc).__name__}: {exc}"[:MAX_REASON]
+        reason = tag(E.OBJECT_PROMPT_FAILED, f"SAM 3 failed: {type(exc).__name__}: {exc}")
+        reason = reason[:MAX_REASON]
         return PromptOutcome(None, reason, "failed", params, model_version=model_version)
     kept = prompted.instances[0] if prompted.instances else None
     missing = (
@@ -305,7 +326,7 @@ async def prompt_box(
 async def photo_of(session: AsyncSession, study_id: uuid.UUID, document_id: uuid.UUID) -> Document:
     document = await DocumentRepository(session).get(study_id, document_id)
     if document is None or document.kind is not DocumentKind.PHOTO:
-        raise NotFound("Photo not found.")
+        raise NotFound("Photo not found.", code=E.OBJECT_PHOTO_NOT_FOUND)
     return document
 
 
@@ -325,6 +346,7 @@ def check_editable(study: Study) -> int:
             f"Objects can be edited only while the study waits at {stage.value}; it is "
             f"at {study.current_stage.value}.",
             type_suffix="stale-state",
+            code=E.OBJECT_WRONG_STAGE,
         )
     if study.status not in (StudyStatus.WAITING_REVIEW, StudyStatus.STALLED):
         # At the stage but the gate is not open yet: the photos are still being analyzed
@@ -333,6 +355,7 @@ def check_editable(study: Study) -> int:
             f"The {stage.value.replace('_', ' ')} is not open yet (status "
             f"{study.status.value}): the photos are still being prepared for it.",
             type_suffix="gate-not-open",
+            code=E.OBJECT_GATE_NOT_OPEN,
         )
     return study.revision
 
@@ -553,6 +576,7 @@ async def add_object(
             raise Conflict(
                 "The study moved to another revision while the object was being outlined.",
                 type_suffix="stale-state",
+                code=E.OBJECT_REVISION_MOVED,
             )
         repo = PhotoObjectRepository(session)
         rows = await localized_rows(repo, study_id, document_id, revision)
@@ -589,6 +613,17 @@ async def add_object(
             if found is not None:
                 return duplicate_answer(rows, found, response)
         row = await repo.add(study_id=study_id, document_id=document_id, revision=revision, new=new)
+        await StudyEventRepository(session).record(
+            study_id,
+            "entity.added",
+            actor="engineer",
+            actor_id=user.id,
+            revision=revision,
+            entity_type="photo_object",
+            entity_id=row.id,
+            after=_object_fields(row),
+            detail={"document_id": str(document_id), "prompt_id": _id(prompt_id)},
+        )
         return ManualSelectionOut(object=object_out(row), created=True)
 
 
@@ -620,10 +655,22 @@ async def delete_object(
         or row.revision != revision
         or row.deleted_at is not None
     ):
-        raise NotFound("Object not found.")
+        raise NotFound("Object not found.", code=E.OBJECT_NOT_FOUND)
     if row.source != "manual":
         raise Conflict(
             "Only manual instances can be deleted; model instances stay as found.",
             type_suffix="not-manual",
         )
-    return object_out(await repo.soft_delete(row, user.id))
+    deleted = await repo.soft_delete(row, user.id)
+    await StudyEventRepository(session).record(
+        study_id,
+        "entity.deleted",
+        actor="engineer",
+        actor_id=user.id,
+        revision=revision,
+        entity_type="photo_object",
+        entity_id=row.id,
+        before=_object_fields(row),
+        detail={"document_id": str(document_id)},
+    )
+    return object_out(deleted)

@@ -58,6 +58,7 @@ from sqlalchemy import (
     Double,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     MetaData,
@@ -98,7 +99,7 @@ NAMING_CONVENTION: Final[dict[str, str]] = {
 # Tables with an ``updated_at`` column maintained by the set_updated_at() trigger.
 UPDATED_AT_TABLES: Final = ("studies", "activity_results", "classification_cache")
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
-APPEND_ONLY_TABLES: Final = ("reviews", "corrections")
+APPEND_ONLY_TABLES: Final = ("reviews", "corrections", "study_events")
 # Tables whose rows cannot be inserted or updated once their corpus version is published.
 PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
 
@@ -313,8 +314,10 @@ class Study(Base):
     room_aliases: Mapped[dict[str, str]] = mapped_column(
         JSON_DOC, server_default=text("'{}'::jsonb"), default=dict
     )
-    # Why the study's current stage failed, while ``status`` is ``failed`` (record_failure).
+    # Why the study's current stage failed, while ``status`` is ``failed`` (record_failure),
+    # and the error code behind it (docs/ERROR_CODES.md; migration ``0012_study_events``).
     failure_reason: Mapped[str | None]
+    failure_code: Mapped[str | None]
     # Whether the study's workflow has the components review after the rooms review
     # (patch ``components-gate-v1``), recorded by ``record_run_start``: ``false`` for a
     # study whose execution has the single rooms review (started before the patch),
@@ -430,6 +433,11 @@ class Room(Base):
     # The canonical file-name room id the room groups (``basis.vision.rooms.name_hint``
     # after the study's aliases); ``None`` for a room keyed by the model's room identity.
     group_key: Mapped[str | None]
+    # The room of the previous revision this one was copied from by ``apply_corrections``
+    # (migration ``0012_study_events``; NULL for a room the pipeline grouped, and for copies
+    # made before it). The lineage the provenance of a room is resolved along
+    # (``basis.db.repositories.provenance``), like ``components.raw["carried_from"]``.
+    carried_from: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -814,6 +822,59 @@ class ActivityResult(Base):
     error: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
+
+
+EVENT_ACTORS: Final = ("engineer", "model", "system")
+
+
+class StudyEvent(Base):
+    """One occurrence in a study's history (migration ``0012_study_events``): append-only
+    (``forbid_mutation()``), written in the same transaction as the change it records where
+    there is one, ordered by ``seq`` (docs/api/TIMELINE_AND_AUDIT.md).
+
+    ``event_type`` is a dotted name (``stage.entered``, ``activity.completed``,
+    ``review.decided``, ``entity.corrected`` ...; the vocabulary is
+    :mod:`basis.db.repositories.study_event`). ``actor_type`` says who caused it: an
+    ``engineer`` (``actor_id`` is the user), the ``model`` (a model call's output) or the
+    ``system`` (the workflow, a rule, bookkeeping). ``stage``/``revision`` are the study's
+    at the time; an activity event carries ``activity``, ``activity_id``, ``attempt`` and the
+    execution (``workflow_id``/``run_id``, Temporal's ids); an entity event names the row
+    (``entity_type``, ``entity_id``) with ``before``/``after``; ``code`` is the error code of
+    a failure (docs/ERROR_CODES.md); ``detail`` holds the rest (durations, counts, reasons).
+    """
+
+    __tablename__ = "study_events"
+    __table_args__ = (
+        CheckConstraint("actor_type IN ('engineer', 'model', 'system')", name="actor_valid"),
+        CheckConstraint("duration_ms IS NULL OR duration_ms >= 0", name="duration_nonnegative"),
+        UniqueConstraint("seq"),
+        Index(None, "study_id", "seq"),
+        Index(None, "study_id", "entity_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    event_type: Mapped[str]
+    stage: Mapped[Stage | None] = mapped_column(STAGE_ENUM, nullable=True)
+    revision: Mapped[int | None]
+    actor_type: Mapped[str]
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    workflow_id: Mapped[str | None]
+    run_id: Mapped[str | None]
+    activity: Mapped[str | None]
+    activity_id: Mapped[str | None]
+    attempt: Mapped[int | None]
+    started_at: Mapped[datetime | None]
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger)
+    entity_type: Mapped[str | None]
+    entity_id: Mapped[uuid.UUID | None]
+    code: Mapped[str | None]
+    request_id: Mapped[str | None]
+    before: Mapped[Any | None] = mapped_column(JSON_DOC)
+    after: Mapped[Any | None] = mapped_column(JSON_DOC)
+    detail: Mapped[Any | None] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
 
 
 class LlmCall(Base):

@@ -29,6 +29,9 @@
   at a components stage, else restores ``0008`` exactly;
 * ``0011_study_intake`` adds ``studies.intake`` (NULL for existing studies; a non-null value
   must be a JSON object) and downgrades back to ``0010``;
+* ``0012_study_events`` adds the append-only ``study_events`` (the per-study timeline, with
+  the ``forbid_mutation()`` trigger), ``rooms.carried_from`` and ``studies.failure_code``,
+  and downgrades back to ``0011``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -61,8 +64,21 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0011"
-HISTORY = ["0011", "0010", "0009", "0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
+HEAD = "0012"
+HISTORY = [
+    "0012",
+    "0011",
+    "0010",
+    "0009",
+    "0008",
+    "0007",
+    "0006",
+    "0005",
+    "0004",
+    "0003",
+    "0002",
+    "0001",
+]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -790,6 +806,81 @@ async def test_0009_components_stages_and_gate_round_trip(empty_database_url: st
     assert await _stages(empty_database_url) == before
     await upgrade(empty_database_url)
     assert await _stages(empty_database_url) == stages
+
+
+# --------------------------------------------------------------------------- 0012
+
+
+async def test_0012_study_events_append_only_and_downgrade(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0011")
+    at_0011 = await snapshot(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        study, _, user = await _photo(connection)
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)
+    assert ("study_events_append_only", "study_events") in (await snapshot(empty_database_url))[
+        "triggers"  # type: ignore[index]
+    ]
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        first = await connection.fetchrow(
+            "INSERT INTO study_events (study_id, event_type, actor_type, actor_id, stage, "
+            "revision, detail) VALUES ($1, 'study.created', 'engineer', $2, 'uploading', 1, "
+            "'{\"intake\": false}'::jsonb) RETURNING id, seq, created_at",
+            study,
+            user,
+        )
+        second = await connection.fetchrow(
+            "INSERT INTO study_events (study_id, event_type, actor_type, activity, activity_id, "
+            "attempt, duration_ms) VALUES ($1, 'activity.completed', 'system', 'transition', "
+            "'transition:extracting:r1', 1, 42) RETURNING seq",
+            study,
+        )
+        assert second["seq"] > first["seq"]  # the identity orders the timeline
+        assert first["created_at"] is not None
+        with pytest.raises(asyncpg.RestrictViolationError):
+            await connection.execute(
+                "UPDATE study_events SET event_type = 'x' WHERE id = $1", first["id"]
+            )
+        with pytest.raises(asyncpg.RestrictViolationError):
+            await connection.execute("DELETE FROM study_events WHERE id = $1", first["id"])
+        with pytest.raises(asyncpg.CheckViolationError, match="actor_valid"):
+            await connection.execute(
+                "INSERT INTO study_events (study_id, event_type, actor_type) "
+                "VALUES ($1, 'x', 'robot')",
+                study,
+            )
+        with pytest.raises(asyncpg.CheckViolationError, match="duration_nonnegative"):
+            await connection.execute(
+                "INSERT INTO study_events (study_id, event_type, actor_type, duration_ms) "
+                "VALUES ($1, 'x', 'system', -1)",
+                study,
+            )
+        assert await connection.fetchval("SELECT carried_from FROM rooms LIMIT 1") is None
+        assert (
+            await connection.fetchval("SELECT failure_code FROM studies WHERE id = $1", study)
+            is None
+        )
+        # The downgrade drops the table (and its rows): an append-only table cannot be
+        # emptied row by row, the trigger forbids it.
+    finally:
+        await connection.close()
+    await downgrade(empty_database_url, "0011")
+    assert await snapshot(empty_database_url) == at_0011
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        for table, column in (("rooms", "carried_from"), ("studies", "failure_code")):
+            assert not await connection.fetch(
+                "SELECT 1 FROM information_schema.columns WHERE table_name = $1 "
+                "AND column_name = $2",
+                table,
+                column,
+            )
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)
 
 
 # --------------------------------------------------------------------------- 0011

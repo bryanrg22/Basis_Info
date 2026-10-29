@@ -26,6 +26,7 @@ from basis.domain.validators import (
     check_recovery_period,
     validate_section_bucket,
 )
+from basis.errors.codes import E
 
 EXTRACTION_FIELD_VALUES: Final = frozenset({"value_text", "value_num", "value_date"})
 ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor", "merge_into"})
@@ -44,7 +45,9 @@ PHOTO_ROOM_FIELDS: Final = frozenset({"room_id"})
 def check_fields(kind: str, after: dict[str, Any], allowed: frozenset[str]) -> None:
     unknown = set(after) - allowed
     if unknown:
-        raise validation_error(f"unknown {kind} fields: {', '.join(sorted(unknown))}")
+        raise validation_error(
+            f"unknown {kind} fields: {', '.join(sorted(unknown))}", E.CORRECT_UNKNOWN_FIELDS
+        )
 
 
 def parse_text(value: Any) -> str | None:
@@ -57,9 +60,11 @@ def parse_number(value: Any, what: str = "value_num") -> Decimal | None:
     try:
         number = Decimal(str(value))
     except InvalidOperation:
-        raise validation_error(f"{what} {value!r} is not a number") from None
+        raise validation_error(
+            f"{what} {value!r} is not a number", E.CORRECT_NOT_A_NUMBER
+        ) from None
     if not number.is_finite():
-        raise validation_error(f"{what} {value!r} is not a finite number")
+        raise validation_error(f"{what} {value!r} is not a finite number", E.CORRECT_NOT_A_NUMBER)
     return number
 
 
@@ -69,20 +74,25 @@ def parse_date(value: Any) -> date | None:
     try:
         return date.fromisoformat(str(value))
     except ValueError:
-        raise validation_error(f"value_date {value!r} is not an ISO date") from None
+        raise validation_error(
+            f"value_date {value!r} is not an ISO date", E.CORRECT_NOT_A_DATE
+        ) from None
 
 
 def parse_bucket(value: Any) -> Bucket:
     try:
         return Bucket(str(value))
     except ValueError:
-        raise validation_error(f"unknown bucket {value!r}") from None
+        raise validation_error(f"unknown bucket {value!r}", E.CORRECT_UNKNOWN_BUCKET) from None
 
 
 def parse_recovery_period(value: Any) -> Decimal:
     number = parse_number(value, "recovery_period")
     if number is None or not Decimal(0) < number < Decimal(1000):
-        raise validation_error(f"recovery_period {value!r} must be a positive number of years")
+        raise validation_error(
+            f"recovery_period {value!r} must be a positive number of years",
+            E.CORRECT_RECOVERY_PERIOD,
+        )
     return number
 
 
@@ -91,20 +101,22 @@ def check_component(after: dict[str, Any]) -> None:
     check_fields("component", after, COMPONENT_FIELDS)
     problem = count_problem(after["count"]) if "count" in after else None
     if problem is not None:
-        raise validation_error(problem)
+        raise validation_error(problem, E.CORRECT_COUNT)
 
 
 def check_photo_room(after: dict[str, Any]) -> None:
     """Exactly a ``room_id`` (the target room is checked against the revision by the caller)."""
     if set(after) != PHOTO_ROOM_FIELDS:
-        raise validation_error("a photo_room correction takes exactly room_id")
+        raise validation_error(
+            "a photo_room correction takes exactly room_id", E.CORRECT_PHOTO_ROOM_SHAPE
+        )
 
 
 def check_room_component(after: dict[str, Any]) -> None:
     """A component added to a room (:func:`basis.domain.counts.room_component_problems`)."""
     problems = room_component_problems(after)
     if problems:
-        raise validation_error("; ".join(problems))
+        raise validation_error("; ".join(problems), E.CORRECT_ROOM_COMPONENT)
 
 
 def check_extraction_field(after: dict[str, Any]) -> None:
@@ -125,12 +137,14 @@ def check_asset(after: dict[str, Any]) -> None:
     period = parse_recovery_period(after["recovery_period"]) if "recovery_period" in after else None
     section = after.get("irs_section")
     if section is not None and str(section) not in VALID_SECTION_BUCKETS:
-        raise validation_error(f"irs_section {section!r} must be 1245 or 1250")
+        raise validation_error(
+            f"irs_section {section!r} must be 1245 or 1250", E.CORRECT_IRS_SECTION
+        )
     if bucket is not None and period is not None:
         issues = check_recovery_period(bucket, period)
         if issues:
-            raise validation_error(issues[0].message)
+            raise validation_error(issues[0].message, E.CORRECT_BUCKET_PERIOD_MISMATCH)
     if bucket is not None and section is not None:
         issues = validate_section_bucket(str(section), bucket)
         if issues:
-            raise validation_error(issues[0].message)
+            raise validation_error(issues[0].message, E.CORRECT_SECTION_BUCKET_MISMATCH)
