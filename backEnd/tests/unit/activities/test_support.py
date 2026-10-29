@@ -126,7 +126,8 @@ async def test_failure_rolls_back_the_work_and_records_the_error(
     assert await count_rows(deps.sessionmaker, Room, study_id=seeded.study_id) == 0
     row = await get_result(deps.sessionmaker, "k-fail")
     assert row is not None and row.status == FAILED
-    assert row.error == "RuntimeError: provider timed out"
+    # The error ends with the code of an exception that is not an ApplicationError.
+    assert row.error == "RuntimeError: provider timed out [BASIS-WF-007]"
 
     async def ok(session: AsyncSession) -> Out:
         return Out(value=1)

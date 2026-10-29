@@ -152,7 +152,7 @@ def test_document_is_current() -> None:
 
 def test_tag_and_code_in() -> None:
     message = tag(E.PHOTO_FILE_MISSING, "photo file x is missing")
-    assert message == "[BASIS-PHOTO-002] photo file x is missing"
+    assert message == "photo file x is missing [BASIS-PHOTO-002]"
     assert tag(E.PHOTO_NOT_FOUND, message) == message  # never tagged twice
     assert code_in(f"analyze_photo: ValidationError: {message}") == E.PHOTO_FILE_MISSING
     assert code_in("no code here") is None and code_in(None) is None
@@ -213,7 +213,7 @@ def test_the_heartbeat_timeout_of_the_live_run_has_a_code() -> None:
     )
     reason, code = _failure(activity_error(cause, "ingest_appraisal"))
     assert code == E.WF_HEARTBEAT_TIMEOUT
-    assert reason == "ingest_appraisal: [BASIS-WF-001] activity Heartbeat timeout"
+    assert reason == "ingest_appraisal: activity Heartbeat timeout [BASIS-WF-001]"
     assert code_in(reason) == code
 
 
@@ -236,7 +236,7 @@ def test_failure_reason_keeps_its_prefix_and_carries_the_code() -> None:
     reason, code = _failure(activity_error(legacy, "extract_fields"))
     assert (
         reason
-        == "extract_fields: ProviderUnavailable: [BASIS-PROVIDER-007] No module named 'aiohttp'"
+        == "extract_fields: ProviderUnavailable: No module named 'aiohttp' [BASIS-PROVIDER-007]"
     )
     assert code == E.PROVIDER_UNAVAILABLE
     unknown = ApplicationError("boom", type="SomethingNew")
@@ -245,4 +245,4 @@ def test_failure_reason_keeps_its_prefix_and_carries_the_code() -> None:
     assert _failure(activity_error(cancelled, "x"))[1] == E.WF_ACTIVITY_CANCELLED
     plain = RuntimeError("disk full")
     reason, code = _failure(activity_error(plain, "export_report"))
-    assert code == E.WF_UNEXPECTED_ERROR and reason == "export_report: [BASIS-WF-007] disk full"
+    assert code == E.WF_UNEXPECTED_ERROR and reason == "export_report: disk full [BASIS-WF-007]"

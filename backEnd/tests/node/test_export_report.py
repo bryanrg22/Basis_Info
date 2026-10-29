@@ -97,7 +97,13 @@ async def test_same_revision_exports_byte_identical_files_with_resolved_evidence
     # The pack loaded directly equals the exported section.
     async with session_scope(sessionmaker) as session:
         pack = await load_pack(session, study.study_id, 1)
-    assert json.loads(pack_to_json(pack))["assets"] == document["assets"]
+    # The export adds each asset's ``provenance`` (docs/api/TIMELINE_AND_AUDIT.md).
+    without_provenance = [
+        {key: value for key, value in asset.items() if key != "provenance"}
+        for asset in document["assets"]
+    ]
+    assert json.loads(pack_to_json(pack))["assets"] == without_provenance
+    assert {a["provenance"]["origin"] for a in document["assets"]} == {"model"}
 
 
 async def test_export_of_an_empty_revision(

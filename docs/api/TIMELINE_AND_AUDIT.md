@@ -41,7 +41,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
      "workflow_id": "study-5f0c6a52-...", "run_id": "0193...", "activity": "ingest_appraisal",
      "activity_id": "ingest_appraisal:r1", "attempt": 1, "started_at": "2026-10-29T18:02:12.001Z",
      "duration_ms": 207998, "code": "BASIS-WF-001",
-     "detail": {"error": "TimeoutError: activity Heartbeat timeout"}, "...": null}
+     "detail": {"error": "TimeoutError: activity Heartbeat timeout [BASIS-WF-001]"}, "...": null}
   ],
   "next_cursor": "57"
 }
@@ -208,4 +208,4 @@ Rooms copied before `rooms.carried_from` existed have no lineage: a renamed one 
 | `GET .../workflow` → `status` | `failure_code` next to `failure`; `GET /v1/studies/{id}` → `failure_code` next to `failure_reason` |
 | a timeline event (`activity.failed`, `stage.failed`, `corrections.refused`) | `code` |
 | `/assets` and `/extraction` | `review_codes`, the codes behind `review_reasons` |
-| `activity_results.error`, the worker log, Temporal | `[BASIS-...]` in the message |
+| `activity_results.error`, the worker log, Temporal | `[BASIS-...]` at the end of the message |

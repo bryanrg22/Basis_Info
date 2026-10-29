@@ -187,7 +187,7 @@ async def test_the_timeline_has_every_step_with_its_duration(harness: Harness) -
     assert all(
         f["provenance"]["origin"] == "model" for x in exported["extraction"] for f in x["fields"]
     )
-    assert failure_text(RuntimeError("x")).startswith("[BASIS-WF-007] RuntimeError")
+    assert failure_text(RuntimeError("x")) == "RuntimeError: x [BASIS-WF-007]"
 
 
 async def decide_like_the_api(

@@ -5832,15 +5832,17 @@ Where the code shows, so the catalogue can be looked up from any of them:
   "BASIS-STUDY-001", ...}`); the seven 401 details, the six 503 sites and the 404s that shared a
   suffix each got their own code (passed at the raise site; a suffix shared by several causes
   names its generic in `GENERIC_FOR_PROBLEM`);
-* every activity failure: `[BASIS-...] ` at the front of the message, so it rides
+* every activity failure: ` [BASIS-...]` at the end of the message, so it rides
   `activity_results.error`, the study's `failure` / `failure_reason`, the worker log and
-  Temporal's failure unchanged (the way Rust prints `error[E0308]` and PostgreSQL prints the
-  SQLSTATE); `failure_code` beside the text on the status view, `WorkflowProgress`, the study row
-  (`studies.failure_code`) and `RecordFailureInput`. The text keeps its
-  `<activity>: <type>: ` prefix, which the lifecycle tests assert;
+  Temporal's failure unchanged (the way PostgreSQL prints the SQLSTATE on every log line);
+  `failure_code` beside the text on the status view, `WorkflowProgress`, the study row
+  (`studies.failure_code`) and `RecordFailureInput`. At the end, not the front: the first run
+  of the full suite put it in front and twelve tests that read `<activity>: <type>: <message>`
+  by its prefix failed (the account-stop and config-stop lifecycle tests among them), which is
+  the "add, never rename" rule making itself heard;
 * a Temporal failure with no exception of ours: coded by its type. The live run's
   `ingest_appraisal: activity Heartbeat timeout` is now
-  `ingest_appraisal: [BASIS-WF-001] activity Heartbeat timeout`, `failure_code BASIS-WF-001`
+  `ingest_appraisal: activity Heartbeat timeout [BASIS-WF-001]`, `failure_code BASIS-WF-001`
   (`tests/unit/errors/test_catalogue.py::test_the_heartbeat_timeout_of_the_live_run_has_a_code`);
   the other live refusal, `intake-required` on start, is `BASIS-STUDY-001`;
 * `review_codes` beside `review_reasons` on `/assets` and `/extraction`: the codes behind

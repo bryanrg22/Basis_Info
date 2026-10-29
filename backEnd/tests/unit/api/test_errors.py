@@ -270,6 +270,7 @@ async def test_unknown_route_is_about_blank_404(client: httpx.AsyncClient) -> No
         "status": 404,
         "instance": "/no-such-route",
         "request_id": "nf-2",
+        "code": E.API_HTTP_ERROR,
     }
 
 

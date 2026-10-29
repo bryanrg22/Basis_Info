@@ -10,7 +10,7 @@ the code can never disagree.
 * ``refusal``: the API refused a request (a 4xx problem response carries the code as its
   ``code`` member next to RFC 9457's ``type``);
 * ``error``: a step of the workflow failed (the code is inside the activity's error message,
-  ``[BASIS-...] ...``, so it is in ``activity_results.error``, in the study's ``failure`` /
+  ``... [BASIS-...]``, so it is in ``activity_results.error``, in the study's ``failure`` /
   ``failure_reason`` and ``failure_code``, in the ``study_events`` row and in the logs);
 * ``flag``: a check that did not fail anything but put a row in front of the engineer (the
   ``review_reasons`` of an asset or extraction, a photo's or room's ``needs_review``);
@@ -1009,7 +1009,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "the worker died, was killed, or a long step did not heartbeat (EVAL_REPORT 38: "
         "`ingest_appraisal` embedding on a cold model).",
         "`failure` "
-        "`<activity>: [BASIS-WF-001] activity Heartbeat timeout`; study `failed` once the "
+        "`<activity>: activity Heartbeat timeout [BASIS-WF-001]`; study `failed` once the "
         "retries are exhausted; `study_events` `activity.failed`.",
         "Check the worker is alive (Cloud Run logs around the time); retry the stage. If one "
         "step always times out, it needs heartbeats (`basis.activities._support.heartbeat`).",
@@ -1023,7 +1023,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Temporal",
         "One attempt ran longer than its `start_to_close_timeout` "
         "(`basis.workflow.activity_options`).",
-        "`[BASIS-WF-002] activity StartToClose timeout` in `failure`.",
+        "`activity StartToClose timeout [BASIS-WF-002]` in `failure`.",
         "Retry; if a step is always this slow, raise its timeout with a measurement.",
         "automatic",
         temporal_type="START_TO_CLOSE",
@@ -1035,7 +1035,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Temporal",
         "The activity's attempts together exceeded `schedule_to_close_timeout`: it kept "
         "failing or waiting.",
-        "`[BASIS-WF-003] activity ScheduleToClose timeout`.",
+        "`activity ScheduleToClose timeout [BASIS-WF-003]`.",
         "Look at the earlier attempts' `activity.failed` events for the real cause; then "
         + RETRY_ROUTE
         + ".",
@@ -1049,7 +1049,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Temporal",
         "No worker picked the activity up in time (not set by this workflow; listed for "
         "completeness).",
-        "`[BASIS-WF-004] activity ScheduleToStart timeout`.",
+        "`activity ScheduleToStart timeout [BASIS-WF-004]`.",
         "Check that a worker polls the task queue.",
         "after fix",
         temporal_type="SCHEDULE_TO_START",
@@ -1071,7 +1071,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.workflow.study_workflow",
         "An activity failed with an error type that carries no code of its own "
         "(a test fake, a type from before the catalogue).",
-        "`<activity>: <type>: [BASIS-WF-006] <message>`.",
+        "`<activity>: <type>: <message> [BASIS-WF-006]`.",
         "Read the message; the type says which class it is.",
         "after fix",
     ),
@@ -1083,7 +1083,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "An exception that is not an `ApplicationError` escaped an activity (a database "
         "error on an established connection, a bug).",
         "`activity_results.error` "
-        "`[BASIS-WF-007] <ExceptionType>: <message>`; Temporal retries it up to the "
+        "`<ExceptionType>: <message> [BASIS-WF-007]`; Temporal retries it up to the "
         "activity's attempts, then the stage fails.",
         "Read the worker log for the stack trace; fix; " + RETRY_ROUTE + ".",
         "automatic",
@@ -1142,7 +1142,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "any activity",
         "basis.activities._support",
         "The `runs` row of this execution does not exist: `record_run_start` did not run first.",
-        "`ValidationError: [BASIS-WF-012] no runs row ...`.",
+        "`ValidationError: no runs row ... [BASIS-WF-012]`.",
         "A workflow ordering defect; report it.",
         "no",
         temporal_type="ValidationError",
@@ -1153,7 +1153,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "any activity",
         "basis.activities._support",
         "An activity was invoked outside a workflow (no workflow id on the activity).",
-        "`ValidationError: [BASIS-WF-013] ...`.",
+        "`ValidationError: ... [BASIS-WF-013]`.",
         "Run the activities through the StudyWorkflow.",
         "no",
         temporal_type="ValidationError",
@@ -1164,7 +1164,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "any activity",
         "basis.activities._support",
         "An input id is missing or not a UUID.",
-        "`ValidationError: [BASIS-WF-014] <what> ... is not a UUID`.",
+        "`ValidationError: <what> ... is not a UUID [BASIS-WF-014]`.",
         "A contract defect between the workflow and the activity; report it.",
         "no",
         temporal_type="ValidationError",
@@ -1175,7 +1175,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "any activity",
         "basis.activities._support",
         "The study (or a row it needs) is gone from the database while the workflow runs.",
-        "`ValidationError: [BASIS-WF-015] <repository message>`.",
+        "`ValidationError: <repository message> [BASIS-WF-015]`.",
         "Operator: the study was deleted outside the API; the execution cannot continue.",
         "no",
         temporal_type="ValidationError",
@@ -1187,7 +1187,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.db.repositories.workflow_state",
         "The study row is not at the stage the workflow expects and not at the target either "
         "(moved by hand, or archived).",
-        "`ValidationError: [BASIS-WF-016] study ... is at ...; expected ...`.",
+        "`ValidationError: study ... is at ...; expected ... [BASIS-WF-016]`.",
         "Operator: put the row back at the expected stage, then "
         + RETRY_ROUTE
         + "; never edit study rows by hand while a workflow runs.",
@@ -1200,7 +1200,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "`analyze_photo` (dev and test only)",
         "basis.activities.analyze_photo",
         "A `SimulateFault` asked for the failure.",
-        "`SimulatedFailure: [BASIS-WF-017] simulated ...`.",
+        "`SimulatedFailure: simulated ... [BASIS-WF-017]`.",
         "Test only.",
         "no",
         temporal_type="SimulatedFailure",
@@ -1216,8 +1216,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "`billing_error`, Azure 401/403). Every later call fails the same way, so the stage "
         "stops at once and nothing is retried.",
         "Study `failed` at its stage with "
-        "`<activity>: ProviderAccountError: [BASIS-PROVIDER-001] <provider> account error "
-        "(HTTP <n>, <code>): <provider's message>; fix the account, then retry the study`.",
+        "`<activity>: ProviderAccountError: <provider> account error "
+        "(HTTP <n>, <code>): <provider's message>; fix the account, then retry the study [BASIS-PROVIDER-001]`.",
         "Top up or fix the account or key; then " + RETRY_ROUTE + " (the photos the error "
         "stopped run again, the rest is kept).",
         "after fix",
@@ -1231,8 +1231,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "The provider refused the request as configured: unknown model or deployment, a "
         "parameter or value the model does not take, a schema it rejects. The same template "
         "fails for every input, so it stops the stage like an account error.",
-        "`ProviderAccountError: [BASIS-PROVIDER-002] <provider> rejected the request (HTTP "
-        "<n>, <code>): ...; check the model and deployment settings, then retry the study`.",
+        "`ProviderAccountError: <provider> rejected the request (HTTP "
+        "<n>, <code>): ...; check the model and deployment settings, then retry the study [BASIS-PROVIDER-002]`.",
         "Fix the model or deployment setting named; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ProviderAccountError",
@@ -1244,7 +1244,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.activities.analyze_photo",
         "No vision provider is configured at all "
         "(dev and test only: the worker refuses to start that way elsewhere).",
-        "`ProviderNotConfigured: [BASIS-PROVIDER-003] ...`; the photo is flagged.",
+        "`ProviderNotConfigured: ... [BASIS-PROVIDER-003]`; the photo is flagged.",
         "Set `OPENAI_API_KEY` or the Azure OpenAI variables.",
         "no",
         temporal_type="ProviderNotConfigured",
@@ -1255,7 +1255,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "reconcile_rooms",
         "basis.activities.reconcile_rooms",
         "No model provider for the room step.",
-        "`ProviderNotConfigured: [BASIS-PROVIDER-004] ...`; the rooms review is flagged and "
+        "`ProviderNotConfigured: ... [BASIS-PROVIDER-004]`; the rooms review is flagged and "
         "the per-photo rows stand.",
         "Configure a provider.",
         "no",
@@ -1270,7 +1270,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "content: an image it cannot process, a request too large, a content-policy block. "
         "Another input may work, so only this item fails.",
         "`ValidationError: "
-        "[BASIS-PROVIDER-005] <what>: <provider> rejected the input (...)`; a photo is "
+        "<what>: <provider> rejected the input (...) [BASIS-PROVIDER-005]`; a photo is "
         "flagged, an extraction stops the stage.",
         "Replace the file (a photo: re-encode or "
         "crop it; the appraisal: a clean PDF); for an extraction " + RETRY_ROUTE + ".",
@@ -1285,7 +1285,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "The call completed but its output cannot "
         "be used (invalid JSON for the schema after the retry, a refusal, truncation; Azure "
         "DI 4xx). Charged, not retried elsewhere.",
-        "`ValidationError: [BASIS-PROVIDER-006] <what>: <provider> rejected the input: ...`.",
+        "`ValidationError: <what>: <provider> rejected the input: ... [BASIS-PROVIDER-006]`.",
         "Retry the stage; if it repeats, the prompt or the model setting needs a change.",
         "after fix",
         temporal_type="ValidationError",
@@ -1297,8 +1297,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.llm.errors (`ProviderRateLimited`, `ProviderUnavailable`)",
         "429, 5xx, 408/409, a timeout or a connection failure after the provider's own retry "
         "and the pool's secondary provider.",
-        "`ProviderUnavailable: [BASIS-PROVIDER-007] "
-        "...`; Temporal retries the activity (3 attempts), then the stage fails.",
+        "`ProviderUnavailable: "
+        "... [BASIS-PROVIDER-007]`; Temporal retries the activity (3 attempts), then the stage fails.",
         "Usually transient. If the stage failed, " + RETRY_ROUTE + " once the provider is healthy.",
         "automatic",
         temporal_type="ProviderUnavailable",
@@ -1310,7 +1310,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.vision.localize (`LocalizerUnavailable`)",
         "SAM 3 (Replicate or the Cog "
         "server) answered 429/5xx or timed out after the localizer's own backoff.",
-        "`LocalizerUnavailable: [BASIS-PROVIDER-008] ...` while attempts remain; on the last "
+        "`LocalizerUnavailable: ... [BASIS-PROVIDER-008]` while attempts remain; on the last "
         "attempt the photo's localization is recorded `failed` and nothing else fails.",
         "Nothing: the engineer can still draw boxes; a failed localization never fails the study.",
         "automatic",
@@ -1323,7 +1323,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.activities.localize_photo",
         "The localizer returned an error a retry cannot fix (a rejected request, a failed "
         "prediction, an unreadable result).",
-        "`photo_localizations.status = failed` with `reason` `[BASIS-PROVIDER-009] ...`.",
+        "`photo_localizations.status = failed` with `reason` `... [BASIS-PROVIDER-009]`.",
         "Check the localizer deployment "
         "(docs/review_2026-10-15/SAM3_HOSTING.md); boxes can still be drawn by hand.",
         "no",
@@ -1334,8 +1334,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "localize_photo",
         "basis.activities.localize_photo",
         "Neither `LOCALIZER_URL` nor `REPLICATE_API_TOKEN` is set.",
-        "`photo_localizations.status = skipped`, `reason` `[BASIS-PROVIDER-010] no localizer "
-        "configured ...`.",
+        "`photo_localizations.status = skipped`, `reason` `no localizer "
+        "configured ... [BASIS-PROVIDER-010]`.",
         "Configure a localizer for outlines and counts.",
         "no",
     ),
@@ -1346,7 +1346,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "analyze_photo",
         "basis.activities.analyze_photo",
         "The study's remaining budget cannot cover the photo's model call(s).",
-        "`BudgetExceededError: [BASIS-BUDGET-001] photo ...`; the photo is flagged and the "
+        "`BudgetExceededError: photo ... [BASIS-BUDGET-001]`; the photo is flagged and the "
         "components review marked `needs_review`.",
         "Raise `STUDY_BUDGET_USD` (or the photo "
         "step's cost) for later studies; this photo stays flagged.",
@@ -1360,7 +1360,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.activities.reconcile_rooms",
         "The room step's calls would exceed the remaining budget.",
         "`BudgetExceededError: "
-        "[BASIS-BUDGET-002] room step ...`; the rooms review is flagged, the per-photo rows "
+        "room step ... [BASIS-BUDGET-002]`; the rooms review is flagged, the per-photo rows "
         "stand.",
         "Raise the budget; the review shows per-photo rows.",
         "no",
@@ -1373,8 +1373,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.activities.process_assets",
         "The worst case of the residual classifier's calls does not fit the remaining budget "
         "(checked before any call).",
-        "`BudgetExceededError: [BASIS-BUDGET-003] N components "
-        "need the model (up to $x); $y remains`; the assets review is flagged and no asset "
+        "`BudgetExceededError: N components "
+        "need the model (up to $x); $y remains [BASIS-BUDGET-003]`; the assets review is flagged and no asset "
         "is written until the engineer decides.",
         "Raise the budget and retry, or approve the review as is.",
         "no",
@@ -1387,7 +1387,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.activities.localize_photo",
         "No budget left when the photo reached SAM 3.",
         "`photo_localizations.status = "
-        "skipped`, `reason` `[BASIS-BUDGET-004] the study budget is exhausted`.",
+        "skipped`, `reason` `the study budget is exhausted [BASIS-BUDGET-004]`.",
         "Raise the budget for later studies.",
         "no",
     ),
@@ -1408,7 +1408,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "ingest_appraisal",
         "basis.activities.ingest_appraisal",
         "The study row is gone.",
-        "`ValidationError: [BASIS-INGEST-001] study ... not found`.",
+        "`ValidationError: study ... not found [BASIS-INGEST-001]`.",
         "Operator: the study was deleted outside the API.",
         "no",
         temporal_type="ValidationError",
@@ -1419,7 +1419,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "ingest_appraisal",
         "basis.activities.ingest_appraisal",
         "The appraisal row says uploaded but the object is gone from storage.",
-        "`ValidationError: [BASIS-INGEST-002] appraisal ... is missing from storage`.",
+        "`ValidationError: appraisal ... is missing from storage [BASIS-INGEST-002]`.",
         "Re-upload the appraisal as a new document; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1430,7 +1430,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "ingest_appraisal",
         "basis.extraction.package",
         "The UAD 3.6 ZIP or XML cannot be read (size limits, not a safe ZIP, no XML, bad XML).",
-        "`ValidationError: [BASIS-INGEST-003] appraisal ...: <reason>`.",
+        "`ValidationError: appraisal ...: <reason> [BASIS-INGEST-003]`.",
         "Upload a valid delivery (docs/api/UAD36_INTAKE.md); " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1441,7 +1441,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "ingest_appraisal",
         "basis.activities.ingest_appraisal",
         "The companion document chosen as a bare XML's report PDF is not a PDF.",
-        "`ValidationError: [BASIS-INGEST-004] ...`.",
+        "`ValidationError: ... [BASIS-INGEST-004]`.",
         "Upload the real report PDF; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1452,7 +1452,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "ingest_appraisal",
         "basis.retrieval.parse",
         "The report PDF cannot be parsed (corrupt, encrypted, not a PDF).",
-        "`ValidationError: [BASIS-INGEST-005] appraisal ...: <PdfError>`.",
+        "`ValidationError: appraisal ...: <PdfError> [BASIS-INGEST-005]`.",
         "Export the appraisal to a clean PDF and upload it; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1463,7 +1463,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "ingest_appraisal",
         "basis.retrieval.store",
         "An unpublished study corpus version from an earlier attempt could not be discarded.",
-        "`ValidationError: [BASIS-INGEST-006] ...`.",
+        "`ValidationError: ... [BASIS-INGEST-006]`.",
         "Operator: inspect `corpus_versions` for the study; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1475,7 +1475,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "extract_fields",
         "basis.activities.extract_fields",
         "The document the workflow named is not an appraisal of the study.",
-        "`ValidationError: [BASIS-EXTRACT-001] ...`.",
+        "`ValidationError: ... [BASIS-EXTRACT-001]`.",
         "Operator: a workflow contract defect; report it.",
         "no",
         temporal_type="ValidationError",
@@ -1486,7 +1486,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "extract_fields",
         "basis.activities.extract_fields",
         "The appraisal's object is gone from storage.",
-        "`ValidationError: [BASIS-EXTRACT-002] appraisal file ... is missing from storage`.",
+        "`ValidationError: appraisal file ... is missing from storage [BASIS-EXTRACT-002]`.",
         "Re-upload; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1497,7 +1497,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "extract_fields",
         "basis.activities.extract_fields",
         "A bare XML's report PDF is gone from storage.",
-        "`ValidationError: [BASIS-EXTRACT-003] ...`.",
+        "`ValidationError: ... [BASIS-EXTRACT-003]`.",
         "Re-upload the report PDF; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1508,7 +1508,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "extract_fields",
         "basis.activities.extract_fields",
         "The report PDF of a bare XML is not a PDF.",
-        "`ValidationError: [BASIS-EXTRACT-004] ...`.",
+        "`ValidationError: ... [BASIS-EXTRACT-004]`.",
         "Upload the real report PDF; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1520,7 +1520,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.activities.extract_fields",
         "The report PDF `ingest_appraisal` chose is not a "
         "confirmed appraisal of the study any more.",
-        "`ValidationError: [BASIS-EXTRACT-005] ...`.",
+        "`ValidationError: ... [BASIS-EXTRACT-005]`.",
         "Operator: check the document rows; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1531,7 +1531,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "extract_fields",
         "basis.extraction.pipeline",
         "The appraisal cannot be read as a document (not a PDF/XML/ZIP, empty, corrupt).",
-        "`ValidationError: [BASIS-EXTRACT-006] appraisal ...: <reason>`.",
+        "`ValidationError: appraisal ...: <reason> [BASIS-EXTRACT-006]`.",
         "Upload a readable appraisal; " + RETRY_ROUTE + ".",
         "after fix",
         temporal_type="ValidationError",
@@ -1542,7 +1542,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "extract_fields",
         "basis.activities.extract_fields",
         "A correction of another type than `extraction_field` reached the extraction.",
-        "`ValidationError: [BASIS-EXTRACT-007] ...`.",
+        "`ValidationError: ... [BASIS-EXTRACT-007]`.",
         "A workflow defect; the API refuses such a decision first. Report it.",
         "no",
         temporal_type="ValidationError",
@@ -1553,7 +1553,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "extract_fields",
         "basis.activities.extract_fields",
         "A corrected field id does not exist in the study.",
-        "`ValidationError: [BASIS-EXTRACT-008] extraction field ... not found`.",
+        "`ValidationError: extraction field ... not found [BASIS-EXTRACT-008]`.",
         "Decide again with the ids `GET .../fields` returns.",
         "no",
         temporal_type="ValidationError",
@@ -1565,7 +1565,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "analyze_photo",
         "basis.activities.analyze_photo",
         "The document is not a photo of the study.",
-        "`ValidationError: [BASIS-PHOTO-001] ...`; the photo is flagged.",
+        "`ValidationError: ... [BASIS-PHOTO-001]`; the photo is flagged.",
         "Operator: a contract defect; report it.",
         "no",
         temporal_type="ValidationError",
@@ -1576,8 +1576,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "analyze_photo",
         "basis.activities.analyze_photo",
         "The photo's object is gone from storage.",
-        "`ValidationError: [BASIS-PHOTO-002] photo "
-        "file ... is missing from storage`; the photo is flagged.",
+        "`ValidationError: photo "
+        "file ... is missing from storage [BASIS-PHOTO-002]`; the photo is flagged.",
         "Re-upload the photo (a new document) and flag the old one as re-analyze, or ignore it.",
         "no",
         temporal_type="ValidationError",
@@ -1588,7 +1588,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "analyze_photo",
         "basis.vision.prep",
         "The image cannot be analyzed: empty, not an image, too small, too many pixels.",
-        "`ValidationError: [BASIS-PHOTO-003] photo ... cannot be analyzed: <reason>`; the "
+        "`ValidationError: photo ... cannot be analyzed: <reason> [BASIS-PHOTO-003]`; the "
         "photo is flagged.",
         "Replace the photo with a readable JPEG or PNG.",
         "no",
@@ -1601,7 +1601,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "localize_photo",
         "basis.activities.localize_photo",
         "The document is not a photo of the study.",
-        "`ValidationError: [BASIS-LOCALIZE-001] ...`; logged, the photo is not localized.",
+        "`ValidationError: ... [BASIS-LOCALIZE-001]`; logged, the photo is not localized.",
         "Operator: a contract defect.",
         "no",
         temporal_type="ValidationError",
@@ -1612,7 +1612,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "localize_photo",
         "basis.activities.localize_photo",
         "The photo's object is gone from storage.",
-        "`photo_localizations.status = failed`, `reason` `[BASIS-LOCALIZE-002] ...`.",
+        "`photo_localizations.status = failed`, `reason` `... [BASIS-LOCALIZE-002]`.",
         "Re-upload the photo.",
         "no",
     ),
@@ -1622,7 +1622,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "localize_photo",
         "basis.activities.localize_photo",
         "The photo cannot be prepared for SAM 3.",
-        "`status = failed`, `reason` `[BASIS-LOCALIZE-003] the photo cannot be prepared: ...`.",
+        "`status = failed`, `reason` `the photo cannot be prepared: ... [BASIS-LOCALIZE-003]`.",
         "Replace the photo.",
         "no",
     ),
@@ -1633,8 +1633,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "reconcile_rooms",
         "basis.activities.reconcile_rooms",
         "A photo of the room is gone from storage.",
-        "`ValidationError: [BASIS-ROOMS-001] photo "
-        "file ... is missing`; the rooms/components review is flagged, per-photo rows stand.",
+        "`ValidationError: photo "
+        "file ... is missing [BASIS-ROOMS-001]`; the rooms/components review is flagged, per-photo rows stand.",
         "Re-upload the photo.",
         "no",
         temporal_type="ValidationError",
@@ -1645,7 +1645,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "reconcile_rooms",
         "basis.activities.reconcile_rooms",
         "A photo of the room cannot be prepared (it was analyzed before, so this is rare).",
-        "`ValidationError: [BASIS-ROOMS-002] ...`; the review is flagged.",
+        "`ValidationError: ... [BASIS-ROOMS-002]`; the review is flagged.",
         "Replace the photo.",
         "no",
         temporal_type="ValidationError",
@@ -1661,7 +1661,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "attachment, count; asset: category, bucket, recovery_period, irs_section; "
         "extraction_field: value_text, value_num, value_date).",
         "`ValidationError: "
-        "[BASIS-CORRECT-001] unknown <kind> fields: ...`; the revision starts without any of "
+        "unknown <kind> fields: ... [BASIS-CORRECT-001]`; the revision starts without any of "
         "the rejection's corrections and the gate asks again (`needs_review_stages`).",
         "Reject again with the field names listed.",
         "no",
@@ -1673,7 +1673,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.activities.corrections",
         "A `value_num` or `recovery_period` is not a finite number.",
-        "`ValidationError: [BASIS-CORRECT-002] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-002]`.",
         "Reject again with a number.",
         "no",
         temporal_type="ValidationError",
@@ -1684,7 +1684,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.activities.corrections",
         "A `value_date` is not an ISO date.",
-        "`ValidationError: [BASIS-CORRECT-003] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-003]`.",
         "Use `YYYY-MM-DD`.",
         "no",
         temporal_type="ValidationError",
@@ -1695,7 +1695,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.activities.corrections",
         "An asset `bucket` is not y5, y7, y15, y27_5, y39 or land.",
-        "`ValidationError: [BASIS-CORRECT-004] unknown bucket ...`.",
+        "`ValidationError: unknown bucket ... [BASIS-CORRECT-004]`.",
         "Use a known bucket.",
         "no",
         temporal_type="ValidationError",
@@ -1706,7 +1706,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.activities.corrections",
         "A `recovery_period` is not a positive number of years below 1000.",
-        "`ValidationError: [BASIS-CORRECT-005] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-005]`.",
         "Use the bucket's years (5, 7, 15, 27.5, 39).",
         "no",
         temporal_type="ValidationError",
@@ -1717,7 +1717,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.domain.counts",
         "A component `count` is not a whole number from 1.",
-        "`ValidationError: [BASIS-CORRECT-006] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-006]`.",
         "Use a whole number from 1.",
         "no",
         temporal_type="ValidationError",
@@ -1728,7 +1728,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.activities.corrections",
         'A `photo_room` correction is not exactly `{"room_id": <uuid>}`.',
-        "`ValidationError: [BASIS-CORRECT-007] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-007]`.",
         "Send only `room_id`.",
         "no",
         temporal_type="ValidationError",
@@ -1740,7 +1740,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.domain.counts",
         "A `room_component` is not a taxonomy label with a count (and known material and "
         "attachment).",
-        "`ValidationError: [BASIS-CORRECT-008] <problems>`.",
+        "`ValidationError: <problems> [BASIS-CORRECT-008]`.",
         "Use a label from the component taxonomy with `count`.",
         "no",
         temporal_type="ValidationError",
@@ -1751,7 +1751,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.activities.corrections",
         "An `irs_section` is not 1245 or 1250.",
-        "`ValidationError: [BASIS-CORRECT-009] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-009]`.",
         "Use 1245 or 1250.",
         "no",
         temporal_type="ValidationError",
@@ -1762,7 +1762,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.domain.validators",
         "A bucket and a recovery period given together disagree (y5 is 5 years).",
-        "`ValidationError: [BASIS-CORRECT-010] bucket ... recovers over ... years, not ...`.",
+        "`ValidationError: bucket ... recovers over ... years, not ... [BASIS-CORRECT-010]`.",
         "Give the bucket's years or leave the period out.",
         "no",
         temporal_type="ValidationError",
@@ -1773,7 +1773,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "corrections",
         "basis.domain.validators",
         "A section given with a bucket does not allow it (1245: 5/7/15; 1250: 15/27.5/39).",
-        "`ValidationError: [BASIS-CORRECT-011] section ... cannot have bucket ...`.",
+        "`ValidationError: section ... cannot have bucket ... [BASIS-CORRECT-011]`.",
         "Fix the section or the bucket.",
         "no",
         temporal_type="ValidationError",
@@ -1784,7 +1784,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "`to_revision` is not `from_revision + 1`.",
-        "`ValidationError: [BASIS-CORRECT-012] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-012]`.",
         "A workflow defect; report it.",
         "no",
         temporal_type="ValidationError",
@@ -1795,7 +1795,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "The rejected stage does not accept a correction type in the batch.",
-        "`ValidationError: [BASIS-CORRECT-013] <stage> does not accept ... corrections`.",
+        "`ValidationError: <stage> does not accept ... corrections [BASIS-CORRECT-013]`.",
         "Reject with the types the stage accepts (the API lists them).",
         "no",
         temporal_type="ValidationError",
@@ -1806,7 +1806,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "An `extraction_field` target is not in the rejected revision.",
-        "`ValidationError: [BASIS-CORRECT-014] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-014]`.",
         "Use the ids of the decided revision.",
         "no",
         temporal_type="ValidationError",
@@ -1817,7 +1817,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "An `asset` target is not in the rejected revision.",
-        "`ValidationError: [BASIS-CORRECT-015] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-015]`.",
         "Use the ids of the decided revision.",
         "no",
         temporal_type="ValidationError",
@@ -1828,7 +1828,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "A `photo` or `photo_room` target is not a photo document of the study.",
-        "`ValidationError: [BASIS-CORRECT-016] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-016]`.",
         "Use a photo document id.",
         "no",
         temporal_type="ValidationError",
@@ -1839,7 +1839,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "A moved photo has no room in the rejected revision (its analysis failed).",
-        "`ValidationError: [BASIS-CORRECT-017] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-017]`.",
         "Flag the photo for re-analysis instead of moving it.",
         "no",
         temporal_type="ValidationError",
@@ -1850,7 +1850,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "A `photo_room` `room_id` is not a room of the rejected revision.",
-        "`ValidationError: [BASIS-CORRECT-018] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-018]`.",
         "Use a room id of that revision.",
         "no",
         temporal_type="ValidationError",
@@ -1861,7 +1861,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "A `room_component` names a room that is not in the rejected revision.",
-        "`ValidationError: [BASIS-CORRECT-019] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-019]`.",
         "Use a room id of that revision.",
         "no",
         temporal_type="ValidationError",
@@ -1872,7 +1872,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "A `merge_into` correction also carries other fields.",
-        "`ValidationError: [BASIS-CORRECT-020] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-020]`.",
         "Send `merge_into` alone.",
         "no",
         temporal_type="ValidationError",
@@ -1883,7 +1883,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "The `merge_into` target is not a room of the rejected revision.",
-        "`ValidationError: [BASIS-CORRECT-021] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-021]`.",
         "Use a room id of that revision.",
         "no",
         temporal_type="ValidationError",
@@ -1894,7 +1894,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "A room is merged into itself.",
-        "`ValidationError: [BASIS-CORRECT-022] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-022]`.",
         "Name another room.",
         "no",
         temporal_type="ValidationError",
@@ -1905,7 +1905,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "The merges form a loop (a into b, b into a).",
-        "`ValidationError: [BASIS-CORRECT-023] room merges loop: ...`.",
+        "`ValidationError: room merges loop: ... [BASIS-CORRECT-023]`.",
         "Merge every room into one target.",
         "no",
         temporal_type="ValidationError",
@@ -1916,7 +1916,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "The study is gone while merges are recorded.",
-        "`ValidationError: [BASIS-CORRECT-024] ...`.",
+        "`ValidationError: ... [BASIS-CORRECT-024]`.",
         "Operator: the study was deleted.",
         "no",
         temporal_type="ValidationError",
@@ -1927,7 +1927,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "apply_corrections",
         "basis.activities.apply_corrections",
         "A `room` or `component` target is not in the rejected revision.",
-        "`ValidationError: [BASIS-CORRECT-025] <kind> ... is not in the rejected revision`.",
+        "`ValidationError: <kind> ... is not in the rejected revision [BASIS-CORRECT-025]`.",
         "Use the ids of the decided revision.",
         "no",
         temporal_type="ValidationError",
@@ -1951,7 +1951,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "process_assets",
         "basis.activities.process_assets",
         "A correction of another type than `asset` reached the assets step.",
-        "`ValidationError: [BASIS-ASSETS-001] ...`.",
+        "`ValidationError: ... [BASIS-ASSETS-001]`.",
         "A workflow defect; report it.",
         "no",
         temporal_type="ValidationError",
@@ -1962,7 +1962,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "process_assets",
         "basis.activities.process_assets",
         "A corrected asset id is not in the study (or has no component).",
-        "`ValidationError: [BASIS-ASSETS-002] ...`.",
+        "`ValidationError: ... [BASIS-ASSETS-002]`.",
         "Decide again with the ids `GET .../assets` returns.",
         "no",
         temporal_type="ValidationError",
@@ -1973,7 +1973,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "process_assets",
         "basis.activities.process_assets",
         "The corrected asset's component was not carried into this revision.",
-        "`ValidationError: [BASIS-ASSETS-003] ...`.",
+        "`ValidationError: ... [BASIS-ASSETS-003]`.",
         "A workflow defect; report it.",
         "no",
         temporal_type="ValidationError",
@@ -1985,7 +1985,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "basis.activities.process_assets",
         "An asset correction changes the bucket to one with no standard recovery period "
         "(land) without giving `recovery_period`.",
-        "`ValidationError: [BASIS-ASSETS-004] ...`.",
+        "`ValidationError: ... [BASIS-ASSETS-004]`.",
         "Give `recovery_period` with the bucket.",
         "no",
         temporal_type="ValidationError",
@@ -2076,7 +2076,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "export_report",
         "basis.activities.export_report",
         "The study is gone at export time.",
-        "`ValidationError: [BASIS-EXPORT-001] ...`.",
+        "`ValidationError: ... [BASIS-EXPORT-001]`.",
         "Operator: the study was deleted.",
         "no",
         temporal_type="ValidationError",
@@ -2684,9 +2684,9 @@ Look the code up here from wherever you saw it:
 | Where you saw it | How it got there |
 |---|---|
 | a problem response (`application/problem+json`) | the `code` member, next to RFC 9457's `type` |
-| `GET /v1/studies/{id}/workflow` → `status.failure` / `failure_code`, `GET /v1/studies/{id}` → `failure_reason` | the workflow's failure reason `<activity>: <type>: [BASIS-...] <message>` and the code alone |
+| `GET /v1/studies/{id}/workflow` → `status.failure` / `failure_code`, `GET /v1/studies/{id}` → `failure_reason` | the workflow's failure reason `<activity>: <type>: <message> [BASIS-...]` and the code alone |
 | `GET /v1/studies/{id}/timeline` → an `activity.failed`, `stage.failed` or `corrections.refused` event | its `code` member (docs/api/TIMELINE_AND_AUDIT.md) |
-| `activity_results.error`, the worker log, Temporal's failure message | `[BASIS-...]` inside the message |
+| `activity_results.error`, the worker log, Temporal's failure message | `[BASIS-...]` at the end of the message |
 | `review_reasons` on an asset or extraction, `review_codes` beside it | `review_codes` (the codes behind each reason) |
 | the API log | `error_code` on the problem's log line |
 

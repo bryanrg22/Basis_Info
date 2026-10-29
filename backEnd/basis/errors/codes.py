@@ -8,13 +8,14 @@ stable once published: a code is never renumbered or reused, a retired one is ma
 in the catalogue.
 
 How the code travels: the API carries it as the ``code`` member of the problem response next
-to ``type``; an activity puts ``[BASIS-...] `` in front of its error message
-(:func:`tag`), so the one string that already reaches ``activity_results.error``, the
-workflow's ``failure`` and the logs carries it with no extra plumbing; the workflow adds the
-code of a Temporal-level failure (a heartbeat timeout, a cancelled activity) the same way.
-:func:`code_in` reads it back from any of those strings. The pattern is what Rust
-(``error[E0308]``) and PostgreSQL (SQLSTATE in every log line) do: an identifier in the
-message that every log pipeline preserves.
+to ``type``; an activity appends `` [BASIS-...]`` to its error message (:func:`tag`), so the
+one string that already reaches ``activity_results.error``, the workflow's ``failure`` and the
+logs carries it with no extra plumbing; the workflow adds the code of a Temporal-level
+failure (a heartbeat timeout, a cancelled activity) the same way. :func:`code_in` reads it
+back from any of those strings. The pattern is what PostgreSQL (SQLSTATE on every log line)
+and Rust (``error[E0308]``) do: an identifier in the message that every log pipeline
+preserves. At the end, not the front, because the text before it is a contract: the tests
+and the review page read ``<activity>: <type>: <message>`` by its prefix.
 
 Standard-library only: ``basis.workflow.study_workflow`` imports this module inside the
 Temporal sandbox (``tests/unit/workflow/test_workflow_rules.py`` allows it).
@@ -26,7 +27,7 @@ import re
 from typing import Final
 
 CODE_PATTERN: Final = re.compile(r"BASIS-[A-Z]+-\d{3}")
-_TAG: Final = re.compile(r"^\[(BASIS-[A-Z]+-\d{3})\] ")
+_TAG: Final = re.compile(r" \[(BASIS-[A-Z]+-\d{3})\]$")
 
 
 class E:
@@ -283,10 +284,10 @@ class E:
 
 
 def tag(code: str, message: str) -> str:
-    """``message`` with ``[code] `` in front, unless it already carries a code."""
-    if _TAG.match(message):
+    """``message`` with `` [code]`` at the end, unless it already carries one."""
+    if _TAG.search(message):
         return message
-    return f"[{code}] {message}"
+    return f"{message} [{code}]"
 
 
 def code_in(text: str | None) -> str | None:

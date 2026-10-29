@@ -1179,9 +1179,9 @@ class StudyWorkflow:
 
 
 def _failure(error: ActivityError) -> tuple[str, str]:
-    """``(reason, code)`` of a failed activity: ``<activity>: <error type>: [BASIS-...]
-    <message>`` for the reviewer (the prefix is what earlier releases wrote; the code sits
-    inside the message, docs/ERROR_CODES.md), and the code alone for ``failure_code``.
+    """``(reason, code)`` of a failed activity: ``<activity>: <error type>: <message>
+    [BASIS-...]`` for the reviewer (the prefix is what earlier releases wrote; the code ends
+    the message, docs/ERROR_CODES.md), and the code alone for ``failure_code``.
 
     An ``ApplicationError`` raised by this release carries its code in its message; one
     without (a type from before the catalogue, a test fake) gets its type's fallback, else

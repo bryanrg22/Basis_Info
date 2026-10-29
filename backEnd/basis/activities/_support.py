@@ -35,7 +35,7 @@ NO_OUTPUT: Final = _NoOutput()
 
 def validation_error(message: str, code: str = E.WF_ACTIVITY_FAILED) -> ApplicationError:
     """Bad input: never retried (S2_SPEC section 4). ``code`` is the catalogue code
-    (docs/ERROR_CODES.md), carried at the front of the message (:func:`basis.errors.codes.tag`)
+    (docs/ERROR_CODES.md), carried at the end of the message (:func:`basis.errors.codes.tag`)
     so it reaches ``activity_results.error``, the study's failure reason and the logs."""
     return ApplicationError(tag(code, message), type=VALIDATION_ERROR, non_retryable=True)
 
@@ -146,14 +146,11 @@ def _stored[Out: BaseModel](output_ref: str | None, output_type: type[Out]) -> O
 
 
 def failure_text(exc: BaseException) -> str:
-    """``[code] <ExceptionType>: <message>`` for ``activity_results.error`` and the events: the
-    code the message carries, else the one for an exception that is not an ApplicationError
-    (a bug, a database error on an established connection)."""
-    message = str(exc)
-    code = code_in(message)
-    if code is None:
-        return f"[{E.WF_UNEXPECTED_ERROR}] {type(exc).__name__}: {message}"
-    return f"{type(exc).__name__}: {message}"
+    """``<ExceptionType>: <message> [code]`` for ``activity_results.error`` and the events:
+    the code the message carries, else the one for an exception that is not an
+    ApplicationError (a bug, a database error on an established connection)."""
+    text = f"{type(exc).__name__}: {exc}"
+    return text if code_in(text) else tag(E.WF_UNEXPECTED_ERROR, text)
 
 
 async def _record_failure(deps: Deps, key: str, exc: BaseException) -> None:
