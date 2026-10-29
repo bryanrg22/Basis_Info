@@ -4,7 +4,9 @@
   ``also_on``, no region, n/a without regions, a checkbox enum's label; its report rows;
 * usage: model dollars, tokens, Azure DI pages priced per model id, p50/p95 latency;
 * ``run.py``: a live ``llm_all`` run with fake clients records the layout and the model call
-  and its replay reproduces the predictions (regions included); ``azure_1004`` records and
+  and its replay reproduces the predictions (regions included); the ``production`` system
+  (``EXTRACTION_METHOD=grounded``) replays that recording byte for byte; a context recorded
+  before the method setting replays with the current method; ``azure_1004`` records and
   replays its own analysis; ``vote`` replays two voters from one recording directory;
   argument validation.
 """
@@ -331,6 +333,93 @@ def test_llm_all_live_records_and_replay_reproduces(tmp_path: Path) -> None:
     assert missing.score["documents"]["failed"][0]["status"] == "missing_recording"
 
 
+def test_production_sends_the_request_llm_all_recorded(tmp_path: Path) -> None:
+    """EXTRACTION_METHOD=grounded (the production path) replays a live ``llm_all`` recording
+    on the same model, effort and budget: the request is byte for byte the sweep's. Its
+    values are llm_all's, plus nothing here (no site area); ``pipeline`` asks something else."""
+    appraisal, sha = setup(tmp_path)
+    sol = ModelChoice("gpt-6.1-sol", "low", 32000)
+    provider = ScriptedProvider([grounded_turn()], model="gpt-6.1-sol")
+    live = asyncio.run(
+        run_eval(
+            options(tmp_path, "live", SystemSpec("llm_all", sol, min_page_words=1), "live"),
+            settings=Settings(),
+            live=LiveDeps(azure=FakeRaw(raw_layout(PAGES)), provider=provider),
+        )
+    )
+    assert live is not None and live.score["documents"]["failed"] == []
+    directory = recordings.recording_dir(appraisal, sha)
+    [recorded] = list((directory / recordings.LLM_DIR).glob("*.json"))
+    assert recorded.stem == recordings.request_hash(provider.requests[0])
+    grounded = Settings().model_copy(
+        update={
+            "extraction_method": "grounded",
+            "extraction_grounded_model": "gpt-6.1-sol",
+            "extraction_grounded_reasoning_effort": "low",
+            "extraction_grounded_max_tokens": 32000,
+        }
+    )
+    for name, spec in (
+        ("chosen", SystemSpec("production", sol)),  # --model / --effort / --max-tokens
+        ("configured", SystemSpec("production")),  # EXTRACTION_GROUNDED_* as configured
+    ):
+        replay = asyncio.run(run_eval(options(tmp_path, "replay", spec, name), settings=grounded))
+        assert replay is not None
+        assert replay.score["documents"]["failed"] == [], name
+        assert replay.run["llm_calls"] == 1 and replay.run["models"] == ["gpt-6.1-sol"]
+        ours = json.loads((tmp_path / name / "predictions.json").read_text())["documents"][0]
+        theirs = json.loads((tmp_path / "live/predictions.json").read_text())["documents"][0]
+        assert ours["repeats"][0]["method"] == "azure_di+grounded"
+        # The same values, pages and quotes; production boxes them by the pipeline's
+        # highlight rules (the checked box, the value's words) instead of the quote's words.
+        mine, sweep = ours["repeats"][0]["fields"], theirs["repeats"][0]["fields"]
+        assert set(mine) == set(sweep)
+        for key, item in mine.items():
+            assert {**item, "regions": None} == {**sweep[key], "regions": None}, key
+            assert item["regions"] and item["regions"][0]["page"] == item["page"]
+        assert (
+            ours["repeats"][0]["fallback"]["dropped"] == theirs["repeats"][0]["fallback"]["dropped"]
+        )
+    # The pipeline asks its own fallback request, which was never recorded.
+    pipeline = asyncio.run(
+        run_eval(options(tmp_path, "replay", SystemSpec("pipeline"), "pipe"), settings=grounded)
+    )
+    assert pipeline is not None
+    assert pipeline.score["documents"]["failed"][0]["status"] == "missing_recording"
+
+
+def test_a_context_recorded_before_the_method_replays_with_the_current_one() -> None:
+    from evals.appraisal.systems.base import ExtractionSettings
+
+    current = ExtractionSettings.from_settings(
+        Settings().model_copy(update={"extraction_method": "grounded"})
+    )
+    recorded = {
+        "text_model": "gpt-6-luna",
+        "reasoning_effort": "low",
+        "output_budget": 8000,
+        "fallback_scope": "missing",
+        "context_chars": 60000,
+        "review_threshold": 0.5,
+    }
+    old = ExtractionSettings.from_json(recorded, current)
+    assert (old.text_model, old.output_budget) == ("gpt-6-luna", 8000)
+    assert old.review_threshold == current.review_threshold  # always the current setting
+    assert (old.method, old.grounded_model, old.grounded_max_tokens) == (
+        "grounded",
+        current.grounded_model,
+        current.grounded_max_tokens,
+    )
+    pinned = ExtractionSettings.from_json(
+        {**recorded, "method": "pipeline", "grounded_model": "m", "grounded_max_tokens": 9}, current
+    )
+    assert (pinned.method, pinned.grounded_model, pinned.grounded_max_tokens) == (
+        "pipeline",
+        "m",
+        9,
+    )
+
+
 def test_azure_1004_records_and_replays(tmp_path: Path) -> None:
     appraisal, sha = setup(tmp_path)
     spec = SystemSpec("azure_1004")
@@ -411,6 +500,13 @@ def test_parse_args_systems() -> None:
     )
     assert o.system.voters[0] == VoterSpec("llm_all", ModelChoice("gpt-6-luna", "low", 16000))
     assert o.system.voters[1].model.model is None
+    o = parse_args([*base, "--system", "pipeline", "--azure-only"])
+    assert (o.system.name, o.azure_only, o.baseline) == ("pipeline", True, "baseline.json")
+    o = parse_args([*base, "--system", "production", "--model", "gpt-6.1-sol", "--effort", "low"])
+    assert o.system.model == ModelChoice("gpt-6.1-sol", "low", 16000)
+    assert parse_args([*base, "--baseline", "baseline.grounded.json"]).baseline == (
+        "baseline.grounded.json"
+    )
     for bad in (
         ["--system", "llm_all"],  # needs --model
         ["--system", "llm_all", "--model", "claude-sonnet-5-5", "--effort", "none"],
@@ -422,6 +518,8 @@ def test_parse_args_systems() -> None:
         ["--system", "vote", "--voters", "vote@x,llm_all@y"],
         ["--system", "llm_all", "--model", "x", "--azure-only"],
         ["--voters", "llm_all@x,llm_all@y"],
+        ["--baseline", "runs/baseline.json"],
+        ["--baseline", "baseline"],
     ):
         with pytest.raises(SystemExit):
             parse_args([*base, *bad])

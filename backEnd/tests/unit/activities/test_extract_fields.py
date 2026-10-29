@@ -556,3 +556,144 @@ async def test_a_hostile_uad36_xml_is_not_retried(
         await activity_env.run(ExtractFields(deps).run, extract(seeded))
     assert caught.value.type == "ValidationError" and caught.value.non_retryable
     assert await count_rows(deps.sessionmaker, Extraction) == 0
+
+
+# --------------------------------------------------------------------------- the grounded reading
+
+GROUNDED_SETTINGS: dict[str, Any] = {
+    "extraction_method": "grounded",
+    "extraction_grounded_model": "gpt-6.1-sol",
+    "extraction_grounded_reasoning_effort": "low",
+    "extraction_grounded_max_tokens": 32000,
+}
+GROUNDED_PAGES = [
+    [
+        "Subject",
+        "Property Address 1290 Example Way",
+        "Occupant :selected: Owner :unselected: Tenant",
+        "Contract Price $ 412,000",
+    ],
+    ["Site", "Area 7,405 sf", "Improvements", "Year Built 2004"],
+]
+
+
+def _geometry_analysis() -> AzureDiResult:
+    from basis.extraction.azure_di import from_sdk
+    from evals.appraisal.recordings import rebuild_sdk_result
+
+    from ..evals.appraisal_systems_support import raw_layout
+
+    return from_sdk(rebuild_sdk_result(raw_layout(GROUNDED_PAGES)))
+
+
+def _grounded_turn() -> ScriptedTurn:
+    from basis.extraction.grounded import GroundedAnswer, GroundedValue
+
+    def value(key: str, text: str, page: int, quote: str) -> GroundedValue:
+        return GroundedValue(key=key, status="present", value=text, page=page, quote=quote)
+
+    return ScriptedTurn(
+        parsed=GroundedAnswer(
+            fields=[
+                value("subject.property_address", "1290 Example Way", 1, GROUNDED_PAGES[0][1]),
+                value("subject.occupant", "Owner", 1, "Occupant :selected: Owner"),
+                value("listing_and_contract.contract_price", "$ 412,000", 1, "$ 412,000"),
+                value("site.area_sqft", "7,405 sf", 2, "Area 7,405 sf"),
+                value("improvements.year_built", "2004", 2, "Year Built 2004"),
+            ]
+        ),
+        usage=Usage(input_tokens=13000, output_tokens=4900),
+    )
+
+
+def _grounded_activity(
+    deps: Deps, provider: ScriptedProvider, azure: StaticAzure, **settings: Any
+) -> ExtractFields:
+    configured = deps.settings.model_copy(update={**GROUNDED_SETTINGS, **settings})
+    return ExtractFields(
+        make_deps(deps.sessionmaker, deps.storage, configured, azure_di=azure, llm=provider)
+    )
+
+
+async def test_the_production_default_reads_the_appraisal_in_one_grounded_call(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """EXTRACTION_METHOD=grounded (EVAL_REPORT 33.5): one call on gpt-6.1-sol at low effort
+    with 32,000 tokens; its values persisted as llm fields with their boxes; the call in
+    llm_calls under the study's budget."""
+    provider = ScriptedProvider([_grounded_turn()], model="gpt-6.1-sol")
+    azure = StaticAzure(_geometry_analysis())
+    output = await activity_env.run(_grounded_activity(deps, provider, azure).run, extract(seeded))
+    [request] = provider.requests
+    assert (request.model, request.reasoning_effort, request.max_tokens) == (
+        "gpt-6.1-sol",
+        "low",
+        32000,
+    )
+    assert azure.calls == 1
+    found = await fields(deps, output.extraction_id or "")
+    assert set(found) == {
+        "subject.property_address",
+        "subject.occupant",
+        "listing_and_contract.contract_price",
+        "site.area_sqft",
+        "site.area",
+        "improvements.year_built",
+    }
+    price = found["listing_and_contract.contract_price"]
+    assert (price.source, price.value_num, price.page) == ("llm", Decimal("412000"), 1)
+    assert price.confidence == pytest.approx(0.6)
+    assert price.regions and price.regions[0]["page"] == 1
+    assert found["site.area"].regions == found["site.area_sqft"].regions
+    assert output.needs_review  # model values are suggestions; criticals are missing too
+    row = await extraction(deps, output.extraction_id or "")
+    assert row.method == "azure_di+grounded"
+    assert row.raw["grounded"]["quotes"]["subject.occupant"] == "Occupant :selected: Owner"
+    assert row.raw["fallback"]["status"] == "called"
+    async with session_scope(deps.sessionmaker) as session:
+        [call] = (await session.scalars(select(LlmCall))).all()
+    assert (call.activity, call.prompt_version, call.model) == (
+        "extract_fields",
+        "appraisal_fields_grounded/v2",
+        "gpt-6.1-sol",
+    )
+    assert call.cost_usd == Decimal("0.075000")  # 13,000 in at $2/M + 4,900 out at $10/M
+    assert call.study_id == seeded.study_id and call.run_id is not None
+
+
+async def test_a_failed_grounded_call_is_read_by_the_pipeline(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """The fallback's contract: a provider error is best effort; the pipeline reads the
+    document on the same Azure DI analysis and the extraction completes."""
+    failing = ScriptedTurn(raise_error=ProviderUnavailable("down", provider="scripted"))
+    provider = ScriptedProvider([failing], model="gpt-6.1-sol")
+    azure = StaticAzure(load_azure_fixture())  # the golden analysis (no geometry kept)
+    activity = _grounded_activity(deps, provider, azure)
+    # The fixture has no word geometry, so give it one page of words to try the call.
+    geometry = _geometry_analysis()
+    azure.result = azure.result.model_copy(
+        update={"pages": (geometry.pages[0], *azure.result.pages[1:])}
+    )
+    output = await activity_env.run(activity.run, extract(seeded))
+    assert azure.calls == 1 and len(provider.requests) == 1
+    row = await extraction(deps, output.extraction_id or "")
+    assert row.method == "azure_di+regex"
+    assert row.raw["grounded"]["status"] == "provider_error"
+    found = await fields(deps, output.extraction_id or "")
+    assert found["subject.property_address"].source == "azure"
+
+
+async def test_an_account_error_on_the_grounded_call_stops_the_stage(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    from basis.llm.errors import ProviderAccountError
+    from basis.workflow.activity_options import PROVIDER_ACCOUNT_ERROR
+
+    error = ProviderAccountError("insufficient_quota", provider="openai", status=429)
+    provider = ScriptedProvider([ScriptedTurn(raise_error=error)], model="gpt-6.1-sol")
+    activity = _grounded_activity(deps, provider, StaticAzure(_geometry_analysis()))
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(activity.run, extract(seeded))
+    assert caught.value.type == PROVIDER_ACCOUNT_ERROR and caught.value.non_retryable
+    assert await count_rows(deps.sessionmaker, Extraction) == 0

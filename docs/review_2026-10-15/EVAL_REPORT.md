@@ -4982,7 +4982,8 @@ $1.3 more if Azure billed the client-side timeouts): about $32, above the $30 ap
 
 Open:
 - Wire the winner into production behind a setting (`llm_all` on Sol, or the luna vote as the
-  cheap default) and repeat Sol once more before making it the default.
+  cheap default) and repeat Sol once more before making it the default. Done for `llm_all` on
+  Sol (`EXTRACTION_METHOD=grounded`, 33.12); the repeat was not run.
 - Units on UAD 3.6 in checkbox_context (it asks every checkbox key and overrides the reader).
 - The GSE basement-area convention (33.9) and four disputed GSE truth readings (SF2 listing,
   Condo1 special assessments, condo design style, "Parking Garage" as a garage).
@@ -4990,3 +4991,67 @@ Open:
   ranking for cost segregation.
 - The frontend viewer for a ZIP / XML upload; which document the workflow uses when a study
   has both an XML and a PDF.
+
+### 33.12 Production default: the grounded reading on Sol (2026-10-28)
+
+Decision (Bryan): production reads an appraisal PDF with `llm_all` on gpt-6.1-sol at effort
+low, the most accurate single method of 33.5. The single repeat 33.11 asked for was not run
+(no budget left); the lead over the votes is within the measured noise.
+
+- **Settings** (`basis/config.py`): `EXTRACTION_METHOD` = `grounded` (default) | `pipeline`
+  (the reading of 33.2, unchanged); `EXTRACTION_GROUNDED_MODEL` = `gpt-6.1-sol`,
+  `EXTRACTION_GROUNDED_REASONING_EFFORT` = `low` (gpt-6.1-sol refuses `none`: refused at
+  startup), `EXTRACTION_GROUNDED_MAX_TOKENS` = 32000 (the sweep's). The worker logs the method
+  at startup. A UAD 3.6 XML or ZIP upload is still read by the XML reader (33.7).
+- **Code**: the method is `basis/extraction/grounded.py` (moved from the sweep; the sweep's
+  `llm_all` / `llm_pages` / `llm_sections` are adapters over it), run by
+  `basis/extraction/pipeline.py` after the Azure DI analysis. On top of what 33.5 measured,
+  production derives `site.area` / `site.area_acres` from the site area read (as the pipeline
+  always did), and boxes each value by the pipeline's highlight rules (33.6: the checked box,
+  else the value's words nearest the caption), falling back to the quote's words: on the 15
+  replayed documents 0.996 of the checked highlights are on the value (1,195 of 1,200),
+  against 0.857 for the quote's words the sweep used. Values are unaffected.
+- **Errors**: the pipeline fallback's contract (best effort). When the grounded reading cannot
+  run (no Azure DI, no word geometry, no provider) or its call does not answer (provider error,
+  no structured answer, the study budget), the pipeline reads the document on the same Azure DI
+  analysis, with a note and the attempt in `extractions.raw["grounded"]`. An account or
+  configuration error stops the stage, as before.
+- **Same requests as the sweep**: replayed with no network, `--system production` (the
+  activity's path) on the 16-document subset sends the recorded `llm_all` requests byte for
+  byte: client_a and the 8 synthetic documents replay; the 7 UAD 3.6 documents miss, the same
+  7 request hashes as the sweep's own `llm_all` replay at this commit. Their recordings were
+  made before the units fix (`1185298`), which changed the UAD 3.6 description of
+  `improvements.units` (caption "ADU" -> "Units Excluding ADUs", "Accessory Dwelling Units");
+  with that one description restored, 15 of 16 replay (TwoToFour1 has no recording of the
+  UAD 3.6-only request). On every replayed document the fields equal the sweep's `llm_all`
+  on every asked key (value, page, confidence, quote; the region by the rule above); the only
+  differences are the derived site-area fields (13 more correct on the 9 documents, 20 on the
+  15, none wrong).
+
+| replay, gpt-6.1-sol low | documents | headline accuracy | spurious |
+|---|---|---|---|
+| `llm_all`, units description as recorded (predictions identical to the 33.9 run) | 15 of 16 | 0.953 (1,423 / 1,493) | 7 |
+| `production`, units description as recorded | 15 of 16 | 0.967 (1,443 / 1,493) | 7 |
+| `llm_all`, this commit | 9 of 16 | 0.979 (1,054 / 1,077) | 5 |
+| `production`, this commit | 9 of 16 | 0.991 (1,067 / 1,077) | 5 |
+
+The 33.9 run scored 0.951 (1,420 / 1,493, 10 spurious) on the truth of that day; its
+predictions are unchanged, and the GSE truth has been revised since (scored on the truth of
+2026-10-28 evening, still being edited at the time of writing).
+
+- **Cost and latency** (the live run, 16 documents): $0.072 a document ($0.064-0.079),
+  13,600 input / 4,500 output tokens (at most 19,235 / 4,952), model latency 28 s (25-32 s)
+  on top of the Azure DI analysis; the pipeline's luna fallback was about $0.002 a document
+  and 21 s on the GSE documents.
+  One appraisal per study: about $0.07 more per study (per revision re-read). The call
+  reserves about $0.35 of the study budget before it is sent (32,000 output tokens at
+  $10/M); `STUDY_BUDGET_USD` (default 25) covers it. The 60 s `LLM_REQUEST_TIMEOUT` is about
+  twice the slowest call measured.
+- **Baseline**: `baseline.json` stays the pipeline's (`--system pipeline`, which the
+  `eval_data` regression test replays; its predictions on all 41 documents equal the
+  previous `production` system's). The grounded default has its own
+  `baseline.grounded.json` (`--baseline`), accepted from the `production` replay of the 9
+  documents that replay (EVAL SPEC section 9).
+- **Open**: re-record the grounded call live for the 7 UAD 3.6 documents of the subset (about
+  $0.50) and for the 25 documents with no Sol recording (about $1.80), then accept the
+  grounded baseline on all 41.

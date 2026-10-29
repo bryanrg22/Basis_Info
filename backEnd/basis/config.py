@@ -159,6 +159,7 @@ class Settings(BaseSettings):
     # existing .env works unchanged; the newer names are accepted too. Mapping:
     #   OPENAI_API_KEY                       -> openai_api_key
     #   OPENAI_MODEL | TEXT_MODEL            -> text_model   (extraction fallback model)
+    #   EXTRACTION_GROUNDED_MODEL            -> extraction_grounded_model (appraisal reading)
     #   VISION_MODEL                         -> vision_model (model for photos)
     #   VISION_SURFACES_MODEL                -> vision_surfaces_model (decomposed surfaces call)
     #   VISION_REASONING_EFFORT              -> vision_reasoning_effort (photos, default low)
@@ -260,6 +261,25 @@ class Settings(BaseSettings):
     # A critical appraisal field below this confidence sends the extraction to review
     # (S3_SPEC section 4; tuned later by the real-data eval).
     extraction_review_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
+    # How an appraisal PDF is read (basis.extraction.pipeline). "grounded" (EVAL_REPORT
+    # section 33.5's winner, the default): one structured call on EXTRACTION_GROUNDED_MODEL
+    # asks every field for its status, value, page and verbatim quote over Azure DI's page
+    # text with labelled selection marks, and the answers are checked mechanically
+    # (basis.extraction.grounded; 0.940 of all fields on the 16-document subset, every
+    # critical field right, about $0.072 a document on gpt-6.1-sol at effort low). When it
+    # cannot run or its call fails (no Azure DI geometry, no provider, a provider error, the
+    # budget) the document is read by "pipeline" instead, on the same analysis. "pipeline"
+    # (before section 33): Azure DI pairs, the text layer and tables, then one TEXT_MODEL
+    # fallback call for what they left (0.825 on the same subset). A UAD 3.6 XML or ZIP
+    # upload is read by the XML reader whatever this says.
+    extraction_method: Literal["grounded", "pipeline"] = "grounded"
+    extraction_grounded_model: str = "gpt-6.1-sol"
+    extraction_grounded_reasoning_effort: Effort = "low"
+    # The grounded call's output budget: the sweep's 32,000 (about 4,900 output tokens were
+    # used at most; an OpenAI reasoning model spends part of it reasoning, and a cut-off
+    # answer has no fields). Only the tokens used are billed; the study budget reserves it
+    # all before the call (basis.llm.call), about $0.35 on gpt-6.1-sol.
+    extraction_grounded_max_tokens: int = Field(default=32000, ge=1024, le=128000)
 
     # The room step (reconcile_rooms, EVAL_REPORT section 16.5): per room of the revision,
     # one-photo rooms take the per-photo analysis as their inventory (ROOM_SINGLE_PHOTO
@@ -481,12 +501,27 @@ class Settings(BaseSettings):
             ("SURFACE_CROP", self.surface_crop_model, self.surface_crop_reasoning_effort),
             ("CLASSIFY", self.classify_model, self.classify_reasoning_effort),
             ("EXTRACTION", self.text_model, self.extraction_reasoning_effort),
+            (
+                "EXTRACTION_GROUNDED",
+                self.extraction_grounded_model,
+                self.extraction_grounded_reasoning_effort,
+            ),
         ):
             if is_claude_model(model) and effort not in CLAUDE_EFFORTS:
                 raise ConfigError(
                     f"{name} reasoning effort {effort!r} is not a Claude effort level for "
                     f"{model}; use one of {', '.join(CLAUDE_EFFORTS)}"
                 )
+        if (
+            refuses_no_effort(self.extraction_grounded_model)
+            and self.extraction_grounded_reasoning_effort == "none"
+        ):
+            # EVAL_REPORT section 17.2: gpt-6.1-sol answers 400 to reasoning_effort=none.
+            raise ConfigError(
+                f"EXTRACTION_GROUNDED_MODEL={self.extraction_grounded_model} refuses "
+                "reasoning effort 'none'; set EXTRACTION_GROUNDED_REASONING_EFFORT=low "
+                "(EVAL_REPORT section 33.5) or another level"
+            )
         if is_reasoning_model(self.classify_model):
             # Chat Completions refuses function tools with a reasoning effort (EVAL_REPORT
             # section 17.2: 400 "Function tools with reasoning_effort are not supported").
