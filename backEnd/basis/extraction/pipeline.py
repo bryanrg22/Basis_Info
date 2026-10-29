@@ -20,10 +20,13 @@ Then the fields are read by ``ctx.method`` (``EXTRACTION_METHOD``):
 (``EXTRACTION_GROUNDED_MODEL``, default gpt-6.1-sol at effort low, 32,000 output tokens) over
 Azure DI's page text with each selection mark labelled from the geometry, every value checked
 mechanically against its verbatim quote, then the presence rules
-(:mod:`basis.extraction.grounded`). Every value is an ``llm`` field at the 0.6 confidence cap
-with the quote's box as its region; the derived site-area fields
-(:mod:`basis.extraction.derived`) follow from the site area it read (with its box); then the
-validation and the review gate as below. A UAD 3.6 report is asked only the keys its form
+(:mod:`basis.extraction.grounded`). Every value is an ``llm`` field at the 0.6 confidence cap;
+the derived site-area fields (:mod:`basis.extraction.derived`) follow from the site area it
+read; each field's region is chosen by the pipeline's highlight rules
+(:func:`basis.extraction.regions.field_regions`: the checked box, else the value's words
+nearest the caption on the cited page), else the quote's words (measured on the sweep's
+subset: 0.996 of the checked highlights on the value, against 0.857 for the quote's words);
+then the validation and the review gate as below. A UAD 3.6 report is asked only the keys its form
 carries, by its UAD 3.6 captions. The quotes are kept in ``raw["grounded"]``.
 
 **pipeline** (``method="azure_di+regex"``, before section 33):
@@ -87,7 +90,7 @@ from basis.extraction.package import (
 from basis.extraction.pdf_text import InvalidDocument, PdfText, read_pdf
 from basis.extraction.presence import apply_presence_rules
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
-from basis.extraction.regions import with_regions
+from basis.extraction.regions import field_regions, with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, Region, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.validation import validate_fields
@@ -372,16 +375,17 @@ async def _read_grounded(
         off_form = uad36_pdf.NOT_CARRIED
         pages = len(reading.form.uad36_pages)
         notes.append(f"UAD 3.6 URAR (footer on {pages} pages): its UAD 3.6 captions")
-    fields: dict[str, ExtractedField] = {
-        key: item.model_copy(update={"regions": _regions(checked.regions.get(key, ()))})
-        for key, item in checked.fields.items()
-    }
-    # The site area's other views, from the reading the model quoted (its box too).
-    for key, item in derive_fields(fields).items():
-        source = fields.get(AREA_SQFT) or fields.get(AREA_TEXT)
-        fields[key] = item.model_copy(
-            update={"regions": source.regions if source is not None else ()}
-        )
+    read: dict[str, ExtractedField] = dict(checked.fields)
+    # The site area's other views, from the reading the model quoted.
+    read.update(derive_fields(read))
+    quoted = {key: _regions(boxes) for key, boxes in checked.regions.items()}
+    source = AREA_SQFT if AREA_SQFT in quoted else AREA_TEXT
+    fields: dict[str, ExtractedField] = {}
+    for key, item in read.items():
+        # The pipeline's highlight rules (the checked box, else the value's words nearest the
+        # caption on the cited page); else the quote's words.
+        boxes = field_regions(item, geometry) or quoted.get(key) or quoted.get(source, ())
+        fields[key] = item.model_copy(update={"regions": boxes})
     issues = validate_fields(fields, not_on_form=off_form)
     gate = review_gate(fields, issues, threshold=ctx.review_threshold, not_on_form=off_form)
     _, comparables = azure_candidates(azure)

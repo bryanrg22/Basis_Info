@@ -5,9 +5,9 @@ PDF is the synthetic sample (its text layer is not what the grounded reading rea
 model is a ``ScriptedProvider``:
 
 * the reading: one request on the configured model, effort and budget with the grounded
-  prompt and schema; values as ``llm`` fields at the 0.6 cap with the quote's box; the
-  derived site-area fields with their source's box; the checks' drops and the quotes in
-  ``raw``; the review gate; a UAD 3.6 report asked only its keys;
+  prompt and schema; values as ``llm`` fields at the 0.6 cap with their boxes (the checked
+  box for a checkbox); the derived site-area fields with the same box; the checks' drops
+  and the quotes in ``raw``; the review gate; a UAD 3.6 report asked only its keys;
 * the error contract (module doc of :mod:`basis.extraction.pipeline`): a provider error, an
   answer with no structured content, an exhausted budget, no geometry, no provider and no
   Azure DI each read the document by the pipeline on the same analysis (Azure DI paid once),
@@ -27,6 +27,7 @@ from llm_fakes import FixtureAzureDi
 from basis.extraction.azure_di import AzureDiResult, from_sdk
 from basis.extraction.fallback import FallbackAnswer
 from basis.extraction.field_mappings import LLM_CONFIDENCE_CAP
+from basis.extraction.geometry import layout_of, locate
 from basis.extraction.grounded import GroundedAnswer, GroundedModel, GroundedValue
 from basis.extraction.pipeline import (
     METHOD_GROUNDED,
@@ -158,7 +159,12 @@ async def test_the_grounded_reading_is_one_checked_call_on_the_configured_model(
     assert (address.value_text, address.source, address.page) == ("1290 Example Way", "llm", 1)
     assert address.confidence == LLM_CONFIDENCE_CAP
     assert address.regions and address.regions[0].page == 1
-    assert result.fields["subject.occupant"].value_text == "Owner"
+    occupant = result.fields["subject.occupant"]
+    assert occupant.value_text == "Owner"
+    # The checked box with its label (the pipeline's rule), not the whole quote.
+    [box] = occupant.regions
+    quote_box = locate(layout_of(azure.result).page(1), "Occupant :selected: Owner")
+    assert quote_box is not None and box.bbox[0] > quote_box[0]
     assert result.fields["listing_and_contract.contract_price"].value_num == 412000
     # The site area's other views follow from the reading, with its box.
     sqft = result.fields["site.area_sqft"]

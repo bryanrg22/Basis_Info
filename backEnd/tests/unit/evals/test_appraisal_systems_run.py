@@ -336,7 +336,7 @@ def test_llm_all_live_records_and_replay_reproduces(tmp_path: Path) -> None:
 def test_production_sends_the_request_llm_all_recorded(tmp_path: Path) -> None:
     """EXTRACTION_METHOD=grounded (the production path) replays a live ``llm_all`` recording
     on the same model, effort and budget: the request is byte for byte the sweep's. Its
-    fields are llm_all's, plus nothing here (no site area); ``pipeline`` asks something else."""
+    values are llm_all's, plus nothing here (no site area); ``pipeline`` asks something else."""
     appraisal, sha = setup(tmp_path)
     sol = ModelChoice("gpt-6.1-sol", "low", 32000)
     provider = ScriptedProvider([grounded_turn()], model="gpt-6.1-sol")
@@ -370,7 +370,13 @@ def test_production_sends_the_request_llm_all_recorded(tmp_path: Path) -> None:
         ours = json.loads((tmp_path / name / "predictions.json").read_text())["documents"][0]
         theirs = json.loads((tmp_path / "live/predictions.json").read_text())["documents"][0]
         assert ours["repeats"][0]["method"] == "azure_di+grounded"
-        assert ours["repeats"][0]["fields"] == theirs["repeats"][0]["fields"]
+        # The same values, pages and quotes; production boxes them by the pipeline's
+        # highlight rules (the checked box, the value's words) instead of the quote's words.
+        mine, sweep = ours["repeats"][0]["fields"], theirs["repeats"][0]["fields"]
+        assert set(mine) == set(sweep)
+        for key, item in mine.items():
+            assert {**item, "regions": None} == {**sweep[key], "regions": None}, key
+            assert item["regions"] and item["regions"][0]["page"] == item["page"]
         assert (
             ours["repeats"][0]["fallback"]["dropped"] == theirs["repeats"][0]["fallback"]["dropped"]
         )

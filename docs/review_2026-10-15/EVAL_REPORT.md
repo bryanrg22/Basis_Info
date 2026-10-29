@@ -5007,7 +5007,10 @@ low, the most accurate single method of 33.5. The single repeat 33.11 asked for 
   `llm_all` / `llm_pages` / `llm_sections` are adapters over it), run by
   `basis/extraction/pipeline.py` after the Azure DI analysis. On top of what 33.5 measured,
   production derives `site.area` / `site.area_acres` from the site area read (as the pipeline
-  always did), with its box.
+  always did), and boxes each value by the pipeline's highlight rules (33.6: the checked box,
+  else the value's words nearest the caption), falling back to the quote's words: on the 15
+  replayed documents 0.996 of the checked highlights are on the value (1,195 of 1,200),
+  against 0.857 for the quote's words the sweep used. Values are unaffected.
 - **Errors**: the pipeline fallback's contract (best effort). When the grounded reading cannot
   run (no Azure DI, no word geometry, no provider) or its call does not answer (provider error,
   no structured answer, the study budget), the pipeline reads the document on the same Azure DI
@@ -5021,8 +5024,9 @@ low, the most accurate single method of 33.5. The single repeat 33.11 asked for 
   `improvements.units` (caption "ADU" -> "Units Excluding ADUs", "Accessory Dwelling Units");
   with that one description restored, 15 of 16 replay (TwoToFour1 has no recording of the
   UAD 3.6-only request). On every replayed document the fields equal the sweep's `llm_all`
-  on every asked key (value, page, confidence, region, quote); the only differences are the
-  derived site-area fields (13 more correct on the 9 documents, 20 on the 15, none wrong).
+  on every asked key (value, page, confidence, quote; the region by the rule above); the only
+  differences are the derived site-area fields (13 more correct on the 9 documents, 20 on the
+  15, none wrong).
 
 | replay, gpt-6.1-sol low | documents | headline accuracy | spurious |
 |---|---|---|---|

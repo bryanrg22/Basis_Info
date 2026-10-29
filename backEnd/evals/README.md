@@ -517,7 +517,7 @@ the grounded systems, the verbatim **quote**; all three are in `predictions.json
 
 | system | what it is | model flags |
 |---|---|---|
-| `production` (default) | the `extract_fields` activity's `extract_appraisal` as configured: `EXTRACTION_METHOD=grounded` (the default since EVAL_REPORT 33.5) is `llm_all` through production code (`basis/extraction/grounded.py`, the same request byte for byte, so `llm_all` recordings replay) plus the derived site-area fields, falling back to the pipeline when it cannot run | `EXTRACTION_GROUNDED_*`; `--model`/`--effort`/`--max-tokens` override them |
+| `production` (default) | the `extract_fields` activity's `extract_appraisal` as configured: `EXTRACTION_METHOD=grounded` (the default since EVAL_REPORT 33.5) is `llm_all` through production code (`basis/extraction/grounded.py`, the same request byte for byte, so `llm_all` recordings replay) plus the derived site-area fields, boxed by the pipeline's highlight rules (else the quote), falling back to the pipeline when it cannot run | `EXTRACTION_GROUNDED_*`; `--model`/`--effort`/`--max-tokens` override them |
 | `pipeline` | the pipeline method (before section 33): Azure DI pairs, text layer, the `TEXT_MODEL` fallback; the regression baseline's system | `TEXT_MODEL` |
 | `azure_1004` | `prebuilt-mortgage.us.1004` mapped to ~50 catalogue keys (no GLA, site value, cost lines); Azure's confidence; field polygons, a checkbox narrowed to its checked label; recorded as `azure_1004.json` | none |
 | `production_plus_1004` | the pipeline merged with the 1004: agreement keeps it at the higher confidence; on a checkbox key the 1004 wins a disagreement, elsewhere production does; every disagreement 0.5 and a `sources_disagree` issue | `TEXT_MODEL` |
