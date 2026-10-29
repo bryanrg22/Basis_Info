@@ -2,22 +2,32 @@
 
 from __future__ import annotations
 
+import logging
 import math
+import re
 import subprocess
 import sys
+import uuid
+from collections.abc import Callable
+from typing import Any
 
 import pytest
+from dbtest_support import BACKEND_ROOT
 
 from basis.config import ConfigError, Settings
 from basis.retrieval.embed import (
     DEFAULT_MODEL,
+    DEFAULT_MODEL_REVISION,
     EMBEDDING_DIM,
     HASH_EMBEDDER_NAME,
+    MODEL_SPECS,
     Embedder,
     HashEmbedder,
+    ModelLoad,
     SentenceTransformerEmbedder,
     embedder_for,
     loaded_models,
+    model_is_cached,
 )
 
 
@@ -167,3 +177,131 @@ def test_wrong_dimension_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_hash_embedder_embeds_queries_like_passages() -> None:
     embedder = HashEmbedder()
     assert embedder.embed_query(["asset class 57.0"]) == embedder.embed(["asset class 57.0"])
+
+
+# ------------------------------------------------- loading and warming (EVAL_REPORT 38)
+
+
+class FakeSentenceTransformers:
+    """A stand-in ``sentence_transformers`` module: records the constructor's keyword
+    arguments and raises transformers' offline ``OSError`` for a revision that is not in
+    ``cached`` when ``local_files_only`` is set."""
+
+    def __init__(self, cached: set[str | None]) -> None:
+        self.cached = cached
+        self.calls: list[dict[str, Any]] = []
+        self.encoded: list[list[str]] = []
+        outer = self
+
+        class SentenceTransformer:
+            def __init__(self, name: str, **kwargs: Any) -> None:
+                outer.calls.append({"name": name, **kwargs})
+                if kwargs.get("local_files_only") and kwargs.get("revision") not in outer.cached:
+                    raise OSError(
+                        "We couldn't connect to 'https://huggingface.co' to load the files, "
+                        "and couldn't find them in the cached files."
+                    )
+
+            def encode(self, texts: list[str], **_: Any) -> list[list[float]]:
+                outer.encoded.append(list(texts))
+                return [[1.0] + [0.0] * (EMBEDDING_DIM - 1) for _ in texts]
+
+        self.SentenceTransformer = SentenceTransformer
+
+
+@pytest.fixture
+def fake_st(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[set[str | None]], FakeSentenceTransformers]:
+    """Install the stand-in module (no torch import); each test loads a model name of its
+    own, so the process-wide load cache never crosses tests."""
+
+    def install(cached: set[str | None]) -> FakeSentenceTransformers:
+        fake = FakeSentenceTransformers(cached)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", fake)
+        return fake
+
+    return install
+
+
+def test_the_default_model_is_pinned_and_the_pin_is_what_is_loaded(
+    fake_st: Callable[[set[str | None]], FakeSentenceTransformers],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from basis.retrieval import embed as embed_module
+
+    assert MODEL_SPECS[DEFAULT_MODEL].revision == DEFAULT_MODEL_REVISION
+    assert re.fullmatch(r"[0-9a-f]{40}", DEFAULT_MODEL_REVISION)  # a commit, not a branch
+    name = "test/pinned-" + uuid.uuid4().hex
+    monkeypatch.setitem(
+        embed_module.MODEL_SPECS, name, embed_module.ModelSpec(dim=384, window=256, revision="abc")
+    )
+    fake = fake_st({"abc"})
+    load = SentenceTransformerEmbedder(name).warm()
+    assert fake.calls == [
+        {"name": name, "device": "cpu", "revision": "abc", "local_files_only": True}
+    ]
+    assert isinstance(load, ModelLoad)
+    assert (load.model, load.revision, load.source) == (name, "abc", "cache")
+    assert load.seconds >= 0.0
+    assert fake.encoded == [["warm-up"]]  # the first-call setup is paid at the warm-up
+    SentenceTransformerEmbedder(name).embed(["x"])
+    assert len(fake.calls) == 1  # loaded once per process
+
+
+def test_an_uncached_revision_is_downloaded_with_a_warning(
+    fake_st: Callable[[set[str | None]], FakeSentenceTransformers],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    name = "test/uncached-" + uuid.uuid4().hex  # unlisted: no pin, the repository's main
+    fake = fake_st(set())
+    with caplog.at_level(logging.WARNING, logger="basis.retrieval.embed"):
+        load = SentenceTransformerEmbedder(name).warm()
+    assert [c.get("local_files_only") for c in fake.calls] == [True, None]
+    assert fake.calls[1] == {"name": name, "device": "cpu", "revision": None}
+    assert (load.source, load.revision) == ("download", None)
+    assert any("not in the local Hugging Face cache" in r.message for r in caplog.records)
+    assert any("Dockerfile" in r.message for r in caplog.records)
+    assert SentenceTransformerEmbedder(name).warm().source == "download"  # the same load
+
+
+def test_hash_embedder_has_nothing_to_warm() -> None:
+    assert HashEmbedder().warm() is None
+
+
+def test_model_is_cached_asks_for_the_pinned_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    import huggingface_hub
+
+    asked: list[tuple[str, str, str | None]] = []
+
+    def fake_try(repo_id: str, filename: str, revision: str | None = None, **_: Any) -> object:
+        asked.append((repo_id, filename, revision))
+        return "/cache/config.json" if revision == DEFAULT_MODEL_REVISION else None
+
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", fake_try)
+    assert model_is_cached() is True
+    assert model_is_cached(DEFAULT_MODEL, "0" * 40) is False
+    assert model_is_cached("some/unlisted-model") is False
+    assert asked == [
+        (DEFAULT_MODEL, "config.json", DEFAULT_MODEL_REVISION),
+        (DEFAULT_MODEL, "config.json", "0" * 40),
+        ("some/unlisted-model", "config.json", None),
+    ]
+
+
+def test_the_dockerfile_bakes_the_pinned_model() -> None:
+    """The image downloads the model at build time (EVAL_REPORT 38); its two ARGs must be
+    the model and revision the code loads, or the worker downloads at run time after all."""
+    dockerfile = (BACKEND_ROOT / "Dockerfile").read_text()
+    args = dict(re.findall(r"^ARG (EMBEDDING_MODEL(?:_REVISION)?)=(\S+)$", dockerfile, re.M))
+    assert args == {
+        "EMBEDDING_MODEL": DEFAULT_MODEL,
+        "EMBEDDING_MODEL_REVISION": DEFAULT_MODEL_REVISION,
+    }
+    assert re.search(r"^ENV HF_HOME=/\S+$", dockerfile, re.M)  # where the worker reads it
+    bake = re.search(
+        r"SentenceTransformer\('\$EMBEDDING_MODEL', revision='\$EMBEDDING_MODEL_REVISION'",
+        dockerfile,
+    )
+    assert bake is not None
+    assert dockerfile.index("ARG EMBEDDING_MODEL=") < dockerfile.index("COPY basis ./basis")

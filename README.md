@@ -303,7 +303,7 @@ uv run python -m basis.relay
 uv run uvicorn basis.api.main:app --port 8000
 ```
 
-Load the reference corpus with the ingest CLI ([Retrieval and citations](#retrieval-and-citations)). The image is built from [`backEnd/Dockerfile`](backEnd/Dockerfile) with uv from the lockfile; the API is its default command and the worker runs from the same image with `python -m basis.worker`.
+Load the reference corpus with the ingest CLI ([Retrieval and citations](#retrieval-and-citations)). The image is built from [`backEnd/Dockerfile`](backEnd/Dockerfile) with uv from the lockfile and the embedding model baked into its Hugging Face cache at the pinned revision (the worker loads it before it polls, with no download; EVAL_REPORT section 38); the API is its default command and the worker runs from the same image with `python -m basis.worker`.
 
 ---
 
@@ -455,4 +455,5 @@ Basis has been used in paid pilots on the legacy system:
 - [S2_RUNBOOK.md](docs/review_2026-10-15/S2_RUNBOOK.md): run a study locally end to end.
 - [INFRA_NOTES.md](docs/review_2026-10-15/INFRA_NOTES.md): what exists in the cloud project.
 - [docs/api/openapi.json](docs/api/openapi.json): the API contract.
+- [docs/api/WORKFLOW.md](docs/api/WORKFLOW.md): the workflow route, a failed stage (`failed_stage`, `failure`) and the retry.
 - [backEnd/tests/LEDGER.md](backEnd/tests/LEDGER.md): every test file and the invariant it protects.
