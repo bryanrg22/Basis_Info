@@ -44,6 +44,7 @@ from basis.llm.provider import Budget
 from basis.vision import ade20k
 from basis.vision.localize import (
     RESERVE_SECONDS,
+    LocalizeCall,
     LocalizerError,
     ReplicateSam3Localizer,
     build_replicate_localizer,
@@ -71,8 +72,15 @@ class SurfaceSegmenter(Protocol):
     @property
     def name(self) -> str: ...
 
-    async def segment(self, image: Image.Image, *, budget: Budget | None = None) -> SurfaceMasks:
-        """Raise :class:`SegmenterError` on any failure."""
+    async def segment(
+        self,
+        image: Image.Image,
+        *,
+        budget: Budget | None = None,
+        calls: list[LocalizeCall] | None = None,
+    ) -> SurfaceMasks:
+        """Raise :class:`SegmenterError` on any failure. A paid backend appends the billed
+        prediction to ``calls`` when given (the ledger records it)."""
         ...
 
 
@@ -144,7 +152,13 @@ class LocalMask2Former:
             ]
         )
 
-    async def segment(self, image: Image.Image, *, budget: Budget | None = None) -> SurfaceMasks:
+    async def segment(
+        self,
+        image: Image.Image,
+        *,
+        budget: Budget | None = None,
+        calls: list[LocalizeCall] | None = None,
+    ) -> SurfaceMasks:
         try:
             return await asyncio.to_thread(self.segment_sync, image)
         except Exception as exc:  # the model, torch or the weights download
@@ -193,11 +207,24 @@ class ReplicateMask2Former:
     client: ReplicateSam3Localizer
     version: str
 
+    provider: str = "replicate"
+
     @property
     def name(self) -> str:
         return f"replicate:oitoito/mask2former@{self.version[:12]}"
 
-    async def segment(self, image: Image.Image, *, budget: Budget | None = None) -> SurfaceMasks:
+    @property
+    def usd_per_second(self) -> float:
+        """What the ledger prices a predict second at (the client's hardware rate)."""
+        return float(self.client.usd_per_second)
+
+    async def segment(
+        self,
+        image: Image.Image,
+        *,
+        budget: Budget | None = None,
+        calls: list[LocalizeCall] | None = None,
+    ) -> SurfaceMasks:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=90)
         try:
@@ -211,6 +238,8 @@ class ReplicateMask2Former:
         try:
             # The SAM 3 client's create-poll cycle and retries (localize module doc).
             prediction, call = await client._predict(input_, ("mask2former",))
+            if calls is not None:
+                calls.append(call)
             if budget is not None and call.cost_usd > 0:
                 budget.charge(call.cost_usd)
             output = prediction.get("output")

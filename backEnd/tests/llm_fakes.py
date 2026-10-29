@@ -168,7 +168,9 @@ class FakeSegmenter:
     name: str = "fake-segmenter"
     calls: int = 0
 
-    async def segment(self, image: Any, *, budget: Any = None) -> SurfaceMasks:
+    async def segment(
+        self, image: Any, *, budget: Any = None, calls: list[Any] | None = None
+    ) -> SurfaceMasks:
         import numpy as np
 
         self.calls += 1

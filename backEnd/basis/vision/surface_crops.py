@@ -32,6 +32,7 @@ budget guard and account-error stop apply).
 from __future__ import annotations
 
 import io
+import time
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -43,7 +44,7 @@ import numpy.typing as npt
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from basis.llm.call import CallContext, call_model
+from basis.llm.call import CallContext, call_model, step_entry
 from basis.llm.cost import cost_usd
 from basis.llm.errors import (
     ProviderBadResponse,
@@ -53,6 +54,8 @@ from basis.llm.errors import (
 )
 from basis.llm.prompts import Prompt
 from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
+from basis.llm.recorder import KIND_SEGMENTATION, STATUS_ERROR, STATUS_OK
+from basis.vision.localize import LocalizeCall
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import NOTE_MAX, InventoryObject, clip_text
 from basis.vision.schemas import Material
@@ -318,8 +321,10 @@ def build_request(
     study_id: str,
     activity: str,
     effort: str | None,
+    ref: str | None = None,
 ) -> ChatRequest:
-    """The whole photo, then the crop, then the question (closed choice)."""
+    """The whole photo, then the crop, then the question (closed choice). ``ref`` names
+    the photo for the ledger's stored request (the crop is ``<ref>#<surface>``)."""
     images = (
         Message(
             role="user",
@@ -329,6 +334,7 @@ def build_request(
                     media_type="image/jpeg",
                     data_base64=prepare_image(photo).base64,
                     detail="high",
+                    ref=ref,
                 ),
             ),
         ),
@@ -337,7 +343,10 @@ def build_request(
             content=f"Image 2 (the {surface}, cropped and enlarged, the rest greyed out):",
             images=(
                 ImagePart(
-                    media_type="image/jpeg", data_base64=prepare_image(crop).base64, detail="high"
+                    media_type="image/jpeg",
+                    data_base64=prepare_image(crop).base64,
+                    detail="high",
+                    ref=None if ref is None else f"{ref}#{surface}",
                 ),
             ),
         ),
@@ -482,6 +491,7 @@ async def ask_crop(
         study_id=str(ctx.call.study_id),
         activity=ctx.call.activity,
         effort=ctx.reasoning_effort,
+        ref=record.file,
     )
     for attempt in range(1, MAX_ATTEMPTS + 1):
         ctx.heartbeat(f"surface crop {record.file} {surface} attempt {attempt}")
@@ -513,6 +523,38 @@ async def ask_crop(
         return
 
 
+async def record_segmentation(
+    ctx: CropContext,
+    segmenter: SurfaceSegmenter,
+    file: str,
+    billed: list[LocalizeCall],
+    started: float,
+    *,
+    error: str | None = None,
+) -> None:
+    """One ledger row per billed segmenter prediction (a local segmenter bills none);
+    ``started`` is the clock when the segmenter was called (its latency)."""
+    latency_ms = max(0, int((time.perf_counter() - started) * 1000))
+    for call in billed:
+        entry = step_entry(
+            ctx.call.about("photo", file),
+            kind=KIND_SEGMENTATION,
+            provider=str(getattr(segmenter, "provider", "replicate")),
+            model=segmenter.name,
+            quantity=call.predict_seconds,
+            unit="second",
+            unit_price_usd=getattr(segmenter, "usd_per_second", 0.0),
+            cost_usd=call.cost_usd,
+            status=STATUS_OK if error is None else STATUS_ERROR,
+            error=error,
+            latency_ms=latency_ms,
+            response_id=call.prediction_id,
+            params={"prompts": list(call.prompts), "status": call.status},
+            response={"status": call.status, "predict_seconds": call.predict_seconds},
+        )
+        await ctx.call.recorder.record(entry)
+
+
 async def photo_crops(
     file: str, photo: bytes, segmenter: SurfaceSegmenter, ctx: CropContext
 ) -> PhotoCrops:
@@ -526,11 +568,15 @@ async def photo_crops(
         out.errors.append(f"segmenter: unreadable photo: {type(exc).__name__}")
         return out
     ctx.heartbeat(f"surface crops {file}: segmenting")
+    billed: list[LocalizeCall] = []
+    started = time.perf_counter()
     try:
-        masks = await segmenter.segment(image, budget=ctx.call.budget)
+        masks = await segmenter.segment(image, budget=ctx.call.budget, calls=billed)
     except SegmenterError as exc:
         out.errors.append(f"segmenter: {exc}"[:500])
+        await record_segmentation(ctx, segmenter, file, billed, started, error=str(exc))
         return out
+    await record_segmentation(ctx, segmenter, file, billed, started)
     for surface in SURFACES:
         mask = masks.get(surface)
         if mask is None or mask.shape != (image.height, image.width):

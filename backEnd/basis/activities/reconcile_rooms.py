@@ -82,9 +82,9 @@ from temporalio.exceptions import ApplicationError
 
 from basis.activities._model_calls import (
     PROVIDER_NOT_CONFIGURED,
+    call_origin,
     heartbeating,
     provider_failure,
-    run_pk,
 )
 from basis.activities._support import (
     budget_exceeded,
@@ -103,7 +103,6 @@ from basis.llm.call import CallContext
 from basis.llm.errors import ProviderError
 from basis.llm.prompts import Prompt
 from basis.llm.provider import Budget, BudgetExceededError
-from basis.llm.recorder import LlmCallRecorder
 from basis.storage import ObjectNotFound
 from basis.vision import room_step
 from basis.vision import surface_crops as crops
@@ -317,14 +316,10 @@ class ReconcileRooms:
         )
         async with session_scope(self._deps.sessionmaker) as session:
             plan = await plan_rooms(session, study_id, input.revision)
-            run_id = await run_pk(session)
+            origin = await call_origin(session, study_id)
         budget = Budget(remaining_usd=max(input.budget_remaining_usd, 0.0))
-        call = CallContext(
-            study_id=study_id,
-            run_id=run_id,
-            activity=ACTIVITY,
-            budget=budget,
-            recorder=LlmCallRecorder(self._deps.sessionmaker),
+        call = origin.context(
+            study_id, ACTIVITY, budget, self._deps.ledger(), revision=input.revision
         )
         gate = asyncio.Semaphore(settings.photo_concurrency)
 
@@ -383,6 +378,7 @@ class ReconcileRooms:
     ) -> RoomOutcome:
         assert self._deps.llm is not None
         heartbeat(f"room {planned.room.id}")
+        call = call.about("room", planned.room.id)  # every call below is about this room
         photos = []
         originals: list[bytes] = []
         for photo in planned.photos:

@@ -90,6 +90,7 @@ from basis.api.users import (
     CurrentUserDep,
     SessionmakerDep,
     StudyIdPath,
+    get_sessionmaker,
     require_study_access,
     study_access,
 )
@@ -99,6 +100,9 @@ from basis.db.models import Document, PhotoObject, Study
 from basis.db.repositories import DocumentRepository, VisibleStudy
 from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository, counts
 from basis.db.session import SessionDep, session_scope
+from basis.llm.call import CallContext, step_entry
+from basis.llm.provider import Budget
+from basis.llm.recorder import KIND_LOCALIZATION, STATUS_ERROR, STATUS_OK, LlmCallRecorder
 from basis.storage import ObjectNotFound, Storage
 from basis.vision.localize import (
     DEFAULT_PHRASE_SET,
@@ -237,6 +241,61 @@ class PromptOutcome:
     model_version: str | None = None
     predict_seconds: float | None = None
     cost_usd: float | None = None
+
+
+PROMPT_ACTIVITY: Final = "object_prompt"
+
+
+async def record_prompt_spend(
+    request: Request,
+    study_id: uuid.UUID,
+    document_id: uuid.UUID,
+    revision: int,
+    prompted: PromptOutcome,
+) -> None:
+    """The engineer's SAM 3 call in the paid-call ledger (``kind = localization``, activity
+    ``object_prompt``, no run: it is the API's, not the workflow's), so a study's spend
+    includes the manual prompts (EVAL_REPORT section 40)."""
+    if prompted.cost_usd is None and prompted.predict_seconds is None:
+        return
+    localizer: Localizer | None = request.app.state.localizer
+    settings: Settings = request.app.state.settings
+    recorder = LlmCallRecorder(
+        get_sessionmaker(request),
+        storage=request.app.state.storage,
+        bucket=request.app.state.storage_bucket,
+        build_sha=settings.git_sha,
+    )
+    # No budget is reserved here (the engineer's prompt is bounded by the route's timeout
+    # and the localizer's own reserve), so the context carries an empty one.
+    ctx = CallContext(
+        study_id=study_id,
+        run_id=None,
+        activity=PROMPT_ACTIVITY,
+        budget=Budget(remaining_usd=0.0),
+        recorder=recorder,
+        revision=revision,
+        entity_type="photo",
+        entity_id=document_id,
+    )
+    seconds = prompted.predict_seconds or 0.0
+    await recorder.record(
+        step_entry(
+            ctx,
+            kind=KIND_LOCALIZATION,
+            provider=str(getattr(localizer, "provider", "replicate")),
+            model=f"{getattr(localizer, 'model', 'sam3')}@{prompted.model_version}",
+            quantity=seconds,
+            unit="second",
+            unit_price_usd=float(getattr(localizer, "usd_per_second", 0.0) or 0.0),
+            cost_usd=prompted.cost_usd or 0.0,
+            status=STATUS_OK if prompted.status == "done" else STATUS_ERROR,
+            error=prompted.reason if prompted.status == "failed" else None,
+            params=prompted.params,
+            response={"status": prompted.status, "returned": prompted.returned},
+            component=f"{__name__}.prompt_box",
+        )
+    )
 
 
 async def prompt_box(
@@ -528,6 +587,7 @@ async def add_object(
             settings.object_prompt_timeout_s,
         )
         if prompted.status is not None:
+            await record_prompt_spend(request, study_id, document_id, revision, prompted)
             async with session_scope(sessionmaker) as session:
                 record = await PhotoObjectRepository(session).record_prompt(
                     study_id=study_id,

@@ -114,7 +114,9 @@ async def test_every_large_surface_is_asked_once_with_the_photo_and_its_crop() -
 
 async def test_a_surface_under_two_percent_is_not_asked() -> None:
     class Tiny(FakeSegmenter):
-        async def segment(self, image: Any, *, budget: Any = None) -> seg.SurfaceMasks:
+        async def segment(
+            self, image: Any, *, budget: Any = None, calls: Any = None
+        ) -> seg.SurfaceMasks:
             masks = await super().segment(image)
             small = np.zeros_like(masks["floor"])
             small[:2, :2] = True

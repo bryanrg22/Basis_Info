@@ -34,6 +34,7 @@ from basis.llm.cost import (
     IMAGE_TOKENS,
     PRICES,
     THINKING_HEADROOM_TOKENS,
+    cost_decimal,
     cost_usd,
     estimate_usd,
     output_ceiling,
@@ -412,6 +413,38 @@ async def test_cache_tokens_count_as_input_and_thinking_as_output() -> None:
     }
     response = await provider(Server(ok(message(usage=usage)))).complete(request())
     assert (response.usage.input_tokens, response.usage.output_tokens) == (1050, 900)
+
+
+@pytest.mark.regression
+async def test_the_cache_split_is_kept_and_priced_at_the_cache_rates() -> None:
+    """EVAL_REPORT section 40: before the ledger the provider folded the cache tokens into
+    ``input_tokens`` and lost the split, so a cache read was priced as plain input."""
+    usage = {
+        "input_tokens": 1000,
+        "output_tokens": 100,
+        "cache_creation_input_tokens": 200,
+        "cache_read_input_tokens": 4000,
+    }
+    response = await provider(Server(ok(message(usage=usage)))).complete(request())
+    assert response.usage.input_tokens == 5200  # the whole prompt (OpenTelemetry total)
+    assert response.usage.cache_read_input_tokens == 4000
+    assert response.usage.cache_creation_input_tokens == 200
+    assert response.usage.uncached_input_tokens == 1000
+    # 1,000 x $4 + 200 x $5 + 4,000 x $0.20 + 100 x $20 per million
+    assert cost_decimal("claude-opus-5-5", response.usage) == Decimal("0.007800")
+    folded = Usage(input_tokens=5200, output_tokens=100)  # what the fold charged
+    assert cost_decimal("claude-opus-5-5", folded) == Decimal("0.022800")
+
+
+async def test_the_response_carries_its_identity_and_the_sent_parameters() -> None:
+    response = await provider(Server(ok(message()))).complete(request())
+    assert response.response_id == message()["id"]
+    assert response.finish_reason == "end_turn"
+    assert response.endpoint is not None and response.endpoint.startswith(BASE)
+    params = response.request_params
+    assert params["reasoning_effort"] == "low" and params["temperature"] is None
+    assert params["max_output_tokens"] == request().max_tokens + THINKING_HEADROOM_TOKENS
+    assert params["response_format"] == "Answer" and params["image_count"] == 0
 
 
 async def test_missing_usage_is_recorded_as_zero() -> None:

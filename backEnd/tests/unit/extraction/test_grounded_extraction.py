@@ -184,7 +184,18 @@ async def test_the_grounded_reading_is_one_checked_call_on_the_configured_model(
     assert result.raw["azure_di"]["pages"] and result.raw["method"] == result.method
     # A model value is a suggestion: critical fields at 0.6 send the extraction to review.
     assert result.needs_review
-    assert [r.activity for r in ctx.call.recorder.records] == ["extract_fields"]  # type: ignore[attr-defined]
+    records = ctx.call.recorder.records  # type: ignore[attr-defined]
+    # The ledger: the Azure DI analysis (per page) and the one grounded call, both this
+    # activity's (EVAL_REPORT section 40).
+    assert [(r.kind, r.activity) for r in records] == [
+        ("document_analysis", "extract_fields"),
+        ("chat", "extract_fields"),
+    ]
+    pages, call = records
+    assert pages.entry.unit == "page" and pages.entry.quantity == len(
+        result.raw["azure_di"]["pages"]
+    )
+    assert call.request_uri is not None and call.response_uri is not None
 
 
 async def test_a_uad36_report_is_asked_only_its_keys_and_not_required_the_others() -> None:

@@ -13,6 +13,7 @@ component JSON or a tool result), never in the system prompt or as a tool defini
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 from behavior_support import (
@@ -81,8 +82,9 @@ async def test_injected_document_and_caption_change_nothing() -> None:
     clean, clean_provider = await run(CLEAN_APPRAISAL, notes="kitchen photo")
     dirty, dirty_provider = await run(INJECTED_APPRAISAL, notes=f"kitchen photo. {PHOTO_CAPTION}")
 
-    # Same output: classification, citations, review state.
-    assert dirty == clean
+    # Same output: classification, citations, review state. The tool traces are compared
+    # by signature below: the injected chunk is longer, so its bytes and timing differ.
+    assert dataclasses.replace(dirty, tool_calls=()) == dataclasses.replace(clean, tool_calls=())
     assert clean.needs_review is False
     assert [c.chunk_id for c in dirty.citations] == [STRUCTURAL_CHUNK]
     # Same tool calls executed, none refused, none added by the pipeline.

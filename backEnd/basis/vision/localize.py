@@ -145,7 +145,17 @@ class LocalizerUnavailable(LocalizerError):
 
 
 class LocalizerBadResponse(LocalizerError):
-    """The prediction failed, was canceled, or its output cannot be read."""
+    """The prediction failed, was canceled, or its output cannot be read.
+
+    ``call`` is the prediction's :class:`LocalizeCall` when one ran and was billed (a
+    failed Replicate prediction still has predict time), so the ledger can record it.
+    """
+
+    def __init__(
+        self, message: str, *, status: int | None = None, call: LocalizeCall | None = None
+    ) -> None:
+        super().__init__(message, status=status)
+        self.call = call
 
 
 # --------------------------------------------------------------------------- geometry
@@ -921,6 +931,9 @@ class ReplicateSam3Localizer:
     budget: Budget | None = None
     usd_per_second: float = L40S_USD_PER_SECOND
     api: str = REPLICATE_API
+    # The ledger's provider name and model (``vufinder/sam3`` by version id).
+    provider: str = "replicate"
+    model: str = "vufinder/sam3"
     poll_interval_s: float = POLL_INTERVAL_S
     deadline_s: float = PREDICTION_DEADLINE_S
     prefer_wait_s: int = PREFER_WAIT_S
@@ -1022,7 +1035,8 @@ class ReplicateSam3Localizer:
             self.budget.charge(cost)
         if status != "succeeded":
             raise LocalizerBadResponse(
-                f"prediction {prediction.get('id')} {status}: {str(prediction.get('error'))[:300]}"
+                f"prediction {prediction.get('id')} {status}: {str(prediction.get('error'))[:300]}",
+                call=call,
             )
         return prediction, call
 
@@ -1116,6 +1130,9 @@ class CogSam3Localizer:
     token_source: Callable[[], Awaitable[str | None]] | None = field(default=None, repr=False)
     concurrency: int = 4
     usd_per_second: float = CLOUD_RUN_L4_USD_PER_SECOND
+    # The ledger's provider name (a self-hosted Cog server) and model.
+    provider: str = "cog"
+    model: str = "sam3"
     compact: bool = True
     retry_delays: tuple[float, ...] | None = None
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
@@ -1162,7 +1179,9 @@ class CogSam3Localizer:
             status=status,
         )
         if status != "succeeded":
-            raise LocalizerBadResponse(f"prediction {status}: {str(prediction.get('error'))[:300]}")
+            raise LocalizerBadResponse(
+                f"prediction {status}: {str(prediction.get('error'))[:300]}", call=call
+            )
         output = prediction.get("output") or {}
         uris = output.get("results") if isinstance(output, Mapping) else None
         if not isinstance(uris, list) or not uris:
@@ -1464,6 +1483,10 @@ class FakeLocalizer:
         field(default_factory=dict)
     )
     seconds_per_call: float = 0.0
+    provider: str = "fake"
+    model: str = "fake-sam3"
+    version: str = "fake"
+    usd_per_second: float = L40S_USD_PER_SECOND
     calls: list[tuple[str, tuple[str, ...], float]] = field(default_factory=list)
     prompted: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 

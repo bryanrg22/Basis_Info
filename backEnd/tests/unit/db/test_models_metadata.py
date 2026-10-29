@@ -72,7 +72,15 @@ SPEC_TABLES = {
     "activity_results": "id run_id activity idempotency_key status output_ref error "
     "created_at updated_at",
     "llm_calls": "id study_id run_id activity provider model prompt_version input_tokens "
-    "output_tokens cost_usd latency_ms created_at",
+    "output_tokens cost_usd latency_ms created_at "
+    # The ledger (migration 0012_call_ledger, EVAL_REPORT section 40).
+    "kind status error stage revision activity_attempt component prompt_name prompt_sha256 "
+    "build_sha entity_type entity_id requested_model endpoint response_id request_id "
+    "finish_reason reasoning_effort max_output_tokens temperature response_format "
+    "image_count image_bytes request_params cache_read_input_tokens "
+    "cache_creation_input_tokens reasoning_output_tokens quantity unit unit_price_usd "
+    "price_row pricing_version elapsed_ms request_uri request_sha256 response_uri "
+    "response_sha256",
     "classification_cache": "key result hits source rules_version created_at updated_at",
     "idempotency_keys": "key user_id route request_hash status_code response created_at expires_at",
     # S2: ``status`` added by migration 0002_outbox_status (tests/unit/db/test_outbox_status.py).
@@ -269,7 +277,8 @@ SPEC_NOT_NULL = {
     "corrections": "entity_type entity_id revision after reviewer_id",
     "runs": "workflow_id run_id workflow_version input_revision",
     "activity_results": "activity idempotency_key status",
-    "llm_calls": "provider model input_tokens output_tokens cost_usd",
+    "llm_calls": "provider model input_tokens output_tokens cost_usd kind status "
+    "cache_read_input_tokens cache_creation_input_tokens reasoning_output_tokens",
     "classification_cache": "result hits source rules_version",
     "idempotency_keys": "route request_hash expires_at",
     "outbox": "kind payload status attempts next_attempt_at",
@@ -519,8 +528,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
         if isinstance(c.type, JSONB)
     ]
     # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
-    # manual add: object_prompts.params; v0.13: extraction_fields.regions
-    assert len(jsonb) == 18
+    # manual add: object_prompts.params; v0.13: extraction_fields.regions; the ledger
+    # (0012): llm_calls.request_params
+    assert len(jsonb) == 19
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

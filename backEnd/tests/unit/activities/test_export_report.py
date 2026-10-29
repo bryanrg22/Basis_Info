@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from decimal import Decimal
 
 import pytest
 from lifecycletest_support import SeededStudy
@@ -82,6 +83,23 @@ async def test_writes_the_revision_as_canonical_json(
         assert {"bucket", "recovery_period", "quantity", "unit", "total", "citations"} <= set(asset)
     assert document["summary"]["assets"] == 6
     assert set(document["evidence"]) == {"by_stage", "by_component", "by_document"}
+    # The spend (EVAL_REPORT section 40): the rollup in the summary, the transcript beside.
+    spend = document["summary"]["spend"]
+    assert set(spend) == {"total", "by_stage", "by_activity", "by_component", "by_model", "by_kind"}
+    assert spend["total"]["calls"] >= 3 and Decimal(spend["total"]["cost_usd"]) > 0
+    assert {g["key"] for g in spend["by_kind"]} == {"chat", "document_analysis"}
+    assert sum(Decimal(g["cost_usd"]) for g in spend["by_activity"]) == Decimal(
+        spend["total"]["cost_usd"]
+    )
+    calls_file = document["files"]["calls_jsonl"]
+    assert calls_file["uri"] == output.export_uri.replace(".json", ".calls.jsonl")
+    calls_bytes = await deps.storage.read(calls_file["uri"])
+    assert hashlib.sha256(calls_bytes).hexdigest() == calls_file["sha256"]
+    lines = [json.loads(line) for line in calls_bytes.decode().splitlines()]
+    assert len(lines) == spend["total"]["calls"]
+    chat = next(line for line in lines if line["kind"] == "chat")
+    assert chat["request"]["system"] and chat["response"]["usage"]["input_tokens"] >= 0
+    assert {"model", "temperature", "reasoning_effort", "cost_usd", "input_tokens"} <= set(chat)
     csv_file = document["files"]["assets_csv"]
     assert csv_file["uri"] == output.export_uri.replace(".json", ".assets.csv")
     csv_bytes = await deps.storage.read(csv_file["uri"])

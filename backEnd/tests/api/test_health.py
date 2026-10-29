@@ -146,6 +146,9 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         # basis and land allocation (tests/api/test_studies.py, test_result.py)
         "PUT /v1/studies/{study_id}/intake",
         "GET /v1/studies/{study_id}/result",
+        # the paid-call ledger (tests/api/test_spend.py)
+        "GET /v1/studies/{study_id}/spend",
+        "GET /v1/studies/{study_id}/calls",
         # invite-only firms (tests/api/test_firms.py)
         "GET /v1/me",
         "GET /v1/orgs/{org_id}/members",

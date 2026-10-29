@@ -283,7 +283,9 @@ def render_pages(pdf: bytes, numbers: Sequence[int], dpi: int) -> list[ImagePart
     white and grey keeps the request small. Deterministic for a given pymupdf version (the
     request hash covers the bytes, so a pymupdf upgrade can need a new live recording)."""
     return [
-        ImagePart(media_type="image/png", data_base64=_render(pdf, n, dpi), detail="high")
+        ImagePart(
+            media_type="image/png", data_base64=_render(pdf, n, dpi), detail="high", ref=f"page {n}"
+        )
         for n in numbers
     ]
 

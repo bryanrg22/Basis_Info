@@ -95,7 +95,7 @@ from basis.llm.errors import (
     classify_rejection,
     is_retryable_status,
 )
-from basis.llm.provider import ChatRequest, ChatResponse, Message, ToolCall, Usage
+from basis.llm.provider import ChatRequest, ChatResponse, Message, ToolCall, Usage, request_params
 
 logger = logging.getLogger("basis.llm.anthropic")
 
@@ -245,19 +245,37 @@ def build_request_body(request: ChatRequest, *, effort: str = "low") -> dict[str
 
 
 def _usage(message: Any) -> Usage:
+    """The message's usage, field by field as the API reports it. Anthropic's
+    ``input_tokens`` is the uncached part alone, beside ``cache_creation_input_tokens`` and
+    ``cache_read_input_tokens``; the ledger's ``input_tokens`` is the whole prompt (the
+    OpenTelemetry total), so the three are summed there and kept apart in the split, each
+    priced at its own rate (:mod:`basis.llm.cost`). ``output_tokens`` includes the thinking
+    tokens; the API does not report them separately."""
     usage = getattr(message, "usage", None)
     if usage is None:
         logger.warning("message has no usage; recording zero tokens")
         return Usage(input_tokens=0, output_tokens=0)
-    # Cache tokens are billed at other rates, but nothing here asks for caching; counting
-    # them as plain input keeps the number conservative if the API ever reports some.
-    input_tokens = (
-        int(getattr(usage, "input_tokens", 0) or 0)
-        + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
-        + int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+    uncached = int(getattr(usage, "input_tokens", 0) or 0)
+    written = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+    return Usage(
+        input_tokens=uncached + written + read,
+        output_tokens=int(usage.output_tokens or 0),
+        cache_read_input_tokens=read,
+        cache_creation_input_tokens=written,
     )
-    # output_tokens includes the thinking tokens (billed as output).
-    return Usage(input_tokens=input_tokens, output_tokens=int(usage.output_tokens or 0))
+
+
+def sent_params(request: ChatRequest, body: dict[str, Any]) -> dict[str, Any]:
+    """The request parameters as the body sends them (``gen_ai.request.*``): the wire
+    ``max_tokens`` (answer budget plus thinking headroom), the effort in effect, no
+    temperature (not sent to these models)."""
+    return request_params(
+        request,
+        max_output_tokens=int(body["max_tokens"]),
+        reasoning_effort=str(body["output_config"]["effort"]),
+        temperature=None,
+    )
 
 
 def _tool_calls(content: list[Any]) -> tuple[ToolCall, ...]:
@@ -274,18 +292,38 @@ def _tool_calls(content: list[Any]) -> tuple[ToolCall, ...]:
 
 
 def parse_message(
-    message: Any, request: ChatRequest, *, provider: str, latency_ms: int
+    message: Any,
+    request: ChatRequest,
+    *,
+    provider: str,
+    latency_ms: int,
+    endpoint: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> ChatResponse:
-    """Turn an SDK ``Message`` into a :class:`ChatResponse` (or a bad-response error)."""
+    """Turn an SDK ``Message`` into a :class:`ChatResponse` (or a bad-response error).
+
+    ``endpoint`` and ``params`` (where and with what the request was sent) ride along for
+    the ledger, on the response and on a bad-response error alike.
+    """
     usage = _usage(message)
     model = str(getattr(message, "model", None) or request.model)
     raw: dict[str, Any] = message.model_dump(mode="json")
+    stop_reason = getattr(message, "stop_reason", None)
+    ledger: dict[str, Any] = {
+        "response_id": _text(getattr(message, "id", None)),
+        "request_id": _text(getattr(message, "_request_id", None)),
+        "finish_reason": _text(stop_reason),
+        "endpoint": endpoint,
+        "request_params": params,
+        "latency_ms": latency_ms,
+    }
 
     def bad(text: str) -> ProviderBadResponse:
-        return ProviderBadResponse(text, provider=provider, usage=usage, model=model, raw=raw)
+        return ProviderBadResponse(
+            text, provider=provider, usage=usage, model=model, raw=raw, **ledger
+        )
 
     content = list(message.content or ())
-    stop_reason = getattr(message, "stop_reason", None)
     if stop_reason == "refusal":
         details = getattr(message, "stop_details", None)
         category = getattr(details, "category", None) or "unspecified"
@@ -312,7 +350,16 @@ def parse_message(
         provider=provider,
         latency_ms=latency_ms,
         raw=raw,
+        response_id=ledger["response_id"],
+        request_id=ledger["request_id"],
+        finish_reason=ledger["finish_reason"],
+        endpoint=endpoint,
+        request_params=params or {},
     )
+
+
+def _text(value: object) -> str | None:
+    return None if value is None else str(value)
 
 
 def _retry_after(exc: anthropic.APIStatusError) -> float | None:
@@ -426,6 +473,7 @@ class AnthropicProvider:
                 f"{self.name} does not serve model {request.model!r}", provider=self.name
             )
         body = build_request_body(request, effort=self.effort)
+        params = sent_params(request, body)
         for attempt in (1, 2):
             started = self._clock()
             try:
@@ -442,8 +490,21 @@ class AnthropicProvider:
                     continue
                 raise error from exc
             latency_ms = max(0, int((self._clock() - started) * 1000))
-            return parse_message(message, request, provider=self.name, latency_ms=latency_ms)
+            return parse_message(
+                message,
+                request,
+                provider=self.name,
+                latency_ms=latency_ms,
+                endpoint=self.endpoint,
+                params=params,
+            )
         raise AssertionError("unreachable")  # pragma: no cover
+
+    @property
+    def endpoint(self) -> str | None:
+        """Where requests go (``server.address`` of the ledger): the client's base URL."""
+        base = getattr(self._client, "base_url", None)
+        return None if base is None else str(base)
 
     @classmethod
     def from_settings(

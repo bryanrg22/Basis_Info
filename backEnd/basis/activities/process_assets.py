@@ -43,7 +43,8 @@ revision with no intake and no extraction fields writes exactly what it wrote be
 4. cross-validate classification, takeoff and cost; warnings and errors set
    ``needs_review`` and every reason is kept in ``review_reason``;
 5. write ``assets``, ``takeoffs``, ``cost_estimates``, ``citations`` (verified ones only)
-   and one ``llm_calls`` row per model call, all in the activity's one transaction.
+   in the activity's one transaction (each model call's ``llm_calls`` row was written by
+   the ledger as the call returned, EVAL_REPORT section 40).
 
 Step 1 runs with no database connection held: the revision is read in a short session
 first, the model calls run, then steps 2 to 5 are written and the activity key completed
@@ -85,31 +86,28 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
-from basis.activities._model_calls import provider_failure
+from basis.activities._model_calls import call_origin, provider_failure
 from basis.activities._support import (
     budget_exceeded,
     heartbeat,
     parse_uuid,
     run_once,
     validation_error,
-    workflow_execution,
 )
 from basis.activities.apply_corrections import CARRIED_FROM
 from basis.activities.corrections import check_asset, parse_bucket, parse_recovery_period
 from basis.activities.deps import Deps
 from basis.classify.cache import ClassificationCacheRepository, cache_key
-from basis.classify.residual import CallRecord
 from basis.classify.router import ClassificationResult, ClassifyContext, classify, route
 from basis.classify.schemas import ComponentView
 from basis.classify.verify import VerifiedCitation
 from basis.config import Settings
 from basis.db.enums import ClassificationMethod, Corpus
-from basis.db.models import Asset, Component, CorpusVersion, LlmCall, Room
+from basis.db.models import Asset, Component, CorpusVersion, Room
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
-from basis.db.repositories.run import RunRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
 from basis.domain.cost_table import CostTable, cost_table_for
@@ -259,10 +257,12 @@ async def _prepare(
     cache_repo = ClassificationCacheRepository(session)
     reference_version, study_version = await corpus_versions(session, study_id)
     budget = Budget(remaining_usd=max(input.budget_remaining_usd, 0.0))
+    origin = await call_origin(session, study_id)
     ctx = ClassifyContext(
         study_id=str(study_id),
         property_class=property_class,
         budget=budget,
+        call=origin.context(study_id, ACTIVITY, budget, deps.ledger(), revision=input.revision),
         store=deps.chunk_store,
         reference_version_id=reference_version,
         study_version_id=study_version,
@@ -339,7 +339,6 @@ async def _write(
     )
     measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
-    calls: list[CallRecord] = []
     needs_review = 0
     for component in components:
         heartbeat(str(component.id))
@@ -352,7 +351,6 @@ async def _write(
             citations: tuple[VerifiedCitation, ...] = ()
         else:
             result = results[component.id]
-            calls.extend(result.calls)
             if result.cache_key is not None:
                 cache_hits[result.cache_key] += 1
             asset = await _write_classified(assets, component, input.revision, result)
@@ -413,7 +411,6 @@ async def _write(
         needs_review += asset.needs_review
     await session.flush()
     await cache_repo.record_hits(cache_hits)
-    await _record_calls(session, study_id, calls)
     return ProcessAssetsOutput(
         assets=len(components), needs_review=needs_review, cost_usd=round(budget.spent_usd, 6)
     )
@@ -759,31 +756,6 @@ def _source_row(takeoff: Takeoff, cost: CostEstimate | None) -> str:
     if cost is not None:
         return cost.source_row
     return f"missing: no cost row for {takeoff.component!r} per {takeoff.unit}"
-
-
-async def _record_calls(
-    session: AsyncSession, study_id: uuid.UUID, calls: list[CallRecord]
-) -> None:
-    if not calls:
-        return
-    workflow_id, run_id = workflow_execution()
-    run = await RunRepository(session).get_by_execution(workflow_id, run_id)
-    for c in calls:
-        session.add(
-            LlmCall(
-                study_id=study_id,
-                run_id=None if run is None else run.id,
-                activity=ACTIVITY,
-                provider=c.provider,
-                model=c.model,
-                prompt_version=c.prompt_version,
-                input_tokens=c.input_tokens,
-                output_tokens=c.output_tokens,
-                cost_usd=Decimal(str(round(c.cost_usd, 6))),
-                latency_ms=c.latency_ms,
-            )
-        )
-    await session.flush()
 
 
 async def _overrides(
