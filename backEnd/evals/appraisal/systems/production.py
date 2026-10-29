@@ -1,10 +1,20 @@
-"""``production`` (today's pipeline, unchanged) and ``checkbox_context`` (its minimal fix).
+"""``production`` (the ``extract_fields`` activity's path as configured), ``pipeline`` (the
+pipeline method, before EVAL_REPORT section 33) and ``checkbox_context`` (the pipeline's
+minimal fix).
 
 ``production`` calls :func:`basis.extraction.pipeline.extract_appraisal` exactly as the
-``extract_fields`` activity does; its regions are the pipeline's own (each field's highlight
-box, :mod:`basis.extraction.regions`).
+``extract_fields`` activity does, with the method the extraction settings name
+(``EXTRACTION_METHOD``; ``grounded``, the default since section 33.5, reads the fields in one
+grounded call on ``EXTRACTION_GROUNDED_MODEL``, :mod:`basis.extraction.grounded`, and falls
+back to the pipeline on the same analysis when it cannot run). ``--model`` / ``--effort`` /
+``--max-tokens``, when ``--model`` is given, choose the grounded model instead of
+``EXTRACTION_GROUNDED_*``. ``pipeline`` is the same call with the method forced to
+``pipeline``: Azure DI, the text layer, one ``TEXT_MODEL`` fallback call; what the regression
+baseline (``baseline.json``) and the sweep's other pipeline-based systems measure. Their
+regions are the pipeline's own (each field's highlight box, :mod:`basis.extraction.regions`)
+or, for the grounded reading, its quote's box.
 
-``checkbox_context`` is the same pipeline with two context hooks
+``checkbox_context`` is the pipeline with two context hooks
 (:class:`~basis.extraction.pipeline.ExtractionContext` ``fallback_pages`` and
 ``always_ask``), aimed at the dominant measured defect: the fallback model was given Azure DI's
 page *lines*, which carry no ``:selected:`` marks, so it read the free text beside a box
@@ -15,8 +25,6 @@ page *lines*, which carry no ``:selected:`` marks, so it read the free text besi
 pairs: foundation "Walls"), and the prompt ``appraisal_field_fallback_marks`` explains the
 marks. Everything else (the verbatim guard,
 the 0.6 confidence cap of a model value, the review gate) is production's.
-
-Regions for both: the pipeline's (:func:`result_regions`).
 """
 
 from __future__ import annotations
@@ -27,8 +35,9 @@ from typing import Any, Final
 from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.fallback import PROMPT_NAME
 from basis.extraction.geometry import has_geometry, layout_of
+from basis.extraction.grounded import GroundedModel
 from basis.extraction.marks import labelled_texts
-from basis.extraction.pipeline import ExtractionContext, extract_appraisal
+from basis.extraction.pipeline import ExtractionContext, ExtractionMethod, extract_appraisal
 from basis.extraction.regions import region_json
 from basis.extraction.results import ExtractionResult
 from basis.llm import prompts
@@ -61,12 +70,27 @@ def production_context(
     *,
     model: ModelChoice | None = None,
     prompt_name: str = PROMPT_NAME,
+    method: ExtractionMethod | None = None,
+    grounded: ModelChoice | None = None,
 ) -> ExtractionContext:
     """The context the ``extract_fields`` activity builds, from the recorded settings
-    (``--model``/``--effort`` override the text model and its effort)."""
+    (``model``: ``--model``/``--effort`` override the text model and its effort; ``grounded``
+    with a model: the grounded model, effort and output budget; ``method``: forced instead of
+    the settings')."""
     settings = env.extraction
     text_model = model.model if model is not None and model.model else settings.text_model
     effort = model.effort if model is not None and model.effort else settings.reasoning_effort
+    if grounded is not None and grounded.model:
+        reader = GroundedModel(grounded.model, grounded.effort, grounded.max_tokens)
+    else:
+        reader = GroundedModel(
+            settings.grounded_model,
+            settings.grounded_reasoning_effort,
+            settings.grounded_max_tokens,
+        )
+    chosen = method or settings.method
+    if chosen not in ("grounded", "pipeline"):
+        raise ValueError(f"unknown extraction method {chosen!r} in the extraction settings")
     return ExtractionContext(
         call=env.call,
         provider=env.provider,
@@ -78,15 +102,31 @@ def production_context(
         fallback_reasoning_effort=effort,
         fallback_scope="missing" if settings.fallback_scope == "missing" else "critical",
         fallback_context_chars=settings.context_chars,
+        method="grounded" if chosen == "grounded" else "pipeline",
+        grounded=reader,
     )
 
 
 class Production:
-    name = "production"
+    """``production`` (``method=None``: the settings' method) or ``pipeline``."""
+
+    def __init__(
+        self, method: ExtractionMethod | None = None, model: ModelChoice | None = None
+    ) -> None:
+        self.method = method
+        self.model = model
+        self.name = "pipeline" if method == "pipeline" else "production"
 
     async def run(self, env: SystemEnv) -> SystemOutput:
-        result = await extract_appraisal(env.pdf, env.doc_id, production_context(env))
-        return SystemOutput(result=result, regions=result_regions(result))
+        ctx = production_context(env, method=self.method, grounded=self.model)
+        result = await extract_appraisal(env.pdf, env.doc_id, ctx)
+        quotes = result.raw.get("grounded", {}).get("quotes") or {}
+        return SystemOutput(result=result, regions=result_regions(result), quotes=dict(quotes))
+
+
+def pipeline() -> Production:
+    """Today's pipeline before section 33 (the regression baseline's system)."""
+    return Production("pipeline")
 
 
 class CheckboxContext:
@@ -96,7 +136,7 @@ class CheckboxContext:
         self.model = model
 
     async def run(self, env: SystemEnv) -> SystemOutput:
-        ctx = production_context(env, model=self.model, prompt_name=MARKS_PROMPT)
+        ctx = production_context(env, model=self.model, prompt_name=MARKS_PROMPT, method="pipeline")
 
         def pages_with_marks(azure: AzureDiResult) -> Sequence[str]:
             if not has_geometry(azure):  # no geometry: production's lines (and say so)

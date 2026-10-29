@@ -67,9 +67,20 @@ class MissingInput(RuntimeError):
     """A system cannot run on this document (a missing input it needs)."""
 
 
+_GROUNDED_DEFAULTS: Final = {
+    name: Settings.model_fields[f"extraction_grounded_{name}"].default
+    for name in ("model", "reasoning_effort", "max_tokens")
+}
+
+
 @dataclass(frozen=True)
 class ExtractionSettings:
-    """The production settings that shape the extraction (what ``context.json`` records)."""
+    """The production settings that shape the extraction (what ``context.json`` records).
+
+    ``method``: ``EXTRACTION_METHOD``; ``grounded_*``: the ``EXTRACTION_GROUNDED_*`` model of
+    the grounded reading. A context recorded before those settings existed (every recording
+    of the pipeline sweep) replays with the current values of the keys it lacks
+    (:meth:`from_json`); a value built without them is the pipeline."""
 
     text_model: str
     reasoning_effort: str | None
@@ -77,6 +88,10 @@ class ExtractionSettings:
     fallback_scope: str
     context_chars: int
     review_threshold: float
+    method: str = "pipeline"
+    grounded_model: str = _GROUNDED_DEFAULTS["model"]
+    grounded_reasoning_effort: str | None = _GROUNDED_DEFAULTS["reasoning_effort"]
+    grounded_max_tokens: int = _GROUNDED_DEFAULTS["max_tokens"]
 
     @classmethod
     def from_settings(cls, settings: Settings) -> ExtractionSettings:
@@ -87,17 +102,29 @@ class ExtractionSettings:
             fallback_scope=settings.extraction_fallback_scope,
             context_chars=settings.extraction_fallback_context_chars,
             review_threshold=settings.extraction_review_threshold,
+            method=settings.extraction_method,
+            grounded_model=settings.extraction_grounded_model,
+            grounded_reasoning_effort=settings.extraction_grounded_reasoning_effort,
+            grounded_max_tokens=settings.extraction_grounded_max_tokens,
         )
 
     @classmethod
-    def from_json(cls, data: Mapping[str, Any], review_threshold: float) -> ExtractionSettings:
+    def from_json(cls, data: Mapping[str, Any], current: ExtractionSettings) -> ExtractionSettings:
+        """The recorded context; the review threshold, and any key the recording predates,
+        from ``current``."""
         return cls(
             text_model=str(data["text_model"]),
             reasoning_effort=data.get("reasoning_effort"),
             output_budget=int(data["output_budget"]),
             fallback_scope=str(data["fallback_scope"]),
             context_chars=int(data["context_chars"]),
-            review_threshold=review_threshold,
+            review_threshold=current.review_threshold,
+            method=str(data.get("method", current.method)),
+            grounded_model=str(data.get("grounded_model", current.grounded_model)),
+            grounded_reasoning_effort=data.get(
+                "grounded_reasoning_effort", current.grounded_reasoning_effort
+            ),
+            grounded_max_tokens=int(data.get("grounded_max_tokens", current.grounded_max_tokens)),
         )
 
 

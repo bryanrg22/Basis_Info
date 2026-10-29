@@ -57,7 +57,7 @@ from evals.appraisal.systems.base import (
     same_value,
 )
 from evals.appraisal.systems.layout import Box, Layout, box_of, from_raw, locate, region
-from evals.appraisal.systems.production import Production, result_regions
+from evals.appraisal.systems.production import pipeline, result_regions
 
 DISAGREE_CONFIDENCE: Final = 0.5
 
@@ -415,7 +415,7 @@ class ProductionPlus1004:
     name = "production_plus_1004"
 
     async def run(self, env: SystemEnv) -> SystemOutput:
-        base = await Production().run(env)
+        base = await pipeline().run(env)
         raw = await env.sources.mortgage(env.pdf)
         mortgage, mortgage_regions, dropped = map_1004(raw)
         merged, origins, disagreements = merge_1004(base.result.fields, mortgage)

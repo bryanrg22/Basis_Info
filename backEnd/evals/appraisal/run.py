@@ -4,12 +4,13 @@
 (``SPEC.md`` §7). Writes ``BASIS_EVAL_DATA_DIR/appraisal/runs/<id>/`` (or ``--out``):
 ``predictions.json``, ``score.json``, ``report.md``, ``run.json``.
 
-* **live**: the system with the configured clients. For ``production``,
+* **live**: the system with the configured clients. For ``production`` and ``pipeline``,
   :func:`basis.extraction.pipeline.extract_appraisal` with the context the ``extract_fields``
-  activity builds (``TEXT_MODEL``, ``EXTRACTION_REVIEW_THRESHOLD``,
-  ``EXTRACTION_OUTPUT_BUDGET``/``_REASONING_EFFORT``/``_FALLBACK_SCOPE``/
-  ``_FALLBACK_CONTEXT_CHARS``, the latest ``appraisal_field_fallback`` prompt), the
-  configured Azure DI client and the provider pool. Differences from the activity: the
+  activity builds (``EXTRACTION_METHOD``, forced to ``pipeline`` by ``pipeline``;
+  ``EXTRACTION_GROUNDED_MODEL``/``_REASONING_EFFORT``/``_MAX_TOKENS``; ``TEXT_MODEL``,
+  ``EXTRACTION_REVIEW_THRESHOLD``, ``EXTRACTION_OUTPUT_BUDGET``/``_REASONING_EFFORT``/
+  ``_FALLBACK_SCOPE``/``_FALLBACK_CONTEXT_CHARS``, the latest prompts), the configured Azure DI
+  client and the provider pool. Differences from the activity: the
   budget is ``--budget-usd`` per document (default $1) instead of the study's, calls are
   recorded in memory (:class:`~basis.llm.recorder.MemoryRecorder`) instead of
   ``llm_calls``, and there is no earlier revision to reuse. The Azure DI analyses and
@@ -18,21 +19,27 @@
   model cost.
 * **replay**: no network. Azure DI and the model answers come from the recordings; the
   production-based systems use the extraction settings the recording was made with
-  (``context.json``); the review threshold is the current setting. A missing recording fails
-  that document with ``missing_recording`` and the run continues.
+  (``context.json``; a key the recording predates, such as ``method`` and the grounded model,
+  takes its current setting); the review threshold is the current setting. A missing
+  recording fails that document with ``missing_recording`` and the run continues.
 
 Systems (``--system``, default ``production``; designs in :mod:`evals.appraisal.systems`):
-``production``, ``azure_1004``, ``production_plus_1004``, ``checkbox_context``, ``llm_all``,
+``production`` (the activity's path as configured: the grounded reading by default;
+``--model``/``--effort``/``--max-tokens`` choose its grounded model), ``pipeline`` (the
+pipeline method, the regression baseline's system), ``azure_1004``, ``production_plus_1004``,
+``checkbox_context``, ``llm_all``,
 ``llm_pages``, ``llm_sections`` (``--with-images``), ``validate_reask`` (``--base``,
 ``--base-model``), ``vote`` (``--voters system@model[@effort],system@model[@effort]``),
 ``mismo_xml`` (the UAD 3.6 XML beside the PDF; no model).
 ``--model``/``--effort``/``--max-tokens`` choose the model of the model systems (for
 ``checkbox_context`` they override ``TEXT_MODEL``); ``--dpi``/``--min-page-words`` the page
 images. A document's analyses (Azure DI layout, the 1004 model) run once per run, whatever
-the system and its voters ask. Ablations of ``production``: ``--no-azure`` (text layer and
-the model only), ``--azure-only`` (no model fallback). ``--accept-baseline`` writes
-``appraisal/baseline.json`` from this run. A set whose truth file does not exist yet is
-skipped with a message. Exit status 1 when a document failed or a baseline field regressed.
+the system and its voters ask. Ablations of ``production`` / ``pipeline``: ``--no-azure``
+(text layer and the model only), ``--azure-only`` (no model call). ``--accept-baseline``
+writes ``appraisal/baseline.json`` from this run (``--baseline`` names another file:
+``baseline.json`` is the ``pipeline`` system's, SPEC §9). A set whose truth file does not
+exist yet is skipped with a message. Exit status 1 when a document failed or a baseline field
+regressed.
 """
 
 from __future__ import annotations
@@ -112,6 +119,7 @@ class Options:
     budget_usd: float = DEFAULT_BUDGET_USD
     data_dir: Path | None = None
     system: SystemSpec = field(default_factory=SystemSpec)
+    baseline: str = baseline.FILE  # under appraisal/: the file compared with and accepted
 
 
 @dataclass
@@ -324,9 +332,7 @@ async def predict_document(
     else:
         recorded = recordings.read_context(directory) if production_settings else None
         extraction = (
-            ExtractionSettings.from_json(recorded, current.review_threshold)
-            if recorded is not None
-            else current
+            ExtractionSettings.from_json(recorded, current) if recorded is not None else current
         )
     entry["context"] = asdict(extraction)
     system = build_system(options.system)
@@ -534,6 +540,7 @@ async def run_eval(
         "prompt_version": prompts.latest(PROMPT_NAME).version_id,
         "prompt_versions": sorted({r.prompt_version or "" for r in state.recorder.records} - {""}),
         "budget_usd_per_document": options.budget_usd,
+        "baseline": options.baseline,
         "models": sorted({r.model for r in state.recorder.records}),
         "llm_calls": len(state.recorder.records),
         "cost_usd": cost if options.mode == "live" else 0.0,
@@ -548,7 +555,7 @@ async def run_eval(
     _write(directory / "score.json", score)
     _write(directory / "run.json", run)
     (directory / "report.md").write_text(render_report(score, run))
-    baseline_path = appraisal / baseline.FILE
+    baseline_path = appraisal / options.baseline
     previous = baseline.load(baseline_path)
     found = baseline.regressions(previous, score, attempted) if previous is not None else []
     if options.accept_baseline:
@@ -611,6 +618,11 @@ def parse_args(argv: Sequence[str] | None) -> Options:
     )
     parser.add_argument("--azure-only", action="store_true", help="no model fallback")
     parser.add_argument("--accept-baseline", action="store_true")
+    parser.add_argument(
+        "--baseline",
+        default=baseline.FILE,
+        help=f"baseline file under appraisal/ (default {baseline.FILE}, the pipeline's)",
+    )
     parser.add_argument("--out", type=Path, default=None, help="run directory (default runs/<id>)")
     parser.add_argument("--budget-usd", type=float, default=DEFAULT_BUDGET_USD)
     parser.add_argument("--data-dir", type=Path, default=None, help="default BASIS_EVAL_DATA_DIR")
@@ -621,8 +633,10 @@ def parse_args(argv: Sequence[str] | None) -> Options:
         parser.error("replay is deterministic: --repeats applies to live runs only")
     if args.no_azure and args.azure_only:
         parser.error("--no-azure and --azure-only together leave nothing to run")
-    if (args.no_azure or args.azure_only) and args.system != "production":
-        parser.error("--no-azure / --azure-only are ablations of --system production")
+    if (args.no_azure or args.azure_only) and args.system not in ("production", "pipeline"):
+        parser.error("--no-azure / --azure-only are ablations of --system production/pipeline")
+    if "/" in args.baseline or not args.baseline.endswith(".json"):
+        parser.error("--baseline is a .json file name under appraisal/")
     if args.budget_usd <= 0:
         parser.error("--budget-usd must be positive")
     if args.max_tokens < 1 or args.dpi < 36 or args.min_page_words < 0:
@@ -676,6 +690,7 @@ def parse_args(argv: Sequence[str] | None) -> Options:
         budget_usd=args.budget_usd,
         data_dir=args.data_dir,
         system=spec,
+        baseline=args.baseline,
     )
 
 

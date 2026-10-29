@@ -250,5 +250,14 @@ table: keys, outcomes and counts only, so a report can be quoted in EVAL_REPORT)
   against the accepted baseline `BASIS_EVAL_DATA_DIR/appraisal/baseline.json` (keys and
   outcomes only). Improvements are accepted by re-writing the baseline with
   `--accept-baseline`, reviewed like a snapshot.
+* `baseline.json` is the **`pipeline`** system's (the reading before EVAL_REPORT section 33;
+  `--system pipeline`), which is what the regression test replays. The production default
+  became the grounded reading (`EXTRACTION_METHOD=grounded`, `--system production`) in
+  section 33.12; its outputs differ from the pipeline's by design, so a `production` replay
+  compared with `baseline.json` lists differences, not regressions. Its own baseline is a
+  separate file (`--baseline baseline.grounded.json`), accepted only from a replay in which
+  no document failed: today only the documents with a recording of the current grounded
+  request replay (section 33.12), so it covers those documents until the others are recorded
+  live. `baseline.json` is never re-accepted from a `production` run.
 * Unit tests (CI) for the normalizers, the scorer, the replay provider and the generator,
   on fabricated values only.
