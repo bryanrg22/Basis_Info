@@ -5056,6 +5056,186 @@ predictions are unchanged, and the GSE truth has been revised since (scored on t
   $0.50) and for the 25 documents with no Sol recording (about $1.80), then accept the
   grounded baseline on all 41.
 
+## 34. End-to-end: the study output against the engineer's report (2026-10-29)
+
+Question (WORKFLOW_REVIEW_2026-10-29 section 6, step 1): the stages are measured one by
+one; is the *finding* measured? Given a completed study's export and the engineer's cost
+segregation report, how many of the engineer's rows does the pipeline produce, with the
+right bucket, and how far are its dollars and its bucket shares from the engineer's? Until
+now the engineer's cost per row sat in the label file unscored, and the only row-level
+comparison was a private one-off that let one asset answer two rows. Branch
+`eval/e2e-scorer`; scorer `backEnd/evals/e2e_report.py` (CLI `python -m evals.e2e_report`),
+arithmetic `backEnd/evals/report_math.py`; formats in `evals/README.md`. Every number below
+is from the scorer on the private data; no client dollar amount appears here.
+
+### 34.1 Design
+
+**Inputs.** (1) The export the pipeline already writes at completion
+(`basis.activities.export_report`: `rev-<n>.json`, format `basis-export/2`, or its assets
+CSV): every asset with label, room and room type, material, bucket, method, quantity, cost
+estimate, review reason and citations. The scorer has a typed loader for it and changes
+nothing in the exporter. (2) A reviewed row-assignment label (private,
+`labels/e2e_rows_v1.json`): for each of the engineer's 46 rows the pipeline labels charged
+to it, with room-type and material conditions, and the row's kind (29 A photo-countable,
+9 B surfaces, 8 C concealed). (3) The engineer's printed report (private,
+`labels/engineer_report_v1.json`): 46 rows with bucket and cost, the building basis B and
+closing costs CC, the printed replacement-cost total, the 12-row building-systems page, the
+bucket percentages and the pro-rata allocation block.
+
+**One-to-one assignment.** The `report_rows` evidence rules (section 13) are any-of and
+many-to-many: they say what *proves* a row, and an appliance proves both the Appliances row
+and the dedicated-circuit row. A dollar comparison needs each asset charged once. The
+assignment lists, per row, `{label, room_types | exclude_room_types, materials |
+exclude_materials}`; allow-lists reject an unknown room or material and deny-lists accept
+it, so a label split between two rows by complementary lists (a sink by room: kitchen and
+utility sinks against bathroom plumbing; a wall finish by material: wood paneling, soft
+wall coverings, painted walls) is charged exactly once. The loader requires every
+vocabulary label to be assigned somewhere or listed as unassigned with a reason
+(`other`, mirrors, landscaping, patios, pools, vinyl and laminate floors: the engineer
+has no row for them); the scorer refuses an export in which one asset meets two rows. A
+kind C row may carry hints (a smoke detector, painted walls) that count in the totals but
+are never scored; a kind A or B row no label can charge is a *vocabulary gap*, not a miss.
+The decisions per row are in the private `labels/E2E_ROWS_NOTES.md`.
+
+**Metrics.** Per engineer row: evidenced (any asset charged) or missed; the pipeline's
+bucket by asset count (the headline; ties by dollars, then the shorter period) and by
+dollars (reported beside it); bucket right; priced and unpriced assets with the cost
+step's reasons; pipeline dollars (the charged assets' estimates) against the engineer's,
+ratio and absolute error; and each row as a share of its own side's total. Per bucket and
+in total the same, over every priced asset of the export. Classification is reported
+three ways (of the evidenced rows, of the 38 photo-visible rows, of all 46) with Wilson
+intervals, and weighted by the engineer's cost share; kind C rows are "not produced" with
+their share of the engineer's total, never a wrong bucket. The pipeline's building bucket
+(27.5-year under the deployment's `residential_rental` default) is compared as the
+engineer's 39-year bucket, the only effect of the property class
+(`basis.domain.rules.bucket_for`).
+
+**What is and is not like-for-like.** The bucket is: one per engineer row, one per
+pipeline asset. The dollars are not: the engineer's row is replacement cost new times one
+factor that lands the schedule on the purchase-price basis; the pipeline's is a
+replacement cost on a placeholder takeoff. The raw dollar comparison is therefore labelled
+*replacement cost against allocated basis* and the comparable number is the share (row or
+bucket as a percentage of each side's own total). The scorer also runs the pipeline's rows
+through the deterministic tail with the engineer's B and CC: the schedule a basis step
+would print from today's output.
+
+**The deterministic tail** (`report_math`; WORKFLOW_REVIEW section 2): T = B + CC; f =
+T / sum(RCN); row = RCN x f to the cent (the rounding residual reported, absorbed by the
+largest row on request); bucket totals and tenth-percentages; the allocation block
+building_b = B x bucket_b / T and closing_b = CC x bucket_b / T with each column footed
+to B and CC by charging its rounding cent to the largest bucket; the systems page by row
+share. All `Decimal`, half-up. A printed report that does not list RCNs per row is
+inverted: implied RCN = cost x printed RCN total / T, then everything is recomputed and
+compared with the printed numbers item by item. A unit test on six fabricated rows proves
+the arithmetic by hand (`tests/unit/evals/test_report_math.py`); the private run proves the
+reproduction.
+
+### 34.2 Results on the existing completed export
+
+Export `11217e4e` rev-3 (E2E_ARTIFACTS, private: the client property, 2026-10-19, today's
+models, residential_rental, no room aliases, no components gate, no reference corpus so no
+citations): 376 assets, 249 priced.
+
+| Metric | Value |
+|---|---|
+| Rows | 46: 38 photo-visible, 8 concealed (kind C) |
+| Concealed rows' share of the engineer's total | 39.7% (not produced; foundations, structural and interior framing, site utilities, fire protection, data, access control, painting) |
+| Evidenced | 35 of 38 photo-visible, 0.921 [0.79, 0.97] |
+| Missed | 2: window guards (no guard visible in the photos), dryer vents (no vent assigned to the laundry; the dryer is an appliance) |
+| Vocabulary gap | 1: the dedicated-circuit row (the pipeline produces appliances, not circuits) |
+| Bucket right, majority by count | 24 of 35 evidenced, 0.686 [0.52, 0.81]; 0.632 of the 38 photo-visible rows; 0.522 of all 46 |
+| Bucket right, majority by dollars | 17 of the 25 evidenced rows with a priced asset (0.680); the two verdicts agree on every row that has one |
+| Engineer's cost share on rows bucket-right / evidenced / wrong | 42.9% / 59.7% / 16.8% |
+| Wrong buckets | 11, identical to the one-off's and to the second run: moldings, fireplaces, raised paneling, wall coverings, half walls (5 vs 39); exterior lighting (5 vs 15); FF&E (5 vs 7); electrical, plumbing, ceramic tile, restroom millwork (39 vs 5) |
+| Evidenced rows with an unpriced asset / with no priced asset | 12 / 10 (five site rows, half walls, roofing, facade, gutters, FF&E: `COST_NEEDS_QUANTITY` labels, a half wall without a cost row, and furniture) |
+| Assets charged to a scored row / to a concealed row / to none | 310 / 11 / 66 (43 `other`, 11 landscaping, 8 mirrors, 1 patio, 1 laminate floor, 2 tiles of a non-ceramic material) |
+| Conflicts (an asset two rows accept) | 0 |
+| Pipeline bucket shares (of its priced total) | 5-year 45.1%, 7-year 5.9%, 15-year 0.8%, 39-year 48.2% |
+| Bucket share error (points) | 5-year 30.7, 7-year 5.5, 15-year 4.2, 39-year 32.0 |
+| Row share error | mean 2.5 points, largest 12.7 (a concealed row); total variation distance between the two row distributions 56.9 points |
+| Dollars (replacement cost vs allocated basis) | the pipeline's priced total is 0.32 of the engineer's total; median row ratio 0.60 over the 25 rows with a priced asset |
+| Pipeline rows through the tail with the engineer's B and CC | the schedule it would print: 5-year 38.3%, 7-year 6.1%, 15-year 0.3%, 39-year 55.3% |
+| Reproduction of the engineer's printed report | 87 numbers (46 rows, total, 4 bucket totals, 4 percentages, 8 allocation cells, 24 systems-page cells): 86 to the cent, 1 within a cent (a system's replacement cost, the precision limit of RCNs implied from rounded costs) |
+
+The second run, `0bfbcee5` (same code and models, with the reference corpus: 368 assets,
+243 priced, 466 verified citations; scored from its stored assets through a private
+converter because the study still waits at its assets review), gives the same 35 of 38,
+24 of 35 and the same 11 wrong rows; bucket share errors 31.2 / 2.7 / 4.3 / 29.6 points;
+priced total 0.30 of the engineer's. The JSON and CSV loaders give identical scores.
+
+**Cross-check against the one-off** (`compare_e2e_to_engineer.py`, E2E_ARTIFACTS 2.1: 37
+of 38 evidenced, 26 of 37 right, 30 assets in two rows, 69 in none). The two rows lost are
+exactly the two the many-to-many rules answered twice: the dedicated-circuit row (evidenced
+by the appliances, which one-to-one belong to Appliances) and the dryer-vent row (evidenced
+by the dryer, an appliance). Both were "right" under the evidence rules, so bucket-right
+drops by exactly those two; the 11 wrong rows are unchanged. Four assets gained a row
+(three countertops to the millwork rows, a bathroom closet shelf to restroom millwork) and the
+painted walls moved from the 5-year wall rows to Painting (kind C), which is what the
+one-off complained about.
+
+**The allocation block's rule.** Rounding B x bucket / T to the cent leaves each column a
+cent off B or CC; the engineer's printed block foots because the 39-year cell gives or takes
+the cent. "Largest bucket absorbs" reproduces the printed block; largest-remainder
+apportionment (the usual way to make rounded shares foot) would move the cent to a
+different bucket and does not. A report builder must use the former to match.
+
+### 34.3 Reading
+
+1. **Classification is measured now, and it is the same number three ways.** 0.686 of
+   the evidenced rows, 0.632 of the photo-visible rows, 0.522 of all 46; by dollars rather
+   than count the verdicts agree on every row. The eleven misses are conventions to settle
+   with the engineer, not noise (identical in both runs and in the one-off): about a sixth
+   of the engineer's dollars.
+2. **Dollars are not comparable yet, and the scorer says so in three places.** The
+   pipeline prices under a third of the engineer's total (placeholder 150 sq ft rooms,
+   127 unpriced assets, no concealed systems, no basis step) and its bucket shares are 30
+   points off on both large buckets. The share-basis view, and the pipeline's own schedule
+   through the tail (38 / 6 / 0 / 55), are the honest statements of today's output.
+3. **The tail is a solved problem.** Given 46 RCNs, their buckets, B and CC, every printed
+   number of the engineer's report comes back to the cent (one cell within a cent because
+   the RCNs are implied, not printed). The report builder's arithmetic can be tested
+   exactly; what remains is producing the RCNs.
+4. **Coverage is the vocabulary's and the takeoff's, not the scorer's.** Ten evidenced
+   rows carry no dollars because their labels need an area or a length nobody measures;
+   eight rows are concealed systems nothing produces. Together they are about 53% of the
+   engineer's total, and no classification or pricing change moves them.
+5. **Limits.** One property, one export of an old configuration (residential_rental, no
+   aliases, no components gate, no corpus), so the intervals are wide and the assignment
+   was written from this report's rows; a second property will add rows and rules. The
+   row assignment carries three judgment calls recorded in the notes (countertops to
+   millwork, furniture to FF&E, painted walls to Painting).
+
+### 34.4 What the next builds are expected to change, and what the export must add
+
+- **Measured quantities** (the takeoff build): the ten fully unpriced rows and the 127
+  unpriced assets become priced; the 15-year bucket share (0.8% today against a driveway
+  that is the largest site row) and the 39-year share (roof, facade, gutters) should move
+  first. The scorer's per-row unpriced counts and the `COST_NEEDS_QUANTITY` tallies are the
+  check. The export already carries `takeoff_inputs` (area, source, count); nothing more is
+  needed for the scorer, but the area *source* per room (appraisal GLA, sketch, typical)
+  should stay in it so a run on measured areas can be told from one on placeholders.
+- **Basis and land math** (the basis build): once the pipeline scales its rows to a basis,
+  the dollar comparison becomes like-for-like and the scorer's "replacement cost vs
+  allocated basis" caveat goes. The export should add a basis section (purchase price,
+  land, B, CC, T, the factor, and the scaled cost beside each asset's replacement cost) so
+  the scorer reads the scaled rows instead of re-deriving them through `report_math`; the
+  reproduction check then runs on the pipeline's own schedule.
+- **Concealed systems** (step 5 of the review): the eight kind C rows (39.7% of the
+  engineer's total) stay "not produced" until a systems model or an appraisal-based
+  carve-out exists; the scorer will then score them as kind A rows with an area source.
+- **Export header**: the property class in effect (today inferred from the bucket values)
+  and the rule id and rationale per asset (section 27.5's follow-up), so a wrong bucket can
+  be traced to a rule or a model call from the export alone.
+
+Commands (from `backEnd/`):
+
+```bash
+BASIS_ENV=test BASIS_EVAL_DATA_DIR=~/basis-eval-data uv run python -m evals.e2e_report \
+    --export ~/basis-eval-data/work/e2e_artifacts/export_11217e4e/rev-3.json \
+    --out ~/basis-eval-data/reports/E2E_SCORE_11217e4e.md --json OUT.json [--data-free]
+uv run pytest tests/unit/evals/test_e2e_report.py tests/unit/evals/test_report_math.py -q
+```
+
 ## 35. Measured quantities: the takeoff reads the appraisal (2026-10-29)
 
 Branch `feat/measured-takeoff`. WORKFLOW_REVIEW 2026-10-29, section 3, items 2 and 3: every
