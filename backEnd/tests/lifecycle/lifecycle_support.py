@@ -27,6 +27,7 @@ from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.converter import decode_typed_search_attributes
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -44,7 +45,7 @@ from basis.workflow.contracts import (
     StudyWorkflowInput,
     StudyWorkflowResult,
 )
-from basis.workflow.study_workflow import StudyWorkflow, workflow_id_for
+from basis.workflow.study_workflow import STAGE_ATTR, StudyWorkflow, workflow_id_for
 
 POLL_INTERVAL_S: Final = 0.05
 WAIT_TIMEOUT_S: Final = 30.0
@@ -183,22 +184,53 @@ class Harness:
         )
 
     async def wait_settled(
-        self, handle: WorkflowHandle[Any, Any], holding: str, timeout: float = WAIT_TIMEOUT_S
-    ) -> None:
+        self,
+        handle: WorkflowHandle[Any, Any],
+        *,
+        holding: str | None = None,
+        stage: ReviewStage | None = None,
+        timeout: float = WAIT_TIMEOUT_S,
+    ) -> int:
         """Wait until, per the history, no workflow task is open and the only open activity
-        is ``holding`` (an activity id): the workflow can schedule nothing more until that
-        activity completes. Stopping a worker at this point leaves no task the server could
-        hand to the stopping worker's polls; a task handed to them while it shuts down is
-        lost until its timeout (a workflow task's 10 s, an activity's heartbeat timeout)."""
+        is ``holding`` (an activity id; none if unset), and the ``Stage`` search attribute
+        is ``stage`` when one is given (a review gate's is upserted by the workflow task
+        that opens it). The workflow can then schedule nothing more until that activity
+        completes or a decision arrives. Stopping a worker at this point leaves no task the
+        server could hand to the stopping worker's polls; a task handed to them while it
+        shuts down is lost until its timeout (a workflow task's 10 s, an activity's
+        heartbeat timeout). Returns the id of the history's last event at that point."""
+        want = {holding} if holding else set()
+        events = await self.wait_history(
+            handle,
+            lambda events: (
+                open_tasks(events) == want and (stage is None or stage_in(events) == stage)
+            ),
+            f"open {want or 'nothing'} at stage {stage}",
+            timeout,
+        )
+        return events[-1].event_id
+
+    async def wait_history(
+        self,
+        handle: WorkflowHandle[Any, Any],
+        predicate: Callable[[Sequence[HistoryEvent]], bool],
+        what: str,
+        timeout: float = WAIT_TIMEOUT_S,
+    ) -> Sequence[HistoryEvent]:
+        """Wait until ``predicate`` holds for the history; returns that history. Unlike
+        :meth:`wait_for`, this never queries a worker (see ``NO_STICKY`` in
+        test_restart_recovery.py for why a test would avoid that)."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
-        open_now: set[str] = set()
+        events: Sequence[HistoryEvent] = ()
         while loop.time() < deadline:
-            open_now = open_tasks((await handle.fetch_history()).events)
-            if open_now == {holding}:
-                return
+            events = (await handle.fetch_history()).events
+            if predicate(events):
+                return events
             await asyncio.sleep(POLL_INTERVAL_S)
-        raise AssertionError(f"timed out waiting for only {holding} open; open: {open_now}")
+        raise AssertionError(
+            f"timed out waiting for {what}; open: {open_tasks(events)}, stage: {stage_in(events)}"
+        )
 
     async def wait_photos(self, handle: WorkflowHandle[Any, Any], count: int) -> StudyStatusView:
         """The photo stage done: ``count`` photos completed and none pending. Since v0.9
@@ -336,6 +368,30 @@ def open_tasks(events: Sequence[HistoryEvent]) -> set[str]:
             case EventType.EVENT_TYPE_WORKFLOW_TASK_FAILED:
                 workflow_tasks.remove(e.workflow_task_failed_event_attributes.scheduled_event_id)
     return set(activities.values()) | ({"workflow task"} if workflow_tasks else set())
+
+
+def completed_activities(events: Sequence[HistoryEvent]) -> set[str]:
+    """The ids of the activities that completed in a history."""
+    scheduled = {
+        e.event_id: e.activity_task_scheduled_event_attributes.activity_id
+        for e in events
+        if e.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+    }
+    return {
+        scheduled[e.activity_task_completed_event_attributes.scheduled_event_id]
+        for e in events
+        if e.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED
+    }
+
+
+def stage_in(events: Sequence[HistoryEvent]) -> str | None:
+    """The last ``Stage`` search attribute the workflow upserted in a history."""
+    stage: str | None = None
+    for e in events:
+        if e.event_type == EventType.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES:
+            attributes = e.upsert_workflow_search_attributes_event_attributes.search_attributes
+            stage = decode_typed_search_attributes(attributes).get(STAGE_ATTR) or stage
+    return stage
 
 
 async def skip(env: WorkflowEnvironment, delta: timedelta) -> None:
