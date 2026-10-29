@@ -2,16 +2,18 @@
 
 Runs :func:`basis.extraction.pipeline.extract_appraisal_upload` on the uploaded appraisal. A
 UAD 3.6 delivery (MISMO 3.6 XML, bare or in its ZIP) takes its values from the XML and its
-highlight regions from the PDF (the ZIP's, else the study's latest other appraisal PDF);
-docs/api/UAD36_INTAKE.md. A PDF runs :func:`basis.extraction.pipeline.extract_appraisal` with
-``EXTRACTION_METHOD``: ``grounded`` (the default, EVAL_REPORT section 33.5) reads every field
-in one grounded call on ``EXTRACTION_GROUNDED_MODEL`` over Azure DI's page text, each value
-checked against its verbatim quote; ``pipeline`` merges Azure DI with the text layer, with one
-``TEXT_MODEL`` call for the fields still missing or failed (also what a grounded reading that
-cannot run or whose call fails falls back to, on the same Azure DI analysis). Then the
-validation and the review gate. The result is written to ``extractions`` (``raw`` keeps the
-Azure DI analysis, the issues, the model's trace and, for the grounded reading, its quotes)
-and one typed ``extraction_fields`` row per field.
+highlight regions from the PDF (the ZIP's, else the report PDF ``ingest_appraisal`` chose,
+``input.report_pdf``; :mod:`basis.activities.appraisal_sources`); docs/api/UAD36_INTAKE.md.
+``raw["source"]`` records the source document, its kind and the report PDF's document.
+A PDF runs :func:`basis.extraction.pipeline.extract_appraisal` with ``EXTRACTION_METHOD``:
+``grounded`` (the default, EVAL_REPORT section 33.5) reads every field in one grounded call on
+``EXTRACTION_GROUNDED_MODEL`` over Azure DI's page text, each value checked against its
+verbatim quote; ``pipeline`` merges Azure DI with the text layer, with one ``TEXT_MODEL`` call
+for the fields still missing or failed (also what a grounded reading that cannot run or whose
+call fails falls back to, on the same Azure DI analysis). Then the validation and the review
+gate. The result is written to ``extractions`` (``raw`` keeps the Azure DI analysis, the
+issues, the model's trace and, for the grounded reading, its quotes) and one typed
+``extraction_fields`` row per field.
 
 Order of work, so that money is not spent twice and rows are written once:
 
@@ -47,6 +49,13 @@ from temporalio import activity
 
 from basis.activities._model_calls import heartbeating, provider_failure, run_pk
 from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
+from basis.activities.appraisal_sources import (
+    NO_REPORT_PDF,
+    companion_pdf,
+    recorded_pdf,
+    upload_kind,
+    with_source,
+)
 from basis.activities.corrections import (
     check_extraction_field,
     parse_date,
@@ -55,7 +64,7 @@ from basis.activities.corrections import (
 )
 from basis.activities.deps import Deps
 from basis.db.enums import DocumentKind
-from basis.db.models import Extraction
+from basis.db.models import Document, Extraction
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
@@ -65,7 +74,7 @@ from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.fallback import PROMPT_NAME
 from basis.extraction.grounded import GroundedModel
-from basis.extraction.package import is_pdf, is_zip
+from basis.extraction.package import is_pdf
 from basis.extraction.pdf_text import InvalidDocument
 from basis.extraction.persist import persist_extraction, stored_azure_result
 from basis.extraction.pipeline import ExtractionContext, extract_appraisal_upload
@@ -81,7 +90,10 @@ from basis.workflow.contracts import CorrectionInput, ExtractFieldsInput, Extrac
 
 ACTIVITY: Final = "extract_fields"
 MANUAL: Final = "manual"
-READER_ISSUES: Final = frozenset({"sources_disagree", "azure_di_rejected"})
+# Issues the validator does not recompute: kept through a rejection's corrections.
+READER_ISSUES: Final = frozenset(
+    {"sources_disagree", "azure_di_rejected", "xml_pdf_mismatch", NO_REPORT_PDF}
+)
 
 
 class ExtractFields:
@@ -110,17 +122,20 @@ class ExtractFields:
             done = await repo.get_for_revision(document_id, input.revision) is not None
             claimed = await ActivityResultRepository(session).get(input.idempotency_key)
             done = done or (claimed is not None and claimed.status == COMPLETED)
+            report = await _report_pdf(session, study_id, document_id, input)
             previous = await repo.latest_before(document_id, input.revision)
-            reuse = stored_azure_result(previous.raw) if previous is not None else None
+            reuse = None
+            if previous is not None and _same_pdf(previous.raw, report):
+                reuse = stored_azure_result(previous.raw)
             run_id = await run_pk(session)
             spent = await LlmCallRepository(session).spent_usd(study_id)
             gcs_uri = document.gcs_uri
-            companion_uri = await _companion_pdf_uri(session, study_id, document_id)
+            companion = (report.id, report.gcs_uri) if report is not None else None
 
         result: ExtractionResult | None = None
         if not done:
             result = await self._extract(
-                study_id, document_id, gcs_uri, run_id, spent, reuse, companion_uri
+                study_id, document_id, gcs_uri, run_id, spent, reuse, companion
             )
 
         async def work(session: AsyncSession) -> ExtractFieldsOutput:
@@ -165,19 +180,26 @@ class ExtractFields:
         run_id: uuid.UUID | None,
         spent: Decimal,
         reuse: AzureDiResult | None,
-        companion_uri: str | None = None,
+        report: tuple[uuid.UUID, str] | None = None,
     ) -> ExtractionResult:
         settings = self._deps.settings
         try:
             data = await self._deps.storage.read(gcs_uri)
         except ObjectNotFound:
             raise validation_error(f"appraisal file {gcs_uri} is missing from storage") from None
+        kind = upload_kind(data)
         companion: bytes | None = None
-        if companion_uri is not None and not is_pdf(data) and not is_zip(data):
+        if report is not None and kind == "xml":
             try:  # a bare UAD 3.6 XML: its PDF was uploaded as another appraisal document
-                companion = await self._deps.storage.read(companion_uri)
+                companion = await self._deps.storage.read(report[1])
             except ObjectNotFound:
-                companion = None
+                raise validation_error(
+                    f"report PDF {report[0]} of appraisal {document_id} is missing from storage"
+                ) from None
+            if not is_pdf(companion):
+                raise validation_error(
+                    f"report PDF {report[0]} of appraisal {document_id} is not a PDF"
+                )
         ctx = ExtractionContext(
             call=CallContext(
                 study_id=study_id,
@@ -206,32 +228,48 @@ class ExtractFields:
         )
         try:
             async with heartbeating("extracting"):
-                return await extract_appraisal_upload(
+                result = await extract_appraisal_upload(
                     data, str(document_id), ctx, companion_pdf=companion
                 )
+            pdf_id = report[0] if report is not None and companion is not None else None
+            if kind != "xml":
+                pdf_id = document_id
+            return with_source(result, document_id=document_id, kind=kind, pdf_document_id=pdf_id)
         except InvalidDocument as exc:
             raise validation_error(f"appraisal {document_id}: {exc}") from exc
         except ProviderError as exc:
             raise provider_failure(exc, f"appraisal {document_id}") from exc
 
 
-async def _companion_pdf_uri(
-    session: AsyncSession, study_id: uuid.UUID, document_id: uuid.UUID
-) -> str | None:
-    """The study's latest uploaded appraisal PDF other than ``document_id``: the report PDF of
-    a UAD 3.6 XML uploaded on its own."""
-    documents = await DocumentRepository(session).list_for_study(study_id)
-    pdfs = [
-        d
-        for d in documents
-        if d.id != document_id
-        and d.kind is DocumentKind.APPRAISAL
-        and d.content_type == "application/pdf"
-        and d.uploaded_at is not None
-    ]
-    if not pdfs:
+async def _report_pdf(
+    session: AsyncSession, study_id: uuid.UUID, document_id: uuid.UUID, input: ExtractFieldsInput
+) -> Document | None:
+    """The report PDF for a bare XML: the one ``ingest_appraisal`` chose (``input.report_pdf``),
+    which must be a confirmed appraisal of the study; for an input recorded before that field,
+    the companion rule (:func:`basis.activities.appraisal_sources.companion_pdf`)."""
+    repo = DocumentRepository(session)
+    if input.report_pdf is None:
+        source = await repo.get(study_id, document_id)
+        assert source is not None  # checked by the caller
+        return companion_pdf(await repo.list_for_study(study_id), source)
+    if input.report_pdf.document_id is None:
         return None
-    return max(pdfs, key=lambda d: (d.uploaded_at or d.created_at, d.created_at)).gcs_uri
+    pdf_id = parse_uuid(input.report_pdf.document_id, "report_pdf.document_id")
+    if pdf_id == document_id:
+        return None  # a PDF or ZIP is its own report
+    found = await repo.get(study_id, pdf_id)
+    if found is None or found.kind is not DocumentKind.APPRAISAL or found.uploaded_at is None:
+        raise validation_error(f"report PDF {pdf_id} is not a confirmed appraisal of {study_id}")
+    return found
+
+
+def _same_pdf(raw: object, report: Document | None) -> bool:
+    """An earlier revision's Azure DI analysis is reused only for the same report PDF (a bare
+    XML's companion could differ between revisions recorded before it was pinned)."""
+    known, pdf_id = recorded_pdf(raw)
+    if not known or report is None:
+        return True  # the document itself (a PDF or ZIP), or a legacy extraction
+    return pdf_id == str(report.id)
 
 
 def _check_correction(correction: CorrectionInput) -> None:
@@ -276,9 +314,13 @@ async def _with_corrections(
         for issue in result.issues
         if issue.rule in READER_ISSUES and not (issue.keys and set(issue.keys) <= corrected)
     ]
-    issues = kept + validate_fields(fields)
+    # A UAD 3.6 PDF's form carries fewer keys: they stay not required after a correction.
+    form = result.raw.get("form")
+    off = form.get("not_on_form") if isinstance(form, dict) else None
+    off_form = frozenset(off) if isinstance(off, list) else frozenset()
+    issues = kept + validate_fields(fields, not_on_form=off_form)
     threshold = float(result.raw.get("review_threshold", 0.90))
-    gate = review_gate(fields, issues, threshold=threshold)
+    gate = review_gate(fields, issues, threshold=threshold, not_on_form=off_form)
     raw = {
         **result.raw,
         "issues": [i.model_dump(mode="json") for i in issues],

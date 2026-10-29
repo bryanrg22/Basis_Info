@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import Field
 
@@ -31,6 +32,14 @@ class ExtractionFieldOut(ResponseModel):
     )
     extraction_id: uuid.UUID
     document_id: uuid.UUID = Field(description="The appraisal document it was read from.")
+    pdf_document_id: uuid.UUID | None = Field(
+        description=(
+            "The document whose PDF `regions` are drawn on (render it with "
+            "`GET .../documents/{pdf_document_id}/pdf`): `document_id` itself for a PDF or a "
+            "UAD 3.6 ZIP, the companion PDF for a bare MISMO XML, null when there is no "
+            "report PDF (no regions). Always the PDF of this field's own extraction revision."
+        )
+    )
     key: str = Field(description="`<section>.<field>`, the catalogue key.")
     section: str
     field: str
@@ -172,3 +181,76 @@ class AssetsPageOut(ResponseModel):
     next_cursor: str | None = Field(
         description="Pass as `cursor` to get the next page; null on the last page."
     )
+
+
+UploadKindOut = Literal["pdf", "zip", "xml"]
+CorpusStatus = Literal["ingested", "scanned", "none"]
+
+
+class ExtractionIssueOut(ResponseModel):
+    rule: str = Field(
+        description=(
+            "What was found. Reader issues: `xml_pdf_mismatch` (warning: an XML value the "
+            "report PDF does not print where its caption is), `no_report_pdf` (warning: a bare "
+            "XML with no report PDF), `azure_di_rejected` (Azure DI refused the PDF: text layer "
+            "only), `sources_disagree`; validator rules such as `missing_critical`, "
+            "`out_of_range`, `fallback_unconfirmed`."
+        )
+    )
+    severity: Literal["error", "warning"]
+    keys: list[str] = Field(description="The field keys it concerns (may be empty).")
+    message: str
+
+
+class StudyCorpusOut(ResponseModel):
+    status: CorpusStatus = Field(
+        description=(
+            "`ingested`: the report PDF is searchable evidence; `scanned`: it has no text "
+            "layer (an empty corpus); `none`: no study corpus (a bare XML with no report PDF), "
+            "so classification cites the reference corpus only."
+        )
+    )
+    corpus_version_id: uuid.UUID | None
+    document_id: uuid.UUID | None = Field(
+        description="The document the corpus passages came from (citations' `doc_id`)."
+    )
+    chunks: int
+
+
+class ExtractionOut(ResponseModel):
+    """The appraisal extraction of one revision: its source, report PDF and issues."""
+
+    revision: int = Field(description="The extraction's revision (the one asked for).")
+    extraction_id: uuid.UUID
+    document_id: uuid.UUID = Field(description="The extraction source (the fields' document).")
+    upload_kind: UploadKindOut = Field(
+        description="`pdf` (legacy 1004 or UAD 3.6 PDF), `zip` (UAD 3.6 delivery), `xml` "
+        "(bare MISMO 3.6 XML)."
+    )
+    pdf_document_id: uuid.UUID | None = Field(
+        description=(
+            "The document whose PDF this revision's regions are drawn on and whose pages the "
+            "reviewer sees: `document_id` for `pdf`/`zip`, the companion PDF for `xml`, null "
+            "with no report PDF. Pair fields only with this PDF; it never changes between "
+            "revisions of one study."
+        )
+    )
+    regions_available: bool = Field(
+        description="At least one field has a highlight region (false: draw none; fall back "
+        "to text search, or show that the XML has no PDF)."
+    )
+    form: str | None = Field(
+        description="The printed form of a PDF: `urar_1004_2005`, `uad36_urar` or `unknown`; "
+        "null for a UAD 3.6 XML or ZIP (values read from the XML)."
+    )
+    method: str
+    needs_review: bool
+    overall_confidence: float | None
+    review_reasons: list[str] = Field(
+        description="Why the review gate flagged it: `missing:<key>`, "
+        "`low_confidence:<key>=<c><<t>`, or `<rule>[:<keys>]` for each issue."
+    )
+    issues: list[ExtractionIssueOut]
+    notes: list[str] = Field(description="Reader notes (informational, not stable text).")
+    corpus: StudyCorpusOut
+    created_at: datetime

@@ -1,4 +1,9 @@
-"""``GET /v1/studies/{id}/fields``, ``/rooms``, ``/assets``: the revision's outputs.
+"""``GET /v1/studies/{id}/fields``, ``/extraction``, ``/rooms``, ``/assets``: the outputs.
+
+``/extraction`` is the appraisal extraction of a revision: its source document and kind, the
+report PDF its regions are drawn on (``pdf_document_id``), its issues and review reasons, and
+the study corpus (docs/api/UAD36_INTAKE.md); 404 at a revision with no extraction (only the
+first revision and appraisal rejections extract).
 
 What the review gates show (EVAL_REPORT section 23, finding 5): the appraisal's
 extraction fields, the rooms with their photos and inventories (the rooms review shows the
@@ -27,16 +32,20 @@ from basis.api.schemas.outputs import (
     CostOut,
     ExtractionFieldOut,
     ExtractionFieldsPageOut,
+    ExtractionIssueOut,
+    ExtractionOut,
     FieldRegionOut,
     InventoryItemOut,
     RoomOut,
     RoomPhotoOut,
     RoomsPageOut,
+    StudyCorpusOut,
     SuggestedCountOut,
     TakeoffOut,
 )
 from basis.api.users import study_access
 from basis.db.enums import OrgRole
+from basis.db.models import Extraction
 from basis.db.repositories import VisibleStudy
 from basis.db.repositories.outputs import (
     MAX_OUTPUT_PAGE,
@@ -44,6 +53,7 @@ from basis.db.repositories.outputs import (
     FieldRow,
     OutputRepository,
     RoomRow,
+    StudyCorpus,
     component_count,
 )
 from basis.db.session import SessionDep
@@ -89,6 +99,7 @@ def field_out(row: FieldRow) -> ExtractionFieldOut:
         id=item.id,
         extraction_id=item.extraction_id,
         document_id=row.extraction.document_id,
+        pdf_document_id=extraction_source(row.extraction)[1],
         key=key,
         section=item.section,
         field=item.field,
@@ -101,6 +112,64 @@ def field_out(row: FieldRow) -> ExtractionFieldOut:
         source=item.source,
         page=item.page,
         regions=[FieldRegionOut.model_validate(r) for r in item.regions or []],
+    )
+
+
+def extraction_source(extraction: Extraction) -> tuple[str, uuid.UUID | None]:
+    """``(upload_kind, pdf_document_id)`` of an extraction (``raw["source"]``; stored before
+    it: a PDF, or ``raw["upload_kind"]`` with the document's own PDF unless a bare XML)."""
+    raw = extraction.raw if isinstance(extraction.raw, dict) else {}
+    source = raw.get("source")
+    if isinstance(source, dict):
+        kind = str(source.get("upload_kind") or "pdf")
+        pdf = source.get("pdf_document_id")
+        return kind, uuid.UUID(pdf) if isinstance(pdf, str) else None
+    kind = str(raw.get("upload_kind") or "pdf")
+    return kind, None if kind == "xml" else extraction.document_id
+
+
+def _issue(value: object) -> ExtractionIssueOut | None:
+    if not isinstance(value, dict) or not isinstance(value.get("rule"), str):
+        return None
+    keys = value.get("keys")
+    return ExtractionIssueOut(
+        rule=value["rule"],
+        severity="warning" if value.get("severity") == "warning" else "error",
+        keys=[str(k) for k in keys] if isinstance(keys, list) else [],
+        message=str(value.get("message") or ""),
+    )
+
+
+def _strings(value: object) -> list[str]:
+    return [str(v) for v in value] if isinstance(value, list) else []
+
+
+def extraction_out(extraction: Extraction, located: bool, corpus: StudyCorpus) -> ExtractionOut:
+    raw = extraction.raw if isinstance(extraction.raw, dict) else {}
+    kind, pdf_id = extraction_source(extraction)
+    form = raw.get("form")
+    issues = [issue for v in raw.get("issues") or [] if (issue := _issue(v)) is not None]
+    return ExtractionOut(
+        revision=extraction.revision,
+        extraction_id=extraction.id,
+        document_id=extraction.document_id,
+        upload_kind=kind if kind in ("pdf", "zip", "xml") else "pdf",  # type: ignore[arg-type]
+        pdf_document_id=pdf_id,
+        regions_available=located,
+        form=form.get("form") if isinstance(form, dict) and kind == "pdf" else None,
+        method=extraction.method,
+        needs_review=extraction.needs_review,
+        overall_confidence=extraction.overall_confidence,
+        review_reasons=_strings(raw.get("review_reasons")),
+        issues=issues,
+        notes=_strings(raw.get("notes")),
+        corpus=StudyCorpusOut(
+            status=corpus.status,
+            corpus_version_id=corpus.corpus_version_id,
+            document_id=corpus.document_id,
+            chunks=corpus.chunks,
+        ),
+        created_at=extraction.created_at,
     )
 
 
@@ -223,6 +292,23 @@ async def list_fields(
         items=[field_out(row) for row in page.items],
         next_cursor=page.next_cursor,
     )
+
+
+@reads.get(
+    "/studies/{study_id}/extraction",
+    summary="The appraisal extraction at a revision: source, report PDF, issues, corpus",
+    responses=problems(404),
+)
+async def get_extraction(
+    access: ViewerStudy, session: SessionDep, revision: RevisionQuery = None
+) -> ExtractionOut:
+    at = _revision(access, revision)
+    repo = OutputRepository(session)
+    found = await repo.extraction(access.study.id, at)
+    if found is None:
+        raise NotFound(f"The study has no appraisal extraction at revision {at}.")
+    extraction, located = found
+    return extraction_out(extraction, located, await repo.study_corpus(access.study.id, at))
 
 
 @reads.get(

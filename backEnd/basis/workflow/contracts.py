@@ -192,10 +192,28 @@ class IngestAppraisalInput(_Frozen):
     idempotency_key: str
 
 
+# What ingest_appraisal did with the study's appraisal (docs/api/UAD36_INTAKE.md):
+# ingested: the report PDF is the study corpus; scanned: it has no text layer (an empty
+# published version); no_pdf: a UAD 3.6 XML with no report PDF (no corpus version at all);
+# no_appraisal: nothing confirmed to ingest.
+IngestStatus = Literal["ingested", "scanned", "no_pdf", "no_appraisal"]
+
+
 class IngestAppraisalOutput(_Frozen):
-    document_id: str | None
+    document_id: str | None  # the extraction source (basis.activities.appraisal_sources)
     corpus_version_id: str | None
     chunks: int = 0
+    # The document whose PDF was ingested (the source itself, or a bare XML's companion PDF);
+    # None with no PDF. Both None in outputs recorded before UAD 3.6 intake.
+    pdf_document_id: str | None = None
+    status: IngestStatus | None = None
+
+
+class ReportPdf(_Frozen):
+    """The report PDF ``ingest_appraisal`` chose for the study (``document_id`` None: none),
+    which every ``extract_fields`` of the study uses for a bare XML's regions."""
+
+    document_id: str | None
 
 
 class ExtractFieldsInput(_Frozen):
@@ -204,6 +222,9 @@ class ExtractFieldsInput(_Frozen):
     revision: int
     idempotency_key: str
     corrections: tuple[CorrectionInput, ...] = ()
+    # None: inputs recorded before UAD 3.6 intake; the activity then applies the companion
+    # rule itself (basis.activities.appraisal_sources.companion_pdf).
+    report_pdf: ReportPdf | None = None
 
 
 class ExtractFieldsOutput(_Frozen):

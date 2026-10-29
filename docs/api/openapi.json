@@ -653,6 +653,117 @@
         }
       }
     },
+    "/v1/studies/{study_id}/documents/{document_id}/pdf": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "The PDF to render for an appraisal (a UAD 3.6 ZIP's report PDF)",
+        "operationId": "document_pdf_v1_studies__study_id__documents__document_id__pdf_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Document id.",
+              "title": "Document Id"
+            },
+            "description": "Document id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The PDF (`application/pdf`): the document itself, or the report PDF inside a UAD 3.6 ZIP.",
+            "content": {
+              "application/pdf": {}
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "`If-None-Match` matched the document's sha256."
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies/{study_id}/documents": {
       "post": {
         "tags": [
@@ -928,7 +1039,7 @@
             }
           },
           "422": {
-            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "description": "Invalid request, or (`invalid-appraisal`) an appraisal that is not a PDF, a MISMO 3.6 XML or a safe UAD 3.6 ZIP of its declared type.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1364,6 +1475,116 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ExtractionFieldsPageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/extraction": {
+      "get": {
+        "tags": [
+          "outputs"
+        ],
+        "summary": "The appraisal extraction at a revision: source, report PDF, issues, corpus",
+        "operationId": "get_extraction_v1_studies__study_id__extraction_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2147483646,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A revision up to the current one (default).",
+              "title": "Revision"
+            },
+            "description": "A revision up to the current one (default)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionOut"
                 }
               }
             }
@@ -4537,7 +4758,7 @@
           "doc_id": {
             "type": "string",
             "title": "Doc Id",
-            "description": "The reference document the passage is from."
+            "description": "The document the passage is from: a reference document, or (a passage of the study's appraisal corpus) the appraisal document whose PDF holds the pages, a PDF or a UAD 3.6 ZIP (render `GET .../documents/{doc_id}/pdf`)."
           },
           "page_start": {
             "anyOf": [
@@ -5186,6 +5407,19 @@
             "title": "Document Id",
             "description": "The appraisal document it was read from."
           },
+          "pdf_document_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Document Id",
+            "description": "The document whose PDF `regions` are drawn on (render it with `GET .../documents/{pdf_document_id}/pdf`): `document_id` itself for a PDF or a UAD 3.6 ZIP, the companion PDF for a bare MISMO XML, null when there is no report PDF (no regions). Always the PDF of this field's own extraction revision."
+          },
           "key": {
             "type": "string",
             "title": "Key",
@@ -5291,6 +5525,7 @@
           "id",
           "extraction_id",
           "document_id",
+          "pdf_document_id",
           "key",
           "section",
           "field",
@@ -5339,6 +5574,173 @@
           "next_cursor"
         ],
         "title": "ExtractionFieldsPageOut"
+      },
+      "ExtractionIssueOut": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule",
+            "description": "What was found. Reader issues: `xml_pdf_mismatch` (warning: an XML value the report PDF does not print where its caption is), `no_report_pdf` (warning: a bare XML with no report PDF), `azure_di_rejected` (Azure DI refused the PDF: text layer only), `sources_disagree`; validator rules such as `missing_critical`, `out_of_range`, `fallback_unconfirmed`."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "title": "Severity"
+          },
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keys",
+            "description": "The field keys it concerns (may be empty)."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule",
+          "severity",
+          "keys",
+          "message"
+        ],
+        "title": "ExtractionIssueOut"
+      },
+      "ExtractionOut": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "The extraction's revision (the one asked for)."
+          },
+          "extraction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Extraction Id"
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id",
+            "description": "The extraction source (the fields' document)."
+          },
+          "upload_kind": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "zip",
+              "xml"
+            ],
+            "title": "Upload Kind",
+            "description": "`pdf` (legacy 1004 or UAD 3.6 PDF), `zip` (UAD 3.6 delivery), `xml` (bare MISMO 3.6 XML)."
+          },
+          "pdf_document_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Document Id",
+            "description": "The document whose PDF this revision's regions are drawn on and whose pages the reviewer sees: `document_id` for `pdf`/`zip`, the companion PDF for `xml`, null with no report PDF. Pair fields only with this PDF; it never changes between revisions of one study."
+          },
+          "regions_available": {
+            "type": "boolean",
+            "title": "Regions Available",
+            "description": "At least one field has a highlight region (false: draw none; fall back to text search, or show that the XML has no PDF)."
+          },
+          "form": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Form",
+            "description": "The printed form of a PDF: `urar_1004_2005`, `uad36_urar` or `unknown`; null for a UAD 3.6 XML or ZIP (values read from the XML)."
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "title": "Needs Review"
+          },
+          "overall_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overall Confidence"
+          },
+          "review_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Review Reasons",
+            "description": "Why the review gate flagged it: `missing:<key>`, `low_confidence:<key>=<c><<t>`, or `<rule>[:<keys>]` for each issue."
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionIssueOut"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes",
+            "description": "Reader notes (informational, not stable text)."
+          },
+          "corpus": {
+            "$ref": "#/components/schemas/StudyCorpusOut"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "extraction_id",
+          "document_id",
+          "upload_kind",
+          "pdf_document_id",
+          "regions_available",
+          "form",
+          "method",
+          "needs_review",
+          "overall_confidence",
+          "review_reasons",
+          "issues",
+          "notes",
+          "corpus",
+          "created_at"
+        ],
+        "title": "ExtractionOut",
+        "description": "The appraisal extraction of one revision: its source, report PDF and issues."
       },
       "FieldRegionOut": {
         "properties": {
@@ -6904,6 +7306,57 @@
           "completed"
         ],
         "title": "Stage"
+      },
+      "StudyCorpusOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ingested",
+              "scanned",
+              "none"
+            ],
+            "title": "Status",
+            "description": "`ingested`: the report PDF is searchable evidence; `scanned`: it has no text layer (an empty corpus); `none`: no study corpus (a bare XML with no report PDF), so classification cites the reference corpus only."
+          },
+          "corpus_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corpus Version Id"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id",
+            "description": "The document the corpus passages came from (citations' `doc_id`)."
+          },
+          "chunks": {
+            "type": "integer",
+            "title": "Chunks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "corpus_version_id",
+          "document_id",
+          "chunks"
+        ],
+        "title": "StudyCorpusOut"
       },
       "StudyCreate": {
         "properties": {

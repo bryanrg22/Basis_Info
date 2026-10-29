@@ -21,7 +21,36 @@ def test_a_pdf_a_bare_xml_and_a_delivery_zip_are_recognized() -> None:
         )
     )
     assert delivery.kind == "zip" and delivery.pdf == PDF and delivery.xml == fabricated_xml()
-    assert "Images/front.jpg" in delivery.members
+    assert "Images/front.jpg" in delivery.members and delivery.pdf_name == "report.pdf"
+
+
+def test_a_zip_without_a_report_pdf_is_refused() -> None:
+    """A UAD 3.6 delivery always carries its report PDF; an XML alone is uploaded as XML."""
+    with pytest.raises(InvalidPackage, match="holds no PDF"):
+        read_appraisal_upload(fabricated_zip({"m.xml": fabricated_xml(), "Images/a.jpg": b"x"}))
+
+
+@pytest.mark.parametrize(
+    ("data", "declared", "ok"),
+    [
+        (PDF, "application/pdf", True),
+        (fabricated_xml(), "application/xml", True),
+        (fabricated_xml(), "text/xml", True),
+        (fabricated_zip({"m.xml": fabricated_xml(), "r.pdf": PDF}), "application/zip", True),
+        (fabricated_zip({"m.xml": fabricated_xml(), "r.pdf": PDF}), "application/pdf", False),
+        (PDF, "application/zip", False),
+        (fabricated_xml(), "application/pdf", False),
+        (PDF, "image/png", False),
+    ],
+)
+def test_the_declared_type_must_name_what_the_bytes_are(
+    data: bytes, declared: str, ok: bool
+) -> None:
+    if ok:
+        assert package.check_declared(data, declared).kind == package.DECLARED_KINDS[declared]
+    else:
+        with pytest.raises(InvalidPackage, match="but was declared"):
+            package.check_declared(data, declared)
 
 
 def test_the_pdf_the_xml_names_is_chosen_among_several() -> None:

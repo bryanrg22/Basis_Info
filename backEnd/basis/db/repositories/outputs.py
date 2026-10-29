@@ -23,16 +23,19 @@ import json
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from basis.db.enums import Corpus
 from basis.db.errors import InvalidCursorError
 from basis.db.models import (
     Asset,
+    Chunk,
     Citation,
     Component,
+    CorpusVersion,
     CostEstimate,
     Document,
     Extraction,
@@ -119,9 +122,81 @@ class AssetRow:
     verified_citations: int
 
 
+@dataclass(frozen=True, slots=True)
+class StudyCorpus:
+    """The study's appraisal corpus at a revision (``ingest_appraisal``'s published version)."""
+
+    status: Literal["ingested", "scanned", "none"]
+    corpus_version_id: uuid.UUID | None = None
+    document_id: uuid.UUID | None = None
+    chunks: int = 0
+
+
 class OutputRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def extraction(
+        self, study_id: uuid.UUID, revision: int
+    ) -> tuple[Extraction, bool] | None:
+        """The revision's appraisal extraction (the latest written, should a study ever have
+        two) and whether any of its fields has a highlight region."""
+        extraction = await self._session.scalar(
+            select(Extraction)
+            .where(Extraction.study_id == study_id, Extraction.revision == revision)
+            .order_by(Extraction.created_at.desc(), Extraction.id)
+            .limit(1)
+        )
+        if extraction is None:
+            return None
+        located = await self._session.scalar(
+            select(func.count())
+            .select_from(ExtractionField)
+            .where(
+                ExtractionField.extraction_id == extraction.id,
+                func.jsonb_array_length(ExtractionField.regions) > 0,
+            )
+        )
+        return extraction, bool(located)
+
+    async def study_corpus(self, study_id: uuid.UUID, revision: int) -> StudyCorpus:
+        """The newest published study corpus version up to ``revision`` (later revisions reuse
+        the one ingested at the study's first), its chunk count and source document."""
+        version = await self._session.scalar(
+            select(CorpusVersion)
+            .where(
+                CorpusVersion.corpus == Corpus.STUDY.value,
+                CorpusVersion.study_id == study_id,
+                CorpusVersion.version <= revision,
+                CorpusVersion.published_at.is_not(None),
+            )
+            .order_by(CorpusVersion.version.desc())
+            .limit(1)
+        )
+        if version is None:
+            return StudyCorpus(status="none")
+        rows = (
+            await self._session.execute(
+                select(Chunk.doc_id, func.count())
+                .where(Chunk.corpus_version_id == version.id)
+                .group_by(Chunk.doc_id)
+                .order_by(Chunk.doc_id)
+            )
+        ).all()
+        chunks = sum(int(n) for _, n in rows)
+        document_id: uuid.UUID | None = None
+        for doc_id, _ in rows:
+            try:
+                document_id = uuid.UUID(str(doc_id))
+                break
+            except ValueError:
+                continue
+        return StudyCorpus(
+            status="ingested" if chunks else "scanned",
+            corpus_version_id=version.id,
+            document_id=document_id,
+            chunks=chunks,
+        )
 
     async def fields(
         self, study_id: uuid.UUID, revision: int, *, limit: int, cursor: str | None = None
@@ -359,6 +434,7 @@ __all__ = [
     "Page",
     "RoomPhoto",
     "RoomRow",
+    "StudyCorpus",
     "component_count",
     "decode_cursor",
     "encode_cursor",

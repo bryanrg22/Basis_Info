@@ -4,7 +4,7 @@ Shape of a run::
 
     record_run_start
     transition -> extracting
-    in parallel: ingest_appraisal -> extract_fields ;
+    in parallel: ingest_appraisal -> extract_fields (the report PDF ingest chose) ;
                  analyze_photo -> localize_photo, x N (bounded) ; reconcile_rooms
     gate appraisal_review   (reject: apply_corrections, extract_fields again, revision + 1)
     gate rooms_review       (the grouping; reject: apply_corrections, the rooms re-voted)
@@ -165,6 +165,7 @@ with workflow.unsafe.imports_passed_through():
         ReconcileRoomsInput,
         ReconcileRoomsOutput,
         RecordFailureInput,
+        ReportPdf,
         RetryAck,
         ReviewStage,
         RunEndInput,
@@ -276,6 +277,10 @@ class StudyWorkflow:
         # and whether the grouping is approved (a re-analysis then keeps the photo's room).
         self._components_gate = False
         self._grouping_approved = False
+        # The report PDF ingest_appraisal chose (UAD 3.6 intake), passed to every
+        # extract_fields so a revision never pairs its fields with another PDF; None for
+        # an ingest recorded before it reported one (the activity then chooses).
+        self._report_pdf: ReportPdf | None = None
 
     # ------------------------------------------------------------------ handlers
 
@@ -671,6 +676,8 @@ class StudyWorkflow:
             IngestAppraisalOutput,
             f"ingest_appraisal:r{revision}{suffix}",
         )
+        if ingested.status is not None:
+            self._report_pdf = ReportPdf(document_id=ingested.pdf_document_id)
         await self._extract(ingested.document_id, revision, (), suffix)
         return ingested.document_id
 
@@ -689,6 +696,7 @@ class StudyWorkflow:
                 revision=revision,
                 idempotency_key=self._key(f"extract_fields:r{revision}{suffix}"),
                 corrections=corrections,
+                report_pdf=self._report_pdf,
             ),
             ExtractFieldsOutput,
             f"extract_fields:r{revision}{suffix}",

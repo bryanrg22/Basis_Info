@@ -12,7 +12,14 @@ only the XML and the PDF are read, each through a bounded reader that stops at
 :func:`basis.extraction.mismo36.parse_mismo` (no DOCTYPE or entities).
 
 Which PDF: the one the XML names (``VIEW_FILE/FOREIGN_OBJECT/ObjectURL``, matched by file name)
-when present, else the only PDF; several PDFs and no reference is refused (ambiguous).
+when present, else the only PDF; several PDFs and no reference is refused (ambiguous), and so is
+a ZIP with no PDF at all (a UAD 3.6 delivery always carries the report PDF; a bare XML is
+uploaded as an XML). :attr:`AppraisalUpload.pdf_name` is the chosen member's name.
+
+:func:`check_declared` is the upload-confirm check (``POST .../documents/{id}/complete``): the
+bytes must be what :func:`read_appraisal_upload` accepts and of the kind the declared content
+type names, so a document's ``content_type`` can be trusted to tell a PDF from a UAD 3.6
+delivery without reading it again.
 """
 
 from __future__ import annotations
@@ -34,6 +41,13 @@ _ZIP_MAGIC: Final = b"PK\x03\x04"
 _CHUNK: Final = 1024 * 1024
 
 Kind = Literal["pdf", "xml", "zip"]
+# The declared content type of an appraisal upload -> the kind its bytes must be.
+DECLARED_KINDS: Final[dict[str, Kind]] = {
+    "application/pdf": "pdf",
+    "application/zip": "zip",
+    "application/xml": "xml",
+    "text/xml": "xml",
+}
 
 
 class InvalidPackage(ValueError):
@@ -47,6 +61,7 @@ class AppraisalUpload:
     xml: bytes | None = None
     members: tuple[str, ...] = field(default=())  # the ZIP's entries (names only)
     notes: tuple[str, ...] = ()
+    pdf_name: str | None = None  # the ZIP member the PDF was read from
 
 
 def is_pdf(data: bytes) -> bool:
@@ -122,26 +137,23 @@ def read_zip(data: bytes) -> AppraisalUpload:
         if len(messages) != 1:
             raise InvalidPackage(f"the ZIP holds {len(messages)} MISMO XML documents, not one")
         _, xml, root = messages[0]
-        notes: list[str] = []
-        pdf: bytes | None = None
         named = _referenced_pdf(root)
         chosen = [i for i in pdfs if named and i.filename.rsplit("/", 1)[-1] == named]
         if not chosen and len(pdfs) == 1:
             chosen = pdfs
         if not chosen and len(pdfs) > 1:
             raise InvalidPackage("the ZIP holds several PDFs and the XML names none of them")
-        if chosen:
-            pdf = _read_bounded(archive, chosen[0], budget)
-            if not is_pdf(pdf):
-                raise InvalidPackage(f"{chosen[0].filename} is not a PDF")
-        else:
-            notes.append("the ZIP holds no PDF of the report")
+        if not chosen:
+            raise InvalidPackage("the ZIP holds no PDF of the report")
+        pdf = _read_bounded(archive, chosen[0], budget)
+        if not is_pdf(pdf):
+            raise InvalidPackage(f"{chosen[0].filename} is not a PDF")
         return AppraisalUpload(
             kind="zip",
             pdf=pdf,
             xml=xml,
             members=tuple(i.filename for i in infos),
-            notes=tuple(notes),
+            pdf_name=chosen[0].filename,
         )
 
 
@@ -160,3 +172,15 @@ def read_appraisal_upload(data: bytes) -> AppraisalUpload:
             raise InvalidPackage("not a MISMO MESSAGE")
         return AppraisalUpload(kind="xml", xml=data)
     raise InvalidPackage("not a PDF, a MISMO 3.6 XML or a UAD 3.6 ZIP")
+
+
+def check_declared(data: bytes, content_type: str) -> AppraisalUpload:
+    """``data`` read as an appraisal upload (:func:`read_appraisal_upload`), refused unless its
+    kind is the one ``content_type`` declares (a ZIP labelled ``application/pdf`` is refused)."""
+    upload = read_appraisal_upload(data)
+    declared = DECLARED_KINDS.get(content_type)
+    if declared != upload.kind:
+        raise InvalidPackage(
+            f"the file is a {upload.kind.upper()} but was declared {content_type!r}"
+        )
+    return upload

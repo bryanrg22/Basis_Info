@@ -6,7 +6,9 @@ sha256 values, and ``gs://basis-test/...`` URIs. With ``storage`` given, ``seed_
 writes bytes at those URIs so the Stage 3 activities, which read the files, have something
 real to read: the appraisal gets ``appraisal_bytes`` (default the synthetic
 ``urar_sample.pdf``) and the photos get ``llm_fakes.fixture_bytes_for``; the document rows
-carry the real size and sha256 of what was written.
+carry the real size and sha256 of what was written. ``add_appraisal`` registers another
+appraisal (a UAD 3.6 ZIP or XML, a companion PDF) in its own transaction, so registration
+order is ``created_at`` order as in production.
 
 ``make_deps`` wires the hash embedder with a fresh BM25 registry (no model download) and
 the offline providers by default: ``FixtureVisionProvider`` for photos and ``FixtureAzureDi``
@@ -87,11 +89,13 @@ async def _document(
     name: str,
     storage: Storage | None = None,
     content: bytes | None = None,
+    content_type: str | None = None,
 ) -> tuple[uuid.UUID, str]:
     repo = DocumentRepository(session)
     document_id = uuid.uuid4()
     uri = f"gs://{TEST_BUCKET}/studies/{study_id}/{document_id}/{name}"
     is_appraisal = kind is DocumentKind.APPRAISAL
+    declared = content_type or ("application/pdf" if is_appraisal else "image/jpeg")
     # Explicit content (the appraisal) is hashed for real; fixture bytes written for the
     # photos share images between files, so their rows keep a random sha256 (the
     # documents table is unique on (study_id, sha256)).
@@ -99,12 +103,12 @@ async def _document(
     if storage is not None and content is None:
         content = fixture_bytes_for(name, appraisal=is_appraisal)
     if storage is not None and content is not None:
-        await storage.put(uri, content, "application/pdf" if is_appraisal else "image/jpeg")
+        await storage.put(uri, content, declared)
     await repo.create(
         study_id=study_id,
         kind=kind,
         filename=name,
-        content_type="application/pdf" if kind is DocumentKind.APPRAISAL else "image/jpeg",
+        content_type=declared,
         size_bytes=1024 if content is None else len(content),
         sha256=hashlib.sha256(content).hexdigest()
         if explicit and content
@@ -156,6 +160,39 @@ async def seed_study(
             appraisal_id=appraisal_id,
             photo_ids=photo_ids,
         )
+
+
+APPRAISAL_TYPES: Final = {
+    "pdf": "application/pdf",
+    "zip": "application/zip",
+    "xml": "application/xml",
+}
+
+
+async def add_appraisal(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    study: SeededStudy,
+    name: str,
+    content: bytes,
+    storage: Storage | None,
+    *,
+    content_type: str | None = None,
+) -> uuid.UUID:
+    """Register and confirm one more appraisal of ``study`` (its own transaction); the
+    content type defaults from the file extension (:data:`APPRAISAL_TYPES`)."""
+    declared = content_type or APPRAISAL_TYPES[name.rsplit(".", 1)[-1].lower()]
+    async with session_scope(sessionmaker) as session:
+        document_id, _uri = await _document(
+            session,
+            study.study_id,
+            study.owner_id,
+            DocumentKind.APPRAISAL,
+            name,
+            storage,
+            content,
+            declared,
+        )
+    return document_id
 
 
 async def seed_run(
