@@ -138,7 +138,7 @@ use `extra` keys):
 | `improvements.type` | det, att, s_det_end_unit |
 | `improvements.foundation_type` (multi) | concrete_slab, crawl_space, full_basement, partial_basement |
 | `improvements.heating_type` (multi) | fwa, hwbb, radiant, other (an appraiser can check two boxes; `other` carries its text as `{"code": "other", "text": ...}` inside the list) |
-| `improvements.car_storage` (multi) | none, driveway, garage, carport, attached, detached, built_in |
+| `improvements.car_storage` (multi) | none, driveway, garage, carport, attached, detached, built_in (UAD 3.6 "Parking Garage" is `garage`) |
 | `reconciliation.appraisal_made` | as_is, subject_to_completion, subject_to_repairs, subject_to_inspection |
 | `site.utilities_*` | public, other (with text), none |
 | `site.off_site_improvements_*` | public, private |
