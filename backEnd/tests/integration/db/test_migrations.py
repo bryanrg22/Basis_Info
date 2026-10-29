@@ -29,9 +29,11 @@
   at a components stage, else restores ``0008`` exactly;
 * ``0011_study_intake`` adds ``studies.intake`` (NULL for existing studies; a non-null value
   must be a JSON object) and downgrades back to ``0010``;
-* ``0012_study_events`` adds the append-only ``study_events`` (the per-study timeline, with
+* ``0012_call_ledger`` widens ``llm_calls`` into the ledger of every paid call (every new
+  column nullable or defaulted, so rows written before it stay valid; EVAL_REPORT section 40);
+* ``0013_study_events`` adds the append-only ``study_events`` (the per-study timeline, with
   the ``forbid_mutation()`` trigger), ``rooms.carried_from`` and ``studies.failure_code``,
-  and downgrades back to ``0011``;
+  and downgrades back to ``0012``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -64,21 +66,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0012"
-HISTORY = [
-    "0012",
-    "0011",
-    "0010",
-    "0009",
-    "0008",
-    "0007",
-    "0006",
-    "0005",
-    "0004",
-    "0003",
-    "0002",
-    "0001",
-]
+HEAD = "0013"
+HISTORY = [f"{n:04d}" for n in range(13, 0, -1)]  # "0013" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -808,12 +797,12 @@ async def test_0009_components_stages_and_gate_round_trip(empty_database_url: st
     assert await _stages(empty_database_url) == stages
 
 
-# --------------------------------------------------------------------------- 0012
+# --------------------------------------------------------------------------- 0013
 
 
-async def test_0012_study_events_append_only_and_downgrade(empty_database_url: str) -> None:
-    await upgrade(empty_database_url, "0011")
-    at_0011 = await snapshot(empty_database_url)
+async def test_0013_study_events_append_only_and_downgrade(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0012")
+    at_0012 = await snapshot(empty_database_url)
     connection = await asyncpg.connect(plain_dsn(empty_database_url))
     try:
         study, _, user = await _photo(connection)
@@ -867,8 +856,8 @@ async def test_0012_study_events_append_only_and_downgrade(empty_database_url: s
         # emptied row by row, the trigger forbids it.
     finally:
         await connection.close()
-    await downgrade(empty_database_url, "0011")
-    assert await snapshot(empty_database_url) == at_0011
+    await downgrade(empty_database_url, "0012")
+    assert await snapshot(empty_database_url) == at_0012
     connection = await asyncpg.connect(plain_dsn(empty_database_url))
     try:
         for table, column in (("rooms", "carried_from"), ("studies", "failure_code")):

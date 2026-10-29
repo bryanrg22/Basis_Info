@@ -395,7 +395,11 @@ def build_request(
         Message(
             role="user",
             content=f"Image {number}:",
-            images=(ImagePart(media_type="image/jpeg", data_base64=p.image.base64, detail="high"),),
+            images=(
+                ImagePart(
+                    media_type="image/jpeg", data_base64=p.image.base64, detail="high", ref=p.file
+                ),
+            ),
         )
         for number, p in enumerate(photos, start=1)
     )

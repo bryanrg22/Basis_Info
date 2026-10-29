@@ -64,7 +64,15 @@ from basis.llm.errors import (
     is_retryable_status,
 )
 from basis.llm.families import is_reasoning_model as is_reasoning_model  # re-exported
-from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse, Message, ToolCall, Usage
+from basis.llm.provider import (
+    ChatProvider,
+    ChatRequest,
+    ChatResponse,
+    Message,
+    ToolCall,
+    Usage,
+    request_params,
+)
 
 logger = logging.getLogger("basis.llm.providers")
 
@@ -239,13 +247,35 @@ def build_request_body(request: ChatRequest, *, model: str | None = None) -> dic
 
 
 def _usage(completion: Any) -> Usage:
+    """The completion's usage, field by field as OpenAI reports it: ``prompt_tokens``
+    includes ``prompt_tokens_details.cached_tokens`` and ``completion_tokens`` includes
+    ``completion_tokens_details.reasoning_tokens`` (the OpenTelemetry totals), so the parts
+    are kept beside the totals and priced at their own rates."""
     usage = getattr(completion, "usage", None)
     if usage is None:
         logger.warning("completion has no usage; recording zero tokens")
         return Usage(input_tokens=0, output_tokens=0)
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    completion_details = getattr(usage, "completion_tokens_details", None)
+    input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+    output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+    cached = int(getattr(prompt_details, "cached_tokens", 0) or 0)
+    reasoning = int(getattr(completion_details, "reasoning_tokens", 0) or 0)
     return Usage(
-        input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-        output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_input_tokens=min(cached, input_tokens),
+        reasoning_output_tokens=min(reasoning, output_tokens),
+    )
+
+
+def sent_params(request: ChatRequest, body: Mapping[str, Any]) -> dict[str, Any]:
+    """The request parameters as the body sends them (``gen_ai.request.*``)."""
+    return request_params(
+        request,
+        max_output_tokens=int(body.get("max_completion_tokens") or body.get("max_tokens") or 0),
+        reasoning_effort=body.get("reasoning_effort"),
+        temperature=body.get("temperature"),
     )
 
 
@@ -268,19 +298,43 @@ def _tool_calls(message: Any) -> tuple[ToolCall, ...]:
 
 
 def parse_completion(
-    completion: Any, request: ChatRequest, *, provider: str, latency_ms: int
+    completion: Any,
+    request: ChatRequest,
+    *,
+    provider: str,
+    latency_ms: int,
+    endpoint: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> ChatResponse:
-    """Turn an SDK ``ChatCompletion`` into a :class:`ChatResponse` (or a bad-response error)."""
+    """Turn an SDK ``ChatCompletion`` into a :class:`ChatResponse` (or a bad-response error).
+
+    ``endpoint`` and ``params`` (where and with what the request was sent) ride along for
+    the ledger, on the response and on a bad-response error alike.
+    """
     usage = _usage(completion)
     model = str(getattr(completion, "model", None) or request.model)
     raw: dict[str, Any] = completion.model_dump(mode="json")
+    response_id = _text(getattr(completion, "id", None))
+    request_id = _text(getattr(completion, "_request_id", None))
+    choices = completion.choices or []
+    finish_reason = _text(getattr(choices[0], "finish_reason", None)) if choices else None
+    ledger: dict[str, Any] = {
+        "response_id": response_id,
+        "request_id": request_id,
+        "finish_reason": finish_reason,
+        "endpoint": endpoint,
+        "request_params": params,
+        "latency_ms": latency_ms,
+    }
 
     def bad(message: str) -> ProviderBadResponse:
-        return ProviderBadResponse(message, provider=provider, usage=usage, model=model, raw=raw)
+        return ProviderBadResponse(
+            message, provider=provider, usage=usage, model=model, raw=raw, **ledger
+        )
 
-    if not completion.choices:
+    if not choices:
         raise bad("completion has no choices")
-    choice = completion.choices[0]
+    choice = choices[0]
     message = choice.message
     refusal = getattr(message, "refusal", None)
     if refusal:
@@ -306,7 +360,16 @@ def parse_completion(
         provider=provider,
         latency_ms=latency_ms,
         raw=raw,
+        response_id=response_id,
+        request_id=request_id,
+        finish_reason=finish_reason,
+        endpoint=endpoint,
+        request_params=params or {},
     )
+
+
+def _text(value: object) -> str | None:
+    return None if value is None else str(value)
 
 
 def _retry_after(exc: openai.APIStatusError) -> float | None:
@@ -408,8 +471,16 @@ class OpenAICompatibleProvider:
         """The model (OpenAI) or deployment (Azure) a request for ``model`` is sent to."""
         return self._model_map.get(model) or self._default_model or model
 
+    @property
+    def endpoint(self) -> str | None:
+        """Where requests go (``server.address`` of the ledger): the client's base URL."""
+        base = getattr(self._client, "base_url", None)
+        return None if base is None else str(base)
+
     async def complete(self, request: ChatRequest) -> ChatResponse:
-        body = build_request_body(request, model=self.target_model(request.model))
+        target = self.target_model(request.model)
+        body = build_request_body(request, model=target)
+        params = {**sent_params(request, body), "target_model": target}
         for attempt in (1, 2):
             started = self._clock()
             try:
@@ -428,7 +499,14 @@ class OpenAICompatibleProvider:
                     continue
                 raise error from exc
             latency_ms = max(0, int((self._clock() - started) * 1000))
-            return parse_completion(completion, request, provider=self.name, latency_ms=latency_ms)
+            return parse_completion(
+                completion,
+                request,
+                provider=self.name,
+                latency_ms=latency_ms,
+                endpoint=self.endpoint,
+                params=params,
+            )
         raise AssertionError("unreachable")  # pragma: no cover
 
 

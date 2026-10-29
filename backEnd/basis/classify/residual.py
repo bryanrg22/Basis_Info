@@ -32,6 +32,7 @@ caller can write ``llm_calls`` rows and the behavioral evals can assert on them.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import time
 from collections.abc import Callable, Sequence
@@ -42,6 +43,7 @@ from pydantic import ValidationError
 
 from basis.classify.schemas import Classification, ComponentView
 from basis.classify.tools import BoundTool, ToolOutcome, refusal
+from basis.llm.call import CallContext, record_response
 from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import (
     Budget,
@@ -89,6 +91,10 @@ DEFAULT_LIMITS: Final = LoopLimits()
 
 @dataclass(frozen=True, slots=True)
 class ToolCallTrace:
+    """One tool call the model asked for: what it asked, what came back, how long it took
+    (``duration_ms``, the tool's own execution; a refusal takes none) and how much the model
+    was then given (``result_bytes``, the JSON tool message)."""
+
     iteration: int
     call_id: str
     name: str
@@ -96,6 +102,22 @@ class ToolCallTrace:
     refused: bool
     error: str | None
     chunk_ids: tuple[str, ...] = ()
+    duration_ms: int = 0
+    result_bytes: int = 0
+
+    def record(self) -> dict[str, Any]:
+        """The trace as the ledger stores it beside the call that asked for the tool."""
+        return {
+            "iteration": self.iteration,
+            "call_id": self.call_id,
+            "name": self.name,
+            "arguments": self.arguments,
+            "refused": self.refused,
+            "error": self.error,
+            "chunk_ids": list(self.chunk_ids),
+            "duration_ms": self.duration_ms,
+            "result_bytes": self.result_bytes,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +188,26 @@ def _tool_message(call_id: str, name: str, outcome: ToolOutcome) -> Message:
     )
 
 
+async def _record(
+    ledger: CallContext,
+    request: ChatRequest,
+    response: ChatResponse,
+    elapsed_ms: int,
+    tools: list[ToolCallTrace],
+) -> float:
+    """The ledger row of one call, with the tools it asked for and their timings beside the
+    answer (written once the tools have run); returns the recorded cost."""
+    recorded = await record_response(
+        ledger,
+        request,
+        response,
+        elapsed_ms=elapsed_ms,
+        component=f"{__name__}.run_residual",
+        tools=[t.record() for t in tools],
+    )
+    return float(recorded.cost_usd)
+
+
 async def run_residual(
     component: ComponentView,
     *,
@@ -182,8 +224,15 @@ async def run_residual(
     reserve_usd_per_call: float = RESERVE_USD_PER_CALL,
     activity: str = ACTIVITY,
     reasoning_effort: str | None = None,
+    ledger: CallContext | None = None,
 ) -> ResidualOutcome:
-    """Run the bounded loop for ``component``; never raises for model or tool failures."""
+    """Run the bounded loop for ``component``; never raises for model or tool failures.
+
+    With ``ledger`` (the activity's :class:`~basis.llm.call.CallContext` for this
+    component) every call is recorded in the paid-call ledger as it returns and priced by
+    the recorder; ``price`` then only serves callers without one (the evaluation runners).
+    The loop keeps its own reserve (``reserve_usd_per_call``) and charge either way.
+    """
     offered = {t.name: t for t in tools if t.name in allowlist}
     specs = tuple(offered[name].spec for name in sorted(offered))
     outcome = ResidualOutcome(classification=None, reason=None)
@@ -198,22 +247,29 @@ async def run_residual(
             tools_now = specs if tool_calls_used < limits.max_tool_calls else ()
             budget.reserve(reserve_usd_per_call)
             started = time.monotonic()
-            response = await provider.complete(
-                ChatRequest(
-                    model=model,
-                    system=system_prompt,
-                    messages=tuple(messages),
-                    response_model=Classification,
-                    tools=tools_now,
-                    max_tokens=limits.max_tokens,
-                    temperature=0.0,
-                    reasoning_effort=reasoning_effort,
-                    prompt_version=prompt_version,
-                    study_id=study_id,
-                    activity=activity,
-                )
+            request = ChatRequest(
+                model=model,
+                system=system_prompt,
+                messages=tuple(messages),
+                response_model=Classification,
+                tools=tools_now,
+                max_tokens=limits.max_tokens,
+                temperature=0.0,
+                reasoning_effort=reasoning_effort,
+                prompt_version=prompt_version,
+                study_id=study_id,
+                activity=activity,
             )
-            cost = price(response.model, response.usage)
+            response = await provider.complete(request)
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            traces_before = len(outcome.tool_calls)
+
+            if ledger is not None and not response.tool_calls:
+                cost = await _record(ledger, request, response, elapsed_ms, [])
+            elif ledger is None:
+                cost = price(response.model, response.usage)
+            else:
+                cost = price(response.model, response.usage)  # provisional until recorded
             outcome.calls.append(
                 CallRecord(
                     provider=response.provider,
@@ -239,6 +295,7 @@ async def run_residual(
                     Message(role="assistant", content=response.text, tool_calls=response.tool_calls)
                 )
                 for call in response.tool_calls:
+                    tool_started = time.monotonic()
                     if tool_calls_used >= limits.max_tool_calls:
                         result = refusal("tool call cap reached; answer with the JSON object")
                     elif call.name not in offered:
@@ -248,6 +305,7 @@ async def run_residual(
                         tool_calls_used += 1
                         result = await offered[call.name].call(call.arguments)
                     outcome.retrieved.update(result.chunk_ids)
+                    tool_message = _tool_message(call.id, call.name, result)
                     outcome.tool_calls.append(
                         ToolCallTrace(
                             iteration=iteration,
@@ -257,9 +315,19 @@ async def run_residual(
                             refused=result.refused,
                             error=str(result.payload["error"]) if result.refused else None,
                             chunk_ids=tuple(str(c) for c in result.chunk_ids),
+                            duration_ms=int((time.monotonic() - tool_started) * 1000),
+                            result_bytes=len(tool_message.content.encode("utf-8")),
                         )
                     )
-                    messages.append(_tool_message(call.id, call.name, result))
+                    messages.append(tool_message)
+                if ledger is not None:
+                    # Recorded now, with the tools this answer asked for and their timings;
+                    # the budget was charged the provisional price above, which the
+                    # recorder's price equals for a call without cache tokens.
+                    actual = await _record(
+                        ledger, request, response, elapsed_ms, outcome.tool_calls[traces_before:]
+                    )
+                    outcome.calls[-1] = dataclasses.replace(outcome.calls[-1], cost_usd=actual)
                 continue
 
             parsed = _parse(response)

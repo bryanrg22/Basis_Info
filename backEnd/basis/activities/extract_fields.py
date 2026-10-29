@@ -48,7 +48,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
-from basis.activities._model_calls import heartbeating, provider_failure, run_pk
+from basis.activities._model_calls import (
+    CallOrigin,
+    call_origin,
+    heartbeating,
+    provider_failure,
+)
 from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
 from basis.activities.appraisal_sources import (
     NO_REPORT_PDF,
@@ -84,10 +89,8 @@ from basis.extraction.pipeline import ExtractionContext, extract_appraisal_uploa
 from basis.extraction.results import ExtractedField, ExtractionResult
 from basis.extraction.validation import validate_fields
 from basis.llm import prompts
-from basis.llm.call import CallContext
 from basis.llm.errors import ProviderError
 from basis.llm.provider import Budget
-from basis.llm.recorder import LlmCallRecorder
 from basis.storage import ObjectNotFound
 from basis.workflow.contracts import CorrectionInput, ExtractFieldsInput, ExtractFieldsOutput
 
@@ -133,7 +136,7 @@ class ExtractFields:
             reuse = None
             if previous is not None and _same_pdf(previous.raw, report):
                 reuse = stored_azure_result(previous.raw)
-            run_id = await run_pk(session)
+            origin = await call_origin(session, study_id)
             spent = await LlmCallRepository(session).spent_usd(study_id)
             gcs_uri = document.gcs_uri
             companion = (report.id, report.gcs_uri) if report is not None else None
@@ -141,7 +144,7 @@ class ExtractFields:
         result: ExtractionResult | None = None
         if not done:
             result = await self._extract(
-                study_id, document_id, gcs_uri, run_id, spent, reuse, companion
+                study_id, document_id, gcs_uri, origin, input.revision, spent, reuse, companion
             )
 
         async def work(session: AsyncSession) -> ExtractFieldsOutput:
@@ -184,7 +187,8 @@ class ExtractFields:
         study_id: uuid.UUID,
         document_id: uuid.UUID,
         gcs_uri: str,
-        run_id: uuid.UUID | None,
+        origin: CallOrigin,
+        revision: int,
         spent: Decimal,
         reuse: AzureDiResult | None,
         report: tuple[uuid.UUID, str] | None = None,
@@ -212,15 +216,18 @@ class ExtractFields:
                     E.EXTRACT_REPORT_PDF_NOT_PDF,
                 )
         ctx = ExtractionContext(
-            call=CallContext(
-                study_id=study_id,
-                run_id=run_id,
-                activity=ACTIVITY,
-                budget=Budget(remaining_usd=max(settings.study_budget_usd - float(spent), 0.0)),
-                recorder=LlmCallRecorder(self._deps.sessionmaker),
+            call=origin.context(
+                study_id,
+                ACTIVITY,
+                Budget(remaining_usd=max(settings.study_budget_usd - float(spent), 0.0)),
+                self._deps.ledger(),
+                revision=revision,
+                entity_type="appraisal",
+                entity_id=document_id,
             ),
             provider=self._deps.llm,
             azure=self._deps.azure_di,
+            azure_usd_per_page=settings.azure_di_usd_per_page,
             prompt=prompts.latest(PROMPT_NAME),
             text_model=settings.text_model,
             review_threshold=settings.extraction_review_threshold,

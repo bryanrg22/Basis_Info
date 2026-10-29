@@ -5788,6 +5788,149 @@ The CI skip for the real model (not cached → skip, never a download in tests) 
   re-ingest of every corpus the queries must match (`corpus_versions.embedding_model`
   records the model name, not the revision; recording the revision there is a follow-up).
 
+## 40. The paid-call ledger: every call, every token, every dollar, with its prompt and answer (2026-10-29)
+
+The live run of section 34 (study 422de6fb, 724 model calls, $7.67) showed `llm_calls`
+complete for what it stored and far short of what the product needs: "input and output
+tokens, cost per study, exact cost and tokens at every single step, prompts being saved, the
+exact model and component we are calling in our system; super detailed, save everything."
+This section makes `llm_calls` that ledger. No model was called for it; no client dollar
+appears here (the fake lifecycle run and the unit fixtures only).
+
+### 40.1 The standard
+
+OpenTelemetry's GenAI semantic conventions (the registry, read 2026-10-29; the spec now lives
+in `open-telemetry/semantic-conventions-genai`) name what a model call is recorded with, and
+the two providers' usage objects say what is reported. The ledger's columns follow them:
+
+| OpenTelemetry | Column | Source |
+|---|---|---|
+| `gen_ai.provider.name`, `server.address` | `provider`, `endpoint` | the provider; the SDK client's base URL (Azure: the resource endpoint) |
+| `gen_ai.request.model` / `gen_ai.response.model` | `requested_model` / `model` | the request; `completion.model` (a dated snapshot) / `message.model` |
+| `gen_ai.response.id`, `gen_ai.response.finish_reasons` | `response_id`, `finish_reason` | `completion.id` + `choices[0].finish_reason`; `message.id` + `stop_reason` |
+| `gen_ai.request.max_tokens`, `.temperature`, effort, output type | `max_output_tokens`, `temperature`, `reasoning_effort`, `response_format`, `request_params` | the body as sent: `max_completion_tokens` or `max_tokens` (on Claude the answer budget plus the thinking headroom), the effort in effect (the provider's default when the request set none), no temperature on reasoning models, the schema's name, the tool names, the images counted and sized |
+| `gen_ai.usage.input_tokens` (includes cached), `.output_tokens` (includes reasoning), `.cache_read.input_tokens`, `.cache_creation.input_tokens`, `.reasoning.output_tokens` | the five token columns | OpenAI: `prompt_tokens` with `prompt_tokens_details.cached_tokens`, `completion_tokens` with `completion_tokens_details.reasoning_tokens`. Anthropic: `input_tokens` is the uncached part alone, beside `cache_creation_input_tokens` and `cache_read_input_tokens` (summed into the total; no reasoning split) |
+| `gen_ai.prompt.name` | `prompt_version`, `prompt_name`, `prompt_sha256` | the released prompt file and its manifest hash |
+| `code.function.name` / `code.namespace` | `component` | the nearest caller of `call_model` outside `basis.llm`, read from the stack (`basis.vision.analyze.call_until_usable`, `basis.classify.residual.run_residual`, ...) |
+| `gen_ai.input.messages`, `gen_ai.system_instructions`, `gen_ai.output.messages` (opt-in, sensitive) | `request_uri`/`request_sha256`, `response_uri`/`response_sha256` | stored out of band through the storage abstraction |
+
+Not in the conventions, needed here: `stage`, `activity`, `activity_attempt`, `revision`,
+`run_id`, `build_sha` (where in the workflow), `entity_type`/`entity_id` (what the call was
+about), `kind` (`chat`, `document_analysis`, `localization`, `segmentation`), `status`/`error`
+(a billed call that failed), `quantity`/`unit`/`unit_price_usd` (the non-token steps),
+`price_row`/`pricing_version` (how the cost was computed), `elapsed_ms` (the call's wall time
+with the provider's retry and the pool's fallback; `latency_ms` is the answering round trip).
+
+Prices, checked 2026-10-29 (`basis/llm/cost.py`, `PRICING_VERSION = "2026-10-29"`): the
+providers bill each part of the usage at its own rate, so the table now carries a cached-input
+and a cache-write price per row. OpenAI's cached-input column per model (gpt-4.1 $0.50,
+gpt-4o $1.25, the gpt-5 and gpt-6 families at a tenth of base, gpt-6.1-sol $0.10); Anthropic's
+cache writes at 1.25x base (the 5-minute cache) and hits at 0.025x on Claude Fable 5.1
+($0.25), 0.05x on Opus 5.5 ($0.20) and Sonnet 5.5 ($0.10), 0.1x on Haiku 5.5. Azure AI
+Document Intelligence S0 pay-as-you-go, prebuilt-layout: $10 per 1,000 pages
+(`AZURE_DI_USD_PER_PAGE`, default 0.01; the official page renders its prices client-side and
+every secondary source agrees; the key-value pairs feature is not a priced add-on, the add-on
+row lists High Resolution, Font and Formula). Replicate: predict seconds at the hardware's
+rate, as the localizer already computed. Not modelled: batch and `inference_geo` multipliers
+(unused), Haiku 5.5's over-100K-token tier.
+
+### 40.2 Before and after
+
+| | Before (section 34's rows) | After (migration `0012_call_ledger`) |
+|---|---|---|
+| per model call | study, run, activity, provider, the answering model, `prompt_version`, input and output tokens, cost, latency, time | plus: stage, revision, attempt, Python module and function, prompt name and sha256, worker build; the entity (photo document, room, component, appraisal); the requested model, endpoint, response id, request id, finish reason; effort, output cap, temperature, response schema, image count and bytes, tool names (`request_params`); cache-read, cache-write and reasoning tokens; price row and table version; wall time; status and error; the stored request and response (URI + sha256) |
+| Anthropic cache tokens | folded into `input_tokens`, the split lost, a cache read priced as plain input | kept apart and priced at the cache rates (regression test: 4,000 cached tokens on Opus 5.5 cost $0.0008, not $0.016) |
+| OpenAI cached and reasoning tokens | not read | read from the usage details, priced (cached) and recorded (reasoning) |
+| a call that failed after reaching the model | a row with usage and cost, nothing saying it failed | `status = error` with the exception and the finish reason |
+| the classifier's calls (`process_assets`) | rows written by the activity in its work transaction (lost with a rollback; no parameters); the tool calls of the loop traced in memory and discarded | recorded by the ledger as each call returns, about the component classified; the stored response lists the tool calls that answer asked for (name, arguments, refused or not, the chunks returned, the tool's duration and the size of its result) |
+| Azure Document Intelligence (`extract_fields`) | not recorded; not in the study's spend | `kind = document_analysis`: pages analyzed at the list price, model id and API version, latency, about the appraisal document; a refused document is an error row with no page billed |
+| SAM 3 (`localize_photo`, the engineer's box prompts in the API) | `photo_localizations.cost_usd` and `object_prompts.cost_usd` only | `kind = localization`: one row per prediction with the prediction id, predict seconds at the backend's rate, the phrases sent; a failed Replicate prediction (still billed) is an error row |
+| the surface segmenter (Replicate Mask2Former) | charged to the budget, recorded nowhere | `kind = segmentation`, one row per prediction |
+| prompts and answers | per-photo analyses kept the raw answers under `analyses/`; nothing for the other steps; no prompt anywhere | `studies/<id>/llm/<call id>.request.json` (system prompt, messages as sent, each image replaced by its ref, media type, byte size and sha256, the tool definitions, the response schema) and `.response.json` (the raw provider response, the usage as reported, the cost); API-key-shaped strings redacted before writing |
+| served | `budget_remaining_usd` in the workflow view | `GET /v1/studies/{id}/spend` (the rollup by stage, activity, component, model and kind: calls, errors, tokens of every kind, dollars, latency, pages or seconds), `GET /v1/studies/{id}/calls` (the rows, oldest first, keyset pages, `activity`/`kind`/`entity_id` filters), the export's `summary.spend` and `rev-<n>.calls.jsonl` (one line per call: the row and the stored prompt and answer); `docs/api/SPEND.md` |
+
+`ingest_appraisal` does not call Azure Document Intelligence (it reads the PDF's text layer
+and chunks it); only `extract_fields` does, once per document (the analysis is reused across
+revisions). Rows written before this migration keep `kind = chat`, `status = ok` and null in
+every new column: the information was not recorded then.
+
+### 40.3 How it is wired
+
+`basis.llm.call.CallContext` carries who pays and where the call comes from (stage, revision,
+attempt, entity); each activity builds it from one read (`_model_calls.call_origin`: the run
+row, the study's current stage, `activity.info().attempt`) and narrows it per entity
+(`ctx.about("room", room.id)` in the room step, `about("component", ...)` in the classifier,
+the photo document in `analyze_photo` and `localize_photo`, the appraisal document in
+`extract_fields`). `call_model` records the response or the error (both now carry the response
+id, finish reason, endpoint and the parameters as sent) and names the caller from the stack.
+The recorder (`basis.llm.recorder.LlmCallRecorder`, built by `Deps.ledger()` with the
+process's storage, bucket and `git_sha`) prices the entry (`price_entry`: the token parts
+by the table, a metered step by what the provider charged), archives the two payloads, then
+writes the row in its own short transaction, as before, so a rolled-back or retried activity
+never loses a spent call; a storage failure is logged and the row is still written without
+its references. The non-token steps go through the same recorder (`step_entry`): the
+extraction pipeline around `azure.analyze`, `localize_photo` over the localizer's
+`LocalizeCall`s (a failed prediction now carries its call on the exception), the crop step
+over the segmenter's (the protocol gained a `calls` out-parameter), and the objects route for
+the engineer's prompts (activity `object_prompt`, no run).
+
+Rollups are one `GROUP BY` per grouping over the study's rows (`LlmCallRepository.spend`),
+ordered by cost; the page is a keyset over `(created_at, id)` served by the new index. The
+export reads the rollup into `summary.spend` and builds the transcript from the rows and their
+stored payloads; the ledger is append-only and the export makes no paid call, so two exports
+with no call between them stay byte-identical (the existing test).
+
+### 40.4 Storage per study
+
+Measured with the released prompts and a fixture photo (`MemoryRecorder`, the exact bytes the
+recorder writes): a per-photo call stores a 5.7 KB request (the 4.7 KB countables prompt, the
+image as a 150-byte record; the 86 KB of base64 are not stored) and a 1.5 KB response; a
+classification call 3.3 KB and 0.8 KB; the grounded extraction over six pages 21 KB and 9 KB.
+Applied to the live run's mix (724 calls, 2.8 M input tokens, 165 K output tokens; about
+0.3 M of the input tokens are images, which the archive does not store): requests about
+4 bytes per text token, 10 MB; responses 165 K tokens plus the raw envelope, about 1.2 MB;
+the 724 rows with their `request_params`, about 1 MB in Postgres; the export's transcript
+duplicates the payloads, about 11 MB per revision. Call it 12 MB of storage and 1 MB of
+database per study per revision, against the 50 to 150 MB the study's photos already occupy;
+a class-A write per payload at GCS prices is a tenth of a cent per study. These are
+estimates from the measured per-call sizes, not a measurement of a live study.
+
+### 40.5 Tests and gates
+
+`tests/LEDGER.md`: the price table prices every usage part at its own rate on both providers
+and refuses the pipeline a model without a row (4); the Anthropic provider keeps the cache
+split and prices it (the fold regression) and reports the response identity and the sent
+parameters (2); the OpenAI providers read the cached and reasoning details and carry the
+identity on a bad response too (3); `call_model` names the calling component, archives both
+payloads, writes an error row for a bad response, redacts API keys in the prompt and the
+answer while keeping hex ids, and replaces image bytes by their record (5); the classifier's loop with a ledger records each call about its component with the tool calls it asked for, their outcome and duration (1); the recorder on
+Postgres writes every column and the payload references, sums the spend across a rolled-back
+caller, and rolls up and pages metered steps with model calls (3); the two routes (3); the
+export's `summary.spend` and `rev-1.calls.jsonl` (in the export test); the extraction tests
+see the Azure DI row beside the model calls (6 updated); the schema spec (19 JSONB columns,
+the new not-null columns) and the migration history to `0012`; the fake lifecycle run with a
+fake localizer: every row has its component, stage, attempt, build and run, every model call
+its prompt, parameters and payloads, every call its entity, the analysis and the three
+predictions priced per page and per second, the rollup summing to the rows in every grouping,
+the export carrying the same totals and one transcript line per call (1).
+
+Gates (`backEnd/`): `ruff check`, `ruff format --check`, `mypy` and
+`env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY uv run --no-sync pytest -q` (the full suite as CI
+runs it, Docker up): all green on 2026-10-29 (4,946 passed, 23 skipped, 36 subtests, 11 min 52 s; Docker up for the testcontainers suites). The OpenAPI document was regenerated.
+
+### 40.6 Open
+
+* The live re-run with the ledger on (section 34's study, same defaults) has not been made:
+  no paid call was allowed from this branch. The storage figures above are extrapolated from
+  measured per-call sizes; the first live run should be read back with
+  `GET /v1/studies/{id}/calls` and the transcript and the numbers corrected here.
+* `request_id` (the provider's `request-id` header) is read from the SDK's `_request_id`;
+  the mock transports in the tests send none, so it is verified only as "carried when
+  present".
+* The pool's fallback: the row names the provider that answered; which provider was tried
+  first is in the worker log only.
+* The price table is still a Python constant. A row change bumps `PRICING_VERSION`; a stored
+  row keeps the version it was priced with, so a later table never rewrites history.
 ## 41. Every study's history made legible: error codes, a per-study timeline, the AI-versus-engineer audit trail (2026-10-29)
 
 Bryan's asks (2026-10-29): pinpoint every step and assign error codes to every way it can fail,
@@ -5856,7 +5999,7 @@ stands for; `test_no_unknown_code_literal_in_the_code_base` refuses a `BASIS-` l
 outside the codes module; `test_every_problem_type_suffix_the_api_raises_is_catalogued` refuses
 an uncatalogued `type_suffix`; `test_document_is_current` refuses a stale document.
 
-### 41.3 The per-study timeline (`study_events`, migration 0012)
+### 41.3 The per-study timeline (`study_events`, migration 0013)
 
 One append-only table (the `forbid_mutation()` trigger of `reviews` and `corrections`), one row
 per occurrence, written in the same transaction as the change where there is one; `seq` is the
@@ -5977,8 +6120,8 @@ all green; `docs/api/openapi.json` regenerated (three new operations, the new me
 
 ### 41.6 Open
 
-* Migration numbering: this branch's `0012_study_events` and the ledger's `0012_call_ledger`
-  (PR #88) both revise 0011; whichever merges second becomes 0013.
+* Migration numbering: this branch's `study_events` migration was `0012` until the ledger's
+  `0012_call_ledger` (PR #88) merged first; it is `0013_study_events`, revising 0012.
 * No live run through the stack with the table yet (worker, Temporal, a study); the lifecycle
   runs are the evidence. The like-for-like live run of section 38 would be the first study whose
   timeline needs no worker log.

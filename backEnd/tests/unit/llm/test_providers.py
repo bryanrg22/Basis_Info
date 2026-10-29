@@ -9,6 +9,7 @@ status handling and error classes.
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Any
 
 import httpx2
@@ -17,6 +18,7 @@ import pytest
 from pydantic import BaseModel, Field, SecretStr
 
 from basis.config import ConfigError, Settings
+from basis.llm.cost import cost_decimal
 from basis.llm.errors import (
     CONFIG_HINT,
     ProviderAccountError,
@@ -27,7 +29,7 @@ from basis.llm.errors import (
     ProviderUnavailable,
     classify_rejection,
 )
-from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec
+from basis.llm.provider import ChatRequest, ImagePart, Message, ToolCall, ToolSpec, Usage
 from basis.llm.providers import (
     MALFORMED_ARGUMENTS,
     AzureOpenAIProvider,
@@ -875,3 +877,48 @@ def test_classify_rejection_edges() -> None:
     assert isinstance(classify_rejection(409, [], "conflict", provider="a"), ProviderUnavailable)
     too_large = classify_rejection(413, ["request_too_large"], "too big", provider="a")
     assert isinstance(too_large, ProviderRequestRejected)
+
+
+# ------------------------------------------------------------------ the ledger (section 40)
+
+
+async def test_the_usage_split_and_the_identity_reach_the_response() -> None:
+    usage = {
+        "prompt_tokens": 1200,
+        "completion_tokens": 700,
+        "total_tokens": 1900,
+        "prompt_tokens_details": {"cached_tokens": 1000},
+        "completion_tokens_details": {"reasoning_tokens": 600},
+    }
+    server = Server(ok(completion(usage=usage, model="gpt-5.4-2026-03-01", finish="stop")))
+    response = await provider(server).complete(request(model="gpt-5.4", reasoning_effort="low"))
+    assert response.usage == Usage(
+        input_tokens=1200,
+        output_tokens=700,
+        cache_read_input_tokens=1000,
+        reasoning_output_tokens=600,
+    )
+    # 200 uncached x $2.50 + 1,000 cached x $0.25 + 700 out x $15 per million
+    assert cost_decimal("gpt-5.4", response.usage) == Decimal("0.011250")
+    assert (response.response_id, response.finish_reason) == ("chatcmpl-1", "stop")
+    assert response.model == "gpt-5.4-2026-03-01" and response.endpoint == BASE + "/"
+    params = response.request_params
+    assert params["max_output_tokens"] == 300 and params["reasoning_effort"] == "low"
+    assert params["temperature"] is None  # not sent to a reasoning model
+    assert params["response_format"] == "Answer" and params["target_model"] == "gpt-5.4"
+
+
+async def test_a_sampling_model_records_its_temperature() -> None:
+    response = await provider(Server(ok())).complete(request())
+    assert response.request_params["temperature"] == 0.0
+    assert response.request_params["max_output_tokens"] == 300
+
+
+async def test_a_bad_response_carries_the_same_ledger_fields() -> None:
+    server = Server(ok(completion(finish="length")))
+    with pytest.raises(ProviderBadResponse) as caught:
+        await provider(server).complete(request())
+    error = caught.value
+    assert (error.response_id, error.finish_reason) == ("chatcmpl-1", "length")
+    assert error.endpoint == BASE + "/" and error.request_params is not None
+    assert error.request_params["response_format"] == "Answer"

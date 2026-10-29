@@ -172,7 +172,11 @@ def build_request(a: RoomPhoto, b: RoomPhoto, ctx: OverlapContext) -> ChatReques
         Message(
             role="user",
             content=f"Image {name}:",
-            images=(ImagePart(media_type="image/jpeg", data_base64=p.image.base64, detail="high"),),
+            images=(
+                ImagePart(
+                    media_type="image/jpeg", data_base64=p.image.base64, detail="high", ref=p.file
+                ),
+            ),
         )
         for name, p in (("A", a), ("B", b))
     )

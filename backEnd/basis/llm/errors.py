@@ -115,6 +115,12 @@ class ProviderError(RuntimeError):
         usage: Usage | None = None,
         model: str | None = None,
         raw: dict[str, Any] | None = None,
+        response_id: str | None = None,
+        request_id: str | None = None,
+        finish_reason: str | None = None,
+        endpoint: str | None = None,
+        request_params: dict[str, Any] | None = None,
+        latency_ms: int | None = None,
     ) -> None:
         super().__init__(message)
         self.provider = provider
@@ -122,6 +128,14 @@ class ProviderError(RuntimeError):
         self.usage = usage
         self.model = model
         self.raw = raw
+        # The ledger fields of a call that reached the model (a bad response): the same
+        # ones :class:`~basis.llm.provider.ChatResponse` carries.
+        self.response_id = response_id
+        self.request_id = request_id
+        self.finish_reason = finish_reason
+        self.endpoint = endpoint
+        self.request_params = request_params
+        self.latency_ms = latency_ms
 
 
 class ProviderRateLimited(ProviderError):
@@ -225,6 +239,23 @@ def _where(status: int | None, code: str | None) -> str:
 def redact_secrets(text: str) -> str:
     """``text`` with every API-key-shaped token replaced by ``[redacted]``."""
     return _SECRET.sub("[redacted]", text)
+
+
+# Keys as they could appear inside a request or response body stored by the ledger: the
+# vendors' prefixed keys (OpenAI ``sk-``/``sk-proj-``, Anthropic ``sk-ant-``, Replicate
+# ``r8_``) and credential headers written out as text. Deliberately without the bare 32-hex
+# rule of :data:`_SECRET`: a stored prompt legitimately holds document and chunk ids in hex.
+_API_KEY = re.compile(
+    r"\b(?:sk|rk)-[A-Za-z0-9_\-]{8,}"
+    r"|\br8_[A-Za-z0-9]{8,}"
+    r"|(?i:(?:bearer|api-key|x-api-key|authorization)\s*[:=]\s*)[^\s\"']{8,}"
+)
+
+
+def redact_api_keys(text: str) -> str:
+    """``text`` with every API key or credential header replaced by ``[redacted]``, for the
+    ledger's stored payloads (:mod:`basis.llm.recorder`). Hex ids are left alone."""
+    return _API_KEY.sub("[redacted]", text)
 
 
 def is_retryable_status(error: ProviderError) -> bool:

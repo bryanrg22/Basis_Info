@@ -1,14 +1,121 @@
-"""Model-call records (``llm_calls``): one row per provider call, the budget is their SUM."""
+"""The paid-call ledger (``llm_calls``): one row per call, the budget is their SUM.
+
+:meth:`LlmCallRepository.add_record` writes what :mod:`basis.llm.recorder` priced;
+:meth:`spend` rolls a study up by stage, activity, component, model and kind (calls, tokens
+of every kind, dollars, latency), and :meth:`page` lists the rows oldest first with a keyset
+cursor on ``(created_at, id)`` (EVAL_REPORT section 40; ``GET /v1/studies/{id}/spend`` and
+``/calls``, the export's ``summary.spend``).
+"""
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Final
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from basis.db.errors import InvalidCursorError
 from basis.db.models import LlmCall
+
+if TYPE_CHECKING:
+    from basis.llm.recorder import CallRecord
+
+MAX_CALL_PAGE: Final = 200
+GROUPINGS: Final = ("stage", "activity", "component", "model", "kind")
+
+
+@dataclass(frozen=True, slots=True)
+class SpendGroup:
+    """One line of the rollup: the group's key and its totals."""
+
+    key: str | None
+    calls: int
+    errors: int
+    input_tokens: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
+    output_tokens: int
+    reasoning_output_tokens: int
+    cost_usd: Decimal
+    latency_ms_total: int
+    latency_ms_max: int | None
+    quantity: Decimal | None
+
+
+@dataclass(frozen=True, slots=True)
+class Spend:
+    """A study's whole spend and its rollups (the lines of each sum to ``total``)."""
+
+    total: SpendGroup
+    by_stage: list[SpendGroup]
+    by_activity: list[SpendGroup]
+    by_component: list[SpendGroup]
+    by_model: list[SpendGroup]
+    by_kind: list[SpendGroup]
+
+
+@dataclass(frozen=True, slots=True)
+class CallPage:
+    items: list[LlmCall]
+    next_cursor: str | None
+
+
+def encode_cursor(created_at: datetime, call_id: uuid.UUID) -> str:
+    raw = json.dumps({"t": created_at.isoformat(), "id": str(call_id)}, separators=(",", ":"))
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded.encode()))
+        created_at = datetime.fromisoformat(data["t"])
+        call_id = uuid.UUID(data["id"])
+    except (binascii.Error, ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
+        raise InvalidCursorError("invalid pagination cursor") from exc
+    if created_at.tzinfo is None:
+        raise InvalidCursorError("invalid pagination cursor")
+    return created_at, call_id
+
+
+_SUMS = (
+    func.count().label("calls"),
+    func.count().filter(LlmCall.status == "error").label("errors"),
+    func.coalesce(func.sum(LlmCall.input_tokens), 0).label("input_tokens"),
+    func.coalesce(func.sum(LlmCall.cache_read_input_tokens), 0).label("cache_read"),
+    func.coalesce(func.sum(LlmCall.cache_creation_input_tokens), 0).label("cache_creation"),
+    func.coalesce(func.sum(LlmCall.output_tokens), 0).label("output_tokens"),
+    func.coalesce(func.sum(LlmCall.reasoning_output_tokens), 0).label("reasoning"),
+    func.coalesce(func.sum(LlmCall.cost_usd), 0).label("cost_usd"),
+    func.coalesce(func.sum(LlmCall.latency_ms), 0).label("latency_total"),
+    func.max(LlmCall.latency_ms).label("latency_max"),
+    func.sum(LlmCall.quantity).label("quantity"),
+)
+
+
+def _group(key: Any, row: Any) -> SpendGroup:
+    return SpendGroup(
+        key=None if key is None else str(key),
+        calls=int(row.calls),
+        errors=int(row.errors),
+        input_tokens=int(row.input_tokens),
+        cache_read_input_tokens=int(row.cache_read),
+        cache_creation_input_tokens=int(row.cache_creation),
+        output_tokens=int(row.output_tokens),
+        reasoning_output_tokens=int(row.reasoning),
+        cost_usd=Decimal(row.cost_usd),
+        latency_ms_total=int(row.latency_total),
+        latency_ms_max=None if row.latency_max is None else int(row.latency_max),
+        quantity=None if row.quantity is None else Decimal(row.quantity),
+    )
 
 
 class LlmCallRepository:
@@ -29,6 +136,8 @@ class LlmCallRepository:
         cost_usd: Decimal,
         latency_ms: int | None,
     ) -> LlmCall:
+        """A bare row (the pre-ledger shape); production writes go through
+        :meth:`add_record`."""
         row = LlmCall(
             study_id=study_id,
             run_id=run_id,
@@ -40,6 +149,63 @@ class LlmCallRepository:
             output_tokens=output_tokens,
             cost_usd=cost_usd,
             latency_ms=latency_ms,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return row
+
+    async def add_record(self, record: CallRecord, *, build_sha: str | None = None) -> LlmCall:
+        """The row of a priced :class:`~basis.llm.recorder.CallRecord`."""
+        e = record.entry
+        row = LlmCall(
+            id=record.id,
+            study_id=e.study_id,
+            run_id=e.run_id,
+            activity=e.activity,
+            provider=e.provider,
+            model=e.model,
+            prompt_version=e.prompt_version,
+            input_tokens=e.usage.input_tokens,
+            output_tokens=e.usage.output_tokens,
+            cost_usd=record.cost_usd,
+            latency_ms=e.latency_ms,
+            kind=e.kind,
+            status=e.status,
+            error=e.error,
+            stage=e.stage,
+            revision=e.revision,
+            activity_attempt=e.activity_attempt,
+            component=e.component,
+            prompt_name=e.prompt_name or _prompt_name(e.prompt_version),
+            prompt_sha256=e.prompt_sha256,
+            build_sha=build_sha,
+            entity_type=e.entity_type,
+            entity_id=e.entity_id,
+            requested_model=e.requested_model,
+            endpoint=e.endpoint,
+            response_id=e.response_id,
+            request_id=e.request_id,
+            finish_reason=e.finish_reason,
+            reasoning_effort=_text(e.request_params.get("reasoning_effort")),
+            max_output_tokens=_int(e.request_params.get("max_output_tokens")),
+            temperature=_float(e.request_params.get("temperature")),
+            response_format=_text(e.request_params.get("response_format")),
+            image_count=_int(e.request_params.get("image_count")),
+            image_bytes=_int(e.request_params.get("image_bytes")),
+            request_params=e.request_params or None,
+            cache_read_input_tokens=e.usage.cache_read_input_tokens,
+            cache_creation_input_tokens=e.usage.cache_creation_input_tokens,
+            reasoning_output_tokens=e.usage.reasoning_output_tokens,
+            quantity=e.quantity,
+            unit=e.unit,
+            unit_price_usd=e.unit_price_usd,
+            price_row=record.price_row,
+            pricing_version=record.pricing_version,
+            elapsed_ms=e.elapsed_ms,
+            request_uri=record.request_uri,
+            request_sha256=record.request_sha256,
+            response_uri=record.response_uri,
+            response_sha256=record.response_sha256,
         )
         self._session.add(row)
         await self._session.flush()
@@ -59,3 +225,91 @@ class LlmCallRepository:
             .order_by(LlmCall.created_at, LlmCall.id)
         )
         return list((await self._session.scalars(stmt)).all())
+
+    async def spend(self, study_id: uuid.UUID) -> Spend:
+        """The study's rollup: the total and one line per stage, activity, component, model
+        and kind (lines ordered by cost, largest first, then key)."""
+        total_row = (
+            await self._session.execute(select(*_SUMS).where(LlmCall.study_id == study_id))
+        ).one()
+        groups: dict[str, list[SpendGroup]] = {}
+        for name in GROUPINGS:
+            column = getattr(LlmCall, name)
+            stmt = (
+                select(column.label("key"), *_SUMS)
+                .where(LlmCall.study_id == study_id)
+                .group_by(column)
+                .order_by(func.sum(LlmCall.cost_usd).desc(), column.nulls_last())
+            )
+            rows = (await self._session.execute(stmt)).all()
+            groups[name] = [_group(row.key, row) for row in rows]
+        return Spend(
+            total=_group(None, total_row),
+            by_stage=groups["stage"],
+            by_activity=groups["activity"],
+            by_component=groups["component"],
+            by_model=groups["model"],
+            by_kind=groups["kind"],
+        )
+
+    async def page(
+        self,
+        study_id: uuid.UUID,
+        *,
+        limit: int,
+        cursor: str | None = None,
+        activity: str | None = None,
+        kind: str | None = None,
+        entity_id: uuid.UUID | None = None,
+    ) -> CallPage:
+        """``limit`` rows oldest first after ``cursor``, optionally of one activity, kind or
+        entity."""
+        limit = max(1, min(limit, MAX_CALL_PAGE))
+        stmt = select(LlmCall).where(LlmCall.study_id == study_id)
+        if activity is not None:
+            stmt = stmt.where(LlmCall.activity == activity)
+        if kind is not None:
+            stmt = stmt.where(LlmCall.kind == kind)
+        if entity_id is not None:
+            stmt = stmt.where(LlmCall.entity_id == entity_id)
+        if cursor is not None:
+            created_at, call_id = decode_cursor(cursor)
+            stmt = stmt.where(
+                or_(
+                    LlmCall.created_at > created_at,
+                    and_(LlmCall.created_at == created_at, LlmCall.id > call_id),
+                )
+            )
+        stmt = stmt.order_by(LlmCall.created_at, LlmCall.id).limit(limit + 1)
+        rows: Sequence[LlmCall] = (await self._session.scalars(stmt)).all()
+        items = list(rows[:limit])
+        next_cursor = (
+            encode_cursor(items[-1].created_at, items[-1].id) if len(rows) > limit else None
+        )
+        return CallPage(items=items, next_cursor=next_cursor)
+
+
+def _prompt_name(prompt_version: str | None) -> str | None:
+    """The ``<name>`` of a ``<name>/<version>`` id, for an entry built without one."""
+    return prompt_version.partition("/")[0] if prompt_version else None
+
+
+def _text(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _int(value: object) -> int | None:
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def _float(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+__all__ = [
+    "CallPage",
+    "LlmCallRepository",
+    "MAX_CALL_PAGE",
+    "Spend",
+    "SpendGroup",
+]

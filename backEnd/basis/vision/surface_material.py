@@ -207,7 +207,10 @@ def build_request(obj: InventoryObject, photo: RoomPhoto, ctx: MaterialContext) 
                 content="Image:",
                 images=(
                     ImagePart(
-                        media_type="image/jpeg", data_base64=photo.image.base64, detail="high"
+                        media_type="image/jpeg",
+                        data_base64=photo.image.base64,
+                        detail="high",
+                        ref=photo.file,
                     ),
                 ),
             ),

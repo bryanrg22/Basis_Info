@@ -66,9 +66,10 @@ from temporalio.exceptions import ApplicationError
 
 from basis.activities._model_calls import (
     PROVIDER_NOT_CONFIGURED,
+    CallOrigin,
+    call_origin,
     heartbeating,
     provider_failure,
-    run_pk,
 )
 from basis.activities._support import (
     budget_exceeded,
@@ -86,10 +87,8 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
 from basis.errors.codes import E, tag
-from basis.llm.call import CallContext
 from basis.llm.errors import ProviderError
 from basis.llm.provider import Budget, BudgetExceededError
-from basis.llm.recorder import LlmCallRecorder
 from basis.storage import ObjectNotFound
 from basis.vision.analyze import (
     FusionConfig,
@@ -160,7 +159,7 @@ class AnalyzePhoto:
             if existing is not None and input.keep_room:
                 if not await _analyzed(session, study_id, document_id, input):
                     pinned, existing = existing.room_id, None
-            run_id = await run_pk(session)
+            origin = await call_origin(session, study_id)
             gcs_uri = document.gcs_uri
             filename = document.filename
 
@@ -168,7 +167,7 @@ class AnalyzePhoto:
         cost = 0.0
         uri: str | None = None
         if existing is None:
-            result, cost = await self._analyze(input, study_id, document_id, gcs_uri, run_id)
+            result, cost = await self._analyze(input, study_id, document_id, gcs_uri, origin)
             uri = analysis_uri(self._deps.bucket, study_id, document_id, input.revision)
             await self._deps.storage.put(uri, _raw_json(result, uri), "application/json")
 
@@ -261,7 +260,7 @@ class AnalyzePhoto:
         study_id: uuid.UUID,
         document_id: uuid.UUID,
         gcs_uri: str,
-        run_id: uuid.UUID | None,
+        origin: CallOrigin,
     ) -> tuple[PhotoResult, float]:
         if self._deps.llm is None:
             raise ApplicationError(
@@ -281,13 +280,16 @@ class AnalyzePhoto:
         settings = self._deps.settings
         budget = Budget(remaining_usd=input.budget_remaining_usd)
         ctx = VisionContext(
-            call=CallContext(
-                study_id=study_id,
-                run_id=run_id,
-                activity=ACTIVITY,
-                budget=budget,
-                recorder=LlmCallRecorder(self._deps.sessionmaker),
+            call=origin.context(
+                study_id,
+                ACTIVITY,
+                budget,
+                self._deps.ledger(),
+                revision=input.revision,
+                entity_type="photo",
+                entity_id=document_id,
             ),
+            image_ref=str(document_id),
             provider=self._deps.llm,
             prompt=released_prompt(),
             model=settings.vision_model,

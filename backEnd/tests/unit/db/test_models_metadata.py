@@ -41,7 +41,7 @@ SPEC_TABLES = {
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
     # v0.12: components_gate (migration 0009_components_gate).
     # Basis and land allocation: intake (migration 0011_study_intake).
-    # Error codes: failure_code (migration 0012_study_events).
+    # Error codes: failure_code (migration 0013_study_events).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
     "room_aliases failure_reason failure_code components_gate intake created_at updated_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
@@ -52,7 +52,7 @@ SPEC_TABLES = {
     # v0.13: regions (migration 0010_field_regions): where each value is printed.
     "extraction_fields": "id extraction_id study_id section field value_text value_num "
     "value_date confidence source page regions",
-    # Provenance: carried_from (migration 0012_study_events).
+    # Provenance: carried_from (migration 0013_study_events).
     "rooms": "id study_id revision name room_type floor source group_key carried_from created_at",
     "photo_rooms": "study_id document_id room_id revision",
     "components": "id study_id revision document_id room_id label material attachment "
@@ -74,7 +74,15 @@ SPEC_TABLES = {
     "activity_results": "id run_id activity idempotency_key status output_ref error "
     "created_at updated_at",
     "llm_calls": "id study_id run_id activity provider model prompt_version input_tokens "
-    "output_tokens cost_usd latency_ms created_at",
+    "output_tokens cost_usd latency_ms created_at "
+    # The ledger (migration 0012_call_ledger, EVAL_REPORT section 40).
+    "kind status error stage revision activity_attempt component prompt_name prompt_sha256 "
+    "build_sha entity_type entity_id requested_model endpoint response_id request_id "
+    "finish_reason reasoning_effort max_output_tokens temperature response_format "
+    "image_count image_bytes request_params cache_read_input_tokens "
+    "cache_creation_input_tokens reasoning_output_tokens quantity unit unit_price_usd "
+    "price_row pricing_version elapsed_ms request_uri request_sha256 response_uri "
+    "response_sha256",
     "classification_cache": "key result hits source rules_version created_at updated_at",
     "idempotency_keys": "key user_id route request_hash status_code response created_at expires_at",
     # S2: ``status`` added by migration 0002_outbox_status (tests/unit/db/test_outbox_status.py).
@@ -94,7 +102,7 @@ SPEC_TABLES = {
     # Invite-only firms: migration 0007_invitations.
     "invitations": "id org_id email role created_by expires_at accepted_at accepted_by "
     "declined_at declined_by revoked_at revoked_by",
-    # The per-study timeline and audit trail (migration 0012_study_events).
+    # The per-study timeline and audit trail (migration 0013_study_events).
     "study_events": "id study_id seq event_type stage revision actor_type actor_id workflow_id "
     "run_id activity activity_id attempt started_at duration_ms entity_type entity_id code "
     "request_id before after detail",
@@ -281,7 +289,8 @@ SPEC_NOT_NULL = {
     "corrections": "entity_type entity_id revision after reviewer_id",
     "runs": "workflow_id run_id workflow_version input_revision",
     "activity_results": "activity idempotency_key status",
-    "llm_calls": "provider model input_tokens output_tokens cost_usd",
+    "llm_calls": "provider model input_tokens output_tokens cost_usd kind status "
+    "cache_read_input_tokens cache_creation_input_tokens reasoning_output_tokens",
     "classification_cache": "result hits source rules_version",
     "idempotency_keys": "route request_hash expires_at",
     "outbox": "kind payload status attempts next_attempt_at",
@@ -413,8 +422,8 @@ def test_migration_enum_labels_match_models() -> None:
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
     assert migration.UPDATED_AT_TABLES == UPDATED_AT_TABLES
-    # 0012 adds study_events to the append-only tables (the same forbid_mutation() trigger).
-    events = load_migration(VERSIONS / "0012_study_events.py")
+    # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
+    events = load_migration(VERSIONS / "0013_study_events.py")
     assert (*migration.APPEND_ONLY_TABLES, *events.APPEND_ONLY_TABLES) == APPEND_ONLY_TABLES
     with_updated_at = {t.name for t in Base.metadata.sorted_tables if "updated_at" in t.c}
     assert with_updated_at == set(UPDATED_AT_TABLES)
@@ -535,9 +544,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
         if isinstance(c.type, JSONB)
     ]
     # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
-    # manual add: object_prompts.params; v0.13: extraction_fields.regions; the timeline:
-    # study_events.before/after/detail
-    assert len(jsonb) == 21
+    # manual add: object_prompts.params; v0.13: extraction_fields.regions; the ledger
+    # (0012): llm_calls.request_params; the timeline (0013): study_events.before/after/detail
+    assert len(jsonb) == 22
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

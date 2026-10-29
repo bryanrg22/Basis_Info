@@ -40,7 +40,9 @@ photo and revision: an existing row is returned.
 
 from __future__ import annotations
 
+import time
 import uuid
+from collections.abc import Sequence
 from typing import Any, Final
 
 from sqlalchemy import select
@@ -48,7 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from basis.activities._model_calls import heartbeating
+from basis.activities._model_calls import call_origin, heartbeating
 from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
 from basis.activities.deps import Deps
 from basis.db.enums import DocumentKind
@@ -57,6 +59,9 @@ from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository
 from basis.db.session import session_scope
 from basis.errors.codes import E, tag
+from basis.llm.call import CallContext, step_entry
+from basis.llm.provider import Budget
+from basis.llm.recorder import KIND_LOCALIZATION, STATUS_ERROR, STATUS_OK
 from basis.storage import ObjectNotFound
 from basis.vision.localize import (
     CANDIDATE_THRESHOLD,
@@ -65,6 +70,8 @@ from basis.vision.localize import (
     DEFAULT_PHRASE_SET,
     Instance,
     Localization,
+    LocalizeCall,
+    Localizer,
     LocalizerError,
     LocalizerUnavailable,
     count_threshold,
@@ -104,6 +111,16 @@ class LocalizePhoto:
                 return await _output(objects, study_id, existing)
             labels = await _component_labels(session, study_id, document_id, input.revision)
             gcs_uri = document.gcs_uri
+            origin = await call_origin(session, study_id)
+        ledger = origin.context(
+            study_id,
+            ACTIVITY,
+            Budget(remaining_usd=max(input.budget_remaining_usd, 0.0)),
+            self._deps.ledger(),
+            revision=input.revision,
+            entity_type="photo",
+            entity_id=document_id,
+        )
 
         chosen = object_labels(labels)
         phrases = phrases_for(chosen, PHRASE_SET)
@@ -126,6 +143,7 @@ class LocalizePhoto:
         elif input.budget_remaining_usd <= 0:
             status, reason = "skipped", tag(E.BUDGET_LOCALIZE_SKIPPED, NO_BUDGET)
         else:
+            started = time.perf_counter()
             try:
                 image = prepare_image(await self._deps.storage.read(gcs_uri))
                 async with heartbeating("localizing"):
@@ -149,6 +167,15 @@ class LocalizePhoto:
             except LocalizerError as exc:
                 status = "failed"
                 reason = tag(E.PROVIDER_LOCALIZER_FAILED, f"{type(exc).__name__}: {exc}")
+                billed = getattr(exc, "call", None)
+                if isinstance(billed, LocalizeCall):  # a failed prediction is still billed
+                    await record_localization_calls(
+                        ledger, localizer, [billed], latency_ms=_ms(started), error=reason
+                    )
+            if found is not None:
+                await record_localization_calls(
+                    ledger, localizer, found.calls, latency_ms=_ms(started)
+                )
 
         model_version = getattr(localizer, "version", None) if localizer is not None else None
 
@@ -197,6 +224,49 @@ class LocalizePhoto:
             output_type=LocalizePhotoOutput,
             work=work,
         )
+
+
+async def record_localization_calls(
+    ledger: CallContext,
+    localizer: Localizer,
+    calls: Sequence[LocalizeCall],
+    *,
+    latency_ms: int | None = None,
+    error: str | None = None,
+) -> None:
+    """One ledger row per SAM 3 prediction (``kind = localization``): the predict seconds
+    at the backend's rate, the prediction id, the phrases sent, and the cost as the
+    backend metered it (what the budget was charged). ``latency_ms`` is the activity's wall
+    time around the localizer (its retries and polling included), the same on every call
+    of one photo."""
+    for call in calls:
+        entry = step_entry(
+            ledger,
+            kind=KIND_LOCALIZATION,
+            provider=str(getattr(localizer, "provider", type(localizer).__name__)),
+            model=_model_name(localizer),
+            quantity=call.predict_seconds,
+            unit="second",
+            unit_price_usd=float(getattr(localizer, "usd_per_second", 0.0) or 0.0),
+            cost_usd=call.cost_usd,
+            status=STATUS_OK if error is None else STATUS_ERROR,
+            error=error,
+            latency_ms=latency_ms,
+            response_id=call.prediction_id,
+            params={"prompts": list(call.prompts), "phrase_set": PHRASE_SET},
+            response={"status": call.status, "predict_seconds": call.predict_seconds},
+        )
+        await ledger.recorder.record(entry)
+
+
+def _ms(started: float) -> int:
+    return max(0, int((time.perf_counter() - started) * 1000))
+
+
+def _model_name(localizer: Localizer) -> str:
+    model = getattr(localizer, "model", None) or type(localizer).__name__
+    version = getattr(localizer, "version", None)
+    return f"{model}@{version}" if version else str(model)
 
 
 def model_object(instance: Instance) -> NewObject:

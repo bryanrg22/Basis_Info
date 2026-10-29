@@ -18,7 +18,7 @@ All three are viewer routes. Failures carry their error code (`BASIS-<area>-<nnn
 
 ## The timeline
 
-One append-only table, `study_events` (migration `0012_study_events`): a row per occurrence,
+One append-only table, `study_events` (migration `0013_study_events`): a row per occurrence,
 written in the same transaction as the change it records where there is one (a decision, a
 stage move, a correction applied to a row), so a rollback removes both. `seq` is the
 insertion order. Rows can never be updated or deleted (the `forbid_mutation()` trigger that
