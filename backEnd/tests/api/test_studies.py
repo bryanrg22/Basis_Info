@@ -7,16 +7,17 @@ replaced by ``FakeVerifier``.
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from typing import Any
 
 import pytest
-from apitest_support import Api, Seed
+from apitest_support import Api, Seed, bearer
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.errors import PROBLEM_JSON
 from basis.db.enums import OrgRole, Stage
-from basis.db.models import Study
+from basis.db.models import ExtractionField, Study
 
 pytestmark = pytest.mark.integration
 
@@ -50,6 +51,7 @@ async def test_create_returns_201_with_the_study(api: Api, seed: Seed) -> None:
         "room_aliases",
         "failure_reason",
         "components_gate",  # v0.12: null until the workflow starts (record_run_start)
+        "intake",  # null until PUT .../intake (docs/api/STUDY_RESULT.md)
         "created_at",
         "updated_at",
     }
@@ -333,3 +335,202 @@ async def test_archive_is_owner_only(api: Api, seed: Seed, role: OrgRole) -> Non
 async def test_archive_by_a_non_member_is_404(api: Api) -> None:
     study = await api.create_study("alice")
     assert (await api.delete("bob", f"/v1/studies/{study['id']}")).status_code == 404
+
+
+# --------------------------------------------------------------------------- intake
+
+INTAKE: dict[str, Any] = {
+    "purchase_price": "650000.00",
+    "acquisition_costs": [
+        {"category": "title_insurance_owner", "amount": "1250.00"},
+        {"category": "recording_fees", "amount": 180},
+    ],
+    "land_method": "appraisal_site_value",
+    "appraisal_site_value": "90000.00",
+    "appraisal_effective_date": "2025-03-14",
+    "property_use": "residential_rental",
+    "dwelling_unit_income_share": "1",
+    "placed_in_service_date": "2025-05-01",
+    "acquisition_date": "2025-04-15",
+    "state": "NY",
+    "zip": "12345",
+}
+
+
+def stored(intake: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    """The intake as the API returns it: every field, decimals as strings."""
+    document = {
+        "acquisition_costs": [],
+        "appraisal_site_value": None,
+        "appraisal_effective_date": None,
+        "land_appraisal_value": None,
+        "land_appraisal_date": None,
+        "assessor_land_value": None,
+        "assessor_improvement_value": None,
+        "flat_land_percentage": None,
+        "flat_land_source": None,
+        "dwelling_unit_income_share": None,
+        "transient_lodging": False,
+        "acquisition_date": None,
+        "state": None,
+        "zip": None,
+        "location_source": None,
+        **intake,
+        **overrides,
+    }
+    document["acquisition_costs"] = [
+        {"description": None, **c, "amount": str(Decimal(str(c["amount"])))}
+        for c in document["acquisition_costs"]
+    ]
+    return document
+
+
+async def test_create_with_intake_stores_it(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    response = await api.post("alice", "/v1/studies", {"property_name": "Harbor", "intake": INTAKE})
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["intake"] == stored(INTAKE, location_source="intake")
+    async with sessionmaker() as session:
+        study = await session.get(Study, uuid.UUID(body["id"]))
+    assert study is not None and study.intake is not None
+    assert study.intake.purchase_price == Decimal("650000.00")
+    assert study.intake.placed_in_service_date.isoformat() == "2025-05-01"
+    assert (study.intake.state, study.intake.zip) == ("NY", "12345")
+    detail = await api.get("alice", f"/v1/studies/{body['id']}")
+    assert detail.json()["intake"] == body["intake"]
+
+
+async def test_put_intake_sets_and_replaces(api: Api, seed: Seed) -> None:
+    study = await api.create_study("alice")
+    assert study["intake"] is None
+    response = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=INTAKE, headers=bearer("alice")
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["intake"] == stored(INTAKE, location_source="intake")
+    replaced = {**INTAKE, "purchase_price": "700000.00", "acquisition_costs": []}
+    response = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=replaced, headers=bearer("alice")
+    )
+    assert response.status_code == 200
+    assert response.json()["intake"]["purchase_price"] == "700000.00"
+    assert response.json()["intake"]["acquisition_costs"] == []
+    # Idempotent by itself: the same PUT twice, no Idempotency-Key.
+    again = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=replaced, headers=bearer("alice")
+    )
+    assert again.status_code == 200 and again.json()["intake"] == response.json()["intake"]
+
+
+async def test_put_intake_fills_state_and_zip_from_the_appraisal(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    study = await api.create_study("alice")
+    targets = await seed.outputs(study["id"])
+    async with sessionmaker() as session:
+        field = await session.get(ExtractionField, uuid.UUID(targets["extraction_field"]))
+        assert field is not None
+        session.add_all(
+            [
+                ExtractionField(
+                    extraction_id=field.extraction_id,
+                    study_id=field.study_id,
+                    section="subject",
+                    field="state",
+                    value_text=" ca ",
+                    source="stub",
+                ),
+                ExtractionField(
+                    extraction_id=field.extraction_id,
+                    study_id=field.study_id,
+                    section="subject",
+                    field="zip",
+                    value_text="90001-1234",
+                    source="stub",
+                ),
+            ]
+        )
+        await session.commit()
+    body = {k: v for k, v in INTAKE.items() if k not in ("state", "zip")}
+    response = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=body, headers=bearer("alice")
+    )
+    assert response.status_code == 200, response.text
+    intake = response.json()["intake"]
+    assert (intake["state"], intake["zip"], intake["location_source"]) == (
+        "CA",
+        "90001-1234",
+        "appraisal",
+    )
+    # Given values win over the appraisal's.
+    response = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json={**body, "zip": "10001"}, headers=bearer("alice")
+    )
+    intake = response.json()["intake"]
+    assert (intake["state"], intake["zip"], intake["location_source"]) == ("CA", "10001", "intake")
+
+
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        (
+            {"acquisition_costs": [{"category": "points", "amount": "2000"}]},
+            "points is not a capitalized",
+        ),
+        (
+            {"acquisition_costs": [{"category": "appraisal_lender", "amount": "500"}]},
+            "required by a lender",
+        ),
+        ({"appraisal_site_value": None}, "needs appraisal_site_value"),
+        (
+            {"land_method": "flat_percentage", "flat_land_percentage": "12"},
+            "needs flat_land_source",
+        ),
+        ({"dwelling_unit_income_share": "0.5"}, "fails the 80 % test"),
+        ({"property_use": "residential_rental", "transient_lodging": True}, "transient"),
+        ({"purchase_price": 650000.123}, "decimal"),
+        ({"state": "New York"}, "pattern"),
+        ({"extra": 1}, "Extra inputs"),
+    ],
+)
+async def test_put_intake_rejects_with_the_rule_in_errors(
+    api: Api, overrides: dict[str, Any], fragment: str
+) -> None:
+    study = await api.create_study("alice")
+    response = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json={**INTAKE, **overrides}, headers=bearer("alice")
+    )
+    assert response.status_code == 422, response.text
+    assert response.headers["content-type"] == PROBLEM_JSON
+    problem = response.json()
+    assert problem["type"].endswith("/validation")
+    assert any(fragment in e["detail"] for e in problem["errors"]), problem["errors"]
+    # Nothing was stored.
+    assert (await api.get("alice", f"/v1/studies/{study['id']}")).json()["intake"] is None
+
+
+async def test_put_intake_needs_the_engineer_role_and_a_visible_live_study(
+    api: Api, seed: Seed
+) -> None:
+    study = await api.create_study("alice")
+    await seed.member(uuid.UUID(study["org_id"]), "vera", OrgRole.VIEWER)
+    forbidden = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=INTAKE, headers=bearer("vera")
+    )
+    assert forbidden.status_code == 403
+    invisible = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=INTAKE, headers=bearer("bob")
+    )
+    assert invisible.status_code == 404
+    missing = await api.client.put(
+        f"/v1/studies/{uuid.uuid4()}/intake", json=INTAKE, headers=bearer("alice")
+    )
+    assert missing.status_code == 404
+    await api.delete("alice", f"/v1/studies/{study['id']}")
+    archived = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=INTAKE, headers=bearer("alice")
+    )
+    assert archived.status_code == 409
+    assert archived.json()["type"].endswith("/stale-state")

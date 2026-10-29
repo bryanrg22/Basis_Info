@@ -34,6 +34,11 @@ Schemathesis setup, and why:
   (``{"a": "b", "b": "a"}`` or ``{"a": "a"}``), a relation between keys and values that
   JSON Schema cannot express, so a generated map can be schema-valid and (correctly) 422.
   Loops, self-aliases and the accepted forms are tested in ``test_studies.py``.
+* ``intake`` is dropped from ``POST /studies`` bodies and the ``PUT .../intake`` body is
+  replaced by one valid intake in valid-data cases: the intake's rules relate fields (a land
+  method to its input, the use to the 80 % test), which JSON Schema cannot express, so a
+  generated body is (correctly) 422. The rules are tested in ``test_studies.py`` and
+  ``tests/unit/domain/test_intake.py``.
 * The engine uses ``NullPool``: Schemathesis's ASGI client runs the app on its own event
   loop, and pooled asyncpg connections cannot move between loops.
 
@@ -51,7 +56,7 @@ import json
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 import schemathesis
@@ -190,6 +195,17 @@ def contract_schema(contract_app: FastAPI) -> Any:
     return schema
 
 
+VALID_INTAKE: Final[dict[str, Any]] = {
+    "purchase_price": "650000.00",
+    "acquisition_costs": [{"category": "recording_fees", "amount": "180.00"}],
+    "land_method": "appraisal_site_value",
+    "appraisal_site_value": "90000.00",
+    "property_use": "nonresidential",
+    "transient_lodging": True,
+    "placed_in_service_date": "2025-05-01",
+}
+
+
 def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
     if case.meta is None or not case.meta.generation.mode.is_positive:
         return
@@ -207,6 +223,10 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         case.body["corrections"] = []
     if isinstance(case.body, dict) and case.body.get("room_aliases"):
         case.body["room_aliases"] = {}
+    if isinstance(case.body, dict) and "intake" in case.body:
+        case.body["intake"] = None
+    if case.path.endswith("/intake") and case.method.upper() == "PUT":
+        case.body = dict(VALID_INTAKE)
 
 
 @pytest.mark.integration

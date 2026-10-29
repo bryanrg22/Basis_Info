@@ -8,7 +8,8 @@ what the server really does:
   (see :func:`basis.api.routes.common.problems`), which also replaces FastAPI's default
   ``HTTPValidationError`` 422.
 * ``Idempotency-Key`` is marked required on ``POST``/``DELETE`` with its length and
-  character rules. The dependency declares it optional only so that a missing key is
+  character rules, and removed from the other methods of a write router (``PUT``), which
+  never read it. The dependency declares it optional only so that a missing key is
   answered with the documented 400 problem rather than FastAPI's generic 422.
 
 Regenerate the committed file after any API change (a test fails while it is stale)::
@@ -86,6 +87,15 @@ def _require_idempotency_key(schema: dict[str, Any]) -> None:
     for operations in schema.get("paths", {}).values():
         for method, operation in operations.items():
             if method.upper() not in ENFORCED_METHODS:
+                # A PUT on a write router declares the header (the dependency is shared)
+                # but never reads it: a PUT is idempotent by itself.
+                operation["parameters"] = [
+                    p
+                    for p in operation.get("parameters", [])
+                    if not (p.get("in") == "header" and p.get("name") == IDEMPOTENCY_HEADER)
+                ]
+                if not operation["parameters"]:
+                    del operation["parameters"]
                 continue
             for parameter in operation.get("parameters", []):
                 if parameter.get("in") == "header" and parameter.get("name") == IDEMPOTENCY_HEADER:

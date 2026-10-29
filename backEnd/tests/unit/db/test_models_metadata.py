@@ -40,8 +40,9 @@ SPEC_TABLES = {
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
     # v0.12: components_gate (migration 0009_components_gate).
+    # Basis and land allocation: intake (migration 0011_study_intake).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
-    "room_aliases failure_reason components_gate created_at updated_at",
+    "room_aliases failure_reason components_gate intake created_at updated_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",

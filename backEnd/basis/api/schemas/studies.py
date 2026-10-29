@@ -12,6 +12,7 @@ from basis.api.schemas.common import LINE_PATTERN, RequestModel, ResponseModel
 from basis.api.schemas.documents import DocumentOut
 from basis.api.schemas.reviews import ReviewOut
 from basis.db.enums import Stage, StudyStatus
+from basis.domain.intake import StudyIntake, StudyIntakeIn
 from basis.vision.rooms import AliasCycleError, resolve_aliases
 
 MAX_PROPERTY_NAME: Final = 200
@@ -55,6 +56,13 @@ class StudyCreate(RequestModel):
         json_schema_extra={"propertyNames": {"pattern": ROOM_ID_PATTERN}},
     )
 
+    intake: StudyIntakeIn | None = Field(
+        default=None,
+        description="The intake (price, acquisition costs, land, use, dates, location; "
+        "docs/api/STUDY_RESULT.md). Optional here; set or replace it later with "
+        "`PUT /v1/studies/{id}/intake`. Without it the study runs but its result has no basis.",
+    )
+
     @field_validator("property_name")
     @classmethod
     def _trim(cls, value: str) -> str:
@@ -86,6 +94,7 @@ class StudyOut(ResponseModel):
                     "room_aliases": {},
                     "failure_reason": None,
                     "components_gate": None,
+                    "intake": None,
                     "created_at": "2026-10-15T17:02:11.204000Z",
                     "updated_at": "2026-10-15T17:02:11.204000Z",
                 }
@@ -116,6 +125,11 @@ class StudyOut(ResponseModel):
         "(`rooms_review` takes the grouping, `components_review` the components and counts); "
         "false for a study with the single rooms review (started before it); null until the "
         "workflow starts.",
+    )
+    intake: StudyIntake | None = Field(
+        default=None,
+        description="The study's intake as stored (state/zip filled from the appraisal when "
+        "they were not given; `location_source` says so), or null until it is set.",
     )
     created_at: datetime
     updated_at: datetime
