@@ -420,7 +420,10 @@ async def test_a_configuration_error_stops_like_an_account_error_and_says_what_t
     assert caught.value.type == "ProviderAccountError" and caught.value.non_retryable
     text = str(caught.value)
     assert "azure rejected the request (HTTP 400, unsupported_parameter): Unsupported" in text
-    assert text.endswith("check the model and deployment settings, then retry the study")
+    # The catalogue code closes the message (docs/ERROR_CODES.md).
+    assert text.endswith(
+        "check the model and deployment settings, then retry the study [BASIS-PROVIDER-002]"
+    )
     assert "account" not in text.split(": ", 1)[1]
     assert len(provider.requests) == 1
     assert await count_rows(deps.sessionmaker, PhotoRoom, study_id=seeded.study_id) == 0
