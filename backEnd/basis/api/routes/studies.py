@@ -1,4 +1,5 @@
-"""``/v1/studies``: create, list, get, archive (S1_SPEC section 5)."""
+"""``/v1/studies``: create, list, get, archive (S1_SPEC section 5); the intake
+(``PUT /v1/studies/{id}/intake``, docs/api/STUDY_RESULT.md)."""
 
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ from basis.db.repositories import (
 )
 from basis.db.repositories.study import MAX_PAGE_SIZE
 from basis.db.session import SessionDep
+from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
 
 DEFAULT_PAGE_SIZE: Final = 50
 MAX_CURSOR_LENGTH: Final = 512
@@ -81,10 +83,45 @@ async def create_study(
     body: StudyCreate, user: CurrentUserDep, session: SessionDep, response: Response
 ) -> StudyOut:
     org_id = await choose_org(session, user, body.org_id)
+    intake = None
+    if body.intake is not None:
+        # A new study has no appraisal yet: the location is the intake's or nothing.
+        intake = with_location(body.intake, appraisal_state=None, appraisal_zip=None)
     study = await StudyRepository(session).create(
-        org_id, user.id, body.property_name, body.room_aliases
+        org_id, user.id, body.property_name, body.room_aliases, intake
     )
     response.headers["Location"] = f"/v1/studies/{study.id}"
+    return StudyOut.model_validate(study)
+
+
+async def stored_intake(
+    session: AsyncSession, study_id: uuid.UUID, body: StudyIntakeIn
+) -> StudyIntake:
+    """The document to store: state/zip from the body, else from the appraisal's subject
+    fields (the newest extraction) when they parse."""
+    state, zip_code = (None, None)
+    if body.state is None or body.zip is None:
+        state, zip_code = await StudyRepository(session).subject_location(study_id)
+    return with_location(body, appraisal_state=state, appraisal_zip=zip_code)
+
+
+@writes.put(
+    "/studies/{study_id}/intake",
+    summary="Set or replace the study's intake (engineer)",
+    description="The whole intake, validated as one document (docs/api/STUDY_RESULT.md): a "
+    "non-capitalizable cost category, a land method without its input, or a use that fails "
+    "the 80 % test is a 422 naming the rule. `state`/`zip` left out are filled from the "
+    "appraisal's subject fields. A PUT is idempotent by itself; no `Idempotency-Key` is "
+    "needed. 409 `stale-state` on an archived study.",
+    responses=problems(403, 404, 409),
+)
+async def put_intake(
+    body: StudyIntakeIn,
+    access: Annotated[VisibleStudy, Depends(study_access(OrgRole.ENGINEER))],
+    session: SessionDep,
+) -> StudyOut:
+    intake = await stored_intake(session, access.study.id, body)
+    study = await StudyRepository(session).set_intake(access.study.id, intake)
     return StudyOut.model_validate(study)
 
 

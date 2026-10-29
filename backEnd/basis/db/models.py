@@ -69,8 +69,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.engine import Dialect
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 from basis.db.enums import (
     Bucket,
@@ -81,6 +83,7 @@ from basis.db.enums import (
     Stage,
     StudyStatus,
 )
+from basis.domain.intake import StudyIntake
 
 EMBEDDING_DIM: Final = 384
 
@@ -144,6 +147,21 @@ NOW: Final = text("now()")
 GEN_UUID: Final = text("gen_random_uuid()")
 FALSE: Final = text("false")
 ZERO: Final = text("0")
+
+
+class IntakeDocument(TypeDecorator[StudyIntake]):
+    """``studies.intake`` (migration ``0011_study_intake``): the validated intake as one JSONB
+    document, read back as :class:`basis.domain.intake.StudyIntake` so callers write
+    ``study.intake.placed_in_service_date``. NULL is "no intake yet"."""
+
+    impl = JSON_DOC
+    cache_ok = True
+
+    def process_bind_param(self, value: StudyIntake | None, dialect: Dialect) -> Any:
+        return None if value is None else value.model_dump(mode="json")
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> StudyIntake | None:
+        return None if value is None else StudyIntake.model_validate(value)
 
 
 def _confidence_check(column: str) -> CheckConstraint:
@@ -274,6 +292,9 @@ class Study(Base):
     __tablename__ = "studies"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="revision_positive"),
+        CheckConstraint(
+            "intake IS NULL OR jsonb_typeof(intake) = 'object'", name="intake_is_object"
+        ),
         Index("ix_studies_org_id_created_at", "org_id", text("created_at DESC")),
     )
 
@@ -299,6 +320,9 @@ class Study(Base):
     # study whose execution has the single rooms review (started before the patch),
     # ``null`` until the workflow starts. The decision route and the object edits read it.
     components_gate: Mapped[bool | None]
+    # The intake (docs/api/STUDY_RESULT.md): price, acquisition costs, land, use, dates,
+    # location. NULL until the engineer sets it; read by the allocation and the takeoff.
+    intake: Mapped[StudyIntake | None] = mapped_column(IntakeDocument, nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 

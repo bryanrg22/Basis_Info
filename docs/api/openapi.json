@@ -545,6 +545,147 @@
         }
       }
     },
+    "/v1/studies/{study_id}/intake": {
+      "put": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Set or replace the study's intake (engineer)",
+        "description": "The whole intake, validated as one document (docs/api/STUDY_RESULT.md): a non-capitalizable cost category, a land method without its input, or a use that fails the 80 % test is a 422 naming the rule. `state`/`zip` left out are filled from the appraisal's subject fields. A PUT is idempotent by itself; no `Idempotency-Key` is needed. 409 `stale-state` on an archived study.",
+        "operationId": "put_intake_v1_studies__study_id__intake_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyIntakeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies/{study_id}/documents/{document_id}/content": {
       "get": {
         "tags": [
@@ -1891,6 +2032,116 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AssetsPageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/result": {
+      "get": {
+        "tags": [
+          "outputs"
+        ],
+        "summary": "The basis worksheet and the allocated schedule at a revision",
+        "operationId": "get_result_v1_studies__study_id__result_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2147483646,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A revision up to the current one (default).",
+              "title": "Revision"
+            },
+            "description": "A revision up to the current one (default)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResultOut"
                 }
               }
             }
@@ -4149,6 +4400,257 @@
   },
   "components": {
     "schemas": {
+      "AcquisitionCostIn-Input": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/CostCategory",
+            "description": "A settlement-statement line. Capitalized categories add to basis (Reg. 1.263(a)-2(f); Pub. 551): abstract_fees, title_search, title_insurance_owner, legal_fees, recording_fees, survey, transfer_taxes, broker_commission, appraisal_buyer, inspection, utility_connection, seller_obligations_paid, other_facilitative. The loan and occupancy categories (points, loan_origination, mortgage_insurance, loan_assumption_fee, credit_report, appraisal_lender, prepaid_interest, escrow_taxes, escrow_insurance, casualty_insurance, property_tax_proration, prepaid_rent, utilities_before_closing, refinancing_fees) are refused with the reason."
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Amount",
+            "description": "Dollars to the cent, as a JSON number or a numeric string."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "category",
+          "amount"
+        ],
+        "title": "AcquisitionCostIn"
+      },
+      "AcquisitionCostIn-Output": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/CostCategory",
+            "description": "A settlement-statement line. Capitalized categories add to basis (Reg. 1.263(a)-2(f); Pub. 551): abstract_fees, title_search, title_insurance_owner, legal_fees, recording_fees, survey, transfer_taxes, broker_commission, appraisal_buyer, inspection, utility_connection, seller_obligations_paid, other_facilitative. The loan and occupancy categories (points, loan_origination, mortgage_insurance, loan_assumption_fee, credit_report, appraisal_lender, prepaid_interest, escrow_taxes, escrow_insurance, casualty_insurance, property_tax_proration, prepaid_rent, utilities_before_closing, refinancing_fees) are refused with the reason."
+          },
+          "amount": {
+            "type": "string",
+            "title": "Amount",
+            "description": "Dollars to the cent, as a JSON number or a numeric string."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "category",
+          "amount"
+        ],
+        "title": "AcquisitionCostIn"
+      },
+      "AcquisitionCostOut": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "amount": {
+            "type": "string",
+            "title": "Amount"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "authority": {
+            "type": "string",
+            "title": "Authority",
+            "description": "Why the category is capitalized."
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "amount",
+          "description",
+          "authority"
+        ],
+        "title": "AcquisitionCostOut"
+      },
+      "AllocatedAssetOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "rcn": {
+            "type": "string",
+            "title": "Rcn"
+          },
+          "allocated": {
+            "type": "string",
+            "title": "Allocated"
+          },
+          "rounding_cents": {
+            "type": "integer",
+            "title": "Rounding Cents",
+            "description": "Cents this row gained (+) or lost (−) against plain half-up rounding so the rows sum to the total."
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id",
+          "category",
+          "bucket",
+          "rcn",
+          "allocated",
+          "rounding_cents"
+        ],
+        "title": "AllocatedAssetOut"
+      },
+      "AllocationOut": {
+        "properties": {
+          "building_basis": {
+            "type": "string",
+            "title": "Building Basis"
+          },
+          "closing_costs": {
+            "type": "string",
+            "title": "Closing Costs"
+          },
+          "total": {
+            "type": "string",
+            "title": "Total"
+          },
+          "rcn_total": {
+            "type": "string",
+            "title": "Rcn Total"
+          },
+          "factor": {
+            "type": "string",
+            "title": "Factor",
+            "description": "T / ΣRCN to 9 places (applied at full precision)."
+          },
+          "rows_sum": {
+            "type": "string",
+            "title": "Rows Sum",
+            "description": "The allocated rows' sum; equals `total` by construction."
+          },
+          "residual_cents": {
+            "type": "integer",
+            "title": "Residual Cents",
+            "description": "Cents moved by the largest-remainder rule in all."
+          },
+          "by_bucket": {
+            "items": {
+              "$ref": "#/components/schemas/BucketAllocationOut"
+            },
+            "type": "array",
+            "title": "By Bucket"
+          },
+          "by_system": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemAllocationOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By System",
+            "description": "The twelve building systems when every row maps to one; else null."
+          },
+          "by_system_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By System Reason"
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/AllocatedAssetOut"
+            },
+            "type": "array",
+            "title": "Assets",
+            "description": "Every row, in asset id order."
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "building_basis",
+          "closing_costs",
+          "total",
+          "rcn_total",
+          "factor",
+          "rows_sum",
+          "residual_cents",
+          "by_bucket",
+          "by_system",
+          "by_system_reason",
+          "assets",
+          "checks"
+        ],
+        "title": "AllocationOut"
+      },
       "AppraisalUpload": {
         "properties": {
           "filename": {
@@ -4606,6 +5108,57 @@
         ],
         "title": "Bucket"
       },
+      "BucketAllocationOut": {
+        "properties": {
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "rcn": {
+            "type": "string",
+            "title": "Rcn"
+          },
+          "allocated": {
+            "type": "string",
+            "title": "Allocated"
+          },
+          "percent": {
+            "type": "string",
+            "title": "Percent",
+            "description": "Of the total, to 0.1."
+          },
+          "share": {
+            "type": "string",
+            "title": "Share",
+            "description": "Of the total, to 6 places."
+          },
+          "building": {
+            "type": "string",
+            "title": "Building",
+            "description": "B × allocated / T (the pro-rata block)."
+          },
+          "closing_costs": {
+            "type": "string",
+            "title": "Closing Costs",
+            "description": "allocated − building; sums to CC."
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket",
+          "rows",
+          "rcn",
+          "allocated",
+          "percent",
+          "share",
+          "building",
+          "closing_costs"
+        ],
+        "title": "BucketAllocationOut"
+      },
       "CancelIn": {
         "properties": {
           "reason": {
@@ -4662,6 +5215,35 @@
           "candidate_id"
         ],
         "title": "CandidateSelection"
+      },
+      "CheckOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "not_checked"
+            ],
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "CheckOut"
       },
       "CheckResult": {
         "properties": {
@@ -5041,6 +5623,40 @@
           "after"
         ],
         "title": "CorrectionIn"
+      },
+      "CostCategory": {
+        "type": "string",
+        "enum": [
+          "abstract_fees",
+          "title_search",
+          "title_insurance_owner",
+          "legal_fees",
+          "recording_fees",
+          "survey",
+          "transfer_taxes",
+          "broker_commission",
+          "appraisal_buyer",
+          "inspection",
+          "utility_connection",
+          "seller_obligations_paid",
+          "other_facilitative",
+          "points",
+          "loan_origination",
+          "mortgage_insurance",
+          "loan_assumption_fee",
+          "credit_report",
+          "appraisal_lender",
+          "prepaid_interest",
+          "escrow_taxes",
+          "escrow_insurance",
+          "casualty_insurance",
+          "property_tax_proration",
+          "prepaid_rent",
+          "utilities_before_closing",
+          "refinancing_fees"
+        ],
+        "title": "CostCategory",
+        "description": "A settlement-statement line. Capitalized ones add to basis (Reg. §1.263(a)-2(f),\nPub. 551 \"Settlement costs\"); the others are refused with the reason."
       },
       "CostOut": {
         "properties": {
@@ -6247,6 +6863,16 @@
         "title": "InviteeInvitationOut",
         "description": "An invitation as its invitee sees it."
       },
+      "LandMethod": {
+        "type": "string",
+        "enum": [
+          "appraisal_site_value",
+          "land_appraisal",
+          "flat_percentage"
+        ],
+        "title": "LandMethod",
+        "description": "Where the land figure comes from, in the spec's order of preference (5.2). The\nassessor's ratio is not a method (never alone: ATG p.64) and there is no residual."
+      },
       "LocalizationOut": {
         "properties": {
           "status": {
@@ -6559,6 +7185,24 @@
           "role"
         ],
         "title": "MembershipOut"
+      },
+      "NotProducedOut": {
+        "properties": {
+          "system": {
+            "type": "string",
+            "title": "System"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "system",
+          "reason"
+        ],
+        "title": "NotProducedOut"
       },
       "OrgRole": {
         "type": "string",
@@ -6971,6 +7615,14 @@
         ],
         "title": "PointSelection"
       },
+      "PropertyUse": {
+        "type": "string",
+        "enum": [
+          "residential_rental",
+          "nonresidential"
+        ],
+        "title": "PropertyUse"
+      },
       "RetryRequested": {
         "properties": {
           "workflow_id": {
@@ -7258,6 +7910,80 @@
         ],
         "title": "RoomsPageOut"
       },
+      "ScheduleBucketOut": {
+        "properties": {
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "assets": {
+            "type": "integer",
+            "title": "Assets"
+          },
+          "rcn": {
+            "type": "string",
+            "title": "Rcn"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket",
+          "assets",
+          "rcn"
+        ],
+        "title": "ScheduleBucketOut"
+      },
+      "ScheduleOut": {
+        "properties": {
+          "assets": {
+            "type": "integer",
+            "title": "Assets"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "rcn_total": {
+            "type": "string",
+            "title": "Rcn Total"
+          },
+          "by_bucket": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleBucketOut"
+            },
+            "type": "array",
+            "title": "By Bucket"
+          },
+          "unpriced": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Unpriced",
+            "description": "Assets with no cost (no quantity or no row)."
+          },
+          "land": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Land",
+            "description": "Assets classified as land: not depreciable, not in the schedule."
+          }
+        },
+        "type": "object",
+        "required": [
+          "assets",
+          "priced",
+          "rcn_total",
+          "by_bucket",
+          "unpriced",
+          "land"
+        ],
+        "title": "ScheduleOut",
+        "description": "The revision's replacement-cost schedule, with or without an intake."
+      },
       "SignedUploadOut": {
         "properties": {
           "url": {
@@ -7396,6 +8122,17 @@
             "maxProperties": 500,
             "title": "Room Aliases",
             "description": "Rooms to merge when photos are grouped by file name: `{room id: room id}`, where a room id is the photo file name's room (`1_kitchen` for \"21_1st Floor Kitchen photo 1.JPG\", `b_bath` for \"Basement Bath.JPG\", `x_mechanicals` for \"Mechanicals.JPG\"). `{\"1_breakfast_nook\": \"1_kitchen\"}` puts the breakfast nook's photos in the kitchen. Chains are followed; a loop (including a room aliased to itself) is a 422 validation problem. Rooms can also be merged at the rooms review (a `room` correction with `merge_into`)."
+          },
+          "intake": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyIntakeIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The intake (price, acquisition costs, land, use, dates, location; docs/api/STUDY_RESULT.md). Optional here; set or replace it later with `PUT /v1/studies/{id}/intake`. Without it the study runs but its result has no basis."
           }
         },
         "additionalProperties": false,
@@ -7473,6 +8210,17 @@
             "title": "Components Gate",
             "description": "Whether the study's workflow reviews the components after the rooms (`rooms_review` takes the grouping, `components_review` the components and counts); false for a study with the single rooms review (started before it); null until the workflow starts."
           },
+          "intake": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyIntake"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The study's intake as stored (state/zip filled from the appraisal when they were not given; `location_source` says so), or null until it is set."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -7527,6 +8275,518 @@
             "room_aliases": {},
             "status": "draft",
             "updated_at": "2026-10-15T17:02:11.204000Z"
+          }
+        ]
+      },
+      "StudyIntake": {
+        "properties": {
+          "purchase_price": {
+            "type": "string",
+            "title": "Purchase Price",
+            "description": "The contract price from the closing statement (the appraisal's contract price corroborates it)."
+          },
+          "acquisition_costs": {
+            "items": {
+              "$ref": "#/components/schemas/AcquisitionCostIn-Output"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Acquisition Costs",
+            "description": "Capitalized acquisition costs from the closing statement, by category; allocated pro rata over every class (ATG ch. 4 C.11)."
+          },
+          "land_method": {
+            "$ref": "#/components/schemas/LandMethod",
+            "description": "Where the land figure comes from, in order of preference: `appraisal_site_value` (needs `appraisal_site_value`), `land_appraisal` (needs `land_appraisal_value`), `flat_percentage` (needs `flat_land_percentage` and `flat_land_source`). The assessor's values are only a check (ATG p.64); land is never the price less the improvements."
+          },
+          "appraisal_site_value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Dollars."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appraisal Site Value",
+            "description": "The appraisal's opinion of site value (cost approach)."
+          },
+          "appraisal_effective_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appraisal Effective Date",
+            "description": "The appraisal's effective date (checked against the purchase)."
+          },
+          "land_appraisal_value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Dollars."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Land Appraisal Value"
+          },
+          "land_appraisal_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Land Appraisal Date"
+          },
+          "assessor_land_value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Dollars to the cent, as a JSON number or a numeric string."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessor Land Value",
+            "description": "The assessor's land value, with `assessor_improvement_value`."
+          },
+          "assessor_improvement_value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Dollars to the cent, as a JSON number or a numeric string."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessor Improvement Value"
+          },
+          "flat_land_percentage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Percent (12 means 12 %)."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flat Land Percentage",
+            "description": "Land as a percent of the price (12 means 12 %)."
+          },
+          "flat_land_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flat Land Source",
+            "description": "Where the percentage comes from (required with it)."
+          },
+          "property_use": {
+            "$ref": "#/components/schemas/PropertyUse",
+            "description": "`residential_rental` (27.5 years: 80 % or more of gross rental income from dwelling units, none transient; §168(e)(2)(A)) or `nonresidential` (39 years; a bed-and-breakfast or short-term rental let on a transient basis is nonresidential)."
+          },
+          "dwelling_unit_income_share": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "A share, 0..1."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dwelling Unit Income Share",
+            "description": "Share (0..1) of gross rental income from dwelling units; required for `residential_rental` and must be at least 0.8."
+          },
+          "transient_lodging": {
+            "type": "boolean",
+            "title": "Transient Lodging",
+            "description": "More than half the units are let on a transient basis (hotel, motel, B&B); such units are not dwelling units, so the use cannot be `residential_rental`.",
+            "default": false
+          },
+          "placed_in_service_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Placed In Service Date",
+            "description": "When the property was ready and available for its use (Pub. 527), not the contract or appraisal date; depreciation starts here (mid-month convention) and the cost year follows it."
+          },
+          "acquisition_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquisition Date",
+            "description": "Contract or closing date (bonus depreciation rate)."
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State",
+            "description": "Two-letter state (location cost index). Defaults to the appraisal's `subject.state` when absent."
+          },
+          "zip": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9]{5}(-[0-9]{4})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zip",
+            "description": "ZIP code (location cost index). Defaults to the appraisal's `subject.zip` when absent."
+          },
+          "location_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "intake",
+                  "appraisal"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Source",
+            "description": "`intake` when the client gave state or zip, `appraisal` when both were filled from the appraisal's subject fields, null when neither had them."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "purchase_price",
+          "land_method",
+          "property_use",
+          "placed_in_service_date"
+        ],
+        "title": "StudyIntake",
+        "description": "The stored intake: the request plus where the location came from."
+      },
+      "StudyIntakeIn": {
+        "properties": {
+          "purchase_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Purchase Price",
+            "description": "The contract price from the closing statement (the appraisal's contract price corroborates it)."
+          },
+          "acquisition_costs": {
+            "items": {
+              "$ref": "#/components/schemas/AcquisitionCostIn-Input"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Acquisition Costs",
+            "description": "Capitalized acquisition costs from the closing statement, by category; allocated pro rata over every class (ATG ch. 4 C.11)."
+          },
+          "land_method": {
+            "$ref": "#/components/schemas/LandMethod",
+            "description": "Where the land figure comes from, in order of preference: `appraisal_site_value` (needs `appraisal_site_value`), `land_appraisal` (needs `land_appraisal_value`), `flat_percentage` (needs `flat_land_percentage` and `flat_land_source`). The assessor's values are only a check (ATG p.64); land is never the price less the improvements."
+          },
+          "appraisal_site_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "maximum": 1000000000000.0,
+                    "exclusiveMinimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Dollars."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appraisal Site Value",
+            "description": "The appraisal's opinion of site value (cost approach)."
+          },
+          "appraisal_effective_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appraisal Effective Date",
+            "description": "The appraisal's effective date (checked against the purchase)."
+          },
+          "land_appraisal_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "maximum": 1000000000000.0,
+                    "exclusiveMinimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Dollars."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Land Appraisal Value"
+          },
+          "land_appraisal_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Land Appraisal Date"
+          },
+          "assessor_land_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "maximum": 1000000000000.0,
+                    "minimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Dollars to the cent, as a JSON number or a numeric string."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessor Land Value",
+            "description": "The assessor's land value, with `assessor_improvement_value`."
+          },
+          "assessor_improvement_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "maximum": 1000000000000.0,
+                    "minimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Dollars to the cent, as a JSON number or a numeric string."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessor Improvement Value"
+          },
+          "flat_land_percentage": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMaximum": 100.0,
+                    "exclusiveMinimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Percent (12 means 12 %)."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flat Land Percentage",
+            "description": "Land as a percent of the price (12 means 12 %)."
+          },
+          "flat_land_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flat Land Source",
+            "description": "Where the percentage comes from (required with it)."
+          },
+          "property_use": {
+            "$ref": "#/components/schemas/PropertyUse",
+            "description": "`residential_rental` (27.5 years: 80 % or more of gross rental income from dwelling units, none transient; §168(e)(2)(A)) or `nonresidential` (39 years; a bed-and-breakfast or short-term rental let on a transient basis is nonresidential)."
+          },
+          "dwelling_unit_income_share": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "maximum": 1.0,
+                    "minimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "A share, 0..1."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dwelling Unit Income Share",
+            "description": "Share (0..1) of gross rental income from dwelling units; required for `residential_rental` and must be at least 0.8."
+          },
+          "transient_lodging": {
+            "type": "boolean",
+            "title": "Transient Lodging",
+            "description": "More than half the units are let on a transient basis (hotel, motel, B&B); such units are not dwelling units, so the use cannot be `residential_rental`.",
+            "default": false
+          },
+          "placed_in_service_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Placed In Service Date",
+            "description": "When the property was ready and available for its use (Pub. 527), not the contract or appraisal date; depreciation starts here (mid-month convention) and the cost year follows it."
+          },
+          "acquisition_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquisition Date",
+            "description": "Contract or closing date (bonus depreciation rate)."
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State",
+            "description": "Two-letter state (location cost index). Defaults to the appraisal's `subject.state` when absent."
+          },
+          "zip": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9]{5}(-[0-9]{4})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zip",
+            "description": "ZIP code (location cost index). Defaults to the appraisal's `subject.zip` when absent."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "purchase_price",
+          "land_method",
+          "property_use",
+          "placed_in_service_date"
+        ],
+        "title": "StudyIntakeIn",
+        "description": "The intake as the client sends it.",
+        "examples": [
+          {
+            "acquisition_costs": [
+              {
+                "amount": "1250.00",
+                "category": "title_insurance_owner"
+              },
+              {
+                "amount": "180.00",
+                "category": "recording_fees"
+              }
+            ],
+            "acquisition_date": "2025-04-15",
+            "appraisal_effective_date": "2025-03-14",
+            "appraisal_site_value": "90000.00",
+            "assessor_improvement_value": "430000",
+            "assessor_land_value": "70000",
+            "dwelling_unit_income_share": "1",
+            "land_method": "appraisal_site_value",
+            "placed_in_service_date": "2025-05-01",
+            "property_use": "residential_rental",
+            "purchase_price": "650000.00",
+            "state": "NY",
+            "transient_lodging": false,
+            "zip": "12345"
           }
         ]
       },
@@ -7622,6 +8882,17 @@
             "title": "Components Gate",
             "description": "Whether the study's workflow reviews the components after the rooms (`rooms_review` takes the grouping, `components_review` the components and counts); false for a study with the single rooms review (started before it); null until the workflow starts."
           },
+          "intake": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyIntake"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The study's intake as stored (state/zip filled from the appraisal when they were not given; `location_source` says so), or null until it is set."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -7660,6 +8931,70 @@
             "updated_at": "2026-10-15T17:02:11.204000Z"
           }
         ]
+      },
+      "StudyResultOut": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "intake": {
+            "type": "boolean",
+            "title": "Intake",
+            "description": "Whether the study has an intake."
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing",
+            "description": "What the result lacks: `intake` (no basis without it), `allocation` (an intake but no priced asset to allocate to), or nothing."
+          },
+          "worksheet": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorksheetOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/ScheduleOut"
+          },
+          "allocation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllocationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "not_produced": {
+            "items": {
+              "$ref": "#/components/schemas/NotProducedOut"
+            },
+            "type": "array",
+            "title": "Not Produced",
+            "description": "Systems the pipeline cannot cost today, so the schedule's gap to the basis is explicit."
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "intake",
+          "missing",
+          "worksheet",
+          "schedule",
+          "allocation",
+          "not_produced"
+        ],
+        "title": "StudyResultOut",
+        "description": "``GET /v1/studies/{id}/result`` and the export's ``summary.basis``."
       },
       "StudyStatus": {
         "type": "string",
@@ -7762,6 +9097,29 @@
           "suggested"
         ],
         "title": "SuggestedCountOut"
+      },
+      "SystemAllocationOut": {
+        "properties": {
+          "system": {
+            "type": "string",
+            "title": "System"
+          },
+          "rcn": {
+            "type": "string",
+            "title": "Rcn"
+          },
+          "allocated": {
+            "type": "string",
+            "title": "Allocated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "system",
+          "rcn",
+          "allocated"
+        ],
+        "title": "SystemAllocationOut"
       },
       "TakeoffOut": {
         "properties": {
@@ -8012,6 +9370,136 @@
             "workflow_id": "study-5f0c6a52-2f53-4c39-9a3e-2b0a8f1f7d10"
           }
         ]
+      },
+      "WorksheetOut": {
+        "properties": {
+          "purchase_price": {
+            "type": "string",
+            "title": "Purchase Price"
+          },
+          "acquisition_costs": {
+            "items": {
+              "$ref": "#/components/schemas/AcquisitionCostOut"
+            },
+            "type": "array",
+            "title": "Acquisition Costs"
+          },
+          "capitalized_costs": {
+            "type": "string",
+            "title": "Capitalized Costs",
+            "description": "CC: the sum of the accepted costs."
+          },
+          "land": {
+            "type": "string",
+            "title": "Land"
+          },
+          "land_method": {
+            "type": "string",
+            "title": "Land Method"
+          },
+          "land_source": {
+            "type": "string",
+            "title": "Land Source",
+            "description": "Where the land figure comes from, in words."
+          },
+          "building_basis": {
+            "type": "string",
+            "title": "Building Basis",
+            "description": "B = purchase price − land."
+          },
+          "total_basis": {
+            "type": "string",
+            "title": "Total Basis",
+            "description": "T = B + CC: the depreciable basis."
+          },
+          "property_use": {
+            "type": "string",
+            "title": "Property Use"
+          },
+          "recovery_period": {
+            "type": "string",
+            "title": "Recovery Period",
+            "description": "27.5 or 39 (years) for the building."
+          },
+          "placed_in_service_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Placed In Service Date"
+          },
+          "acquisition_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquisition Date"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "zip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zip"
+          },
+          "location_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Source"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "purchase_price",
+          "acquisition_costs",
+          "capitalized_costs",
+          "land",
+          "land_method",
+          "land_source",
+          "building_basis",
+          "total_basis",
+          "property_use",
+          "recovery_period",
+          "placed_in_service_date",
+          "acquisition_date",
+          "state",
+          "zip",
+          "location_source",
+          "checks"
+        ],
+        "title": "WorksheetOut",
+        "description": "``price + capitalized acquisition costs − land`` with every check."
       },
       "FieldError": {
         "description": "One validation failure.",

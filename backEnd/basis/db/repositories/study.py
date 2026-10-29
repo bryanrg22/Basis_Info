@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import OrgRole, Stage, StudyStatus, status_for_stage
 from basis.db.errors import InvalidCursorError, NotVisibleError, StaleStateError
-from basis.db.models import OrgMember, Run, Study
+from basis.db.models import Extraction, ExtractionField, OrgMember, Run, Study
+from basis.domain.intake import StudyIntake
 
 MAX_PAGE_SIZE: Final = 100
 
@@ -61,12 +62,14 @@ class StudyRepository:
         created_by: uuid.UUID,
         property_name: str,
         room_aliases: dict[str, str] | None = None,
+        intake: StudyIntake | None = None,
     ) -> Study:
         study = Study(
             org_id=org_id,
             created_by=created_by,
             property_name=property_name,
             room_aliases=dict(room_aliases or {}),
+            intake=intake,
         )
         self._session.add(study)
         await self._session.flush()
@@ -212,6 +215,44 @@ class StudyRepository:
             .execution_options(synchronize_session=False, populate_existing=True)
         )
         return (await self._session.scalars(stmt)).one()
+
+    async def set_intake(self, study_id: uuid.UUID, intake: StudyIntake) -> Study:
+        """Set or replace the study's intake (``PUT /v1/studies/{id}/intake``); archived
+        studies are left alone (``StaleStateError``)."""
+        stmt = (
+            update(Study)
+            .where(Study.id == study_id, Study.status != StudyStatus.ARCHIVED)
+            .values(intake=intake)
+            .returning(Study)
+            .execution_options(synchronize_session=False, populate_existing=True)
+        )
+        study = (await self._session.scalars(stmt)).one_or_none()
+        if study is not None:
+            return study
+        existing = await self._session.get(Study, study_id, populate_existing=True)
+        if existing is None:
+            raise NotVisibleError(f"study {study_id} not found")
+        raise StaleStateError(f"study {study_id} is archived; its intake cannot change")
+
+    async def subject_location(self, study_id: uuid.UUID) -> tuple[str | None, str | None]:
+        """``(state, zip)`` as the appraisal's subject fields read them, from the newest
+        extraction of the study; ``None`` for a field no extraction has."""
+        stmt = (
+            select(ExtractionField.field, ExtractionField.value_text)
+            .join(Extraction, Extraction.id == ExtractionField.extraction_id)
+            .where(
+                Extraction.study_id == study_id,
+                ExtractionField.section == "subject",
+                ExtractionField.field.in_(("state", "zip")),
+                ExtractionField.value_text.is_not(None),
+            )
+            .order_by(Extraction.revision.desc(), Extraction.created_at.desc())
+        )
+        found: dict[str, str] = {}
+        for field, value in (await self._session.execute(stmt)).all():
+            if isinstance(value, str):
+                found.setdefault(field, value)
+        return found.get("state"), found.get("zip")
 
     async def runs(self, study_id: uuid.UUID) -> list[Run]:
         """The study's workflow runs (``runs`` rows), oldest first."""

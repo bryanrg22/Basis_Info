@@ -11,6 +11,7 @@ from basis.api.routes import (
     objects,
     orgs,
     outputs,
+    result,
     studies,
     workflow,
 )
@@ -25,6 +26,7 @@ def api_routers() -> list[APIRouter]:
         decisions.writes,
         evidence.reads,
         outputs.reads,
+        result.reads,
         objects.reads,
         objects.writes,
         workflow.writes,

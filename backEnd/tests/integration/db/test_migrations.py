@@ -27,6 +27,8 @@
   ``stage`` before ``assets_processing`` and ``studies.components_gate`` (``false`` for
   existing studies, null for new ones); its downgrade refuses while a study or a review is
   at a components stage, else restores ``0008`` exactly;
+* ``0011_study_intake`` adds ``studies.intake`` (NULL for existing studies; a non-null value
+  must be a JSON object) and downgrades back to ``0010``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -59,8 +61,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0010"
-HISTORY = ["0010", "0009", "0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
+HEAD = "0011"
+HISTORY = ["0011", "0010", "0009", "0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -788,3 +790,44 @@ async def test_0009_components_stages_and_gate_round_trip(empty_database_url: st
     assert await _stages(empty_database_url) == before
     await upgrade(empty_database_url)
     assert await _stages(empty_database_url) == stages
+
+
+# --------------------------------------------------------------------------- 0011
+
+
+async def test_0011_study_intake_column_and_downgrade(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0010")
+    at_0010 = await snapshot(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        existing, _, _ = await _photo(connection)
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        intake = await connection.fetchval("SELECT intake FROM studies WHERE id = $1", existing)
+        assert intake is None
+        await connection.execute(
+            'UPDATE studies SET intake = \'{"purchase_price": "1.00"}\'::jsonb WHERE id = $1',
+            existing,
+        )
+        for not_object in ("'[]'", "'\"x\"'", "'1'"):
+            with pytest.raises(asyncpg.CheckViolationError, match="intake_is_object"):
+                await connection.execute(
+                    f"UPDATE studies SET intake = {not_object}::jsonb WHERE id = $1", existing
+                )
+        await connection.execute("UPDATE studies SET intake = NULL WHERE id = $1", existing)
+    finally:
+        await connection.close()
+    await downgrade(empty_database_url, "0010")
+    assert await snapshot(empty_database_url) == at_0010
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        assert not await connection.fetch(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'studies' "
+            "AND column_name = 'intake'"
+        )
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)

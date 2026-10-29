@@ -143,6 +143,9 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/fields",
         "GET /v1/studies/{study_id}/rooms",
         "GET /v1/studies/{study_id}/assets",
+        # basis and land allocation (tests/api/test_studies.py, test_result.py)
+        "PUT /v1/studies/{study_id}/intake",
+        "GET /v1/studies/{study_id}/result",
         # invite-only firms (tests/api/test_firms.py)
         "GET /v1/me",
         "GET /v1/orgs/{org_id}/members",
