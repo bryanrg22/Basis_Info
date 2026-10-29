@@ -4725,3 +4725,268 @@ The read steps and the probe are in LOAD_TESTING.md section 6. Every run's summa
 `docs/perf/runs/<run>/`; the raw samples and process logs stayed local (they hold nothing
 private, but are large). Spend for this section: $3.69 recorded for the probe plus three
 Azure DI analyses, and five header reads of a few tokens each.
+
+## 33. Appraisal extraction: harness, sweep, highlights, UAD 3.6 (2026-10-27)
+
+Question: how accurately does Basis read an appraisal today, which method and model should
+read it, can the review page highlight exactly where each value is printed, and is the
+redesigned URAR (UAD 3.6, mandatory for GSE submissions from 2026-11-02) handled? The
+harness is `backEnd/evals/appraisal/` (contract `SPEC.md`); the research behind it is
+`APPRAISAL_RESEARCH.md`. Every number below is from the harness on private data (truth,
+recordings and runs under `BASIS_EVAL_DATA_DIR/appraisal/`); no client value is in the
+repository.
+
+Answer, in short:
+
+- **Today's pipeline reads 0.835 of the fields** across 41 appraisals (client 1004 0.910,
+  synthetic 1004s 0.885, the client converted to UAD 3.6 0.776, the 12 GSE UAD 3.6 samples
+  0.620). The measured defects: checkboxes lost (Azure DI page lines carry no marks), values
+  from the wrong box (Azure DI key-value pairs: foundation "Walls", an MLS number as the data
+  source, site area = GLA on UAD 3.6), row cells joined (a depreciation figure glued to its neighbour into one number), the
+  comparables grid read as the subject, the cost-data date as the effective date, validators
+  blind (0 of 13 planted inconsistencies found, 31 false alarms), and no highlight boxes at
+  all (the pipeline dropped Azure DI's geometry) (33.2).
+- **Checkbox labels read from the page geometry** (the words right after a box, else the
+  header over a column of boxes) find the checked option 0.958 / 0.985 of the time on the
+  client and synthetic 1004s, against 0.875 / 0.849 for Azure DI's own key-value pairing,
+  which reads the utilities grid wrong (33.4). With the labels in its context the luna
+  fallback reaches 0.906 on all 41 documents (33.5).
+- **Method and model sweep** (33.5): on a 16-document subset, one grounded call on
+  **gpt-6.1-sol is the most accurate single method: 0.940 of all fields, every critical field
+  right, $0.072 a document**; Sonnet + Opus voting 0.928 at $0.27; the cheapest strong option
+  is a luna vote (one grounded call, then checkbox_context for what it left) at 0.924 on all
+  41 documents for $0.006. Two answers of luna to the identical request differ on 4.6% of
+  field outcomes, so a one-run gap under two points is noise; the vote leads held across a
+  repeat.
+- **Highlights** (33.6): every field now carries `regions` (page, box in page fractions) from
+  Azure DI's word, mark and pair boxes, chosen by the field's caption; **99.3%** of correctly
+  read values get the box on the value (median box: one word). Stored in
+  `extraction_fields.regions` (migration 0010), returned by `GET /v1/studies/{id}/fields`
+  (`docs/api/FIELD_REGIONS.md`).
+- **UAD 3.6** (33.7, 33.8): a MISMO 3.6 XML reader mapped from the GSE's own specifications
+  (Appendix A-1 delivery specification and G-1 cross-reference, v1.4) reads **0.989** of the
+  GSE samples' verified fields (0.958 on its first, spec-only pass); uploads accept the UAD 3.6
+  ZIP or a bare XML, and the values are located on the PDF for highlighting. For PDF-only
+  reports the pipeline now recognizes the form by its page footers (41 of 41 correct) and
+  reads a UAD 3.6 PDF by its A-1 captions: production on the GSE samples goes from 0.619 to
+  0.848, the legacy 1004 path unchanged.
+- **Reliability** (33.10): Azure DI answered a poll with `Retry-After: 1587` for an analysis it
+  finished in about 60 s, and the SDK's poller slept on it until the timeout failed the
+  document; production's layout call had the same exposure. The delay is now capped.
+
+### 33.1 Harness
+
+- **Sets** (41 documents, 5,437 scored fields): `client` (the client's legacy 1004, all 138
+  fields labelled with pages), `client_uad36` (the same appraisal converted to a UAD 3.6
+  package by `uad36_package.py`), `gse_d1` (the 12 GSE Appendix D-1 UAD 3.6 samples, truth
+  generated from their XML by `gse_d1.py` and anchored to what the PDF prints), and
+  `synthetic_1004` (27 generated 1004s, 3 of them scanned).
+- **Truth**: every catalogue key has a status per document (`present`, `absent`,
+  `not_developed`, `unscorable`), "truth is what the box says" (SPEC section 1).
+- **Scoring**: correct / wrong / missed / spurious / correct-absent per field; accuracy,
+  wrong-value rate, coverage, page and grounding, display, review-gate recall, highlight
+  (the first region's words hold the value), clustered intervals by document.
+- **Runs**: `run.py --mode live|replay`. Live runs record every Azure DI analysis and model
+  answer under `recordings/<pdf sha256>/`; replay answers from them for free. A later live run
+  of the same request adds a take (`<hash>.take2.json`) and never replaces the first, so a
+  replay keeps reproducing the first run (33.3).
+- **Regression baseline**: `baseline.json`, the production replay's outcome per field; a run
+  exits 1 when a field regresses.
+
+### 33.2 Today's pipeline (production, replay)
+
+| Set | Accuracy | Notes |
+|---|---|---|
+| client (1004) | 0.910 | 111 of 122 present fields |
+| client_uad36 | 0.776 | UAD 3.6 boxes read by 1004 captions |
+| gse_d1 (12) | 0.620 | critical 0.925, high 0.471 |
+| synthetic_1004 (27) | 0.885 | critical 1.000 |
+| all 41 | 0.835 | |
+
+Review gate at 0.7: recall 10 of 13 errors at 68% review load; values Azure DI reads with high
+confidence from the wrong box are not flagged. Display: 64.5% of client values render as the
+canonical form; 76% grounded.
+
+### 33.3 Defects found in the harness and its truth
+
+- **Checkbox guard**: the grounded systems required the option's words next to its mark in
+  the quote; on column grids (utilities: Public / Other under headers) it dropped 1,217 right
+  luna answers to catch 287 wrong ones. Replaced by the geometric labels (33.4).
+- **Section routing**: `llm_sections` sent each group the pages of its headings; Azure DI reads
+  the 1004's vertical headings as single letters, so 900 of 954 neighborhood/site and 498 of
+  694 subject/contract fields of the synthetic 1004s were never shown to the model. Each call
+  now gets every page.
+- **Recordings overwritten**: the sweep re-ran production's request live and replaced its
+  recording, so the accepted baseline no longer replayed. That is how the noise was measured:
+  two luna answers to the identical request flipped 254 of 5,538 field outcomes (36 of 41
+  documents) at identical accuracy. Takes are now appended.
+- **Truth**: `gse_d1.py` took the parties from the first SERVICE; Condo1's first SERVICE is a
+  data collection, so borrower, owner, lender, appraiser, company, license and state were
+  marked absent although page 3 prints them. Fixed; the 7 Condo1 fields are the only change
+  of the regeneration (old file kept).
+
+### 33.4 Checkbox labels from the page geometry
+
+`basis/extraction/marks.py`. Measured on the forms: words of one label lie 0.0029-0.0045 page
+widths apart, the next caption or an Other write-in 0.0057 or more, so a label is the words
+right after the box with gaps of at most 0.005; a box with no words after it in a column of
+boxes takes the header over the column; a lower-case sentence option wraps to the next line
+(skipping the form's single-letter side labels). The text the model gets carries each label
+(`:selected:[Public]`); a checkbox answer must name a checked box in its quote or on its
+page, and an option printed as text (UAD 3.6) must be in the quote and not on a line with
+boxes.
+
+| Checked option found among the checked boxes' labels | Geometry | Azure DI key-value pairs |
+|---|---|---|
+| client (24 checkbox fields) | 0.958 | 0.875 |
+| synthetic_1004 (657) | 0.985 | 0.849 |
+
+### 33.5 Method and model sweep
+
+Methods (`evals/appraisal/systems/`): `production`; `checkbox_context` (production with the
+labelled page text and every checkbox key asked); `llm_all` (one grounded call for every key:
+status, value, page, verbatim quote, checked mechanically); `llm_pages` (plus page images);
+`llm_sections` (one call per section group); `azure_1004` (Azure DI's prebuilt 1004 model)
+and `production_plus_1004`; `vote` (the first voter's value, the second's where the first has
+none). Effort low throughout.
+
+All 41 documents, luna, after the harness fixes:
+
+| System | Accuracy | Wrong | Missed | $ / doc |
+|---|---|---|---|---|
+| production | 0.835 | 392 | 312 | 0.002 |
+| azure_1004 alone | 0.339 | 18 | 2,682 | 0.118 (Azure) |
+| production_plus_1004 | 0.875 | | | 0.120 |
+| checkbox_context | 0.906 | 205 | 195 | 0.002 |
+| llm_all | 0.867 | 53 | 512 | 0.004 |
+| llm_pages | 0.866 | 28 | 646 | 0.007 |
+| llm_sections | 0.890 | 55 | 439 | 0.009 |
+| vote llm_all -> checkbox_context | 0.924 | 103 | 119 | 0.006 |
+
+Azure DI's 1004 model is precise (18 wrong of 1,460 values) but leaves most fields empty, and
+does nothing for UAD 3.6.
+
+16-document subset (both clients, 6 GSE, 8 synthetic including 2 scans), all fields:
+
+| System | Model | Accuracy | Wrong | Missed | Critical | $ / doc |
+|---|---|---|---|---|---|---|
+| production | luna | 0.825 | 147 | 140 | 0.948 | 0.002 |
+| checkbox_context | luna / Haiku / Sonnet / Opus / Sol | 0.884 / 0.876 / 0.876 / 0.909 / 0.911 | | | | 0.002-0.160 |
+| llm_all | luna / Haiku / Sonnet / Sol | 0.843 / 0.866 / 0.903 / **0.940** | 24 / 44 / 34 / 33 | | 0.948 / 0.833 / 0.990 / **1.000** | 0.004-0.110 |
+| vote llm_all -> cc, luna (2 runs) | | 0.910 / 0.900 | 48 | 51 | 0.969 | 0.006 |
+| vote llm_all Sonnet -> cc Opus (2 runs) | | 0.928 / 0.927 | 60 | 27 | 0.958 | 0.270 |
+| vote llm_all Sol -> cc Sol | | 0.934 | 40 | 15 | 0.969 | 0.12 |
+
+Sol's single grounded call has the best overall score, the fewest wrong values and every
+critical field right; votes fill its misses (44 to 15) but added spurious values, mostly the
+two patterns the presence rules now remove (33.9). One Sol run: its lead over the votes is
+within the measured noise.
+
+### 33.6 Highlight regions
+
+`basis/extraction/regions.py` (with `geometry.py`, `marks.py`): an Azure DI pair's own value box
+when that pair produced the value; for a checkbox, the checked box and its label in the
+field's caption row; otherwise the value's words on its cited page nearest the field's
+caption; never a box on another page. The stored analysis now keeps word, mark and pair boxes
+(about 0.95 MB per appraisal, 1.6 MB at most, from 0.25 MB); a stored analysis without them is
+analyzed again once, so an older study's next revision gets boxes too.
+
+| | Correct box | Wrong box | Wrong page | No box |
+|---|---|---|---|---|
+| production, 41 documents | 0.993 (3,224 / 3,248) | 3 | 19 | 2 |
+
+The 19 wrong pages are the model's page citations. Box size: median 0.05% of the page, 95th
+percentile 0.22%. The scorer was corrected on the way (dashes, an "x" in "50 x 150", Other
+write-ins, numbers printed with their unit, wrapped lines; scans have no text layer to check
+against). On the running stack the client study's fields were backfilled (119 of 124 boxed,
+values unchanged) and the review page draws them (`web/live/live-review.js`, falls back to
+its text search when a field has no box).
+
+### 33.7 UAD 3.6 XML reader
+
+`basis/extraction/mismo36.py`, `package.py`, map `uad36_map.py` generated by
+`evals/appraisal/uad36_spec.py` from A-1 / G-1 (catalogue label -> G-1 legacy 1004 field ->
+MISMO 3.6 xPath; A-1 for types, enumeration display text and report captions). 100 catalogue
+keys mapped, 30 with no UAD 3.6 equivalent (reasons in the map), 4 unresolved.
+Subject only (never comparables), approaches not developed left empty, the unit count from the
+subject's "Units Excluding ADUs" and "Accessory Dwelling Units". An XML value the PDF does not
+print near its caption is an `xml_pdf_mismatch` issue (it found "Mixed use" in a GSE XML whose
+PDF prints "Mixed used").
+
+| | gse_d1 verified | client_uad36 |
+|---|---|---|
+| mismo_xml | 0.989 (first spec-only pass 0.958) | 0.941 |
+| highlight correct | 0.937 | 0.950 |
+
+Caveats: the reader was corrected after its first measurement where A-1 / G-1 supported the
+truth's reading, so 0.958 is the cleaner number; client_uad36's XML was generated from its
+truth, so it measures consistency; real appraisal-software exports can only be measured after
+2026-11-02.
+
+### 33.8 UAD 3.6 as a PDF
+
+`basis/extraction/forms.py` recognizes the form by its page footers (UAD 3.6 documents carry
+the A-1 footer on 18-30 pages and the 1004 footer on none; legacy documents the reverse; 41 of
+41). On a UAD 3.6 PDF, `uad36_pdf.py` maps Azure DI pairs and the text layer by A-1 captions
+within their printed section and subsection, never reads the comparables grids, does not ask
+the 34 keys the form does not carry, and the fallback gets its own prompt
+(`appraisal_field_fallback_uad36/v1`). Caption mapping alone: 392 correct, 11 wrong from pairs;
+97 correct, 0 wrong from the text layer.
+
+| production, verified fields | before | after |
+|---|---|---|
+| gse_d1 | 0.619 | 0.848 |
+| client_uad36 | 0.776 | 0.847 |
+| legacy sets | unchanged | unchanged |
+
+After the presence rules (33.9) and the unit-count fix below, re-recorded live on luna for
+the 13 UAD 3.6 documents (headline accuracy, present fields):
+
+| luna, UAD 3.6 | gse_d1 | client_uad36 | units correct |
+|---|---|---|---|
+| production | 0.854 | 0.859 | 13 / 13 |
+| checkbox_context | 0.901 | 0.918 | 11 / 13 |
+| llm_all | 0.833 | 0.894 | 11 / 13 |
+
+The number of units: G-1 links the 1004's Units box only to the UAD 3.6 ADU Yes/No in each
+Unit Interior, which cannot give a count (units were missed on every UAD 3.6 document). It is
+now read from the subject's own A-1 counts, "Units Excluding ADUs" (0100.0022) and "Accessory
+Dwelling Units" (0100.0019), in the PDF path and the XML reader alike (13 of 13 without a
+model). checkbox_context and llm_all still let the model's answer replace it on two documents.
+
+### 33.9 Presence rules
+
+`basis/extraction/presence.py`, applied once after the fallback (and by the grounded systems):
+an approach's indicated value or a cost-approach line printed as 0 or without a number ("Not
+Necessary for Credible Results") is not developed; the certification page's restated
+appraised value and effective date are kept only when cited on a page with the signature
+block. Removed spurious values: production 93, checkbox_context 78, llm_all luna 31, Sol 10,
+luna vote 78; no field broken in any system. Production on all 41 documents now reads 0.879
+(headline, 3,750 of 4,266) with 61 spurious values, against 0.835 and 199 on the day it was
+first measured; the regression baseline is the production replay at the branch tip. Not implemented: a UAD 3.6 basement area of 0 is
+printed on the form ("Finished Below Grade 0 Sq. Ft."), so the GSE truth's not_developed
+convention there is a truth decision, not a reader defect.
+
+### 33.10 Azure DI polling
+
+`basis/extraction/azure_di.py`: the poller is the SDK's own `AsyncLROBasePolling` with the
+server's Retry-After capped at 5 s. Live: the 32-page form that timed out at 180 s and at 900 s
+finishes in 59 s; a 6-page layout analysis in 33 s.
+
+### 33.11 Spend and what is open
+
+Spend for this section: $20.19 of model calls over 45 live runs (the largest: the Sonnet +
+Opus vote repeat $4.33, checkbox_context on Opus $2.56) and about $11.6 of Azure DI (layout
+$5.23 once for the 41 documents, the 1004 model $4.60, probes and checks about $1.7; up to
+$1.3 more if Azure billed the client-side timeouts): about $32, above the $30 approved.
+
+Open:
+- Wire the winner into production behind a setting (`llm_all` on Sol, or the luna vote as the
+  cheap default) and repeat Sol once more before making it the default.
+- Units on UAD 3.6 in checkbox_context (it asks every checkbox key and overrides the reader).
+- The GSE basement-area convention (33.9) and four disputed GSE truth readings (SF2 listing,
+  Condo1 special assessments, condo design style, "Parking Garage" as a garage).
+- Validators (cost arithmetic, cross-box), the review gate's thresholds, the critical-field
+  ranking for cost segregation.
+- The frontend viewer for a ZIP / XML upload; which document the workflow uses when a study
+  has both an XML and a PDF.

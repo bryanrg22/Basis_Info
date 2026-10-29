@@ -18,26 +18,51 @@ S3_SPEC section 2 (binding signature) and section 4. One call per appraisal revi
    with ``EXTRACTION_FALLBACK_SCOPE=missing``, the default; only the critical ones with
    ``critical``; :mod:`basis.extraction.fallback`), then the derived site-area fields
    (:mod:`basis.extraction.derived`), then validate again.
-5. The review gate (:mod:`basis.extraction.confidence`).
+5. The presence rules (:mod:`basis.extraction.presence`): a value for an approach or a
+   cost-approach line the appraiser did not develop, or a certification box cited off the
+   signature page, is dropped (after the fallback, so a dropped key is never re-asked), then
+   validate again.
+6. Each field's highlight regions from Azure DI's geometry (:mod:`basis.extraction.regions`;
+   none without Azure DI), then the review gate (:mod:`basis.extraction.confidence`).
+
+Two context hooks exist for the appraisal extraction sweep (``evals/appraisal/systems``) and
+default to today's behaviour: ``fallback_pages`` replaces the page texts the model is given
+(the sweep's ``checkbox_context`` passes Azure DI's page ``content`` with its ``:selected:``
+marks instead of the page lines, which carry none), and ``always_ask`` adds keys the model is
+asked even when Azure DI or the text layer read them (the checkbox boxes).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from basis.extraction import uad36_pdf
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.derived import derive_fields
 from basis.extraction.fallback import WHOLE_DOCUMENT_CHARS, Scope, fallback_fields, fallback_keys
-from basis.extraction.pdf_text import read_pdf
+from basis.extraction.field_mappings import FIELDS
+from basis.extraction.forms import FormDetection, detect_form
+from basis.extraction.geometry import has_geometry, layout_of
+from basis.extraction.mismo36 import InvalidMismo, extract_mismo
+from basis.extraction.package import (
+    InvalidPackage,
+    is_zip,
+    looks_like_xml,
+    read_appraisal_upload,
+)
+from basis.extraction.pdf_text import InvalidDocument, read_pdf
+from basis.extraction.presence import apply_presence_rules
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
+from basis.extraction.regions import with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.validation import validate_fields
+from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.errors import ProviderBadResponse
 from basis.llm.prompts import Prompt
@@ -47,6 +72,13 @@ logger = logging.getLogger("basis.extraction.pipeline")
 
 METHOD_AZURE = "azure_di+regex"
 METHOD_REGEX = "regex"
+# Appended to the method when the PDF is a UAD 3.6 URAR (read by its own captions).
+METHOD_UAD36_SUFFIX = "+uad36"
+UAD36_PROMPT_NAME = "appraisal_field_fallback_uad36"
+
+
+def _uad36_prompt() -> Prompt:
+    return prompts.latest(UAD36_PROMPT_NAME)
 
 
 def _no_heartbeat(_: str) -> None:
@@ -74,6 +106,12 @@ class ExtractionContext:
     # EXTRACTION_FALLBACK_CONTEXT_CHARS; a caller that sets nothing gets S3's "critical".
     fallback_scope: Scope = "critical"
     fallback_context_chars: int = WHOLE_DOCUMENT_CHARS
+    # Module doc: the page texts the fallback is given when Azure DI analyzed the document
+    # (``None`` = the Azure DI page lines), and keys always asked of the fallback.
+    fallback_pages: Callable[[AzureDiResult], Sequence[str]] | None = None
+    always_ask: frozenset[str] = frozenset()
+    # The fallback prompt of a UAD 3.6 URAR (``prompt`` is the 1004's).
+    uad36_prompt: Prompt = field(default_factory=_uad36_prompt)
 
 
 async def extract_appraisal(
@@ -111,15 +149,29 @@ async def extract_appraisal(
         notes.append("Azure DI not configured: text layer and tables only")
 
     ctx.heartbeat("map_fields")
-    regex = extract_appraisal_fields(pdf.pages)
+    form = detect_form(pdf.pages, azure.page_texts() if azure is not None else ())
+    if form.is_uad36:
+        method += METHOD_UAD36_SUFFIX
+        notes.append(f"UAD 3.6 URAR (footer on {len(form.uad36_pages)} pages): its captions")
+    regex = (
+        uad36_pdf.text_candidates(pdf.pages)
+        if form.is_uad36
+        else extract_appraisal_fields(pdf.pages)
+    )
     tables, pdf_comparables = table_candidates(
         ((table.page, table.rows) for table in pdf.tables), source="table"
     )
+    if form.is_uad36:  # the 1004 cost-table rows are not this form's (the comparables stay)
+        tables = []
     if azure is not None:
         primary, comparables = azure_candidates(azure)
+        if form.is_uad36:
+            primary = uad36_pdf.azure_candidates(azure)
         fields, merge_issues = merge(primary, [*regex, *tables])
         comparables = comparables or pdf_comparables
-        context_pages = azure.page_texts()
+        context_pages = (
+            list(ctx.fallback_pages(azure)) if ctx.fallback_pages else azure.page_texts()
+        )
     else:
         fields, merge_issues = merge(regex, tables)
         comparables = pdf_comparables
@@ -127,29 +179,44 @@ async def extract_appraisal(
 
     if rejected is not None:
         merge_issues.append(rejected)
+    # Keys the form does not carry: never asked, never required (forms module doc).
+    off_form = uad36_pdf.NOT_CARRIED if form.is_uad36 else frozenset()
     fields = {**fields, **derive_fields(fields)}
-    issues = merge_issues + validate_fields(fields)
+    issues = merge_issues + validate_fields(fields, not_on_form=off_form)
     wanted = fallback_keys(fields, issues, ctx.fallback_scope)
+    if ctx.always_ask:
+        asked = set(wanted) | ctx.always_ask
+        wanted = [spec.key for spec in FIELDS if spec.key in asked]
+    if form.is_uad36:
+        wanted = [key for key in wanted if key not in off_form]
     ctx.heartbeat("fallback")
     outcome = await fallback_fields(
         wanted,
         context_pages,
         provider=ctx.provider,
         ctx=ctx.call,
-        prompt=ctx.prompt,
+        prompt=ctx.uad36_prompt if form.is_uad36 else ctx.prompt,
         model=ctx.text_model,
         max_tokens=ctx.fallback_max_tokens,
         reasoning_effort=ctx.fallback_reasoning_effort,
         whole_document=ctx.fallback_scope == "missing",
         max_context_chars=ctx.fallback_context_chars,
+        describe=uad36_pdf.describe if form.is_uad36 else None,
     )
     if outcome.fields:
         filled: dict[str, ExtractedField] = dict(fields)
         filled.update(outcome.fields)
         fields = {**filled, **derive_fields(filled)}
-        issues = merge_issues + validate_fields(fields)
+        issues = merge_issues + validate_fields(fields, not_on_form=off_form)
+    sources = [pdf.pages] if azure is None else [pdf.pages, azure.page_texts()]
+    presence = apply_presence_rules(fields, sources, not_on_form=off_form)
+    if presence.dropped:
+        fields = presence.fields
+        issues = merge_issues + validate_fields(fields, not_on_form=off_form)
 
-    gate = review_gate(fields, issues, threshold=ctx.review_threshold)
+    fields = with_regions(fields, azure)
+    gate = review_gate(fields, issues, threshold=ctx.review_threshold, not_on_form=off_form)
+    summary = {**outcome.summary(), "presence": presence.dropped}
     raw: dict[str, Any] = {
         "method": method,
         "doc_id": doc_id,
@@ -160,9 +227,11 @@ async def extract_appraisal(
         "issues": [i.model_dump(mode="json") for i in issues],
         "review_reasons": list(gate.reasons),
         "review_threshold": ctx.review_threshold,
-        "fallback": outcome.summary(),
+        "fallback": summary,
         "fallback_scope": ctx.fallback_scope,
+        "presence": presence.dropped,
         "comparables": comparables,
+        "form": _form_json(form),
     }
     if azure is not None:
         raw["azure_di"] = azure.model_dump(mode="json")
@@ -176,7 +245,79 @@ async def extract_appraisal(
         needs_review=gate.needs_review,
         review_reasons=list(gate.reasons),
         comparables=comparables,
-        fallback=outcome.summary(),
+        fallback=summary,
         notes=notes,
         raw=raw,
     )
+
+
+def _form_json(form: FormDetection) -> dict[str, Any]:
+    data = form.as_json()
+    if form.is_uad36:
+        data["not_on_form"] = sorted(uad36_pdf.NOT_CARRIED)
+    return data
+
+
+async def extract_appraisal_upload(
+    data: bytes,
+    doc_id: str,
+    ctx: ExtractionContext,
+    *,
+    companion_pdf: bytes | None = None,
+) -> ExtractionResult:
+    """An uploaded appraisal of any accepted kind (:mod:`basis.extraction.package`).
+
+    A PDF goes through :func:`extract_appraisal`, unchanged. A UAD 3.6 XML (bare, or in its
+    delivery ZIP) is read by :func:`basis.extraction.mismo36.extract_mismo`: the values come
+    from the XML; the PDF (the ZIP's, else ``companion_pdf``, a PDF uploaded separately for the
+    same study) is analyzed by Azure DI layout (or the earlier revision's analysis is reused)
+    only to place each value's highlight region and cross-check that it is printed. No model is
+    called. Unreadable input raises :class:`InvalidDocument`."""
+    if not is_zip(data) and not looks_like_xml(data):
+        return await extract_appraisal(data, doc_id, ctx)  # a PDF (or not one: its errors)
+    try:
+        upload = read_appraisal_upload(data)
+    except InvalidPackage as exc:
+        raise InvalidDocument(str(exc)) from exc
+    assert upload.xml is not None
+    notes = list(upload.notes)
+    pdf = upload.pdf if upload.pdf is not None else companion_pdf
+    if upload.pdf is None and companion_pdf is not None:
+        notes.append("the report PDF is the study's separately uploaded appraisal PDF")
+    azure: AzureDiResult | None = None
+    page_count = 0
+    if pdf is not None:
+        ctx.heartbeat("read_pdf")
+        page_count = (await asyncio.to_thread(read_pdf, pdf)).page_count
+        azure = ctx.previous_azure
+        if azure is not None:
+            notes.append("reused the Azure DI analysis of an earlier revision")
+        elif ctx.azure is not None:
+            ctx.heartbeat("azure_di")
+            try:
+                azure = await ctx.azure.analyze(pdf)
+            except ProviderBadResponse as exc:
+                logger.error("Azure DI rejected the appraisal PDF (%s): %s", exc.status, exc)
+                notes.append(f"Azure DI rejected the PDF ({exc.status}): no highlight regions")
+        else:
+            notes.append("Azure DI not configured: no highlight regions")
+    else:
+        notes.append("no PDF of the report: the XML values have no highlight regions")
+    layout = layout_of(azure) if azure is not None and has_geometry(azure) else None
+    ctx.heartbeat("mismo_xml")
+    try:
+        result = await asyncio.to_thread(
+            extract_mismo,
+            upload.xml,
+            doc_id,
+            layout=layout,
+            page_count=page_count,
+            review_threshold=ctx.review_threshold,
+            notes=notes,
+        )
+    except InvalidMismo as exc:
+        raise InvalidDocument(str(exc)) from exc
+    result.raw["upload_kind"] = upload.kind
+    if azure is not None:
+        result.raw["azure_di"] = azure.model_dump(mode="json")
+    return result

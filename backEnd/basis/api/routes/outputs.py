@@ -27,6 +27,7 @@ from basis.api.schemas.outputs import (
     CostOut,
     ExtractionFieldOut,
     ExtractionFieldsPageOut,
+    FieldRegionOut,
     InventoryItemOut,
     RoomOut,
     RoomPhotoOut,
@@ -99,6 +100,7 @@ def field_out(row: FieldRow) -> ExtractionFieldOut:
         confidence=item.confidence,
         source=item.source,
         page=item.page,
+        regions=[FieldRegionOut.model_validate(r) for r in item.regions or []],
     )
 
 

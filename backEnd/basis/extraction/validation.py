@@ -92,12 +92,20 @@ def _issue(rule: str, message: str, keys: tuple[str, ...], critical: bool) -> Va
 
 
 def validate_fields(
-    fields: Mapping[str, ExtractedField], *, today: date | None = None
+    fields: Mapping[str, ExtractedField],
+    *,
+    today: date | None = None,
+    not_on_form: frozenset[str] = frozenset(),
 ) -> list[ValidationIssue]:
-    """Every rule failure for ``fields`` (an empty list means the fields validate)."""
+    """Every rule failure for ``fields`` (an empty list means the fields validate).
+
+    ``not_on_form``: catalogue keys the document's form does not carry (the UAD 3.6 URAR has
+    no total room count); a critical one of them is not reported missing."""
     today = today or date.today()
     issues: list[ValidationIssue] = []
     for key in CRITICAL_FIELDS:
+        if key in not_on_form:
+            continue
         item = fields.get(key)
         if item is None or item.is_empty:
             issues.append(

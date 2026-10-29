@@ -94,6 +94,10 @@ extend-exclude = ["files"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Generated (evals/appraisal/uad36_spec.py): the MISMO xPaths are longer than a line.
+"**/basis/extraction/uad36_map.py" = ["E501"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["basis", "evals"]
 

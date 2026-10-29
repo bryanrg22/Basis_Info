@@ -105,6 +105,8 @@ async def seed_outputs(api: Api, seed: Seed, sm: async_sessionmaker[AsyncSession
                     source=source,
                     page=1,
                 )
+                if name == "year_built":  # where it is printed (migration 0010)
+                    row.regions = [{"page": 1, "bbox": [0.62, 0.41, 0.66, 0.42]}]
                 session.add(row)
                 await session.flush()
                 if revision == 2:
@@ -264,6 +266,9 @@ async def test_fields_of_the_current_revision(
         "azure",
     )
     assert year["document_id"] == str(seeded.photos["appraisal.pdf"])
+    # Regions round-trip from the column; a row stored without them has [] (server default).
+    assert year["regions"] == [{"page": 1, "bbox": [0.62, 0.41, 0.66, 0.42]}]
+    assert by_key["improvements.bedrooms"]["regions"] == []
     assert by_key["improvements.bedrooms"]["critical"] is True  # section 27
     assert by_key["reconciliation.effective_date_of_appraisal"]["value_date"] == "2025-01-29"
     price = by_key["neighborhood.price_low_thousands"]

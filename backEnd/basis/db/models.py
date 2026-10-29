@@ -381,6 +381,11 @@ class ExtractionField(Base):
     confidence: Mapped[float | None] = mapped_column(REAL)
     source: Mapped[str]
     page: Mapped[int | None]
+    # Where the value is printed: ``[{"page": n, "bbox": [x0, y0, x1, y1]}]`` page fractions,
+    # origin top-left (basis.extraction.regions); ``[]`` when not located.
+    regions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOC, server_default=text("'[]'::jsonb"), default=list
+    )
     created_at: Mapped[datetime] = _created_at()
 
 

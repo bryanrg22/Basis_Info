@@ -13,6 +13,7 @@ from fixtures import fixture_path
 from basis.config import Settings
 from basis.extraction import azure_di
 from basis.extraction.azure_di import (
+    MAX_POLL_DELAY_S,
     AzureDiResult,
     AzureDocumentIntelligence,
     from_sdk,
@@ -89,6 +90,83 @@ def test_from_sdk_keeps_lines_pairs_and_tables() -> None:
     assert not result.synthetic
 
 
+def test_from_sdk_keeps_the_geometry_the_review_page_highlights() -> None:
+    """Word, mark and pair boxes as page fractions (polygon / page size), the page's spans
+    (its text with the marks) and the figure share of the page."""
+    payload: dict[str, Any] = {
+        "content": "Occupant :selected: Owner",
+        "pages": [
+            {
+                "pageNumber": 1,
+                "width": 8.5,
+                "height": 11.0,
+                "unit": "inch",
+                "lines": [{"content": "Occupant Owner", "polygon": []}],
+                "words": [
+                    {
+                        "content": "Occupant",
+                        "polygon": [0.85, 1.1, 1.7, 1.1, 1.7, 1.21, 0.85, 1.21],
+                        "span": {"offset": 0, "length": 8},
+                        "confidence": 0.99,
+                    },
+                    {
+                        "content": "Owner",
+                        "polygon": [2.0, 1.1, 2.5, 1.1, 2.5, 1.21, 2.0, 1.21],
+                        "span": {"offset": 20, "length": 5},
+                        "confidence": 0.99,
+                    },
+                ],
+                "selectionMarks": [
+                    {
+                        "state": "selected",
+                        "polygon": [1.8, 1.1, 1.95, 1.1, 1.95, 1.21, 1.8, 1.21],
+                        "span": {"offset": 9, "length": 10},
+                        "confidence": 0.9,
+                    }
+                ],
+                "spans": [{"offset": 0, "length": 25}],
+            }
+        ],
+        "keyValuePairs": [
+            {
+                "key": {
+                    "content": "Occupant",
+                    "boundingRegions": [
+                        {"pageNumber": 1, "polygon": [0.85, 1.1, 1.7, 1.1, 1.7, 1.21, 0.85, 1.21]}
+                    ],
+                    "spans": [],
+                },
+                "value": {
+                    "content": "Owner",
+                    "boundingRegions": [
+                        {"pageNumber": 1, "polygon": [2.0, 1.1, 2.5, 1.1, 2.5, 1.21, 2.0, 1.21]}
+                    ],
+                    "spans": [],
+                },
+                "confidence": 0.9,
+            }
+        ],
+        "figures": [
+            {"boundingRegions": [{"pageNumber": 1, "polygon": [0, 5.5, 8.5, 5.5, 8.5, 11, 0, 11]}]}
+        ],
+    }
+    result = from_sdk(AnalyzeResult(payload))
+    [page] = result.pages
+    assert (page.width, page.height, page.unit) == (8.5, 11.0, "inch")
+    owner = page.words[1]
+    assert owner.text == "Owner" and owner.offset == 20
+    assert owner.bbox == pytest.approx((2.0 / 8.5, 0.1, 2.5 / 8.5, 0.11))
+    [mark] = page.marks
+    assert mark.selected and mark.offset == 9
+    assert result.page_text_with_marks(page) == "Occupant :selected: Owner"
+    assert result.page_texts() == ["Occupant Owner"]  # the lines the pipeline maps: no marks
+    assert page.figure_fraction == pytest.approx(0.5)
+    [pair] = result.key_value_pairs
+    assert pair.value_region is not None and pair.value_region.page == 1
+    assert pair.value_region.bbox == pytest.approx(owner.bbox)
+    assert AzureDiResult.model_validate_json(result.model_dump_json()) == result
+
+
 def test_round_trips_through_json() -> None:
     result = from_sdk(AnalyzeResult(SDK_PAYLOAD))
     assert AzureDiResult.model_validate_json(result.model_dump_json()) == result
@@ -157,6 +235,7 @@ class FakePoller:
 
 class FakeClient:
     calls: list[dict[str, Any]] = []
+    polling: Any = None
     result: Any = None
     delay: float = 0.0
 
@@ -174,6 +253,7 @@ class FakeClient:
         FakeClient.calls.append(
             {"model_id": model_id, "bytes": body.bytes_source, "features": kwargs["features"]}
         )
+        FakeClient.polling = kwargs.get("polling")
         return FakePoller(FakeClient.result, FakeClient.delay)
 
 
@@ -198,6 +278,32 @@ async def test_analyze_sends_layout_with_key_value_pairs(fake_sdk: type[FakeClie
         "features": [DocumentAnalysisFeature.KEY_VALUE_PAIRS],
     }
     assert result.key_value_pairs[0].key == "Year Built"
+
+
+def _poll_response(headers: dict[str, str]) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(http_response=SimpleNamespace(headers=headers))
+
+
+async def test_analyze_caps_the_retry_after_between_polls(fake_sdk: type[FakeClient]) -> None:
+    """Azure DI answered a poll of a 32-page form with ``Retry-After: 1587`` and finished
+    the analysis in about 60 s; the SDK's poller slept on it and the 180 s timeout failed the
+    document. The poller is the SDK's own, with the delay capped."""
+    from azure.core.polling.async_base_polling import AsyncLROBasePolling
+
+    client = AzureDocumentIntelligence("https://x.cognitiveservices.azure.com/", "k", timeout_s=5)
+    await client.analyze(b"%PDF-")
+    polling = fake_sdk.polling
+    assert isinstance(polling, AsyncLROBasePolling)
+    assert polling._path_format_arguments == {"endpoint": "https://x.cognitiveservices.azure.com"}
+    for headers, delay in (
+        ({"Retry-After": "1587"}, MAX_POLL_DELAY_S),  # the measured header
+        ({"Retry-After": "2"}, 2.0),  # a short one is kept
+        ({}, 1.0),  # none: the polling interval
+    ):
+        polling._pipeline_response = _poll_response(headers)
+        assert polling._extract_delay() == delay
 
 
 async def test_analyze_times_out_as_unavailable(fake_sdk: type[FakeClient]) -> None:

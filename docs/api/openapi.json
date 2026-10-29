@@ -3959,9 +3959,22 @@
             "title": "Kind"
           },
           "content_type": {
-            "type": "string",
-            "const": "application/pdf",
-            "title": "Content Type"
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "application/pdf"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "application/zip",
+                  "application/xml",
+                  "text/xml"
+                ]
+              }
+            ],
+            "title": "Content Type",
+            "description": "`application/pdf`, or a UAD 3.6 delivery: its ZIP (`application/zip`) or its MISMO 3.6 XML (`application/xml`, `text/xml`); the extraction recognizes the bytes, not this label."
           }
         },
         "additionalProperties": false,
@@ -5251,7 +5264,7 @@
           "source": {
             "type": "string",
             "title": "Source",
-            "description": "`azure`, `regex`, `table`, `llm` or `manual`."
+            "description": "`azure`, `regex`, `table`, `llm`, `mismo_xml` (a UAD 3.6 XML) or `manual`."
           },
           "page": {
             "anyOf": [
@@ -5263,6 +5276,14 @@
               }
             ],
             "title": "Page"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/FieldRegionOut"
+            },
+            "type": "array",
+            "title": "Regions",
+            "description": "Where the value is printed, to highlight on the PDF (docs/api/FIELD_REGIONS.md): boxes on `page` as page fractions, origin top-left. Empty when the value was not located (then fall back to searching the page's text)."
           }
         },
         "type": "object",
@@ -5280,7 +5301,8 @@
           "value_date",
           "confidence",
           "source",
-          "page"
+          "page",
+          "regions"
         ],
         "title": "ExtractionFieldOut"
       },
@@ -5317,6 +5339,32 @@
           "next_cursor"
         ],
         "title": "ExtractionFieldsPageOut"
+      },
+      "FieldRegionOut": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page",
+            "description": "The 1-based PDF page the box is on."
+          },
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Bbox",
+            "description": "`[x0, y0, x1, y1]` as fractions of the page's width and height (0..1), origin top-left: multiply by the rendered page's size in pixels to draw it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "bbox"
+        ],
+        "title": "FieldRegionOut"
       },
       "Health": {
         "properties": {

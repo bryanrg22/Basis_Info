@@ -22,7 +22,7 @@ from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.session import create_sessionmaker, session_scope
 from basis.extraction.persist import persist_extraction, stored_azure_result
 from basis.extraction.pipeline import ExtractionContext, extract_appraisal
-from basis.extraction.results import ExtractionResult
+from basis.extraction.results import ExtractionResult, Region
 from basis.llm import Budget
 from basis.llm.call import CallContext
 from basis.llm.prompts import latest
@@ -105,8 +105,11 @@ async def test_fields_land_in_typed_columns(
     assert baths.value_num == Decimal("2.1")
     flood = fields["site.special_flood_hazard"]
     assert (flood.value_text, flood.value_num) == ("No", Decimal(0))
-    income = fields["reconciliation.indicated_value_income_approach"]
-    assert (income.value_text, income.value_num) == ("Not Developed", None)
+    # "Not Developed" is not a value (basis.extraction.presence): no row, the reason in raw
+    assert "reconciliation.indicated_value_income_approach" not in fields
+    assert row.raw["presence"]["reconciliation.indicated_value_income_approach"] == (
+        "not_developed:no_number"
+    )
     assert {f.source for f in fields.values()} == {"azure"}
 
     # The stored Azure DI analysis round-trips, so a later revision can reuse it.
@@ -151,3 +154,65 @@ def test_stored_azure_result_ignores_other_payloads() -> None:
     assert stored_azure_result(None) is None
     assert stored_azure_result({"azure_di": "nope"}) is None
     assert stored_azure_result({"azure_di": {"pages": "bad"}}) is None
+
+
+def test_a_stored_analysis_without_geometry_is_analyzed_again() -> None:
+    """A real analysis stored before word boxes were kept would give the new revision's
+    fields no highlight regions: it is not reused (a fixture, synthetic, still is)."""
+    page = {"page_number": 1, "lines": ["Property Address 1290 Example Way"]}
+    old = {"azure_di": {"pages": [page], "synthetic": False}}
+    assert stored_azure_result(old) is None
+    fixture = {"azure_di": {"pages": [page], "synthetic": True}}
+    assert stored_azure_result(fixture) is not None
+    word = {"text": "1290", "bbox": [0.1, 0.1, 0.15, 0.12]}
+    current = {"azure_di": {"pages": [{**page, "words": [word]}], "synthetic": False}}
+    reused = stored_azure_result(current)
+    assert reused is not None and reused.pages[0].words[0].text == "1290"
+
+
+async def test_regions_are_stored_and_a_correction_keeps_them(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    study = await seed_study(sessionmaker, photos=())
+    assert study.appraisal_id is not None
+    result = await extracted()
+    key = next(iter(sorted(result.fields)))
+    item = result.fields[key]
+    where = Region(page=1, bbox=(0.123456, 0.2, 0.3, 0.25))
+    result = result.model_copy(
+        update={"fields": {**result.fields, key: item.model_copy(update={"regions": (where,)})}}
+    )
+    async with session_scope(sessionmaker) as session:
+        extraction = await persist_extraction(
+            session,
+            study_id=study.study_id,
+            document_id=study.appraisal_id,
+            revision=1,
+            result=result,
+        )
+        extraction_id = extraction.id
+    expected = [{"page": 1, "bbox": [0.1235, 0.2, 0.3, 0.25]}]  # 4 decimals
+    async with session_scope(sessionmaker) as session:
+        rows = {
+            f"{f.section}.{f.field}": f
+            for f in await ExtractionRepository(session).fields(extraction_id)
+        }
+        assert rows[key].regions == expected
+        assert all(r.regions == [] for k, r in rows.items() if k != key)
+        # A reviewer's correction (regions=None) changes the value, not where it is printed.
+        extraction_row = await session.get(Extraction, extraction_id)
+        assert extraction_row is not None
+        await ExtractionRepository(session).set_field(
+            extraction=extraction_row,
+            section=item.section,
+            field=item.field,
+            value_text="corrected",
+            confidence=1.0,
+            source="manual",
+        )
+    async with session_scope(sessionmaker) as session:
+        rows = {
+            f"{f.section}.{f.field}": f
+            for f in await ExtractionRepository(session).fields(extraction_id)
+        }
+        assert (rows[key].value_text, rows[key].regions) == ("corrected", expected)

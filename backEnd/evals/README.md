@@ -470,6 +470,91 @@ uv run python -m evals.run --predictions ~/basis-eval-data/predictions/rooms_x \
     --inventory-file room_inventory.heuristic.json --no-db
 ```
 
+## Appraisal extraction (v2)
+
+The contract is [`appraisal/SPEC.md`](appraisal/SPEC.md): truth files per set
+(`appraisal/truth.py`), absence as a value, cost-seg tiers, the outcomes and metrics. It
+replaces `appraisal_fields_v1.json` for appraisal work. Everything it reads and writes is
+under `BASIS_EVAL_DATA_DIR/appraisal/`; nothing from it enters the repository.
+
+```bash
+cd backEnd
+# live: the production extract_appraisal (Azure DI + the configured TEXT_MODEL), recorded
+BASIS_ENV=dev uv run python -m evals.appraisal.run --set all --mode live [--repeats 3]
+# replay: no network, from appraisal/recordings/<pdf sha256>/
+BASIS_ENV=dev uv run python -m evals.appraisal.run --set client --mode replay
+# ablations; one document; accept the run as the regression baseline
+... --no-azure | --azure-only    ... --documents client_a    ... --accept-baseline
+BASIS_ENV=test uv run pytest -m eval_data tests/evals/test_appraisal_regression.py
+```
+
+* `normalize.py`: per-type normalizers, the enum synonym table, the review page's display
+  rule (`fieldValue` in `web/live/live-review.js`) and the canonical display.
+* `score.py`: outcomes and every §8 metric; `score.json` and `report.md` (keys, outcomes and
+  counts only).
+* `recordings.py`: the raw Azure DI result (`azure_di.json`) and the model answers
+  (`llm/<request hash>.json`); replay rebuilds the SDK result and runs the production
+  `from_sdk`. A request without a recording fails its document with `missing_recording`
+  (the prompt or the context changed: run live again).
+* `run.py`: writes `runs/<id>/{predictions.json,score.json,report.md,run.json}`; live prints
+  the model cost (Azure DI is billed separately and reported as pages). The budget is $1 per
+  document (`--budget-usd`). Replay uses the extraction settings the recording was made with
+  (`context.json`) and the current review threshold.
+* `baseline.py`: `appraisal/baseline.json` (keys and outcomes). Accept it from the default
+  system (no `--no-azure`/`--azure-only`): the regression test replays that system.
+
+### Extraction systems for the method/model sweep (`--system`)
+
+`evals/appraisal/systems/` (designs in each module's docstring). Every system returns the
+production `ExtractionResult` (the scorer is unchanged) plus per-field **regions**
+(`[{page, bbox}]`, page fractions), an **origin** (which reader produced the value) and, for
+the grounded systems, the verbatim **quote**; all three are in `predictions.json`.
+
+| system | what it is | model flags |
+|---|---|---|
+| `production` (default) | today's `extract_appraisal`, unchanged; no regions (the pipeline drops polygons) | `TEXT_MODEL` |
+| `azure_1004` | `prebuilt-mortgage.us.1004` mapped to ~50 catalogue keys (no GLA, site value, cost lines); Azure's confidence; field polygons, a checkbox narrowed to its checked label; recorded as `azure_1004.json` | none |
+| `production_plus_1004` | production merged with the 1004: agreement keeps production at the higher confidence; on a checkbox key the 1004 wins a disagreement, elsewhere production does; every disagreement 0.5 and a `sources_disagree` issue | `TEXT_MODEL` |
+| `checkbox_context` | production with the fallback given Azure's page `content` *with* `:selected:` marks (prompt `appraisal_field_fallback_marks`) and every checkbox key always asked | `--model` overrides `TEXT_MODEL` |
+| `llm_all` | one call, every key, page text with marks; per key `{status, value, page, quote}`; the quote must be on that page, the value in the quote, a checkbox option marked `:selected:`; 0.6 cap; region = the quote's words | `--model` (required) |
+| `llm_pages` | `llm_all` plus PNG images (`--dpi`, default 150) of the form pages only (fewer than `--min-page-words` Azure words, or mostly figures = photo/sketch page, no image); vision models | `--model` |
+| `llm_sections` | one grounded call per section group (subject+contract, neighborhood+site, improvements, sales+reconciliation, cost approach, appraiser) with its pages, in parallel; `--with-images` adds images | `--model` |
+| `validate_reask` | `--base NAME`, then validators (cost rows, cost-new sum, depreciation, cost total, reconciliation vs cost, final value, effective date, GLA vs other prints, one checkbox per single group, and the baselines' reading defects: several figures in one money box, an amount over 5x the headline value, an effective date after or a year before signing) as issues; only the implicated keys re-asked once with their page images (prompt `appraisal_fields_reask`); a surviving issue stays | `--model` (re-ask), `--base-model` |
+| `vote` | `--voters system@model[@effort],system@model[@effort]`: agreement 0.95, disagreement the first voter's value at 0.5 with `voters_disagree:<key>` | per voter |
+
+The new prompts are released in `basis/prompts/` (hashed, immutable, recorded as
+`prompt_version`) rather than kept eval-only, because a winning system ships with its prompt
+and the replay hash covers the prompt text. `score.json`/`report.md` add **highlight correct**
+(the first region is on the truth page or `also_on` and the pdfplumber words in it contain
+the printed value, or a checked option's label; n/a for `production`), a breakdown **by
+origin**, and **usage** (model dollars and tokens from the recorder, Azure DI pages per model
+id at $10 per 1,000, wall time and the models' own latency p50/p95; replay prices the
+recorded calls).
+
+Example sweep (record live once per cell, then replay for free; set
+`LLM_REQUEST_TIMEOUT=300`, a ~6,000-token grounded answer outlasts the 60 s default on the
+large models):
+
+```bash
+cd backEnd
+M="gpt-6-luna gpt-6.1-sol claude-haiku-5-5 claude-sonnet-5-5 claude-opus-5-5"
+run() { BASIS_ENV=dev LLM_REQUEST_TIMEOUT=300 uv run python -m evals.appraisal.run --set client --mode live "$@"; }
+run --system production
+run --system azure_1004
+run --system production_plus_1004
+for m in $M; do
+  run --system checkbox_context --model $m --effort low
+  run --system llm_all --model $m --effort low
+  run --system llm_pages --model $m --effort low
+  run --system llm_sections --model $m --effort low
+  run --system llm_sections --with-images --model $m --effort low
+  run --system validate_reask --base llm_pages --model $m --effort low
+done
+run --system vote --voters llm_pages@gpt-6-luna@low,llm_pages@claude-haiku-5-5@low
+# any cell again, no network:
+BASIS_ENV=dev uv run python -m evals.appraisal.run --set client --mode replay --system llm_all --model gpt-6-luna --effort low
+```
+
 ## Metrics
 
 `evals/metrics.py`, unit-tested against hand-computed values in

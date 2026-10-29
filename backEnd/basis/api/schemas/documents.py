@@ -1,9 +1,10 @@
 """Document upload request and response bodies (S1_SPEC sections 5 and 6).
 
 Limits: at most :data:`MAX_UPLOAD_BYTES` per file, and only the media types allowed for
-the document's kind (appraisal: PDF; photo: JPEG, PNG, HEIC, HEIF, WebP; other: any of
-those plus plain text and CSV). The request body is a union discriminated by ``kind``, so the
-OpenAPI document states exactly which ``content_type`` each kind accepts.
+the document's kind (appraisal: PDF, or a UAD 3.6 ZIP or MISMO XML; photo: JPEG, PNG,
+HEIC, HEIF, WebP; other: any of those plus plain text and CSV). The request body is a union
+discriminated by ``kind``, so the OpenAPI document states exactly which ``content_type`` each
+kind accepts.
 
 The size bound also caps memory: the completion check reads the object once to verify
 its sha256 (GCS does not compute sha256).
@@ -33,6 +34,8 @@ MAX_FILENAME_CHARS: Final = 255
 _EXTENSION_KEEP: Final = 16
 
 PdfType = Literal["application/pdf"]
+# A UAD 3.6 delivery (MISMO 3.6 XML, bare or in its ZIP with the PDF): docs/api/UAD36_INTAKE.md.
+Uad36Type = Literal["application/zip", "application/xml", "text/xml"]
 ImageType = Literal["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"]
 TextType = Literal["text/plain", "text/csv"]
 
@@ -108,7 +111,11 @@ class AppraisalUpload(_UploadBase):
     )
 
     kind: Literal["appraisal"]
-    content_type: PdfType
+    content_type: PdfType | Uad36Type = Field(
+        description="`application/pdf`, or a UAD 3.6 delivery: its ZIP (`application/zip`) or "
+        "its MISMO 3.6 XML (`application/xml`, `text/xml`); the extraction recognizes the "
+        "bytes, not this label."
+    )
 
 
 class PhotoUpload(_UploadBase):

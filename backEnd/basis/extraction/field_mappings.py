@@ -324,6 +324,44 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
 FIELD_BY_KEY: Final[dict[str, FieldSpec]] = {spec.key: spec for spec in FIELDS}
 CRITICAL_FIELDS: Final[tuple[str, ...]] = tuple(spec.key for spec in FIELDS if spec.critical)
 
+# Boxes the legacy 1004 prints as checkbox groups (the form, not the scorer's vocabulary:
+# tests check that every scored enum key is here). One option is checked in a single group;
+# several may be in a multi group.
+SINGLE_CHECKBOX_KEYS: Final = frozenset(
+    {
+        "subject.occupant",
+        "subject.property_rights_appraised",
+        "subject.assignment_type",
+        "neighborhood.location",
+        "neighborhood.built_up",
+        "neighborhood.growth",
+        "neighborhood.property_values",
+        "neighborhood.demand_supply",
+        "neighborhood.marketing_time",
+        "site.zoning_compliance",
+        "site.utilities_electric",
+        "site.utilities_gas",
+        "site.utilities_water",
+        "site.utilities_sewer",
+        "site.off_site_improvements_street",
+        "site.off_site_improvements_alley",
+        "site.special_flood_hazard",
+        "improvements.units",
+        "improvements.type",
+        "reconciliation.appraisal_made",
+    }
+)
+MULTI_CHECKBOX_KEYS: Final = frozenset(
+    {
+        "improvements.foundation_type",
+        "improvements.heating_type",
+        "improvements.cooling",
+        "improvements.appliances",
+        "improvements.car_storage",
+    }
+)
+CHECKBOX_KEYS: Final = SINGLE_CHECKBOX_KEYS | MULTI_CHECKBOX_KEYS
+
 # Rows of the cost approach table: caption -> key. Values are the row's last amount.
 COST_TABLE_ROWS: Final[tuple[str, ...]] = tuple(
     spec.key
