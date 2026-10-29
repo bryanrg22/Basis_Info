@@ -18,7 +18,10 @@ f = T / Σ RCN;  row_i = RCN_i × f;  Σ row_i = T to the cent
 Set at creation (`POST /v1/studies`, optional `intake` member) or later with
 `PUT /v1/studies/{id}/intake` (engineer role; the whole document each time; idempotent by
 itself, no `Idempotency-Key`). `GET /v1/studies/{id}` returns it as `intake` (null until set).
-The takeoff reads `study.intake.placed_in_service_date`, `.state` and `.zip`.
+**A study cannot start without it** (below). The takeoff reads
+`study.intake.placed_in_service_date` (the cost year), `.state` (the location cost index) and
+`.property_use` (27.5 or 39 years for the building and the classification rules' property
+class); `.zip` is recorded for the city cost index, a follow-up.
 
 ```json
 {
@@ -45,7 +48,7 @@ The takeoff reads `study.intake.placed_in_service_date`, `.state` and `.zip`.
 | Field | Rule |
 |---|---|
 | `purchase_price` | dollars to the cent, above 0; the contract price from the closing statement |
-| `acquisition_costs[]` | `{category, amount, description?}`, at most 100. Capitalized categories (Reg. 1.263(a)-2(f), Pub. 551): `abstract_fees`, `title_search`, `title_insurance_owner`, `legal_fees`, `recording_fees`, `survey`, `transfer_taxes`, `broker_commission`, `appraisal_buyer`, `inspection`, `utility_connection`, `seller_obligations_paid`, `other_facilitative`. Refused with the reason in `errors[].detail`: `points`, `loan_origination`, `mortgage_insurance`, `loan_assumption_fee`, `credit_report`, `appraisal_lender`, `prepaid_interest`, `escrow_taxes`, `escrow_insurance`, `casualty_insurance`, `property_tax_proration`, `prepaid_rent`, `utilities_before_closing`, `refinancing_fees` |
+| `acquisition_costs[]` | required, `[]` when the closing statement has no capitalizable line (so `CC = 0` is a statement, not an omission); `{category, amount, description?}`, at most 100. Capitalized categories (Reg. 1.263(a)-2(f), Pub. 551): `abstract_fees`, `title_search`, `title_insurance_owner`, `legal_fees`, `recording_fees`, `survey`, `transfer_taxes`, `broker_commission`, `appraisal_buyer`, `inspection`, `utility_connection`, `seller_obligations_paid`, `other_facilitative`. Refused with the reason in `errors[].detail`: `points`, `loan_origination`, `mortgage_insurance`, `loan_assumption_fee`, `credit_report`, `appraisal_lender`, `prepaid_interest`, `escrow_taxes`, `escrow_insurance`, `casualty_insurance`, `property_tax_proration`, `prepaid_rent`, `utilities_before_closing`, `refinancing_fees` |
 | `land_method` | `appraisal_site_value` (needs `appraisal_site_value`; `appraisal_effective_date` for the date check), `land_appraisal` (needs `land_appraisal_value`; `land_appraisal_date`), `flat_percentage` (needs `flat_land_percentage`, percent of the price, and `flat_land_source`). There is no assessor method and no residual: `assessor_land_value` + `assessor_improvement_value` (both or neither, not both 0) are a check only |
 | `property_use` | `residential_rental` (27.5 years) needs `dwelling_unit_income_share` ≥ 0.8 and `transient_lodging: false`; otherwise `nonresidential` (39 years) |
 | `placed_in_service_date` | required; when the property was ready and available for its use |
@@ -56,6 +59,40 @@ A violated rule is a `422` problem of type `.../validation` with the rule in `er
 for example `points is not a capitalized acquisition cost: points are prepaid interest, deducted
 over the loan's term (Pub. 527); a loan cost, not basis (Pub. 551)`. Nothing is stored on a 422.
 `403` for a viewer, `404` for a study not visible, `409 stale-state` for an archived study.
+
+### Required before `start`
+
+`POST /v1/studies/{id}/start` refuses a study whose intake lacks a field the output cannot be
+produced without (WORKFLOW_REVIEW 2026-10-29 section 5; `basis.domain.intake.missing_for_start`):
+the contract price, the closing costs, the land source with its value, the use, the
+placed-in-service date and the state. The answer is `422` of type `.../intake-required` with one
+`errors` entry per missing field (`loc` `["intake", <field>]`, `type` `missing`, `detail` saying
+what needs it); nothing changes on the study. It is checked before the appraisal (`409
+appraisal-required`), so a client without an intake step sees it first.
+
+```json
+{
+  "type": "https://basis.invalid/problems/intake-required",
+  "title": "Unprocessable Content",
+  "status": 422,
+  "detail": "The study's intake lacks 1 field(s) a start needs: state. Replace it with PUT /v1/studies/{id}/intake (docs/api/STUDY_RESULT.md).",
+  "instance": "/v1/studies/5f0c6a52-.../start",
+  "errors": [
+    {"loc": ["intake", "state"],
+     "detail": "the location cost index is by state; the appraisal's subject.state is read only after the study starts, so the intake must carry it (zip is recorded for the city index)",
+     "type": "missing"}
+  ]
+}
+```
+
+With no intake at all, `errors` lists all six (`purchase_price`, `acquisition_costs`,
+`land_method`, `property_use`, `placed_in_service_date`, `state`). The document's own rules make
+the first five present on any stored intake, so on a stored intake the one field that can be
+missing is `state`: the appraisal fills it only when an extraction already exists at `PUT` time,
+which is after the start, and a `zip` alone does not locate the cost index (the index is by
+state; the RSMeans city index by ZIP is a follow-up). Studies started before this rule
+(EVAL_REPORT section 37) have no intake and run on the deployment's `PROPERTY_CLASS`, `COST_YEAR`
+and `COST_LOCATION_FACTOR` settings, as before.
 
 ## The result
 
@@ -137,3 +174,38 @@ route follows a later intake change.
 All money is a string with two decimals; the factor has nine places and is applied at full
 precision; rows round half up and the residual cents go to the largest remainders (the rule is
 stated in `basis/domain/basis.py`).
+
+## What the takeoff drew on: `summary.takeoff` in the export
+
+Next to `summary.basis`, the export's summary carries `takeoff`: what the revision's quantities
+and prices were drawn from, read back from the stored rows (EVAL_REPORT section 37). Every asset
+row already carries its own `takeoff_inputs` (`room_area_source`: `gla_share`,
+`basement_share`, `garage_area`, `typical_for_room_type`, `default_150_sf`; `quantity_source:
+appraisal_derived` for the roof, siding, gutters and landscaping; `needs_measurement` for a site
+item the appraisal cannot size) and its `cost_source` text; `summary.takeoff` is the study-level
+view the end-to-end scorer prints.
+
+```json
+{
+  "cost_year": 2024,
+  "location_factor": "1.200",
+  "cost_year_source": "placed in service 2024-03-01 (intake)",
+  "location_source": "state NY (intake)",
+  "property_class": "nonresidential",
+  "property_class_source": "intake property_use",
+  "area_sources": {"appraisal_derived": 4, "gla_share": 212, "typical_for_room_type": 9},
+  "needs_measurement": 15
+}
+```
+
+* `cost_year`, `location_factor`: the cost rows' values (one per revision; null when the rows
+  disagree or none has one).
+* `cost_year_source`, `location_source`: in order of preference the intake (`placed in service
+  <date> (intake)`, `state <XX> (intake)`), the appraisal (`appraisal effective date <date>
+  (<field> (<source>))`, `state <XX> (subject.state (<source>))`), the setting (`COST_YEAR
+  setting`, `COST_LOCATION_FACTOR setting`); a candidate that was given but unusable (a year
+  outside the 2020–2026 factor table, a state with no factor) is named after a semicolon.
+* `property_class`, `property_class_source`: `intake property_use` or `PROPERTY_CLASS setting`.
+* The four source members are null on an export whose rows were written before section 37, or
+  priced from the settings alone with no intake: nothing is inferred from text.
+* `area_sources`: the assets by quantity source; `needs_measurement`: the site items awaiting one.

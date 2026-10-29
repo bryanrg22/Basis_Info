@@ -26,10 +26,20 @@ an engineer added to a room at the rooms review always), with the quantity of ea
    component that carries the area;
 3. price it (:func:`basis.domain.costs.estimate_cost`: the six legacy rows, else the
    ``COST_TABLE_PATH`` table's row for the component's label). The cost year and the
-   location factor come from the study (``COST_INDEX=study``: the state's factor and the
-   appraisal's effective-date year, each the setting when the field is missing, with the
+   location factor come from the study (``COST_INDEX=study``: the year of the intake's
+   ``placed_in_service_date`` and the factor of the intake's ``state``, else the
+   appraisal's effective-date year and the appraisal's state, else the setting, with the
    source written on the cost row), else from settings; a missing cost row writes a
-   ``cost_estimates`` row with no amounts;
+   ``cost_estimates`` row with no amounts.
+
+The study's intake (``study.intake``, required before ``start`` since EVAL_REPORT section
+37; studies started earlier have none) also decides the property class: its
+``property_use`` (``residential_rental`` or ``nonresidential``: the 27.5- or 39-year
+building and the rules table's class) replaces the ``PROPERTY_CLASS`` setting. Which
+sources applied is written on every takeoff (``cost_year_source``, ``location_source``,
+``property_class``, ``property_class_source``) whenever any of them came from the study,
+so the export's ``summary.takeoff`` can show them without a second computation; a
+revision with no intake and no extraction fields writes exactly what it wrote before;
 4. cross-validate classification, takeoff and cost; warnings and errors set
    ``needs_review`` and every reason is kept in ``review_reason``;
 5. write ``assets``, ``takeoffs``, ``cost_estimates``, ``citations`` (verified ones only)
@@ -100,10 +110,12 @@ from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.run import RunRepository
+from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.costs import CostError, CostEstimate, NeedsQuantity, estimate_cost
 from basis.domain.cross_validation import cross_validate
+from basis.domain.intake import StudyIntake
 from basis.domain.measurements import (
     NEEDS_MEASUREMENT,
     BuildingMeasurements,
@@ -116,7 +128,7 @@ from basis.domain.measurements import (
     room_areas,
 )
 from basis.domain.rooms import guidance_for, typical_area_sf
-from basis.domain.rules import RECOVERY_YEARS, lookup
+from basis.domain.rules import RECOVERY_YEARS, PropertyClass, check_property_class, lookup
 from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
 from basis.llm.cost import cost_usd
@@ -207,6 +219,10 @@ class _Prepared:
     # The appraisal's measurements (None when no extraction has fields, or when neither
     # TAKEOFF_AREAS=appraisal nor COST_INDEX=study needs them).
     measurements: BuildingMeasurements | None = None
+    # The study's intake (None for a study started before it was required).
+    intake: StudyIntake | None = None
+    # The property class the classification ran with (the intake's use, else the setting).
+    property_class: PropertyClass = "residential_rental"
 
 
 async def _prepare(
@@ -226,8 +242,10 @@ async def _prepare(
     measurements = None
     if settings.takeoff_areas == "appraisal" or settings.cost_index == "study":
         measurements = await study_measurements(session, study_id, input.revision)
+    study = await StudyRepository(session).get(study_id)
+    intake = None if study is None else study.intake
     overrides = await _overrides(assets, study_id, components, input.corrections)
-    property_class = settings.property_class
+    property_class, _ = property_class_for(intake, settings)
     views = {
         c.id: component_view(c, rooms.get(c.room_id) if c.room_id else None, property_class)
         for c in components
@@ -267,7 +285,18 @@ async def _prepare(
                 f"{len(residual)} components need the model (up to ${worst}); "
                 f"${input.budget_remaining_usd:.4f} remains"
             )
-    return _Prepared(components, rooms, overrides, views, ctx, budget, measurements)
+    return _Prepared(
+        components, rooms, overrides, views, ctx, budget, measurements, intake, property_class
+    )
+
+
+def property_class_for(intake: StudyIntake | None, settings: Settings) -> tuple[PropertyClass, str]:
+    """``(property class, its source)``: the intake's ``property_use`` (the taxpayer's
+    answer: 27.5 or 39 years, BASIS_RESEARCH section 4), else the ``PROPERTY_CLASS``
+    setting for a study that has no intake."""
+    if intake is not None:
+        return check_property_class(intake.property_use.value), "intake property_use"
+    return settings.property_class, "PROPERTY_CLASS setting"
 
 
 async def study_measurements(
@@ -275,11 +304,9 @@ async def study_measurements(
 ) -> BuildingMeasurements | None:
     """The appraisal measurements of the revision's extraction fields; None when no
     extraction of the revision has a usable field. Several extractions (a UAD 3.6 XML
-    and its PDF) are read in document order, the first value of each field winning.
-
-    TODO(basis-allocation): the study intake (``study.intake``: ``placed_in_service_date``,
-    ``state``, ``zip``) should override the appraisal's fields here once that branch
-    lands them.
+    and its PDF) are read in document order, the first value of each field winning. The
+    intake's own values (placed-in-service date, state) are not fields: ``TakeoffPlan``
+    puts them ahead of these when it resolves the cost index.
     """
     repo = ExtractionRepository(session)
     rows = []
@@ -301,13 +328,15 @@ async def _write(
 ) -> ProcessAssetsOutput:
     """Measure, price, cross-check and write every component (module doc, steps 2-5)."""
     settings = deps.settings
-    property_class = settings.property_class
+    property_class = prepared.property_class
     components, rooms, overrides = prepared.components, prepared.rooms, prepared.overrides
     assets = AssetRepository(session)
     cache_repo = ClassificationCacheRepository(session)
     budget = prepared.budget
     table = cost_table_for(settings.cost_table_path)
-    plan = TakeoffPlan.build(settings, prepared.measurements, list(rooms.values()))
+    plan = TakeoffPlan.build(
+        settings, prepared.measurements, list(rooms.values()), intake=prepared.intake
+    )
     measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
     calls: list[CallRecord] = []
@@ -361,6 +390,7 @@ async def _write(
                 **takeoff.inputs,
                 "method": takeoff.method,
                 "assumptions": list(takeoff.assumptions),
+                **plan.study_inputs,
                 **extra_inputs,
             },
         )
@@ -547,37 +577,55 @@ async def _write_manual(
 @dataclass(frozen=True, slots=True)
 class TakeoffPlan:
     """What the revision's takeoffs and prices draw on: each room's floor area, the
-    property-level quantities, and the cost index (module doc, steps 2 and 3)."""
+    property-level quantities, the cost index and the property class (module doc, steps 2
+    and 3), and ``study_inputs``: the sources that came from the study (the intake or the
+    appraisal), written on every takeoff; empty when everything came from settings."""
 
     room_areas: dict[uuid.UUID, RoomArea]
     property: dict[str, Derived]
     index: CostIndex
     property_class: str
     from_appraisal: bool
+    study_inputs: dict[str, str | int | bool | None]
 
     @classmethod
     def build(
-        cls, settings: Settings, measurements: BuildingMeasurements | None, rooms: list[Room]
+        cls,
+        settings: Settings,
+        measurements: BuildingMeasurements | None,
+        rooms: list[Room],
+        intake: StudyIntake | None = None,
     ) -> TakeoffPlan:
+        property_class, class_source = property_class_for(intake, settings)
         areas: dict[uuid.UUID, RoomArea] = {}
         quantities: dict[str, Derived] = {}
         from_appraisal = measurements is not None and settings.takeoff_areas == "appraisal"
         if measurements is not None and from_appraisal:
             areas = {
                 room_id: area  # type: ignore[misc]
-                for room_id, area in room_areas(
-                    measurements, rooms, settings.property_class
-                ).items()
+                for room_id, area in room_areas(measurements, rooms, property_class).items()
             }
             quantities = property_quantities(measurements)
         setting_factor = Decimal(str(settings.cost_location_factor))
-        if measurements is not None and settings.cost_index == "study":
+        if settings.cost_index == "study" and (measurements is not None or intake is not None):
             index = resolve_cost_index(
-                measurements, cost_year=settings.cost_year, location_factor=setting_factor
+                measurements,
+                cost_year=settings.cost_year,
+                location_factor=setting_factor,
+                placed_in_service=None if intake is None else intake.placed_in_service_date,
+                state=None if intake is None else intake.state,
             )
         else:
             index = CostIndex(settings.cost_year, None, setting_factor, None)
-        return cls(areas, quantities, index, settings.property_class, from_appraisal)
+        study_inputs: dict[str, str | int | bool | None] = {}
+        if intake is not None or index.year_source is not None:
+            study_inputs = {
+                "cost_year_source": index.year_source or "COST_YEAR setting",
+                "location_source": index.location_source or "COST_LOCATION_FACTOR setting",
+                "property_class": property_class,
+                "property_class_source": class_source,
+            }
+        return cls(areas, quantities, index, property_class, from_appraisal, study_inputs)
 
 
 def _takeoff(

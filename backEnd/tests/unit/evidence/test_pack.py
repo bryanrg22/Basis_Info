@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import random
 import uuid
+from decimal import Decimal
 
-from basis.evidence.pack import EVIDENCE_STAGE, assemble_pack, entry_id
+from basis.evidence.pack import EVIDENCE_STAGE, assemble_pack, entry_id, takeoff_summary
 
 from .evidencetest_rows import CHUNK_A, CHUNK_B, rows
 
@@ -110,6 +111,7 @@ def test_summary_carries_the_basis_result() -> None:
         StudyIntakeIn.model_validate(
             {
                 "purchase_price": "100000.00",
+                "acquisition_costs": [],
                 "land_method": "appraisal_site_value",
                 "appraisal_site_value": "20000.00",
                 "property_use": "nonresidential",
@@ -125,3 +127,53 @@ def test_summary_carries_the_basis_result() -> None:
     assert with_intake["allocation"]["rows_sum"] == "80000.00"
     assert with_intake["allocation"]["by_bucket"][0]["allocated"] == "80000.00"
     assert with_intake["revision"] == 1
+
+
+def test_summary_takeoff_reads_the_rows_and_is_null_before_section_37() -> None:
+    """``summary.takeoff`` (EVAL_REPORT 37) comes from the stored rows: the cost rows' year
+    and factor, the takeoff inputs' sources and property class, and the tally of quantity
+    sources. Rows written before the intake wiring carry none of the source keys, so a
+    legacy export says so with nulls instead of inventing a source."""
+    legacy = assemble_pack(**rows()).summary["takeoff"]
+    assert legacy == {
+        "cost_year": 2026,  # the one cost row that has a year; the others have none
+        "location_factor": None,
+        "cost_year_source": None,
+        "location_source": None,
+        "property_class": None,
+        "property_class_source": None,
+        "area_sources": {"none": 3},  # the fixture's takeoffs have no inputs
+        "needs_measurement": 0,
+    }
+
+    data = rows()
+    inputs = {
+        "cost_year_source": "placed in service 2024-03-01 (intake)",
+        "location_source": "state NY (intake)",
+        "property_class": "nonresidential",
+        "property_class_source": "intake property_use",
+    }
+    data["takeoffs"][uuid.UUID(int=21)].inputs = {"room_area_source": "gla_share", **inputs}
+    data["takeoffs"][uuid.UUID(int=22)].inputs = {
+        "room_area_source": "gla_share",
+        "quantity_source": "appraisal_derived",
+        **inputs,
+    }
+    data["takeoffs"][uuid.UUID(int=23)].inputs = {
+        "room_area_source": "typical_for_room_type",
+        "needs_measurement": "patio area in SF",
+        **inputs,
+    }
+    for cost in data["costs"].values():
+        cost.cost_year, cost.location_factor = 2024, Decimal("1.20")
+    wired = assemble_pack(**data).summary["takeoff"]
+    assert wired == {
+        "cost_year": 2024,
+        "location_factor": "1.20",
+        **inputs,
+        "area_sources": {"appraisal_derived": 1, "gla_share": 1, "typical_for_room_type": 1},
+        "needs_measurement": 1,
+    }
+    # Rows that disagree on the index (two revisions mixed) report no single value.
+    data["costs"][uuid.UUID(int=21)].cost_year = 2025
+    assert takeoff_summary(assemble_pack(**data).assets)["cost_year"] is None

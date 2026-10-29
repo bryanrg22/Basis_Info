@@ -180,13 +180,17 @@ with no input is the "rule of thumb" the ATG objects to (C.6).
 ### 3.9 Cost index
 
 * Location: RSMeans' location factor by state (`REGIONAL_COST_FACTORS`, the legacy
-  state table; the city cost index by ZIP is a follow-up) from the appraisal's
-  `subject.state`; the `COST_LOCATION_FACTOR` setting when the state is unknown or not in
-  the table.
-* Year: the placed-in-service year (the intake field, when the basis-allocation work
-  lands it), else the year of the appraisal's effective date (the purchase appraisal is
-  dated at or near the acquisition), else the `COST_YEAR` setting; a year outside the
-  escalation table (2020-2026) falls back to the setting with the reason recorded.
+  state table; the city cost index by ZIP is a follow-up) from the intake's `state`
+  (required before a study starts since EVAL_REPORT section 37), else the appraisal's
+  `subject.state` (a study started before the intake was required), else the
+  `COST_LOCATION_FACTOR` setting when neither names a state in the table.
+* Year: the placed-in-service year (the intake's `placed_in_service_date`), else the year
+  of the appraisal's effective date (the purchase appraisal is dated at or near the
+  acquisition), else the `COST_YEAR` setting; a year outside the escalation table
+  (2020-2026) falls back to the next source with the reason recorded.
+* Use: the intake's `property_use` is the property class (27.5 or 39 years for the
+  building rows, and the typical-area family when no GLA is extracted), in place of the
+  `PROPERTY_CLASS` setting.
 
 Both factors and their sources are written on the cost row (`source_row`).
 

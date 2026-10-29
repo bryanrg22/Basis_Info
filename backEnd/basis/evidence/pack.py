@@ -15,9 +15,13 @@ revision from Postgres.
   ``study``); a citation whose chunk is missing cannot exist (``citations.chunk_id`` is a
   foreign key), so every entry resolves.
 * The summary has the legacy totals (citations, documents, assets without evidence), the
-  writeback's per-bucket dollars and share of the total, and ``basis``: the study result
+  writeback's per-bucket dollars and share of the total, ``basis``: the study result
   (:mod:`basis.evidence.result`): the basis worksheet from the study's intake and the
-  schedule allocated to it, or the schedule alone with ``missing: ["intake"]``.
+  schedule allocated to it, or the schedule alone with ``missing: ["intake"]``, and
+  ``takeoff``: what the revision's quantities and prices were drawn from
+  (:func:`takeoff_summary`), read back from the stored rows so it cannot disagree with
+  them: the cost year and location factor with their sources, the property class with
+  its source, and how many takeoffs took their area or quantity from each source.
 
 Ordering is fixed: assets by room name, label, category and id; entries by asset order,
 document, page, chunk id and excerpt.
@@ -309,6 +313,51 @@ def summarize(
             intake,
             revision,
         ).model_dump(mode="json"),
+        "takeoff": takeoff_summary(assets),
+    }
+
+
+# The takeoff inputs ``process_assets`` writes on every takeoff when a source came from the
+# study (EVAL_REPORT section 37); absent on rows priced from settings alone or before then.
+STUDY_INPUT_KEYS: Final = (
+    "cost_year_source",
+    "location_source",
+    "property_class",
+    "property_class_source",
+)
+
+
+def takeoff_summary(assets: tuple[AssetEvidence, ...]) -> dict[str, Any]:
+    """What the revision's takeoffs drew on, from the rows themselves.
+
+    ``cost_year`` and ``location_factor`` are the cost rows' (one value per revision; null
+    when the rows disagree or none has one), their sources and the property class the
+    takeoff inputs' (null when no row carries them: priced from settings alone, or before
+    section 37). ``area_sources`` counts the takeoffs by where their quantity came from:
+    ``quantity_source`` (``appraisal_derived``: roof, siding, gutters, landscaping) else
+    ``room_area_source`` (``gla_share``, ``basement_share``, ``garage_area``,
+    ``typical_for_room_type``, ``default_150_sf``, ...), ``none`` for a row with no takeoff;
+    ``needs_measurement`` counts the site items awaiting a measurement.
+    """
+    years = {a.cost_year for a in assets if a.cost_year is not None}
+    factors = {a.location_factor for a in assets if a.location_factor is not None}
+    study_inputs: dict[str, Any] = dict.fromkeys(STUDY_INPUT_KEYS)
+    area_sources: dict[str, int] = {}
+    needs_measurement = 0
+    for asset in assets:
+        inputs = asset.takeoff_inputs if isinstance(asset.takeoff_inputs, dict) else {}
+        for key in STUDY_INPUT_KEYS:
+            if study_inputs[key] is None and inputs.get(key) is not None:
+                study_inputs[key] = inputs[key]
+        source = inputs.get("quantity_source") or inputs.get("room_area_source") or "none"
+        area_sources[str(source)] = area_sources.get(str(source), 0) + 1
+        needs_measurement += "needs_measurement" in inputs
+    return {
+        "cost_year": next(iter(years)) if len(years) == 1 else None,
+        "location_factor": next(iter(factors)) if len(factors) == 1 else None,
+        **study_inputs,
+        "area_sources": dict(sorted(area_sources.items())),
+        "needs_measurement": needs_measurement,
     }
 
 

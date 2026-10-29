@@ -34,6 +34,10 @@ Schemathesis setup, and why:
   (``{"a": "b", "b": "a"}`` or ``{"a": "a"}``), a relation between keys and values that
   JSON Schema cannot express, so a generated map can be schema-valid and (correctly) 422.
   Loops, self-aliases and the accepted forms are tested in ``test_studies.py``.
+* The ``main`` study is seeded with a complete intake (EVAL_REPORT 37: ``start`` refuses a
+  study without one with 422 ``intake-required``, which Schemathesis's positive-data check
+  does not accept for a well-formed request; the 422 is the route tests'), so a positive
+  ``start`` answers 409 ``appraisal-required`` as before.
 * ``intake`` is dropped from ``POST /studies`` bodies and the ``PUT .../intake`` body is
   replaced by one valid intake in valid-data cases: the intake's rules relate fields (a land
   method to its input, the use to the 80 % test), which JSON Schema cannot express, so a
@@ -78,6 +82,7 @@ from basis.db.engine import async_database_url
 from basis.db.enums import Stage
 from basis.db.repositories import StudyRepository
 from basis.db.session import create_sessionmaker
+from basis.domain.intake import StudyIntakeIn, with_location
 from basis.storage import LocalStorage
 
 COMMITTED = json.loads(Path(OPENAPI_PATH).read_text(encoding="utf-8"))
@@ -153,9 +158,12 @@ def contract_app(database_url: str, tmp_path_factory: pytest.TempPathFactory) ->
         seed = Seed(sessionmaker)
         user = await seed.user(USER)
         org = await seed.personal_org(USER)
+        intake = with_location(
+            StudyIntakeIn.model_validate(VALID_INTAKE), appraisal_state=None, appraisal_zip=None
+        )
         async with sessionmaker() as session, session.begin():
             studies = StudyRepository(session)
-            main = await studies.create(org, user.id, "Contract test")
+            main = await studies.create(org, user.id, "Contract test", intake=intake)
             archivable = await studies.create(org, user.id, "Contract test (DELETE)")
         await seed.stage(main.id, Stage.APPRAISAL_REVIEW)
         return {"main": str(main.id), "archivable": str(archivable.id), "org": str(org)}
@@ -203,6 +211,7 @@ VALID_INTAKE: Final[dict[str, Any]] = {
     "property_use": "nonresidential",
     "transient_lodging": True,
     "placed_in_service_date": "2025-05-01",
+    "state": "NY",
 }
 
 

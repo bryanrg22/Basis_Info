@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 
 import httpx
 from dbtest_support import db_settings, ensure_own_firm
@@ -140,6 +140,26 @@ class FakeVerifier:
         if token == "revoked":
             raise Unauthorized(DETAIL_REVOKED)
         raise Unauthorized(DETAIL_INVALID)
+
+
+# An intake with every field a start needs (basis.domain.intake.missing_for_start); the
+# same document tests/api/test_studies.py stores and reads back.
+COMPLETE_INTAKE: Final[dict[str, Any]] = {
+    "purchase_price": "650000.00",
+    "acquisition_costs": [
+        {"category": "title_insurance_owner", "amount": "1250.00"},
+        {"category": "recording_fees", "amount": 180},
+    ],
+    "land_method": "appraisal_site_value",
+    "appraisal_site_value": "90000.00",
+    "appraisal_effective_date": "2025-03-14",
+    "property_use": "residential_rental",
+    "dwelling_unit_income_share": "1",
+    "placed_in_service_date": "2025-05-01",
+    "acquisition_date": "2025-04-15",
+    "state": "NY",
+    "zip": "12345",
+}
 
 
 def sha256_hex(data: bytes) -> str:

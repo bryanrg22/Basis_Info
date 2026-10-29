@@ -16,8 +16,9 @@ this module turns those fields into:
 * property-level quantities (:func:`property_quantities`): roof, siding and gutters from
   the footprint and perimeter, landscaping from the site area (sections 3.2-3.7), and the
   measurement a reviewer must supply for the rest (3.8, :data:`NEEDS_MEASUREMENT`);
-* the cost index (:func:`resolve_cost_index`): the state's location factor and the
-  appraisal's effective-date year, else the settings (3.9).
+* the cost index (:func:`resolve_cost_index`): the year of the intake's placed-in-service
+  date and the factor of the intake's state, else the appraisal's effective-date year and
+  the appraisal's state, else the settings (3.9).
 
 Every number is a :class:`Derived` carrying its formula, its named inputs (value, field
 and extraction source) and the assumptions it rests on, so ``process_assets`` can write
@@ -729,35 +730,63 @@ def resolve_cost_index(
     cost_year: int,
     location_factor: Decimal,
     placed_in_service: date | None = None,
+    state: str | None = None,
 ) -> CostIndex:
     """The cost year and location factor for the study (section 3.9).
 
-    Year: ``placed_in_service`` (the intake's date, when the caller has one), else the
-    appraisal's effective date, when inside the escalation table, else the setting.
-    Location: the state's factor when the appraisal names a state in the table, else the
-    setting. Each carries the source it came from, for the cost row.
+    Year: ``placed_in_service`` (the intake's date) when inside the escalation table, else
+    the appraisal's effective date when inside it, else the setting. Location: the factor of
+    ``state`` (the intake's) when the table has it, else of the appraisal's state when the
+    table has that, else the setting. Each carries the source it came from, for the cost
+    row; a candidate that was given but could not be used is named in the source so the
+    reviewer sees why the next one applied.
     """
+    table_range = f"{min(YEAR_ADJUSTMENT_FACTORS)}-{max(YEAR_ADJUSTMENT_FACTORS)}"
     year, year_source = cost_year, "COST_YEAR setting"
-    if placed_in_service is not None and placed_in_service.year in YEAR_ADJUSTMENT_FACTORS:
-        year, year_source = placed_in_service.year, f"placed in service {placed_in_service}"
-    elif m is not None and m.effective_date is not None:
+    skipped: list[str] = []
+    if placed_in_service is not None:
+        if placed_in_service.year in YEAR_ADJUSTMENT_FACTORS:
+            year = placed_in_service.year
+            year_source = f"placed in service {placed_in_service} (intake)"
+        else:
+            skipped.append(
+                f"placed in service {placed_in_service} (intake) is outside the {table_range} "
+                "factor table"
+            )
+    if year_source == "COST_YEAR setting" and m is not None and m.effective_date is not None:
         when = m.effective_date
         if when.value.year in YEAR_ADJUSTMENT_FACTORS:
             year = when.value.year
             year_source = f"appraisal effective date {when.value} ({when.describe()})"
         else:
-            year_source = (
-                f"COST_YEAR setting: appraisal effective date {when.value} is outside the "
-                f"{min(YEAR_ADJUSTMENT_FACTORS)}-{max(YEAR_ADJUSTMENT_FACTORS)} factor table"
+            skipped.append(
+                f"appraisal effective date {when.value} is outside the {table_range} factor table"
             )
+    if year_source == "COST_YEAR setting" and skipped:
+        year_source = "COST_YEAR setting: " + "; ".join(skipped)
+    elif skipped:
+        year_source = f"{year_source}; {'; '.join(skipped)}"
+
     factor, location_source = location_factor, "COST_LOCATION_FACTOR setting"
-    if m is not None and m.state is not None:
+    unused: list[str] = []
+    if state is not None:
+        try:
+            factor = location_factor_for_state(state)
+        except CostError:
+            unused.append(f"no factor for state {state!r} (intake)")
+        else:
+            location_source = f"state {state.strip().upper()} (intake)"
+    if location_source == "COST_LOCATION_FACTOR setting" and m is not None and m.state is not None:
         try:
             factor = location_factor_for_state(m.state.value)
         except CostError:
-            location_source = f"COST_LOCATION_FACTOR setting: no factor for state {m.state.value!r}"
+            unused.append(f"no factor for state {m.state.value!r}")
         else:
             location_source = f"state {m.state.value.strip().upper()} ({m.state.describe()})"
+    if location_source == "COST_LOCATION_FACTOR setting" and unused:
+        location_source = "COST_LOCATION_FACTOR setting: " + "; ".join(unused)
+    elif unused:
+        location_source = f"{location_source}; {'; '.join(unused)}"
     return CostIndex(year, year_source, factor, location_source)
 
 

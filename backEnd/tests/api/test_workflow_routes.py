@@ -13,7 +13,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apitest_support import Api, FakeVerifier, Seed, api_settings, build_api_app
+from apitest_support import (
+    COMPLETE_INTAKE,
+    Api,
+    FakeVerifier,
+    Seed,
+    api_settings,
+    bearer,
+    build_api_app,
+)
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from workflowtest_support import FakeWorkflowService
@@ -69,7 +77,8 @@ async def upload(
 
 
 async def ready_study(api: Api, storage: LocalStorage, uid: str = "alice") -> str:
-    study = await api.create_study(uid)
+    """A study that may start: a complete intake and a confirmed appraisal."""
+    study = await api.create_study(uid, intake=COMPLETE_INTAKE)
     await upload(api, storage, uid, study["id"])
     return str(study["id"])
 
@@ -165,7 +174,7 @@ async def test_start_requires_a_confirmed_appraisal(
     workflows: FakeWorkflowService,
     documents: list[tuple[str, bool]],
 ) -> None:
-    study = await api.create_study("alice")
+    study = await api.create_study("alice", intake=COMPLETE_INTAKE)
     for n, (kind, confirm) in enumerate(documents):
         await upload(
             api, storage, "alice", study["id"], kind=kind, confirm=confirm, data=PDF + bytes([n])
@@ -178,6 +187,96 @@ async def test_start_requires_a_confirmed_appraisal(
     assert "appraisal" in body["detail"]
     assert (await load(sessionmaker, study["id"])).current_stage is Stage.UPLOADING
     assert workflows.start_calls == []
+
+
+REQUIRED_INTAKE_FIELDS = [
+    "purchase_price",
+    "acquisition_costs",
+    "land_method",
+    "property_use",
+    "placed_in_service_date",
+    "state",
+]
+
+
+async def test_start_without_an_intake_is_422_naming_every_required_field(
+    api: Api,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    workflows: FakeWorkflowService,
+) -> None:
+    """EVAL_REPORT 37: a study cannot start without the intake the output needs. The
+    appraisal is there; the problem is the intake, and it is checked first."""
+    study = await api.create_study("alice")
+    await upload(api, storage, "alice", study["id"])
+
+    body = problem(
+        await api.post("alice", f"/v1/studies/{study['id']}/start"), 422, "intake-required"
+    )
+
+    assert "PUT /v1/studies/{id}/intake" in body["detail"]
+    assert [e["loc"] for e in body["errors"]] == [["intake", f] for f in REQUIRED_INTAKE_FIELDS]
+    assert {e["type"] for e in body["errors"]} == {"missing"}
+    assert all(e["detail"] for e in body["errors"])
+    assert (await load(sessionmaker, study["id"])).current_stage is Stage.UPLOADING
+    assert workflows.start_calls == []
+    # No appraisal either: the intake is still the first answer.
+    bare = await api.create_study("alice")
+    problem(await api.post("alice", f"/v1/studies/{bare['id']}/start"), 422, "intake-required")
+
+
+async def test_start_with_a_partial_intake_is_422_naming_the_missing_field(
+    api: Api,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    workflows: FakeWorkflowService,
+) -> None:
+    """The document's own rules make every other field present, so the one a stored intake
+    can lack is the state (the appraisal fills it only after the start; a ZIP alone does
+    not locate the cost index). Supplying it with a PUT lets the study start."""
+    partial = {k: v for k, v in COMPLETE_INTAKE.items() if k != "state"}
+    study = await api.create_study("alice", intake=partial)
+    await upload(api, storage, "alice", study["id"])
+    assert study["intake"]["state"] is None and study["intake"]["zip"] == "12345"
+
+    body = problem(
+        await api.post("alice", f"/v1/studies/{study['id']}/start"), 422, "intake-required"
+    )
+    assert "lacks 1 field(s)" in body["detail"] and "state" in body["detail"]
+    assert body["errors"] == [
+        {
+            "loc": ["intake", "state"],
+            "detail": next(e["detail"] for e in body["errors"] if e["loc"] == ["intake", "state"]),
+            "type": "missing",
+        }
+    ]
+    assert "location cost index" in body["errors"][0]["detail"]
+    assert (await load(sessionmaker, study["id"])).current_stage is Stage.UPLOADING
+    assert workflows.start_calls == []
+
+    put = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=COMPLETE_INTAKE, headers=bearer("alice")
+    )
+    assert put.status_code == 200, put.text
+    started = await api.post("alice", f"/v1/studies/{study['id']}/start")
+    assert started.status_code == 202, started.text
+    assert len(workflows.start_calls) == 1
+
+
+async def test_start_with_a_complete_intake_set_later_is_202(
+    api: Api, storage: LocalStorage, workflows: FakeWorkflowService
+) -> None:
+    """The intake may come after creation and after the upload; a start then proceeds."""
+    study = await api.create_study("alice")
+    await upload(api, storage, "alice", study["id"])
+    put = await api.client.put(
+        f"/v1/studies/{study['id']}/intake", json=COMPLETE_INTAKE, headers=bearer("alice")
+    )
+    assert put.status_code == 200, put.text
+    response = await api.post("alice", f"/v1/studies/{study['id']}/start")
+    assert response.status_code == 202, response.text
+    assert response.json()["workflow_id"] == f"study-{study['id']}"
+    assert len(workflows.start_calls) == 1
 
 
 async def test_start_roles(api: Api, seed: Seed, storage: LocalStorage) -> None:
