@@ -14,8 +14,10 @@ revision from Postgres.
 * Every entry carries the chunk's document, pages and corpus (``reference`` or
   ``study``); a citation whose chunk is missing cannot exist (``citations.chunk_id`` is a
   foreign key), so every entry resolves.
-* The summary has the legacy totals (citations, documents, assets without evidence) and
-  the writeback's per-bucket dollars and share of the total.
+* The summary has the legacy totals (citations, documents, assets without evidence), the
+  writeback's per-bucket dollars and share of the total, and ``basis``: the study result
+  (:mod:`basis.evidence.result`): the basis worksheet from the study's intake and the
+  schedule allocated to it, or the schedule alone with ``missing: ["intake"]``.
 
 Ordering is fixed: assets by room name, label, category and id; entries by asset order,
 document, page, chunk id and excerpt.
@@ -45,6 +47,9 @@ from basis.db.models import (
 )
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.room import RoomRepository
+from basis.db.repositories.study import StudyRepository
+from basis.domain.intake import StudyIntake
+from basis.evidence.result import ScheduleRow, compute_result
 from basis.retrieval.verify import normalize_text
 
 EVIDENCE_STAGE: Final = "assets_review"
@@ -155,6 +160,7 @@ def assemble_pack(
     costs: Mapping[uuid.UUID, CostEstimate],
     citations: Iterable[Citation],
     chunks: Mapping[uuid.UUID, ChunkInfo],
+    intake: StudyIntake | None = None,
 ) -> EvidencePack:
     """The pack for one revision from its rows (pure; no I/O)."""
     by_asset: dict[uuid.UUID, list[Citation]] = {}
@@ -244,11 +250,16 @@ def assemble_pack(
         by_stage=by_stage,
         by_component=dict(sorted(by_component.items())),
         by_document=dict(sorted(by_document.items())),
-        summary=summarize(asset_rows, all_entries),
+        summary=summarize(asset_rows, all_entries, intake, revision),
     )
 
 
-def summarize(assets: tuple[AssetEvidence, ...], entries: list[EvidenceEntry]) -> dict[str, Any]:
+def summarize(
+    assets: tuple[AssetEvidence, ...],
+    entries: list[EvidenceEntry],
+    intake: StudyIntake | None = None,
+    revision: int = 1,
+) -> dict[str, Any]:
     totals: dict[str, Decimal] = {}
     counts: dict[str, int] = {}
     for asset in assets:
@@ -285,11 +296,26 @@ def summarize(assets: tuple[AssetEvidence, ...], entries: list[EvidenceEntry]) -
         "by_method": {
             m: sum(a.method == m for a in assets) for m in sorted({a.method for a in assets})
         },
+        "basis": compute_result(
+            (
+                ScheduleRow(
+                    asset_id=a.id,
+                    category=a.category,
+                    bucket=a.bucket,
+                    rcn=None if a.total is None else Decimal(a.total),
+                )
+                for a in assets
+            ),
+            intake,
+            revision,
+        ).model_dump(mode="json"),
     }
 
 
 async def load_pack(session: AsyncSession, study_id: uuid.UUID, revision: int) -> EvidencePack:
-    """Read one revision's assets, takeoffs, costs, citations and cited chunks."""
+    """Read one revision's assets, takeoffs, costs, citations and cited chunks, and the
+    study's intake for the summary's basis."""
+    study = await StudyRepository(session).get(study_id)
     repo = AssetRepository(session)
     assets = await repo.list_for_revision(study_id, revision)
     ids = [a.id for a in assets]
@@ -317,4 +343,5 @@ async def load_pack(session: AsyncSession, study_id: uuid.UUID, revision: int) -
         costs=await repo.cost_estimates(ids),
         citations=citations,
         chunks=chunks,
+        intake=None if study is None else study.intake,
     )

@@ -92,3 +92,36 @@ def test_empty_revision() -> None:
     )
     assert pack.assets == () and pack.entries == ()
     assert pack.summary["total_cost"] == "0" and pack.summary["by_bucket"] == {}
+
+
+def test_summary_carries_the_basis_result() -> None:
+    from datetime import date
+
+    from basis.domain.intake import StudyIntakeIn, with_location
+
+    without = assemble_pack(**rows()).summary["basis"]
+    assert (without["intake"], without["missing"], without["allocation"]) == (
+        False,
+        ["intake"],
+        None,
+    )
+    assert without["schedule"]["rcn_total"] == "16477.00"
+    intake = with_location(
+        StudyIntakeIn.model_validate(
+            {
+                "purchase_price": "100000.00",
+                "land_method": "appraisal_site_value",
+                "appraisal_site_value": "20000.00",
+                "property_use": "nonresidential",
+                "transient_lodging": True,
+                "placed_in_service_date": date(2025, 5, 1),
+            }
+        ),
+        appraisal_state=None,
+        appraisal_zip=None,
+    )
+    with_intake = assemble_pack(**rows(), intake=intake).summary["basis"]
+    assert with_intake["worksheet"]["total_basis"] == "80000.00"
+    assert with_intake["allocation"]["rows_sum"] == "80000.00"
+    assert with_intake["allocation"]["by_bucket"][0]["allocated"] == "80000.00"
+    assert with_intake["revision"] == 1
