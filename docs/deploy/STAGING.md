@@ -225,8 +225,10 @@ already uses an API key with TLS when `TEMPORAL_API_KEY` is set):
 
 One image, `us-central1-docker.pkg.dev/basis-staging-512000/staging-basis/basis-backend:<git sha>`,
 built by CI from `backEnd/Dockerfile` (uv, locked dependencies, non-root user, the commit
-in `GIT_SHA`). The API, worker, relay and jobs run it with different commands, so a
-deploy is one build. Terraform creates the repository `staging-basis` (`registry.tf`)
+in `GIT_SHA`, and the embedding model baked into `/opt/hf` at the revision the code loads:
+the worker warms it from there before it polls and never downloads at start, EVAL_REPORT
+section 39; CI's image job warms it with the network off). The API, worker, relay and jobs
+run it with different commands, so a deploy is one build. Terraform creates the repository `staging-basis` (`registry.tf`)
 and grants the deployer `artifactregistry.writer` on it.
 
 The image is 0.56 GB compressed since PR 60 installs the CPU-only `torch` wheel on Linux

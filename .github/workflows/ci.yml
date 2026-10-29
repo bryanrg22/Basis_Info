@@ -346,17 +346,35 @@ jobs:
         continue-on-error: true
         run: docker run --rm "$IMAGE" python -c "import basis; print(basis.__version__)"
 
+      # The embedding model is baked into the image (Dockerfile; EVAL_REPORT 39): with the
+      # Hub unreachable (HF_HUB_OFFLINE refuses every request; `--network none` wedged
+      # container creation on Docker Desktop, so the proof is the library's offline mode),
+      # the non-root user warms it from the image's cache.
+      - name: Smoke-test image (embedding model baked in, Hub offline)
+        id: model
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          docker run --rm -e HF_HUB_OFFLINE=1 "$IMAGE" python -c "
+          from basis.retrieval.embed import SentenceTransformerEmbedder
+          load = SentenceTransformerEmbedder().warm()
+          print(load)
+          assert load.source == 'cache', load
+          "
+
       - name: Summary
         if: ${{ !cancelled() && steps.dockerfile.outputs.present == 'true' }}
         env:
           BUILD_OUTCOME: ${{ steps.build.outcome }}
           SMOKE_OUTCOME: ${{ steps.smoke.outcome || 'skipped' }}
+          MODEL_OUTCOME: ${{ steps.model.outcome || 'skipped' }}
         run: |
           {
             echo "### Backend image"
             echo ""
             echo "- build: ${BUILD_OUTCOME}"
             echo "- smoke (\`import basis\`): ${SMOKE_OUTCOME}"
+            echo "- embedding model baked in (offline warm-up): ${MODEL_OUTCOME}"
             echo ""
             echo "The image becomes a deploy gate in Stage 5"
           } >> "$GITHUB_STEP_SUMMARY"

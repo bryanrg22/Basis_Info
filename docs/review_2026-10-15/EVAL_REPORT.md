@@ -5527,3 +5527,263 @@ document regenerated (`start` documents 409 and 422; `acquisition_costs` require
 * The RSMeans city cost index by ZIP (35.3); `zip` is stored for it.
 * The per-row `sources` on a fresh export, and the intake-driven year and state against the
   engineer's cost source, wait for the like-for-like live run.
+
+## 38. Two live end-to-end runs: the pipeline alone, then the engineer at every gate (2026-10-29)
+
+The like-for-like run WORKFLOW_REVIEW 2026-10-29 section 6 item 8 asked for, on the local
+stack built from main `9c8f443` (sections 34–37 all in): the client property's appraisal and
+52 photos uploaded through the API, the intake set from the engineer's worksheet, every gate
+driven through `POST /decisions`, the export scored with `evals.e2e_report`. Two runs on the
+same inputs: **run 1** approves every gate untouched (the system alone); **run 2** acts as the
+engineer at each gate, correcting the stage's output against the verified labels with the
+API's own `corrections` (a reject carrying them, then an approve of the next revision). The
+private write-ups with the client's figures are `reports/E2E_LIVE_RUN1_2026-10-29.md` and
+`E2E_LIVE_RUN2_2026-10-29.md` under `BASIS_EVAL_DATA_DIR`; the drivers are private too
+(`work/live_e2e/`: they carry the intake). Worker configuration: photo analysis gpt-6.1-sol
+decomposed with gpt-6-luna surfaces, count fusion claude-opus-5-5, room step gpt-6-luna with
+claude-sonnet-5-5 materials, extraction grounded on gpt-6.1-sol, classifier claude-sonnet-5-5,
+RSMeans 2020 table, SAM 3 on Replicate; providers openai+anthropic (the stale Azure OpenAI
+keys in the checkout's `.env` had to be blanked: with them set, Azure is the primary for every
+gpt model).
+
+### 38.1 What the engineer step posted (run 2)
+
+| gate | corrections | verified after |
+|---|---|---|
+| appraisal_review | 3 `extraction_field` (2 wrong values, 1 spurious cleared) | 0 of 126 present truth fields wrong; 5 truth fields have no row and **cannot be added** |
+| rooms_review | 18 `room`: 16 merges (the labels' aliases) + 2 `room_type` | 33 rooms = the labels' 33 |
+| components_review | 81: 53 `component` count fixes + 28 `room_component` additions | 1 remaining; **53 extra rows cannot be removed** (no such correction; counts are ≥ 1) |
+| assets_review | approve only | |
+
+### 38.2 Timeline and spend
+
+| | run 1 | run 2 |
+|---|---|---|
+| wall clock | 29.6 min, of which **19 min lost to defect A** (below); 10.5 min of work | 11.0 min |
+| extraction (Azure DI + one Sol call) | 84 s | 2 × ~90 s (the appraisal reject re-ran the model call) |
+| photo localization + analysis, 52 photos (parallel with extraction) | ~5 min | 4.7 min |
+| room step | 25 s | 64 s |
+| classification + takeoff + cost | 296 s (486 Sonnet calls, 382 assets) | 217 s (386 calls, 310 assets) |
+| each gate (reject → next revision's gate) | | 10 s (rooms, components), 3 min (appraisal) |
+| spend (llm_calls + Replicate) | $7.67 | $6.63 |
+| of which classifier / Opus count fusion / Sol photos / extraction / room step / SAM 3 | 5.41 / 1.47 / 0.51 / 0.08 / 0.14 / 0.04 | 4.29 / 1.48 / 0.51 / 0.15 / 0.15 / 0.04 |
+
+Order observed: extraction and the photo stage start together at `start`; the appraisal
+gate opens when extraction ends; the rooms gate shows the per-photo grouping before any room
+step call (the step runs after the grouping is approved); the components gate 25–64 s later;
+classification after the components approval; export in seconds. The ledger (`llm_calls`)
+recorded every call with tokens and cost (724 and 528 rows, no nulls); `classification_cache`
+was empty in both runs.
+
+### 38.3 Scores (evals.e2e_report, data-free)
+
+| metric | old export 10-19 | run 1 | run 2 |
+|---|---|---|---|
+| assets / priced | 376 / 249 | 382 / 291 | 310 / 244 |
+| evidenced rows (of 38 photo-visible) | 35 | 35 | 36 |
+| bucket right by count (of evidenced) | 24 | 24 | 24 |
+| wrong-bucket rows | 11 | the same 11 | the same 11 + 1 |
+| mean / max row share error (pts) | 2.47 / 12.66 | 2.08 / 12.66 | 2.00 / 12.66 |
+| total variation distance, rows (pts) | 56.9 | 47.8 | 46.1 |
+| bucket share error y5 / y7 / y15 / y39 (pts) | 30.7 / 5.5 / 4.2 / 32.0 | 23.0 / 2.1 / 6.9 / 32.0 | 23.7 / 2.0 / 6.1 / 31.8 |
+| pipeline bucket shares y5 / y7 / y15 / y39 (%) | 45.1 / 5.9 / 0.8 / 48.2 | 37.4 / 2.5 / 11.9 / 48.2 | 38.0 / 2.4 / 11.2 / 48.5 |
+| quantity sources (gla / basement / garage / appraisal-derived / 150 sf default) | – | 236 / 47 / 8 / 34 / 57 | 226 / 44 / 8 / 7 / 25 |
+| basis allocation uniform factor | – | 2.44 (step-up: error, as designed) | 2.35 |
+
+Reading. (1) Sections 35–37 moved the pricing, not the classification: against the October
+export, 42 more assets priced, the row-share distance 57 → 48 points, y5 and y7 shares toward
+the engineer's, y15 overshooting; the vision and classification outcome is the same (same
+rows evidenced, same 24 right, the same 11 wrong, which are rule conventions). (2) The
+engineer's corrections fix the inventory, not the finding: merging 49 rooms into 33 and
+bringing the counts to the labels' removed 72 assets (windows 29 → 19, siding 12 → 2, roof
+9 → 2) and moved the row distance by 1.7 points; no row changed bucket, and y39 stayed at 48
+against the engineer's share. (3) The remaining gap is in three places the gates do not
+reach: the 11 classification conventions (a sixth of the engineer's dollars; the engineer's
+rulings, WORKFLOW_REVIEW item 7), the concealed building systems (two fifths; nothing produces
+them, so the basis step must scale the schedule up 2.3–2.4×, and its `uniform_factor` check
+reports the error), and the site items that need a measurement (driveway, sidewalks, fence,
+retaining wall: evidenced in both runs, priced in neither). (4) Quantities from the appraisal
+hold: roof, siding and gutters land within 0.3–1.8 share points of the engineer's in both runs.
+
+### 38.4 Defects and gaps found by running it
+
+- **Defect A (blocking on a fresh worker).** `ingest_appraisal` embeds the appraisal with
+  sentence-transformers all-MiniLM-L6-v2; a worker that has never loaded the model downloads
+  it (88 MB) inside the first `embed` call with no heartbeat, longer than the activity's 30 s
+  heartbeat; three attempts fail, the stage fails and the study waits for `POST /retry`. The
+  photo stage pauses meanwhile. The previous container only worked because it had cached the
+  model days earlier. Fix in flight: warm the embedder at worker start, heartbeat before the
+  first batch, bake the model into the image.
+- A truth field with no extracted row cannot be added at the appraisal review (5 of 126).
+- No correction removes an inventory row at the components review.
+- Rejecting the appraisal review re-runs the model extraction on the same PDF instead of
+  applying the corrections to the stored answer.
+- The rooms gate proposes nothing: 49 rooms for 52 photos, one per filename stem; the
+  aliases and the appraisal's room count are not consulted, so 16 merges are made by hand.
+- 486 classifier calls for 382 assets with an empty `classification_cache`: 71 % of the spend.
+- The stale Azure OpenAI variables in `backEnd/.env` make Azure the primary for gpt models on
+  any stack that loads that file.
+- The ledger stores tokens, cost, latency, model and prompt version per call but not the
+  rendered prompt, the response, the cache/reasoning token split, the entity a call was
+  about, Azure DI page cost or a per-study rollup (a build is in flight).
+
+### 38.5 What this settles and what is next
+
+The workflow runs end to end on today's defaults in about 11 minutes and $7 per study, with
+every step accounted for in the ledger, and the engineer's output format (the allocation by
+bucket) is produced from the two inputs plus the intake. Between the system alone and the
+engineer at every gate there is almost no difference in the finding; the difference the
+engineer makes is in the inventory. The next moves, in order of effect on the finding: the
+engineer's rulings on the 11 conventions (deterministic, no model spend); a cost model or
+cost-approach carve-out for the concealed systems; measurements for the site items; then the
+second property.
+
+## 39. A fresh worker ingests its first appraisal: the embedding model is loaded before polling (2026-10-29)
+
+In the live end-to-end run of 2026-10-29 (section 34's follow-up) a worker on a freshly
+built container (main `9c8f443`) failed `ingest_appraisal` three times with
+`activity Heartbeat timeout`. The first `embed` of the process downloaded and loaded
+`sentence-transformers/all-MiniLM-L6-v2` inside the activity's first batch
+(`asyncio.to_thread`), nothing heartbeat until that batch returned, and the activity's
+heartbeat timeout is 30 s (`activity_options.py`). The stage failed, the study parked at
+`failed_stage: extracting` until a manual `POST /v1/studies/{id}/retry`, the photo stage
+paused with it, and 19 minutes were lost; the retry passed in 2 s because the model was
+cached by then. The container the previous runs used had cached the model days earlier,
+which is why nothing had shown this. No model calls; no client dollar appears here.
+
+### 39.1 Reproduction
+
+`SentenceTransformerEmbedder().embed(64 texts)` on main's code, timed on this machine
+(M-series, home network) with `HF_HOME` pointed at an empty directory, then again on the
+same directory:
+
+| Cache state | First `embed` | Second `embed` |
+|---|---|---|
+| empty (download 90.9 MB `model.safetensors` + tokenizer, then load) | **186.8 s** | 0.01 s |
+| same run repeated later the same afternoon (download fallback, 39.4) | **298.5 s** | 0.03 s |
+| warm (files present, Hub reachable: one HEAD per file) | 7.8 s | 0.01 s |
+| warm, `HF_HUB_OFFLINE=1` | 6.7 s | 0.01 s |
+
+So a cold cache is six to ten times the heartbeat window, and even a warm load is a quarter
+of it on a fast laptop; a throttled Cloud Run vCPU would not have much margin either. In a
+fresh container of main's image (`basis-backend:before`, built from `main:backEnd`) the first
+`embed` with the Hub unreachable raises transformers' `OSError: couldn't connect ... and
+couldn't find them in the cached files`; with the network on it is the download above
+(39.4).
+
+### 39.2 The standard
+
+Hugging Face's own guidance for deployed code is to populate the cache ahead of time and
+read it without the Hub: `HF_HOME` sets where the cache lives, `HF_HUB_OFFLINE` makes the
+library "make no HTTP calls to the Hugging Face Hub" and read only cached files, and the
+documentation notes that "even if the latest version of a file is cached, calling
+`hf_hub_download` still triggers a HTTP request to check that a new version is not
+available" (the 1.1 s between the warm rows above). `SentenceTransformer` takes `revision`
+and `local_files_only` for the same purpose per model. Temporal's guidance for a long or
+blocking activity is to heartbeat from the activity on a timer independent of the blocking
+work, so that the heartbeat timeout detects a dead worker and not a slow step. Both are
+applied below; neither replaces the other.
+
+### 39.3 What changed
+
+Three layers, each enough on its own for the failure above, in the order a request meets
+them:
+
+1. **The image bakes the model** (`backEnd/Dockerfile`). After the dependency layer and
+   before the code is copied (so a code change does not re-download it), the build loads
+   the model the way the worker does, at a pinned revision, into `HF_HOME=/opt/hf`, owned by
+   the non-root user: 88 MB, `basis-backend` 519 → 603 MB. The model name and revision are
+   two `ARG`s; `tests/unit/retrieval/test_embed.py` fails when they drift from the code's
+   `DEFAULT_MODEL` / `DEFAULT_MODEL_REVISION`. CI's image job gained a second smoke step
+   that warms the model inside the built image with `HF_HUB_OFFLINE=1`.
+2. **The worker loads the model before it polls** (`basis.worker.main.warm_embedder`, next
+   to the BM25 warm-up, before `build_worker`). The log line says where the weights came
+   from and how long it took: `embedding model warm: sentence-transformers/all-MiniLM-L6-v2
+   from cache in 4.8 s` (with `source`, `seconds` and the revision as fields). A model that
+   cannot be loaded stops the worker with a CRITICAL line (`/health` stays `starting`, the
+   startup probe fails): a worker without the model would fail every study at ingestion,
+   and a worker that is not polling is visible where a parked study is not. The hash
+   embedder (dev, test) logs `needs no warm-up`.
+3. **The embedding loop heartbeats on its own** (`basis.retrieval.ingest._embed`):
+   `progress` (the ingest activity's heartbeat) is called before the first batch, so the
+   first `embed` of a process is preceded by a heartbeat whatever it loads, after every
+   batch as before, and every `EMBED_PROGRESS_S = 5 s` while a batch runs on its thread
+   (three reports per 30 s window; no finer than the worker's 5 s send throttle). Against a
+   real Temporal dev server with a 1 s heartbeat timeout, an embedder that blocks 2.5 s per
+   batch completes on its first attempt with the reports and fails with a `HEARTBEAT`
+   timeout without them (`tests/integration/retrieval/test_embed_heartbeat.py`).
+
+Underneath, `basis.retrieval.embed` pins the default model to Hub commit
+`1110a243fdf4706b3f48f1d95db1a4f5529b4d41` (`ModelSpec.revision`; the corpus embeddings
+must come from exactly the weights that embed the queries, and the corpus was embedded by
+this revision) and loads it cache-first: `SentenceTransformer(name, revision=pin,
+local_files_only=True)`, no request to the Hub; when that raises transformers' `OSError`
+(the revision is not cached) it downloads the pin with a warning naming the Dockerfile. The
+download therefore stays as the fallback the task asked for, and a cached worker needs no
+egress to the Hub at all. `Embedder.warm()` is on the protocol; `model_is_cached` takes the
+revision (the real-model tests skip on it as before).
+
+**Visible and recoverable without an operator.** `GET /v1/studies/{id}/workflow` already
+reported `status.failed_stage` and `status.failure` (section 27); `docs/api/WORKFLOW.md`
+now documents the route, the retry (`POST /v1/studies/{id}/retry`: 202 with the stage that
+runs again, 409 `study-not-failed` / `workflow-closed` / `study-archived`), a client's poll
+loop, and the note that the photo stage schedules nothing more while a stage waits for a
+retry and resumes with it (the rows already written are reused).
+
+### 39.4 Verification
+
+| Measurement | Before (main `9c8f443`, `basis-backend:before`) | After (this branch, `basis-backend:warm`) |
+|---|---|---|
+| fresh container, Hub unreachable, first embed | `OSError` (no cache in the image) | `warm()` **2.9 s from cache**, as user `basis`, `HF_HUB_OFFLINE=1` and the endpoint a dead port; the 64-text embed after it 0.10 s |
+| fresh container, network on, first embed | **137.7 s** (download + load, inside the activity) | 0.10 s after the warm-up (the load happened before polling) |
+| worker start (container, Temporal dev server on the host, no database) | model loaded by the first study's `ingest_appraisal` | `embedding model warm ... from cache in 4.8 s` → `worker started` → `/health` `ok`; SIGTERM drains and stops in 2 s |
+| host, cache warm, Hub endpoint a dead port | 7.8 s with a HEAD per file (fails if the Hub is unreachable) | 6.7 s, `source=cache`, no request made |
+| host, cache empty (the fallback) | 186.8 s / 298.5 s | 298.5 s with the warning, `source=download` |
+| image content size | 519 MB | 603 MB (+88 MB cache) |
+
+Tests (all run here; the full suite's count is in the PR):
+
+| File | Adds |
+|---|---|
+| `tests/unit/retrieval/test_ingest_embed.py` (new, 6) | a report before the first batch, after each batch, every `every` s during one; nothing for nothing; a short count; cancellation stops the ticks; the interval fits the timeout and the throttle |
+| `tests/integration/retrieval/test_embed_heartbeat.py` (new, 3) | real dev server, 1 s heartbeat timeout, 2.5 s batches: first attempt with the reports, `HEARTBEAT` timeout without |
+| `tests/unit/retrieval/test_embed.py` (+5) | the pin and `local_files_only` load, the download fallback with its warning, `warm` once per process, `model_is_cached` at the pin, the Dockerfile's ARGs equal the code's pin (a stand-in `sentence_transformers` module: no torch) |
+| `tests/unit/worker/test_worker_parts.py` (+5) | `warm_embedder` logs source and duration off the event loop; the hash embedder's no-op; CRITICAL and re-raise; `run_worker` warms before `build_worker` and polls only after; refuses to start without the model |
+| `tests/integration/retrieval/test_real_embedder.py` (+1, regression) | the real cached model warms with `HF_HUB_OFFLINE=1`, `source=cache` at the pin, within 30 s; the first embed after it is faster than the warm-up |
+
+The CI skip for the real model (not cached → skip, never a download in tests) is unchanged.
+
+### 39.5 Decisions a reviewer may ask about
+
+* **Refuse to start, not degrade.** The BM25 warm-up degrades (the index is built on first
+  use) because a failure there costs seconds on the first classification. A missing
+  embedding model costs every study its first stage; the codebase's rule for that class is
+  fail at startup (`check_models_served`, the cost table, the prompt manifest). With the
+  model baked in, the only way to hit it is an image built without the bake or a changed
+  `HF_HOME`, which should stop a deploy.
+* **The pin lives in code and the Dockerfile, with a test keeping them equal**, rather than
+  the Dockerfile importing the code (that would put the 88 MB layer after the code layer and
+  re-download on every build) or the code reading the Dockerfile.
+* **`local_files_only` per load rather than `HF_HUB_OFFLINE=1` in the image**: the
+  environment variable would also forbid the fallback download the task keeps; the
+  argument gives the cached path no network and the uncached path a download.
+* **A 5 s ticker rather than a per-batch heartbeat alone.** A per-batch heartbeat does not
+  cover the batch that loads the model, nor a batch waiting behind nine other studies on the
+  encode lock (section 32.4 ran ten at once); the ticker covers both and costs one
+  `asyncio.wait` per 5 s.
+* **CI proves the bake with `HF_HUB_OFFLINE=1`, not `--network none`**: on this Docker
+  Desktop `--network none` wedged container creation twice (containers stuck in `Created`);
+  the library's offline mode is the documented switch and portable.
+
+### 39.6 Left open
+
+* The API serves from the same image and never embeds (the worker's `process_assets` embeds
+  the evidence queries), so it pays nothing for the layer; the ingest job
+  (`python -m basis.retrieval.ingest`) gains the same no-download start.
+* Local `docker compose` images need a rebuild to pick up the layer; until then those workers
+  take the warned download path once per container, then run from the cache.
+* The CI image job is still `continue-on-error` (Stage 5 makes it a gate); the new smoke
+  step reports in its summary like the first.
+* Updating the model revision is a deliberate change: the pin, the Dockerfile ARG, and a
+  re-ingest of every corpus the queries must match (`corpus_versions.embedding_model`
+  records the model name, not the revision; recording the revision there is a follow-up).

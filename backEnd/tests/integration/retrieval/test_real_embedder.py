@@ -24,7 +24,13 @@ import pytest
 from dbtest_support import BACKEND_ROOT
 from fixtures import load_fixture_json
 
-from basis.retrieval.embed import DEFAULT_MODEL, EMBEDDING_DIM, model_is_cached
+from basis.retrieval.embed import (
+    DEFAULT_MODEL,
+    DEFAULT_MODEL_REVISION,
+    EMBEDDING_DIM,
+    model_is_cached,
+)
+from basis.workflow.activity_options import options_for
 
 pytestmark = [
     pytest.mark.integration,
@@ -93,3 +99,40 @@ def test_paraphrases_are_closer_than_unrelated_text(run: dict[str, Any]) -> None
 
 def test_model_is_loaded_once_per_process(run: dict[str, Any]) -> None:
     assert run["loaded"] == [0, 1, 1]
+
+
+WARM_CHILD = """
+import json, time
+from basis.retrieval.embed import SentenceTransformerEmbedder
+embedder = SentenceTransformerEmbedder()
+load = embedder.warm()
+t = time.perf_counter()
+embedder.embed(["first embed after the warm-up"] * 64)
+print(json.dumps({"source": load.source, "revision": load.revision, "warm_s": load.seconds,
+                  "embed_s": time.perf_counter() - t}))
+"""
+
+
+@pytest.mark.regression
+def test_a_cached_model_warms_from_the_cache_within_the_heartbeat_timeout() -> None:
+    """EVAL_REPORT 39: on a fresh worker the first ``embed`` loaded the model inside the
+    ingest activity (187 s on a cold cache) and the activity's 30 s heartbeat timeout
+    failed the stage. The worker now warms the model before polling, from the cache and
+    without a network call (``HF_HUB_OFFLINE=1`` here proves none is made); the load must
+    fit the heartbeat window even where a worker still loads lazily."""
+    result = subprocess.run(
+        [sys.executable, "-c", WARM_CHILD],
+        cwd=BACKEND_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+        env={**os.environ, "HF_HUB_OFFLINE": "1"},
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    out = json.loads(result.stdout.strip().splitlines()[-1])
+    heartbeat = options_for("ingest_appraisal").heartbeat
+    assert heartbeat is not None
+    assert out["source"] == "cache" and out["revision"] == DEFAULT_MODEL_REVISION
+    assert out["warm_s"] < heartbeat.total_seconds(), out
+    assert out["embed_s"] < out["warm_s"]  # the warm-up paid the load, not the first embed

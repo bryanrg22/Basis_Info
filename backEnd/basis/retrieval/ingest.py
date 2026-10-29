@@ -34,7 +34,7 @@ import logging
 import sys
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
@@ -60,6 +60,12 @@ from basis.retrieval.types import CorpusName
 logger = logging.getLogger("basis.retrieval.ingest")
 
 EMBED_BATCH: Final = 64
+# While a batch is being embedded, ``progress`` is called this often (the ingest activity
+# heartbeats on it). The activity's heartbeat timeout is 30 s and the worker caps the SDK's
+# send interval at 5 s (``basis.worker.main.MAX_HEARTBEAT_THROTTLE``), so 5 s keeps a
+# heartbeat flowing through a model load or a slow batch (EVAL_REPORT section 39: the
+# first batch on a fresh worker loaded the model, 187 s on a cold cache, 7 s warm).
+EMBED_PROGRESS_S: Final = 5.0
 
 Progress = Callable[[str], None]
 
@@ -331,15 +337,50 @@ async def ingest_pdf(
     )
 
 
-async def _embed(embedder: Embedder, texts: list[str], progress: Progress) -> list[list[float]]:
+async def _embed(
+    embedder: Embedder,
+    texts: list[str],
+    progress: Progress,
+    *,
+    every: float = EMBED_PROGRESS_S,
+) -> list[list[float]]:
+    """Embed ``texts`` in batches of ``EMBED_BATCH`` on a worker thread, reporting progress
+    before the first batch (the first ``embed`` of a process may load the model), after
+    each batch, and every ``every`` seconds while a batch runs."""
     vectors: list[list[float]] = []
-    for start in range(0, len(texts), EMBED_BATCH):
+    total = len(texts)
+    if total:
+        progress(f"embedding 0/{total}")
+    for start in range(0, total, EMBED_BATCH):
         batch = texts[start : start + EMBED_BATCH]
-        vectors.extend(await asyncio.to_thread(embedder.embed, batch))
-        progress(f"embedded {min(start + EMBED_BATCH, len(texts))}/{len(texts)}")
-    if len(vectors) != len(texts):
+        vectors.extend(
+            await _reporting(
+                asyncio.to_thread(embedder.embed, batch),
+                progress,
+                f"embedding {start}/{total}",
+                every,
+            )
+        )
+        progress(f"embedded {min(start + EMBED_BATCH, total)}/{total}")
+    if len(vectors) != total:
         raise RuntimeError("embedder returned a different number of vectors than texts")
     return vectors
+
+
+async def _reporting[T](work: Awaitable[T], progress: Progress, message: str, every: float) -> T:
+    """Await ``work``, calling ``progress(message)`` every ``every`` seconds until it is
+    done. The work itself is not interrupted (a thread cannot be); a cancellation of the
+    caller stops the reports and propagates."""
+    task = asyncio.ensure_future(work)
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=every)
+            if done:
+                return task.result()
+            progress(message)
+    finally:
+        if not task.done():
+            task.cancel()
 
 
 def _new_chunk(draft: ChunkDraft, vector: list[float], table_ids: dict[str, uuid.UUID]) -> NewChunk:
