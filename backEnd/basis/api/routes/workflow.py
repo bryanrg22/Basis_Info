@@ -1,9 +1,13 @@
 """The study's Temporal workflow: start, status, cancel (S2_SPEC section 7).
 
-* ``POST /v1/studies/{id}/start`` (engineer). Needs at least one appraisal document whose
-  upload is confirmed. In one short transaction the study moves ``uploading ->
-  extracting`` and records ``workflow_id = study-{id}``; after that transaction commits,
-  and with no transaction open, the workflow is started with conflict policy
+* ``POST /v1/studies/{id}/start`` (engineer). Needs the study's intake with the fields the
+  output cannot be produced without (:func:`basis.domain.intake.missing_for_start`: the
+  contract price, the closing costs, the land source, the use, the placed-in-service date
+  and the state; docs/api/STUDY_RESULT.md), else 422 ``intake-required`` with one
+  ``errors`` entry per missing field, and at least one appraisal document whose upload is
+  confirmed, else 409 ``appraisal-required``. In one short transaction the study moves
+  ``uploading -> extracting`` and records ``workflow_id = study-{id}``; after that
+  transaction commits, and with no transaction open, the workflow is started with conflict policy
   ``USE_EXISTING`` and reuse policy ``REJECT_DUPLICATE``. The answer is 202
   ``{workflow_id, run_id}``, and the same 202 on every repeat, with or without the same
   ``Idempotency-Key``, because Temporal returns the existing execution. Once the study
@@ -43,7 +47,7 @@ from typing import Annotated, Final
 
 from fastapi import Depends, Request, status
 
-from basis.api.errors import Conflict, NotFound, ServiceUnavailable
+from basis.api.errors import Conflict, FieldError, NotFound, ServiceUnavailable, Unprocessable
 from basis.api.routes.common import problems, read_router, write_router
 from basis.api.schemas.workflow import (
     CancelIn,
@@ -60,6 +64,7 @@ from basis.db.enums import DocumentKind, OrgRole, Stage, StudyStatus
 from basis.db.models import Study
 from basis.db.repositories import DocumentRepository, StudyRepository
 from basis.db.session import session_scope
+from basis.domain.intake import missing_for_start
 from basis.temporal.names import study_workflow_id
 from basis.temporal.service import (
     RetryRefusedError,
@@ -127,6 +132,31 @@ def ensure_not_archived(study: Study) -> None:
         raise Conflict("The study is archived.", type_suffix="study-archived")
 
 
+def ensure_intake_complete(study: Study) -> None:
+    """422 ``intake-required`` naming every field the start needs and lacks (one
+    ``errors`` entry each, ``loc`` ``["intake", <field>]``); nothing when the intake is
+    complete. The appraisal cannot supply them: its fields are read only after the start."""
+    missing = missing_for_start(study.intake)
+    if not missing:
+        return
+    names = ", ".join(m.field for m in missing)
+    if study.intake is None:
+        detail = (
+            "The study has no intake. Set it with PUT /v1/studies/{id}/intake before "
+            f"starting; a start needs {names} (docs/api/STUDY_RESULT.md)."
+        )
+    else:
+        detail = (
+            f"The study's intake lacks {len(missing)} field(s) a start needs: {names}. "
+            "Replace it with PUT /v1/studies/{id}/intake (docs/api/STUDY_RESULT.md)."
+        )
+    raise Unprocessable(
+        detail,
+        type_suffix="intake-required",
+        errors=[FieldError(loc=["intake", m.field], detail=m.why, type="missing") for m in missing],
+    )
+
+
 def workflow_input(study: Study, settings: Settings) -> StudyWorkflowInput:
     return StudyWorkflowInput(
         study_id=str(study.id),
@@ -146,7 +176,10 @@ def workflow_input(study: Study, settings: Settings) -> StudyWorkflowInput:
     "/studies/{study_id}/start",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Start the study's workflow (idempotent)",
-    responses=problems(403, 404),
+    description="Needs the study's intake with every field the output requires (422 "
+    '`intake-required`, one `errors` entry per missing field: `loc` `["intake", <field>]`) '
+    "and one confirmed appraisal upload (409 `appraisal-required`); docs/api/STUDY_RESULT.md.",
+    responses=problems(403, 404, 409, 422),
 )
 async def start_study(
     study_id: StudyIdPath,
@@ -161,6 +194,10 @@ async def start_study(
         study = (await require_study_access(session, user, study_id, START_ROLE)).study
         ensure_not_archived(study)
         if study.workflow_id is None:
+            # The intake first: it is known at creation (POST /studies takes it), the
+            # appraisal upload comes after; and it is the check a client without an
+            # intake step would otherwise never see.
+            ensure_intake_complete(study)
             has_appraisal = await DocumentRepository(session).has_uploaded(
                 study.id, DocumentKind.APPRAISAL
             )

@@ -36,6 +36,13 @@ would print today. With the engineer's printed replacement-cost total the tail i
 against the engineer's own numbers (rows, buckets, percentages, allocation block, systems
 page) to the cent.
 
+Where each quantity came from (EVAL_REPORT sections 35 and 37): every asset's
+``takeoff_inputs`` name the source of its area or quantity (``gla_share``,
+``appraisal_derived``, ``typical_for_room_type``, ...), tallied per row as ``sources``; an
+export written since section 37 also carries ``summary.takeoff`` (the cost year and
+location factor with their sources, the property class with its source), printed under
+"Takeoff inputs". Neither changes a score: they say what the numbers rest on.
+
 Usage (from ``backEnd/``)::
 
     python -m evals.e2e_report --export PATH/rev-3.json --out REPORT.md [--json OUT.json] \\
@@ -122,6 +129,14 @@ class ExportAsset(BaseModel):
         return self.total is not None
 
     @property
+    def source(self) -> str:
+        """Where the quantity came from: the takeoff's ``quantity_source`` (a property-level
+        quantity derived from the appraisal), else its ``room_area_source`` (the room's
+        area: a GLA share, a typical area, ...), else ``none`` (no takeoff inputs)."""
+        inputs = self.takeoff_inputs if isinstance(self.takeoff_inputs, dict) else {}
+        return str(inputs.get("quantity_source") or inputs.get("room_area_source") or "none")
+
+    @property
     def unpriced_reason(self) -> str:
         """The first review reason (the cost step writes its code first), or ``unpriced``."""
         first = (self.review_reason or "").split(";")[0].strip()
@@ -135,6 +150,8 @@ class StudyExport(BaseModel):
     revision: int
     property_name: str | None = None
     assets: list[ExportAsset]
+    # ``summary.takeoff`` of an export written since EVAL_REPORT section 37; None before.
+    takeoff: dict[str, Any] | None = None
 
     @property
     def total_priced(self) -> Decimal:
@@ -190,7 +207,13 @@ def load_export(path: Path) -> StudyExport:
         revision=int(document["revision"]),
         property_name=document.get("property_name"),
         assets=[_asset_from_json(a) for a in document["assets"]],
+        takeoff=_takeoff_block(document.get("summary")),
     )
+
+
+def _takeoff_block(summary: Any) -> dict[str, Any] | None:
+    block = summary.get("takeoff") if isinstance(summary, dict) else None
+    return block if isinstance(block, dict) else None
 
 
 # ------------------------------------------------------------------ the row assignment
@@ -576,6 +599,11 @@ class RowScore:
         return dict(Counter(a.label or "other" for a in self.assets))
 
     @property
+    def sources(self) -> dict[str, int]:
+        """The assigned assets by where their quantity came from (:attr:`ExportAsset.source`)."""
+        return dict(sorted(Counter(a.source for a in self.assets).items()))
+
+    @property
     def bucket_right_by_count(self) -> bool | None:
         if not self.scored:
             return None
@@ -819,6 +847,7 @@ def summarize(
             "priced": sum(a.priced for a in export.assets),
             "unpriced": sum(not a.priced for a in export.assets),
             "building_bucket_compared_as": report.building_bucket,
+            **({"takeoff": export.takeoff} if export.takeoff is not None else {}),
         },
         "assignment": {
             "assigned": len(assignment.assigned),
@@ -1075,12 +1104,15 @@ def _row_lines(result: E2EScore, data_free: bool) -> list[str]:
         "| assets (priced / unpriced)"
     )
     if data_free:
-        lines = [head + " | pipeline share | share error | labels |", "|---" * 11 + "|"]
+        lines = [
+            head + " | pipeline share | share error | labels | sources |",
+            "|---" * 12 + "|",
+        ]
     else:
         lines = [
             head + " | engineer $ | pipeline $ | ratio | engineer share | pipeline share "
-            "| share error | labels | tally |",
-            "|---" * 16 + "|",
+            "| share error | labels | tally | sources |",
+            "|---" * 17 + "|",
         ]
     for r in result.rows:
         right = (
@@ -1092,16 +1124,50 @@ def _row_lines(result: E2EScore, data_free: bool) -> list[str]:
             f"{r.bucket_by_count or '-'} | {r.bucket_by_dollars or '-'} | {right} | "
             f"{len(r.assets)} ({r.priced} / {r.unpriced}{reasons}) |"
         )
+        sources = r.sources or ""
         if data_free:
             lines.append(
-                f"{common} {_p(r.pipeline_share)} | {_p(r.share_error)} | {r.labels or ''} |"
+                f"{common} {_p(r.pipeline_share)} | {_p(r.share_error)} | {r.labels or ''} | "
+                f"{sources} |"
             )
         else:
             lines.append(
                 f"{common} {_f(r.engineer.cost)} | {_f(r.pipeline_cost)} | {_f(r.cost_ratio)} | "
                 f"{_p(r.engineer_share)} | {_p(r.pipeline_share)} | {_p(r.share_error)} | "
-                f"{r.labels or ''} | {r.tally_count or ''} |"
+                f"{r.labels or ''} | {r.tally_count or ''} | {sources} |"
             )
+    return lines
+
+
+def _takeoff_lines(export: StudyExport) -> list[str]:
+    """What the export's quantities and prices were drawn from (``summary.takeoff``), and
+    the per-asset tally of quantity sources, which every export carries."""
+    tally = dict(sorted(Counter(a.source for a in export.assets).items()))
+    lines = ["| input | value |", "|---|---|", _kv("quantity sources (assets)", tally)]
+    block = export.takeoff
+    if block is None:
+        lines.append(
+            _kv(
+                "cost index",
+                "not recorded in this export (written before EVAL_REPORT section 37); the "
+                "cost rows' `cost_source` text names the year and location factor used",
+            )
+        )
+        return lines
+    year, factor = block.get("cost_year"), block.get("location_factor")
+    lines += [
+        _kv("cost year", f"{year} ({block.get('cost_year_source') or 'source not recorded'})"),
+        _kv(
+            "location factor",
+            f"{factor} ({block.get('location_source') or 'source not recorded'})",
+        ),
+        _kv(
+            "property class",
+            f"{block.get('property_class') or '-'} "
+            f"({block.get('property_class_source') or 'source not recorded'})",
+        ),
+        _kv("site items awaiting a measurement", block.get("needs_measurement", 0)),
+    ]
     return lines
 
 
@@ -1145,6 +1211,10 @@ def render_markdown(result: E2EScore, *, data_free: bool = False) -> str:
         "## Summary",
         "",
         *_summary_lines(result, data_free),
+        "",
+        "## Takeoff inputs",
+        "",
+        *_takeoff_lines(result.export),
         "",
         "## Buckets",
         "",
@@ -1230,6 +1300,7 @@ def to_json(result: E2EScore) -> dict[str, Any]:
                 "unpriced": r.unpriced,
                 "unpriced_reasons": r.unpriced_reasons,
                 "labels": r.labels,
+                "sources": r.sources,
                 "tally_count": r.tally_count,
                 "tally_dollars": {k: str(v) for k, v in r.tally_dollars.items()},
                 "engineer_cost": dec(r.engineer.cost),

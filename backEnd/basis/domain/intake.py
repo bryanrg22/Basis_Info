@@ -7,11 +7,16 @@ takeoff and the allocation read: ``study.intake.placed_in_service_date``, ``.sta
 ``.purchase_price`` and so on. The rules here are the ones a client can be told about in a 422
 (a non-capitalizable cost category, a land method without its input, a use that fails the 80 %
 test); the arithmetic and its checks are :mod:`basis.domain.basis`.
+
+:func:`missing_for_start` is the gate ``POST /v1/studies/{id}/start`` applies: the fields the
+output cannot be produced without (WORKFLOW_REVIEW 2026-10-29 section 5; EVAL_REPORT section
+36), as a structured list the route returns in a 422.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Final, Literal
@@ -123,10 +128,11 @@ class StudyIntakeIn(BaseModel):
         "price corroborates it)."
     )
     acquisition_costs: list[AcquisitionCostIn] = Field(
-        default_factory=list,
         max_length=MAX_ACQUISITION_COSTS,
         description="Capitalized acquisition costs from the closing statement, by category; "
-        "allocated pro rata over every class (ATG ch. 4 C.11).",
+        "allocated pro rata over every class (ATG ch. 4 C.11). Required: send an empty list "
+        "when the closing statement has no capitalizable line, so that `CC = 0` is a statement "
+        "and not an omission.",
     )
     land_method: LandMethod = Field(
         description="Where the land figure comes from, in order of preference: "
@@ -304,13 +310,77 @@ def with_location(
     return StudyIntake.model_validate(data)
 
 
+# ------------------------------------------------------------------ required before start
+
+
+@dataclass(frozen=True, slots=True)
+class MissingField:
+    """One intake field a study cannot start without: its name and what needs it."""
+
+    field: str
+    why: str
+
+
+# What the output requires that no document carries (WORKFLOW_REVIEW section 5: contract
+# price, land, closing costs, use, placed-in-service date, location). The document's own
+# rules (``StudyIntakeIn``) already make the first five present on any stored intake, so on
+# a stored intake only the location can be missing; with no intake at all, every one is.
+START_REQUIRED: Final[tuple[MissingField, ...]] = (
+    MissingField(
+        "purchase_price", "the contract price: the basis starts from it (B = price − land)"
+    ),
+    MissingField(
+        "acquisition_costs",
+        "the capitalized closing costs, CC (an empty list when the closing statement has none)",
+    ),
+    MissingField(
+        "land_method",
+        "where the land figure comes from, with its value (appraisal_site_value, "
+        "land_appraisal_value, or flat_land_percentage with flat_land_source): land is taken "
+        "out of the price first (ATG p.37)",
+    ),
+    MissingField(
+        "property_use",
+        "27.5 or 39 years for the building (§168(c)) and the classification rules' property class",
+    ),
+    MissingField(
+        "placed_in_service_date",
+        "depreciation starts here (Reg. 1.167(a)-11(e)); the takeoff's cost year follows it",
+    ),
+    MissingField(
+        "state",
+        "the location cost index is by state; the appraisal's subject.state is read only after "
+        "the study starts, so the intake must carry it (zip is recorded for the city index)",
+    ),
+)
+
+
+def missing_for_start(intake: StudyIntake | None) -> list[MissingField]:
+    """The required fields ``intake`` lacks, in :data:`START_REQUIRED` order; empty when the
+    study may start. ``None`` (no intake) lacks every one."""
+    if intake is None:
+        return list(START_REQUIRED)
+    present = {
+        "purchase_price": intake.purchase_price is not None,
+        "acquisition_costs": intake.acquisition_costs is not None,
+        "land_method": intake.land_method is not None,
+        "property_use": intake.property_use is not None,
+        "placed_in_service_date": intake.placed_in_service_date is not None,
+        "state": intake.state is not None,
+    }
+    return [field for field in START_REQUIRED if not present[field.field]]
+
+
 __all__ = [
     "MAX_ACQUISITION_COSTS",
+    "START_REQUIRED",
     "STATE_PATTERN",
     "ZIP_PATTERN",
     "AcquisitionCostIn",
     "LocationSource",
+    "MissingField",
     "StudyIntake",
     "StudyIntakeIn",
+    "missing_for_start",
     "with_location",
 ]

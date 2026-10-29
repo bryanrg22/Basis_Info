@@ -25,7 +25,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cache
-from typing import Final
+from typing import Any, Final
 
 from classifytest_support import REF_VERSION, lifecycle_reference_chunks
 from dbtest_support import Factory
@@ -42,7 +42,9 @@ from basis.db.enums import Corpus, DocumentKind, Stage
 from basis.db.models import ActivityResult, Base, Chunk, CorpusVersion, Run
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.run import RunRepository
+from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
+from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
 from basis.extraction.azure_di import AzureDiClient
 from basis.llm.provider import ChatProvider, ScriptedProvider, ScriptedTurn
 from basis.retrieval import Retrieval
@@ -167,6 +169,34 @@ APPRAISAL_TYPES: Final = {
     "zip": "application/zip",
     "xml": "application/xml",
 }
+
+
+def intake_document(**overrides: Any) -> StudyIntake:
+    """A complete intake (every field a start needs) as stored on a study; ``overrides``
+    replace fields of the request body before validation."""
+    body: dict[str, Any] = {
+        "purchase_price": "650000.00",
+        "acquisition_costs": [{"category": "recording_fees", "amount": "180.00"}],
+        "land_method": "appraisal_site_value",
+        "appraisal_site_value": "90000.00",
+        "property_use": "residential_rental",
+        "dwelling_unit_income_share": "1",
+        "placed_in_service_date": "2025-05-01",
+        "state": "NY",
+        "zip": "12345",
+    }
+    body.update(overrides)
+    return with_location(
+        StudyIntakeIn.model_validate(body), appraisal_state=None, appraisal_zip=None
+    )
+
+
+async def set_intake(
+    sessionmaker: async_sessionmaker[AsyncSession], study_id: uuid.UUID, intake: StudyIntake
+) -> None:
+    """Store ``intake`` on the study (what ``PUT /v1/studies/{id}/intake`` does)."""
+    async with session_scope(sessionmaker) as session:
+        await StudyRepository(session).set_intake(study_id, intake)
 
 
 async def add_appraisal(

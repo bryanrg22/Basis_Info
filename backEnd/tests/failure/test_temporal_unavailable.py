@@ -24,7 +24,15 @@ from pathlib import Path
 
 import httpx
 import pytest
-from apitest_support import BASE_URL, Api, FakeVerifier, Seed, api_settings, build_api_app
+from apitest_support import (
+    BASE_URL,
+    COMPLETE_INTAKE,
+    Api,
+    FakeVerifier,
+    Seed,
+    api_settings,
+    build_api_app,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from workflowtest_support import (
     applied_decisions,
@@ -92,7 +100,7 @@ async def test_no_decision_is_lost_while_temporal_is_down(
         assert study is not None
         study.workflow_id = study_workflow_id(sid)
     # A second study that is ready to start.
-    other = (await api.create_study("alice"))["id"]
+    other = (await api.create_study("alice", intake=COMPLETE_INTAKE))["id"]
     await confirmed_document(sm, uuid.UUID(other))
 
     # ---- Temporal down -------------------------------------------------------------

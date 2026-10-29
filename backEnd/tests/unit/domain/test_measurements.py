@@ -373,8 +373,61 @@ def test_placed_in_service_wins_over_the_appraisal_date(full: BuildingMeasuremen
     index = resolve_cost_index(
         full, cost_year=2026, location_factor=Decimal(1), placed_in_service=date(2023, 1, 15)
     )
-    assert (index.cost_year, index.year_source) == (2023, "placed in service 2023-01-15")
+    assert (index.cost_year, index.year_source) == (
+        2023,
+        "placed in service 2023-01-15 (intake)",
+    )
     outside = resolve_cost_index(
         full, cost_year=2026, location_factor=Decimal(1), placed_in_service=date(2019, 1, 15)
     )
-    assert outside.cost_year == 2025  # the appraisal's year: the intake date is off the table
+    # The appraisal's year applies; the source says why the intake's date did not.
+    assert outside.cost_year == 2025
+    assert outside.year_source == (
+        "appraisal effective date 2025-06-01 (reconciliation.effective_date_of_appraisal "
+        "(azure)); placed in service 2019-01-15 (intake) is outside the 2020-2026 factor table"
+    )
+
+
+def test_the_intake_state_wins_over_the_appraisal_state(full: BuildingMeasurements) -> None:
+    """EVAL_REPORT 37: the intake's state (NY, 1.20) ahead of the appraisal's (IL, 1.05)."""
+    index = resolve_cost_index(full, cost_year=2026, location_factor=Decimal(1), state="NY")
+    assert (index.location_factor, index.location_source) == (Decimal("1.20"), "state NY (intake)")
+    # An intake state the table lacks: the appraisal's applies and the miss is recorded.
+    unknown = resolve_cost_index(full, cost_year=2026, location_factor=Decimal(1), state="XX")
+    assert (unknown.location_factor, unknown.location_source) == (
+        Decimal("1.05"),
+        "state IL (subject.state (azure)); no factor for state 'XX' (intake)",
+    )
+
+
+def test_the_intake_alone_sets_the_index_without_any_appraisal_field() -> None:
+    """A study with an intake but no extraction fields (TAKEOFF_AREAS=typical, or a
+    failed extraction): the intake still fixes the year and the state."""
+    index = resolve_cost_index(
+        None,
+        cost_year=2026,
+        location_factor=Decimal(1),
+        placed_in_service=date(2024, 3, 1),
+        state="ny",
+    )
+    assert (index.cost_year, index.location_factor) == (2024, Decimal("1.20"))
+    assert (index.year_source, index.location_source) == (
+        "placed in service 2024-03-01 (intake)",
+        "state NY (intake)",
+    )
+    # Neither usable: the settings, with both reasons.
+    neither = resolve_cost_index(
+        measurements_from_fields([]),
+        cost_year=2026,
+        location_factor=Decimal("0.9"),
+        placed_in_service=date(2030, 1, 1),
+        state="ZZ",
+    )
+    assert (neither.cost_year, neither.location_factor) == (2026, Decimal("0.9"))
+    assert neither.year_source == (
+        "COST_YEAR setting: placed in service 2030-01-01 (intake) is outside the 2020-2026 "
+        "factor table"
+    )
+    assert (
+        neither.location_source == "COST_LOCATION_FACTOR setting: no factor for state 'ZZ' (intake)"
+    )

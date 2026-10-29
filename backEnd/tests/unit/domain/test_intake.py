@@ -12,7 +12,13 @@ import pytest
 from pydantic import ValidationError
 
 from basis.domain.basis import NOT_CAPITALIZED, CostCategory, worksheet
-from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
+from basis.domain.intake import (
+    START_REQUIRED,
+    StudyIntake,
+    StudyIntakeIn,
+    missing_for_start,
+    with_location,
+)
 
 D = Decimal
 
@@ -185,3 +191,60 @@ def test_stored_document_refuses_unknown_keys() -> None:
         StudyIntake.model_validate({**body(), "location_source": "intake", "x": 1})
     with pytest.raises(ValidationError):
         StudyIntakeIn.model_validate({**body(), "location_source": "intake"})
+
+
+# --------------------------------------------------------------------- required before start
+
+
+def test_acquisition_costs_must_be_stated_even_when_empty() -> None:
+    """EVAL_REPORT 37: the closing costs are a required answer; an empty list says "none
+    capitalizable", an omitted field says nothing and is refused."""
+    values = body()
+    del values["acquisition_costs"]
+    with pytest.raises(ValidationError, match="acquisition_costs"):
+        StudyIntakeIn.model_validate(values)
+    none = StudyIntakeIn.model_validate(body(acquisition_costs=[]))
+    assert none.acquisition_costs == []
+    assert worksheet(none.to_basis_inputs()).capitalized_costs == D("0")
+
+
+def test_missing_for_start_lists_every_field_without_an_intake() -> None:
+    missing = missing_for_start(None)
+    assert missing == list(START_REQUIRED)
+    assert [m.field for m in missing] == [
+        "purchase_price",
+        "acquisition_costs",
+        "land_method",
+        "property_use",
+        "placed_in_service_date",
+        "state",
+    ]
+    assert all(m.why for m in missing)
+
+
+def test_missing_for_start_on_a_stored_intake_is_the_location_only() -> None:
+    """The document's own rules make the other five present; the state is the one field a
+    client can leave out (the appraisal fills it only after the start)."""
+    stored = with_location(
+        StudyIntakeIn.model_validate(body(state=None, zip=None)),
+        appraisal_state=None,
+        appraisal_zip=None,
+    )
+    assert [m.field for m in missing_for_start(stored)] == ["state"]
+    assert "cost index" in missing_for_start(stored)[0].why
+    # A ZIP alone is not enough: the index is by state (the city index is a follow-up).
+    with_zip = with_location(
+        StudyIntakeIn.model_validate(body(state=None)), appraisal_state=None, appraisal_zip=None
+    )
+    assert [m.field for m in missing_for_start(with_zip)] == ["state"]
+    # The appraisal's state, when an extraction exists at PUT time, satisfies it.
+    filled = with_location(
+        StudyIntakeIn.model_validate(body(state=None, zip=None)),
+        appraisal_state="il",
+        appraisal_zip=None,
+    )
+    assert filled.location_source == "appraisal" and missing_for_start(filled) == []
+    complete = with_location(
+        StudyIntakeIn.model_validate(body()), appraisal_state=None, appraisal_zip=None
+    )
+    assert missing_for_start(complete) == []

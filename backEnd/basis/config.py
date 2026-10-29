@@ -339,7 +339,9 @@ class Settings(BaseSettings):
     classify_model: str = "claude-sonnet-5-5"
     classify_reasoning_effort: Effort = "low"
     classify_concurrency: int = Field(default=4, ge=1, le=32)
-    # residential_rental (27.5-year building) or nonresidential (39-year building).
+    # residential_rental (27.5-year building) or nonresidential (39-year building). Only
+    # for a study with no intake (started before the intake was required, EVAL_REPORT 37):
+    # the intake's property_use decides the class of every study that has one.
     property_class: Literal["residential_rental", "nonresidential"] = "residential_rental"
     cost_year: int = Field(default=2026, ge=2020, le=2026)  # the cost table's range
     cost_location_factor: float = Field(default=1.0, gt=0, le=3)
@@ -349,11 +351,11 @@ class Settings(BaseSettings):
     # only where a field is missing; typical: the legacy typical area per room type for
     # every room and no property-level quantities (the behaviour before section 35).
     takeoff_areas: Literal["appraisal", "typical"] = "appraisal"
-    # Where the cost year and location factor come from. study: the state's factor
-    # (basis.domain.costs.REGIONAL_COST_FACTORS) from the appraisal's subject.state and the
-    # year of its effective date (the placed-in-service date once the intake carries it),
-    # each falling back to the setting with the reason on the cost row; setting: COST_YEAR
-    # and COST_LOCATION_FACTOR for every study.
+    # Where the cost year and location factor come from. study: the year of the intake's
+    # placed_in_service_date and the factor (basis.domain.costs.REGIONAL_COST_FACTORS) of
+    # the intake's state, else the appraisal's effective-date year and subject.state, each
+    # falling back to the setting with the reason on the cost row; setting: COST_YEAR and
+    # COST_LOCATION_FACTOR for every study.
     cost_index: Literal["study", "setting"] = "study"
     # The engineer's unit-cost table (basis.domain.cost_table: JSON, licensed data, never
     # in the repository); unset: only the six legacy rows price (EVAL_REPORT 27, item 6).

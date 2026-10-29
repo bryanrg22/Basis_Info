@@ -14,7 +14,14 @@ from typing import Any
 
 import pytest
 from fixtures import fixture_path
-from lifecycletest_support import SeededStudy, count_rows, make_deps, scripted_classifier
+from lifecycletest_support import (
+    SeededStudy,
+    count_rows,
+    intake_document,
+    make_deps,
+    scripted_classifier,
+    set_intake,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 from temporalio.exceptions import ApplicationError
@@ -577,7 +584,13 @@ async def add_site_components(deps: Deps, seeded: SeededStudy) -> None:
         exterior, _ = await repo.get_or_create(
             study_id=seeded.study_id, revision=1, name="Front", room_type="exterior", source="stub"
         )
-        for label, count in (("roof", 1), ("roof", 2), ("patio", 1), ("landscaping", 1)):
+        for label, count in (
+            ("roof", 1),
+            ("roof", 2),
+            ("patio", 1),
+            ("landscaping", 1),
+            ("concrete_floor", 1),  # a building rule row: 27.5 or 39 years by property class
+        ):
             await repo.add_component(
                 study_id=seeded.study_id,
                 revision=1,
@@ -620,7 +633,7 @@ async def test_measured_areas_price_the_property_items_and_size_the_rooms(
     )
     await add_site_components(deps, analyzed)
     output = await activity_env.run(ProcessAssets(priced).run, process(analyzed))
-    assert output.assets == 10
+    assert output.assets == 11
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
 
@@ -728,3 +741,177 @@ async def test_cost_index_from_the_study_with_typical_areas(
         "(base 2020, x1.22 for 2026 from COST_YEAR setting, x1.20 location from state NY "
         "(subject.state (azure)))"
     )
+
+
+# ------------------------------------------------------------------ the intake (EVAL_REPORT 37)
+
+
+async def test_the_intake_sets_the_cost_index_and_the_property_class(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT section 37: the intake's placed-in-service year and state price the
+    rows ahead of the appraisal's effective date (2025) and state (IL); its use
+    (nonresidential) makes the building rows 39-year; the areas still come from the
+    appraisal's GLA; every takeoff records which sources applied."""
+    from datetime import date
+
+    settings = deps.settings.model_copy(
+        update={"cost_table_path": str(fixture_path("cost_table.json")), "cost_year": 2026}
+    )
+    priced = make_deps(deps.sessionmaker, deps.storage, settings)
+    await seed_extraction(
+        deps,
+        analyzed,
+        {**MEASURED_FIELDS, "reconciliation.effective_date_of_appraisal": date(2025, 6, 1)},
+    )
+    await add_site_components(deps, analyzed)
+    await set_intake(
+        deps.sessionmaker,
+        analyzed.study_id,
+        intake_document(
+            property_use="nonresidential",
+            dwelling_unit_income_share=None,
+            transient_lodging=True,
+            placed_in_service_date="2024-03-01",
+            state="NY",
+        ),
+    )
+    output = await activity_env.run(ProcessAssets(priced).run, process(analyzed))
+    assert output.assets == 11
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+
+    # The index: the intake's year (x1.15 for 2024 in the synthetic table) and NY (1.20).
+    roof = max((takeoffs[a.id] for label, a in rows if label == "roof"), key=lambda t: t.quantity)
+    roof_cost = costs[roof.asset_id]
+    assert (roof_cost.cost_year, roof_cost.location_factor) == (2024, Decimal("1.20"))
+    assert roof_cost.source_row is not None and roof_cost.source_row.endswith(
+        "(base 2020, x1.15 for 2024 from placed in service 2024-03-01 (intake), x1.20 "
+        "location from state NY (intake))"
+    )
+    # The areas are still the appraisal's: 2400 x 75 / 1540 = 116.88 SF x 1.15 waste.
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert takeoffs[tile.id].quantity == Decimal("134.41")
+    assert takeoffs[tile.id].inputs["room_area_source"] == "gla_share"
+    # The use: the building rule row (concrete_floor, section 1250) is 39-year, and the
+    # scripted model's fixed 27.5 answer is flagged against the class.
+    floor = next(a for label, a in rows if label == "concrete_floor")
+    assert (floor.bucket, floor.recovery_period, floor.method) == (
+        Bucket.Y39,
+        Decimal("39"),
+        ClassificationMethod.RULE,
+    )
+    modelled = [a for label, a in rows if label in ("flooring", "plumbing_fixtures")]
+    assert modelled and all(
+        a.bucket is Bucket.Y27_5
+        and "validation:BUILDING_BUCKET_PROPERTY_CLASS" in (a.review_reason or "")
+        for a in modelled
+    )
+    # Every takeoff says where the index and the class came from.
+    for takeoff in takeoffs.values():
+        assert takeoff.inputs["cost_year_source"] == "placed in service 2024-03-01 (intake)"
+        assert takeoff.inputs["location_source"] == "state NY (intake)"
+        assert (takeoff.inputs["property_class"], takeoff.inputs["property_class_source"]) == (
+            "nonresidential",
+            "intake property_use",
+        )
+
+
+async def test_an_intake_without_a_state_falls_back_to_the_appraisal_state(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """A study started before the state was required (or one whose intake predates its
+    extraction): the appraisal's subject.state still applies, and the source says so."""
+    await seed_extraction(deps, analyzed, {"subject.state": "IL"})
+    await set_intake(
+        deps.sessionmaker,
+        analyzed.study_id,
+        intake_document(placed_in_service_date="2023-07-01", state=None, zip=None),
+    )
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2023, Decimal("1.05"))
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
+        "(base 2020, x1.12 for 2023 from placed in service 2023-07-01 (intake), x1.05 "
+        "location from state IL (subject.state (azure)))"
+    )
+    assert takeoffs[tile.id].inputs["property_class"] == "residential_rental"
+    assert takeoffs[tile.id].inputs["property_class_source"] == "intake property_use"
+    assert Bucket.Y39 not in {a.bucket for _, a in rows}
+    assert not any("BUILDING_BUCKET_PROPERTY_CLASS" in (a.review_reason or "") for _, a in rows)
+
+
+async def test_the_intake_alone_prices_a_study_with_no_extraction_fields(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """No extraction fields (the seeded study has none): the areas stay typical, as in the
+    regression test, while the intake still fixes the year and the state."""
+    await set_intake(
+        deps.sessionmaker,
+        analyzed.study_id,
+        intake_document(placed_in_service_date="2024-03-01", state="NY"),
+    )
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert takeoffs[tile.id].quantity == Decimal("86.25")  # 75 x 1.15: the typical area
+    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
+    assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2024, Decimal("1.20"))
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
+        "(base 2020, x1.15 for 2024 from placed in service 2024-03-01 (intake), x1.20 "
+        "location from state NY (intake))"
+    )
+
+
+async def test_cost_index_setting_ignores_the_intake_but_its_use_still_classifies(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """COST_INDEX=setting: the deployment's year and factor, written as before; the use is
+    not an index setting, so the intake's nonresidential still gives 39-year building rows,
+    and the takeoff inputs say the index came from the settings."""
+    settings = deps.settings.model_copy(update={"cost_index": "setting"})
+    legacy = make_deps(deps.sessionmaker, deps.storage, settings)
+    await set_intake(
+        deps.sessionmaker,
+        analyzed.study_id,
+        intake_document(
+            property_use="nonresidential",
+            dwelling_unit_income_share=None,
+            transient_lodging=True,
+            placed_in_service_date="2024-03-01",
+            state="NY",
+        ),
+    )
+    await activity_env.run(ProcessAssets(legacy).run, process(analyzed))
+    rows = await labelled(deps, analyzed.study_id, 1)
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
+        "(base 2020, x1.22 for 2026, x1.0 location)"
+    )
+    assert (
+        takeoffs[tile.id].inputs["cost_year_source"],
+        takeoffs[tile.id].inputs["location_source"],
+    ) == (
+        "COST_YEAR setting",
+        "COST_LOCATION_FACTOR setting",
+    )
+    assert takeoffs[tile.id].inputs["property_class"] == "nonresidential"
+    modelled = [a for label, a in rows if label in ("flooring", "plumbing_fixtures")]
+    assert modelled and all(
+        "validation:BUILDING_BUCKET_PROPERTY_CLASS" in (a.review_reason or "") for a in modelled
+    )
+
+
+async def test_without_an_intake_or_fields_no_source_keys_are_written(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """Regression (section 35's byte-identical claim holds): a revision with no intake and
+    no extraction fields writes the takeoff inputs it wrote before section 37."""
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    takeoffs, _ = await takeoffs_and_costs(deps, analyzed.study_id)
+    for takeoff in takeoffs.values():
+        assert not {"cost_year_source", "location_source", "property_class"} & set(takeoff.inputs)

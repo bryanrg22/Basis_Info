@@ -21,6 +21,7 @@ def _id(n: int) -> str:
 def intake(**overrides: object) -> object:
     values: dict[str, object] = {
         "purchase_price": "100000.00",
+        "acquisition_costs": [],
         "land_method": "appraisal_site_value",
         "appraisal_site_value": "20000.00",
         "property_use": "nonresidential",

@@ -63,7 +63,10 @@ One rule (`basis/activities/appraisal_sources.py`) for the corpus, the extractio
   the study (`report_pdf`), so a PDF uploaded after the start (before a rejection, or while a
   failed stage waits for its retry) never pairs with the XML. Upload the XML and its PDF
   before starting the study. The frontend may register the XML before its companion (as it
-  does) or after it.
+  does) or after it. The start also needs the **study intake** (price, closing costs, land,
+  use, placed-in-service date, state: `docs/api/STUDY_RESULT.md`, "Required before `start`"),
+  which is checked before the appraisal: a study with a confirmed delivery and no intake is
+  `422 intake-required`, not `409 appraisal-required`.
 * **No companion**: the XML is extracted alone. No study corpus is written (`corpus.status:
   "none"`), the classifier's study search answers that no study corpus exists (its citations
   are to the reference corpus only), fields have no regions, and the extraction carries the

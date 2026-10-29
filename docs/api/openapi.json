@@ -2681,6 +2681,7 @@
           "workflow"
         ],
         "summary": "Start the study's workflow (idempotent)",
+        "description": "Needs the study's intake with every field the output requires (422 `intake-required`, one `errors` entry per missing field: `loc` `[\"intake\", <field>]`) and one confirmed appraisal upload (409 `appraisal-required`); docs/api/STUDY_RESULT.md.",
         "operationId": "start_study_v1_studies__study_id__start_post",
         "security": [
           {
@@ -8292,7 +8293,7 @@
             "type": "array",
             "maxItems": 100,
             "title": "Acquisition Costs",
-            "description": "Capitalized acquisition costs from the closing statement, by category; allocated pro rata over every class (ATG ch. 4 C.11)."
+            "description": "Capitalized acquisition costs from the closing statement, by category; allocated pro rata over every class (ATG ch. 4 C.11). Required: send an empty list when the closing statement has no capitalizable line, so that `CC = 0` is a statement and not an omission."
           },
           "land_method": {
             "$ref": "#/components/schemas/LandMethod",
@@ -8490,6 +8491,7 @@
         "type": "object",
         "required": [
           "purchase_price",
+          "acquisition_costs",
           "land_method",
           "property_use",
           "placed_in_service_date"
@@ -8520,7 +8522,7 @@
             "type": "array",
             "maxItems": 100,
             "title": "Acquisition Costs",
-            "description": "Capitalized acquisition costs from the closing statement, by category; allocated pro rata over every class (ATG ch. 4 C.11)."
+            "description": "Capitalized acquisition costs from the closing statement, by category; allocated pro rata over every class (ATG ch. 4 C.11). Required: send an empty list when the closing statement has no capitalizable line, so that `CC = 0` is a statement and not an omission."
           },
           "land_method": {
             "$ref": "#/components/schemas/LandMethod",
@@ -8756,6 +8758,7 @@
         "type": "object",
         "required": [
           "purchase_price",
+          "acquisition_costs",
           "land_method",
           "property_use",
           "placed_in_service_date"

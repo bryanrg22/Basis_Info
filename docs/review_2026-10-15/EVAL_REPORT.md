@@ -5431,3 +5431,99 @@ age, condition and remaining life per class; a depreciation schedule export (CSV
 report PDF; the intake is not yet required before `start` (a study without one runs and its
 result says `missing: ["intake"]`); the engineer's closing-cost categories and the source of
 their land percentage (spec questions 9.2).
+
+## 37. The intake drives the takeoff, and a study cannot start without it (2026-10-29)
+
+Section 35 left a hook: the takeoff read the appraisal's effective date and state because
+the intake (section 36, `feat/basis-allocation`) landed in parallel; section 36 left the
+intake optional (a study without one ran and its result said `missing: ["intake"]`).
+WORKFLOW_REVIEW 2026-10-29 section 5 names what the output cannot be produced without and
+asks that it become the required intake. This section closes both. No model calls; no client
+dollar appears here.
+
+### 37.1 What changed
+
+**The takeoff reads the intake** (`process_assets`, `basis.domain.measurements.resolve_cost_index`).
+Order of preference, each source written on the cost row and on every takeoff:
+
+| Input | 1st | 2nd | 3rd |
+|---|---|---|---|
+| cost year | the intake's `placed_in_service_date` (`placed in service 2024-03-01 (intake)`) | the appraisal's effective date (section 35) | `COST_YEAR` setting |
+| location factor | the intake's `state` (`state NY (intake)`) | the appraisal's `subject.state` (section 35) | `COST_LOCATION_FACTOR` setting |
+| property class (27.5 / 39, the rules table's class, the typical-area family) | the intake's `property_use` (`intake property_use`) | `PROPERTY_CLASS` setting | |
+| room areas and property quantities | the appraisal's fields (section 35, unchanged) | the typical areas | |
+
+A candidate that was given but unusable (a placed-in-service year outside the 2020–2026
+factor table, a state with no factor) is named after a semicolon in the source, so the
+reviewer sees why the next one applied. `COST_INDEX=setting` still ignores the year and the
+state; the use is not an index setting, so the intake's class applies under either value.
+The `PROPERTY_CLASS` setting now matters only for a study with no intake (one started before
+this section). A revision with no intake and no extraction fields writes exactly what it wrote
+before (regression test): section 35's byte-identical claim holds.
+
+**Required before `start`** (`POST /v1/studies/{id}/start`; `docs/api/STUDY_RESULT.md`,
+"Required before `start`"). The minimum set is the review's: contract price, closing costs,
+the land source with its value, the use, the placed-in-service date, and the state. The
+answer for a study that lacks any of them is `422 intake-required` with one `errors` entry
+per missing field (`loc ["intake", <field>]`, `type missing`, `detail` saying what needs it),
+checked before the appraisal's `409 appraisal-required` so a client without an intake step
+sees it first. Two consequences of the document's own rules (section 36): `acquisition_costs`
+is now a required member (an explicit `[]` says the closing statement has no capitalizable
+line; before, an omitted list silently meant `CC = 0`), and on a stored intake the only field
+that can be missing is `state`, because the appraisal fills it only when an extraction already
+exists at `PUT` time, which is after the start. A ZIP alone does not satisfy it: the index is
+by state and the city index is the follow-up of section 35.3. Studies started before this
+section have no intake and run on the settings, as before.
+
+**The export says what the quantities rest on** (`summary.takeoff`, `basis.evidence.pack.takeoff_summary`).
+Read back from the stored rows, not recomputed: the cost rows' year and factor, the takeoff
+inputs' `cost_year_source`, `location_source`, `property_class` and `property_class_source`
+(written by `process_assets` whenever a source came from the study; null on rows written
+before this section or priced from settings alone), the tally of quantity sources
+(`gla_share`, `appraisal_derived`, `typical_for_room_type`, ...) and the count of site items
+awaiting a measurement. The end-to-end scorer (`evals.e2e_report`) prints it under "Takeoff
+inputs", adds a `sources` column to the row table (each engineer row's assets by quantity
+source), and says when an export predates the block.
+
+### 37.2 The scorer on the stored export is unchanged
+
+`python -m evals.e2e_report` on the client study export `11217e4e` rev 3 (E2E_ARTIFACTS A1;
+written before sections 35–37) before and after this change, JSON output compared member by
+member: `summary` identical, `buckets` identical, every row identical except the new
+`sources` member. Headline unchanged: evidenced 35 of 38, bucket right 24 of 35, max bucket
+share error 32.0 points. The new column says what section 35.2 measured another way: of the
+376 assets, 192 were priced on `default_150_sf` and 184 on `typical_for_room_type`, none on a
+measured area, and the cost index is "not recorded in this export". A fresh run of the same
+study would show `gla_share` and `appraisal_derived` per row and the intake's year and state
+in the block; that run is the like-for-like live run of WORKFLOW_REVIEW section 6, item 8.
+
+### 37.3 Tests
+
+`tests/LEDGER.md`: `resolve_cost_index` with the intake's state and date ahead of the
+appraisal's, an unusable intake value falling through with the miss recorded, the intake
+alone with no appraisal field (3 cases); `missing_for_start` and the required
+`acquisition_costs` (3); `process_assets` with an intake (the index and the class from the
+intake, every takeoff carrying the sources; an intake without a state; the intake alone; the
+`setting` index with the intake's use; no source keys without an intake or fields: 5); the
+export's `summary.takeoff` from rows with and without the sources (1); the scorer's `sources`
+column and block with the scores unchanged (4); the start route with no intake, a partial
+intake, a complete intake set later (3); the lifecycle of a study with a complete intake
+through start, the gates and the export on the real workflow (1). Gates: ruff, format, mypy,
+`tests/unit`, `tests/api tests/integration/api tests/integration/db`, all green; the OpenAPI
+document regenerated (`start` documents 409 and 422; `acquisition_costs` required).
+
+### 37.4 Open
+
+* No client has an intake step yet: the vision review workbench (the frontend on its own
+  branch) starts a study without one and will now get `422 intake-required`. The intake
+  form (price, closing-statement lines, land source, use, dates, state) is the next
+  frontend task; until then `PUT /v1/studies/{id}/intake` by hand lets a study start.
+* Nonresidential by use is not commercial by building: the typical-area fallback
+  (`ROOM_AREA_ESTIMATES`, used only when no GLA is extracted) switches to the commercial
+  family for a nonresidential intake, as it did for the `PROPERTY_CLASS` setting before. A
+  short-term-rental house with no GLA would get office-sized rooms. The family should follow
+  the building type, not the tax class; left as before until the sketch reader replaces the
+  fallback.
+* The RSMeans city cost index by ZIP (35.3); `zip` is stored for it.
+* The per-row `sources` on a fresh export, and the intake-driven year and state against the
+  engineer's cost source, wait for the like-for-like live run.

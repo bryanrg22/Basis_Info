@@ -14,7 +14,15 @@ from pathlib import Path
 
 import httpx
 import pytest
-from apitest_support import BASE_URL, Api, FakeVerifier, Seed, api_settings, build_api_app
+from apitest_support import (
+    BASE_URL,
+    COMPLETE_INTAKE,
+    Api,
+    FakeVerifier,
+    Seed,
+    api_settings,
+    build_api_app,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.client import Client
 from workflowtest_support import applied_decisions, confirmed_document, wait_for_stage
@@ -47,7 +55,7 @@ async def api(
 async def test_start_decide_relay_cancel(
     api: Api, sm: async_sessionmaker[AsyncSession], fake_workflows: Client
 ) -> None:
-    sid = (await api.create_study("alice"))["id"]
+    sid = (await api.create_study("alice", intake=COMPLETE_INTAKE))["id"]
     await confirmed_document(sm, uuid.UUID(sid))
 
     started = await api.post("alice", f"/v1/studies/{sid}/start")
@@ -127,7 +135,7 @@ async def test_a_closed_workflow_is_never_started_again(
 ) -> None:
     """Cancelled while still extracting: start hits REJECT_DUPLICATE and answers with the
     closed execution instead of running the study again."""
-    sid = (await api.create_study("alice"))["id"]
+    sid = (await api.create_study("alice", intake=COMPLETE_INTAKE))["id"]
     await confirmed_document(sm, uuid.UUID(sid))
     started = await api.post("alice", f"/v1/studies/{sid}/start")
     assert started.status_code == 202, started.text

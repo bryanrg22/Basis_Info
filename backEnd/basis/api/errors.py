@@ -138,6 +138,7 @@ class ApiError(Exception):
         type_suffix: str | None = None,
         *,
         headers: Mapping[str, str] | None = None,
+        errors: Sequence[FieldError] | None = None,
     ) -> None:
         if status is not None:
             self.status = status
@@ -149,6 +150,9 @@ class ApiError(Exception):
             self.type_suffix = type_suffix
         self.detail = detail
         self.headers: dict[str, str] = dict(headers or {})
+        # The ``errors`` extension (one entry per field), for a 422 about a resource's
+        # state rather than the request body (e.g. the intake fields a start needs).
+        self.errors: list[FieldError] | None = None if errors is None else list(errors)
         super().__init__(detail or self.title)
 
     @property
@@ -213,8 +217,14 @@ class Unprocessable(ApiError):
     title = "Unprocessable Content"
     type_suffix = "unprocessable"
 
-    def __init__(self, detail: str, *, type_suffix: str | None = None) -> None:
-        super().__init__(detail=detail, type_suffix=type_suffix)
+    def __init__(
+        self,
+        detail: str,
+        *,
+        type_suffix: str | None = None,
+        errors: Sequence[FieldError] | None = None,
+    ) -> None:
+        super().__init__(detail=detail, type_suffix=type_suffix, errors=errors)
 
 
 class ServiceUnavailable(ApiError):
@@ -310,6 +320,7 @@ def api_error_response(request: Request, exc: ApiError) -> Response:
         detail=exc.detail,
         type_uri=exc.type_uri,
         instance=request.url.path,
+        errors=exc.errors,
         headers=exc.headers,
     )
 

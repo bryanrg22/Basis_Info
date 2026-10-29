@@ -156,8 +156,10 @@ def test_load_export_json_and_csv(tmp_path: Path) -> None:
     path.write_text(json.dumps(document))
     loaded = load_export(path)
     assert (loaded.study_id, loaded.revision, loaded.property_name) == ("abc", 3, "P")
+    assert loaded.takeoff is None  # an export before EVAL_REPORT 37 has no summary.takeoff
     a1, a2 = loaded.assets
     assert a1.citation_count == 2 and a1.total == D("100.50") and a1.takeoff_inputs == {"count": 2}
+    assert (a1.source, a2.source) == ("none", "none")
     assert a1.unpriced_reason == "citation_unverified"
     assert a2.total is None and a2.priced is False and a2.unpriced_reason == "unpriced"
     assert loaded.total_priced == D("100.50")
@@ -667,3 +669,99 @@ def test_default_label_paths_come_from_the_data_dir(
     assert (
         e2e.default_labels_path(e2e.REPORT_FILE) == tmp_path / "labels" / "engineer_report_v1.json"
     )
+
+
+# ------------------------------------------------------------------ the sources (EVAL_REPORT 37)
+
+TAKEOFF_BLOCK: dict[str, Any] = {
+    "cost_year": 2024,
+    "location_factor": "1.20",
+    "cost_year_source": "placed in service 2024-03-01 (intake)",
+    "location_source": "state NY (intake)",
+    "property_class": "nonresidential",
+    "property_class_source": "intake property_use",
+    "area_sources": {"appraisal_derived": 1, "gla_share": 2},
+    "needs_measurement": 1,
+}
+
+
+def sourced(label: str, bucket: str, total: str, **inputs: Any) -> ExportAsset:
+    return asset(label, bucket, total).model_copy(update={"takeoff_inputs": inputs})
+
+
+def test_asset_source_is_the_quantity_source_then_the_room_area_source() -> None:
+    assert sourced("roof", "y39", "1", quantity_source="appraisal_derived").source == (
+        "appraisal_derived"
+    )
+    assert sourced("carpet", "y5", "1", room_area_source="gla_share").source == "gla_share"
+    both = sourced(
+        "roof", "y39", "1", room_area_source="typical", quantity_source="appraisal_derived"
+    )
+    assert both.source == "appraisal_derived"
+    assert sourced("carpet", "y5", "1", count=2).source == "none"
+    assert asset("carpet", "y5", "1").source == "none"
+
+
+def test_rows_tally_their_assets_sources_without_changing_the_scores() -> None:
+    plain = export(asset("carpet", "y5", "100.00"), asset("carpet", "y5", "50.00"))
+    traced = export(
+        sourced("carpet", "y5", "100.00", room_area_source="gla_share"),
+        sourced("carpet", "y5", "50.00", room_area_source="typical_for_room_type"),
+    )
+    before, after = score(plain, labels(), report()), score(traced, labels(), report())
+    assert before.summary == after.summary  # no summary.takeoff on either: identical
+    r1_before, r1_after = before.rows[0], after.rows[0]
+    assert r1_before.row.id == "r1"
+    assert (r1_before.pipeline_cost, r1_before.bucket_by_count) == (
+        r1_after.pipeline_cost,
+        r1_after.bucket_by_count,
+    )
+    assert r1_before.sources == {"none": 2}
+    assert r1_after.sources == {"gla_share": 1, "typical_for_room_type": 1}
+    rows_json = {r["id"]: r for r in to_json(after)["rows"]}
+    assert rows_json["r1"]["sources"] == {"gla_share": 1, "typical_for_room_type": 1}
+    text = render_markdown(after)
+    row_table = text.split("## Rows")[1]
+    assert "| sources |" in row_table.split("\n")[2]
+    assert "{'gla_share': 1, 'typical_for_room_type': 1}" in row_table
+
+
+def test_the_takeoff_block_is_printed_when_the_export_has_one() -> None:
+    without = score(export(asset("carpet", "y5", "100.00")), labels(), report())
+    assert "takeoff" not in without.summary["export"]
+    text = render_markdown(without)
+    assert "## Takeoff inputs" in text
+    assert "not recorded in this export (written before EVAL_REPORT section 37)" in text
+    assert "| quantity sources (assets) | {'none': 1} |" in text
+
+    traced = StudyExport(
+        study_id="s",
+        revision=1,
+        assets=[sourced("carpet", "y5", "100.00", room_area_source="gla_share")],
+        takeoff=TAKEOFF_BLOCK,
+    )
+    with_block = score(traced, labels(), report())
+    assert with_block.summary["export"]["takeoff"] == TAKEOFF_BLOCK
+    text = render_markdown(with_block, data_free=True)
+    assert "| cost year | 2024 (placed in service 2024-03-01 (intake)) |" in text
+    assert "| location factor | 1.20 (state NY (intake)) |" in text
+    assert "| property class | nonresidential (intake property_use) |" in text
+    assert "| site items awaiting a measurement | 1 |" in text
+    # The scores are the same with or without the block.
+    for key in ("classification", "shares", "dollars", "assignment"):
+        assert with_block.summary[key] == without.summary[key]
+
+
+def test_load_export_reads_the_takeoff_block(tmp_path: Path) -> None:
+    document = {
+        "format": "basis-export/2",
+        "study_id": "abc",
+        "revision": 1,
+        "assets": [],
+        "summary": {"takeoff": TAKEOFF_BLOCK, "basis": {"intake": True}},
+    }
+    path = tmp_path / "rev-1.json"
+    path.write_text(json.dumps(document))
+    assert load_export(path).takeoff == TAKEOFF_BLOCK
+    path.write_text(json.dumps({**document, "summary": {"takeoff": "not a block"}}))
+    assert load_export(path).takeoff is None
