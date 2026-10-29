@@ -256,6 +256,8 @@ def estimate_cost(
     tier: Tier = "standard",
     table: CostTable | None = None,
     label: str | None = None,
+    year_source: str | None = None,
+    location_source: str | None = None,
 ) -> CostEstimate:
     """Price a takeoff: ``unit_cost = base x year factor x location``; ``total = unit_cost x qty``.
 
@@ -263,6 +265,9 @@ def estimate_cost(
     table's row for ``label`` (the component's label), else its row for the takeoff
     component. Raises :class:`MissingCostRow`, :class:`NeedsQuantity` (a table row in
     another unit), :class:`UnknownCostYear` or :class:`UnitMismatch` instead of guessing.
+    ``year_source`` and ``location_source`` (where the study's cost year and location
+    factor came from: :func:`basis.domain.measurements.resolve_cost_index`) are written
+    into ``source_row`` after the factors when given.
     """
     location = Decimal(str(location_factor))
     if not location.is_finite() or location <= 0:
@@ -299,10 +304,16 @@ def estimate_cost(
     factor = year_factor(cost_year)
     unit_cost = (base * factor * location).quantize(CENTS, rounding=ROUND_HALF_UP)
     total = (unit_cost * takeoff.quantity).quantize(CENTS, rounding=ROUND_HALF_UP)
+    year_text = f"x{factor} for {cost_year}"
+    if year_source:
+        year_text += f" from {year_source}"
+    location_text = f"x{location} location"
+    if location_source:
+        location_text += f" from {location_source}"
     return CostEstimate(
         unit_cost=unit_cost,
         total=total,
-        source_row=f"{source} (base {BASE_YEAR}, x{factor} for {cost_year}, x{location} location)",
+        source_row=f"{source} (base {BASE_YEAR}, {year_text}, {location_text})",
         base_unit_cost=base.quantize(CENTS, rounding=ROUND_HALF_UP),
         year_factor=factor,
         location_factor=location,

@@ -113,3 +113,23 @@ def test_tables_are_complete() -> None:
 def test_estimate_is_deterministic() -> None:
     takeoff = estimate_quantity("carpet", 150)
     assert estimate_cost(takeoff, 2026, 1) == estimate_cost(takeoff, 2026, Decimal("1"))
+
+
+def test_factor_sources_are_written_after_the_factors() -> None:
+    """EVAL_REPORT section 35: the cost row names where the year and location came from;
+    without sources the text is the legacy one."""
+    takeoff = estimate_quantity("carpet", 100)
+    plain = estimate_cost(takeoff, 2025, "1.05")
+    assert plain.source_row.endswith("(base 2020, x1.18 for 2025, x1.05 location)")
+    sourced = estimate_cost(
+        takeoff,
+        2025,
+        "1.05",
+        year_source="appraisal effective date 2025-06-01",
+        location_source="state IL",
+    )
+    assert sourced.source_row.endswith(
+        "(base 2020, x1.18 for 2025 from appraisal effective date 2025-06-01, "
+        "x1.05 location from state IL)"
+    )
+    assert (sourced.unit_cost, sourced.total) == (plain.unit_cost, plain.total)
