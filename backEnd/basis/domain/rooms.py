@@ -282,6 +282,34 @@ ROOM_AREA_ESTIMATES: Final[dict[str, dict[str, tuple[int, int, int]]]] = {
 }
 DEFAULT_AREA_SF: Final = (100, 150, 200)  # legacy fallback for an unknown room type
 
+# Allocation weights for distributing the appraisal's GLA over the study's rooms
+# (basis.domain.measurements.room_areas; TAKEOFF_RESEARCH.md section 3.1 and 4): the
+# typical residential area of each room type of the vision vocabulary
+# (basis.vision.schemas.RoomType; ``closet`` is aliased to storage), the legacy
+# residential typical areas where the table above has them. A URAR appraisal describes a
+# 1-4 unit residence, so the weights are residential whatever the study's property class.
+# Keyed by normalized room type.
+ROOM_WEIGHTS_SF: Final[dict[str, int]] = {
+    "kitchen": 150,
+    "bathroom": 75,
+    "bedroom": 150,
+    "living_room": 250,
+    "dining_room": 150,
+    "family_room": 250,
+    "office": 120,
+    "laundry": 50,
+    "hallway": 50,
+    "stairway": 40,
+    "lobby": 60,  # a residential foyer
+    "storage": 30,
+    "mechanical_room": 40,
+    "attic": 150,
+    "basement": 150,
+    "garage": 240,
+    "other": 150,
+}
+DEFAULT_WEIGHT_SF: Final = 150
+
 
 def normalize_room_type(room_type: str | None) -> str:
     name = normalize_label(room_type)
@@ -308,6 +336,11 @@ def guidance_for(room_type: str | None) -> RoomGuidance:
 def area_family(property_class: str) -> str:
     """``residential_rental`` -> ``residential``; anything else -> ``commercial``."""
     return "residential" if property_class == "residential_rental" else "commercial"
+
+
+def room_weight_sf(room_type: str | None) -> Decimal:
+    """The allocation weight of a room type (``ROOM_WEIGHTS_SF``, else 150 SF)."""
+    return Decimal(ROOM_WEIGHTS_SF.get(normalize_room_type(room_type), DEFAULT_WEIGHT_SF))
 
 
 def typical_area_sf(room_type: str | None, property_class: str) -> tuple[Decimal, bool]:
