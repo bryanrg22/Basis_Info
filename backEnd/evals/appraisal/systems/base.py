@@ -26,12 +26,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final, Protocol
 
+import basis.extraction.derived as _derived
 import basis.extraction.field_mappings as _catalogue
+import basis.extraction.grounded as _grounded
 from basis.config import Settings
 from basis.extraction.azure_di import MODEL_ID as LAYOUT_MODEL_ID
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
-from basis.extraction.field_mappings import FIELDS
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
 from basis.extraction.validation import validate_fields
 from basis.llm.call import CallContext
@@ -46,14 +47,14 @@ MORTGAGE_1004_MODEL_ID: Final = "prebuilt-mortgage.us.1004"
 # (basis.llm.cost). A cut-off answer is unusable (no fields), so this errs high: only the
 # tokens used are billed.
 DEFAULT_MAX_TOKENS: Final = 16000
-DEFAULT_DPI: Final = 150
-# A page with fewer Azure DI words than this is a photo, sketch or map page (a URAR form
-# page carries several hundred); llm_pages and llm_sections send no image of it.
-DEFAULT_MIN_PAGE_WORDS: Final = 60
+# Page images of llm_pages / llm_sections (basis.extraction.grounded): the DPI, and the Azure
+# DI word count under which a page is a photo, sketch or map page and gets no image.
+DEFAULT_DPI: Final = _grounded.DEFAULT_DPI
+DEFAULT_MIN_PAGE_WORDS: Final = _grounded.DEFAULT_MIN_PAGE_WORDS
 
 # Keys filled from another field's reading (basis.extraction.derived), never asked.
-DERIVED_KEYS: Final = frozenset({"site.area", "site.area_acres"})
-ASKED_KEYS: Final[tuple[str, ...]] = tuple(s.key for s in FIELDS if s.key not in DERIVED_KEYS)
+DERIVED_KEYS: Final = _derived.DERIVED_KEYS
+ASKED_KEYS: Final[tuple[str, ...]] = _grounded.ASKED_KEYS
 
 # The legacy 1004's checkbox groups live in the catalogue (the pipeline's highlight regions use
 # them too); re-exported here for the sweep systems.
