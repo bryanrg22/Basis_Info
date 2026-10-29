@@ -5,7 +5,7 @@ independently of the activity's work transaction: the tokens were spent even if 
 activity later rolls back or is retried, and the study budget is a SUM over these rows
 (BUILD_PLAN section 3), so a rolled-back record would let a retried activity overspend.
 
-What a row holds (EVAL_REPORT section 38; the columns of :class:`basis.db.models.LlmCall`,
+What a row holds (EVAL_REPORT section 40; the columns of :class:`basis.db.models.LlmCall`,
 named after the OpenTelemetry GenAI semantic conventions where one exists): which component
 called (stage, activity and attempt, Python module and function, prompt name, version and
 sha256, worker build), which model it asked for and which the provider says answered (with

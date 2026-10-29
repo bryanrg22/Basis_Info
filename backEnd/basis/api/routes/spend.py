@@ -1,4 +1,4 @@
-"""``GET /v1/studies/{id}/spend`` and ``/calls``: the paid-call ledger (EVAL_REPORT 38).
+"""``GET /v1/studies/{id}/spend`` and ``/calls``: the paid-call ledger (EVAL_REPORT 40).
 
 ``/spend`` rolls the study's ``llm_calls`` rows up by stage, activity, component, model and
 kind (calls, tokens of every kind, dollars, latency; non-token kinds also sum their pages or

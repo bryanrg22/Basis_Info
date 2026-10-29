@@ -4,6 +4,7 @@ composition root's check of the per-photo vision prompts."""
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import timedelta
 from typing import Any
 
@@ -14,11 +15,15 @@ from temporalio.common import VersioningBehavior
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 
+from basis.activities.deps import Deps
 from basis.config import ConfigError, Settings
 from basis.db.engine import create_engine
 from basis.llm.pool import ProviderPool, unserved_models
 from basis.llm.prompts import PromptError
 from basis.obs.logging import get_context
+from basis.retrieval import Retrieval
+from basis.retrieval.bm25 import Bm25Registry
+from basis.retrieval.embed import HashEmbedder, ModelLoad
 from basis.vision import room_step
 from basis.worker.health import HealthServer
 from basis.worker.interceptors import LoggingInterceptor
@@ -30,6 +35,7 @@ from basis.worker.main import (
     deployment_config,
     parse_args,
     pipeline_models,
+    warm_embedder,
 )
 
 
@@ -533,3 +539,167 @@ def test_unserved_models_is_routing_only() -> None:
     ]
     assert unserved_models([AnthropicProvider], ["gpt-x", "claude-a"]) == ["gpt-x"]  # type: ignore[list-item]
     assert unserved_models([], ["m"]) == ["m"]
+
+
+# ------------------------------------------------------ embedder warm-up (EVAL_REPORT 39)
+
+
+def deps_with(settings: Settings, embedder: Any) -> Deps:
+    return Deps(
+        sessionmaker=None,  # type: ignore[arg-type]  # never used by the warm-up
+        storage=None,  # type: ignore[arg-type]
+        bucket="unused",
+        settings=settings,
+        retrieval=Retrieval(embedder=embedder, registry=Bm25Registry()),
+    )
+
+
+class Warmable(HashEmbedder):
+    """An embedder with something to load (``warm`` reports a load, or raises)."""
+
+    def __init__(
+        self,
+        load: ModelLoad | None = None,
+        error: Exception | None = None,
+        order: list[str] | None = None,
+    ) -> None:
+        super().__init__()
+        self.load = load
+        self.error = error
+        self.order = order if order is not None else []
+        self.warmed = 0
+        self.thread: str | None = None
+
+    @property
+    def name(self) -> str:
+        return "test/warmable"
+
+    def warm(self) -> ModelLoad | None:
+        self.warmed += 1
+        self.order.append("warm_embedder")
+        self.thread = threading.current_thread().name
+        if self.error is not None:
+            raise self.error
+        return self.load
+
+
+async def test_warm_embedder_logs_the_source_and_duration(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    load = ModelLoad(model="test/warmable", revision="abc", source="cache", seconds=6.84)
+    embedder = Warmable(load)
+    with caplog.at_level("INFO", logger="basis.worker"):
+        await warm_embedder(deps_with(settings, embedder))
+    assert embedder.warmed == 1 and embedder.thread != "MainThread"  # off the event loop
+    [record] = [r for r in caplog.records if r.message.startswith("embedding model warm")]
+    assert record.message == "embedding model warm: test/warmable from cache in 6.8 s"
+    assert (record.source, record.seconds, record.embedding_model_revision) == (  # type: ignore[attr-defined]
+        "cache",
+        6.84,
+        "abc",
+    )
+
+
+async def test_warm_embedder_has_nothing_to_do_for_the_hash_embedder(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level("INFO", logger="basis.worker"):
+        await warm_embedder(deps_with(settings, HashEmbedder()))
+    assert "embedder hash-v1-384 needs no warm-up" in caplog.text
+
+
+async def test_warm_embedder_raises_when_the_model_cannot_load(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    error = OSError("couldn't find them in the cached files")
+    with caplog.at_level("CRITICAL", logger="basis.worker"), pytest.raises(OSError):
+        await warm_embedder(deps_with(settings, Warmable(error=error)))
+    [record] = [r for r in caplog.records if r.levelname == "CRITICAL"]
+    assert "will not start" in record.message and record.exc_info is not None
+
+
+class StartupProbe:
+    """``run_worker`` with its Temporal client, search attributes, metrics runtime and
+    worker replaced: records the order of the startup steps."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, embedder: Warmable) -> None:
+        import basis.worker.main as main
+
+        self.order = embedder.order
+        self.embedder = embedder
+        self.stop = asyncio.Event()
+        order = self.order
+
+        async def connect(settings: Settings, *, runtime: Any = None) -> object:
+            order.append("connect")
+            return object()
+
+        async def ensure(client: object) -> None:
+            order.append("search_attributes")
+
+        async def warm_index(deps: Deps) -> None:
+            order.append("warm_reference_index")
+
+        class FakeWorker:
+            async def run(self) -> None:
+                order.append("polling")
+                await asyncio.Event().wait()
+
+            async def shutdown(self) -> None:
+                order.append("shutdown")
+
+        def build(client: object, settings: Settings, deps: Deps, **_: Any) -> FakeWorker:
+            order.append("build_worker")
+            return FakeWorker()
+
+        monkeypatch.setattr(main, "connect", connect)
+        monkeypatch.setattr(main, "ensure_search_attributes", ensure)
+        monkeypatch.setattr(main, "metrics_runtime", lambda port: None)
+        monkeypatch.setattr(main, "warm_reference_index", warm_index)
+        monkeypatch.setattr(main, "build_worker", build)
+        monkeypatch.setattr(main, "create_engine", offline_engine)
+
+    def deps_factory(self, settings: Settings, engine: AsyncEngine) -> Deps:
+        self.order.append("deps")
+        return deps_with(settings, self.embedder)
+
+    async def run(self, settings: Settings) -> None:
+        from basis.worker.main import run_worker
+
+        await run_worker(settings, health_port=0, stop=self.stop, deps_factory=self.deps_factory)
+
+
+async def test_the_worker_polls_only_after_the_model_is_warm(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    load = ModelLoad(model="test/warmable", revision=None, source="download", seconds=1.0)
+    probe = StartupProbe(monkeypatch, Warmable(load))
+    task = asyncio.create_task(probe.run(settings))
+    while "polling" not in probe.order:
+        await asyncio.sleep(0.01)
+    probe.stop.set()
+    await asyncio.wait_for(task, 5)
+    assert probe.order == [
+        "connect",
+        "search_attributes",
+        "deps",
+        "warm_embedder",
+        "warm_reference_index",
+        "build_worker",
+        "polling",
+        "shutdown",
+    ]
+
+
+async def test_the_worker_refuses_to_start_without_the_model(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    probe = StartupProbe(monkeypatch, Warmable(error=OSError("no model")))
+    with (
+        caplog.at_level("CRITICAL", logger="basis.worker"),
+        pytest.raises(OSError, match="no model"),
+    ):
+        await asyncio.wait_for(probe.run(settings), 5)
+    assert probe.order == ["connect", "search_attributes", "deps", "warm_embedder"]
+    assert "build_worker" not in probe.order and "polling" not in probe.order
+    assert "will not start" in caplog.text

@@ -73,7 +73,7 @@ SPEC_TABLES = {
     "created_at updated_at",
     "llm_calls": "id study_id run_id activity provider model prompt_version input_tokens "
     "output_tokens cost_usd latency_ms created_at "
-    # The ledger (migration 0012_call_ledger, EVAL_REPORT section 38).
+    # The ledger (migration 0012_call_ledger, EVAL_REPORT section 40).
     "kind status error stage revision activity_attempt component prompt_name prompt_sha256 "
     "build_sha entity_type entity_id requested_model endpoint response_id request_id "
     "finish_reason reasoning_effort max_output_tokens temperature response_format "

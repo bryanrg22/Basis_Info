@@ -1,4 +1,4 @@
-"""The paid-call ledger through a whole fake study (EVAL_REPORT section 38).
+"""The paid-call ledger through a whole fake study (EVAL_REPORT section 40).
 
 Every row written by the run has its calling component, its entity, its prompt (model calls)
 and its stored request and response; the non-token steps (the Azure DI analysis, the SAM 3

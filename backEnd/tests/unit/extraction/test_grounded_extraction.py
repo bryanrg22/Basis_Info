@@ -186,7 +186,7 @@ async def test_the_grounded_reading_is_one_checked_call_on_the_configured_model(
     assert result.needs_review
     records = ctx.call.recorder.records  # type: ignore[attr-defined]
     # The ledger: the Azure DI analysis (per page) and the one grounded call, both this
-    # activity's (EVAL_REPORT section 38).
+    # activity's (EVAL_REPORT section 40).
     assert [(r.kind, r.activity) for r in records] == [
         ("document_analysis", "extract_fields"),
         ("chat", "extract_fields"),

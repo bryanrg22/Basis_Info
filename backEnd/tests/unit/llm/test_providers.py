@@ -879,7 +879,7 @@ def test_classify_rejection_edges() -> None:
     assert isinstance(too_large, ProviderRequestRejected)
 
 
-# ------------------------------------------------------------------ the ledger (section 38)
+# ------------------------------------------------------------------ the ledger (section 40)
 
 
 async def test_the_usage_split_and_the_identity_reach_the_response() -> None:

@@ -255,7 +255,7 @@ async def record_prompt_spend(
 ) -> None:
     """The engineer's SAM 3 call in the paid-call ledger (``kind = localization``, activity
     ``object_prompt``, no run: it is the API's, not the workflow's), so a study's spend
-    includes the manual prompts (EVAL_REPORT section 38)."""
+    includes the manual prompts (EVAL_REPORT section 40)."""
     if prompted.cost_usd is None and prompted.predict_seconds is None:
         return
     localizer: Localizer | None = request.app.state.localizer

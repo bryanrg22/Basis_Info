@@ -104,7 +104,7 @@ async def test_an_overrun_is_recorded_and_raises_after_the_call() -> None:
     assert ctx.budget.remaining_usd < 0
 
 
-# ------------------------------------------------------------------ the ledger (section 38)
+# ------------------------------------------------------------------ the ledger (section 40)
 
 
 async def test_the_record_names_the_calling_component_and_archives_both_payloads() -> None:

@@ -296,7 +296,7 @@ async def test_replayed_history_is_valid_on_the_openai_and_anthropic_wires() -> 
 
 
 async def test_with_a_ledger_each_call_is_recorded_with_the_tools_it_asked_for() -> None:
-    """EVAL_REPORT section 38: the stored response of a classifier call lists the tool
+    """EVAL_REPORT section 40: the stored response of a classifier call lists the tool
     calls that answer asked for, with what came back and how long each took."""
     store = make_store()
     provider = ScriptedProvider(

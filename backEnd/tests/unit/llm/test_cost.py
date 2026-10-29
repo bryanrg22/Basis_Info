@@ -134,7 +134,7 @@ def test_negative_inputs_are_rejected(chars: int, images: int, max_tokens: int) 
         estimate_usd("gpt-4o", max_tokens=max_tokens, prompt_chars=chars, images=images)
 
 
-# ------------------------------------------------------------------ the ledger (section 38)
+# ------------------------------------------------------------------ the ledger (section 40)
 
 
 def test_every_part_of_the_usage_is_priced_at_its_own_rate() -> None:

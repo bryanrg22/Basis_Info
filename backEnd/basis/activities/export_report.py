@@ -11,7 +11,7 @@ Both files are canonical (sorted keys, no insignificant whitespace, rows in a fi
 no timestamps), so exporting the same revision twice yields byte-identical files and the
 same sha256; the JSON also embeds a sha256 per section so a consumer can check each part.
 
-The spend (EVAL_REPORT section 38): ``summary.spend`` is the study's paid-call rollup (the
+The spend (EVAL_REPORT section 40): ``summary.spend`` is the study's paid-call rollup (the
 whole study, by stage, activity, component, model and kind: calls, tokens of every kind,
 dollars, latency), and ``rev-<n>.calls.jsonl`` is the transcript, one JSON line per paid
 call, oldest first, with the call's model, parameters (effort, temperature, output cap),

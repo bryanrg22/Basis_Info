@@ -30,7 +30,7 @@
 * ``0011_study_intake`` adds ``studies.intake`` (NULL for existing studies; a non-null value
   must be a JSON object) and downgrades back to ``0010``;
 * ``0012_call_ledger`` widens ``llm_calls`` into the ledger of every paid call (every new
-  column nullable or defaulted, so rows written before it stay valid; EVAL_REPORT section 38);
+  column nullable or defaulted, so rows written before it stay valid; EVAL_REPORT section 40);
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared

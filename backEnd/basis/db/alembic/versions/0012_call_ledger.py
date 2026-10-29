@@ -1,4 +1,4 @@
-"""``llm_calls`` becomes the ledger of every paid call (EVAL_REPORT section 38).
+"""``llm_calls`` becomes the ledger of every paid call (EVAL_REPORT section 40).
 
 Revision ID: 0012
 Revises: 0011

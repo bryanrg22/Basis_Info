@@ -83,7 +83,7 @@ async def test_writes_the_revision_as_canonical_json(
         assert {"bucket", "recovery_period", "quantity", "unit", "total", "citations"} <= set(asset)
     assert document["summary"]["assets"] == 6
     assert set(document["evidence"]) == {"by_stage", "by_component", "by_document"}
-    # The spend (EVAL_REPORT section 38): the rollup in the summary, the transcript beside.
+    # The spend (EVAL_REPORT section 40): the rollup in the summary, the transcript beside.
     spend = document["summary"]["spend"]
     assert set(spend) == {"total", "by_stage", "by_activity", "by_component", "by_model", "by_kind"}
     assert spend["total"]["calls"] >= 3 and Decimal(spend["total"]["cost_usd"]) > 0

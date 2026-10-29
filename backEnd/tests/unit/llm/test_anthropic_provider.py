@@ -417,7 +417,7 @@ async def test_cache_tokens_count_as_input_and_thinking_as_output() -> None:
 
 @pytest.mark.regression
 async def test_the_cache_split_is_kept_and_priced_at_the_cache_rates() -> None:
-    """EVAL_REPORT section 38: before the ledger the provider folded the cache tokens into
+    """EVAL_REPORT section 40: before the ledger the provider folded the cache tokens into
     ``input_tokens`` and lost the split, so a cache read was priced as plain input."""
     usage = {
         "input_tokens": 1000,

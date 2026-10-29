@@ -1,5 +1,5 @@
 """Response bodies of the paid-call ledger: ``GET /v1/studies/{id}/spend`` and ``/calls``
-(EVAL_REPORT section 38; docs/api/SPEND.md)."""
+(EVAL_REPORT section 40; docs/api/SPEND.md)."""
 
 from __future__ import annotations
 

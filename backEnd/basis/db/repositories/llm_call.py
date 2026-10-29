@@ -3,7 +3,7 @@
 :meth:`LlmCallRepository.add_record` writes what :mod:`basis.llm.recorder` priced;
 :meth:`spend` rolls a study up by stage, activity, component, model and kind (calls, tokens
 of every kind, dollars, latency), and :meth:`page` lists the rows oldest first with a keyset
-cursor on ``(created_at, id)`` (EVAL_REPORT section 38; ``GET /v1/studies/{id}/spend`` and
+cursor on ``(created_at, id)`` (EVAL_REPORT section 40; ``GET /v1/studies/{id}/spend`` and
 ``/calls``, the export's ``summary.spend``).
 """
 

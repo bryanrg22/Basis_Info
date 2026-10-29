@@ -206,7 +206,7 @@ def _field_json(output: SystemOutput) -> dict[str, Any]:
 
 def _model_calls(records: Sequence[CallRecord]) -> list[CallRecord]:
     """The model calls among the recorder's rows: the ledger also records each Azure DI
-    analysis (``kind = document_analysis``, EVAL_REPORT section 38), counted apart as
+    analysis (``kind = document_analysis``, EVAL_REPORT section 40), counted apart as
     ``azure_di_calls`` / ``azure_di_cost_usd``."""
     return [r for r in records if r.kind == "chat"]
 

@@ -142,7 +142,7 @@ class ExtractionContext:
     previous_azure: AzureDiResult | None = None
     heartbeat: Callable[[str], None] = field(default=_no_heartbeat)
     # What the ledger charges per analyzed page (``AZURE_DI_USD_PER_PAGE``; the Layout list
-    # price): every analysis is recorded through ``call.recorder`` (EVAL_REPORT section 38).
+    # price): every analysis is recorded through ``call.recorder`` (EVAL_REPORT section 40).
     azure_usd_per_page: float = 0.01
     # Which fields the fallback asks for and how much of the document it sends. The
     # extract_fields activity passes EXTRACTION_FALLBACK_SCOPE (default "missing") and

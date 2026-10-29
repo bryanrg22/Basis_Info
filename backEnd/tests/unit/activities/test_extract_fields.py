@@ -46,7 +46,7 @@ GOLDEN_KEYS = {f["key"] for f in GOLDEN["fields"]} - NOT_DEVELOPED
 
 async def model_calls(deps: Deps) -> list[LlmCall]:
     """The study's model calls (``kind = chat``). The Azure DI analysis has its own
-    ``document_analysis`` row (EVAL_REPORT section 38), which these tests check apart."""
+    ``document_analysis`` row (EVAL_REPORT section 40), which these tests check apart."""
     async with session_scope(deps.sessionmaker) as session:
         rows = (await session.scalars(select(LlmCall).order_by(LlmCall.created_at))).all()
     return [row for row in rows if row.kind == "chat"]

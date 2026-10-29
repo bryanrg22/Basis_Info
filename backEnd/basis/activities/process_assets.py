@@ -44,7 +44,7 @@ revision with no intake and no extraction fields writes exactly what it wrote be
    ``needs_review`` and every reason is kept in ``review_reason``;
 5. write ``assets``, ``takeoffs``, ``cost_estimates``, ``citations`` (verified ones only)
    in the activity's one transaction (each model call's ``llm_calls`` row was written by
-   the ledger as the call returned, EVAL_REPORT section 38).
+   the ledger as the call returned, EVAL_REPORT section 40).
 
 Step 1 runs with no database connection held: the revision is read in a short session
 first, the model calls run, then steps 2 to 5 are written and the activity key completed

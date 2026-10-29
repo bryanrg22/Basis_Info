@@ -12,6 +12,12 @@
   ``TEMPORAL_WORKER_VERSIONING`` is true, with deployment ``temporal_deployment_name`` and
   build id ``temporal_build_id`` (default: the git sha).
 * ``/health`` on ``:8080`` for the Cloud Run worker-pool startup probe.
+* The embedding model is loaded before polling starts (:func:`warm_embedder`; EVAL_REPORT
+  section 39): on a fresh container the first ``ingest_appraisal`` used to load it inside
+  the activity, 187 s on a cold cache against a 30 s heartbeat timeout, and the stage
+  failed. A model that cannot be loaded stops the worker (``/health`` stays ``starting``)
+  rather than let it take studies it would fail; the log line says whether the model came
+  from the image's cache or a download, and how long it took.
 * The latest published reference corpus's BM25 index is built before polling starts
   (S3_SPEC section 3); a failure there is logged and the index is built on first use.
 * SIGTERM/SIGINT: stop polling, give in-flight activities ``SHUTDOWN_GRACE`` to finish,
@@ -89,7 +95,8 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
     (:func:`check_models_served`). No provider at all is allowed in dev and test only, and
     logged: photo analysis then fails non-retryably (flagged), extraction uses the text
     layer only and residual components are written ``classifier_unavailable``. The
-    embedding model is loaded on first use, not here. The per-photo vision step's prompts
+    embedding model is not loaded here but by :func:`warm_embedder`, which
+    :func:`run_worker` awaits before polling. The per-photo vision step's prompts
     (``VISION_PHOTO_MODE``: one ``photo_analysis`` call, or the ``photo_countables`` +
     ``photo_surfaces`` pair) and the room step's (``ROOM_PROMPT_VERSION`` of
     ``room_inventory`` and the ``surface_material`` second look) are loaded and checked
@@ -362,6 +369,43 @@ def build_worker(
     )
 
 
+async def warm_embedder(deps: Deps) -> None:
+    """Load the embedding model (and encode once) before the worker polls, so no activity
+    pays the load: ``ingest_appraisal`` embeds every chunk of the appraisal and
+    ``process_assets`` embeds its evidence queries, both under a 30 s heartbeat timeout.
+
+    A failure stops the worker: without the model every study would fail at ingestion,
+    and a worker that is not polling is visible (``/health`` 503, the startup probe) where
+    a parked study is not. The hash embedder (dev and test) has nothing to load.
+    """
+    embedder = deps.retrieval_deps().embedder
+    try:
+        load = await asyncio.to_thread(embedder.warm)
+    except Exception:
+        logger.critical(
+            "embedding model %s could not be loaded; the worker cannot ingest appraisals "
+            "or search evidence and will not start",
+            embedder.name,
+            exc_info=True,
+        )
+        raise
+    if load is None:
+        logger.info("embedder %s needs no warm-up", embedder.name)
+        return
+    logger.info(
+        "embedding model warm: %s from %s in %.1f s",
+        load.model,
+        load.source,
+        load.seconds,
+        extra={
+            "embedding_model": load.model,
+            "embedding_model_revision": load.revision,
+            "source": load.source,
+            "seconds": round(load.seconds, 2),
+        },
+    )
+
+
 async def warm_reference_index(deps: Deps) -> None:
     """Build the reference BM25 index now so the first classification is not cold."""
     registry = deps.retrieval_deps().registry
@@ -401,6 +445,7 @@ async def run_worker(
     engine = create_engine(settings)
     try:
         deps = deps_factory(settings, engine)
+        await warm_embedder(deps)  # refuses to start without the model
         await warm_reference_index(deps)
         worker = build_worker(client, settings, deps)
         polling = asyncio.create_task(worker.run())

@@ -1,5 +1,5 @@
 """``GET /v1/studies/{id}/spend`` and ``/calls``: the paid-call ledger through the API
-(EVAL_REPORT section 38; docs/api/SPEND.md). Real Postgres; rows written by the recorder."""
+(EVAL_REPORT section 40; docs/api/SPEND.md). Real Postgres; rows written by the recorder."""
 
 from __future__ import annotations
 

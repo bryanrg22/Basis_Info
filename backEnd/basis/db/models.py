@@ -817,7 +817,7 @@ class ActivityResult(Base):
 
 
 class LlmCall(Base):
-    """One paid call of a study: the ledger (EVAL_REPORT section 38; migration
+    """One paid call of a study: the ledger (EVAL_REPORT section 40; migration
     ``0012_call_ledger``). ``kind`` says what was paid for: ``chat`` (a model call through
     ``basis.llm``), ``document_analysis`` (an Azure Document Intelligence analysis, priced
     per page), ``localization`` (a SAM 3 prediction, priced per predict second) or

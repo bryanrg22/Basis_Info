@@ -21,7 +21,7 @@ row, so a misconfigured model makes the budget stricter, never looser; a warning
 so the table gets the new row.
 
 Each part of the usage is priced at its own rate, as the providers bill (EVAL_REPORT
-section 38): the uncached input at the base input price, cache reads at the model's
+section 40): the uncached input at the base input price, cache reads at the model's
 cache-read price (OpenAI's "cached input" column; Anthropic's "cache hits": 0.025x base on
 Claude Fable 5.1, 0.05x on Opus 5.5 and Sonnet 5.5, 0.1x otherwise), cache writes at the
 5-minute write price (1.25x base on Anthropic; OpenAI reports none), and the whole output,

@@ -525,7 +525,7 @@ async def test_no_connection_is_held_while_the_model_classifies(
     engine = deps.sessionmaker.kw["bind"]
     watcher = PoolWatchingClassifier(engine)
     # One component at a time: the ledger writes each call's row in its own short session
-    # as the call returns (EVAL_REPORT section 38), so with concurrent components another
+    # as the call returns (EVAL_REPORT section 40), so with concurrent components another
     # component's write could be in flight at the moment of a call; serialized, the
     # invariant under test is exact: nothing is held while the model answers.
     settings = deps.settings.model_copy(update={"classify_concurrency": 1})

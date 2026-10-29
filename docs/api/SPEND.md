@@ -1,6 +1,6 @@
 # Spend: the paid-call ledger
 
-Every paid call a study makes is one row of `llm_calls` (EVAL_REPORT section 38): the model
+Every paid call a study makes is one row of `llm_calls` (EVAL_REPORT section 40): the model
 calls of every stage (`kind: chat`), each Azure Document Intelligence analysis
 (`document_analysis`, priced per page), each SAM 3 prediction (`localization`, priced per
 predict second; the engineer's manual box prompts included) and each surface-segmenter
