@@ -442,7 +442,10 @@ ENUMS: Final[dict[str, tuple[EnumCode, ...]]] = {
     "improvements.car_storage": _vocab(
         EnumCode("none", "None"),
         EnumCode("driveway", "Driveway"),
-        EnumCode("garage", "Garage"),
+        # UAD 3.6 "Parking Garage" (A-1 3200.0006 ParkingGarage: an enclosed area for the
+        # vehicles of a project's units) is the legacy Garage box (the 1073's Car Storage
+        # Garage; G-1 maps CarStorageType to the 1004 and 1073 car-storage boxes).
+        EnumCode("garage", "Garage", ("parking garage",)),
         EnumCode("carport", "Carport"),
         EnumCode("attached", "Att.", ("att",)),
         EnumCode("detached", "Det.", ("det",)),
