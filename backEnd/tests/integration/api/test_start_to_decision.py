@@ -135,7 +135,7 @@ async def test_a_closed_workflow_is_never_started_again(
 ) -> None:
     """Cancelled while still extracting: start hits REJECT_DUPLICATE and answers with the
     closed execution instead of running the study again."""
-    sid = (await api.create_study("alice"))["id"]
+    sid = (await api.create_study("alice", intake=COMPLETE_INTAKE))["id"]
     await confirmed_document(sm, uuid.UUID(sid))
     started = await api.post("alice", f"/v1/studies/{sid}/start")
     assert started.status_code == 202, started.text
