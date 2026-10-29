@@ -183,7 +183,11 @@ def build_request(
         Message(
             role="user",
             content=f"Image {n} (room {p.room_id}):" if captioned else f"Image {n}:",
-            images=(ImagePart(media_type="image/jpeg", data_base64=p.image.base64, detail="high"),),
+            images=(
+                ImagePart(
+                    media_type="image/jpeg", data_base64=p.image.base64, detail="high", ref=p.file
+                ),
+            ),
         )
         for n, p in enumerate(photos, start=1)
     )

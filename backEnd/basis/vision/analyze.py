@@ -182,6 +182,8 @@ class VisionContext:
     # 28.1) and its output budget; ``None`` = ``model`` / ``max_tokens``.
     surfaces_model: str | None = None
     surfaces_max_tokens: int | None = None
+    # What the image is, for the ledger's stored request (the photo's document id).
+    image_ref: str | None = None
 
 
 @dataclass
@@ -258,7 +260,12 @@ def build_request(image: PreparedImage, ctx: VisionContext) -> ChatRequest:
                 role="user",
                 content=USER_TEXT,
                 images=(
-                    ImagePart(media_type="image/jpeg", data_base64=image.base64, detail="high"),
+                    ImagePart(
+                        media_type="image/jpeg",
+                        data_base64=image.base64,
+                        detail="high",
+                        ref=ctx.image_ref,
+                    ),
                 ),
             ),
         ),

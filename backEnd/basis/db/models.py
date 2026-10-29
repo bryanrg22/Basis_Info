@@ -817,7 +817,35 @@ class ActivityResult(Base):
 
 
 class LlmCall(Base):
+    """One paid call of a study: the ledger (EVAL_REPORT section 38; migration
+    ``0012_call_ledger``). ``kind`` says what was paid for: ``chat`` (a model call through
+    ``basis.llm``), ``document_analysis`` (an Azure Document Intelligence analysis, priced
+    per page), ``localization`` (a SAM 3 prediction, priced per predict second) or
+    ``segmentation`` (a surface segmenter prediction). The study budget is the SUM of
+    ``cost_usd`` over every kind.
+
+    Columns follow the OpenTelemetry GenAI semantic conventions where one exists:
+    ``requested_model`` / ``model`` (``gen_ai.request.model`` / ``gen_ai.response.model``),
+    ``response_id``, ``finish_reason``, ``endpoint`` (``server.address``), the token columns
+    (``gen_ai.usage.*``: ``input_tokens`` and ``output_tokens`` are the totals, the cache
+    and reasoning columns the parts of those totals billed at their own rates), the request
+    parameters (``gen_ai.request.*``) and ``component`` (``code.function.name``: the module
+    and function that made the call). ``entity_type``/``entity_id`` say what the call was
+    about (a photo document, a room, a component, an appraisal document); ``request_uri``
+    and ``response_uri`` reference the stored request (messages as sent, images replaced by
+    their ref, size and sha256) and the raw response. Non-token kinds fill ``quantity``,
+    ``unit`` and ``unit_price_usd`` instead of the token columns.
+    """
+
     __tablename__ = "llm_calls"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('chat', 'document_analysis', 'localization', 'segmentation')",
+            name="kind_valid",
+        ),
+        CheckConstraint("status IN ('ok', 'error')", name="status_valid"),
+        Index(None, "study_id", "created_at", "id"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"), index=True)
@@ -831,6 +859,55 @@ class LlmCall(Base):
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 6))
     latency_ms: Mapped[int | None]
     created_at: Mapped[datetime] = _created_at()
+    # --- the ledger (0012_call_ledger) ---
+    kind: Mapped[str] = mapped_column(server_default=text("'chat'"))
+    status: Mapped[str] = mapped_column(server_default=text("'ok'"))
+    error: Mapped[str | None]
+    # The calling component: the study stage at the time, the revision, the Temporal
+    # activity attempt, the Python module and function, the prompt's name and sha256, and
+    # the worker build that ran it.
+    stage: Mapped[str | None]
+    revision: Mapped[int | None]
+    activity_attempt: Mapped[int | None]
+    component: Mapped[str | None]
+    prompt_name: Mapped[str | None]
+    prompt_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    build_sha: Mapped[str | None]
+    # What the call was about.
+    entity_type: Mapped[str | None]
+    entity_id: Mapped[uuid.UUID | None]
+    # The exchange as the provider identifies it.
+    requested_model: Mapped[str | None]
+    endpoint: Mapped[str | None]
+    response_id: Mapped[str | None]
+    request_id: Mapped[str | None]
+    finish_reason: Mapped[str | None]
+    # The request parameters as sent (the queryable ones as columns, all in request_params).
+    reasoning_effort: Mapped[str | None]
+    max_output_tokens: Mapped[int | None]
+    temperature: Mapped[float | None] = mapped_column(Double)
+    response_format: Mapped[str | None]
+    image_count: Mapped[int | None]
+    image_bytes: Mapped[int | None]
+    request_params: Mapped[Any | None] = mapped_column(JSON_DOC)
+    # The token split (parts of input_tokens / output_tokens).
+    cache_read_input_tokens: Mapped[int] = mapped_column(server_default=ZERO)
+    cache_creation_input_tokens: Mapped[int] = mapped_column(server_default=ZERO)
+    reasoning_output_tokens: Mapped[int] = mapped_column(server_default=ZERO)
+    # Non-token kinds: pages or seconds at a unit price.
+    quantity: Mapped[Decimal | None] = mapped_column(QUANTITY)
+    unit: Mapped[str | None]
+    unit_price_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))
+    # How the cost was computed and how long the call took end to end (the provider's
+    # retries and the pool's fallback included; latency_ms is the answering round trip).
+    price_row: Mapped[str | None]
+    pricing_version: Mapped[str | None]
+    elapsed_ms: Mapped[int | None]
+    # The stored request and raw response (storage URIs and sha256 of the stored bytes).
+    request_uri: Mapped[str | None]
+    request_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    response_uri: Mapped[str | None]
+    response_sha256: Mapped[str | None] = mapped_column(CHAR(64))
 
 
 class ClassificationCacheEntry(Base):

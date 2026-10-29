@@ -29,6 +29,8 @@
   at a components stage, else restores ``0008`` exactly;
 * ``0011_study_intake`` adds ``studies.intake`` (NULL for existing studies; a non-null value
   must be a JSON object) and downgrades back to ``0010``;
+* ``0012_call_ledger`` widens ``llm_calls`` into the ledger of every paid call (every new
+  column nullable or defaulted, so rows written before it stay valid; EVAL_REPORT section 38);
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -61,8 +63,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0011"
-HISTORY = ["0011", "0010", "0009", "0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
+HEAD = "0012"
+HISTORY = [f"{n:04d}" for n in range(12, 0, -1)]  # "0012" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}

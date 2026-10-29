@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 import pytest
 from classifytest_support import (
@@ -26,6 +27,7 @@ from classifytest_support import (
 from basis.classify.residual import LoopLimits, run_residual
 from basis.classify.router import RESIDUAL_ALLOWLIST, classify
 from basis.classify.tools import build_tools
+from basis.llm.call import CallContext
 from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import (
     Budget,
@@ -35,6 +37,7 @@ from basis.llm.provider import (
     ScriptedTurn,
     Usage,
 )
+from basis.llm.recorder import MemoryRecorder
 
 SEARCH = {"query": "garage door structural component", "k": 3}
 
@@ -290,3 +293,60 @@ async def test_replayed_history_is_valid_on_the_openai_and_anthropic_wires() -> 
     [use] = [b for b in anthropic[1]["content"] if b["type"] == "tool_use"]
     [result] = anthropic[2]["content"]
     assert use["id"] == result["tool_use_id"] == "call-1"
+
+
+async def test_with_a_ledger_each_call_is_recorded_with_the_tools_it_asked_for() -> None:
+    """EVAL_REPORT section 38: the stored response of a classifier call lists the tool
+    calls that answer asked for, with what came back and how long each took."""
+    store = make_store()
+    provider = ScriptedProvider(
+        [
+            ScriptedTurn(
+                tool_calls=(call("search_reference", SEARCH),),
+                usage=Usage(input_tokens=1000, output_tokens=10),
+            ),
+            answer_turn(),
+        ]
+    )
+    recorder = MemoryRecorder()
+    ledger = CallContext(
+        study_id=uuid.uuid4(),
+        run_id=None,
+        activity="process_assets",
+        budget=Budget(remaining_usd=1.0),
+        recorder=recorder,
+    ).about("component", component().component_id)
+    outcome = await run_residual(
+        component(),
+        provider=provider,
+        tools=build_tools("study-1", None, None, store),
+        allowlist=RESIDUAL_ALLOWLIST,
+        budget=ledger.budget,
+        model="gpt-4o-mini",
+        system_prompt="s",
+        prompt_version="classify/v1",
+        study_id="study-1",
+        ledger=ledger,
+    )
+    assert outcome.classification is not None
+    first, second = recorder.records
+    assert first.component == "basis.classify.residual.run_residual"
+    assert (first.entity_type, str(first.entity_id)) == ("component", component().component_id)
+    stored = json.loads(recorder.payloads[first.response_uri])  # type: ignore[index]
+    [trace] = stored["tool_calls"]
+    assert (trace["name"], trace["arguments"], trace["refused"]) == (
+        "search_reference",
+        SEARCH,
+        True,
+    )
+    assert trace["iteration"] == 1 and trace["duration_ms"] >= 0 and trace["result_bytes"] > 0
+    assert json.loads(recorder.payloads[second.response_uri])["tool_calls"] == []  # type: ignore[index]
+    # The request of the second call carries the tool round trip as sent.
+    sent = json.loads(recorder.payloads[second.request_uri])  # type: ignore[index]
+    assert [m["role"] for m in sent["messages"]] == ["user", "assistant", "tool"]
+    assert (
+        sent["tools"][0]["name"] == "get_chunk"
+        and sent["messages"][2]["name"] == "search_reference"
+    )
+    # The loop's own cost equals what the ledger priced.
+    assert [c.cost_usd for c in outcome.calls] == [float(r.cost_usd) for r in recorder.records]

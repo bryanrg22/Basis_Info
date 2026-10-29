@@ -10,6 +10,14 @@ and the CSV's sha256 (``files``).
 Both files are canonical (sorted keys, no insignificant whitespace, rows in a fixed order,
 no timestamps), so exporting the same revision twice yields byte-identical files and the
 same sha256; the JSON also embeds a sha256 per section so a consumer can check each part.
+
+The spend (EVAL_REPORT section 38): ``summary.spend`` is the study's paid-call rollup (the
+whole study, by stage, activity, component, model and kind: calls, tokens of every kind,
+dollars, latency), and ``rev-<n>.calls.jsonl`` is the transcript, one JSON line per paid
+call, oldest first, with the call's model, parameters (effort, temperature, output cap),
+tokens, cost and latency beside the prompt as sent (images by ref and size) and the raw
+response, read back from the ledger's stored payloads. The ledger is append-only and the
+export makes no paid call, so two exports with no call between them are byte-identical.
 """
 
 from __future__ import annotations
@@ -26,17 +34,21 @@ from temporalio import activity
 
 from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
 from basis.activities.deps import Deps
+from basis.db.models import LlmCall
 from basis.db.repositories.extraction import ExtractionRepository
+from basis.db.repositories.llm_call import LlmCallRepository, Spend, SpendGroup
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.evidence.export import pack_document, pack_to_csv, sha256_hex
 from basis.evidence.pack import load_pack
+from basis.storage import ObjectNotFound, Storage
 from basis.storage.base import SCHEME
 from basis.workflow.contracts import ExportReportInput, ExportReportOutput
 
 FORMAT: Final = "basis-export/2"
 CONTENT_TYPE: Final = "application/json"
 CSV_CONTENT_TYPE: Final = "text/csv"
+JSONL_CONTENT_TYPE: Final = "application/jsonl"
 
 
 def export_uri(bucket: str, study_id: uuid.UUID, revision: int) -> str:
@@ -47,10 +59,15 @@ def csv_uri(bucket: str, study_id: uuid.UUID, revision: int) -> str:
     return f"{SCHEME}{bucket}/studies/{study_id}/exports/rev-{revision}.assets.csv"
 
 
+def calls_uri(bucket: str, study_id: uuid.UUID, revision: int) -> str:
+    return f"{SCHEME}{bucket}/studies/{study_id}/exports/rev-{revision}.calls.jsonl"
+
+
 @dataclass(frozen=True, slots=True)
 class ExportFiles:
     json: bytes
     csv: bytes
+    calls: bytes = b""
 
 
 def canonical_json(value: Any) -> bytes:
@@ -65,8 +82,114 @@ def _id(value: uuid.UUID | None) -> str | None:
     return None if value is None else str(value)
 
 
+def spend_line(group: SpendGroup) -> dict[str, Any]:
+    return {
+        "key": group.key,
+        "calls": group.calls,
+        "errors": group.errors,
+        "input_tokens": group.input_tokens,
+        "cache_read_input_tokens": group.cache_read_input_tokens,
+        "cache_creation_input_tokens": group.cache_creation_input_tokens,
+        "output_tokens": group.output_tokens,
+        "reasoning_output_tokens": group.reasoning_output_tokens,
+        "cost_usd": str(group.cost_usd),
+        "latency_ms_total": group.latency_ms_total,
+        "latency_ms_max": group.latency_ms_max,
+        "quantity": _num(group.quantity),
+    }
+
+
+def spend_document(spend: Spend) -> dict[str, Any]:
+    """``summary.spend``: the rollup as the API serves it (``GET /v1/studies/{id}/spend``)."""
+    return {
+        "total": spend_line(spend.total),
+        "by_stage": [spend_line(g) for g in spend.by_stage],
+        "by_activity": [spend_line(g) for g in spend.by_activity],
+        "by_component": [spend_line(g) for g in spend.by_component],
+        "by_model": [spend_line(g) for g in spend.by_model],
+        "by_kind": [spend_line(g) for g in spend.by_kind],
+    }
+
+
+def call_line(row: LlmCall, request: Any, response: Any) -> dict[str, Any]:
+    """One transcript line: the ledger row's fields and the stored payloads."""
+    return {
+        "id": str(row.id),
+        "created_at": row.created_at.isoformat(),
+        "kind": row.kind,
+        "status": row.status,
+        "error": row.error,
+        "stage": row.stage,
+        "revision": row.revision,
+        "activity": row.activity,
+        "activity_attempt": row.activity_attempt,
+        "component": row.component,
+        "entity_type": row.entity_type,
+        "entity_id": _id(row.entity_id),
+        "provider": row.provider,
+        "endpoint": row.endpoint,
+        "requested_model": row.requested_model,
+        "model": row.model,
+        "response_id": row.response_id,
+        "finish_reason": row.finish_reason,
+        "prompt_version": row.prompt_version,
+        "prompt_sha256": row.prompt_sha256,
+        "reasoning_effort": row.reasoning_effort,
+        "temperature": row.temperature,
+        "max_output_tokens": row.max_output_tokens,
+        "response_format": row.response_format,
+        "request_params": row.request_params,
+        "input_tokens": row.input_tokens,
+        "cache_read_input_tokens": row.cache_read_input_tokens,
+        "cache_creation_input_tokens": row.cache_creation_input_tokens,
+        "output_tokens": row.output_tokens,
+        "reasoning_output_tokens": row.reasoning_output_tokens,
+        "quantity": _num(row.quantity),
+        "unit": row.unit,
+        "unit_price_usd": _num(row.unit_price_usd),
+        "cost_usd": str(row.cost_usd),
+        "price_row": row.price_row,
+        "pricing_version": row.pricing_version,
+        "latency_ms": row.latency_ms,
+        "elapsed_ms": row.elapsed_ms,
+        "build_sha": row.build_sha,
+        "request_uri": row.request_uri,
+        "response_uri": row.response_uri,
+        "request": request,
+        "response": response,
+    }
+
+
+async def _payload(storage: Storage | None, uri: str | None) -> Any:
+    if storage is None or uri is None:
+        return None
+    try:
+        return json.loads(await storage.read(uri))
+    except (ObjectNotFound, ValueError):
+        return None
+
+
+async def build_transcript(
+    session: AsyncSession, study_id: uuid.UUID, storage: Storage | None
+) -> bytes:
+    """``rev-<n>.calls.jsonl``: every paid call of the study, oldest first (module doc)."""
+    lines = []
+    for row in await LlmCallRepository(session).list_for_study(study_id):
+        heartbeat("calls")
+        request = await _payload(storage, row.request_uri)
+        response = await _payload(storage, row.response_uri)
+        lines.append(canonical_json(call_line(row, request, response)))
+    return b"".join(line + b"\n" for line in lines)
+
+
 async def build_export(
-    session: AsyncSession, study_id: uuid.UUID, revision: int, csv_location: str = ""
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    revision: int,
+    csv_location: str = "",
+    *,
+    storage: Storage | None = None,
+    calls_location: str = "",
 ) -> ExportFiles:
     study = await StudyRepository(session).get(study_id)
     if study is None:
@@ -117,6 +240,8 @@ async def build_export(
     pack = await load_pack(session, study_id, revision)
     evidence = pack_document(pack)
     heartbeat("assets")
+    spend = await LlmCallRepository(session).spend(study_id)
+    calls_bytes = await build_transcript(session, study_id, storage)
     sections = {
         "extraction": extractions,
         "rooms": rooms,
@@ -128,7 +253,7 @@ async def build_export(
             "by_component": evidence["by_component"],
             "by_document": evidence["by_document"],
         },
-        "summary": evidence["summary"],
+        "summary": {**evidence["summary"], "spend": spend_document(spend)},
     }
     csv_bytes = pack_to_csv(pack)
     document = {
@@ -137,13 +262,16 @@ async def build_export(
         "property_name": study.property_name,
         "revision": revision,
         **sections,
-        "files": {"assets_csv": {"uri": csv_location, "sha256": sha256_hex(csv_bytes)}},
+        "files": {
+            "assets_csv": {"uri": csv_location, "sha256": sha256_hex(csv_bytes)},
+            "calls_jsonl": {"uri": calls_location, "sha256": sha256_hex(calls_bytes)},
+        },
         "checksums": {
             name: hashlib.sha256(canonical_json(rows)).hexdigest()
             for name, rows in sections.items()
         },
     }
-    return ExportFiles(json=canonical_json(document), csv=csv_bytes)
+    return ExportFiles(json=canonical_json(document), csv=csv_bytes, calls=calls_bytes)
 
 
 class ExportReport:
@@ -156,11 +284,20 @@ class ExportReport:
 
         async def work(session: AsyncSession) -> ExportReportOutput:
             table_uri = csv_uri(self._deps.bucket, study_id, input.revision)
-            files = await build_export(session, study_id, input.revision, table_uri)
+            transcript_uri = calls_uri(self._deps.bucket, study_id, input.revision)
+            files = await build_export(
+                session,
+                study_id,
+                input.revision,
+                table_uri,
+                storage=self._deps.storage,
+                calls_location=transcript_uri,
+            )
             uri = export_uri(self._deps.bucket, study_id, input.revision)
             # Written before the completion commits: if the commit fails the retry
             # rewrites the same bytes, so the objects are never half of two versions.
             await self._deps.storage.put(table_uri, files.csv, CSV_CONTENT_TYPE)
+            await self._deps.storage.put(transcript_uri, files.calls, JSONL_CONTENT_TYPE)
             await self._deps.storage.put(uri, files.json, CONTENT_TYPE)
             return ExportReportOutput(export_uri=uri, sha256=sha256_hex(files.json))
 

@@ -16,7 +16,9 @@
   (An activity with no provider at all raises its own non-retryable
   ``ProviderNotConfigured``, which the workflow flags; the worker refuses to start that way
   outside dev and test.)
-* :func:`run_pk` finds the ``runs`` row so ``llm_calls`` can reference it.
+* :func:`run_pk` finds the ``runs`` row so ``llm_calls`` can reference it;
+  :func:`call_origin` adds the study's stage and the activity attempt, which the ledger
+  records with every paid call (:class:`CallOrigin`).
 """
 
 from __future__ import annotations
@@ -25,13 +27,17 @@ import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Final
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from basis.activities._support import heartbeat, validation_error, workflow_execution
 from basis.db.repositories.run import RunRepository
+from basis.db.repositories.study import StudyRepository
+from basis.llm.call import CallContext
 from basis.llm.errors import (
     ProviderAccountError,
     ProviderBadResponse,
@@ -39,6 +45,8 @@ from basis.llm.errors import (
     ProviderError,
     ProviderRequestRejected,
 )
+from basis.llm.provider import Budget
+from basis.llm.recorder import Recorder
 from basis.workflow.activity_options import PROVIDER_ACCOUNT_ERROR
 
 PROVIDER_UNAVAILABLE: Final = "ProviderUnavailable"
@@ -89,3 +97,52 @@ async def run_pk(session: AsyncSession) -> uuid.UUID | None:
     workflow_id, run_id = workflow_execution()
     run = await RunRepository(session).get_by_execution(workflow_id, run_id)
     return None if run is None else run.id
+
+
+@dataclass(frozen=True, slots=True)
+class CallOrigin:
+    """Where a paid call is made from, for the ledger: the ``runs`` row, the study's stage
+    at the time and the activity attempt (:class:`basis.llm.call.CallContext`)."""
+
+    run_id: uuid.UUID | None
+    stage: str | None
+    attempt: int | None
+
+    def context(
+        self,
+        study_id: uuid.UUID,
+        activity_name: str,
+        budget: Budget,
+        recorder: Recorder,
+        *,
+        revision: int | None = None,
+        entity_type: str | None = None,
+        entity_id: uuid.UUID | None = None,
+    ) -> CallContext:
+        return CallContext(
+            study_id=study_id,
+            run_id=self.run_id,
+            activity=activity_name,
+            budget=budget,
+            recorder=recorder,
+            stage=self.stage,
+            revision=revision,
+            activity_attempt=self.attempt,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+
+
+def activity_attempt() -> int | None:
+    """The Temporal attempt of the running activity (``None`` outside one)."""
+    return activity.info().attempt if activity.in_activity() else None
+
+
+async def call_origin(session: AsyncSession, study_id: uuid.UUID) -> CallOrigin:
+    """:func:`run_pk`, the study's current stage and the attempt, in one read."""
+    study = await StudyRepository(session).get(study_id)
+    return CallOrigin(
+        run_id=await run_pk(session),
+        stage=None if study is None else str(study.current_stage.value),
+        attempt=activity_attempt(),
+    )

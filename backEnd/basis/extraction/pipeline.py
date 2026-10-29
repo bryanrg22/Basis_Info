@@ -66,11 +66,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Literal
 
 from basis.extraction import uad36_pdf
+from basis.extraction.azure_di import MODEL_ID as AZURE_DI_MODEL
+from basis.extraction.azure_di import PROVIDER as AZURE_DI_PROVIDER
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.derived import AREA_SQFT, AREA_TEXT, derive_fields
@@ -95,10 +99,11 @@ from basis.extraction.results import ExtractedField, ExtractionResult, Region, V
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.validation import validate_fields
 from basis.llm import prompts
-from basis.llm.call import CallContext
+from basis.llm.call import CallContext, step_entry
 from basis.llm.errors import ProviderBadResponse
 from basis.llm.prompts import Prompt
 from basis.llm.provider import ChatProvider
+from basis.llm.recorder import KIND_DOCUMENT_ANALYSIS, STATUS_ERROR
 
 logger = logging.getLogger("basis.extraction.pipeline")
 
@@ -136,6 +141,9 @@ class ExtractionContext:
     fallback_reasoning_effort: str | None = None
     previous_azure: AzureDiResult | None = None
     heartbeat: Callable[[str], None] = field(default=_no_heartbeat)
+    # What the ledger charges per analyzed page (``AZURE_DI_USD_PER_PAGE``; the Layout list
+    # price): every analysis is recorded through ``call.recorder`` (EVAL_REPORT section 38).
+    azure_usd_per_page: float = 0.01
     # Which fields the fallback asks for and how much of the document it sends. The
     # extract_fields activity passes EXTRACTION_FALLBACK_SCOPE (default "missing") and
     # EXTRACTION_FALLBACK_CONTEXT_CHARS; a caller that sets nothing gets S3's "critical".
@@ -164,6 +172,63 @@ class _Analysis:
     notes: list[str]
 
 
+async def analyze_recorded(pdf_bytes: bytes, ctx: ExtractionContext) -> AzureDiResult:
+    """One Azure DI analysis, recorded in the ledger as a ``document_analysis`` row: the
+    pages analyzed at ``ctx.azure_usd_per_page`` each (the service bills per page), the
+    model and API version the result names, the latency; a refused document (a 4xx, no
+    page billed) is recorded as an error row with no quantity before it propagates."""
+    assert ctx.azure is not None
+    started = time.perf_counter()
+    try:
+        result = await ctx.azure.analyze(pdf_bytes)
+    except ProviderBadResponse as exc:
+        await ctx.call.recorder.record(
+            step_entry(
+                ctx.call,
+                kind=KIND_DOCUMENT_ANALYSIS,
+                provider=AZURE_DI_PROVIDER,
+                model=AZURE_DI_MODEL,
+                quantity=0,
+                unit="page",
+                unit_price_usd=ctx.azure_usd_per_page,
+                cost_usd=0,
+                status=STATUS_ERROR,
+                error=f"HTTP {exc.status}: {exc}",
+                latency_ms=_ms(started),
+                params={"features": ["keyValuePairs"]},
+            )
+        )
+        raise
+    pages = len(result.pages)
+    await ctx.call.recorder.record(
+        step_entry(
+            ctx.call,
+            kind=KIND_DOCUMENT_ANALYSIS,
+            provider=AZURE_DI_PROVIDER,
+            model=result.model_id,
+            quantity=pages,
+            unit="page",
+            unit_price_usd=ctx.azure_usd_per_page,
+            cost_usd=Decimal(pages) * Decimal(str(ctx.azure_usd_per_page)),
+            latency_ms=_ms(started),
+            params={"features": ["keyValuePairs"], "api_version": result.api_version},
+            response={
+                "api_version": result.api_version,
+                "pages": pages,
+                "key_value_pairs": len(result.key_value_pairs),
+                "tables": len(result.tables),
+                "content_chars": len(result.content),
+                "synthetic": result.synthetic,
+            },
+        )
+    )
+    return result
+
+
+def _ms(started: float) -> int:
+    return max(0, int((time.perf_counter() - started) * 1000))
+
+
 async def _analyze(pdf_bytes: bytes, ctx: ExtractionContext) -> _Analysis:
     """Steps 1-2 of the module doc (paid once, whichever method reads the fields)."""
     ctx.heartbeat("read_pdf")
@@ -181,7 +246,7 @@ async def _analyze(pdf_bytes: bytes, ctx: ExtractionContext) -> _Analysis:
     elif ctx.azure is not None:
         ctx.heartbeat("azure_di")
         try:
-            azure = await ctx.azure.analyze(pdf_bytes)
+            azure = await analyze_recorded(pdf_bytes, ctx)
         except ProviderBadResponse as exc:
             # A 4xx (credentials, quota, a document the service refuses): retrying cannot
             # help and the text layer can still be read, so continue without Azure DI and
@@ -486,7 +551,7 @@ async def extract_appraisal_upload(
         elif ctx.azure is not None:
             ctx.heartbeat("azure_di")
             try:
-                azure = await ctx.azure.analyze(pdf)
+                azure = await analyze_recorded(pdf, ctx)
             except ProviderBadResponse as exc:
                 logger.error("Azure DI rejected the appraisal PDF (%s): %s", exc.status, exc)
                 notes.append(f"Azure DI rejected the PDF ({exc.status}): no highlight regions")

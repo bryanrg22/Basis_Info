@@ -204,14 +204,22 @@ def _field_json(output: SystemOutput) -> dict[str, Any]:
     return fields
 
 
+def _model_calls(records: Sequence[CallRecord]) -> list[CallRecord]:
+    """The model calls among the recorder's rows: the ledger also records each Azure DI
+    analysis (``kind = document_analysis``, EVAL_REPORT section 38), counted apart as
+    ``azure_di_calls`` / ``azure_di_cost_usd``."""
+    return [r for r in records if r.kind == "chat"]
+
+
 def _usage(records: Sequence[CallRecord]) -> dict[str, Any]:
     """Tokens, calls and the models' own latency of one repeat's model calls."""
+    calls = _model_calls(records)
     return {
-        "llm_calls": len(records),
-        "tokens_input": sum(r.usage.input_tokens for r in records),
-        "tokens_output": sum(r.usage.output_tokens for r in records),
-        "model_latency_ms": sum(int(r.latency_ms or 0) for r in records),
-        "models": sorted({r.model for r in records}),
+        "llm_calls": len(calls),
+        "tokens_input": sum(r.usage.input_tokens for r in calls),
+        "tokens_output": sum(r.usage.output_tokens for r in calls),
+        "model_latency_ms": sum(int(r.latency_ms or 0) for r in calls),
+        "models": sorted({r.model for r in calls}),
     }
 
 
@@ -522,7 +530,9 @@ async def run_eval(
         page_words=page_words_for(appraisal),
     )
     sha = git_sha()
-    cost = float(sum(r.cost_usd for r in state.recorder.records))
+    calls = _model_calls(state.recorder.records)
+    cost = float(sum(r.cost_usd for r in calls))
+    azure_cost = float(sum(r.cost_usd for r in state.recorder.records if r.kind != "chat"))
     run: dict[str, Any] = {
         "run": run_id,
         "mode": options.mode,
@@ -538,15 +548,18 @@ async def run_eval(
         "git_sha": sha,
         "settings": asdict(ExtractionSettings.from_settings(settings)),
         "prompt_version": prompts.latest(PROMPT_NAME).version_id,
-        "prompt_versions": sorted({r.prompt_version or "" for r in state.recorder.records} - {""}),
+        "prompt_versions": sorted({r.prompt_version or "" for r in calls} - {""}),
         "budget_usd_per_document": options.budget_usd,
         "baseline": options.baseline,
-        "models": sorted({r.model for r in state.recorder.records}),
-        "llm_calls": len(state.recorder.records),
+        "models": sorted({r.model for r in calls}),
+        "llm_calls": len(calls),
         "cost_usd": cost if options.mode == "live" else 0.0,
         "replayed_cost_usd": cost if options.mode == "replay" else None,
         "azure_di_calls": state.azure_calls,
         "azure_di_pages": state.azure_pages,
+        # The analyses as the ledger prices them (AZURE_DI_USD_PER_PAGE); a replay re-reads
+        # the recorded analysis and pays nothing.
+        "azure_di_cost_usd": azure_cost if options.mode == "live" else 0.0,
         "timings_seconds": state.timings,
         "started": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "finished": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),

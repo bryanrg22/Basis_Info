@@ -59,6 +59,7 @@ from basis.classify.verify import (
 from basis.db.enums import Bucket
 from basis.domain.rules import RECOVERY_YEARS, PropertyClass, RuleHit, lookup
 from basis.domain.validators import BUILDING_BUCKET_FOR_CLASS, validate_classification
+from basis.llm.call import CallContext
 from basis.llm.provider import Budget, ChatProvider
 
 Method = Literal["rule", "cache", "llm"]
@@ -92,6 +93,10 @@ class ClassifyContext:
     prompt_version: str = PROMPT_VERSION
     # Reasoning models only; ``None`` leaves the provider's default (ChatRequest).
     reasoning_effort: str | None = None
+    # The activity's call context: with it every model call is recorded in the paid-call
+    # ledger about the component it classifies (``process_assets``); the evaluation
+    # runners leave it unset and price calls with ``price``.
+    call: CallContext | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +287,7 @@ async def _from_model(component: ComponentView, ctx: ClassifyContext) -> Classif
         price=ctx.price,
         reserve_usd_per_call=ctx.reserve_usd_per_call,
         reasoning_effort=ctx.reasoning_effort,
+        ledger=(None if ctx.call is None else ctx.call.about("component", component.component_id)),
     )
     answer: Classification | None = outcome.classification
     if answer is None:

@@ -2199,6 +2199,278 @@
         }
       }
     },
+    "/v1/studies/{study_id}/spend": {
+      "get": {
+        "tags": [
+          "spend"
+        ],
+        "summary": "What the study has spent, by stage, activity, component, model and kind",
+        "operationId": "get_spend_v1_studies__study_id__spend_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudySpendOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/calls": {
+      "get": {
+        "tags": [
+          "spend"
+        ],
+        "summary": "The study's paid calls, oldest first, with their request and response references",
+        "operationId": "list_calls_v1_studies__study_id__calls_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "activity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this activity.",
+              "title": "Activity"
+            },
+            "description": "Only this activity."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "chat|document_analysis|localization|segmentation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this kind: one of chat, document_analysis, localization, segmentation.",
+              "title": "Kind"
+            },
+            "description": "Only this kind: one of chat, document_analysis, localization, segmentation."
+          },
+          {
+            "name": "entity_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls about this entity (a photo document, room, component or appraisal id).",
+              "title": "Entity Id"
+            },
+            "description": "Only calls about this entity (a photo document, room, component or appraisal id)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Rows per page.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Rows per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` from the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallsPageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies/{study_id}/photos/{document_id}/objects": {
       "get": {
         "tags": [
@@ -5160,6 +5432,554 @@
         ],
         "title": "BucketAllocationOut"
       },
+      "CallOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "`ok`, or `error` for a call that reached the provider and failed."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity"
+          },
+          "activity_attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Attempt"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component",
+            "description": "The Python `module.function` that made the call."
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type",
+            "description": "`photo`, `room`, `component` or `appraisal`."
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "The model the provider says answered."
+          },
+          "response_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Id"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version",
+            "description": "`<name>/v<N>` of the released prompt."
+          },
+          "prompt_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Name"
+          },
+          "prompt_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Sha256"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Output Tokens"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "response_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Format",
+            "description": "The response schema's name."
+          },
+          "image_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Count"
+          },
+          "image_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Bytes"
+          },
+          "request_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Params",
+            "description": "Every parameter as sent (tool names included), never the content."
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "cache_read_input_tokens": {
+            "type": "integer",
+            "title": "Cache Read Input Tokens"
+          },
+          "cache_creation_input_tokens": {
+            "type": "integer",
+            "title": "Cache Creation Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "reasoning_output_tokens": {
+            "type": "integer",
+            "title": "Reasoning Output Tokens"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "unit_price_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price Usd"
+          },
+          "cost_usd": {
+            "type": "string",
+            "title": "Cost Usd"
+          },
+          "price_row": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Row",
+            "description": "The price-table row the cost came from; `unknown` when the most expensive row was charged."
+          },
+          "pricing_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pricing Version"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms",
+            "description": "The answering round trip."
+          },
+          "elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Ms",
+            "description": "Wall time of the call, retries and fallback included."
+          },
+          "build_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Sha"
+          },
+          "request_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Uri",
+            "description": "The stored request (messages as sent, images by ref and size)."
+          },
+          "request_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Sha256"
+          },
+          "response_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Uri",
+            "description": "The stored raw response."
+          },
+          "response_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Sha256"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "kind",
+          "status",
+          "error",
+          "run_id",
+          "stage",
+          "revision",
+          "activity",
+          "activity_attempt",
+          "component",
+          "entity_type",
+          "entity_id",
+          "provider",
+          "endpoint",
+          "requested_model",
+          "model",
+          "response_id",
+          "request_id",
+          "finish_reason",
+          "prompt_version",
+          "prompt_name",
+          "prompt_sha256",
+          "reasoning_effort",
+          "max_output_tokens",
+          "temperature",
+          "response_format",
+          "image_count",
+          "image_bytes",
+          "request_params",
+          "input_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "output_tokens",
+          "reasoning_output_tokens",
+          "quantity",
+          "unit",
+          "unit_price_usd",
+          "cost_usd",
+          "price_row",
+          "pricing_version",
+          "latency_ms",
+          "elapsed_ms",
+          "build_sha",
+          "request_uri",
+          "request_sha256",
+          "response_uri",
+          "response_sha256"
+        ],
+        "title": "CallOut",
+        "description": "One row of the ledger: everything about one paid call."
+      },
+      "CallsPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CallOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Oldest first."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` for the next page; null on the last."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "CallsPageOut"
+      },
       "CancelIn": {
         "properties": {
           "reason": {
@@ -8018,6 +8838,108 @@
         ],
         "title": "SignedUploadOut"
       },
+      "SpendLineOut": {
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key",
+            "description": "The group: a stage, activity, component (`module.function`), model or kind; null for rows recorded without one (rows written before the ledger)."
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls",
+            "description": "Paid calls, error rows included."
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors",
+            "description": "Calls that reached the provider and failed (still billed)."
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens",
+            "description": "Prompt tokens, cached ones included."
+          },
+          "cache_read_input_tokens": {
+            "type": "integer",
+            "title": "Cache Read Input Tokens",
+            "description": "Of `input_tokens`, served from a cache."
+          },
+          "cache_creation_input_tokens": {
+            "type": "integer",
+            "title": "Cache Creation Input Tokens",
+            "description": "Of `input_tokens`, written to a cache (Anthropic)."
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens",
+            "description": "Answer tokens, reasoning included."
+          },
+          "reasoning_output_tokens": {
+            "type": "integer",
+            "title": "Reasoning Output Tokens",
+            "description": "Of `output_tokens`, spent reasoning (OpenAI reports it; Anthropic does not)."
+          },
+          "cost_usd": {
+            "type": "string",
+            "title": "Cost Usd",
+            "description": "Dollars, to the microdollar."
+          },
+          "latency_ms_total": {
+            "type": "integer",
+            "title": "Latency Ms Total",
+            "description": "Sum of the calls' answering round trips."
+          },
+          "latency_ms_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms Max",
+            "description": "The slowest call's round trip."
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity",
+            "description": "For non-token kinds: pages analyzed or predict seconds, summed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "calls",
+          "errors",
+          "input_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "output_tokens",
+          "reasoning_output_tokens",
+          "cost_usd",
+          "latency_ms_total",
+          "latency_ms_max",
+          "quantity"
+        ],
+        "title": "SpendLineOut",
+        "description": "One line of a rollup: the group's key and what it spent."
+      },
       "Stage": {
         "type": "string",
         "enum": [
@@ -8998,6 +9920,70 @@
         ],
         "title": "StudyResultOut",
         "description": "``GET /v1/studies/{id}/result`` and the export's ``summary.basis``."
+      },
+      "StudySpendOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "total": {
+            "$ref": "#/components/schemas/SpendLineOut",
+            "description": "The whole study (`key` null)."
+          },
+          "by_stage": {
+            "items": {
+              "$ref": "#/components/schemas/SpendLineOut"
+            },
+            "type": "array",
+            "title": "By Stage",
+            "description": "By the study's stage at the time of the call."
+          },
+          "by_activity": {
+            "items": {
+              "$ref": "#/components/schemas/SpendLineOut"
+            },
+            "type": "array",
+            "title": "By Activity",
+            "description": "By Temporal activity (`object_prompt` for the API's manual SAM 3 prompts)."
+          },
+          "by_component": {
+            "items": {
+              "$ref": "#/components/schemas/SpendLineOut"
+            },
+            "type": "array",
+            "title": "By Component",
+            "description": "By the calling Python module and function."
+          },
+          "by_model": {
+            "items": {
+              "$ref": "#/components/schemas/SpendLineOut"
+            },
+            "type": "array",
+            "title": "By Model",
+            "description": "By the model that answered (dated snapshot on OpenAI)."
+          },
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/SpendLineOut"
+            },
+            "type": "array",
+            "title": "By Kind",
+            "description": "`chat`, `document_analysis`, `localization`, `segmentation`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "total",
+          "by_stage",
+          "by_activity",
+          "by_component",
+          "by_model",
+          "by_kind"
+        ],
+        "title": "StudySpendOut"
       },
       "StudyStatus": {
         "type": "string",

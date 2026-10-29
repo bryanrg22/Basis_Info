@@ -40,6 +40,10 @@ class ImagePart(BaseModel):
     media_type: Literal["image/jpeg", "image/png"] = "image/jpeg"
     data_base64: str
     detail: Literal["low", "high", "auto"] = "auto"
+    # What the image is, for the ledger's request payload (never sent to the provider): the
+    # photo's document id, a page number, a crop name. The payload replaces the bytes with
+    # this, the media type, the byte size and the sha256.
+    ref: str | None = None
 
 
 class Message(BaseModel):
@@ -64,10 +68,29 @@ class ToolSpec(BaseModel):
 
 
 class Usage(BaseModel):
+    """Tokens of one call, as the provider reported them, in the OpenTelemetry GenAI shape
+    (``gen_ai.usage.*``): ``input_tokens`` is the whole prompt, cached tokens included;
+    ``output_tokens`` the whole answer, reasoning included; the other three are the parts of
+    those totals billed at their own rates (``cache_read``, ``cache_creation`` and
+    ``reasoning`` are each "already included in" the total they belong to). A provider that
+    does not report a part leaves it 0. :func:`basis.llm.cost.cost_decimal` prices each part.
+    """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
+    cache_read_input_tokens: int = Field(default=0, ge=0)
+    cache_creation_input_tokens: int = Field(default=0, ge=0)
+    reasoning_output_tokens: int = Field(default=0, ge=0)
+
+    @property
+    def uncached_input_tokens(self) -> int:
+        """The input tokens billed at the base rate (never below 0 if a provider's totals
+        and parts disagree)."""
+        return max(
+            0, self.input_tokens - self.cache_read_input_tokens - self.cache_creation_input_tokens
+        )
 
 
 class ChatRequest(BaseModel):
@@ -97,10 +120,23 @@ class ChatResponse(BaseModel):
     tool_calls: tuple[ToolCall, ...] = ()
     text: str = ""
     usage: Usage
+    # The model the provider says answered (``gen_ai.response.model``: a dated snapshot on
+    # OpenAI), its name, and the HTTP round trip of the answering attempt.
     model: str
     provider: str
     latency_ms: int = Field(default=0, ge=0)
     raw: dict[str, Any] = Field(default_factory=dict)
+    # The provider's own identifiers of the exchange (``gen_ai.response.id``; the request id
+    # from the response headers when the SDK exposes it), why it stopped
+    # (``gen_ai.response.finish_reasons``), where it was sent (``server.address``, the base
+    # URL or Azure endpoint) and the parameters as sent on the wire (``gen_ai.request.*``:
+    # the output cap, effort, temperature, format, tool names; never the content), for the
+    # ledger. A provider that cannot say leaves them empty.
+    response_id: str | None = None
+    request_id: str | None = None
+    finish_reason: str | None = None
+    endpoint: str | None = None
+    request_params: dict[str, Any] = Field(default_factory=dict)
 
 
 @runtime_checkable
@@ -108,6 +144,47 @@ class ChatProvider(Protocol):
     name: str
 
     async def complete(self, request: ChatRequest) -> ChatResponse: ...
+
+
+def request_params(
+    request: ChatRequest,
+    *,
+    max_output_tokens: int | None = None,
+    reasoning_effort: str | None = None,
+    temperature: float | None = None,
+) -> dict[str, Any]:
+    """The request's parameters as the ledger records them (``gen_ai.request.*``): what a
+    provider sent on the wire, never the content. ``max_output_tokens``, ``reasoning_effort``
+    and ``temperature`` are the values as sent when the provider changed or dropped them
+    (Claude's thinking headroom, the provider's default effort, no temperature on reasoning
+    models); unset, the request's own values stand. Images are counted and sized (the
+    decoded bytes), tools and the response schema named.
+    """
+    images = [image for message in request.messages for image in message.images]
+    return {
+        "max_output_tokens": (
+            request.max_tokens if max_output_tokens is None else max_output_tokens
+        ),
+        "answer_budget_tokens": request.max_tokens,
+        "reasoning_effort": (
+            request.reasoning_effort if reasoning_effort is None else reasoning_effort
+        ),
+        "temperature": temperature,
+        "response_format": (
+            None if request.response_model is None else request.response_model.__name__
+        ),
+        "tool_names": [tool.name for tool in request.tools],
+        "image_count": len(images),
+        "image_bytes": sum(_decoded_size(image.data_base64) for image in images),
+        "message_count": len(request.messages),
+        "prompt_chars": len(request.system) + sum(len(m.content) for m in request.messages),
+    }
+
+
+def _decoded_size(data_base64: str) -> int:
+    """Bytes of a base64 string without decoding it (padding accounted for)."""
+    stripped = data_base64.rstrip("=")
+    return (len(stripped) * 3) // 4
 
 
 # --------------------------------------------------------------------------- budget
@@ -195,4 +272,7 @@ class ScriptedProvider:
             usage=turn.usage,
             model=self._model,
             provider=self.name,
+            response_id=f"scripted-{len(self.requests)}",
+            finish_reason="tool_use" if turn.tool_calls else "stop",
+            request_params=request_params(request),
         )

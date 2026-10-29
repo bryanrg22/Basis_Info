@@ -258,6 +258,11 @@ class Settings(BaseSettings):
     azure_document_intelligence_endpoint: str | None = None
     azure_document_intelligence_key: SecretStr | None = None
     azure_di_timeout_seconds: float = Field(default=180.0, gt=0, le=1800)
+    # What one analyzed page costs, for the ledger (EVAL_REPORT section 38): Azure AI
+    # Document Intelligence S0 pay-as-you-go, prebuilt-layout, $10 per 1,000 pages
+    # (azure.microsoft.com/pricing/details/ai-document-intelligence, checked 2026-10-29; the
+    # key-value pairs feature is not a priced add-on). A commitment tier changes it.
+    azure_di_usd_per_page: float = Field(default=0.01, ge=0)
     # A critical appraisal field below this confidence sends the extraction to review
     # (S3_SPEC section 4; tuned later by the real-data eval).
     extraction_review_threshold: float = Field(default=0.90, ge=0.0, le=1.0)

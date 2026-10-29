@@ -44,6 +44,20 @@ NOT_DEVELOPED = {
 GOLDEN_KEYS = {f["key"] for f in GOLDEN["fields"]} - NOT_DEVELOPED
 
 
+async def model_calls(deps: Deps) -> list[LlmCall]:
+    """The study's model calls (``kind = chat``). The Azure DI analysis has its own
+    ``document_analysis`` row (EVAL_REPORT section 38), which these tests check apart."""
+    async with session_scope(deps.sessionmaker) as session:
+        rows = (await session.scalars(select(LlmCall).order_by(LlmCall.created_at))).all()
+    return [row for row in rows if row.kind == "chat"]
+
+
+async def document_analyses(deps: Deps) -> list[LlmCall]:
+    async with session_scope(deps.sessionmaker) as session:
+        rows = (await session.scalars(select(LlmCall).order_by(LlmCall.created_at))).all()
+    return [row for row in rows if row.kind == "document_analysis"]
+
+
 def extract(
     seeded: SeededStudy,
     revision: int = 1,
@@ -132,7 +146,20 @@ async def test_extracts_every_golden_field_from_azure_di(
     }
     assert row.raw["azure_di"]["synthetic"] is True
     assert row.raw["fallback"]["status"] == "not_needed"
-    assert await count_rows(deps.sessionmaker, LlmCall) == 0
+    assert await model_calls(deps) == []
+    # The analysis itself is a paid step: one document_analysis row, pages at the list price.
+    [analysis] = await document_analyses(deps)
+    assert (analysis.provider, analysis.model, analysis.unit) == (
+        "azure_di",
+        "prebuilt-layout",
+        "page",
+    )
+    assert analysis.quantity == len(row.raw["azure_di"]["pages"]) and analysis.quantity > 0
+    assert analysis.cost_usd == Decimal(str(deps.settings.azure_di_usd_per_page)) * int(
+        analysis.quantity
+    )
+    assert (analysis.entity_type, analysis.entity_id) == ("appraisal", seeded.appraisal_id)
+    assert analysis.stage is not None and analysis.activity_attempt == 1
     assert activity_env.heartbeats
 
 
@@ -259,7 +286,7 @@ async def test_the_text_layer_fills_what_azure_missed_without_an_llm_call(
     assert (date_field.source, str(date_field.value_date)) == ("regex", "2026-10-01")
     # A critical field read only by the regex (0.80) is below the gate.
     assert output.needs_review
-    assert await count_rows(deps.sessionmaker, LlmCall) == 0
+    assert await model_calls(deps) == []
 
 
 async def test_fallback_value_is_capped_and_recorded_when_no_reader_found_it(
@@ -311,8 +338,7 @@ async def test_fallback_value_is_capped_and_recorded_when_no_reader_found_it(
     row = await extraction(deps, output.extraction_id or "")
     assert row.raw["fallback"]["status"] == "called"
     assert row.raw["fallback"]["dropped"] == {"reconciliation.final_market_value": "not_asked"}
-    async with session_scope(deps.sessionmaker) as session:
-        [call] = (await session.scalars(select(LlmCall))).all()
+    [call] = await model_calls(deps)
     assert (call.activity, call.prompt_version, call.model) == (
         "extract_fields",
         "appraisal_field_fallback/v1",
@@ -508,7 +534,7 @@ async def test_a_uad36_delivery_zip_persists_xml_fields_with_their_pdf_regions(
     assert {row.source for row in rows.values()} == {"mismo_xml"}
     stored = await extraction(deps, out.extraction_id)
     assert stored.method == "mismo_xml+azure_di" and stored.raw["upload_kind"] == "zip"
-    assert await count_rows(deps.sessionmaker, LlmCall) == 0
+    assert await model_calls(deps) == []
 
 
 async def test_a_bare_uad36_xml_uses_the_studys_uploaded_pdf_for_regions(
@@ -650,8 +676,7 @@ async def test_the_production_default_reads_the_appraisal_in_one_grounded_call(
     assert row.method == "azure_di+grounded"
     assert row.raw["grounded"]["quotes"]["subject.occupant"] == "Occupant :selected: Owner"
     assert row.raw["fallback"]["status"] == "called"
-    async with session_scope(deps.sessionmaker) as session:
-        [call] = (await session.scalars(select(LlmCall))).all()
+    [call] = await model_calls(deps)
     assert (call.activity, call.prompt_version, call.model) == (
         "extract_fields",
         "appraisal_fields_grounded/v2",

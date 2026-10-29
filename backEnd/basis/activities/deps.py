@@ -19,6 +19,7 @@ from basis.classify.store_protocol import ChunkStore
 from basis.config import Settings
 from basis.extraction.azure_di import AzureDiClient
 from basis.llm.provider import ChatProvider
+from basis.llm.recorder import LlmCallRecorder
 from basis.retrieval import Retrieval, default_retrieval
 from basis.storage import Storage
 from basis.vision.localize import Localizer
@@ -61,6 +62,16 @@ class Deps:
     # (``reconcile_rooms``; basis.vision.surface_segmenter). ``None``: not built (the option
     # is off); with the option on, every room then keeps its per-photo materials, flagged.
     segmenter: SurfaceSegmenter | None = None
+
+    def ledger(self) -> LlmCallRecorder:
+        """The paid-call recorder for this process: rows in the database, prompt and
+        response payloads in storage under the study, stamped with the worker build."""
+        return LlmCallRecorder(
+            self.sessionmaker,
+            storage=self.storage,
+            bucket=self.bucket,
+            build_sha=self.settings.git_sha,
+        )
 
     @property
     def faults_enabled(self) -> bool:
