@@ -63,8 +63,10 @@ from basis.config import Settings
 from basis.db.enums import DocumentKind, OrgRole, Stage, StudyStatus
 from basis.db.models import Study
 from basis.db.repositories import DocumentRepository, StudyRepository
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.domain.intake import missing_for_start
+from basis.errors.codes import E
 from basis.temporal.names import study_workflow_id
 from basis.temporal.service import (
     RetryRefusedError,
@@ -95,7 +97,11 @@ writes = write_router(tags=["workflow"])
 def get_workflow_service(request: Request) -> WorkflowService:
     workflows: WorkflowService | None = getattr(request.app.state, "workflows", None)
     if workflows is None:
-        raise ServiceUnavailable(DETAIL_NOT_CONFIGURED, retry_after=TEMPORAL_RETRY_AFTER_S)
+        raise ServiceUnavailable(
+            DETAIL_NOT_CONFIGURED,
+            retry_after=TEMPORAL_RETRY_AFTER_S,
+            code=E.API_TEMPORAL_NOT_CONFIGURED,
+        )
     return workflows
 
 
@@ -104,14 +110,18 @@ WorkflowServiceDep = Annotated[WorkflowService, Depends(get_workflow_service)]
 
 def as_problem(exc: WorkflowServiceError) -> Exception:
     if isinstance(exc, WorkflowNotFoundError):
-        return NotFound(DETAIL_NO_WORKFLOW)
+        return NotFound(DETAIL_NO_WORKFLOW, code=E.STUDY_NO_WORKFLOW)
     if isinstance(exc, WorkflowNotRunningError):
         return Conflict(str(exc), type_suffix="workflow-closed")
     if isinstance(exc, RetryRefusedError):
         return Conflict(str(exc), type_suffix="study-not-failed")
     if isinstance(exc, WorkflowUnavailableError):
-        return ServiceUnavailable(str(exc), retry_after=TEMPORAL_RETRY_AFTER_S)
-    return ServiceUnavailable("Temporal returned an unexpected error.")  # pragma: no cover
+        return ServiceUnavailable(
+            str(exc), retry_after=TEMPORAL_RETRY_AFTER_S, code=E.API_TEMPORAL_UNAVAILABLE
+        )
+    return ServiceUnavailable(  # pragma: no cover
+        "Temporal returned an unexpected error.", code=E.API_TEMPORAL_UNAVAILABLE
+    )
 
 
 async def existing_workflow(workflows: WorkflowService, workflow_id: str) -> WorkflowRef:
@@ -207,7 +217,7 @@ async def start_study(
                     type_suffix="appraisal-required",
                 )
             study = await StudyRepository(session).mark_started(
-                study.id, workflow_id, study.revision
+                study.id, workflow_id, study.revision, actor_id=user.id
             )
         past_first_stage = study.current_stage is not Stage.EXTRACTING
         started_input = workflow_input(study, settings)
@@ -245,7 +255,7 @@ async def get_workflow(
     async with session_scope(sessionmaker) as session:
         study = (await require_study_access(session, user, study_id, READ_ROLE)).study
         if study.workflow_id is None:
-            raise NotFound(DETAIL_NO_WORKFLOW)
+            raise NotFound(DETAIL_NO_WORKFLOW, code=E.STUDY_NO_WORKFLOW)
         workflow_id = study.workflow_id
         rows = await StudyRepository(session).runs(study.id)
         runs = [WorkflowRunOut.model_validate(row) for row in rows]
@@ -291,7 +301,7 @@ async def cancel_study(
     async with session_scope(sessionmaker) as session:
         study = (await require_study_access(session, user, study_id, CANCEL_ROLE)).study
         if study.workflow_id is None:
-            raise NotFound(DETAIL_NO_WORKFLOW)
+            raise NotFound(DETAIL_NO_WORKFLOW, code=E.STUDY_NO_WORKFLOW)
         workflow_id = study.workflow_id
     reason = (body or CancelIn()).reason
     try:
@@ -301,6 +311,15 @@ async def cancel_study(
     logger.info(
         "workflow cancel requested", extra={"study_id": str(study_id), "workflow_id": workflow_id}
     )
+    async with session_scope(sessionmaker) as session:
+        await StudyEventRepository(session).record(
+            study_id,
+            "study.cancel_requested",
+            actor="engineer",
+            actor_id=user.id,
+            workflow_id=workflow_id,
+            detail={"reason": reason},
+        )
     return CancelRequested(workflow_id=workflow_id)
 
 
@@ -320,7 +339,7 @@ async def retry_study(
         study = (await require_study_access(session, user, study_id, RETRY_ROLE)).study
         ensure_not_archived(study)
         if study.workflow_id is None:
-            raise NotFound(DETAIL_NO_WORKFLOW)
+            raise NotFound(DETAIL_NO_WORKFLOW, code=E.STUDY_NO_WORKFLOW)
         workflow_id = study.workflow_id
     # The workflow decides (its validator knows whether a stage failed); the study row may
     # lag the workflow by one activity, so it is not checked here.
@@ -332,6 +351,17 @@ async def retry_study(
         "workflow retry requested",
         extra={"study_id": str(study_id), "workflow_id": workflow_id, "stage": accepted.stage},
     )
+    async with session_scope(sessionmaker) as session:
+        await StudyEventRepository(session).record(
+            study_id,
+            "study.retry_requested",
+            actor="engineer",
+            actor_id=user.id,
+            stage=accepted.stage,
+            revision=accepted.revision,
+            workflow_id=workflow_id,
+            detail={"already_requested": accepted.already_requested},
+        )
     return RetryRequested(
         workflow_id=workflow_id,
         stage=Stage(accepted.stage),

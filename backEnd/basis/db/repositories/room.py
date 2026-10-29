@@ -164,6 +164,7 @@ class RoomRepository:
         source: str,
         floor: str | None = None,
         group_key: str | None = None,
+        carried_from: uuid.UUID | None = None,
     ) -> Room:
         room = Room(
             study_id=study_id,
@@ -173,6 +174,7 @@ class RoomRepository:
             floor=floor,
             source=source,
             group_key=group_key,
+            carried_from=carried_from,
         )
         self._session.add(room)
         await self._session.flush()

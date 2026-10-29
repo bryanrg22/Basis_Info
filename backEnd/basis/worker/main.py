@@ -50,6 +50,7 @@ from basis.config import ConfigError, Settings, load_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
 from basis.domain.cost_table import cost_table_for
+from basis.errors.codes import E, tag
 from basis.extraction.azure_di import AzureDocumentIntelligence
 from basis.llm import prompts
 from basis.llm.cost import is_anthropic_model
@@ -294,8 +295,11 @@ def check_models_served(
         if settings.env in ("dev", "test"):
             return
         raise ConfigError(
-            f"no model provider configured, but the pipeline calls {', '.join(models)}; "
-            f"set {ANTHROPIC_VARS} for claude-* models and {OPENAI_VARS} for the others"
+            tag(
+                E.INF_WORKER_CONFIG,
+                f"no model provider configured, but the pipeline calls {', '.join(models)}; "
+                f"set {ANTHROPIC_VARS} for claude-* models and {OPENAI_VARS} for the others",
+            )
         )
     unserved = unserved_models(llm.providers, models)
     if not unserved:
@@ -305,9 +309,12 @@ def check_models_served(
         {ANTHROPIC_VARS if is_anthropic_model(model) else OPENAI_VARS for model in unserved}
     )
     raise ConfigError(
-        f"no configured provider serves these models the pipeline calls (configured: "
-        f"{llm.name}): {listed}. Set {' and '.join(fixes)}, or point those settings at a "
-        "model a configured provider serves"
+        tag(
+            E.INF_WORKER_CONFIG,
+            f"no configured provider serves these models the pipeline calls (configured: "
+            f"{llm.name}): {listed}. Set {' and '.join(fixes)}, or point those settings at a "
+            "model a configured provider serves",
+        )
     )
 
 
@@ -364,7 +371,7 @@ def build_worker(
         task_queue=task_queue or settings.temporal_task_queue,
         workflows=[StudyWorkflow],
         activities=list(registered.values()),
-        interceptors=[LoggingInterceptor(), *interceptors],
+        interceptors=[LoggingInterceptor(deps.sessionmaker), *interceptors],
         **worker_kwargs,
     )
 

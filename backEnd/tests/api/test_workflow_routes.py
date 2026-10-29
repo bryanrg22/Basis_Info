@@ -434,6 +434,7 @@ async def test_status_after_start(
         "needs_review_stages": [],
         "failed_stage": None,
         "failure": None,
+        "failure_code": None,
     }
     (run,) = body["runs"]
     assert (run["run_id"], run["workflow_version"], run["input_revision"]) == (

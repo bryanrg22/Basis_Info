@@ -73,6 +73,7 @@ def fields(model: type[BaseModel]) -> list[str]:
                 "needs_review_stages",
                 "failed_stage",  # v0.9 (EVAL_REPORT 27): additive, default None
                 "failure",
+                "failure_code",  # error codes: additive, default None
             ],
         ),
         (

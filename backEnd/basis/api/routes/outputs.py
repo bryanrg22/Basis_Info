@@ -43,6 +43,7 @@ from basis.api.schemas.outputs import (
     SuggestedCountOut,
     TakeoffOut,
 )
+from basis.api.schemas.timeline import ProvenanceOut
 from basis.api.users import study_access
 from basis.db.enums import OrgRole
 from basis.db.models import Extraction
@@ -56,7 +57,11 @@ from basis.db.repositories.outputs import (
     StudyCorpus,
     component_count,
 )
+from basis.db.repositories.provenance import Provenance, ProvenanceResolver, provenance_json
+from basis.db.repositories.room import RoomRepository
 from basis.db.session import SessionDep
+from basis.errors.catalogue import codes_for_reasons
+from basis.errors.codes import E
 from basis.extraction.field_mappings import FIELD_BY_KEY
 from basis.vision.rooms import ROOM_INVENTORY_SOURCE, is_room_manual
 from basis.vision.selection import suggested_counts
@@ -87,11 +92,15 @@ def _revision(access: VisibleStudy, revision: int | None) -> int:
     if revision is None:
         return current
     if revision > current:
-        raise NotFound(f"The study has no revision {revision} yet.")
+        raise NotFound(f"The study has no revision {revision} yet.", code=E.STUDY_NO_SUCH_REVISION)
     return revision
 
 
-def field_out(row: FieldRow) -> ExtractionFieldOut:
+def provenance_out(provenance: Provenance | None) -> ProvenanceOut | None:
+    return None if provenance is None else ProvenanceOut.model_validate(provenance_json(provenance))
+
+
+def field_out(row: FieldRow, provenance: Provenance | None = None) -> ExtractionFieldOut:
     item = row.field
     key = f"{item.section}.{item.field}"
     spec = FIELD_BY_KEY.get(key)
@@ -112,6 +121,7 @@ def field_out(row: FieldRow) -> ExtractionFieldOut:
         source=item.source,
         page=item.page,
         regions=[FieldRegionOut.model_validate(r) for r in item.regions or []],
+        provenance=provenance_out(provenance),
     )
 
 
@@ -161,6 +171,7 @@ def extraction_out(extraction: Extraction, located: bool, corpus: StudyCorpus) -
         needs_review=extraction.needs_review,
         overall_confidence=extraction.overall_confidence,
         review_reasons=_strings(raw.get("review_reasons")),
+        review_codes=codes_for_reasons(_strings(raw.get("review_reasons"))),
         issues=issues,
         notes=_strings(raw.get("notes")),
         corpus=StudyCorpusOut(
@@ -184,10 +195,17 @@ def _uuids(values: object) -> list[uuid.UUID]:
     return found
 
 
-def room_out(row: RoomRow) -> RoomOut:
+def room_out(
+    row: RoomRow,
+    provenance: Provenance | None = None,
+    photo_provenance: dict[uuid.UUID, Provenance] | None = None,
+    component_provenance: dict[uuid.UUID, Provenance] | None = None,
+) -> RoomOut:
     room = row.room
     items = []
     flagged = False
+    photo_provenance = photo_provenance or {}
+    component_provenance = component_provenance or {}
     for component in row.inventory:
         raw = component.raw if isinstance(component.raw, dict) else {}
         seen = raw.get("seen_in") if row.reconciled else None
@@ -203,6 +221,7 @@ def room_out(row: RoomRow) -> RoomOut:
                 document_id=component.document_id,
                 seen_in=_uuids(seen),
                 added=is_room_manual(component.raw, component.document_id),
+                provenance=provenance_out(component_provenance.get(component.id)),
             )
         )
     inventory: dict[str, int] = {}
@@ -215,7 +234,14 @@ def room_out(row: RoomRow) -> RoomOut:
         floor=room.floor,
         source=room.source,
         group_key=room.group_key,
-        photos=[RoomPhotoOut(document_id=p.document_id, filename=p.filename) for p in row.photos],
+        photos=[
+            RoomPhotoOut(
+                document_id=p.document_id,
+                filename=p.filename,
+                provenance=provenance_out(photo_provenance.get(p.document_id)),
+            )
+            for p in row.photos
+        ],
         inventory_source=ROOM_INVENTORY_SOURCE if row.reconciled else "per_photo",
         needs_review=flagged,
         inventory=items,
@@ -230,11 +256,13 @@ def room_out(row: RoomRow) -> RoomOut:
             )
             for s in suggested_counts(inventory, row.objects)
         ],
+        provenance=provenance_out(provenance),
     )
 
 
-def asset_out(row: AssetRow) -> AssetOut:
+def asset_out(row: AssetRow, provenance: Provenance | None = None) -> AssetOut:
     asset, component = row.asset, row.component
+    reasons = [r for r in (asset.review_reason or "").split("; ") if r]
     return AssetOut(
         id=asset.id,
         component_id=asset.component_id,
@@ -248,7 +276,8 @@ def asset_out(row: AssetRow) -> AssetOut:
         method=asset.method.value,
         confidence=asset.confidence,
         needs_review=asset.needs_review,
-        review_reasons=[r for r in (asset.review_reason or "").split("; ") if r],
+        review_reasons=reasons,
+        review_codes=codes_for_reasons(reasons),
         takeoff=(
             TakeoffOut(
                 quantity=row.takeoff.quantity, unit=row.takeoff.unit, formula=row.takeoff.formula
@@ -269,6 +298,7 @@ def asset_out(row: AssetRow) -> AssetOut:
         ),
         citations=row.citations,
         verified_citations=row.verified_citations,
+        provenance=provenance_out(provenance),
     )
 
 
@@ -287,9 +317,12 @@ async def list_fields(
     page = await OutputRepository(session).fields(
         access.study.id, _revision(access, revision), limit=limit, cursor=cursor
     )
+    provenance = await ProvenanceResolver(session, access.study.id).fields(
+        [row.field for row in page.items]
+    )
     return ExtractionFieldsPageOut(
         revision=page.revision,
-        items=[field_out(row) for row in page.items],
+        items=[field_out(row, provenance.get(row.field.id)) for row in page.items],
         next_cursor=page.next_cursor,
     )
 
@@ -306,7 +339,9 @@ async def get_extraction(
     repo = OutputRepository(session)
     found = await repo.extraction(access.study.id, at)
     if found is None:
-        raise NotFound(f"The study has no appraisal extraction at revision {at}.")
+        raise NotFound(
+            f"The study has no appraisal extraction at revision {at}.", code=E.STUDY_NO_EXTRACTION
+        )
     extraction, located = found
     return extraction_out(extraction, located, await repo.study_corpus(access.study.id, at))
 
@@ -326,9 +361,14 @@ async def list_rooms(
     page = await OutputRepository(session).rooms(
         access.study.id, _revision(access, revision), limit=limit, cursor=cursor
     )
+    resolver = ProvenanceResolver(session, access.study.id)
+    rooms = await resolver.rooms([row.room for row in page.items])
+    components = await resolver.components([c for row in page.items for c in row.inventory])
+    photo_rows = await RoomRepository(session).photo_rooms(access.study.id, page.revision)
+    photos = await resolver.photo_rooms(photo_rows)
     return RoomsPageOut(
         revision=page.revision,
-        items=[room_out(row) for row in page.items],
+        items=[room_out(row, rooms.get(row.room.id), photos, components) for row in page.items],
         next_cursor=page.next_cursor,
     )
 
@@ -355,8 +395,12 @@ async def list_assets(
         cursor=cursor,
         needs_review=needs_review,
     )
+    provenance = await ProvenanceResolver(session, access.study.id).assets(
+        [row.asset for row in page.items],
+        {row.component.id: row.component for row in page.items if row.component is not None},
+    )
     return AssetsPageOut(
         revision=page.revision,
-        items=[asset_out(row) for row in page.items],
+        items=[asset_out(row, provenance.get(row.asset.id)) for row in page.items],
         next_cursor=page.next_cursor,
     )

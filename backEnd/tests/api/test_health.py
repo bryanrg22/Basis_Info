@@ -149,6 +149,10 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         # the paid-call ledger (tests/api/test_spend.py)
         "GET /v1/studies/{study_id}/spend",
         "GET /v1/studies/{study_id}/calls",
+        # the timeline and the audit trail (tests/api/test_timeline.py)
+        "GET /v1/studies/{study_id}/timeline",
+        "GET /v1/studies/{study_id}/timeline/steps",
+        "GET /v1/studies/{study_id}/audit",
         # invite-only firms (tests/api/test_firms.py)
         "GET /v1/me",
         "GET /v1/orgs/{org_id}/members",

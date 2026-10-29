@@ -15,10 +15,11 @@ from dataclasses import dataclass
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from basis.db.enums import Stage, StudyStatus, status_for_stage
+from basis.db.enums import REVIEW_STAGES, Stage, StudyStatus, status_for_stage
 from basis.db.errors import NotVisibleError, StaleStateError
 from basis.db.models import Study
 from basis.db.repositories.study import StudyRepository
+from basis.db.repositories.study_event import StudyEventRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,7 @@ class WorkflowStateRepository:
             raise NotVisibleError(f"study {study_id} not found")
         if study.status is StudyStatus.ARCHIVED:
             raise StaleStateError(f"study {study_id} is archived")
+        events = StudyEventRepository(self._session)
         if study.current_stage is to_stage and study.revision == to_revision:
             expected = status_for_stage(to_stage)
             if study.status is not expected:
@@ -70,6 +72,14 @@ class WorkflowStateRepository:
                     .execution_options(synchronize_session=False)
                 )
                 await self._session.refresh(study)
+                if to_stage in REVIEW_STAGES:
+                    await events.record(
+                        study_id,
+                        "gate.opened",
+                        actor="system",
+                        stage=to_stage,
+                        revision=to_revision,
+                    )
                 return ConvergeResult(study=study, changed=True)
             return ConvergeResult(study=study, changed=False)
         moved = await StudyRepository(self._session).transition(
@@ -79,6 +89,11 @@ class WorkflowStateRepository:
             from_revision,
             new_revision=to_revision if to_revision != from_revision else None,
         )
+        if to_stage in REVIEW_STAGES:
+            # The workflow itself moved the study to the gate: it is open now.
+            await events.record(
+                study_id, "gate.opened", actor="system", stage=to_stage, revision=to_revision
+            )
         return ConvergeResult(study=moved, changed=True)
 
     async def mark_stalled(self, study_id: uuid.UUID, stage: Stage, revision: int) -> bool:
@@ -98,13 +113,24 @@ class WorkflowStateRepository:
             .values(status=StudyStatus.STALLED)
             .execution_options(synchronize_session=False)
         )
-        return bool(getattr(result, "rowcount", 0))
+        changed = bool(getattr(result, "rowcount", 0))
+        if changed:
+            await StudyEventRepository(self._session).record(
+                study_id, "study.stalled", actor="system", stage=stage, revision=revision
+            )
+        return changed
 
     async def mark_failed(
-        self, study_id: uuid.UUID, stage: Stage, revision: int, reason: str
+        self,
+        study_id: uuid.UUID,
+        stage: Stage,
+        revision: int,
+        reason: str,
+        code: str | None = None,
     ) -> bool:
-        """Set ``status = failed`` and the reason while the study is at ``stage``/
-        ``revision`` (not archived). False when it is elsewhere."""
+        """Set ``status = failed``, the reason and its error code (docs/ERROR_CODES.md)
+        while the study is at ``stage``/``revision`` (not archived). False when it is
+        elsewhere. Recorded as a ``stage.failed`` event either way (the failure happened)."""
         result = await self._session.execute(
             update(Study)
             .where(
@@ -113,10 +139,20 @@ class WorkflowStateRepository:
                 Study.revision == revision,
                 Study.status != StudyStatus.ARCHIVED,
             )
-            .values(status=StudyStatus.FAILED, failure_reason=reason)
+            .values(status=StudyStatus.FAILED, failure_reason=reason, failure_code=code)
             .execution_options(synchronize_session=False)
         )
-        return bool(getattr(result, "rowcount", 0))
+        changed = bool(getattr(result, "rowcount", 0))
+        await StudyEventRepository(self._session).record(
+            study_id,
+            "stage.failed",
+            actor="system",
+            stage=stage,
+            revision=revision,
+            code=code,
+            detail={"reason": reason, "marked": changed},
+        )
+        return changed
 
     async def clear_failure(self, study_id: uuid.UUID) -> bool:
         """A failed study goes back to its stage's status, the reason cleared (a retry).
@@ -127,7 +163,19 @@ class WorkflowStateRepository:
         await self._session.execute(
             update(Study)
             .where(Study.id == study_id, Study.status == StudyStatus.FAILED)
-            .values(status=status_for_stage(study.current_stage), failure_reason=None)
+            .values(
+                status=status_for_stage(study.current_stage),
+                failure_reason=None,
+                failure_code=None,
+            )
             .execution_options(synchronize_session=False)
+        )
+        await StudyEventRepository(self._session).record(
+            study_id,
+            "stage.failure_cleared",
+            actor="system",
+            stage=study.current_stage,
+            revision=study.revision,
+            code=study.failure_code,
         )
         return True

@@ -86,6 +86,7 @@ from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
+from basis.errors.codes import E, tag
 from basis.llm.errors import ProviderError
 from basis.llm.provider import Budget, BudgetExceededError
 from basis.storage import ObjectNotFound
@@ -111,10 +112,15 @@ def check_faults(simulate: SimulateFault | None, attempt: int) -> None:
         return
     if simulate.fail_permanently:
         raise ApplicationError(
-            "simulated permanent failure", type=SIMULATED_FAILURE, non_retryable=True
+            tag(E.WF_SIMULATED_FAILURE, "simulated permanent failure"),
+            type=SIMULATED_FAILURE,
+            non_retryable=True,
         )
     if attempt <= simulate.fail_attempts:
-        raise ApplicationError(f"simulated failure on attempt {attempt}", type=SIMULATED_FAILURE)
+        raise ApplicationError(
+            tag(E.WF_SIMULATED_FAILURE, f"simulated failure on attempt {attempt}"),
+            type=SIMULATED_FAILURE,
+        )
 
 
 async def sleep_heartbeating(seconds: float) -> None:
@@ -145,7 +151,9 @@ class AnalyzePhoto:
         async with session_scope(self._deps.sessionmaker) as session:
             document = await DocumentRepository(session).get(study_id, document_id)
             if document is None or document.kind is not DocumentKind.PHOTO:
-                raise validation_error(f"photo {document_id} not found in study {study_id}")
+                raise validation_error(
+                    f"photo {document_id} not found in study {study_id}", E.PHOTO_NOT_FOUND
+                )
             existing = await RoomRepository(session).photo_room(document_id, input.revision)
             pinned: uuid.UUID | None = None
             if existing is not None and input.keep_room:
@@ -256,14 +264,19 @@ class AnalyzePhoto:
     ) -> tuple[PhotoResult, float]:
         if self._deps.llm is None:
             raise ApplicationError(
-                "no vision model provider is configured (OPENAI_API_KEY or AZURE_OPENAI_*)",
+                tag(
+                    E.PROVIDER_NOT_CONFIGURED_VISION,
+                    "no vision model provider is configured (OPENAI_API_KEY or AZURE_OPENAI_*)",
+                ),
                 type=PROVIDER_NOT_CONFIGURED,
                 non_retryable=True,
             )
         try:
             image_bytes = await self._deps.storage.read(gcs_uri)
         except ObjectNotFound:
-            raise validation_error(f"photo file {gcs_uri} is missing from storage") from None
+            raise validation_error(
+                f"photo file {gcs_uri} is missing from storage", E.PHOTO_FILE_MISSING
+            ) from None
         settings = self._deps.settings
         budget = Budget(remaining_usd=input.budget_remaining_usd)
         ctx = VisionContext(
@@ -291,9 +304,11 @@ class AnalyzePhoto:
             async with heartbeating("analyzing"):
                 result = await analyze_photo_in_mode(image_bytes, ctx, settings.vision_photo_mode)
         except ImageRejected as exc:
-            raise validation_error(f"photo {document_id} cannot be analyzed: {exc}") from exc
+            raise validation_error(
+                f"photo {document_id} cannot be analyzed: {exc}", E.PHOTO_IMAGE_REJECTED
+            ) from exc
         except BudgetExceededError as exc:
-            raise budget_exceeded(f"photo {document_id}: {exc}") from exc
+            raise budget_exceeded(f"photo {document_id}: {exc}", E.BUDGET_PHOTO) from exc
         except ProviderError as exc:
             raise provider_failure(exc, f"photo {document_id}") from exc
         return result, round(budget.spent_usd, 6)

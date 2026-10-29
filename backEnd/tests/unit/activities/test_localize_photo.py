@@ -27,6 +27,7 @@ from basis.activities.localize_photo import (
 )
 from basis.db.models import PhotoLocalization, PhotoObject
 from basis.db.session import session_scope
+from basis.errors.codes import E, tag
 from basis.vision.localize import (
     CANDIDATE_THRESHOLD,
     Box,
@@ -189,7 +190,12 @@ async def test_without_a_localizer_the_photo_is_skipped(
 ) -> None:
     await analyzed(deps, seeded, activity_env)
     output = await activity_env.run(LocalizePhoto(deps).run, localize_input(seeded))
-    assert (output.status, output.instances, output.reason) == ("skipped", 0, NO_LOCALIZER)
+    # The reason ends with its catalogue code (docs/ERROR_CODES.md).
+    assert (output.status, output.instances, output.reason) == (
+        "skipped",
+        0,
+        tag(E.PROVIDER_NO_LOCALIZER, NO_LOCALIZER),
+    )
     [status] = await stored(deps, PhotoLocalization)
     assert (status.status, status.model_version) == ("skipped", None)
     assert status.params["labels"]  # what would have been prompted is still recorded
@@ -205,7 +211,7 @@ async def test_without_budget_the_photo_is_skipped(
         LocalizePhoto(dataclasses.replace(deps, localizer=localizer)).run,
         localize_input(seeded, budget=0.0),
     )
-    assert (output.status, output.reason) == ("skipped", NO_BUDGET)
+    assert (output.status, output.reason) == ("skipped", tag(E.BUDGET_LOCALIZE_SKIPPED, NO_BUDGET))
     assert localizer.calls == []
 
 

@@ -11,6 +11,7 @@ from pydantic import Field
 
 from basis.api.schemas.common import ResponseModel
 from basis.api.schemas.evidence import RoomRefOut
+from basis.api.schemas.timeline import ProvenanceOut
 from basis.db.enums import Bucket
 
 
@@ -60,6 +61,11 @@ class ExtractionFieldOut(ResponseModel):
             "located (then fall back to searching the page's text)."
         )
     )
+    provenance: ProvenanceOut | None = Field(
+        default=None,
+        description="Who produced the value: the model, or the engineer's correction "
+        "(docs/api/TIMELINE_AND_AUDIT.md).",
+    )
 
 
 class ExtractionFieldsPageOut(ResponseModel):
@@ -73,6 +79,11 @@ class ExtractionFieldsPageOut(ResponseModel):
 class RoomPhotoOut(ResponseModel):
     document_id: uuid.UUID
     filename: str
+    provenance: ProvenanceOut | None = Field(
+        default=None,
+        description="Who put the photo in this room: the model's grouping, or an engineer's "
+        "`photo_room` move.",
+    )
 
 
 class InventoryItemOut(ResponseModel):
@@ -92,6 +103,11 @@ class InventoryItemOut(ResponseModel):
         default=False,
         description="An engineer added it to the room at a rooms review (a "
         "`room_component` correction); its asset is built whatever the room's inventory.",
+    )
+    provenance: ProvenanceOut | None = Field(
+        default=None,
+        description="Who produced the row: the model, an engineer's addition, or an "
+        "engineer's correction of its label, material, attachment or count.",
     )
 
 
@@ -130,6 +146,11 @@ class RoomOut(RoomRefOut):
     suggested_counts: list[SuggestedCountOut] = Field(
         default_factory=list,
         description="Per label with counted instances on the room's photos, by label.",
+    )
+    provenance: ProvenanceOut | None = Field(
+        default=None,
+        description="Who produced the room: the model's grouping, or an engineer's rename, "
+        "retype or floor correction.",
     )
 
 
@@ -173,6 +194,15 @@ class AssetOut(ResponseModel):
     cost: CostOut | None
     citations: int
     verified_citations: int
+    review_codes: list[str] = Field(
+        default_factory=list,
+        description="The error codes behind `review_reasons` (docs/ERROR_CODES.md), in order.",
+    )
+    provenance: ProvenanceOut | None = Field(
+        default=None,
+        description="Who produced the classification: the model or rules, an engineer's "
+        "`asset` correction, or an engineer-added component. The takeoff and cost share it.",
+    )
 
 
 class AssetsPageOut(ResponseModel):
@@ -249,6 +279,10 @@ class ExtractionOut(ResponseModel):
     review_reasons: list[str] = Field(
         description="Why the review gate flagged it: `missing:<key>`, "
         "`low_confidence:<key>=<c><<t>`, or `<rule>[:<keys>]` for each issue."
+    )
+    review_codes: list[str] = Field(
+        default_factory=list,
+        description="The error codes behind `review_reasons` (docs/ERROR_CODES.md), in order.",
     )
     issues: list[ExtractionIssueOut]
     notes: list[str] = Field(description="Reader notes (informational, not stable text).")

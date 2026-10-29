@@ -89,6 +89,7 @@ class BodySizeLimitMiddleware:
             detail=error.detail,
             type_uri=error.type_uri,
             instance=scope.get("path"),
+            code=error.code_value,
         )
         await response(scope, receive, send)
 

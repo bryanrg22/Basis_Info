@@ -13,6 +13,7 @@ from basis.activities._support import activity_key, parse_uuid, run_once_no_outp
 from basis.activities.deps import Deps
 from basis.db.models import Study
 from basis.db.repositories.run import RunRepository
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.workflow.contracts import RunStartInput
 
@@ -40,6 +41,18 @@ class RecordRunStart:
                 .where(Study.id == study_id)
                 .values(components_gate=input.components_gate)
                 .execution_options(synchronize_session=False)
+            )
+            await StudyEventRepository(session).record(
+                study_id,
+                "run.started",
+                actor="system",
+                revision=input.input_revision,
+                workflow_id=input.workflow_id,
+                run_id=input.run_id,
+                detail={
+                    "workflow_version": input.workflow_version,
+                    "components_gate": input.components_gate,
+                },
             )
 
         await run_once_no_output(self._deps, name="record_run_start", key=activity_key(), work=work)

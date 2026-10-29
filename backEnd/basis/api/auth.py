@@ -26,6 +26,7 @@ from starlette.concurrency import run_in_threadpool
 
 from basis.api.errors import Unauthorized
 from basis.auth.firebase import Principal
+from basis.errors.codes import E
 
 AUTHORIZATION_HEADER: Final = "Authorization"
 DETAIL_MISSING: Final = "Missing Authorization header; send 'Authorization: Bearer <ID token>'."
@@ -58,7 +59,7 @@ def parse_bearer(header: str) -> str:
     """
     parts = header.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise Unauthorized(DETAIL_MALFORMED, error=None)
+        raise Unauthorized(DETAIL_MALFORMED, error=None, code=E.API_AUTH_MALFORMED)
     return parts[1]
 
 
@@ -78,7 +79,7 @@ async def get_principal(
     principal: Annotated[Principal | None, Depends(get_optional_principal)],
 ) -> Principal:
     if principal is None:
-        raise Unauthorized(DETAIL_MISSING, error=None)
+        raise Unauthorized(DETAIL_MISSING, error=None, code=E.API_AUTH_MISSING)
     return principal
 
 

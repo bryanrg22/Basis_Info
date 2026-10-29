@@ -71,7 +71,9 @@ from basis.db.enums import DocumentKind, OrgRole, StudyStatus
 from basis.db.errors import DuplicateDocumentError
 from basis.db.models import Study
 from basis.db.repositories import DocumentRepository, VisibleStudy
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import SessionDep, session_scope
+from basis.errors.codes import E
 from basis.extraction.package import InvalidPackage, check_declared, read_appraisal_upload
 from basis.storage import ObjectNotFound, Storage, object_uri
 
@@ -208,13 +210,27 @@ async def complete_upload(
         ensure_not_archived(access.study)
         found = await DocumentRepository(session).get(study_id, document_id)
         if found is None:
-            raise NotFound("Document not found.")
+            raise NotFound("Document not found.", code=E.UPLOAD_DOCUMENT_NOT_FOUND)
         document, uri = DocumentOut.model_validate(found), found.gcs_uri
     if document.uploaded_at is not None:
         return document
     await verify_object(storage, document, uri)
     async with session_scope(sessionmaker) as session:
         confirmed = await DocumentRepository(session).mark_uploaded(study_id, document_id)
+        await StudyEventRepository(session).record(
+            study_id,
+            "document.uploaded",
+            actor="engineer",
+            actor_id=user.id,
+            entity_type="document",
+            entity_id=document_id,
+            detail={
+                "kind": confirmed.kind.value,
+                "filename": confirmed.filename,
+                "bytes": confirmed.bytes,
+                "sha256": confirmed.sha256,
+            },
+        )
         return DocumentOut.model_validate(confirmed)
 
 
@@ -247,7 +263,7 @@ async def document_content(
         await require_study_access(session, user, study_id, OrgRole.VIEWER)
         found = await DocumentRepository(session).get(study_id, document_id)
         if found is None:
-            raise NotFound("Document not found.")
+            raise NotFound("Document not found.", code=E.UPLOAD_DOCUMENT_NOT_FOUND)
         uri, content_type, filename = found.gcs_uri, found.content_type, found.filename
         sha256, uploaded = found.sha256, found.uploaded_at is not None
     if not uploaded:
@@ -259,7 +275,9 @@ async def document_content(
     try:
         data = await storage.read(uri)
     except ObjectNotFound:
-        raise NotFound("The document's bytes are missing from storage.") from None
+        raise NotFound(
+            "The document's bytes are missing from storage.", code=E.UPLOAD_BYTES_MISSING
+        ) from None
     headers["Content-Disposition"] = _content_disposition(filename)
     headers["X-Content-Type-Options"] = "nosniff"
     return Response(content=data, media_type=content_type, headers=headers)
@@ -291,7 +309,7 @@ async def document_pdf(
         await require_study_access(session, user, study_id, OrgRole.VIEWER)
         found = await DocumentRepository(session).get(study_id, document_id)
         if found is None:
-            raise NotFound("Document not found.")
+            raise NotFound("Document not found.", code=E.UPLOAD_DOCUMENT_NOT_FOUND)
         uri, content_type, filename = found.gcs_uri, found.content_type, found.filename
         sha256, uploaded, kind = found.sha256, found.uploaded_at is not None, found.kind
     if not uploaded:
@@ -309,7 +327,9 @@ async def document_pdf(
     try:
         data = await storage.read(uri)
     except ObjectNotFound:
-        raise NotFound("The document's bytes are missing from storage.") from None
+        raise NotFound(
+            "The document's bytes are missing from storage.", code=E.UPLOAD_BYTES_MISSING
+        ) from None
     if content_type == ZIP_TYPE:
         try:
             upload = await anyio.to_thread.run_sync(read_appraisal_upload, data)

@@ -103,12 +103,13 @@ from basis.classify.schemas import ComponentView
 from basis.classify.verify import VerifiedCitation
 from basis.config import Settings
 from basis.db.enums import ClassificationMethod, Corpus
-from basis.db.models import Asset, Component, CorpusVersion, Room
+from basis.db.models import Asset, Component, CorpusVersion, Correction, Room
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.costs import CostError, CostEstimate, NeedsQuantity, estimate_cost
@@ -129,6 +130,7 @@ from basis.domain.rooms import guidance_for, typical_area_sf
 from basis.domain.rules import RECOVERY_YEARS, PropertyClass, check_property_class, lookup
 from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
+from basis.errors.codes import E
 from basis.llm.cost import cost_usd
 from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import Budget
@@ -283,7 +285,8 @@ async def _prepare(
         if worst > input.budget_remaining_usd:
             raise budget_exceeded(
                 f"{len(residual)} components need the model (up to ${worst}); "
-                f"${input.budget_remaining_usd:.4f} remains"
+                f"${input.budget_remaining_usd:.4f} remains",
+                E.BUDGET_CLASSIFY,
             )
     return _Prepared(
         components, rooms, overrides, views, ctx, budget, measurements, intake, property_class
@@ -348,6 +351,7 @@ async def _write(
             asset, rule_key, extra_inputs = await _write_manual(
                 assets, component, input.revision, override, property_class, room
             )
+            await _record_override(session, study_id, asset, override, input.revision)
             citations: tuple[VerifiedCitation, ...] = ()
         else:
             result = results[component.id]
@@ -525,6 +529,46 @@ async def _write_classified(
     )
 
 
+async def _record_override(
+    session: AsyncSession, study_id: uuid.UUID, asset: Asset, override: Override, revision: int
+) -> None:
+    """The ``entity.corrected`` timeline event of an asset built from an ``asset`` correction
+    (``basis.db.repositories.study_event``)."""
+    old = override.old
+    rows = (
+        await session.scalars(
+            select(Correction).where(
+                Correction.study_id == study_id,
+                Correction.entity_type == "asset",
+                Correction.entity_id == old.id,
+                Correction.revision == old.revision,
+            )
+        )
+    ).all()
+    await StudyEventRepository(session).record(
+        study_id,
+        "entity.corrected",
+        actor="engineer",
+        actor_id=rows[0].reviewer_id if rows else None,
+        revision=revision,
+        entity_type="asset",
+        entity_id=asset.id,
+        before={
+            "category": old.category,
+            "bucket": old.bucket.value,
+            "recovery_period": str(old.recovery_period),
+            "irs_section": old.irs_section,
+        },
+        after=dict(override.after),
+        detail={
+            "carried_from": str(old.id),
+            "correction_ids": [str(row.id) for row in rows],
+            "reasons": [row.reason for row in rows if row.reason],
+            "from_revision": old.revision,
+        },
+    )
+
+
 async def _write_manual(
     assets: AssetRepository,
     component: Component,
@@ -542,7 +586,10 @@ async def _write_manual(
     elif bucket in RECOVERY_YEARS:
         recovery = RECOVERY_YEARS[bucket]
     else:
-        raise validation_error(f"asset {old.id}: a {bucket.value} correction needs recovery_period")
+        raise validation_error(
+            f"asset {old.id}: a {bucket.value} correction needs recovery_period",
+            E.ASSETS_BUCKET_NEEDS_PERIOD,
+        )
     section = after.get("irs_section", old.irs_section)
     issues = validate_classification(
         label=component.label,
@@ -772,14 +819,21 @@ async def _overrides(
     overrides: dict[uuid.UUID, Override] = {}
     for correction in corrections:
         if correction.entity_type != "asset":
-            raise validation_error(f"process_assets cannot apply a {correction.entity_type}")
+            raise validation_error(
+                f"process_assets cannot apply a {correction.entity_type}", E.ASSETS_CORRECTION_TYPE
+            )
         check_asset(correction.after)
         old = await assets.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if old is None or old.component_id is None:
-            raise validation_error(f"asset {correction.entity_id} not found in study {study_id}")
+            raise validation_error(
+                f"asset {correction.entity_id} not found in study {study_id}",
+                E.ASSETS_ASSET_NOT_FOUND,
+            )
         component_id = by_origin.get(str(old.component_id))
         if component_id is None:
-            raise validation_error(f"asset {old.id} has no component in this revision")
+            raise validation_error(
+                f"asset {old.id} has no component in this revision", E.ASSETS_NO_COMPONENT
+            )
         previous = overrides.get(component_id)
         merged = {**(previous.after if previous else {}), **correction.after}
         overrides[component_id] = Override(old=old, after=merged)

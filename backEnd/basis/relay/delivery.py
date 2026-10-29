@@ -57,6 +57,7 @@ from basis.db.enums import Stage
 from basis.db.models import OutboxMessage
 from basis.db.repositories.outbox import NOTIFICATION, WORKFLOW_SIGNAL, OutboxRepository
 from basis.db.session import session_scope
+from basis.errors.codes import E
 from basis.obs.logging import bound
 from basis.temporal.names import (
     DECIDE_UPDATE,
@@ -295,13 +296,18 @@ class Relay:
             await outbox.mark_delivered(message.id, last_error=result.error)
             logger.warning(
                 "outbox message refused by its consumer; not retried",
-                extra={**fields, "error": result.error},
+                extra={**fields, "error": result.error, "error_code": E.INF_RELAY_REFUSED},
             )
         elif result.outcome is Outcome.DEAD or attempts >= self.max_attempts:
             await outbox.mark_dead(message.id, result.error or "dead")
             logger.error(
                 "outbox message is dead",
-                extra={**fields, "attempts": attempts, "error": result.error},
+                extra={
+                    **fields,
+                    "attempts": attempts,
+                    "error": result.error,
+                    "error_code": E.INF_RELAY_DEAD,
+                },
             )
         else:
             retry_in = backoff(attempts)

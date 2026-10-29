@@ -87,6 +87,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Final
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
@@ -111,12 +112,14 @@ from basis.activities.corrections import (
 )
 from basis.activities.deps import Deps
 from basis.db.enums import DocumentKind
-from basis.db.models import Component, Extraction, Room, Study
+from basis.db.models import Component, Correction, Extraction, Room, Study
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
+from basis.db.repositories.study_event import StudyEventRepository
+from basis.errors.codes import E
 from basis.vision.rooms import (
     ROOM_MANUAL_SOURCE,
     is_room_inventory,
@@ -134,6 +137,90 @@ from basis.workflow.contracts import (
 CARRIED_FROM: Final = "carried_from"
 
 
+class _Recorder:
+    """Writes the ``entity.*`` events of the corrections applied to the new revision
+    (``basis.db.repositories.study_event``): the new row, what it was copied from, the
+    correction rows (by study, revision and target) and the reviewer who made them."""
+
+    def __init__(self, session: AsyncSession, study_id: uuid.UUID, from_revision: int) -> None:
+        self._events = StudyEventRepository(session)
+        self._session = session
+        self._study_id = study_id
+        self._from_revision = from_revision
+        self._to_revision = from_revision + 1
+        self._rows: dict[tuple[str, uuid.UUID], list[Correction]] | None = None
+
+    async def corrections(self, entity_type: str, entity_id: uuid.UUID) -> list[Correction]:
+        if self._rows is None:
+            found = await self._session.scalars(
+                select(Correction)
+                .where(
+                    Correction.study_id == self._study_id,
+                    Correction.revision == self._from_revision,
+                )
+                .order_by(Correction.created_at, Correction.id)
+            )
+            self._rows = {}
+            for row in found.all():
+                self._rows.setdefault((row.entity_type, row.entity_id), []).append(row)
+        return self._rows.get((entity_type, entity_id), [])
+
+    async def record(
+        self,
+        event_type: str,
+        *,
+        entity_type: str,
+        entity_id: uuid.UUID,
+        corrected: tuple[str, uuid.UUID],
+        before: Any | None,
+        after: Any | None,
+        carried_from: uuid.UUID | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        rows = await self.corrections(*corrected)
+        await self._events.record(
+            self._study_id,
+            event_type,
+            actor="engineer",
+            actor_id=rows[0].reviewer_id if rows else None,
+            revision=self._to_revision,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            before=before,
+            after=after,
+            detail={
+                "carried_from": None if carried_from is None else str(carried_from),
+                "correction_ids": [str(row.id) for row in rows],
+                "reasons": [row.reason for row in rows if row.reason],
+                "from_revision": self._from_revision,
+                **(extra or {}),
+            },
+        )
+
+    async def summary(
+        self, stage: str, applied: int, refused: tuple[str | None, str | None]
+    ) -> None:
+        await self._events.record(
+            self._study_id,
+            "revision.carried",
+            actor="system",
+            stage=stage,
+            revision=self._to_revision,
+            detail={"from_revision": self._from_revision, "applied": applied},
+        )
+        code, reason = refused
+        if code is not None or reason is not None:
+            await self._events.record(
+                self._study_id,
+                "corrections.refused",
+                actor="system",
+                stage=stage,
+                revision=self._to_revision,
+                code=code,
+                detail={"reason": reason, "from_revision": self._from_revision},
+            )
+
+
 class ApplyCorrections:
     def __init__(self, deps: Deps) -> None:
         self._deps = deps
@@ -142,7 +229,7 @@ class ApplyCorrections:
     async def run(self, input: ApplyCorrectionsInput) -> ApplyCorrectionsOutput:
         study_id = parse_uuid(input.study_id, "study_id")
         if input.to_revision != input.from_revision + 1:
-            raise validation_error("to_revision must be from_revision + 1")
+            raise validation_error("to_revision must be from_revision + 1", E.CORRECT_REVISION_STEP)
 
         async def work(session: AsyncSession) -> ApplyCorrectionsOutput:
             by_type = _group(input.corrections)
@@ -151,6 +238,7 @@ class ApplyCorrections:
             if input.stage != "appraisal_review":
                 await _carry_extractions(session, study_id, input.from_revision, input.to_revision)
             flagged = {parse_uuid(c.entity_id, "entity_id") for c in by_type.get("photo", [])}
+            recorder = _Recorder(session, study_id, input.from_revision)
             applied = await _carry_rooms(
                 session,
                 study_id,
@@ -162,7 +250,9 @@ class ApplyCorrections:
                 component_corrections=by_type.get("component", []),
                 added=by_type.get("room_component", []),
                 moves=by_type.get("photo_room", []),
+                recorder=recorder,
             )
+            await recorder.summary(input.stage, applied, (input.refused_code, input.refused_reason))
             return ApplyCorrectionsOutput(applied=applied)
 
         return await run_once(
@@ -191,7 +281,10 @@ async def _validate(
     """
     unknown = set(by_type) - allowed
     if unknown:
-        raise validation_error(f"{stage} does not accept {', '.join(sorted(unknown))} corrections")
+        raise validation_error(
+            f"{stage} does not accept {', '.join(sorted(unknown))} corrections",
+            E.CORRECT_STAGE_TYPE,
+        )
     extractions = ExtractionRepository(session)
     for correction in by_type.get("extraction_field", []):
         check_extraction_field(correction.after)
@@ -199,14 +292,18 @@ async def _validate(
         extraction = None if field is None else await session.get(Extraction, field.extraction_id)
         if extraction is None or extraction.revision != from_revision:
             raise validation_error(
-                f"extraction field {correction.entity_id} is not in the rejected revision"
+                f"extraction field {correction.entity_id} is not in the rejected revision",
+                E.CORRECT_FIELD_NOT_IN_REVISION,
             )
     assets = AssetRepository(session)
     for correction in by_type.get("asset", []):
         check_asset(correction.after)
         asset = await assets.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if asset is None or asset.revision != from_revision:
-            raise validation_error(f"asset {correction.entity_id} is not in the rejected revision")
+            raise validation_error(
+                f"asset {correction.entity_id} is not in the rejected revision",
+                E.CORRECT_ASSET_NOT_IN_REVISION,
+            )
     documents = DocumentRepository(session)
     for correction in by_type.get("photo", []) + by_type.get("photo_room", []):
         if correction.entity_type == "photo":
@@ -215,7 +312,9 @@ async def _validate(
             check_photo_room(correction.after)
         document = await documents.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if document is None or document.kind is not DocumentKind.PHOTO:
-            raise validation_error(f"photo {correction.entity_id} is not a photo of this study")
+            raise validation_error(
+                f"photo {correction.entity_id} is not a photo of this study", E.CORRECT_NOT_A_PHOTO
+            )
 
 
 def _group(corrections: tuple[CorrectionInput, ...]) -> dict[str, list[CorrectionInput]]:
@@ -266,11 +365,14 @@ async def _carry_rooms(
     component_corrections: list[CorrectionInput],
     added: list[CorrectionInput],
     moves: list[CorrectionInput],
+    recorder: _Recorder | None = None,
 ) -> int:
     """Copy the rooms, assignments, components and objects (module doc). ``skip_photos``
     are re-analyzed: their rows and objects stay behind, and so does their assignment
-    unless ``keep_rooms_of_skipped`` (the components review: the approved room stands)."""
+    unless ``keep_rooms_of_skipped`` (the components review: the approved room stands).
+    ``recorder`` writes the ``entity.*`` timeline events of what the corrections changed."""
     repo = RoomRepository(session)
+    recorder = recorder or _Recorder(session, study_id, from_revision)
     old_rooms = {room.id: room for room in await repo.list_for_revision(study_id, from_revision)}
     old_components = {c.id: c for c in await repo.components(study_id, from_revision)}
     room_after = _targets(room_corrections, old_rooms, ROOM_FIELDS, "room")
@@ -306,10 +408,20 @@ async def _carry_rooms(
     for room_id in sorted(keep_rooms):
         heartbeat("room")
         new_room_ids[room_id] = await _copy_room(
-            repo, old_rooms[room_id], to_revision, room_after, adopted.get(room_id)
+            repo, old_rooms[room_id], to_revision, room_after, adopted.get(room_id), recorder
         )
     for source, target in merges.items():
         new_room_ids[source] = new_room_ids[target]
+        old = old_rooms[source]
+        await recorder.record(
+            "entity.merged",
+            entity_type="room",
+            entity_id=source,
+            corrected=("room", source),
+            before={"name": old.name, "room_type": old.room_type, "floor": old.floor},
+            after={MERGE_INTO: str(new_room_ids[target])},
+            extra={"merged_into_from_revision": str(target)},
+        )
     await _record_merges(session, study_id, merges, old_rooms)
     for document_id, room_id in room_of.items():
         await repo.assign_photo(
@@ -318,6 +430,17 @@ async def _carry_rooms(
             room_id=new_room_ids[room_id],
             revision=to_revision,
         )
+        if document_id in moved:
+            previous = next(pr.room_id for pr in all_assignments if pr.document_id == document_id)
+            await recorder.record(
+                "entity.moved",
+                entity_type="photo_room",
+                entity_id=document_id,
+                corrected=("photo_room", document_id),
+                before={"room_id": str(previous)},
+                after={"room_id": str(new_room_ids[room_id])},
+                extra={"room_id_from_revision": str(room_id)},
+            )
     for component in old_components.values():
         if component.document_id in skip_photos:
             continue
@@ -328,11 +451,19 @@ async def _carry_rooms(
         heartbeat("component")
         moved_to = moved.get(component.document_id) if component.document_id else None
         await _copy_component(
-            repo, component, to_revision, new_room_ids, component_after, room_id=moved_to
+            repo,
+            component,
+            to_revision,
+            new_room_ids,
+            component_after,
+            room_id=moved_to,
+            recorder=recorder,
         )
     for room_id, after in additions:
         heartbeat("added component")
-        await _add_component(repo, study_id, to_revision, new_room_ids[room_id], room_id, after)
+        await _add_component(
+            repo, study_id, to_revision, new_room_ids[room_id], room_id, after, recorder
+        )
     heartbeat("objects")
     await PhotoObjectRepository(session).carry(
         study_id, from_revision, to_revision, skip_photos=skip_photos
@@ -357,10 +488,14 @@ def _moves(
         if document_id not in rooms_of:
             raise validation_error(
                 f"photo {document_id} has no room in the rejected revision (its analysis "
-                "failed); flag it for re-analysis instead"
+                "failed); flag it for re-analysis instead",
+                E.CORRECT_PHOTO_HAS_NO_ROOM,
             )
         if target not in old_rooms:
-            raise validation_error(f"room {target} (room_id) is not in the rejected revision")
+            raise validation_error(
+                f"room {target} (room_id) is not in the rejected revision",
+                E.CORRECT_MOVE_TARGET_UNKNOWN,
+            )
         moved[document_id] = target
     return {d: room for d, room in moved.items() if rooms_of[d] != room}
 
@@ -374,7 +509,9 @@ def _additions(
     for correction in corrections:
         room_id = parse_uuid(correction.entity_id, "entity_id")
         if room_id not in old_rooms:
-            raise validation_error(f"room {room_id} is not in the rejected revision")
+            raise validation_error(
+                f"room {room_id} is not in the rejected revision", E.CORRECT_ROOM_NOT_IN_REVISION
+            )
         check_room_component(correction.after)
         found.append((room_id, dict(correction.after)))
     return found
@@ -391,12 +528,20 @@ def _merges(
         if MERGE_INTO not in after:
             continue
         if len(after) > 1:
-            raise validation_error(f"room {room_id}: merge_into takes no other field")
+            raise validation_error(
+                f"room {room_id}: merge_into takes no other field",
+                E.CORRECT_MERGE_WITH_OTHER_FIELDS,
+            )
         target = parse_uuid(str(after[MERGE_INTO]), "merge_into")
         if target not in old_rooms:
-            raise validation_error(f"room {target} (merge_into) is not in the rejected revision")
+            raise validation_error(
+                f"room {target} (merge_into) is not in the rejected revision",
+                E.CORRECT_MERGE_TARGET_UNKNOWN,
+            )
         if target == room_id:
-            raise validation_error(f"room {room_id} cannot be merged into itself")
+            raise validation_error(
+                f"room {room_id} cannot be merged into itself", E.CORRECT_MERGE_INTO_SELF
+            )
         direct[room_id] = target
     final: dict[uuid.UUID, uuid.UUID] = {}
     for start in direct:
@@ -404,7 +549,9 @@ def _merges(
         current = direct[start]
         while current in direct:
             if current in seen:
-                raise validation_error("room merges loop: " + " -> ".join(map(str, seen)))
+                raise validation_error(
+                    "room merges loop: " + " -> ".join(map(str, seen)), E.CORRECT_MERGE_LOOP
+                )
             seen.append(current)
             current = direct[current]
         final[start] = current
@@ -441,7 +588,7 @@ async def _record_merges(
         return
     study = await session.get(Study, study_id)
     if study is None:  # pragma: no cover - the rooms exist, so the study does
-        raise validation_error(f"study {study_id} not found")
+        raise validation_error(f"study {study_id} not found", E.CORRECT_STUDY_NOT_FOUND)
     aliases = dict(study.room_aliases or {})
     for source, target in pairs:
         assert source is not None and target is not None
@@ -460,7 +607,9 @@ def _targets(
     for correction in corrections:
         target = parse_uuid(correction.entity_id, "entity_id")
         if target not in rows:
-            raise validation_error(f"{kind} {target} is not in the rejected revision")
+            raise validation_error(
+                f"{kind} {target} is not in the rejected revision", E.CORRECT_TARGET_NOT_IN_REVISION
+            )
         check_fields(kind, correction.after, allowed)
         after.setdefault(target, {}).update(correction.after)
     return after
@@ -472,6 +621,7 @@ async def _copy_room(
     to_revision: int,
     room_after: dict[uuid.UUID, dict[str, Any]],
     adopted_key: str | None = None,
+    recorder: _Recorder | None = None,
 ) -> uuid.UUID:
     changes = room_after.get(old.id, {})
     new = await repo.create(
@@ -482,7 +632,18 @@ async def _copy_room(
         floor=changes.get("floor", old.floor),
         source="manual" if changes else old.source,
         group_key=old.group_key if old.group_key is not None else adopted_key,
+        carried_from=old.id,
     )
+    if changes and recorder is not None:
+        await recorder.record(
+            "entity.corrected",
+            entity_type="room",
+            entity_id=new.id,
+            corrected=("room", old.id),
+            before={key: getattr(old, key) for key in changes if hasattr(old, key)},
+            after=changes,
+            carried_from=old.id,
+        )
     return new.id
 
 
@@ -494,18 +655,20 @@ async def _copy_component(
     component_after: dict[uuid.UUID, dict[str, Any]],
     *,
     room_id: uuid.UUID | None = None,
+    recorder: _Recorder | None = None,
 ) -> None:
     """Copy ``old`` with its corrections, into its room's copy or, for a moved photo's row,
     into ``room_id``'s."""
     changes = component_after.get(old.id, {})
     source_room = room_id if room_id is not None else old.room_id
-    raw = {**(old.raw if isinstance(old.raw, dict) else {}), CARRIED_FROM: str(old.id)}
+    old_raw = old.raw if isinstance(old.raw, dict) else {}
+    raw = {**old_raw, CARRIED_FROM: str(old.id)}
     if changes:
         raw["corrected"] = sorted(changes)
     if "count" in changes:
         raw["count_before"] = raw.get("count")
         raw["count"] = changes["count"]
-    await repo.add_component(
+    new = await repo.add_component(
         study_id=old.study_id,
         revision=to_revision,
         document_id=old.document_id,
@@ -517,6 +680,20 @@ async def _copy_component(
         bbox=old.bbox,
         raw=raw,
     )
+    if changes and recorder is not None:
+        before = {
+            key: (old_raw.get("count") if key == "count" else getattr(old, key, None))
+            for key in changes
+        }
+        await recorder.record(
+            "entity.corrected",
+            entity_type="component",
+            entity_id=new.id,
+            corrected=("component", old.id),
+            before=before,
+            after=changes,
+            carried_from=old.id,
+        )
 
 
 async def _add_component(
@@ -526,11 +703,12 @@ async def _add_component(
     room_id: uuid.UUID,
     corrected_room: uuid.UUID,
     after: dict[str, Any],
+    recorder: _Recorder | None = None,
 ) -> None:
     """A component an engineer added to a room (module doc)."""
     material = str(after.get("material") or "unknown")
     attachment = str(after.get("attachment") or "unknown")
-    await repo.add_component(
+    new = await repo.add_component(
         study_id=study_id,
         revision=to_revision,
         document_id=None,
@@ -548,3 +726,13 @@ async def _add_component(
             "room_from": str(corrected_room),
         },
     )
+    if recorder is not None:
+        await recorder.record(
+            "entity.added",
+            entity_type="component",
+            entity_id=new.id,
+            corrected=("room_component", corrected_room),
+            before=None,
+            after=after,
+            extra={"room_id": str(room_id), "room_from_revision": str(corrected_room)},
+        )

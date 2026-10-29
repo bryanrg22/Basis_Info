@@ -2471,6 +2471,331 @@
         }
       }
     },
+    "/v1/studies/{study_id}/timeline": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "The study's timeline: every recorded event, in order",
+        "operationId": "get_timeline_v1_studies__study_id__timeline_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Events per page.",
+              "default": 200,
+              "title": "Limit"
+            },
+            "description": "Events per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` of the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` of the previous page."
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only these event types (repeat the parameter).",
+              "title": "Event Type"
+            },
+            "description": "Only these event types (repeat the parameter)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelinePageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/timeline/steps": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "The study's steps (per activity, with attempts and durations) and stage visits",
+        "operationId": "get_timeline_steps_v1_studies__study_id__timeline_steps_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelineStepsOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/audit": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Every engineer action on the study, in order",
+        "operationId": "get_audit_v1_studies__study_id__audit_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies/{study_id}/photos/{document_id}/objects": {
       "get": {
         "tags": [
@@ -5213,6 +5538,25 @@
           "verified_citations": {
             "type": "integer",
             "title": "Verified Citations"
+          },
+          "review_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Review Codes",
+            "description": "The error codes behind `review_reasons` (docs/ERROR_CODES.md), in order."
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvenanceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who produced the classification: the model or rules, an engineer's `asset` correction, or an engineer-added component. The takeoff and cost share it."
           }
         },
         "type": "object",
@@ -5270,6 +5614,277 @@
           "next_cursor"
         ],
         "title": "AssetsPageOut"
+      },
+      "AttemptOut": {
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Outcome"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt",
+          "started_at",
+          "ended_at",
+          "duration_ms",
+          "outcome",
+          "code",
+          "error"
+        ],
+        "title": "AttemptOut"
+      },
+      "AuditItemOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "correction",
+              "object_added",
+              "object_deleted",
+              "intake"
+            ],
+            "title": "Kind"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "description": "`approved`, `rejected`, `modified`, `added`, `moved`, `merged`, `reanalyzed`, `deleted`."
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "The correction's reason or the review's comment."
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id"
+          },
+          "correction_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Id"
+          },
+          "produced": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Produced",
+            "description": "The rows of the next revision this correction produced, when recorded."
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "at",
+          "by",
+          "stage",
+          "revision",
+          "action",
+          "entity_type",
+          "entity_id",
+          "before",
+          "after",
+          "changed",
+          "reason",
+          "review_id",
+          "correction_id",
+          "produced"
+        ],
+        "title": "AuditItemOut"
+      },
+      "AuditOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "items"
+        ],
+        "title": "AuditOut"
       },
       "BoxIn": {
         "properties": {
@@ -6734,6 +7349,249 @@
         ],
         "title": "DocumentOut"
       },
+      "EventOut": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq",
+            "description": "Insertion order; the keyset cursor."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At",
+            "description": "When it was recorded (the database clock)."
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type",
+            "description": "A dotted name; the vocabulary is in the docs."
+          },
+          "actor_type": {
+            "type": "string",
+            "enum": [
+              "engineer",
+              "model",
+              "system"
+            ],
+            "title": "Actor Type"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id",
+            "description": "The engineer (`users.id`), when one acted."
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity"
+          },
+          "activity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Id"
+          },
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "An activity attempt's start."
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms",
+            "description": "An activity attempt's duration."
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "The error code of a failure (docs/ERROR_CODES.md)."
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id",
+            "description": "The API request that caused it."
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "detail": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "at",
+          "event_type",
+          "actor_type",
+          "actor_id",
+          "stage",
+          "revision",
+          "workflow_id",
+          "run_id",
+          "activity",
+          "activity_id",
+          "attempt",
+          "started_at",
+          "duration_ms",
+          "entity_type",
+          "entity_id",
+          "code",
+          "request_id",
+          "before",
+          "after",
+          "detail"
+        ],
+        "title": "EventOut"
+      },
       "EvidencePageOut": {
         "properties": {
           "revision": {
@@ -6955,6 +7813,17 @@
             "type": "array",
             "title": "Regions",
             "description": "Where the value is printed, to highlight on the PDF (docs/api/FIELD_REGIONS.md): boxes on `page` as page fractions, origin top-left. Empty when the value was not located (then fall back to searching the page's text)."
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvenanceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who produced the value: the model, or the engineer's correction (docs/api/TIMELINE_AND_AUDIT.md)."
           }
         },
         "type": "object",
@@ -7133,6 +8002,14 @@
             "type": "array",
             "title": "Review Reasons",
             "description": "Why the review gate flagged it: `missing:<key>`, `low_confidence:<key>=<c><<t>`, or `<rule>[:<keys>]` for each issue."
+          },
+          "review_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Review Codes",
+            "description": "The error codes behind `review_reasons` (docs/ERROR_CODES.md), in order."
           },
           "issues": {
             "items": {
@@ -7354,6 +8231,17 @@
             "title": "Added",
             "description": "An engineer added it to the room at a rooms review (a `room_component` correction); its asset is built whatever the room's inventory.",
             "default": false
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvenanceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who produced the row: the model, an engineer's addition, or an engineer's correction of its label, material, attachment or count."
           }
         },
         "type": "object",
@@ -8444,6 +9332,153 @@
         ],
         "title": "PropertyUse"
       },
+      "ProvenanceOut": {
+        "properties": {
+          "origin": {
+            "type": "string",
+            "enum": [
+              "model",
+              "engineer_added",
+              "engineer_modified"
+            ],
+            "title": "Origin",
+            "description": "`model`: the pipeline wrote it and no engineer changed it; `engineer_added`: an engineer added the row (a `room_component` correction); `engineer_modified`: an engineer's correction was applied when the row was copied into its revision (a row carried unchanged afterwards keeps this)."
+          },
+          "correction_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Id",
+            "description": "The correction that produced it."
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id",
+            "description": "The rejection that carried it."
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage",
+            "description": "The review stage the correction was made at."
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision",
+            "description": "The revision the correction was made at."
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At",
+            "description": "When the engineer made it."
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By",
+            "description": "The reviewer (`users.id`)."
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before",
+            "description": "The values the correction replaced (from the copied row), keyed like `after`."
+          },
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After",
+            "description": "The correction's values."
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed",
+            "description": "The fields the correction set."
+          },
+          "carried_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carried From",
+            "description": "The row of the previous revision the correction was applied to."
+          }
+        },
+        "type": "object",
+        "required": [
+          "origin",
+          "correction_id",
+          "review_id",
+          "stage",
+          "revision",
+          "at",
+          "by",
+          "before",
+          "after",
+          "changed",
+          "carried_from"
+        ],
+        "title": "ProvenanceOut",
+        "description": "Who produced a row and from what (``basis.db.repositories.provenance``)."
+      },
       "RetryRequested": {
         "properties": {
           "workflow_id": {
@@ -8625,6 +9660,17 @@
             "type": "array",
             "title": "Suggested Counts",
             "description": "Per label with counted instances on the room's photos, by label."
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvenanceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who produced the room: the model's grouping, or an engineer's rename, retype or floor correction."
           }
         },
         "type": "object",
@@ -8652,6 +9698,17 @@
           "filename": {
             "type": "string",
             "title": "Filename"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvenanceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who put the photo in this room: the model's grouping, or an engineer's `photo_room` move."
           }
         },
         "type": "object",
@@ -8955,6 +10012,207 @@
           "completed"
         ],
         "title": "Stage"
+      },
+      "StageOut": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "entered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Entered At"
+          },
+          "entered_by": {
+            "type": "string",
+            "enum": [
+              "engineer",
+              "model",
+              "system"
+            ],
+            "title": "Entered By",
+            "description": "`engineer`: a decision moved the study; `system`: the workflow did."
+          },
+          "left_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left At",
+            "description": "Null while the study is there."
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "gate_opened_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gate Opened At",
+            "description": "When the workflow opened the review."
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "review_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Wait Ms",
+            "description": "From the gate opening to the decision."
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "revision",
+          "entered_at",
+          "entered_by",
+          "left_at",
+          "duration_ms",
+          "gate_opened_at",
+          "decided_at",
+          "decision",
+          "review_wait_ms"
+        ],
+        "title": "StageOut"
+      },
+      "StepOut": {
+        "properties": {
+          "activity": {
+            "type": "string",
+            "title": "Activity"
+          },
+          "activity_id": {
+            "type": "string",
+            "title": "Activity Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms",
+            "description": "The attempts' durations summed."
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptOut"
+            },
+            "type": "array",
+            "title": "Attempts"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Outcome",
+            "description": "The last attempt's."
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "activity",
+          "activity_id",
+          "started_at",
+          "ended_at",
+          "duration_ms",
+          "attempts",
+          "outcome",
+          "code"
+        ],
+        "title": "StepOut"
       },
       "StudyCorpusOut": {
         "properties": {
@@ -10140,6 +11398,71 @@
         ],
         "title": "TakeoffOut"
       },
+      "TimelinePageOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EventOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` to get the next page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "items",
+          "next_cursor"
+        ],
+        "title": "TimelinePageOut"
+      },
+      "TimelineStepsOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepOut"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageOut"
+            },
+            "type": "array",
+            "title": "Stages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "steps",
+          "stages"
+        ],
+        "title": "TimelineStepsOut"
+      },
       "UploadTicket": {
         "properties": {
           "document": {
@@ -10259,6 +11582,18 @@
             ],
             "title": "Failure",
             "description": "Why that stage failed."
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code",
+            "description": "The error code behind `failure` (`BASIS-<area>-<nnn>`, docs/ERROR_CODES.md)."
           }
         },
         "type": "object",
@@ -10590,6 +11925,18 @@
             ],
             "default": null,
             "title": "Errors"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Code"
           }
         },
         "required": [

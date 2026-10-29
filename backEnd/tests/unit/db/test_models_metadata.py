@@ -41,8 +41,9 @@ SPEC_TABLES = {
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
     # v0.12: components_gate (migration 0009_components_gate).
     # Basis and land allocation: intake (migration 0011_study_intake).
+    # Error codes: failure_code (migration 0013_study_events).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
-    "room_aliases failure_reason components_gate intake created_at updated_at",
+    "room_aliases failure_reason failure_code components_gate intake created_at updated_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",
@@ -51,7 +52,8 @@ SPEC_TABLES = {
     # v0.13: regions (migration 0010_field_regions): where each value is printed.
     "extraction_fields": "id extraction_id study_id section field value_text value_num "
     "value_date confidence source page regions",
-    "rooms": "id study_id revision name room_type floor source group_key created_at",
+    # Provenance: carried_from (migration 0013_study_events).
+    "rooms": "id study_id revision name room_type floor source group_key carried_from created_at",
     "photo_rooms": "study_id document_id room_id revision",
     "components": "id study_id revision document_id room_id label material attachment "
     "confidence bbox raw",
@@ -100,6 +102,10 @@ SPEC_TABLES = {
     # Invite-only firms: migration 0007_invitations.
     "invitations": "id org_id email role created_by expires_at accepted_at accepted_by "
     "declined_at declined_by revoked_at revoked_by",
+    # The per-study timeline and audit trail (migration 0013_study_events).
+    "study_events": "id study_id seq event_type stage revision actor_type actor_id workflow_id "
+    "run_id activity activity_id attempt started_at duration_ms entity_type entity_id code "
+    "request_id before after detail",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -149,6 +155,7 @@ ENUM_COLUMNS = {
     ("assets", "bucket"): "bucket",
     ("assets", "method"): "classification_method",
     ("outbox", "status"): "outbox_status",
+    ("study_events", "stage"): "stage",
 }
 
 # (child table, child columns, parent table, parent columns)
@@ -200,6 +207,8 @@ SPEC_SIMPLE_FKS = {
     ("invitations", "accepted_by", "users"),
     ("invitations", "declined_by", "users"),
     ("invitations", "revoked_by", "users"),
+    ("study_events", "study_id", "studies"),
+    ("study_events", "actor_id", "users"),
 }
 
 SPEC_UNIQUES = {
@@ -220,6 +229,7 @@ SPEC_UNIQUES = {
     ("runs", ("workflow_id", "run_id")),
     ("activity_results", ("idempotency_key",)),
     ("photo_objects", ("study_id", "id")),
+    ("study_events", ("seq",)),
 }
 
 SPEC_PRIMARY_KEYS = {
@@ -258,6 +268,8 @@ SPEC_CHECKS = {
     "ck_invitations_declined_by_whom",
     "ck_invitations_revoked_by_whom",
     "ck_invitations_one_outcome",
+    "ck_study_events_actor_valid",
+    "ck_study_events_duration_nonnegative",
 }
 
 SPEC_NOT_NULL = {
@@ -286,6 +298,7 @@ SPEC_NOT_NULL = {
     "photo_objects": "revision label x1 y1 x2 y2 area source counted",
     "object_prompts": "revision label params status returned created_by",
     "invitations": "org_id email role expires_at",
+    "study_events": "study_id seq event_type actor_type",
 }
 
 STUDY_SCOPED = {
@@ -306,6 +319,7 @@ STUDY_SCOPED = {
     "photo_localizations",
     "photo_objects",
     "object_prompts",
+    "study_events",
 }
 
 
@@ -408,7 +422,9 @@ def test_migration_enum_labels_match_models() -> None:
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
     assert migration.UPDATED_AT_TABLES == UPDATED_AT_TABLES
-    assert migration.APPEND_ONLY_TABLES == APPEND_ONLY_TABLES
+    # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
+    events = load_migration(VERSIONS / "0013_study_events.py")
+    assert (*migration.APPEND_ONLY_TABLES, *events.APPEND_ONLY_TABLES) == APPEND_ONLY_TABLES
     with_updated_at = {t.name for t in Base.metadata.sorted_tables if "updated_at" in t.c}
     assert with_updated_at == set(UPDATED_AT_TABLES)
 
@@ -529,8 +545,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     ]
     # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
     # manual add: object_prompts.params; v0.13: extraction_fields.regions; the ledger
-    # (0012): llm_calls.request_params
-    assert len(jsonb) == 19
+    # (0012): llm_calls.request_params; the timeline (0013): study_events.before/after/detail
+    assert len(jsonb) == 22
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

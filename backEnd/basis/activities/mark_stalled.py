@@ -16,6 +16,7 @@ from basis.activities._support import activity_key, parse_uuid, run_once_no_outp
 from basis.activities.deps import Deps
 from basis.db.enums import Stage
 from basis.db.repositories.workflow_state import WorkflowStateRepository
+from basis.errors.codes import E
 from basis.workflow.contracts import MarkStalledInput
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class MarkStalled:
                 "marked stalled" if changed else "not stalled (it has moved on)",
                 input.stage,
                 input.revision,
+                extra={"error_code": E.WF_REVIEW_STALLED},
             )
 
         await run_once_no_output(self._deps, name="mark_stalled", key=activity_key(), work=work)

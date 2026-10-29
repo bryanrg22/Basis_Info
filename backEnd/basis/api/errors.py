@@ -13,6 +13,13 @@ Shape (``application/problem+json``)::
 * ``errors`` is present only on validation failures: one entry per field with its
   location, message and pydantic error type. The rejected input is never echoed back,
   since it may contain secrets.
+* ``code`` is the stable error code of ``docs/ERROR_CODES.md`` (``BASIS-<area>-<nnn>``), an
+  extension member (RFC 9457 section 3.2) next to ``type``: ``type`` stays the client's
+  branching key, ``code`` is the operator's lookup key, shared with the workflow's failures
+  and the logs (:mod:`basis.errors`). A raise site passes ``code=`` when its type suffix is
+  shared by several causes (the seven 401 details, the 503s, the 404s); otherwise the code
+  is the suffix's generic one (:func:`basis.errors.catalogue.code_for_problem`). The
+  problem's log line carries it as ``error_code``.
 
 Repository exceptions (``basis.db.errors``) are mapped here, once, by
 :func:`as_api_error`: ``NotVisibleError`` -> 404, ``ConflictError`` and its subclasses ->
@@ -63,6 +70,8 @@ from basis.db.errors import (
     RepositoryError,
     StaleStateError,
 )
+from basis.errors.catalogue import code_for_problem
+from basis.errors.codes import E
 from basis.obs.logging import get_context
 
 PROBLEM_JSON: Final = "application/problem+json"
@@ -107,6 +116,7 @@ class ProblemDetail(BaseModel):
     instance: str | None = None
     request_id: str | None = None
     errors: list[FieldError] | None = None
+    code: str | None = None
 
 
 def status_phrase(status: int) -> str:
@@ -139,6 +149,7 @@ class ApiError(Exception):
         *,
         headers: Mapping[str, str] | None = None,
         errors: Sequence[FieldError] | None = None,
+        code: str | None = None,
     ) -> None:
         if status is not None:
             self.status = status
@@ -153,11 +164,24 @@ class ApiError(Exception):
         # The ``errors`` extension (one entry per field), for a 422 about a resource's
         # state rather than the request body (e.g. the intake fields a start needs).
         self.errors: list[FieldError] | None = None if errors is None else list(errors)
+        # The catalogue code (docs/ERROR_CODES.md); None means "the type suffix's generic".
+        self.code = code
         super().__init__(detail or self.title)
 
     @property
     def type_uri(self) -> str:
         return PROBLEM_TYPE_BASE + self.type_suffix if self.type_suffix else ABOUT_BLANK
+
+    @property
+    def code_value(self) -> str:
+        """The code the response carries: the explicit one, else the type suffix's
+        generic, else the plain HTTP error's (a bare ``ApiError`` with no suffix)."""
+        if self.code is not None:
+            return self.code
+        generic = code_for_problem(self.type_suffix)
+        if generic is not None:
+            return generic
+        return E.API_INTERNAL_ERROR if self.status >= 500 else E.API_HTTP_ERROR
 
 
 class BadRequest(ApiError):
@@ -165,8 +189,10 @@ class BadRequest(ApiError):
     title = "Bad Request"
     type_suffix = "bad-request"
 
-    def __init__(self, detail: str, *, type_suffix: str | None = None) -> None:
-        super().__init__(detail=detail, type_suffix=type_suffix)
+    def __init__(
+        self, detail: str, *, type_suffix: str | None = None, code: str | None = None
+    ) -> None:
+        super().__init__(detail=detail, type_suffix=type_suffix, code=code)
 
 
 class Unauthorized(ApiError):
@@ -180,9 +206,11 @@ class Unauthorized(ApiError):
     title = "Unauthorized"
     type_suffix = "unauthorized"
 
-    def __init__(self, detail: str, *, error: str | None = "invalid_token") -> None:
+    def __init__(
+        self, detail: str, *, error: str | None = "invalid_token", code: str | None = None
+    ) -> None:
         challenge = f'Bearer error="{error}"' if error else "Bearer"
-        super().__init__(detail=detail, headers={"WWW-Authenticate": challenge})
+        super().__init__(detail=detail, headers={"WWW-Authenticate": challenge}, code=code)
 
 
 class Forbidden(ApiError):
@@ -190,8 +218,10 @@ class Forbidden(ApiError):
     title = "Forbidden"
     type_suffix = "forbidden"
 
-    def __init__(self, detail: str, *, type_suffix: str | None = None) -> None:
-        super().__init__(detail=detail, type_suffix=type_suffix)
+    def __init__(
+        self, detail: str, *, type_suffix: str | None = None, code: str | None = None
+    ) -> None:
+        super().__init__(detail=detail, type_suffix=type_suffix, code=code)
 
 
 class NotFound(ApiError):
@@ -199,8 +229,8 @@ class NotFound(ApiError):
     title = "Not Found"
     type_suffix = "not-found"
 
-    def __init__(self, detail: str) -> None:
-        super().__init__(detail=detail)
+    def __init__(self, detail: str, *, code: str | None = None) -> None:
+        super().__init__(detail=detail, code=code)
 
 
 class Conflict(ApiError):
@@ -208,8 +238,10 @@ class Conflict(ApiError):
     title = "Conflict"
     type_suffix = "conflict"
 
-    def __init__(self, detail: str, *, type_suffix: str | None = None) -> None:
-        super().__init__(detail=detail, type_suffix=type_suffix)
+    def __init__(
+        self, detail: str, *, type_suffix: str | None = None, code: str | None = None
+    ) -> None:
+        super().__init__(detail=detail, type_suffix=type_suffix, code=code)
 
 
 class Unprocessable(ApiError):
@@ -223,8 +255,9 @@ class Unprocessable(ApiError):
         *,
         type_suffix: str | None = None,
         errors: Sequence[FieldError] | None = None,
+        code: str | None = None,
     ) -> None:
-        super().__init__(detail=detail, type_suffix=type_suffix, errors=errors)
+        super().__init__(detail=detail, type_suffix=type_suffix, errors=errors, code=code)
 
 
 class ServiceUnavailable(ApiError):
@@ -234,9 +267,9 @@ class ServiceUnavailable(ApiError):
     title = "Service Unavailable"
     type_suffix = "service-unavailable"
 
-    def __init__(self, detail: str, *, retry_after: int = 5) -> None:
+    def __init__(self, detail: str, *, retry_after: int = 5, code: str | None = None) -> None:
         self.retry_after = max(1, int(retry_after))
-        super().__init__(detail=detail, headers={"Retry-After": str(self.retry_after)})
+        super().__init__(detail=detail, headers={"Retry-After": str(self.retry_after)}, code=code)
 
 
 class PayloadTooLarge(ApiError):
@@ -246,8 +279,8 @@ class PayloadTooLarge(ApiError):
     title = "Content Too Large"
     type_suffix = "payload-too-large"
 
-    def __init__(self, detail: str) -> None:
-        super().__init__(detail=detail)
+    def __init__(self, detail: str, *, code: str | None = None) -> None:
+        super().__init__(detail=detail, code=code)
 
 
 class TooManyRequests(ApiError):
@@ -280,11 +313,13 @@ def problem_response(
     errors: Sequence[FieldError] | None = None,
     headers: Mapping[str, str] | None = None,
     extensions: Mapping[str, Any] | None = None,
+    code: str | None = None,
 ) -> Response:
     """Build a problem response. ``request_id`` comes from the logging context.
 
     ``extensions`` are extra members (RFC 9457 section 3.2); they cannot replace the
-    standard members.
+    standard members. ``code`` defaults to the generic code of the status class (a 500:
+    the internal error; anything else: the plain HTTP error).
     """
     problem = ProblemDetail(
         type=type_uri,
@@ -294,6 +329,7 @@ def problem_response(
         instance=instance,
         request_id=current_request_id(),
         errors=list(errors) if errors is not None else None,
+        code=code or (E.API_INTERNAL_ERROR if status >= 500 else E.API_HTTP_ERROR),
     )
     if extensions:
         clash = set(extensions) & set(ProblemDetail.model_fields)
@@ -314,6 +350,17 @@ def problem_response(
 
 
 def api_error_response(request: Request, exc: ApiError) -> Response:
+    code = exc.code_value
+    logger.info(
+        "problem",
+        extra={
+            "error_code": code,
+            "status": exc.status,
+            "problem_type": exc.type_suffix or ABOUT_BLANK,
+            "http_method": request.method,
+            "path": request.url.path,
+        },
+    )
     return problem_response(
         status=exc.status,
         title=exc.title,
@@ -322,6 +369,7 @@ def api_error_response(request: Request, exc: ApiError) -> Response:
         instance=request.url.path,
         errors=exc.errors,
         headers=exc.headers,
+        code=code,
     )
 
 
@@ -370,14 +418,20 @@ def as_api_error(exc: BaseException) -> ApiError | None:
         return Unprocessable(str(exc), type_suffix="invalid-cursor")
     if isinstance(exc, PoolTimeoutError):
         logger.warning("database pool checkout timed out")
-        return ServiceUnavailable(DB_BUSY_DETAIL, retry_after=DB_BUSY_RETRY_AFTER_S)
+        return ServiceUnavailable(
+            DB_BUSY_DETAIL, retry_after=DB_BUSY_RETRY_AFTER_S, code=E.API_DATABASE_BUSY
+        )
     if isinstance(exc, DatabaseUnavailableError):
         cause = exc.__cause__
         logger.warning(
             "database unreachable",
             extra={"exception_type": type(cause or exc).__name__},
         )
-        return ServiceUnavailable(DB_UNAVAILABLE_DETAIL, retry_after=DB_UNAVAILABLE_RETRY_AFTER_S)
+        return ServiceUnavailable(
+            DB_UNAVAILABLE_DETAIL,
+            retry_after=DB_UNAVAILABLE_RETRY_AFTER_S,
+            code=E.API_DATABASE_UNAVAILABLE,
+        )
     return None
 
 
@@ -396,15 +450,46 @@ async def _handle_mapped_error(request: Request, exc: Exception) -> Response:
     return api_error_response(request, mapped)
 
 
+# The decision route's own ``errors[].type`` values and the code each means
+# (``basis.api.routes.decisions``); any other validation failure is the generic one.
+VALIDATION_CODES: Final[dict[str, str]] = {
+    "correction_type": E.STUDY_CORRECTION_TYPE,
+    "correction_target": E.STUDY_CORRECTION_TARGET,
+    "correction_value": E.STUDY_CORRECTION_VALUE,
+    "approval_with_corrections": E.STUDY_APPROVAL_WITH_CORRECTIONS,
+}
+
+
+def validation_code(errors: Sequence[FieldError]) -> str:
+    """The code of a 422: the decision route's when every entry is one of its checks."""
+    kinds = {error.type for error in errors}
+    if kinds and kinds <= set(VALIDATION_CODES):
+        return VALIDATION_CODES[sorted(kinds)[0]]
+    return E.API_VALIDATION
+
+
 async def _handle_validation_error(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, RequestValidationError)
+    errors = field_errors(exc.errors())
+    code = validation_code(errors)
+    logger.info(
+        "problem",
+        extra={
+            "error_code": code,
+            "status": 422,
+            "problem_type": "validation",
+            "http_method": request.method,
+            "path": request.url.path,
+        },
+    )
     return problem_response(
         status=422,
         detail="The request did not pass validation; see errors.",
         type_uri=PROBLEM_TYPE_BASE + "validation",
         title="Unprocessable Content",
         instance=request.url.path,
-        errors=field_errors(exc.errors()),
+        errors=errors,
+        code=code,
     )
 
 
@@ -447,6 +532,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         detail=detail,
         instance=request.url.path,
         headers=headers,
+        code=E.API_INTERNAL_ERROR if exc.status_code >= 500 else E.API_HTTP_ERROR,
     )
 
 
@@ -488,6 +574,7 @@ class UnhandledErrorMiddleware:
                     "http_method": scope.get("method"),
                     "path": scope.get("path"),
                     "exception_type": type(exc).__qualname__,
+                    "error_code": E.API_INTERNAL_ERROR,
                 },
             )
             if started:
@@ -496,6 +583,7 @@ class UnhandledErrorMiddleware:
                 status=500,
                 detail=INTERNAL_ERROR_DETAIL,
                 instance=scope.get("path"),
+                code=E.API_INTERNAL_ERROR,
             )
             await response(scope, receive, send)
 

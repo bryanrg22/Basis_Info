@@ -25,6 +25,7 @@ from fastapi.responses import PlainTextResponse
 
 from basis.api.errors import Forbidden, PayloadTooLarge
 from basis.api.schemas.documents import MAX_UPLOAD_BYTES
+from basis.errors.codes import E
 from basis.storage import LocalStorage, UploadRejected
 from basis.storage.local import LOCAL_UPLOAD_PATH
 
@@ -36,13 +37,18 @@ router = APIRouter(include_in_schema=False)
 async def _read_body(request: Request) -> bytes:
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
-        raise PayloadTooLarge(f"The upload is larger than {MAX_UPLOAD_BYTES} bytes.")
+        raise PayloadTooLarge(
+            f"The upload is larger than {MAX_UPLOAD_BYTES} bytes.", code=E.UPLOAD_LOCAL_TOO_LARGE
+        )
     chunks: list[bytes] = []
     size = 0
     async for chunk in request.stream():
         size += len(chunk)
         if size > MAX_UPLOAD_BYTES:
-            raise PayloadTooLarge(f"The upload is larger than {MAX_UPLOAD_BYTES} bytes.")
+            raise PayloadTooLarge(
+                f"The upload is larger than {MAX_UPLOAD_BYTES} bytes.",
+                code=E.UPLOAD_LOCAL_TOO_LARGE,
+            )
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -54,11 +60,11 @@ async def put_local_upload(
 ) -> Response:
     storage = request.app.state.storage
     if not isinstance(storage, LocalStorage):  # mounted only for local storage
-        raise Forbidden("Local uploads are not enabled.")
+        raise Forbidden("Local uploads are not enabled.", code=E.UPLOAD_LOCAL_DISABLED)
     data = await _read_body(request)
     headers = dict(request.headers)
     try:
         await anyio.to_thread.run_sync(storage.put_signed_token, token, data, headers)
     except UploadRejected as exc:
-        raise Forbidden(f"Upload rejected: {exc}.") from None
+        raise Forbidden(f"Upload rejected: {exc}.", code=E.UPLOAD_LOCAL_REJECTED) from None
     return PlainTextResponse("", status_code=200)

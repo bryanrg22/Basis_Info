@@ -68,6 +68,10 @@ class WorkflowProgress(ResponseModel):
         "`POST /v1/studies/{id}/retry`; null otherwise.",
     )
     failure: str | None = Field(default=None, description="Why that stage failed.")
+    failure_code: str | None = Field(
+        default=None,
+        description="The error code behind `failure` (`BASIS-<area>-<nnn>`, docs/ERROR_CODES.md).",
+    )
 
 
 class WorkflowRunOut(ResponseModel):

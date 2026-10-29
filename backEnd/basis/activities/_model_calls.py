@@ -37,6 +37,7 @@ from temporalio.exceptions import ApplicationError
 from basis.activities._support import heartbeat, validation_error, workflow_execution
 from basis.db.repositories.run import RunRepository
 from basis.db.repositories.study import StudyRepository
+from basis.errors.codes import E, tag
 from basis.llm.call import CallContext
 from basis.llm.errors import (
     ProviderAccountError,
@@ -76,21 +77,25 @@ def provider_failure(error: ProviderError, what: str) -> ApplicationError:
         # on (provider-account-stop-v1) and never retries, so no workflow change (and no
         # patch) is needed; the message says it is the configuration, not the account.
         return ApplicationError(
-            f"{what}: {error}, then retry the study",
+            tag(E.PROVIDER_CONFIG, f"{what}: {error}, then retry the study"),
             type=PROVIDER_ACCOUNT_ERROR,
             non_retryable=True,
         )
     if isinstance(error, ProviderAccountError):
         return ApplicationError(
-            f"{what}: {error}; fix the account, then retry the study",
+            tag(E.PROVIDER_ACCOUNT, f"{what}: {error}; fix the account, then retry the study"),
             type=PROVIDER_ACCOUNT_ERROR,
             non_retryable=True,
         )
     if isinstance(error, ProviderRequestRejected):
-        return validation_error(f"{what}: {error}")
+        return validation_error(f"{what}: {error}", E.PROVIDER_REQUEST_REJECTED)
     if isinstance(error, ProviderBadResponse):
-        return validation_error(f"{what}: {error.provider} rejected the input: {error}")
-    return ApplicationError(f"{what}: {error}", type=PROVIDER_UNAVAILABLE)
+        return validation_error(
+            f"{what}: {error.provider} rejected the input: {error}", E.PROVIDER_BAD_RESPONSE
+        )
+    return ApplicationError(
+        tag(E.PROVIDER_UNAVAILABLE, f"{what}: {error}"), type=PROVIDER_UNAVAILABLE
+    )
 
 
 async def run_pk(session: AsyncSession) -> uuid.UUID | None:

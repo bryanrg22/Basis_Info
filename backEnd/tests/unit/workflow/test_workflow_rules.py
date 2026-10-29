@@ -102,7 +102,14 @@ def test_unknown_activity_has_no_options() -> None:
 
 
 ALLOWED_TOP_LEVEL = {"asyncio", "collections", "datetime", "typing", "pydantic", "temporalio"}
-ALLOWED_BASIS = {"basis.workflow.activity_options", "basis.workflow.contracts"}
+# basis.errors.* are standard-library-only: the codes and the catalogue tables the failure
+# reason is built from (docs/ERROR_CODES.md).
+ALLOWED_BASIS = {
+    "basis.workflow.activity_options",
+    "basis.workflow.contracts",
+    "basis.errors.codes",
+    "basis.errors.catalogue",
+}
 
 
 def test_workflow_imports_only_deterministic_modules() -> None:

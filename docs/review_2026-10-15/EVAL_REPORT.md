@@ -5931,3 +5931,201 @@ runs it, Docker up): all green on 2026-10-29 (4,946 passed, 23 skipped, 36 subte
   first is in the worker log only.
 * The price table is still a Python constant. A row change bumps `PRICING_VERSION`; a stored
   row keeps the version it was priced with, so a later table never rewrites history.
+## 41. Every study's history made legible: error codes, a per-study timeline, the AI-versus-engineer audit trail (2026-10-29)
+
+Bryan's asks (2026-10-29): pinpoint every step and assign error codes to every way it can fail,
+with one place that says what happened, what the user sees and how to fix it; timestamps and
+durations on every step so slow steps can be found; and a full audit trail of what the AI did
+versus what the engineer changed afterwards, at which step, when, by whom, so AI-made and
+engineer-modified rows are always distinguishable. Section 38 showed the gap on live runs: a
+stage failure surfaced only as the free text `ingest_appraisal: activity Heartbeat timeout`, and
+a study's timeline had to be reconstructed from the worker's log. No model calls; no client
+dollar appears here. Section 40 is the paid-call ledger (PR #88), built in parallel: nothing here
+touches `llm_calls`.
+
+### 41.1 Standards read first
+
+RFC 9457 keeps `type` as a problem's primary identifier and allows named extension members
+(section 3.2), so the code is a `code` member beside `type`, never a replacement. The
+PostgreSQL SQLSTATE appendix (a class, then a member; numbers never reused), Stripe's error-code
+table (one row per identifier with meaning and next step) and Google AIP-193's `ErrorInfo` (a
+stable identifier beside the human text) shaped the catalogue. OpenTelemetry's span conventions
+(a start, an end, a status set only on failure, a low-cardinality `error.type`) shaped a step;
+its exceptions guidance keeps the exception class as `error.type` and the domain code in its own
+attribute, which is why logs carry `error_code`. Append-only audit tables (before/after JSON, a
+database-stamped time, written in the same transaction as the change, UPDATE/DELETE forbidden by a
+trigger) are the convention `reviews` and `corrections` already follow; W3C PROV's
+`wasDerivedFrom` / `wasAttributedTo` is the vocabulary behind `provenance`. Temporal's history
+cannot give per-attempt timing (`ActivityTaskStarted` is written when the attempts end), so step
+timings are recorded on the worker.
+
+### 41.2 The error-code catalogue (`docs/ERROR_CODES.md`)
+
+| | |
+|---|---|
+| codes | 213 in 18 areas: API 31, FIRM 10, UPLOAD 10, STUDY 17, OBJECT 9, WF 17, PROVIDER 10, BUDGET 5, INGEST 6, EXTRACT 8, PHOTO 3, LOCALIZE 3, ROOMS 2, CORRECT 26, ASSETS 11, EXPORT 1, CHECK 41, INF 3 |
+| by kind | 76 refusals (an API 4xx), 79 errors (a step failed), 47 flags (a check put a row in front of the engineer), 11 outcomes (a recorded state) |
+| by retry | 150 need a change first, 39 repeat the request, 19 `POST .../retry` after the fix, 5 retried by Temporal |
+| format | `BASIS-<AREA>-<nnn>`; numbers never reused |
+| source of truth | `basis/errors/codes.py` (one constant per code) and `basis/errors/catalogue.py` (step, component, what happened, what you see, how to fix, retry; the problem type suffix, the Temporal type or the review-reason string it stands for); the document is rendered from it (`uv run python -m basis.errors.catalogue --write`) |
+
+Where the code shows, so the catalogue can be looked up from any of them:
+
+* every problem response: `code` next to `type` (`{"type": ".../intake-required", "code":
+  "BASIS-STUDY-001", ...}`); the seven 401 details, the six 503 sites and the 404s that shared a
+  suffix each got their own code (passed at the raise site; a suffix shared by several causes
+  names its generic in `GENERIC_FOR_PROBLEM`);
+* every activity failure: ` [BASIS-...]` at the end of the message, so it rides
+  `activity_results.error`, the study's `failure` / `failure_reason`, the worker log and
+  Temporal's failure unchanged (the way PostgreSQL prints the SQLSTATE on every log line);
+  `failure_code` beside the text on the status view, `WorkflowProgress`, the study row
+  (`studies.failure_code`) and `RecordFailureInput`. At the end, not the front: the first run
+  of the full suite put it in front and twelve tests that read `<activity>: <type>: <message>`
+  by its prefix failed (the account-stop and config-stop lifecycle tests among them), which is
+  the "add, never rename" rule making itself heard;
+* a Temporal failure with no exception of ours: coded by its type. The live run's
+  `ingest_appraisal: activity Heartbeat timeout` is now
+  `ingest_appraisal: activity Heartbeat timeout [BASIS-WF-001]`, `failure_code BASIS-WF-001`
+  (`tests/unit/errors/test_catalogue.py::test_the_heartbeat_timeout_of_the_live_run_has_a_code`);
+  the other live refusal, `intake-required` on start, is `BASIS-STUDY-001`;
+* `review_codes` beside `review_reasons` on `/assets` and `/extraction`: the codes behind
+  `validation:SECTION_BUCKET_MISMATCH`, `cross:COST_ROW_MISSING`, `rule_contested:<key>`,
+  `missing:<key>` and the rest of the vocabulary (`codes_for_reasons`);
+* the API log line of every problem and the relay's refusals carry `error_code`.
+
+No dead entries: `test_every_code_is_alive` walks `basis/` and refuses a code that no raise site
+references, no problem suffix maps to, no Temporal type falls back to and no review-reason string
+stands for; `test_no_unknown_code_literal_in_the_code_base` refuses a `BASIS-` literal typed
+outside the codes module; `test_every_problem_type_suffix_the_api_raises_is_catalogued` refuses
+an uncatalogued `type_suffix`; `test_document_is_current` refuses a stale document.
+
+### 41.3 The per-study timeline (`study_events`, migration 0013)
+
+One append-only table (the `forbid_mutation()` trigger of `reviews` and `corrections`), one row
+per occurrence, written in the same transaction as the change where there is one; `seq` is the
+order. Writers: the study routes (created, intake set, archived, upload confirmed, started,
+retry and cancel requested), `StudyRepository.transition` (`stage.entered`, by the engineer's
+decision or the workflow, with the stage and revision it left), `WorkflowStateRepository`
+(`gate.opened`, `stage.failed` with the code, `stage.failure_cleared`, `study.stalled`),
+`ReviewRepository.record_decision` (`review.decided`, one `correction.recorded` per correction),
+the activities (`run.started/ended`, `review.reminded`, `export.written`, `revision.carried`,
+`corrections.refused` with the refusal's code, `inventory.rebuilt` when the room step replaces a
+room's rows, and `entity.corrected/added/moved/merged` naming the row each applied correction
+produced), the objects route (`entity.added/deleted` for manual instances), and the worker's
+activity interceptor: one `activity.completed/failed/cancelled` row per attempt with
+`started_at`, a monotonic `duration_ms`, the attempt and, on a failure, the code and the error.
+The interceptor, not `run_once`, because `analyze_photo`'s provider errors and a bad input id
+fail before `run_once` runs and must be on the timeline too.
+
+Served by `GET /v1/studies/{id}/timeline` (keyset on `seq`, `event_type` filters),
+`GET /v1/studies/{id}/timeline/steps` (per activity id: attempts, first start, last end, summed
+duration, last outcome and code; per stage visit: entered, left, duration, gate opened,
+decided, review wait) and the export's `summary.timeline`, which leaves out the export step's
+own events so that exporting a revision twice stays byte-identical
+(`test_same_revision_exports_byte_identical_output` caught the first version). Documented in
+`docs/api/TIMELINE_AND_AUDIT.md`.
+
+**The fake run** (`tests/lifecycle/test_timeline_audit.py`, the real workflow on the
+time-skipping server with the offline providers, three photos, approved straight through): 34
+events, 21 steps, 8 stage visits in the export. The set of step ids equals the set of activity
+ids Temporal scheduled; every step's duration matches its own start and end within 2 s and fits
+inside Temporal's scheduled-to-completed window; the stage durations sum to the run.
+
+| step | duration | step | duration |
+|---|---|---|---|
+| `record_run_start` | 26 ms | `ingest_appraisal:r1` | 310 ms |
+| `transition:extracting:r1` | 24 ms | `extract_fields:r1` | 225 ms |
+| `list_photos` | 12 ms | `reconcile_rooms:r1:vote` | 11 ms |
+| `analyze_photo:<a>:r1` | 281 ms | `reconcile_rooms:r1` | 5 ms |
+| `analyze_photo:<b>:r1` | 300 ms | `process_assets:r1` | 49 ms |
+| `analyze_photo:<c>:r1` | 299 ms | `transition:<each of 8 stages>` | 6 to 14 ms |
+| `localize_photo:<a,b,c>:r1` (skipped: no localizer) | 18, 20, 67 ms | | |
+
+| stage visit | duration | gate opened |
+|---|---|---|
+| extracting r1 | 606 ms | |
+| appraisal_review r1 | 63 ms | yes |
+| rooms_review r1 | 59 ms | yes |
+| components_processing r1 | 20 ms | |
+| components_review r1 | 32 ms | yes |
+| assets_processing r1 | 65 ms | |
+| assets_review r1 | 45 ms | yes |
+| exporting r1 | open at export | |
+
+(The offline providers answer in milliseconds; on a live run the same rows carry the minutes.
+The review waits are the decision's distance from the gate opening, here the test's own.)
+
+### 41.4 The AI-versus-engineer audit trail
+
+Every revision-scoped row the API returns (`/fields`, `/rooms` with its photos and inventory,
+`/assets`; the takeoff and cost share the asset's) and every row of the export carries
+`provenance`: `model` (the pipeline wrote it and no engineer changed it; the rules table and the
+cache count as the model's), `engineer_added` (a `room_component` correction: the component and
+its asset) or `engineer_modified` (a correction applied when the row was copied into its
+revision), with the correction, the review and its stage and revision, the time, the reviewer,
+`before` (read from the copied row), `after`, `changed` and `carried_from`. The source of truth
+is the append-only `corrections` table joined to each row's lineage (`components.raw.
+carried_from`, the new `rooms.carried_from`, an extraction's `raw.carried_from` or the same
+document's extraction at the previous revision, a photo by its document, an asset through its
+component): a correction at revision r targets a row of r and is applied to its copy at r+1, so
+walking a row's ancestors finds the correction that produced it, the nearest one winning; a row
+carried unchanged afterwards keeps the engineer's origin. The events are the same link forward;
+the resolver does not need them, so studies from before the table resolve too.
+`GET /v1/studies/{id}/audit` lists every engineer action in time order: decisions, corrections
+(`modified`, `added`, `moved`, `merged`, `reanalyzed`), manual objects added and deleted, intake
+changes, each with before and after and the rows the correction produced.
+
+**The test study** (the same file, four photos, the components gate, each decision recorded
+through `ReviewRepository.record_decision` as `POST .../decisions` records it and then delivered
+like the relay; one correction of each kind): an extraction field's value at the appraisal
+review, the Kitchen renamed and a bathroom photo moved into it at the rooms review, a cabinet's
+material and count and an added light fixture at the components review, the cabinet asset's
+bucket at the assets review. Five revisions, 88 events, 39 steps, 16 stage visits (eight with a
+gate and a decision, `[reject, approve] x 4`), 14 audit items:
+
+| at | kind | action | row | stage | changed | produced |
+|---|---|---|---|---|---|---|
+| 20:08:23.803 | correction | modified | extraction_field r1 | appraisal_review | value_text | 1 |
+| 20:08:23.803 | decision | rejected | review r1 | appraisal_review | | |
+| 20:08:24.140 | decision | approved | review r2 | appraisal_review | | |
+| 20:08:24.224 | correction | modified | room r2 | rooms_review | name | 1 |
+| 20:08:24.224 | correction | moved | photo_room r2 | rooms_review | room_id | 1 |
+| 20:08:24.224 | decision | rejected | review r2 | rooms_review | | |
+| 20:08:24.398 | decision | approved | review r3 | rooms_review | | |
+| 20:08:24.475 | correction | modified | component r3 | components_review | count, material | 1 |
+| 20:08:24.475 | correction | added | room_component r3 | components_review | attachment, count, label, material | 1 |
+| 20:08:24.475 | decision | rejected | review r3 | components_review | | |
+| 20:08:24.701 | decision | approved | review r4 | components_review | | |
+| 20:08:24.828 | correction | modified | asset r4 | assets_review | bucket, recovery_period | 1 |
+| 20:08:24.828 | decision | rejected | review r4 | assets_review | | |
+| 20:08:25.054 | decision | approved | review r5 | assets_review | | |
+
+Every row of revision 5 resolves: the renamed room, the moved photo, the corrected cabinet
+(`before {count: 6, material: wood}`, `after {count: 8, material: laminate}`), the corrected
+field and the re-bucketed asset (`before bucket y5`) are `engineer_modified` with the stage and
+revision of their correction; the light fixture and its asset are `engineer_added`; every other
+room, photo, component, field and asset is `model`. The export carries the three origins.
+
+### 41.5 Tests and gates
+
+`tests/LEDGER.md`: `tests/unit/errors/test_catalogue.py` (26), `tests/unit/audit/test_timeline.py`
+(3), `tests/api/test_timeline.py` (2: provenance, audit and timeline on a seeded two-revision
+study with one correction of each kind including a merged room and a deleted manual object;
+the `code` member on seven kinds of problem), `tests/integration/db/test_migrations.py` (0012:
+append-only, checks, downgrade), `tests/lifecycle/test_timeline_audit.py` (2, above). Existing
+tests adjusted for the additive members only (`failure_code`, the problem's `code`, 21 JSONB
+columns, head 0012). Gates from `backEnd/`: `ruff check`, `ruff format --check`, `mypy`, the
+full suite with Docker (`env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY uv run --no-sync pytest -q`),
+all green; `docs/api/openapi.json` regenerated (three new operations, the new members).
+
+### 41.6 Open
+
+* Migration numbering: this branch's `study_events` migration was `0012` until the ledger's
+  `0012_call_ledger` (PR #88) merged first; it is `0013_study_events`, revising 0012.
+* No live run through the stack with the table yet (worker, Temporal, a study); the lifecycle
+  runs are the evidence. The like-for-like live run of section 38 would be the first study whose
+  timeline needs no worker log.
+* Nothing in the frontend reads `/timeline`, `/audit`, `provenance`, `review_codes` or `code`
+  yet; the review workbench is where the catalogue's "how to fix" should surface.
+* `inventory.rebuilt` lists the ids of the rows the room step replaced, not their contents; a
+  before-image would double the rows for little: the replaced rows were the model's.

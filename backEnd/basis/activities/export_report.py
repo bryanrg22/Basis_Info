@@ -7,10 +7,19 @@ recovery period, quantity, cost and its citations (excerpt, document, pages), th
 groupings by stage, component and document, and the per-bucket summary. It names the CSV
 and the CSV's sha256 (``files``).
 
-Both files are canonical (sorted keys, no insignificant whitespace, rows in a fixed order,
-no timestamps), so exporting the same revision twice yields byte-identical files and the
-same sha256; the JSON also embeds a sha256 per section so a consumer can check each part.
+Every row carries its ``provenance`` (who produced it: the model, or an engineer's
+addition or correction, with the correction; :mod:`basis.db.repositories.provenance`), and
+``summary.timeline`` is the study's history up to the export step (events, steps with
+durations, stage visits; :mod:`basis.audit.timeline`, docs/api/TIMELINE_AND_AUDIT.md). The
+export step's own events (its ``export_report`` attempts, ``export.written``) are left out,
+so that exporting the same revision twice still yields byte-identical files: a retried or
+repeated export would otherwise differ only by the record of the earlier attempt. The API's
+timeline has them.
 
+Both files are canonical (sorted keys, no insignificant whitespace, rows in a fixed order,
+no timestamps of the export itself), so exporting the same revision twice yields byte-identical
+files and the same sha256; the JSON also embeds a sha256 per section so a consumer can check
+each part.
 The spend (EVAL_REPORT section 40): ``summary.spend`` is the study's paid-call rollup (the
 whole study, by stage, activity, component, model and kind: calls, tokens of every kind,
 dollars, latency), and ``rev-<n>.calls.jsonl`` is the transcript, one JSON line per paid
@@ -34,11 +43,17 @@ from temporalio import activity
 
 from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
 from basis.activities.deps import Deps
+from basis.audit.timeline import timeline_document
+from basis.db.enums import Stage
 from basis.db.models import LlmCall
+from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.llm_call import LlmCallRepository, Spend, SpendGroup
+from basis.db.repositories.provenance import MODEL, Provenance, ProvenanceResolver, provenance_json
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
+from basis.db.repositories.study_event import StudyEventRepository
+from basis.errors.codes import E
 from basis.evidence.export import pack_document, pack_to_csv, sha256_hex
 from basis.evidence.pack import load_pack
 from basis.storage import ObjectNotFound, Storage
@@ -46,6 +61,9 @@ from basis.storage.base import SCHEME
 from basis.workflow.contracts import ExportReportInput, ExportReportOutput
 
 FORMAT: Final = "basis-export/2"
+# The export step's own events stay out of the exported timeline (module doc).
+EXPORT_ACTIVITY: Final = "export_report"
+EXPORT_EVENT: Final = "export.written"
 CONTENT_TYPE: Final = "application/json"
 CSV_CONTENT_TYPE: Final = "text/csv"
 JSONL_CONTENT_TYPE: Final = "application/jsonl"
@@ -80,6 +98,10 @@ def _num(value: Decimal | None) -> str | None:
 
 def _id(value: uuid.UUID | None) -> str | None:
     return None if value is None else str(value)
+
+
+def _provenance(found: dict[uuid.UUID, Provenance], key: uuid.UUID) -> dict[str, Any]:
+    return provenance_json(found.get(key, MODEL))
 
 
 def spend_line(group: SpendGroup) -> dict[str, Any]:
@@ -193,23 +215,27 @@ async def build_export(
 ) -> ExportFiles:
     study = await StudyRepository(session).get(study_id)
     if study is None:
-        raise validation_error(f"study {study_id} not found")
+        raise validation_error(f"study {study_id} not found", E.EXPORT_STUDY_NOT_FOUND)
+    resolver = ProvenanceResolver(session, study_id)
     extractions_repo = ExtractionRepository(session)
     extractions = []
     for extraction in await extractions_repo.list_for_revision(study_id, revision):
         fields = await extractions_repo.fields(extraction.id)
+        field_provenance = await resolver.fields(fields)
         extractions.append(
             {
                 "document_id": str(extraction.document_id),
                 "method": extraction.method,
                 "fields": [
                     {
+                        "id": str(f.id),
                         "section": f.section,
                         "field": f.field,
                         "value_text": f.value_text,
                         "value_num": _num(f.value_num),
                         "value_date": f.value_date.isoformat() if f.value_date else None,
                         "source": f.source,
+                        "provenance": _provenance(field_provenance, f.id),
                     }
                     for f in fields
                 ],
@@ -217,14 +243,30 @@ async def build_export(
         )
     heartbeat("extraction")
     rooms_repo = RoomRepository(session)
+    room_rows = await rooms_repo.list_for_revision(study_id, revision)
+    room_provenance = await resolver.rooms(room_rows)
     rooms = [
-        {"id": str(r.id), "name": r.name, "room_type": r.room_type, "floor": r.floor}
-        for r in await rooms_repo.list_for_revision(study_id, revision)
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "room_type": r.room_type,
+            "floor": r.floor,
+            "provenance": _provenance(room_provenance, r.id),
+        }
+        for r in room_rows
     ]
+    photo_rows = await rooms_repo.photo_rooms(study_id, revision)
+    photo_provenance = await resolver.photo_rooms(photo_rows)
     photos = [
-        {"document_id": str(p.document_id), "room_id": str(p.room_id)}
-        for p in await rooms_repo.photo_rooms(study_id, revision)
+        {
+            "document_id": str(p.document_id),
+            "room_id": str(p.room_id),
+            "provenance": _provenance(photo_provenance, p.document_id),
+        }
+        for p in photo_rows
     ]
+    component_rows = await rooms_repo.components(study_id, revision)
+    component_provenance = await resolver.components(component_rows)
     components = [
         {
             "id": str(c.id),
@@ -233,12 +275,21 @@ async def build_export(
             "label": c.label,
             "material": c.material,
             "attachment": c.attachment,
+            "provenance": _provenance(component_provenance, c.id),
         }
-        for c in await rooms_repo.components(study_id, revision)
+        for c in component_rows
     ]
     heartbeat("rooms")
     pack = await load_pack(session, study_id, revision)
     evidence = pack_document(pack)
+    asset_rows = await AssetRepository(session).list_for_revision(study_id, revision)
+    asset_provenance = await resolver.assets(asset_rows, {c.id: c for c in component_rows})
+    for entry in evidence["assets"]:
+        entry["provenance"] = _provenance(asset_provenance, uuid.UUID(entry["id"]))
+    events = (await StudyEventRepository(session).list_for_study(study_id)).items
+    evidence["summary"]["timeline"] = timeline_document(
+        [e for e in events if e.activity != EXPORT_ACTIVITY and e.event_type != EXPORT_EVENT]
+    )
     heartbeat("assets")
     spend = await LlmCallRepository(session).spend(study_id)
     calls_bytes = await build_transcript(session, study_id, storage)
@@ -299,7 +350,16 @@ class ExportReport:
             await self._deps.storage.put(table_uri, files.csv, CSV_CONTENT_TYPE)
             await self._deps.storage.put(transcript_uri, files.calls, JSONL_CONTENT_TYPE)
             await self._deps.storage.put(uri, files.json, CONTENT_TYPE)
-            return ExportReportOutput(export_uri=uri, sha256=sha256_hex(files.json))
+            digest = sha256_hex(files.json)
+            await StudyEventRepository(session).record(
+                study_id,
+                "export.written",
+                actor="system",
+                stage=Stage.EXPORTING,
+                revision=input.revision,
+                detail={"uri": uri, "sha256": digest, "assets_csv": table_uri},
+            )
+            return ExportReportOutput(export_uri=uri, sha256=digest)
 
         return await run_once(
             self._deps,

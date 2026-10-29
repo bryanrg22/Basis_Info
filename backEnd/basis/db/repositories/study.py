@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from basis.db.enums import OrgRole, Stage, StudyStatus, status_for_stage
 from basis.db.errors import InvalidCursorError, NotVisibleError, StaleStateError
 from basis.db.models import Extraction, ExtractionField, OrgMember, Run, Study
+from basis.db.repositories.study_event import Actor, StudyEventRepository
 from basis.domain.intake import StudyIntake
 
 MAX_PAGE_SIZE: Final = 100
@@ -140,8 +141,13 @@ class StudyRepository:
         expected_revision: int,
         *,
         new_revision: int | None = None,
+        actor: Actor = "system",
+        actor_id: uuid.UUID | None = None,
     ) -> Study:
         """Compare-and-set the study's stage (and optionally its revision).
+
+        The move is recorded as a ``stage.entered`` event in the same transaction
+        (``actor``: the engineer whose decision moved it, else the workflow).
 
         ``UPDATE studies ... WHERE id = :id AND current_stage = :from AND revision =
         :expected AND status <> 'archived'``. Under READ COMMITTED a concurrent
@@ -176,6 +182,16 @@ class StudyRepository:
         )
         study = (await self._session.scalars(stmt)).one_or_none()
         if study is not None:
+            await StudyEventRepository(self._session).record(
+                study_id,
+                "stage.entered",
+                actor=actor,
+                actor_id=actor_id,
+                stage=to_stage,
+                revision=study.revision,
+                before={"stage": from_stage.value, "revision": expected_revision},
+                after={"stage": to_stage.value, "revision": study.revision},
+            )
             return study
         current = await self._session.execute(
             select(Study.current_stage, Study.revision, Study.status).where(Study.id == study_id)
@@ -190,7 +206,12 @@ class StudyRepository:
         )
 
     async def mark_started(
-        self, study_id: uuid.UUID, workflow_id: str, expected_revision: int
+        self,
+        study_id: uuid.UUID,
+        workflow_id: str,
+        expected_revision: int,
+        *,
+        actor_id: uuid.UUID | None = None,
     ) -> Study:
         """``uploading -> extracting`` and record the study's workflow id, at most once.
 
@@ -201,7 +222,14 @@ class StudyRepository:
         Any other stale state raises ``StaleStateError``.
         """
         try:
-            await self.transition(study_id, Stage.UPLOADING, Stage.EXTRACTING, expected_revision)
+            await self.transition(
+                study_id,
+                Stage.UPLOADING,
+                Stage.EXTRACTING,
+                expected_revision,
+                actor="engineer" if actor_id is not None else "system",
+                actor_id=actor_id,
+            )
         except StaleStateError:
             current = await self._session.get(Study, study_id, populate_existing=True)
             if current is not None and current.workflow_id == workflow_id:
@@ -214,7 +242,17 @@ class StudyRepository:
             .returning(Study)
             .execution_options(synchronize_session=False, populate_existing=True)
         )
-        return (await self._session.scalars(stmt)).one()
+        started = (await self._session.scalars(stmt)).one()
+        await StudyEventRepository(self._session).record(
+            study_id,
+            "study.started",
+            actor="engineer" if actor_id is not None else "system",
+            actor_id=actor_id,
+            stage=Stage.EXTRACTING,
+            revision=started.revision,
+            detail={"workflow_id": workflow_id},
+        )
+        return started
 
     async def set_intake(self, study_id: uuid.UUID, intake: StudyIntake) -> Study:
         """Set or replace the study's intake (``PUT /v1/studies/{id}/intake``); archived
