@@ -5656,7 +5656,7 @@ the export carrying the same totals and one transcript line per call (1).
 
 Gates (`backEnd/`): `ruff check`, `ruff format --check`, `mypy` and
 `env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY uv run --no-sync pytest -q` (the full suite as CI
-runs it, Docker up): GATES_PLACEHOLDER. The OpenAPI document was regenerated.
+runs it, Docker up): all green on 2026-10-29 (4,946 passed, 23 skipped, 36 subtests, 11 min 52 s; Docker up for the testcontainers suites). The OpenAPI document was regenerated.
 
 ### 38.6 Open
 
