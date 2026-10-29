@@ -106,6 +106,51 @@ def test_dates_money_names_and_parties_by_role() -> None:
     assert values["improvements.basement_finish_percent"] == "75"
 
 
+def _below_grade(xml: bytes, *, level: bool, standard: int | None, other: int = 0) -> bytes:
+    """The fabricated unit with its below-grade level kept or turned above grade, and the
+    Unit Interior's below-grade areas (finished, nonstandard finished, unfinished)."""
+    text = xml.decode()
+    if not level:
+        text = text.replace(
+            "<GradeLevelType>PartiallyBelowGrade</GradeLevelType>",
+            "<GradeLevelType>AboveGrade</GradeLevelType>",
+        )
+    if standard is not None:
+        areas = (
+            f"<UnitBelowGradeUnfinishedAreaMeasure>{other}</UnitBelowGradeUnfinishedAreaMeasure>"
+            f"<UnitNonStandardBelowGradeFinishedAreaMeasure>{other}"
+            "</UnitNonStandardBelowGradeFinishedAreaMeasure>"
+            f"<UnitStandardBelowGradeFinishedAreaMeasure>{standard}"
+            "</UnitStandardBelowGradeFinishedAreaMeasure>"
+        )
+        text = text.replace("<PROPERTY_UNIT_AREA>", "<PROPERTY_UNIT_AREA>" + areas)
+    return text.encode()
+
+
+def test_no_below_grade_level_reads_the_unit_interiors_zero() -> None:
+    """No basement: the unit has no below-grade level, and the Unit Interior prints
+    "Finished Below Grade 0 Sq. Ft." (A-1 deliver even if zero): the Basement Area is 0, the
+    legacy 1004's 0 for no basement, not empty."""
+    key = "improvements.basement_area_sqft"
+    xml = _below_grade(fabricated_xml(), level=False, standard=0)
+    assert read(xml)[key] == "0"
+    result = extract_mismo(xml, "doc", layout=None)
+    assert result.fields[key].value_num == Decimal(0)
+    # the percent of nothing stays empty (no box prints it)
+    assert "improvements.basement_finish_percent" not in read(xml)
+    # no level and no Unit Interior areas at all: nothing to read
+    assert key not in read(_below_grade(fabricated_xml(), level=False, standard=None))
+
+
+def test_below_grade_levels_win_over_the_unit_interior() -> None:
+    key = "improvements.basement_area_sqft"
+    # G-1's source, the below-grade levels (600 + 200), when the unit has one
+    assert read(_below_grade(fabricated_xml(), level=True, standard=0))[key] == "800"
+    # without one, the Unit Interior's finished, nonstandard and unfinished areas add up
+    xml = _below_grade(fabricated_xml(), level=False, standard=500, other=50)
+    assert read(xml)[key] == "600"
+
+
 def test_an_approach_not_developed_leaves_its_keys_empty() -> None:
     values = read(fabricated_xml(cost_developed=False))
     assert "cost_approach.site_value" not in values

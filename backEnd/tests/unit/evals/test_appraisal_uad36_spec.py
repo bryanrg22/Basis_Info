@@ -149,3 +149,35 @@ def test_a_mapped_entry_carries_its_locations_and_the_report_lists_sections_and_
 def test_each_source_carries_its_own_captions() -> None:
     entry = resolve(specs(), "cost_approach.site_value", G("3-14", "SiteEstimatedValueAmount"))
     assert entry["sources"][0]["captions"] == ("Opinion of Site Value",)
+
+
+def test_a_fallback_adds_sources_but_not_captions_or_locations() -> None:
+    """A rule's fallback data point is read (a source) without joining the key's captions and
+    locations, which the PDF reader's caption map and the fallback prompt are built from."""
+    fallback = SpecRow(
+        uid="9000.0009",
+        xpath=PATH,
+        point="SiteOtherValueAmount",
+        attribute="",
+        locations=("4.106: Site - Site Valuation Methodology - Other Site Value",),
+        fmt="Amount",
+        subject=True,
+    )
+    plain = resolve(
+        specs(fallback), "cost_approach.site_value", G("3-14", "SiteEstimatedValueAmount")
+    )
+    entry = resolve(
+        specs(fallback),
+        "cost_approach.site_value",
+        G("3-14", "SiteEstimatedValueAmount", fallback=(("4.106", "SiteOtherValueAmount"),)),
+    )
+    assert [s["uid"] for s in entry["sources"]] == ["9000.0001", "9000.0009"]
+    assert entry["sources"][1]["captions"] == ("Other Site Value",)
+    assert entry["captions"] == plain["captions"] == ("Opinion of Site Value",)
+    assert entry["locations"] == plain["locations"]
+    with pytest.raises(SpecError):
+        resolve(
+            specs(fallback),
+            "cost_approach.site_value",
+            G("3-14", "SiteEstimatedValueAmount", fallback=(("4.107", "Missing"),)),
+        )
