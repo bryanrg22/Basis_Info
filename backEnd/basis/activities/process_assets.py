@@ -10,13 +10,26 @@ an engineer added to a room at the rooms review always), with the quantity of ea
 1. classify it (:func:`basis.classify.router.classify`: rules table, then the approved
    cache, then the bounded residual model), with ``settings.classify_concurrency``
    components in flight;
-2. measure it (:func:`basis.domain.takeoffs.estimate_quantity`, room area from the room
-   type's typical area until rooms carry a measured area). Area and perimeter takeoffs
-   are measured once per room and takeoff row: a second photo of the same kitchen floor
-   gets quantity 0 with a formula naming the component that carries the area;
-3. price it (:func:`basis.domain.costs.estimate_cost`, cost year and location factor from
-   settings; the six legacy rows, else the ``COST_TABLE_PATH`` table's row for the
-   component's label); a missing cost row writes a ``cost_estimates`` row with no amounts;
+2. measure it (:func:`basis.domain.takeoffs.estimate_quantity`). The room area comes
+   from the appraisal's extraction fields (:mod:`basis.domain.measurements`,
+   ``TAKEOFF_AREAS=appraisal``: the GLA shared over the rooms by room-type weight, the
+   finished basement area for basement rooms, the garage area for the garage), the room
+   type's typical area when a field is missing or ``TAKEOFF_AREAS=typical``; the takeoff's
+   ``inputs`` record which (``room_area_source``) with the formula and the field sources.
+   Roof, siding, gutters and landscaping are property-level quantities derived from the
+   footprint and the site area, measured once per study (the landscaping is an upper
+   bound, the whole unbuilt lot, and is sent to review as ``takeoff:upper_bound``); a site
+   label the appraisal cannot size (driveway, fence, ...) stays a count with
+   ``needs_measurement`` named.
+   Area and perimeter takeoffs are measured once per room (or property) and takeoff row:
+   a second photo of the same kitchen floor gets quantity 0 with a formula naming the
+   component that carries the area;
+3. price it (:func:`basis.domain.costs.estimate_cost`: the six legacy rows, else the
+   ``COST_TABLE_PATH`` table's row for the component's label). The cost year and the
+   location factor come from the study (``COST_INDEX=study``: the state's factor and the
+   appraisal's effective-date year, each the setting when the field is missing, with the
+   source written on the cost row), else from settings; a missing cost row writes a
+   ``cost_estimates`` row with no amounts;
 4. cross-validate classification, takeoff and cost; warnings and errors set
    ``needs_review`` and every reason is kept in ``review_reason``;
 5. write ``assets``, ``takeoffs``, ``cost_estimates``, ``citations`` (verified ones only)
@@ -79,16 +92,29 @@ from basis.classify.residual import CallRecord
 from basis.classify.router import ClassificationResult, ClassifyContext, classify, route
 from basis.classify.schemas import ComponentView
 from basis.classify.verify import VerifiedCitation
+from basis.config import Settings
 from basis.db.enums import ClassificationMethod, Corpus
 from basis.db.models import Asset, Component, CorpusVersion, LlmCall, Room
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.asset import AssetRepository
+from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.run import RunRepository
 from basis.db.session import session_scope
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.costs import CostError, CostEstimate, NeedsQuantity, estimate_cost
 from basis.domain.cross_validation import cross_validate
+from basis.domain.measurements import (
+    NEEDS_MEASUREMENT,
+    BuildingMeasurements,
+    CostIndex,
+    Derived,
+    RoomArea,
+    measurements_from_fields,
+    property_quantities,
+    resolve_cost_index,
+    room_areas,
+)
 from basis.domain.rooms import guidance_for, typical_area_sf
 from basis.domain.rules import RECOVERY_YEARS, lookup
 from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
@@ -178,6 +204,9 @@ class _Prepared:
     views: dict[uuid.UUID, ComponentView]
     ctx: ClassifyContext
     budget: Budget
+    # The appraisal's measurements (None when no extraction has fields, or when neither
+    # TAKEOFF_AREAS=appraisal nor COST_INDEX=study needs them).
+    measurements: BuildingMeasurements | None = None
 
 
 async def _prepare(
@@ -194,6 +223,9 @@ async def _prepare(
     rooms_repo = RoomRepository(session)
     components = asset_components(await rooms_repo.components(study_id, input.revision))
     rooms = {r.id: r for r in await rooms_repo.list_for_revision(study_id, input.revision)}
+    measurements = None
+    if settings.takeoff_areas == "appraisal" or settings.cost_index == "study":
+        measurements = await study_measurements(session, study_id, input.revision)
     overrides = await _overrides(assets, study_id, components, input.corrections)
     property_class = settings.property_class
     views = {
@@ -235,7 +267,28 @@ async def _prepare(
                 f"{len(residual)} components need the model (up to ${worst}); "
                 f"${input.budget_remaining_usd:.4f} remains"
             )
-    return _Prepared(components, rooms, overrides, views, ctx, budget)
+    return _Prepared(components, rooms, overrides, views, ctx, budget, measurements)
+
+
+async def study_measurements(
+    session: AsyncSession, study_id: uuid.UUID, revision: int
+) -> BuildingMeasurements | None:
+    """The appraisal measurements of the revision's extraction fields; None when no
+    extraction of the revision has a usable field. Several extractions (a UAD 3.6 XML
+    and its PDF) are read in document order, the first value of each field winning.
+
+    TODO(basis-allocation): the study intake (``study.intake``: ``placed_in_service_date``,
+    ``state``, ``zip``) should override the appraisal's fields here once that branch
+    lands them.
+    """
+    repo = ExtractionRepository(session)
+    rows = []
+    for extraction in await repo.list_for_revision(study_id, revision):
+        rows.extend(await repo.fields(extraction.id))
+    if not rows:
+        return None
+    measurements = measurements_from_fields(rows)
+    return None if measurements.is_empty else measurements
 
 
 async def _write(
@@ -254,7 +307,8 @@ async def _write(
     cache_repo = ClassificationCacheRepository(session)
     budget = prepared.budget
     table = cost_table_for(settings.cost_table_path)
-    measured: dict[tuple[uuid.UUID | None, str], uuid.UUID] = {}
+    plan = TakeoffPlan.build(settings, prepared.measurements, list(rooms.values()))
+    measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
     calls: list[CallRecord] = []
     needs_review = 0
@@ -275,10 +329,8 @@ async def _write(
             asset = await _write_classified(assets, component, input.revision, result)
             rule_key, extra_inputs = result.rule_key, {}
             citations = result.citations
-        takeoff = _takeoff(component, room, rule_key, property_class, measured, asset.id)
-        cost, priced_per = _cost(
-            takeoff, settings.cost_year, settings.cost_location_factor, table, component.label
-        )
+        takeoff = _takeoff(component, room, rule_key, plan, measured, asset.id)
+        cost, priced_per = _cost(takeoff, plan.index, table, component.label)
         issues = [
             i
             for i in cross_validate(
@@ -290,9 +342,14 @@ async def _write(
             )
             if i.needs_review
         ]
-        if issues:
+        extra_reasons = [f"cross:{i.code}" for i in issues]
+        if takeoff.inputs.get("quantity_bound") == "upper":
+            # A derived quantity that is an upper bound (landscaping = the whole unbuilt
+            # lot): priced, but the engineer must confirm or measure it.
+            extra_reasons.append("takeoff:upper_bound")
+        if extra_reasons:
             reasons = [r for r in (asset.review_reason or "").split("; ") if r]
-            reasons += [f"cross:{i.code}" for i in issues]
+            reasons += extra_reasons
             asset.needs_review = True
             asset.review_reason = "; ".join(dict.fromkeys(reasons))
         await assets.add_takeoff(
@@ -312,8 +369,8 @@ async def _write(
             unit_cost=None if cost is None else cost.unit_cost,
             total=None if cost is None else cost.total,
             source_row=_source_row(takeoff, cost),
-            location_factor=Decimal(str(settings.cost_location_factor)),
-            cost_year=settings.cost_year,
+            location_factor=plan.index.location_factor,
+            cost_year=plan.index.cost_year,
         )
         for citation in citations:
             row = await assets.add_citation(
@@ -487,35 +544,129 @@ async def _write_manual(
     return asset, None if hit is None else hit.key, record
 
 
+@dataclass(frozen=True, slots=True)
+class TakeoffPlan:
+    """What the revision's takeoffs and prices draw on: each room's floor area, the
+    property-level quantities, and the cost index (module doc, steps 2 and 3)."""
+
+    room_areas: dict[uuid.UUID, RoomArea]
+    property: dict[str, Derived]
+    index: CostIndex
+    property_class: str
+    from_appraisal: bool
+
+    @classmethod
+    def build(
+        cls, settings: Settings, measurements: BuildingMeasurements | None, rooms: list[Room]
+    ) -> TakeoffPlan:
+        areas: dict[uuid.UUID, RoomArea] = {}
+        quantities: dict[str, Derived] = {}
+        from_appraisal = measurements is not None and settings.takeoff_areas == "appraisal"
+        if measurements is not None and from_appraisal:
+            areas = {
+                room_id: area  # type: ignore[misc]
+                for room_id, area in room_areas(
+                    measurements, rooms, settings.property_class
+                ).items()
+            }
+            quantities = property_quantities(measurements)
+        setting_factor = Decimal(str(settings.cost_location_factor))
+        if measurements is not None and settings.cost_index == "study":
+            index = resolve_cost_index(
+                measurements, cost_year=settings.cost_year, location_factor=setting_factor
+            )
+        else:
+            index = CostIndex(settings.cost_year, None, setting_factor, None)
+        return cls(areas, quantities, index, settings.property_class, from_appraisal)
+
+
 def _takeoff(
     component: Component,
     room: Room | None,
     rule_key: str | None,
-    property_class: str,
-    measured: dict[tuple[uuid.UUID | None, str], uuid.UUID],
+    plan: TakeoffPlan,
+    measured: dict[tuple[str, str], uuid.UUID],
     asset_id: uuid.UUID,
 ) -> Takeoff:
-    area, known = typical_area_sf(room.room_type if room else None, property_class)
-    takeoff = estimate_quantity(rule_key or component.label, area, _count(component))
+    key = takeoff_key(rule_key or component.label)
+    derived = plan.property.get(key)
+    if derived is not None:
+        takeoff = _property_takeoff(key, derived, _count(component))
+        scope = "property"
+    else:
+        takeoff = _room_takeoff(component, room, key, plan)
+        scope = f"room:{component.room_id}"
+    if not takeoff.is_measured:
+        return takeoff
+    first = measured.setdefault((scope, takeoff_key(takeoff.component)), asset_id)
+    if first == asset_id:
+        return takeoff
     inputs: dict[str, str | int | bool | None] = {
         **takeoff.inputs,
-        "room_area_source": "typical_for_room_type" if known else "default_150_sf",
+        "measured_with_asset": str(first),
     }
-    if not takeoff.is_measured:
-        return Takeoff(**{**_fields(takeoff), "inputs": inputs})
-    key = (component.room_id, takeoff_key(takeoff.component))
-    first = measured.setdefault(key, asset_id)
-    if first == asset_id:
-        return Takeoff(**{**_fields(takeoff), "inputs": inputs})
-    inputs["measured_with_asset"] = str(first)
+    where = "property" if scope == "property" else "room"
     return Takeoff(
         component=takeoff.component,
         quantity=Decimal("0.00"),
         unit=takeoff.unit,
-        formula=f"measured once per room: see asset {first}",
+        formula=f"measured once per {where}: see asset {first}",
         inputs=inputs,
         method=takeoff.method,
         assumptions=takeoff.assumptions,
+    )
+
+
+def _room_takeoff(component: Component, room: Room | None, key: str, plan: TakeoffPlan) -> Takeoff:
+    """A room-level takeoff on the room's planned area (the typical area when the plan
+    has none for the room: no appraisal field, or TAKEOFF_AREAS=typical)."""
+    planned = plan.room_areas.get(room.id) if room is not None else None
+    if planned is None:
+        area, known = typical_area_sf(room.room_type if room else None, plan.property_class)
+        source = "typical_for_room_type" if known else "default_150_sf"
+        extra: dict[str, str | int | bool | None] = {}
+        assumptions: tuple[str, ...] = ()
+    else:
+        area, source = planned.area_sf, planned.source
+        extra = {"room_area_formula": planned.formula, **planned.inputs}
+        assumptions = planned.assumptions
+    takeoff = estimate_quantity(key, area, _count(component))
+    inputs: dict[str, str | int | bool | None] = {
+        **takeoff.inputs,
+        "room_area_source": source,
+    }
+    if takeoff.is_measured and planned is not None:
+        inputs.update(extra)
+    if plan.from_appraisal and key in NEEDS_MEASUREMENT:
+        inputs["needs_measurement"] = NEEDS_MEASUREMENT[key]
+    return Takeoff(
+        **{
+            **_fields(takeoff),
+            "inputs": inputs,
+            "assumptions": (*takeoff.assumptions, *assumptions)
+            if takeoff.is_measured
+            else takeoff.assumptions,
+        }
+    )
+
+
+def _property_takeoff(key: str, derived: Derived, count: int) -> Takeoff:
+    """A property-level takeoff (roof, siding, gutters, landscaping) from the appraisal."""
+    inputs: dict[str, str | int | bool | None] = {
+        "component": key,
+        "count": count,
+        "room_area_sf": None,
+        "quantity_source": "appraisal_derived",
+        **derived.inputs,
+    }
+    return Takeoff(
+        component=key,
+        quantity=derived.quantity,
+        unit=derived.unit,
+        formula=derived.formula,
+        inputs=inputs,
+        method="perimeter" if derived.unit == "LF" else "area",
+        assumptions=derived.assumptions,
     )
 
 
@@ -533,8 +684,7 @@ def _fields(takeoff: Takeoff) -> dict[str, Any]:
 
 def _cost(
     takeoff: Takeoff,
-    cost_year: int,
-    location_factor: float,
+    index: CostIndex,
     table: CostTable | None,
     label: str,
 ) -> tuple[CostEstimate | None, str | None]:
@@ -542,7 +692,13 @@ def _cost(
     takeoff is in another unit (``NeedsQuantity``)."""
     try:
         estimate = estimate_cost(
-            takeoff, cost_year, Decimal(str(location_factor)), table=table, label=label
+            takeoff,
+            index.cost_year,
+            index.location_factor,
+            table=table,
+            label=label,
+            year_source=index.year_source,
+            location_source=index.location_source,
         )
     except NeedsQuantity as exc:
         return None, exc.unit
@@ -610,4 +766,11 @@ async def _overrides(
     return overrides
 
 
-__all__ = ["ProcessAssets", "asset_components", "component_view", "corpus_versions"]
+__all__ = [
+    "ProcessAssets",
+    "TakeoffPlan",
+    "asset_components",
+    "component_view",
+    "corpus_versions",
+    "study_measurements",
+]

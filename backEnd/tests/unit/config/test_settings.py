@@ -433,3 +433,21 @@ def test_get_settings_is_cached_until_reset(clean_env: pytest.MonkeyPatch) -> No
 def test_settings_fixture_reflects_test_environment(settings: Settings) -> None:
     assert settings.env == "test"
     assert settings.git_sha == os.environ["GIT_SHA"]  # "test-sha" unless the caller set one
+
+
+def test_takeoff_and_cost_index_settings(clean_env: pytest.MonkeyPatch) -> None:
+    """EVAL_REPORT section 35: the appraisal's measurements and the study's cost index are
+    the defaults; the legacy typical areas and the settings' factors are one variable away."""
+    clean_env.setenv("BASIS_ENV", "test")
+    settings = load_settings()
+    assert (settings.takeoff_areas, settings.cost_index) == ("appraisal", "study")
+    assert (settings.cost_year, settings.cost_location_factor) == (2026, 1.0)
+    reset_settings()
+    clean_env.setenv("TAKEOFF_AREAS", "typical")
+    clean_env.setenv("COST_INDEX", "setting")
+    settings = load_settings()
+    assert (settings.takeoff_areas, settings.cost_index) == ("typical", "setting")
+    reset_settings()
+    clean_env.setenv("TAKEOFF_AREAS", "sketch")
+    with pytest.raises(ValidationError):
+        load_settings()
