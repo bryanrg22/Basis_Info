@@ -30,7 +30,11 @@ class CitationOut(ResponseModel):
 
 
 class CitedChunkOut(ResponseModel):
-    doc_id: str = Field(description="The reference document the passage is from.")
+    doc_id: str = Field(
+        description="The document the passage is from: a reference document, or (a passage of "
+        "the study's appraisal corpus) the appraisal document whose PDF holds the pages, a PDF "
+        "or a UAD 3.6 ZIP (render `GET .../documents/{doc_id}/pdf`)."
+    )
     page_start: int | None
     page_end: int | None
     section_path: str | None

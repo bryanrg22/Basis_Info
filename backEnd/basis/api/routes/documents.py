@@ -12,12 +12,23 @@ Flow:
    sha256. On success ``uploaded_at`` is set; confirming twice returns the same document.
    On a mismatch the object is deleted (its bytes are not what was registered) and the
    answer is 409; the client uploads again and confirms with a new idempotency key.
+   An appraisal is also read (``basis.extraction.package.check_declared``): it must be a PDF,
+   a MISMO 3.6 XML or a safe UAD 3.6 ZIP (one MISMO XML, exactly one report PDF or the one the
+   XML names, the archive limits), of the kind its declared ``content_type`` names. Otherwise
+   the answer is 422 ``invalid-appraisal`` naming the problem, the object is deleted and the
+   document stays unconfirmed (the workflow never sees it; docs/api/UAD36_INTAKE.md).
 
 4. ``GET .../documents/{doc_id}/content`` returns a confirmed document's bytes to a viewer
    of the study (the frontend shows photos, their masks and the appraisal PDF from it).
    The bytes are immutable (they hash to the registered sha256), so the response is
    cacheable by the browser (private) with the sha256 as its strong ``ETag``. Like the
    completion check, it reads storage with no database connection held.
+
+5. ``GET .../documents/{doc_id}/pdf`` returns the PDF to render for a confirmed appraisal:
+   a PDF's own bytes, or the report PDF inside a UAD 3.6 ZIP (the one the extraction and the
+   corpus use). A bare XML has none (409 ``no-report-pdf``: render the extraction's
+   ``pdf_document_id`` instead). Same caching as ``/content`` (the PDF is derived from
+   immutable bytes by a fixed rule, so the document's sha256 still identifies it).
 
 The completion check does not hold a database connection while it reads the object: it
 looks the document up in one short transaction, verifies storage with no transaction
@@ -35,7 +46,7 @@ from urllib.parse import quote
 import anyio.to_thread
 from fastapi import Depends, Path, Request, Response, status
 
-from basis.api.errors import Conflict, NotFound
+from basis.api.errors import Conflict, NotFound, Unprocessable
 from basis.api.routes.common import (
     get_storage,
     get_storage_bucket,
@@ -61,11 +72,13 @@ from basis.db.errors import DuplicateDocumentError
 from basis.db.models import Study
 from basis.db.repositories import DocumentRepository, VisibleStudy
 from basis.db.session import SessionDep, session_scope
+from basis.extraction.package import InvalidPackage, check_declared, read_appraisal_upload
 from basis.storage import ObjectNotFound, Storage, object_uri
 
 UPLOAD_URL_TTL: Final = timedelta(minutes=15)
 UPLOAD_ROLE: Final = OrgRole.ENGINEER
 CONTENT_CACHE_CONTROL: Final = "private, max-age=3600"
+ZIP_TYPE: Final = "application/zip"
 
 reads = read_router(tags=["documents"])
 writes = write_router(tags=["documents"])
@@ -143,12 +156,14 @@ async def verify_object(storage: Storage, document: DocumentOut, uri: str) -> No
             "No object has been uploaded for this document yet.", type_suffix="upload-missing"
         ) from None
     problem: str | None = None
+    data = b""
     if stat.size != document.bytes:
         problem = f"the object has {stat.size} bytes; {document.bytes} were declared"
     elif stat.content_type is not None and stat.content_type != document.content_type:
         problem = "the object's content type differs from the declared one"
     else:
-        digest = await anyio.to_thread.run_sync(_sha256, await storage.read(uri))
+        data = await storage.read(uri)
+        digest = await anyio.to_thread.run_sync(_sha256, data)
         if digest != document.sha256:
             problem = "the object's sha256 differs from the declared one"
     if problem is not None:
@@ -157,12 +172,29 @@ async def verify_object(storage: Storage, document: DocumentOut, uri: str) -> No
             f"Upload rejected: {problem}. The object was deleted; upload the file again.",
             type_suffix="upload-mismatch",
         )
+    if document.kind is DocumentKind.APPRAISAL:
+        try:
+            await anyio.to_thread.run_sync(check_declared, data, document.content_type)
+        except InvalidPackage as exc:
+            await storage.delete(uri)
+            raise Unprocessable(
+                f"Not a usable appraisal: {exc}. The object was deleted; the document stays "
+                "unconfirmed.",
+                type_suffix="invalid-appraisal",
+            ) from None
 
 
 @writes.post(
     "/studies/{study_id}/documents/{document_id}/complete",
     summary="Confirm an upload after verifying the stored object",
-    responses=problems(403, 404),
+    responses={
+        **problems(403, 404),
+        422: {
+            "description": "Invalid request, or (`invalid-appraisal`) an appraisal that is not "
+            "a PDF, a MISMO 3.6 XML or a safe UAD 3.6 ZIP of its declared type.",
+            "content": problems(422)[422]["content"],
+        },
+    },
 )
 async def complete_upload(
     study_id: StudyIdPath,
@@ -231,3 +263,64 @@ async def document_content(
     headers["Content-Disposition"] = _content_disposition(filename)
     headers["X-Content-Type-Options"] = "nosniff"
     return Response(content=data, media_type=content_type, headers=headers)
+
+
+@reads.get(
+    "/studies/{study_id}/documents/{document_id}/pdf",
+    summary="The PDF to render for an appraisal (a UAD 3.6 ZIP's report PDF)",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "The PDF (`application/pdf`): the document itself, or the report PDF "
+            "inside a UAD 3.6 ZIP.",
+            "content": {"application/pdf": {}},
+        },
+        304: {"description": "`If-None-Match` matched the document's sha256."},
+        **problems(404, 409),
+    },
+)
+async def document_pdf(
+    request: Request,
+    study_id: StudyIdPath,
+    document_id: DocumentIdPath,
+    user: CurrentUserDep,
+    sessionmaker: SessionmakerDep,
+    storage: StorageDep,
+) -> Response:
+    async with session_scope(sessionmaker) as session:
+        await require_study_access(session, user, study_id, OrgRole.VIEWER)
+        found = await DocumentRepository(session).get(study_id, document_id)
+        if found is None:
+            raise NotFound("Document not found.")
+        uri, content_type, filename = found.gcs_uri, found.content_type, found.filename
+        sha256, uploaded, kind = found.sha256, found.uploaded_at is not None, found.kind
+    if not uploaded:
+        raise Conflict("The document's upload is not confirmed yet.", type_suffix="upload-missing")
+    if kind is not DocumentKind.APPRAISAL or content_type not in ("application/pdf", ZIP_TYPE):
+        raise Conflict(
+            "The document has no report PDF (a bare UAD 3.6 XML: render the extraction's "
+            "pdf_document_id).",
+            type_suffix="no-report-pdf",
+        )
+    etag = f'"{sha256}"'
+    headers = {"ETag": etag, "Cache-Control": CONTENT_CACHE_CONTROL}
+    if etag in [tag.strip() for tag in request.headers.get("if-none-match", "").split(",")]:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    try:
+        data = await storage.read(uri)
+    except ObjectNotFound:
+        raise NotFound("The document's bytes are missing from storage.") from None
+    if content_type == ZIP_TYPE:
+        try:
+            upload = await anyio.to_thread.run_sync(read_appraisal_upload, data)
+        except InvalidPackage as exc:  # confirmed before the confirm-time check existed
+            raise Conflict(
+                f"The package is not usable: {exc}.", type_suffix="no-report-pdf"
+            ) from None
+        if upload.pdf is None:  # pragma: no cover - read_zip refuses a ZIP without a PDF
+            raise Conflict("The package holds no report PDF.", type_suffix="no-report-pdf")
+        data = upload.pdf
+        filename = (upload.pdf_name or "report.pdf").rsplit("/", 1)[-1]
+    headers["Content-Disposition"] = _content_disposition(filename)
+    headers["X-Content-Type-Options"] = "nosniff"
+    return Response(content=data, media_type="application/pdf", headers=headers)

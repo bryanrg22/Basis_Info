@@ -126,6 +126,9 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "POST /v1/studies/{study_id}/documents/{document_id}/complete",
         # the browser frontend's photos and appraisal (tests/api/test_document_content.py)
         "GET /v1/studies/{study_id}/documents/{document_id}/content",
+        # UAD 3.6 intake (tests/api/test_uad36_api.py)
+        "GET /v1/studies/{study_id}/documents/{document_id}/pdf",
+        "GET /v1/studies/{study_id}/extraction",
         "POST /v1/studies/{study_id}/decisions",
         "GET /v1/studies/{study_id}/evidence",
         # v0.6 (tests/api/test_objects.py)
