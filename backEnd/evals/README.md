@@ -348,6 +348,72 @@ scoring as in ExpertLongBench / CheckEval (one binary judgment per required item
 aggregated as recall, not-applicable items kept out of the denominator); the cost
 weighting mirrors the IRS Cost Segregation ATG's requirement that a study's asset list
 tie out to its total cost.
+### `labels/e2e_rows_v1.json` and `labels/engineer_report_v1.json` (end to end)
+
+Read by `python -m evals.e2e_report` (EVAL_REPORT section 34), not by `evals.run`; both
+default to `$BASIS_EVAL_DATA_DIR/labels/`. The third input is a study export the pipeline
+wrote at completion (`rev-<n>.json` of `basis.activities.export_report`, format
+`basis-export/2`, or its `rev-<n>.assets.csv`).
+
+```json
+{"schema_version": 1, "rows": [
+  {"id": "report-14", "system": "Specialty Plumbing - Kitchen & Utility Sink / Laundry",
+   "kind": "A", "assign": [{"label": "sink", "room_types": ["kitchen", "laundry"]}]},
+  {"id": "report-30", "system": "Plumbing", "kind": "A",
+   "assign": [{"label": "toilet"}, {"label": "sink", "exclude_room_types": ["kitchen", "laundry"]}]},
+  {"id": "report-45", "system": "Ceramic Tile Flooring", "kind": "B",
+   "assign": [{"label": "tile", "materials": ["ceramic", "porcelain", "stone"]}]},
+  {"id": "report-12", "system": "Specialty Electrical", "kind": "A", "assign": [],
+   "note": "dedicated circuits are not an object the pipeline produces"},
+  {"id": "report-37", "system": "Painting", "kind": "C",
+   "assign": [{"label": "wall_finish", "exclude_materials": ["wood", "wallpaper"]}]}],
+ "unassigned": [{"label": "other", "reason": "no label"}, {"label": "mirror", "reason": "decor"}]}
+```
+
+The row assignment: for each engineer row (same ids as `assets_v1` / `report_rows_v1`), the
+pipeline labels charged to it, each under optional conditions. Unlike `report_rows`'
+evidence rules (any-of, many-to-many), every asset is charged to **at most one** row:
+`room_types` / `materials` are allow-lists that reject an unknown room or material,
+`exclude_room_types` / `exclude_materials` deny-lists that accept it, so a label split
+between two rows by complementary lists is charged exactly once. The loader requires every
+vocabulary label to be assigned somewhere or listed under `unassigned` with a reason; the
+scorer refuses an export in which one asset matches two rows, and reports an asset whose
+label is assigned but meets no condition as "no rule matched". `kind` as in `report_rows`;
+a kind C row may carry assignments (hints charged to it for the totals) and is never
+scored; a kind A or B row with no assignment is a vocabulary gap. Built by the private
+`work/build_e2e_rows.py`; the decisions are in the private `labels/E2E_ROWS_NOTES.md`.
+
+```json
+{"schema_version": 1, "property_class": "nonresidential",
+ "building_basis": "249500.00", "closing_costs": "500.00", "replacement_cost_total": "312500.00",
+ "rows": [{"id": "report-01", "system": "Cabinets / Millwork", "group": "Building Components",
+           "bucket": "y5", "cost": "1234.56"}],
+ "systems": [{"name": "Painting", "rows": {"report-37": "1", "report-08": "0.2"},
+              "depreciable_cost": "20000.00", "replacement_cost": "25000.00"}],
+ "bucket_percent": {"y5": "12.3"}, "allocation_building": {"y5": "30688.50"},
+ "allocation_closing": {"y5": "61.50"}}
+```
+
+The engineer's printed report (the example values are made up; the file is private): the
+rows with bucket and cost, the building basis B and closing costs CC (the
+rows must sum to B + CC to the cent), and, when printed, the replacement-cost total, the
+building-systems page (each system the rows it sums, by share; every row charged to
+systems with shares summing to 1), the bucket percentages and the pro-rata allocation
+block. The printed extras are checked by the reproduction (`evals.report_math`: implied
+RCNs = cost x printed RCN total / T, scaled back through the factor, the buckets, the
+percentages, the footed allocation columns and the systems page, to the cent), not used to
+score.
+
+Output (`--out`, `--json`): per row the outcome (evidenced / missed / vocabulary gap / not
+produced for kind C), the pipeline's bucket by asset count and by dollars, bucket right,
+assets charged (priced / unpriced with reasons), pipeline against engineer dollars (ratio,
+error) and each side's row as a share of its own total; per bucket the same with share
+errors; the pipeline's rows through the deterministic tail with the engineer's B and CC;
+the summary block (`classification`, `shares` data-free; `dollars` not). `--data-free`
+leaves the engineer's dollars, shares and ratios out of the Markdown. The dollar
+comparison is replacement cost (pipeline) against allocated basis (engineer) until a basis
+step exists; the share comparison is like-for-like.
+
 ### `photo_counts` (derived from `detection_boxes`, no file)
 
 Per photo, the true count of every verified class: the non-group boxes of that label,
