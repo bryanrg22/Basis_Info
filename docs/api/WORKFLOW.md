@@ -100,6 +100,6 @@ call downloaded and loaded the sentence-transformers model inside the activity, 
 cold cache against the activity's 30 s heartbeat timeout. The study parked at
 `failed_stage: "extracting"` until an engineer called `retry`, which passed in 2 s once the
 model was cached; the photo stage paused with it and 19 minutes were lost. Since EVAL_REPORT
-section 38 the worker loads the model before it polls (from the Docker image, which bakes
+section 39 the worker loads the model before it polls (from the Docker image, which bakes
 it) and the embedding loop heartbeats while a batch runs, so a fresh worker's first study
 does not reach this page. The route exists for the failures that remain a client's call.

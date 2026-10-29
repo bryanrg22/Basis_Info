@@ -1,5 +1,5 @@
 """The embedding loop's progress reports keep a real activity alive through a batch that
-runs longer than its heartbeat timeout (EVAL_REPORT 38).
+runs longer than its heartbeat timeout (EVAL_REPORT 39).
 
 A real Temporal dev server (``workflowtest_support.local_temporal``) enforces a 1 s
 heartbeat timeout on an activity whose embedder blocks 2.5 s per batch, as the model load

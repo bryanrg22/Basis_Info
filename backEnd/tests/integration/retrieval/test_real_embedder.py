@@ -115,7 +115,7 @@ print(json.dumps({"source": load.source, "revision": load.revision, "warm_s": lo
 
 @pytest.mark.regression
 def test_a_cached_model_warms_from_the_cache_within_the_heartbeat_timeout() -> None:
-    """EVAL_REPORT 38: on a fresh worker the first ``embed`` loaded the model inside the
+    """EVAL_REPORT 39: on a fresh worker the first ``embed`` loaded the model inside the
     ingest activity (187 s on a cold cache) and the activity's 30 s heartbeat timeout
     failed the stage. The worker now warms the model before polling, from the cache and
     without a network call (``HF_HUB_OFFLINE=1`` here proves none is made); the load must

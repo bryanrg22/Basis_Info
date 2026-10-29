@@ -63,7 +63,7 @@ EMBED_BATCH: Final = 64
 # While a batch is being embedded, ``progress`` is called this often (the ingest activity
 # heartbeats on it). The activity's heartbeat timeout is 30 s and the worker caps the SDK's
 # send interval at 5 s (``basis.worker.main.MAX_HEARTBEAT_THROTTLE``), so 5 s keeps a
-# heartbeat flowing through a model load or a slow batch (EVAL_REPORT section 38: the
+# heartbeat flowing through a model load or a slow batch (EVAL_REPORT section 39: the
 # first batch on a fresh worker loaded the model, 187 s on a cold cache, 7 s warm).
 EMBED_PROGRESS_S: Final = 5.0
 

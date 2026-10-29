@@ -346,7 +346,7 @@ jobs:
         continue-on-error: true
         run: docker run --rm "$IMAGE" python -c "import basis; print(basis.__version__)"
 
-      # The embedding model is baked into the image (Dockerfile; EVAL_REPORT 38): with the
+      # The embedding model is baked into the image (Dockerfile; EVAL_REPORT 39): with the
       # Hub unreachable (HF_HUB_OFFLINE refuses every request; `--network none` wedged
       # container creation on Docker Desktop, so the proof is the library's offline mode),
       # the non-root user warms it from the image's cache.

@@ -5528,7 +5528,117 @@ document regenerated (`start` documents 409 and 422; `acquisition_costs` require
 * The per-row `sources` on a fresh export, and the intake-driven year and state against the
   engineer's cost source, wait for the like-for-like live run.
 
-## 38. A fresh worker ingests its first appraisal: the embedding model is loaded before polling (2026-10-29)
+## 38. Two live end-to-end runs: the pipeline alone, then the engineer at every gate (2026-10-29)
+
+The like-for-like run WORKFLOW_REVIEW 2026-10-29 section 6 item 8 asked for, on the local
+stack built from main `9c8f443` (sections 34–37 all in): the client property's appraisal and
+52 photos uploaded through the API, the intake set from the engineer's worksheet, every gate
+driven through `POST /decisions`, the export scored with `evals.e2e_report`. Two runs on the
+same inputs: **run 1** approves every gate untouched (the system alone); **run 2** acts as the
+engineer at each gate, correcting the stage's output against the verified labels with the
+API's own `corrections` (a reject carrying them, then an approve of the next revision). The
+private write-ups with the client's figures are `reports/E2E_LIVE_RUN1_2026-10-29.md` and
+`E2E_LIVE_RUN2_2026-10-29.md` under `BASIS_EVAL_DATA_DIR`; the drivers are private too
+(`work/live_e2e/`: they carry the intake). Worker configuration: photo analysis gpt-6.1-sol
+decomposed with gpt-6-luna surfaces, count fusion claude-opus-5-5, room step gpt-6-luna with
+claude-sonnet-5-5 materials, extraction grounded on gpt-6.1-sol, classifier claude-sonnet-5-5,
+RSMeans 2020 table, SAM 3 on Replicate; providers openai+anthropic (the stale Azure OpenAI
+keys in the checkout's `.env` had to be blanked: with them set, Azure is the primary for every
+gpt model).
+
+### 38.1 What the engineer step posted (run 2)
+
+| gate | corrections | verified after |
+|---|---|---|
+| appraisal_review | 3 `extraction_field` (2 wrong values, 1 spurious cleared) | 0 of 126 present truth fields wrong; 5 truth fields have no row and **cannot be added** |
+| rooms_review | 18 `room`: 16 merges (the labels' aliases) + 2 `room_type` | 33 rooms = the labels' 33 |
+| components_review | 81: 53 `component` count fixes + 28 `room_component` additions | 1 remaining; **53 extra rows cannot be removed** (no such correction; counts are ≥ 1) |
+| assets_review | approve only | |
+
+### 38.2 Timeline and spend
+
+| | run 1 | run 2 |
+|---|---|---|
+| wall clock | 29.6 min, of which **19 min lost to defect A** (below); 10.5 min of work | 11.0 min |
+| extraction (Azure DI + one Sol call) | 84 s | 2 × ~90 s (the appraisal reject re-ran the model call) |
+| photo localization + analysis, 52 photos (parallel with extraction) | ~5 min | 4.7 min |
+| room step | 25 s | 64 s |
+| classification + takeoff + cost | 296 s (486 Sonnet calls, 382 assets) | 217 s (386 calls, 310 assets) |
+| each gate (reject → next revision's gate) | | 10 s (rooms, components), 3 min (appraisal) |
+| spend (llm_calls + Replicate) | $7.67 | $6.63 |
+| of which classifier / Opus count fusion / Sol photos / extraction / room step / SAM 3 | 5.41 / 1.47 / 0.51 / 0.08 / 0.14 / 0.04 | 4.29 / 1.48 / 0.51 / 0.15 / 0.15 / 0.04 |
+
+Order observed: extraction and the photo stage start together at `start`; the appraisal
+gate opens when extraction ends; the rooms gate shows the per-photo grouping before any room
+step call (the step runs after the grouping is approved); the components gate 25–64 s later;
+classification after the components approval; export in seconds. The ledger (`llm_calls`)
+recorded every call with tokens and cost (724 and 528 rows, no nulls); `classification_cache`
+was empty in both runs.
+
+### 38.3 Scores (evals.e2e_report, data-free)
+
+| metric | old export 10-19 | run 1 | run 2 |
+|---|---|---|---|
+| assets / priced | 376 / 249 | 382 / 291 | 310 / 244 |
+| evidenced rows (of 38 photo-visible) | 35 | 35 | 36 |
+| bucket right by count (of evidenced) | 24 | 24 | 24 |
+| wrong-bucket rows | 11 | the same 11 | the same 11 + 1 |
+| mean / max row share error (pts) | 2.47 / 12.66 | 2.08 / 12.66 | 2.00 / 12.66 |
+| total variation distance, rows (pts) | 56.9 | 47.8 | 46.1 |
+| bucket share error y5 / y7 / y15 / y39 (pts) | 30.7 / 5.5 / 4.2 / 32.0 | 23.0 / 2.1 / 6.9 / 32.0 | 23.7 / 2.0 / 6.1 / 31.8 |
+| pipeline bucket shares y5 / y7 / y15 / y39 (%) | 45.1 / 5.9 / 0.8 / 48.2 | 37.4 / 2.5 / 11.9 / 48.2 | 38.0 / 2.4 / 11.2 / 48.5 |
+| quantity sources (gla / basement / garage / appraisal-derived / 150 sf default) | – | 236 / 47 / 8 / 34 / 57 | 226 / 44 / 8 / 7 / 25 |
+| basis allocation uniform factor | – | 2.44 (step-up: error, as designed) | 2.35 |
+
+Reading. (1) Sections 35–37 moved the pricing, not the classification: against the October
+export, 42 more assets priced, the row-share distance 57 → 48 points, y5 and y7 shares toward
+the engineer's, y15 overshooting; the vision and classification outcome is the same (same
+rows evidenced, same 24 right, the same 11 wrong, which are rule conventions). (2) The
+engineer's corrections fix the inventory, not the finding: merging 49 rooms into 33 and
+bringing the counts to the labels' removed 72 assets (windows 29 → 19, siding 12 → 2, roof
+9 → 2) and moved the row distance by 1.7 points; no row changed bucket, and y39 stayed at 48
+against the engineer's share. (3) The remaining gap is in three places the gates do not
+reach: the 11 classification conventions (a sixth of the engineer's dollars; the engineer's
+rulings, WORKFLOW_REVIEW item 7), the concealed building systems (two fifths; nothing produces
+them, so the basis step must scale the schedule up 2.3–2.4×, and its `uniform_factor` check
+reports the error), and the site items that need a measurement (driveway, sidewalks, fence,
+retaining wall: evidenced in both runs, priced in neither). (4) Quantities from the appraisal
+hold: roof, siding and gutters land within 0.3–1.8 share points of the engineer's in both runs.
+
+### 38.4 Defects and gaps found by running it
+
+- **Defect A (blocking on a fresh worker).** `ingest_appraisal` embeds the appraisal with
+  sentence-transformers all-MiniLM-L6-v2; a worker that has never loaded the model downloads
+  it (88 MB) inside the first `embed` call with no heartbeat, longer than the activity's 30 s
+  heartbeat; three attempts fail, the stage fails and the study waits for `POST /retry`. The
+  photo stage pauses meanwhile. The previous container only worked because it had cached the
+  model days earlier. Fix in flight: warm the embedder at worker start, heartbeat before the
+  first batch, bake the model into the image.
+- A truth field with no extracted row cannot be added at the appraisal review (5 of 126).
+- No correction removes an inventory row at the components review.
+- Rejecting the appraisal review re-runs the model extraction on the same PDF instead of
+  applying the corrections to the stored answer.
+- The rooms gate proposes nothing: 49 rooms for 52 photos, one per filename stem; the
+  aliases and the appraisal's room count are not consulted, so 16 merges are made by hand.
+- 486 classifier calls for 382 assets with an empty `classification_cache`: 71 % of the spend.
+- The stale Azure OpenAI variables in `backEnd/.env` make Azure the primary for gpt models on
+  any stack that loads that file.
+- The ledger stores tokens, cost, latency, model and prompt version per call but not the
+  rendered prompt, the response, the cache/reasoning token split, the entity a call was
+  about, Azure DI page cost or a per-study rollup (a build is in flight).
+
+### 38.5 What this settles and what is next
+
+The workflow runs end to end on today's defaults in about 11 minutes and $7 per study, with
+every step accounted for in the ledger, and the engineer's output format (the allocation by
+bucket) is produced from the two inputs plus the intake. Between the system alone and the
+engineer at every gate there is almost no difference in the finding; the difference the
+engineer makes is in the inventory. The next moves, in order of effect on the finding: the
+engineer's rulings on the 11 conventions (deterministic, no model spend); a cost model or
+cost-approach carve-out for the concealed systems; measurements for the site items; then the
+second property.
+
+## 39. A fresh worker ingests its first appraisal: the embedding model is loaded before polling (2026-10-29)
 
 In the live end-to-end run of 2026-10-29 (section 34's follow-up) a worker on a freshly
 built container (main `9c8f443`) failed `ingest_appraisal` three times with
@@ -5541,7 +5651,7 @@ paused with it, and 19 minutes were lost; the retry passed in 2 s because the mo
 cached by then. The container the previous runs used had cached the model days earlier,
 which is why nothing had shown this. No model calls; no client dollar appears here.
 
-### 38.1 Reproduction
+### 39.1 Reproduction
 
 `SentenceTransformerEmbedder().embed(64 texts)` on main's code, timed on this machine
 (M-series, home network) with `HF_HOME` pointed at an empty directory, then again on the
@@ -5550,7 +5660,7 @@ same directory:
 | Cache state | First `embed` | Second `embed` |
 |---|---|---|
 | empty (download 90.9 MB `model.safetensors` + tokenizer, then load) | **186.8 s** | 0.01 s |
-| same run repeated later the same afternoon (download fallback, 38.4) | **298.5 s** | 0.03 s |
+| same run repeated later the same afternoon (download fallback, 39.4) | **298.5 s** | 0.03 s |
 | warm (files present, Hub reachable: one HEAD per file) | 7.8 s | 0.01 s |
 | warm, `HF_HUB_OFFLINE=1` | 6.7 s | 0.01 s |
 
@@ -5559,9 +5669,9 @@ of it on a fast laptop; a throttled Cloud Run vCPU would not have much margin ei
 fresh container of main's image (`basis-backend:before`, built from `main:backEnd`) the first
 `embed` with the Hub unreachable raises transformers' `OSError: couldn't connect ... and
 couldn't find them in the cached files`; with the network on it is the download above
-(38.4).
+(39.4).
 
-### 38.2 The standard
+### 39.2 The standard
 
 Hugging Face's own guidance for deployed code is to populate the cache ahead of time and
 read it without the Hub: `HF_HOME` sets where the cache lives, `HF_HUB_OFFLINE` makes the
@@ -5574,7 +5684,7 @@ blocking activity is to heartbeat from the activity on a timer independent of th
 work, so that the heartbeat timeout detects a dead worker and not a slow step. Both are
 applied below; neither replaces the other.
 
-### 38.3 What changed
+### 39.3 What changed
 
 Three layers, each enough on its own for the failure above, in the order a request meets
 them:
@@ -5620,7 +5730,7 @@ runs again, 409 `study-not-failed` / `workflow-closed` / `study-archived`), a cl
 loop, and the note that the photo stage schedules nothing more while a stage waits for a
 retry and resumes with it (the rows already written are reused).
 
-### 38.4 Verification
+### 39.4 Verification
 
 | Measurement | Before (main `9c8f443`, `basis-backend:before`) | After (this branch, `basis-backend:warm`) |
 |---|---|---|
@@ -5643,7 +5753,7 @@ Tests (all run here; the full suite's count is in the PR):
 
 The CI skip for the real model (not cached → skip, never a download in tests) is unchanged.
 
-### 38.5 Decisions a reviewer may ask about
+### 39.5 Decisions a reviewer may ask about
 
 * **Refuse to start, not degrade.** The BM25 warm-up degrades (the index is built on first
   use) because a failure there costs seconds on the first classification. A missing
@@ -5665,7 +5775,7 @@ The CI skip for the real model (not cached → skip, never a download in tests) 
   Desktop `--network none` wedged container creation twice (containers stuck in `Created`);
   the library's offline mode is the documented switch and portable.
 
-### 38.6 Left open
+### 39.6 Left open
 
 * The API serves from the same image and never embeds (the worker's `process_assets` embeds
   the evidence queries), so it pays nothing for the layer; the ingest job

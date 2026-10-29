@@ -20,7 +20,7 @@
   cached it downloads it, with a warning, because a run-time download is what a built
   image should never need. ``warm`` (:meth:`SentenceTransformerEmbedder.warm`) loads the
   model and encodes one text, and reports where the weights came from and how long it
-  took; the worker calls it before polling (EVAL_REPORT section 38: on a fresh container
+  took; the worker calls it before polling (EVAL_REPORT section 39: on a fresh container
   the first ``embed`` took 187 s, far past the activity's 30 s heartbeat timeout).
 * :class:`HashEmbedder`: deterministic feature hashing (signed, 384 buckets, seeded by a
   blake2b hash of each token), L2-normalized. For tests and local runs without the model

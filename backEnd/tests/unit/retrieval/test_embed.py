@@ -179,7 +179,7 @@ def test_hash_embedder_embeds_queries_like_passages() -> None:
     assert embedder.embed_query(["asset class 57.0"]) == embedder.embed(["asset class 57.0"])
 
 
-# ------------------------------------------------- loading and warming (EVAL_REPORT 38)
+# ------------------------------------------------- loading and warming (EVAL_REPORT 39)
 
 
 class FakeSentenceTransformers:
@@ -290,7 +290,7 @@ def test_model_is_cached_asks_for_the_pinned_revision(monkeypatch: pytest.Monkey
 
 
 def test_the_dockerfile_bakes_the_pinned_model() -> None:
-    """The image downloads the model at build time (EVAL_REPORT 38); its two ARGs must be
+    """The image downloads the model at build time (EVAL_REPORT 39); its two ARGs must be
     the model and revision the code loads, or the worker downloads at run time after all."""
     dockerfile = (BACKEND_ROOT / "Dockerfile").read_text()
     args = dict(re.findall(r"^ARG (EMBEDDING_MODEL(?:_REVISION)?)=(\S+)$", dockerfile, re.M))

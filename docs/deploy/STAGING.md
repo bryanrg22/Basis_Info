@@ -227,7 +227,7 @@ One image, `us-central1-docker.pkg.dev/basis-staging-512000/staging-basis/basis-
 built by CI from `backEnd/Dockerfile` (uv, locked dependencies, non-root user, the commit
 in `GIT_SHA`, and the embedding model baked into `/opt/hf` at the revision the code loads:
 the worker warms it from there before it polls and never downloads at start, EVAL_REPORT
-section 38; CI's image job warms it with the network off). The API, worker, relay and jobs
+section 39; CI's image job warms it with the network off). The API, worker, relay and jobs
 run it with different commands, so a deploy is one build. Terraform creates the repository `staging-basis` (`registry.tf`)
 and grants the deployer `artifactregistry.writer` on it.
 

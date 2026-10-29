@@ -303,7 +303,7 @@ uv run python -m basis.relay
 uv run uvicorn basis.api.main:app --port 8000
 ```
 
-Load the reference corpus with the ingest CLI ([Retrieval and citations](#retrieval-and-citations)). The image is built from [`backEnd/Dockerfile`](backEnd/Dockerfile) with uv from the lockfile and the embedding model baked into its Hugging Face cache at the pinned revision (the worker loads it before it polls, with no download; EVAL_REPORT section 38); the API is its default command and the worker runs from the same image with `python -m basis.worker`.
+Load the reference corpus with the ingest CLI ([Retrieval and citations](#retrieval-and-citations)). The image is built from [`backEnd/Dockerfile`](backEnd/Dockerfile) with uv from the lockfile and the embedding model baked into its Hugging Face cache at the pinned revision (the worker loads it before it polls, with no download; EVAL_REPORT section 39); the API is its default command and the worker runs from the same image with `python -m basis.worker`.
 
 ---
 

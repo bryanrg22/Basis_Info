@@ -1,5 +1,5 @@
 """The embedding loop of the ingest pipeline reports progress (the activity's heartbeat)
-before the first batch, after every batch, and while a batch runs (EVAL_REPORT 38).
+before the first batch, after every batch, and while a batch runs (EVAL_REPORT 39).
 
 On a fresh worker the first ``embed`` of the process loaded the model inside the first
 batch: 187 s on a cold cache, 7 s warm, against the activity's 30 s heartbeat timeout, and

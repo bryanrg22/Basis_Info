@@ -13,7 +13,7 @@
   build id ``temporal_build_id`` (default: the git sha).
 * ``/health`` on ``:8080`` for the Cloud Run worker-pool startup probe.
 * The embedding model is loaded before polling starts (:func:`warm_embedder`; EVAL_REPORT
-  section 38): on a fresh container the first ``ingest_appraisal`` used to load it inside
+  section 39): on a fresh container the first ``ingest_appraisal`` used to load it inside
   the activity, 187 s on a cold cache against a 30 s heartbeat timeout, and the stage
   failed. A model that cannot be loaded stops the worker (``/health`` stays ``starting``)
   rather than let it take studies it would fail; the log line says whether the model came

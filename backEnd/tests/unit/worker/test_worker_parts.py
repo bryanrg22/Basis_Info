@@ -541,7 +541,7 @@ def test_unserved_models_is_routing_only() -> None:
     assert unserved_models([], ["m"]) == ["m"]
 
 
-# ------------------------------------------------------ embedder warm-up (EVAL_REPORT 38)
+# ------------------------------------------------------ embedder warm-up (EVAL_REPORT 39)
 
 
 def deps_with(settings: Settings, embedder: Any) -> Deps:

@@ -33,7 +33,7 @@ RUN useradd --create-home --uid 10001 basis
 # way the worker loads it, so the cache holds exactly the files the load needs (~91 MB).
 # A worker then never downloads at start: on a fresh container the first ingest used to
 # download and load the model inside the activity, 187 s against a 30 s heartbeat timeout
-# (EVAL_REPORT section 38). The worker warms the model before polling and reads the cache
+# (EVAL_REPORT section 39). The worker warms the model before polling and reads the cache
 # without a network call; a revision that is not cached is still downloaded, with a
 # warning. Before the code is copied, so a code change does not re-download it.
 ARG EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
