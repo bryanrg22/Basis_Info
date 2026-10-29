@@ -3,3 +3,6 @@
 # the line, so the historical fingerprint is listed here.
 e7efbb2bc628904fdf6665fb66c578747f875122:backEnd/tests/unit/config/test_settings.py:generic-api-key:359
 0ddd7bce41126fcc4ebd6b5bcddc755d0dadcf98:backEnd/tests/unit/llm/test_providers.py:generic-api-key:851
+# detect-secrets baseline entries (SHA-1 hashes of reviewed MISMO xPath strings in the generated UAD 3.6 map).
+b421b0a78127f3b1cd80c8be3bc9c831be97dd29:.secrets.baseline:generic-api-key:167
+b421b0a78127f3b1cd80c8be3bc9c831be97dd29:.secrets.baseline:generic-api-key:174
