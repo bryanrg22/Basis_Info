@@ -42,10 +42,15 @@ reads = read_router(tags=["timeline"])
 ViewerStudy = Annotated[VisibleStudy, Depends(study_access(OrgRole.VIEWER))]
 
 
+MAX_SEQ: Final = 2**63 - 1  # ``study_events.seq`` is a bigint
+
+
 def _after_seq(cursor: str | None) -> int | None:
+    """The ``seq`` a cursor names: ASCII digits within the bigint range, else 422
+    ``invalid-cursor`` (a wider number would reach the database and fail there)."""
     if cursor is None:
         return None
-    if not cursor.isdigit():
+    if not (cursor.isascii() and cursor.isdigit()) or int(cursor) > MAX_SEQ:
         raise Unprocessable(
             "invalid pagination cursor", type_suffix="invalid-cursor", code=E.API_INVALID_CURSOR
         )

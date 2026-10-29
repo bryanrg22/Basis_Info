@@ -515,8 +515,9 @@ async def test_provenance_audit_and_timeline_on_a_corrected_study(
         )
     ).json()
     assert [e["event_type"] for e in only["items"]] == ["review.decided"]
-    bad = await api.get("alice", f"/v1/studies/{sid}/timeline", params={"cursor": "x"})
-    assert bad.status_code == 422 and bad.json()["code"] == E.API_INVALID_CURSOR
+    for cursor in ("x", "9" * 20, "１２"):  # not a seq: text, past the bigint, non-ASCII digits
+        bad = await api.get("alice", f"/v1/studies/{sid}/timeline", params={"cursor": cursor})
+        assert bad.status_code == 422 and bad.json()["code"] == E.API_INVALID_CURSOR
     steps = (await api.get("alice", f"/v1/studies/{sid}/timeline/steps")).json()
     assert steps["steps"] == []  # no worker ran here
     [visit] = steps["stages"]
