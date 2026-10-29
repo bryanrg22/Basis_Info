@@ -76,7 +76,7 @@ from basis.extraction.field_mappings import (
     FIELDS,
     LLM_CONFIDENCE_CAP,
 )
-from basis.extraction.forms import detect_form
+from basis.extraction.forms import FormDetection, detect_form
 from basis.extraction.geometry import Layout, Page, locate, region
 from basis.extraction.marks import checkbox_problem, labelled_texts, without_labels
 from basis.extraction.presence import apply_presence_rules
@@ -523,8 +523,12 @@ class GroundedReading:
     plans: list[Plan]
     statuses: list[str]
     errors: list[str]
-    uad36: bool
+    form: FormDetection
     presence: dict[str, str]
+
+    @property
+    def uad36(self) -> bool:
+        return self.form.is_uad36
 
     @property
     def answered(self) -> bool:
@@ -571,7 +575,8 @@ async def read_fields(
     texts = labelled_texts(geometry)
     # The production form rule (basis.extraction.forms): a UAD 3.6 report is asked only the
     # keys its form carries, each named by its UAD 3.6 captions.
-    uad36 = detect_form(texts).is_uad36
+    form = detect_form(texts)
+    uad36 = form.is_uad36
     asked = tuple(k for k in ASKED_KEYS if k in uad36_pdf.CARRIED) if uad36 else ASKED_KEYS
     plans = plan_calls(
         geometry, asked, images=images, sections=sections, min_page_words=min_page_words
@@ -602,6 +607,6 @@ async def read_fields(
         plans=plans,
         statuses=statuses,
         errors=errors,
-        uad36=uad36,
+        form=form,
         presence=presence.dropped,
     )

@@ -1,17 +1,33 @@
-"""``extract_appraisal``: Azure DI -> regex/table merge -> clean -> validate -> fallback.
+"""``extract_appraisal``: Azure DI, then the grounded reading or the pipeline, then the gate.
 
-S3_SPEC section 2 (binding signature) and section 4. One call per appraisal revision:
+S3_SPEC section 2 (binding signature) and section 4; EVAL_REPORT section 33. One call per
+appraisal revision:
 
 1. Read the PDF's text layer and ruled tables (``pdfplumber``); malformed input raises
    :class:`~basis.extraction.pdf_text.InvalidDocument`.
-2. Azure DI ``prebuilt-layout`` with key-value pairs when it is configured
-   (``method="azure_di+regex"``). When it is not, the text layer alone is used
-   (``method="regex"``) and the result says so; a scanned PDF then has no text and every
-   critical field is missing, which sends it to review. Azure DI answering 4xx
-   (credentials, quota, a refused document) is handled the same way plus an
+2. Azure DI ``prebuilt-layout`` with key-value pairs when it is configured. When it is not,
+   the text layer alone is used (``method="regex"``) and the result says so; a scanned PDF
+   then has no text and every critical field is missing, which sends it to review. Azure DI
+   answering 4xx (credentials, quota, a refused document) is handled the same way plus an
    ``azure_di_rejected`` issue; 429/5xx and timeouts propagate so the activity retries.
    A stored Azure DI result for the same document (an earlier revision) is reused
    instead of paying for a second analysis.
+
+Then the fields are read by ``ctx.method`` (``EXTRACTION_METHOD``):
+
+**grounded** (the production default, EVAL_REPORT section 33.5;
+``method="azure_di+grounded"``): one structured call on ``ctx.grounded``
+(``EXTRACTION_GROUNDED_MODEL``, default gpt-6.1-sol at effort low, 32,000 output tokens) over
+Azure DI's page text with each selection mark labelled from the geometry, every value checked
+mechanically against its verbatim quote, then the presence rules
+(:mod:`basis.extraction.grounded`). Every value is an ``llm`` field at the 0.6 confidence cap
+with the quote's box as its region; the derived site-area fields
+(:mod:`basis.extraction.derived`) follow from the site area it read (with its box); then the
+validation and the review gate as below. A UAD 3.6 report is asked only the keys its form
+carries, by its UAD 3.6 captions. The quotes are kept in ``raw["grounded"]``.
+
+**pipeline** (``method="azure_di+regex"``, before section 33):
+
 3. Merge (Azure DI first; regex and tables only fill gaps; disagreement on a critical
    field is an issue), clean every value by its catalogue type, validate.
 4. One structured LLM call for the fields still empty or failed (every catalogue field
@@ -25,29 +41,42 @@ S3_SPEC section 2 (binding signature) and section 4. One call per appraisal revi
 6. Each field's highlight regions from Azure DI's geometry (:mod:`basis.extraction.regions`;
    none without Azure DI), then the review gate (:mod:`basis.extraction.confidence`).
 
+Errors of the grounded reading follow the pipeline fallback's contract
+(:mod:`basis.extraction.fallback`): the extraction is best effort and still finishes. When the
+grounded reading cannot run (no Azure DI analysis or no geometry in it, no model provider) or
+its call does not answer (a provider error, an answer with no structured content, the study
+budget exhausted), the document is read by the pipeline on the same Azure DI analysis (not
+paid twice), with a note and the failed attempt in ``raw["grounded"]``; the pipeline's
+fallback call is then itself best effort. An account or configuration error
+(:class:`~basis.llm.errors.ProviderAccountError`) propagates from either call, so the stage
+stops with the reason instead of finishing with fields that were never asked.
+
 Two context hooks exist for the appraisal extraction sweep (``evals/appraisal/systems``) and
-default to today's behaviour: ``fallback_pages`` replaces the page texts the model is given
-(the sweep's ``checkbox_context`` passes Azure DI's page ``content`` with its ``:selected:``
-marks instead of the page lines, which carry none), and ``always_ask`` adds keys the model is
-asked even when Azure DI or the text layer read them (the checkbox boxes).
+default to today's behaviour: ``fallback_pages`` replaces the page texts the pipeline's
+fallback model is given (the sweep's ``checkbox_context`` passes Azure DI's page ``content``
+with its ``:selected:`` marks instead of the page lines, which carry none), and
+``always_ask`` adds keys the model is asked even when Azure DI or the text layer read them
+(the checkbox boxes).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from basis.extraction import uad36_pdf
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
-from basis.extraction.derived import derive_fields
+from basis.extraction.derived import AREA_SQFT, AREA_TEXT, derive_fields
 from basis.extraction.fallback import WHOLE_DOCUMENT_CHARS, Scope, fallback_fields, fallback_keys
 from basis.extraction.field_mappings import FIELDS
 from basis.extraction.forms import FormDetection, detect_form
 from basis.extraction.geometry import has_geometry, layout_of
+from basis.extraction.grounded import PROMPT as GROUNDED_PROMPT
+from basis.extraction.grounded import GroundedModel, read_fields
 from basis.extraction.mismo36 import InvalidMismo, extract_mismo
 from basis.extraction.package import (
     InvalidPackage,
@@ -55,11 +84,11 @@ from basis.extraction.package import (
     looks_like_xml,
     read_appraisal_upload,
 )
-from basis.extraction.pdf_text import InvalidDocument, read_pdf
+from basis.extraction.pdf_text import InvalidDocument, PdfText, read_pdf
 from basis.extraction.presence import apply_presence_rules
 from basis.extraction.regex_fields import extract_appraisal_fields, table_candidates
 from basis.extraction.regions import with_regions
-from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
+from basis.extraction.results import ExtractedField, ExtractionResult, Region, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.validation import validate_fields
 from basis.llm import prompts
@@ -72,6 +101,9 @@ logger = logging.getLogger("basis.extraction.pipeline")
 
 METHOD_AZURE = "azure_di+regex"
 METHOD_REGEX = "regex"
+# ``EXTRACTION_METHOD=grounded``: the result's method (Azure DI's page text, one grounded call).
+METHOD_GROUNDED = "azure_di+grounded"
+ExtractionMethod = Literal["grounded", "pipeline"]
 # Appended to the method when the PDF is a UAD 3.6 URAR (read by its own captions).
 METHOD_UAD36_SUFFIX = "+uad36"
 UAD36_PROMPT_NAME = "appraisal_field_fallback_uad36"
@@ -112,11 +144,25 @@ class ExtractionContext:
     always_ask: frozenset[str] = frozenset()
     # The fallback prompt of a UAD 3.6 URAR (``prompt`` is the 1004's).
     uad36_prompt: Prompt = field(default_factory=_uad36_prompt)
+    # Module doc: which method reads a PDF. The extract_fields activity passes
+    # EXTRACTION_METHOD (default "grounded") and the EXTRACTION_GROUNDED_* model; a caller
+    # that sets nothing gets the pipeline. ``grounded`` is required with "grounded".
+    method: ExtractionMethod = "pipeline"
+    grounded: GroundedModel | None = None
 
 
-async def extract_appraisal(
-    pdf_bytes: bytes, doc_id: str, ctx: ExtractionContext
-) -> ExtractionResult:
+@dataclass
+class _Analysis:
+    """The document as read before any model call: the text layer, Azure DI, the form."""
+
+    pdf: PdfText
+    azure: AzureDiResult | None
+    rejected: ValidationIssue | None
+    notes: list[str]
+
+
+async def _analyze(pdf_bytes: bytes, ctx: ExtractionContext) -> _Analysis:
+    """Steps 1-2 of the module doc (paid once, whichever method reads the fields)."""
     ctx.heartbeat("read_pdf")
     pdf = await asyncio.to_thread(read_pdf, pdf_bytes)
     notes: list[str] = []
@@ -144,9 +190,43 @@ async def extract_appraisal(
                 message=f"Azure DI returned {exc.status}: {exc}"[:500],
                 severity="error",
             )
-    method = METHOD_AZURE if azure is not None else METHOD_REGEX
     if azure is None and ctx.azure is None:
         notes.append("Azure DI not configured: text layer and tables only")
+    return _Analysis(pdf=pdf, azure=azure, rejected=rejected, notes=notes)
+
+
+async def extract_appraisal(
+    pdf_bytes: bytes, doc_id: str, ctx: ExtractionContext
+) -> ExtractionResult:
+    analysis = await _analyze(pdf_bytes, ctx)
+    if ctx.method == "grounded":
+        result, attempt = await _read_grounded(pdf_bytes, doc_id, ctx, analysis)
+        if result is not None:
+            return result
+        # Module doc, "Errors": the pipeline reads the document on the same analysis.
+        logger.warning(
+            "grounded extraction of %s did not run (%s): read by the pipeline",
+            doc_id,
+            attempt.get("status"),
+        )
+        analysis.notes.append(
+            f"grounded reading unavailable ({attempt.get('status')}): read by the pipeline"
+        )
+        return await _read_pipeline(doc_id, ctx, analysis, grounded=attempt)
+    return await _read_pipeline(doc_id, ctx, analysis)
+
+
+async def _read_pipeline(
+    doc_id: str,
+    ctx: ExtractionContext,
+    analysis: _Analysis,
+    *,
+    grounded: dict[str, Any] | None = None,
+) -> ExtractionResult:
+    """Steps 3-6 of the module doc for ``EXTRACTION_METHOD=pipeline`` (``grounded``: the
+    failed grounded attempt this replaces, kept in ``raw``)."""
+    pdf, azure, rejected, notes = analysis.pdf, analysis.azure, analysis.rejected, analysis.notes
+    method = METHOD_AZURE if azure is not None else METHOD_REGEX
 
     ctx.heartbeat("map_fields")
     form = detect_form(pdf.pages, azure.page_texts() if azure is not None else ())
@@ -233,6 +313,8 @@ async def extract_appraisal(
         "comparables": comparables,
         "form": _form_json(form),
     }
+    if grounded is not None:
+        raw["grounded"] = grounded
     if azure is not None:
         raw["azure_di"] = azure.model_dump(mode="json")
     return ExtractionResult(
@@ -249,6 +331,111 @@ async def extract_appraisal(
         notes=notes,
         raw=raw,
     )
+
+
+async def _read_grounded(
+    pdf_bytes: bytes, doc_id: str, ctx: ExtractionContext, analysis: _Analysis
+) -> tuple[ExtractionResult | None, dict[str, Any]]:
+    """``EXTRACTION_METHOD=grounded`` (module doc): the result, or ``None`` and why the
+    reading did not run (the attempt kept in the pipeline result's ``raw["grounded"]``)."""
+    model = ctx.grounded
+    if model is None:
+        raise ValueError("EXTRACTION_METHOD=grounded needs ExtractionContext.grounded")
+    attempt: dict[str, Any] = {
+        "model": model.model,
+        "reasoning_effort": model.reasoning_effort,
+        "max_tokens": model.max_tokens,
+    }
+    azure = analysis.azure
+    if azure is None:
+        return None, {**attempt, "status": "no_azure_di"}
+    if not has_geometry(azure):
+        return None, {**attempt, "status": "no_geometry"}
+    if ctx.provider is None:
+        return None, {**attempt, "status": "no_provider"}
+    ctx.heartbeat("grounded")
+    geometry = layout_of(azure)
+    reading = await read_fields(
+        geometry, provider=ctx.provider, call=ctx.call, model=model, pdf=pdf_bytes
+    )
+    trace = reading.summary()
+    if not reading.answered:
+        failed = {k: trace[k] for k in ("status", "error", "calls")}
+        return None, {**attempt, **failed}
+
+    pdf, notes = analysis.pdf, analysis.notes
+    checked = reading.checked
+    method = METHOD_GROUNDED
+    off_form: frozenset[str] = frozenset()
+    if reading.uad36:
+        method += METHOD_UAD36_SUFFIX
+        off_form = uad36_pdf.NOT_CARRIED
+        pages = len(reading.form.uad36_pages)
+        notes.append(f"UAD 3.6 URAR (footer on {pages} pages): its UAD 3.6 captions")
+    fields: dict[str, ExtractedField] = {
+        key: item.model_copy(update={"regions": _regions(checked.regions.get(key, ()))})
+        for key, item in checked.fields.items()
+    }
+    # The site area's other views, from the reading the model quoted (its box too).
+    for key, item in derive_fields(fields).items():
+        source = fields.get(AREA_SQFT) or fields.get(AREA_TEXT)
+        fields[key] = item.model_copy(
+            update={"regions": source.regions if source is not None else ()}
+        )
+    issues = validate_fields(fields, not_on_form=off_form)
+    gate = review_gate(fields, issues, threshold=ctx.review_threshold, not_on_form=off_form)
+    _, comparables = azure_candidates(azure)
+    if not comparables:
+        _, comparables = table_candidates(
+            ((table.page, table.rows) for table in pdf.tables), source="table"
+        )
+    raw: dict[str, Any] = {
+        "method": method,
+        "doc_id": doc_id,
+        "page_count": pdf.page_count,
+        "pages_read": len(pdf.pages),
+        "notes": notes,
+        "issues": [i.model_dump(mode="json") for i in issues],
+        "review_reasons": list(gate.reasons),
+        "review_threshold": ctx.review_threshold,
+        "fallback": trace,
+        "presence": reading.presence,
+        "comparables": comparables,
+        "form": _form_json(reading.form),
+        "grounded": {
+            **attempt,
+            "status": trace["status"],
+            "prompt_version": prompts.latest(GROUNDED_PROMPT).version_id,
+            "quotes": dict(sorted(checked.quotes.items())),
+        },
+        "azure_di": azure.model_dump(mode="json"),
+    }
+    return (
+        ExtractionResult(
+            doc_id=doc_id,
+            method=method,
+            page_count=pdf.page_count,
+            fields=fields,
+            issues=issues,
+            overall_confidence=gate.overall_confidence,
+            needs_review=gate.needs_review,
+            review_reasons=list(gate.reasons),
+            comparables=comparables,
+            fallback=trace,
+            notes=notes,
+            raw=raw,
+        ),
+        attempt,
+    )
+
+
+def _regions(items: Iterable[Mapping[str, Any]]) -> tuple[Region, ...]:
+    """:class:`Region` objects from the reading's JSON regions (``{"page", "bbox"}``)."""
+    out = []
+    for item in items:
+        x0, y0, x1, y1 = (float(v) for v in item["bbox"])
+        out.append(Region(page=int(item["page"]), bbox=(x0, y0, x1, y1)))
+    return tuple(out)
 
 
 def _form_json(form: FormDetection) -> dict[str, Any]:

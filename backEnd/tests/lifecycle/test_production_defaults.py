@@ -65,6 +65,13 @@ STEP_FIELDS = (
     "extraction_fallback_max_tokens",
     "extraction_fallback_scope",
     "extraction_fallback_context_chars",
+    # EVAL_REPORT 33.5: the grounded reading. The offline Azure DI fixture keeps no word
+    # geometry, so it cannot run and the pipeline reads the appraisal, as in production when
+    # an analysis has none (the counts below are the pipeline's).
+    "extraction_method",
+    "extraction_grounded_model",
+    "extraction_grounded_reasoning_effort",
+    "extraction_grounded_max_tokens",
     "classify_model",
     "classify_reasoning_effort",
 )
@@ -133,6 +140,7 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
         ("gpt-6-luna", "appraisal_field_fallback/v1"): 1,
     }
     [fallback] = [r for r in provider.requests if r.prompt_version.startswith("appraisal_")]
+    assert run.settings.extraction_method == "grounded"
     asked = fallback.messages[0].content.split("Page text")[0]
     assert "neighborhood.price_low_thousands" in asked and "subject.city" not in asked
     components = await rows(run, Component, sid, 1)

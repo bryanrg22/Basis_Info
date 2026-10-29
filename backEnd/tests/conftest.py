@@ -35,6 +35,11 @@ os.environ.setdefault("ROOM_RECONCILE", "false")
 # (EVAL_REPORT section 27, the production default) has its own unit tests and runs in
 # test_production_defaults.py.
 os.environ.setdefault("EXTRACTION_FALLBACK_SCOPE", "critical")
+# And appraisal PDFs are read by the pipeline (Azure DI, text layer, that fallback), which the
+# extraction and lifecycle tests are written against; the grounded reading (EVAL_REPORT
+# section 33.5, the production default) has its own unit and activity tests and runs in
+# test_production_defaults.py.
+os.environ.setdefault("EXTRACTION_METHOD", "pipeline")
 
 from basis.config import Settings, get_settings, reset_settings  # noqa: E402
 from basis.obs.logging import clear_context  # noqa: E402
