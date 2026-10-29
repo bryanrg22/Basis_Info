@@ -5055,3 +5055,127 @@ predictions are unchanged, and the GSE truth has been revised since (scored on t
 - **Open**: re-record the grounded call live for the 7 UAD 3.6 documents of the subset (about
   $0.50) and for the 25 documents with no Sol recording (about $1.80), then accept the
   grounded baseline on all 41.
+
+## 35. Measured quantities: the takeoff reads the appraisal (2026-10-29)
+
+Branch `feat/measured-takeoff`. WORKFLOW_REVIEW 2026-10-29, section 3, items 2 and 3: every
+area item was priced on a typical room area (kitchen 150 SF, bathroom 75, everything else
+150), the 11 exterior and site labels the cost table prices per SF or LF could not be priced
+at all, and the cost year and location factor were deployment settings. The appraisal's
+areas, stories, garage, site, state and effective date were extracted and unused. Research
+and the assumption table: `TAKEOFF_RESEARCH.md` (data-free).
+
+### 35.1 Method
+
+`basis.domain.measurements` reads the revision's extraction fields into
+`BuildingMeasurements` (each value with its field key and extraction source) and derives:
+
+* **Room floor areas.** Each above-grade room gets `GLA x weight / W`, the weight its room
+  type's typical area (`basis.domain.rooms.ROOM_WEIGHTS_SF`, the legacy residential typical
+  areas extended to the vision vocabulary) and `W` the larger of the appraisal's room program
+  (one kitchen, the bedrooms, the full and half baths from the URAR `full.half` count, the
+  other rooms at 200 SF) and the sum of the study's above-grade weights. The shares never
+  sum to more than the GLA (49 photographed rooms share one floor instead of adding floor),
+  and unphotographed rooms are counted. Basement rooms (type `basement` or floor 0) are
+  sized at the same scale, capped by the finished basement area (finish 100% when not
+  printed); the garage room takes the cost approach's garage line, else cars x 240 SF;
+  exterior rooms keep the typical area. Without a GLA every room is the typical area, as
+  before.
+* **Property-level quantities**, measured once per study: footprint = GLA / stories (1 when
+  not printed), ground footprint = footprint + garage; a 1.5:1 rectangle's perimeter; roof =
+  (ground footprint + perimeter x 1 ft overhang) x 1.118 (6/12 pitch); siding = ground
+  perimeter x 9 ft + dwelling perimeter x 9 ft per upper story, less 15% openings; gutters =
+  two long eaves of a gable roof; landscaping = site - ground footprint, an upper bound that
+  sends the asset to review (`takeoff:upper_bound`).
+* **Not derivable** (driveway, sidewalk, patio, fence, retaining wall, concrete pad, parking
+  lot): still `COST_NEEDS_QUANTITY`, now with the measurement named on the takeoff
+  (`needs_measurement`). No default is invented (ATG chapter 4 C.6).
+* **Cost index.** `location_factor_for_state(subject.state)` and the year of the appraisal's
+  effective date (the placed-in-service date once the intake carries it: `study.intake`,
+  the basis-allocation branch), each falling back to the setting with the reason; both and
+  their sources are written in the cost row's `source_row`.
+
+Every takeoff records its inputs (`room_area_source`, `room_area_formula`, the field keys
+and sources, the constants used) and assumptions, so the export can show "room area = GLA x
+150 / 1,390 (kitchen weight / program weight)". Settings: `TAKEOFF_AREAS` (default
+`appraisal`; `typical` is the behaviour before this section) and `COST_INDEX` (default
+`study`; `setting`). Without extraction fields the activity's output is byte-identical to
+before (regression test; the lifecycle and node suites pass unchanged).
+
+| Assumption | Value | Source (TAKEOFF_RESEARCH section 4) |
+|---|---|---|
+| room weights | kitchen 150, bath 75, bedroom 150, living 250, dining 150, family 250, office 120, laundry 50, hallway 50, stairway 40, foyer 60, storage 30, mechanical 40, attic/basement/other 150, garage 240 | legacy typical areas; room-size guides |
+| other program room | 200 SF; half bath 40 SF | mean of the living-type weights; a 5 x 8 powder room |
+| stories | 1 when not printed | recorded assumption |
+| footprint aspect ratio | 1.5:1 | rectangular footprint (AH 531 shape classes) |
+| roof pitch factor | 1.118 (6/12) | pitch multiplier tables |
+| eave overhang | 1 ft | typical eave |
+| story wall height | 9 ft | 8 ft ceiling + floor structure |
+| wall openings | 15% | residential window-to-wall ratio 12-15% |
+| gutters | two long eaves (gable) | gutters run along eaves, not rakes |
+| garage per car | 240 SF | a 12 x 20 ft one-car garage |
+| basement finish | 100% when not printed | a photographed basement room is finished |
+| site area in acres | 43,560 SF/acre | definition |
+
+### 35.2 Re-pricing the stored export (free, no model calls)
+
+`~/basis-eval-data/work/reprice_measured.py` (private) re-ran the takeoff and the pricing on
+the 376 stored assets of the client study export `11217e4e` rev 3 (E2E_ARTIFACTS A1) with
+the study's own revision-3 extraction fields, then `compare_e2e_to_engineer.py` on the
+result. Every input was present in the extraction (GLA, site area, state from Azure DI;
+stories, basement area and finish, garage line and cars, room counts and the effective
+date from the model fallback), so no fallback was used. Classification unchanged.
+
+| | before | after |
+|---|---|---|
+| assets priced | 249 of 376 | **283 of 376** |
+| `cross:COST_NEEDS_QUANTITY` | 49 | **15** (driveway 6, sidewalk 3, fence 2, pads 2, retaining wall 1, patio 1) |
+| `cross:COST_ROW_MISSING` | 78 | 78 |
+| priced total | 1.00 | 1.33 x |
+| priced total / engineer's basis | 0.32 | 0.42 |
+| engineer rows evidenced / bucket right | 37 / 26 | 37 / 26 (unchanged) |
+
+Bucket shares of the priced total, against the engineer's shares of the basis (the
+comparable metric; dollars are replacement cost vs allocated basis and are not compared):
+
+| Bucket | Engineer | Before | After (all priced) | After (assets matched to an engineer row) |
+|---|---|---|---|---|
+| 5-year | 14.3% | 45.1% | 35.3% | 38.1% |
+| 7-year | 0.4% | 5.9% | 4.9% | 5.7% |
+| 15-year | 5.1% | 0.8% | 12.0% | 0.8% |
+| 39-year | 80.2% | 48.2% | 47.8% | 55.4% |
+
+Row movers (pipeline / engineer dollar ratio per engineer row, before -> after): Roofing
+Systems 0 -> 0.37, Exterior Facade 0 -> 0.28, Gutter Systems 0 -> 0.37 (the three now
+priced, each measured once across their 7, 12 and 4 photo assets); Flooring - Sealed
+Concrete 0.88 -> 3.39 (the garage floor takes the garage area and the basement floor its
+finished share instead of 150 SF each); Ceiling Systems 0.02 -> 0.01; Wood Flooring 0.52 ->
+0.48; Carpet 0.98 -> 0.97; Ceramic Tile 2.75 -> 2.75; the two wall rows 47 -> 56 and 26 ->
+30 (the rule has no material filter: every painted wall still answers them, now on larger
+walls); every EA row x 1.11 (the state's location factor together with the year factor of
+the appraisal's effective date against the 2026 default). The 15-year share's jump to 12.0%
+is one asset: the landscaping upper bound (the whole unbuilt lot as sod), which matches no
+engineer row (the engineer priced no landscaping) and is the reason that quantity is
+flagged for review; on the engineer's rows the 15-year share stays 0.8% because the
+driveway (4.5% of the engineer's basis, the largest 15-year row), the sidewalks, the fence,
+the walls and the pads still need a measurement no appraisal field gives.
+
+What the re-pricing says: the room-level items barely moved (carpet 0.97, tile 1.00,
+hardwood 0.91, baseboard 1.03), so on this house the GLA shares land near the typical
+areas; the measured roof, siding and gutters come out at 0.28-0.37 of the engineer's rows,
+consistent with the other 39-year building rows (HVAC 0.35, doors 0.55, electrical 0.22),
+i.e. a replacement-cost estimate scaled to the basis would need the basis step (section
+36 when it lands) to be comparable; and the 15-year rows are a measurement problem, not a
+pricing one.
+
+### 35.3 Open
+
+* Site measurement for the seven `needs_measurement` labels (a site plan, aerial imagery,
+  or the engineer's own measurements) and the landscaping scope (which part of the lot is a
+  land improvement).
+* The sketch page: exterior dimensions and room dimensions would replace the allocation
+  with measurements.
+* The RSMeans city cost index by ZIP and the historical cost index by year (27.7).
+* The intake fields (`placed_in_service_date`, `state`, `zip`) overriding the appraisal's,
+  once the basis-allocation branch lands them; the export carrying the takeoff inputs so
+  the end-to-end scorer can show the area source per row.
