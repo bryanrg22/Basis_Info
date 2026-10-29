@@ -394,6 +394,40 @@ def test_single_listing_and_no_listing() -> None:
         assert derive(report_xml(), f"listing_and_contract.{key}").status == "absent", key
 
 
+HOA_SPECIAL_ASSESSMENT = """
+     <HOMEOWNERS_ASSOCIATIONS><HOMEOWNERS_ASSOCIATION><ASSOCIATION_CHARGES>
+       <ASSOCIATION_CHARGE><ASSOCIATION_CHARGE_DETAIL>
+         <AssociationChargeBalanceAmount>1900</AssociationChargeBalanceAmount>
+         <AssociationChargeType>AssociationSpecialAssessment</AssociationChargeType>
+         <AssociationSpecialAssessmentStatusType>Existing</AssociationSpecialAssessmentStatusType>
+       </ASSOCIATION_CHARGE_DETAIL></ASSOCIATION_CHARGE>
+     </ASSOCIATION_CHARGES></HOMEOWNERS_ASSOCIATION></HOMEOWNERS_ASSOCIATIONS>"""
+
+
+def with_special(tax: str | None, hoa: bool) -> str:
+    block = HOA_SPECIAL_ASSESSMENT if hoa else ""
+    if tax is not None:
+        block += (
+            "<PROPERTY_TAXES><PROPERTY_TAX><PROPERTY_TAX_DETAIL><SpecialTaxAssessmentsIndicator>"
+            f"{tax}</SpecialTaxAssessmentsIndicator></PROPERTY_TAX_DETAIL></PROPERTY_TAX>"
+            "</PROPERTY_TAXES>"
+        )
+    return report_xml().replace("<SALES_CONTRACTS>", block + "<SALES_CONTRACTS>", 1)
+
+
+def test_special_assessments_is_the_special_tax_assessment() -> None:
+    """The key is the Subject section's Special Tax Assessments (G-1: 1004 1-23), never the
+    Project section's association special assessment (its remaining balance here)."""
+    key = "subject.special_assessments"
+    no = derive(with_special("false", hoa=True), key)
+    assert (no.status, no.type, no.value, no.search) == ("present", "currency", 0, ("No",))
+    assert no.judged
+    assert derive(with_special("true", hoa=True), key).status == "absent"
+    assert derive(with_special("false", hoa=False), key).value == 0
+    missing = derive(with_special(None, hoa=True), key)
+    assert missing.status == "absent" and "special tax" in (missing.note or "")
+
+
 DESIGN = """
        <STRUCTURE><ARCHITECTURAL_DESIGN>{children}</ARCHITECTURAL_DESIGN></STRUCTURE>"""
 

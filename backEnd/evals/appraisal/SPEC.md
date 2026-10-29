@@ -153,6 +153,16 @@ GSE cross-reference (Appendix G-1) and the legacy field instructions (UAD Append
 * `improvements.design_style` is the Dwelling Style (A-1 0300.0030, G-1 to the 1004's Design (Style));
   an attached unit's Structure Design (Mid-rise, Rowhouse / Townhouse; 0300.0032) is the 1004's
   attachment type or the 1073's Project Description in G-1, so the key is `absent` for it.
+* `subject.special_assessments` is the special *tax* assessment. UAD 3.6 splits the legacy
+  "Special Assessments $" box: the Subject section's Special Tax Assessments Yes/No and description
+  (A-1 0100.0033 / 0100.0050, report 3.008 / 3.009) is the property's special tax assessment, and G-1
+  maps the 1004's and the 1073's box (1-23 / 1-25, legacy `_TAX/@_TotalSpecialTaxAmount`) to it; the
+  Project section's association special assessment (2500.0163 status, 2500.0013 remaining balance,
+  report 18.072) is a different concept with no legacy cross-reference. Fannie Mae Selling Guide
+  B4-1.4-09 (Special Assessment or Community Facilities Districts) uses "special assessment" for
+  special tax / CFD districts. So "No" is `present` 0 (unverified, the amount is not printed), "Yes"
+  without an amount is `absent`, and an HOA special assessment is not read into this key. The HOA
+  special assessment is not scored (a catalogue key for it is a follow-up).
 
 The scorer's synonym table lives in code (`evals/appraisal/normalize.py`) and is unit
 tested; adding a synonym is a reviewed change, never a silent widening.

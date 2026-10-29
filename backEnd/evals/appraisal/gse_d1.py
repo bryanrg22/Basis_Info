@@ -876,30 +876,12 @@ def _occupant(r: Report) -> Fact:
 
 @rule("subject.special_assessments", ["subject"], ["Special Tax Assessments"])
 def _special(r: Report) -> Fact:
+    """The special TAX assessment (SPEC section 4): the Subject section's Special Tax
+    Assessments Yes/No (A-1 0100.0033, comment 0100.0050), which G-1 maps to the 1004's and
+    the 1073's "Special Assessments $" (1-23 / 1-25, legacy ``_TAX/@_TotalSpecialTaxAmount``).
+    The Project section's association special assessment (2500.0163 status, 2500.0013
+    remaining balance) is a different concept with no legacy cross-reference, not read here."""
     tax = r.flag("special_tax_assessments")
-    existing = [
-        c
-        for c in r.all("association_charge")
-        if _child(c, "AssociationChargeType") == "AssociationSpecialAssessment"
-        and _child(c, "AssociationSpecialAssessmentStatusType") == "Existing"
-    ]
-    if existing:
-        amount = _num(_child(existing[0], "AssociationChargeAmount")) or _num(
-            _child(existing[0], "AssociationChargeBalanceAmount")
-        )
-        if amount is None:
-            return Fact(
-                "unscorable",
-                note="an existing association special assessment is reported without an amount",
-            )
-        return present(
-            "currency",
-            amount,
-            money(amount),
-            sections=("project",),
-            captions=("Unit Special Assessments", "Special Assessment"),
-            note="existing association special assessment",
-        )
     if tax:
         return absent("special tax assessment noted (Yes) with a description; no amount printed")
     if tax is False:
@@ -910,7 +892,7 @@ def _special(r: Report) -> Fact:
             judged=True,
             note="printed 'Special Tax Assessments No' (no amount box); $0 policy (SPEC 1)",
         )
-    return absent("no special assessment information in the XML")
+    return absent("no special tax assessment information in the XML")
 
 
 @rule("subject.hoa_dues", ["project"], ["Monthly Amount", "Annual Amount", "Amount"])
