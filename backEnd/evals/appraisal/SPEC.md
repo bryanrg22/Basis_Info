@@ -21,7 +21,9 @@ whether the review gate catches the errors. Research behind every choice:
    checked "not developed"; e.g. the income approach), or `unscorable` (a human could not
    decide; excluded, with a note). A printed `0` is `not_developed` only for a valuation
    approach or a cost-approach line the appraiser skipped; elsewhere (HOA dues, special
-   assessments, concessions) `$0` is a real value and the field is `present` with 0; the same
+   assessments, concessions, basement area) `0` is a real value and the field is `present`
+   with 0 (no basement: UAD 3.6 prints "Finished Below Grade 0 Sq. Ft." and the legacy box took
+   a 0, UAD Appendix D "Basement Area, Basement Finish"); the same
    holds when such a box prints `No` or `None` (UAD 3.6 "Known Sales Concessions No"), so the
    currency normalizer reads `no` / `none` as 0 and only `n/a` or an empty box as no value. A value predicted for `absent` / `not_developed` is a
    *spurious* value, scored as an error.
@@ -140,6 +142,17 @@ use `extra` keys):
 | `reconciliation.appraisal_made` | as_is, subject_to_completion, subject_to_repairs, subject_to_inspection |
 | `site.utilities_*` | public, other (with text), none |
 | `site.off_site_improvements_*` | public, private |
+
+UAD 3.6 readings of legacy keys (the GSE D-1 converter, `evals/appraisal/gse_d1.py`), following the
+GSE cross-reference (Appendix G-1) and the legacy field instructions (UAD Appendix D):
+
+* Listing keys (`offering_price`, `listing_date`, `days_on_market`) come from the subject's current or
+  most recent listing (the latest start date, as the production XML reader picks it), and the DOM is
+  that listing's DOM (A-1 0900.0007, which G-1 maps to the 1004's DOM), not the Total DOM (0900.0003,
+  cumulative, no legacy field).
+* `improvements.design_style` is the Dwelling Style (A-1 0300.0030, G-1 to the 1004's Design (Style));
+  an attached unit's Structure Design (Mid-rise, Rowhouse / Townhouse; 0300.0032) is the 1004's
+  attachment type or the 1073's Project Description in G-1, so the key is `absent` for it.
 
 The scorer's synonym table lives in code (`evals/appraisal/normalize.py`) and is unit
 tested; adding a synonym is a reviewed change, never a silent widening.

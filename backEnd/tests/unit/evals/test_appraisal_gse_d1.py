@@ -316,6 +316,113 @@ def test_derived_basement_is_unverified_with_a_note(tmp_path: Path) -> None:
     assert extra.extra and extra.value == 200
 
 
+def test_no_basement_is_a_printed_zero(tmp_path: Path) -> None:
+    """No below-grade area: the form prints "Finished Below Grade 0 Sq. Ft." and the legacy
+    box took a 0 (UAD Appendix D): present with 0, not ``not_developed``."""
+    xml = report_xml().replace(
+        "<UnitStandardBelowGradeFinishedAreaMeasure>800<",
+        "<UnitStandardBelowGradeFinishedAreaMeasure>0<",
+    )
+    xml = xml.replace(
+        "<UnitBelowGradeUnfinishedAreaMeasure>200<", "<UnitBelowGradeUnfinishedAreaMeasure>0<"
+    )
+    pages = pdf_pages()
+    lines = pages[3][0][1]
+    lines[1] = "Finished Below Grade 0 Sq. Ft."
+    lines[2] = "Unfinished Below Grade 0 Sq. Ft."
+    doc = build(tmp_path, xml, pages)
+    basement = doc.field("improvements.basement_area_sqft")
+    assert (basement.status, basement.type, basement.value) == ("present", "area_sqft", 0)
+    assert basement.printed == "0 Sq. Ft." and basement.page == 4 and basement.verified
+    finish = doc.field("improvements.basement_finish_percent")
+    assert (finish.status, finish.type, finish.value) == ("present", "percent", 0)
+    assert not finish.verified and "no percent printed" in (finish.note or "")
+
+
+EARLIER_LISTING = """
+      <LISTING_INFORMATION><LISTING_INFORMATION_DETAIL>
+        <DaysOnMarketCount>60</DaysOnMarketCount><FinalListPriceAmount>650000</FinalListPriceAmount>
+        <ListingStartDate>2020-01-10</ListingStartDate><ListingStatusType>OffMarket</ListingStatusType>
+      </LISTING_INFORMATION_DETAIL></LISTING_INFORMATION>"""
+CURRENT_LISTING = """
+      <LISTING_INFORMATION><LISTING_INFORMATION_DETAIL>
+        <DaysOnMarketCount>21</DaysOnMarketCount><FinalListPriceAmount>495000</FinalListPriceAmount>
+        <ListingStartDate>2020-05-11</ListingStartDate><ListingStatusType>Pending</ListingStatusType>
+      </LISTING_INFORMATION_DETAIL></LISTING_INFORMATION>"""
+LISTING_SUMMARY = """
+     <LISTING_INFORMATION_SUMMARY>
+       <CumulativeDaysOnMarketCount>81</CumulativeDaysOnMarketCount>
+       <ListedWithinPreviousYearIndicator>true</ListedWithinPreviousYearIndicator>
+     </LISTING_INFORMATION_SUMMARY>"""
+
+
+def with_listings(*listings: str, summary: str = "") -> str:
+    block = f"<LISTING_INFORMATIONS>{''.join(listings)}</LISTING_INFORMATIONS>{summary}"
+    return report_xml().replace("<SALES_CONTRACTS>", block + "<SALES_CONTRACTS>", 1)
+
+
+def listing_facts(xml: str) -> tuple[object, ...]:
+    keys = ("offering_price", "listing_date", "days_on_market")
+    return tuple(derive(xml, f"listing_and_contract.{k}").value for k in keys)
+
+
+def test_listing_is_the_current_one_and_its_own_dom() -> None:
+    """Two listings (an earlier one taken off the market, then the current one): the offering
+    price, start date and DOM are the current listing's, not the first in document order, and
+    the DOM is that listing's (DaysOnMarketCount), not the Total DOM."""
+    xml = with_listings(EARLIER_LISTING, CURRENT_LISTING, summary=LISTING_SUMMARY)
+    assert listing_facts(xml) == (495000, "2020-05-11", 21)
+    assert "not the Total DOM" in (derive(xml, "listing_and_contract.days_on_market").note or "")
+    # document order does not matter: the latest start date is the current listing
+    swapped = with_listings(CURRENT_LISTING, EARLIER_LISTING, summary=LISTING_SUMMARY)
+    assert listing_facts(swapped) == (495000, "2020-05-11", 21)
+
+
+def test_single_listing_and_no_listing() -> None:
+    one = (
+        "<LISTING_INFORMATION><LISTING_INFORMATION_DETAIL>"
+        "<DaysOnMarketCount>0</DaysOnMarketCount><FinalListPriceAmount>480000"
+        "</FinalListPriceAmount><ListingStatusType>Pending</ListingStatusType>"
+        "</LISTING_INFORMATION_DETAIL></LISTING_INFORMATION>"
+    )
+    xml = with_listings(one)
+    assert derive(xml, "listing_and_contract.offering_price").value == 480000
+    dom = derive(xml, "listing_and_contract.days_on_market")
+    assert (dom.status, dom.value, dom.note) == ("present", 0, None)  # a 0 DOM is a value
+    assert derive(xml, "listing_and_contract.listing_date").status == "absent"
+    for key in ("offering_price", "listing_date", "days_on_market"):
+        assert derive(report_xml(), f"listing_and_contract.{key}").status == "absent", key
+
+
+DESIGN = """
+       <STRUCTURE><ARCHITECTURAL_DESIGN>{children}</ARCHITECTURAL_DESIGN></STRUCTURE>"""
+
+
+def with_design(children: str) -> str:
+    return report_xml().replace(
+        "</IMPROVEMENT_DETAIL>", "</IMPROVEMENT_DETAIL>" + DESIGN.format(children=children), 1
+    )
+
+
+def test_design_style_is_the_dwelling_style_only() -> None:
+    """G-1 maps the 1004's Design (Style) to the Dwelling Style (ArchitecturalDesignCategoryType)
+    only; an attached unit's Structure Design (Mid-rise, Rowhouse / Townhouse) is the 1073's
+    Project Description, so the key is absent for it."""
+    for structural in ("Midrise", "Highrise", "RowhouseTownhouse"):
+        fact = derive(
+            with_design(f"<StructuralDesignType>{structural}</StructuralDesignType>"),
+            "improvements.design_style",
+        )
+        assert fact.status == "absent", structural
+        assert "Structure Design" in (fact.note or "")
+    both = with_design(
+        "<ArchitecturalDesignCategoryType>Colonial</ArchitecturalDesignCategoryType>"
+        "<StructuralDesignType>RowhouseTownhouse</StructuralDesignType>"
+    )
+    assert derive(both, "improvements.design_style").value == "Colonial"
+    assert derive(report_xml(), "improvements.design_style").status == "absent"
+
+
 def test_cost_approach_developed(tmp_path: Path) -> None:
     doc = build(tmp_path, report_xml())
     site = doc.field("cost_approach.site_value")

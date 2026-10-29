@@ -104,7 +104,6 @@ XPATHS: Final[dict[str, tuple[str, str]]] = {
     # listing and contract
     "sales_contract": ("subject", "SALES_CONTRACTS/SALES_CONTRACT/SALES_CONTRACT_DETAIL"),
     "listing": ("subject", "LISTING_INFORMATIONS/LISTING_INFORMATION/LISTING_INFORMATION_DETAIL"),
-    "cumulative_dom": ("subject", "LISTING_INFORMATION_SUMMARY/CumulativeDaysOnMarketCount"),
     # market
     "demand_supply": ("subject", "MARKET/MARKET_TREND/MarketSupplyTrendType"),
     "marketing_time": ("subject", "MARKET/MARKET_TREND/MarketingTimeType"),
@@ -147,7 +146,6 @@ XPATHS: Final[dict[str, tuple[str, str]]] = {
         "improvement",
         "STRUCTURE/ARCHITECTURAL_DESIGN/ArchitecturalDesignCategoryType",
     ),
-    "structural_design": ("improvement", "STRUCTURE/ARCHITECTURAL_DESIGN/StructuralDesignType"),
     "stories": ("improvement", "STRUCTURE/STRUCTURE_DETAIL/StoriesCount"),
     "structure_component": ("improvement", "STRUCTURE/STRUCTURE_COMPONENTS/STRUCTURE_COMPONENT"),
     "wall_material": ("component", "EXTERIOR_WALLS/EXTERIOR_WALL/WallMaterialType"),
@@ -991,7 +989,19 @@ def _contract_date(r: Report) -> Fact:
 
 
 def _listing(r: Report) -> ET.Element | None:
-    return r.one("listing")
+    """The subject's current or most recent listing: the latest ``ListingStartDate`` (the last
+    of equals, a listing without a start date sorting first), the rule of the production XML
+    reader (``basis.extraction.mismo36``). The legacy 1004 reports the DOM and the offering of
+    the listing period that is current or ended last (UAD Appendix D: DOM is "the total number
+    of continuous days" until the property was taken off the market or contracted; an earlier
+    listing and the cumulative DOM are optional commentary)."""
+    best = None
+    for listing in r.all("listing"):
+        if best is None or (_child(listing, "ListingStartDate") or "") >= (
+            _child(best, "ListingStartDate") or ""
+        ):
+            best = listing
+    return best
 
 
 @rule(
@@ -1021,12 +1031,19 @@ def _listing_date(r: Report) -> Fact:
     return date_fact(value)
 
 
-@rule("listing_and_contract.days_on_market", ["listing"], ["Total DOM", "DOM"])
+@rule("listing_and_contract.days_on_market", ["listing"], ["DOM"])
 def _dom(r: Report) -> Fact:
-    value = _int(r.text("cumulative_dom")) if r.text("cumulative_dom") else None
-    if value is None or _listing(r) is None:
+    """The current listing's DOM (A-1 0900.0007 ``DaysOnMarketCount``, which G-1 maps to the
+    1004's DOM, 1-e-2), not the Total DOM (0900.0003 ``CumulativeDaysOnMarketCount``, no
+    legacy cross-reference)."""
+    listing = _listing(r)
+    if listing is None:
         return absent("no listing of the subject in the look-back period")
-    return present("int", value, str(value))
+    value = _int(_child(listing, "DaysOnMarketCount"))
+    if value is None:
+        return absent("the current listing reports no DOM")
+    note = "the current listing's DOM, not the Total DOM" if len(r.all("listing")) > 1 else None
+    return present("int", value, str(value), note=note)
 
 
 @rule("listing_and_contract.sale_type", ["sales_contract"], ["Transfer Terms"])
@@ -1330,14 +1347,21 @@ def _same(values: list[str | None]) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
-@rule("improvements.design_style", ["dwelling_exterior"], ["Dwelling Style", "Structure Design"])
+@rule("improvements.design_style", ["dwelling_exterior"], ["Dwelling Style"])
 def _design(r: Report) -> Fact:
+    """The Dwelling Style (A-1 0300.0030 ``ArchitecturalDesignCategoryType``, G-1 to the 1004's
+    Design (Style), 1-137). An attached dwelling reports only its Structure Design (0300.0032
+    ``StructuralDesignType``: Mid-rise, Rowhouse / Townhouse ...), which G-1 maps to the 1004's
+    S-Det./End Unit box (1-133) and the 1073's Project Description (1-133 to 1-137), not to
+    Design (Style): the key is absent then."""
     dwellings = r.dwellings()
     style = _same([next(iter(r.printed("design_style", d)), None) for d in dwellings])
     if style is None:
-        style = _same([next(iter(r.printed("structural_design", d)), None) for d in dwellings])
-    if style is None:
-        return absent("no dwelling style in the XML")
+        return absent(
+            "no single Dwelling Style in the XML (an attached dwelling reports only its Structure"
+            " Design, which G-1 maps to the 1004's attachment type / the 1073's Project"
+            " Description)"
+        )
     return present("text", style, style)
 
 
@@ -1485,6 +1509,16 @@ def _floors(r: Report) -> Fact:
     )
 
 
+# No basement: the redesigned URAR prints "Finished Below Grade 0 Sq. Ft." (A-1 0700.0143 /
+# 0700.0144 / 1800.0398, "Deliver even if the value is zero"), and the legacy 1004 box these keys
+# stand for took a 0 too (UAD Appendix D, Basement Area / Basement Finish: "If there is no
+# basement, enter the numeral zero (0) in both fields"). A printed 0 is the value (SPEC section 1,
+# principle 2), not a box left undeveloped.
+NO_BASEMENT_NOTE: Final = (
+    "no below-grade area: printed 0 Sq. Ft., the legacy 1004's 0 (no basement)"
+)
+
+
 @rule(
     "improvements.basement_area_sqft",
     ["unit_interior"],
@@ -1500,11 +1534,12 @@ def _basement(r: Report) -> Fact:
     unfinished = _unit_area(r, unit, "UnitBelowGradeUnfinishedAreaMeasure")
     total = finished + unfinished
     if total == 0:
-        return Fact(
-            "not_developed",
-            search=("0 Sq. Ft.",),
-            note="below-grade areas printed as 0",
+        return present(
+            "area_sqft",
+            0,
+            area(0),
             exclude_heading="ADU",
+            note=NO_BASEMENT_NOTE,
         )
     if finished and unfinished:
         return present(
@@ -1536,11 +1571,13 @@ def _basement_finish(r: Report) -> Fact:
     unfinished = _unit_area(r, unit, "UnitBelowGradeUnfinishedAreaMeasure")
     total = finished + unfinished
     if total == 0:
-        return Fact(
-            "not_developed",
-            search=("0 Sq. Ft.",),
-            note="no below-grade area",
+        return present(
+            "percent",
+            0,
+            area(0),
+            judged=True,
             exclude_heading="ADU",
+            note=NO_BASEMENT_NOTE + "; no percent printed",
         )
     pct = round(100 * finished / total)
     return present(
