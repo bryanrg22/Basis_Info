@@ -21,7 +21,9 @@ whether the review gate catches the errors. Research behind every choice:
    checked "not developed"; e.g. the income approach), or `unscorable` (a human could not
    decide; excluded, with a note). A printed `0` is `not_developed` only for a valuation
    approach or a cost-approach line the appraiser skipped; elsewhere (HOA dues, special
-   assessments, concessions) `$0` is a real value and the field is `present` with 0; the same
+   assessments, concessions, basement area) `0` is a real value and the field is `present`
+   with 0 (no basement: UAD 3.6 prints "Finished Below Grade 0 Sq. Ft." and the legacy box took
+   a 0, UAD Appendix D "Basement Area, Basement Finish"); the same
    holds when such a box prints `No` or `None` (UAD 3.6 "Known Sales Concessions No"), so the
    currency normalizer reads `no` / `none` as 0 and only `n/a` or an empty box as no value. A value predicted for `absent` / `not_developed` is a
    *spurious* value, scored as an error.
@@ -136,10 +138,31 @@ use `extra` keys):
 | `improvements.type` | det, att, s_det_end_unit |
 | `improvements.foundation_type` (multi) | concrete_slab, crawl_space, full_basement, partial_basement |
 | `improvements.heating_type` (multi) | fwa, hwbb, radiant, other (an appraiser can check two boxes; `other` carries its text as `{"code": "other", "text": ...}` inside the list) |
-| `improvements.car_storage` (multi) | none, driveway, garage, carport, attached, detached, built_in |
+| `improvements.car_storage` (multi) | none, driveway, garage, carport, attached, detached, built_in (UAD 3.6 "Parking Garage" is `garage`) |
 | `reconciliation.appraisal_made` | as_is, subject_to_completion, subject_to_repairs, subject_to_inspection |
 | `site.utilities_*` | public, other (with text), none |
 | `site.off_site_improvements_*` | public, private |
+
+UAD 3.6 readings of legacy keys (the GSE D-1 converter, `evals/appraisal/gse_d1.py`), following the
+GSE cross-reference (Appendix G-1) and the legacy field instructions (UAD Appendix D):
+
+* Listing keys (`offering_price`, `listing_date`, `days_on_market`) come from the subject's current or
+  most recent listing (the latest start date, as the production XML reader picks it), and the DOM is
+  that listing's DOM (A-1 0900.0007, which G-1 maps to the 1004's DOM), not the Total DOM (0900.0003,
+  cumulative, no legacy field).
+* `improvements.design_style` is the Dwelling Style (A-1 0300.0030, G-1 to the 1004's Design (Style));
+  an attached unit's Structure Design (Mid-rise, Rowhouse / Townhouse; 0300.0032) is the 1004's
+  attachment type or the 1073's Project Description in G-1, so the key is `absent` for it.
+* `subject.special_assessments` is the special *tax* assessment. UAD 3.6 splits the legacy
+  "Special Assessments $" box: the Subject section's Special Tax Assessments Yes/No and description
+  (A-1 0100.0033 / 0100.0050, report 3.008 / 3.009) is the property's special tax assessment, and G-1
+  maps the 1004's and the 1073's box (1-23 / 1-25, legacy `_TAX/@_TotalSpecialTaxAmount`) to it; the
+  Project section's association special assessment (2500.0163 status, 2500.0013 remaining balance,
+  report 18.072) is a different concept with no legacy cross-reference. Fannie Mae Selling Guide
+  B4-1.4-09 (Special Assessment or Community Facilities Districts) uses "special assessment" for
+  special tax / CFD districts. So "No" is `present` 0 (unverified, the amount is not printed), "Yes"
+  without an amount is `absent`, and an HOA special assessment is not read into this key. The HOA
+  special assessment is not scored (a catalogue key for it is a follow-up).
 
 The scorer's synonym table lives in code (`evals/appraisal/normalize.py`) and is unit
 tested; adding a synonym is a reviewed change, never a silent widening.
@@ -250,5 +273,14 @@ table: keys, outcomes and counts only, so a report can be quoted in EVAL_REPORT)
   against the accepted baseline `BASIS_EVAL_DATA_DIR/appraisal/baseline.json` (keys and
   outcomes only). Improvements are accepted by re-writing the baseline with
   `--accept-baseline`, reviewed like a snapshot.
+* `baseline.json` is the **`pipeline`** system's (the reading before EVAL_REPORT section 33;
+  `--system pipeline`), which is what the regression test replays. The production default
+  became the grounded reading (`EXTRACTION_METHOD=grounded`, `--system production`) in
+  section 33.12; its outputs differ from the pipeline's by design, so a `production` replay
+  compared with `baseline.json` lists differences, not regressions. Its own baseline is a
+  separate file (`--baseline baseline.grounded.json`), accepted only from a replay in which
+  no document failed: today only the documents with a recording of the current grounded
+  request replay (section 33.12), so it covers those documents until the others are recorded
+  live. `baseline.json` is never re-accepted from a `production` run.
 * Unit tests (CI) for the normalizers, the scorer, the replay provider and the generator,
   on fabricated values only.

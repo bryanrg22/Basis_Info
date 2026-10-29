@@ -5,21 +5,25 @@ UAD 3.6 delivery (MISMO 3.6 XML, bare or in its ZIP) takes its values from the X
 highlight regions from the PDF (the ZIP's, else the report PDF ``ingest_appraisal`` chose,
 ``input.report_pdf``; :mod:`basis.activities.appraisal_sources`); docs/api/UAD36_INTAKE.md.
 ``raw["source"]`` records the source document, its kind and the report PDF's document.
-A PDF runs :func:`basis.extraction.pipeline.extract_appraisal`: Azure DI
-(when configured) merged with the text layer, cleaned, validated, with one LLM call for
-critical fields that are missing or failed, and the review gate. The result is written
-to ``extractions`` (``raw`` keeps the Azure DI analysis, candidates, issues and the
-fallback trace) and one typed ``extraction_fields`` row per field.
+A PDF runs :func:`basis.extraction.pipeline.extract_appraisal` with ``EXTRACTION_METHOD``:
+``grounded`` (the default, EVAL_REPORT section 33.5) reads every field in one grounded call on
+``EXTRACTION_GROUNDED_MODEL`` over Azure DI's page text, each value checked against its
+verbatim quote; ``pipeline`` merges Azure DI with the text layer, with one ``TEXT_MODEL`` call
+for the fields still missing or failed (also what a grounded reading that cannot run or whose
+call fails falls back to, on the same Azure DI analysis). Then the validation and the review
+gate. The result is written to ``extractions`` (``raw`` keeps the Azure DI analysis, the
+issues, the model's trace and, for the grounded reading, its quotes) and one typed
+``extraction_fields`` row per field.
 
 Order of work, so that money is not spent twice and rows are written once:
 
 1. A read-only look: the document (must be an uploaded appraisal of this study), an
    extraction already written for this revision (the business key: return it), and the
    Azure DI analysis of an earlier revision of the same document (reused, not re-paid).
-2. The pipeline, outside any database transaction (it can take minutes); model calls
-   record their ``llm_calls`` rows as they happen. The study budget for the fallback is
+2. The extraction, outside any database transaction (it can take minutes); model calls
+   record their ``llm_calls`` rows as they happen. The study budget for its model calls is
    ``settings.study_budget_usd`` minus the recorded spend (this activity's contract has no
-   budget field; the workflow's own budget does not see the fallback's few cents).
+   budget field; the workflow's own budget does not see the extraction's cents).
 3. ``run_once``: in one transaction, write the extraction, apply the reviewer's
    corrections (``extraction_field`` corrections from an appraisal rejection overwrite the
    same ``(section, field)`` with ``source="manual"``, confidence 1), recompute the review
@@ -27,7 +31,10 @@ Order of work, so that money is not spent twice and rows are written once:
 
 Errors: no appraisal uploaded -> ``needs_review`` with no extraction (unchanged from S2);
 a missing file, a non-PDF, a PDF with no pages, or a document Azure DI rejects ->
-non-retryable ``ValidationError``; Azure DI 429/5xx/timeouts -> retryable.
+non-retryable ``ValidationError``; Azure DI 429/5xx/timeouts -> retryable. A model call that
+fails is best effort (the grounded reading falls back to the pipeline, whose own call leaves
+its fields empty), except a provider account or configuration error -> non-retryable
+``ProviderAccountError`` (the workflow stops the study with the reason).
 """
 
 from __future__ import annotations
@@ -66,6 +73,7 @@ from basis.db.session import session_scope
 from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.fallback import PROMPT_NAME
+from basis.extraction.grounded import GroundedModel
 from basis.extraction.package import is_pdf
 from basis.extraction.pdf_text import InvalidDocument
 from basis.extraction.persist import persist_extraction, stored_azure_result
@@ -211,6 +219,12 @@ class ExtractFields:
             fallback_context_chars=settings.extraction_fallback_context_chars,
             previous_azure=reuse,
             heartbeat=heartbeat,
+            method=settings.extraction_method,
+            grounded=GroundedModel(
+                model=settings.extraction_grounded_model,
+                reasoning_effort=settings.extraction_grounded_reasoning_effort,
+                max_tokens=settings.extraction_grounded_max_tokens,
+            ),
         )
         try:
             async with heartbeating("extracting"):

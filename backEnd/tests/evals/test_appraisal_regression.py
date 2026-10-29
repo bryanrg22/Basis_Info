@@ -3,10 +3,11 @@
 Runs only where ``BASIS_EVAL_DATA_DIR`` holds ``appraisal/baseline.json`` (written by
 ``python -m evals.appraisal.run ... --accept-baseline``); skipped with the reason otherwise.
 Marked ``eval_data`` so CI deselects it. For every set the baseline names and that has a
-truth file, the production pipeline is replayed from ``appraisal/recordings/`` (no
-network) and no field the baseline has ``correct``/``correct_absent`` may now be anything
-else; a document whose recording is gone fails every such field. The failure message
-lists keys and outcomes only, never values.
+truth file, the pipeline method (``--system pipeline``, the system the baseline was
+accepted from) is replayed from ``appraisal/recordings/`` (no network) and no field the
+baseline has ``correct``/``correct_absent`` may now be anything else; a document whose
+recording is gone fails every such field. The failure message lists keys and outcomes only,
+never values.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import pytest
 
 from evals.appraisal import baseline
 from evals.appraisal.run import Options, run_eval
+from evals.appraisal.systems import SystemSpec
 from evals.appraisal.truth import SETS
 from evals.datasets import ENV_VAR
 
@@ -63,7 +65,13 @@ async def test_no_baseline_field_regresses(set_name: str, tmp_path: Path) -> Non
     accepted = baseline.load(appraisal / baseline.FILE)
     assert accepted is not None
     output = await run_eval(
-        Options(sets=(set_name,), mode="replay", out=tmp_path / "run", data_dir=appraisal.parent)
+        Options(
+            sets=(set_name,),
+            mode="replay",
+            out=tmp_path / "run",
+            data_dir=appraisal.parent,
+            system=SystemSpec(name="pipeline"),  # baseline.json is the pipeline's (SPEC §9)
+        )
     )
     assert output is not None
     found = output.regressions

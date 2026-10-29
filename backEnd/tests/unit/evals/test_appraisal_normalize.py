@@ -459,6 +459,24 @@ def test_enum_multi() -> None:
     assert parse_enum_multi("None", storage) == MultiValue(("none",))
 
 
+def test_parking_garage_is_the_garage_code() -> None:
+    """UAD 3.6 prints a condo or co-op unit's space as "Parking Garage" (A-1 3200.0006
+    ParkingGarage); the legacy box it stands for is Garage (the 1073's Car Storage Garage)."""
+    storage = "improvements.car_storage"
+    garage = normalize_truth("enum_multi", ["garage"], key=storage)
+    for printed in ("Parking Garage", "PARKING GARAGE", "parking-garage"):
+        assert parse_enum_multi(printed, storage) == MultiValue(("garage",)), printed
+        assert matches("enum_multi", parse_enum_multi(printed, storage), garage), printed
+    assert parse_enum_multi("Driveway; Parking Garage", storage) == MultiValue(
+        ("driveway", "garage")
+    )
+    # Only the two words together: "Parking" alone names no code.
+    parking = parse_enum_multi("Parking", storage)
+    assert parking is not None and "?" in parking.codes
+    # The extra attachment key does not take it: a parking garage has no attachment code.
+    assert parse_enum("Parking Garage", "improvements.garage_type") == EnumValue(None)
+
+
 HEATING = "improvements.heating_type"
 
 

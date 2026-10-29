@@ -38,6 +38,10 @@ STEP_VARS = (
     "EXTRACTION_FALLBACK_MAX_TOKENS",
     "EXTRACTION_FALLBACK_SCOPE",
     "EXTRACTION_FALLBACK_CONTEXT_CHARS",
+    "EXTRACTION_METHOD",
+    "EXTRACTION_GROUNDED_MODEL",
+    "EXTRACTION_GROUNDED_REASONING_EFFORT",
+    "EXTRACTION_GROUNDED_MAX_TOKENS",
     "COST_TABLE_PATH",
     "CLASSIFY_MODEL",
     "CLASSIFY_REASONING_EFFORT",
@@ -112,6 +116,60 @@ def test_text_step_defaults_are_section_17(env: pytest.MonkeyPatch) -> None:
         "claude-sonnet-5-5",
         "low",
     )
+
+
+def test_appraisal_extraction_defaults_are_section_33(env: pytest.MonkeyPatch) -> None:
+    """EVAL_REPORT 33.5: llm_all on gpt-6.1-sol at effort low, the sweep's 32,000 tokens."""
+    settings = load_settings()
+    assert settings.extraction_method == "grounded"
+    assert settings.extraction_grounded_model == "gpt-6.1-sol"
+    assert settings.extraction_grounded_reasoning_effort == "low"
+    assert settings.extraction_grounded_max_tokens == 32000
+    # The pipeline's fallback (also what a failed grounded reading falls back to) is unchanged.
+    assert (settings.text_model, settings.extraction_output_budget) == ("gpt-6-luna", 8000)
+
+
+def test_appraisal_extraction_overrides_are_read(env: pytest.MonkeyPatch) -> None:
+    env.setenv("EXTRACTION_GROUNDED_MODEL", "claude-sonnet-5-5")
+    env.setenv("EXTRACTION_GROUNDED_REASONING_EFFORT", "medium")
+    env.setenv("EXTRACTION_GROUNDED_MAX_TOKENS", "16000")
+    settings = load_settings()
+    assert settings.extraction_grounded_model == "claude-sonnet-5-5"
+    assert settings.extraction_grounded_reasoning_effort == "medium"
+    assert settings.extraction_grounded_max_tokens == 16000
+    env.setenv("EXTRACTION_METHOD", "pipeline")
+    assert load_settings().extraction_method == "pipeline"
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("EXTRACTION_METHOD", "llm_all"),
+        ("EXTRACTION_METHOD", "vote"),
+        ("EXTRACTION_GROUNDED_REASONING_EFFORT", "lots"),
+        ("EXTRACTION_GROUNDED_MAX_TOKENS", "100"),
+        ("EXTRACTION_GROUNDED_MAX_TOKENS", "999999"),
+    ],
+)
+def test_appraisal_extraction_settings_refuse_bad_values(
+    env: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    env.setenv(name, value)
+    with pytest.raises(ValidationError):
+        load_settings()
+
+
+def test_the_grounded_model_refuses_efforts_it_cannot_take(env: pytest.MonkeyPatch) -> None:
+    env.setenv("EXTRACTION_GROUNDED_REASONING_EFFORT", "none")
+    with pytest.raises(ConfigError, match="EXTRACTION_GROUNDED_MODEL=gpt-6.1-sol refuses"):
+        load_settings()
+    env.setenv("EXTRACTION_GROUNDED_MODEL", "claude-opus-5-5")
+    env.setenv("EXTRACTION_GROUNDED_REASONING_EFFORT", "minimal")
+    with pytest.raises(ConfigError, match="EXTRACTION_GROUNDED reasoning effort 'minimal'"):
+        load_settings()
+    env.setenv("EXTRACTION_GROUNDED_MODEL", "gpt-6-luna")
+    env.setenv("EXTRACTION_GROUNDED_REASONING_EFFORT", "none")
+    assert load_settings().extraction_grounded_reasoning_effort == "none"  # luna takes it
 
 
 # --------------------------------------------------------------------------- overrides
@@ -236,7 +294,9 @@ def test_every_step_can_be_set_back_to_its_previous_configuration(
     env.setenv("TEXT_MODEL", "gpt-4o-mini")
     env.setenv("EXTRACTION_FALLBACK_SCOPE", "critical")
     env.setenv("CLASSIFY_MODEL", "gpt-4o-mini")
+    env.setenv("EXTRACTION_METHOD", "pipeline")
     settings = load_settings()
+    assert settings.extraction_method == "pipeline"
     assert settings.vision_count_fusion == "off" and settings.room_reconcile is False
     assert settings.room_grouping == "model" and settings.extraction_fallback_scope == "critical"
     assert settings.text_model == "gpt-4o-mini" and settings.extraction_output_budget == 800

@@ -26,12 +26,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final, Protocol
 
+import basis.extraction.derived as _derived
 import basis.extraction.field_mappings as _catalogue
+import basis.extraction.grounded as _grounded
 from basis.config import Settings
 from basis.extraction.azure_di import MODEL_ID as LAYOUT_MODEL_ID
 from basis.extraction.azure_di import AzureDiClient, AzureDiResult
 from basis.extraction.confidence import review_gate
-from basis.extraction.field_mappings import FIELDS
 from basis.extraction.results import ExtractedField, ExtractionResult, ValidationIssue
 from basis.extraction.validation import validate_fields
 from basis.llm.call import CallContext
@@ -46,14 +47,14 @@ MORTGAGE_1004_MODEL_ID: Final = "prebuilt-mortgage.us.1004"
 # (basis.llm.cost). A cut-off answer is unusable (no fields), so this errs high: only the
 # tokens used are billed.
 DEFAULT_MAX_TOKENS: Final = 16000
-DEFAULT_DPI: Final = 150
-# A page with fewer Azure DI words than this is a photo, sketch or map page (a URAR form
-# page carries several hundred); llm_pages and llm_sections send no image of it.
-DEFAULT_MIN_PAGE_WORDS: Final = 60
+# Page images of llm_pages / llm_sections (basis.extraction.grounded): the DPI, and the Azure
+# DI word count under which a page is a photo, sketch or map page and gets no image.
+DEFAULT_DPI: Final = _grounded.DEFAULT_DPI
+DEFAULT_MIN_PAGE_WORDS: Final = _grounded.DEFAULT_MIN_PAGE_WORDS
 
 # Keys filled from another field's reading (basis.extraction.derived), never asked.
-DERIVED_KEYS: Final = frozenset({"site.area", "site.area_acres"})
-ASKED_KEYS: Final[tuple[str, ...]] = tuple(s.key for s in FIELDS if s.key not in DERIVED_KEYS)
+DERIVED_KEYS: Final = _derived.DERIVED_KEYS
+ASKED_KEYS: Final[tuple[str, ...]] = _grounded.ASKED_KEYS
 
 # The legacy 1004's checkbox groups live in the catalogue (the pipeline's highlight regions use
 # them too); re-exported here for the sweep systems.
@@ -66,9 +67,20 @@ class MissingInput(RuntimeError):
     """A system cannot run on this document (a missing input it needs)."""
 
 
+_GROUNDED_DEFAULTS: Final = {
+    name: Settings.model_fields[f"extraction_grounded_{name}"].default
+    for name in ("model", "reasoning_effort", "max_tokens")
+}
+
+
 @dataclass(frozen=True)
 class ExtractionSettings:
-    """The production settings that shape the extraction (what ``context.json`` records)."""
+    """The production settings that shape the extraction (what ``context.json`` records).
+
+    ``method``: ``EXTRACTION_METHOD``; ``grounded_*``: the ``EXTRACTION_GROUNDED_*`` model of
+    the grounded reading. A context recorded before those settings existed (every recording
+    of the pipeline sweep) replays with the current values of the keys it lacks
+    (:meth:`from_json`); a value built without them is the pipeline."""
 
     text_model: str
     reasoning_effort: str | None
@@ -76,6 +88,10 @@ class ExtractionSettings:
     fallback_scope: str
     context_chars: int
     review_threshold: float
+    method: str = "pipeline"
+    grounded_model: str = _GROUNDED_DEFAULTS["model"]
+    grounded_reasoning_effort: str | None = _GROUNDED_DEFAULTS["reasoning_effort"]
+    grounded_max_tokens: int = _GROUNDED_DEFAULTS["max_tokens"]
 
     @classmethod
     def from_settings(cls, settings: Settings) -> ExtractionSettings:
@@ -86,17 +102,29 @@ class ExtractionSettings:
             fallback_scope=settings.extraction_fallback_scope,
             context_chars=settings.extraction_fallback_context_chars,
             review_threshold=settings.extraction_review_threshold,
+            method=settings.extraction_method,
+            grounded_model=settings.extraction_grounded_model,
+            grounded_reasoning_effort=settings.extraction_grounded_reasoning_effort,
+            grounded_max_tokens=settings.extraction_grounded_max_tokens,
         )
 
     @classmethod
-    def from_json(cls, data: Mapping[str, Any], review_threshold: float) -> ExtractionSettings:
+    def from_json(cls, data: Mapping[str, Any], current: ExtractionSettings) -> ExtractionSettings:
+        """The recorded context; the review threshold, and any key the recording predates,
+        from ``current``."""
         return cls(
             text_model=str(data["text_model"]),
             reasoning_effort=data.get("reasoning_effort"),
             output_budget=int(data["output_budget"]),
             fallback_scope=str(data["fallback_scope"]),
             context_chars=int(data["context_chars"]),
-            review_threshold=review_threshold,
+            review_threshold=current.review_threshold,
+            method=str(data.get("method", current.method)),
+            grounded_model=str(data.get("grounded_model", current.grounded_model)),
+            grounded_reasoning_effort=data.get(
+                "grounded_reasoning_effort", current.grounded_reasoning_effort
+            ),
+            grounded_max_tokens=int(data.get("grounded_max_tokens", current.grounded_max_tokens)),
         )
 
 

@@ -258,6 +258,10 @@ class Selector:
     # A-1 data points read besides ``points`` (A-1 Report Location field id, data point): the
     # parts of a value G-1 does not cross-reference (the unit of an address).
     extra: tuple[tuple[str, str], ...] = ()
+    # A-1 data points the reader's rule falls back to when ``points`` carry nothing (A-1 Report
+    # Location field id, data point). Sources only: their captions and locations do not join
+    # the key's, so the PDF reader's caption map and the fallback prompt stay the key's own.
+    fallback: tuple[tuple[str, str], ...] = ()
 
 
 def G(  # noqa: N802 - a short constructor keeps the table readable
@@ -530,10 +534,17 @@ SELECTORS: Final[dict[str, Selector]] = {
         "1-144",
         "LevelFinishedAreaMeasure",
         "LevelUnfinishedAreaMeasure",
-        rule="sum",
+        rule="below_grade_area",
         where={**_DWELLING, "LEVEL": {"GradeLevelType": _BELOW_GRADE}},
         scope="living_units",
-        note="finished plus unfinished area of the below-grade levels (G-1 maps 1-144 to both)",
+        fallback=(
+            ("10.006", "UnitStandardBelowGradeFinishedAreaMeasure"),
+            ("10.007", "UnitNonStandardBelowGradeFinishedAreaMeasure"),
+            ("10.008", "UnitBelowGradeUnfinishedAreaMeasure"),
+        ),
+        note="finished plus unfinished area of the below-grade levels (G-1 maps 1-144 to both);"
+        " with no below-grade level, the Unit Interior's printed below-grade areas (A-1"
+        " 10.006-10.008, delivered even when zero): 0 for no basement",
     ),
     "improvements.basement_finish_percent": G(
         ("1-145", "1-144"),
@@ -1064,6 +1075,21 @@ def resolve(specs: Specs, key: str, selector: Selector) -> dict[str, Any]:
                 "format": row.fmt,
                 "enums": specs.enum_codes(row.point, row.uid),
                 "captions": tuple(captions_of(row.locations, grid=True)),
+            }
+        )
+    for fid, point in selector.fallback:
+        rows = _a1_rows(specs, fid, point, None)
+        if len(rows) != 1:
+            raise SpecError(f"{key}: a1 {fid} {point}: {len(rows)} rows")
+        row = rows[0]
+        sources.append(
+            {
+                "uid": row.uid,
+                "path": row.xpath + row.point,
+                "attribute": row.attribute.lstrip("@") or None,
+                "format": row.fmt,
+                "enums": specs.enum_codes(row.point, row.uid),
+                "captions": tuple(captions_of(row.locations)),
             }
         )
     where = _resolve_where(specs, key, selector.where)

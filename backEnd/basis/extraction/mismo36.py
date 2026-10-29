@@ -536,6 +536,28 @@ def rule_sum(values: Values) -> Reading | None:
     return Reading(raw, parts or [raw], verify=bool(parts))
 
 
+def rule_below_grade_area(values: Values) -> Reading | None:
+    """The 1004's Basement Area: finished plus unfinished area of the below-grade levels
+    (sources 0 and 1, G-1 1-144). A unit with no below-grade level reports none, so the value
+    falls back to the Unit Interior's below-grade areas (sources 2-4: Finished Below Grade,
+    Finished Below Grade (Nonstandard), Unfinished Below Grade; A-1 0700.0143, 1800.0398,
+    0700.0144, "Deliver even if the value is zero"): ``0`` when the report prints 0 Sq. Ft.,
+    the legacy 1004's 0 for no basement (UAD Appendix D)."""
+    for indices in ((0, 1), (2, 3, 4)):
+        amounts = [
+            a
+            for i in indices
+            for a in (_decimal(_text(n)) for n in values.leaves(i))
+            if a is not None
+        ]
+        if amounts:
+            total = sum(amounts, Decimal(0))
+            parts = [_grouped(a) for a in amounts if a]
+            raw = _grouped(total)
+            return Reading(raw, parts or [raw], verify=bool(parts))
+    return None
+
+
 def rule_single(values: Values) -> Reading | None:
     nodes = [n for n in values.leaves() if _decimal(_text(n)) is not None]
     if len(nodes) != 1:
@@ -816,6 +838,7 @@ RULES: Final[dict[str, Callable[[Values], Reading | None]]] = {
     "bool": rule_bool,
     "area": rule_area,
     "sum": rule_sum,
+    "below_grade_area": rule_below_grade_area,
     "single": rule_single,
     "thousands": rule_thousands,
     "finished_percent": rule_finished_percent,

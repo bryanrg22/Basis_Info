@@ -257,6 +257,38 @@ def test_the_api_builds_the_same_localizer_as_an_interactive_client(settings: Se
     assert build_localizer(replicate.model_copy(update={"replicate_api_token": None})) is None
 
 
+@pytest.mark.parametrize(
+    ("method", "logged"),
+    [
+        (
+            "grounded",
+            "appraisal extraction: grounded on gpt-6.1-sol at effort low (budget 32000), "
+            "the pipeline when it cannot run",
+        ),
+        ("pipeline", "appraisal extraction: pipeline (Azure DI, text layer, TEXT_MODEL fallback)"),
+    ],
+)
+async def test_build_deps_logs_the_appraisal_extraction_method(
+    settings: Settings, caplog: pytest.LogCaptureFixture, method: str, logged: str
+) -> None:
+    chosen = settings.model_copy(
+        update={
+            "extraction_method": method,
+            "extraction_grounded_model": "gpt-6.1-sol",
+            "extraction_grounded_reasoning_effort": "low",
+            "extraction_grounded_max_tokens": 32000,
+        }
+    )
+    engine = offline_engine(chosen)
+    try:
+        with caplog.at_level("INFO", logger="basis.worker"):
+            build_deps(chosen, engine)
+    finally:
+        await engine.dispose()
+    assert logged in caplog.text
+    assert "text steps: extraction fallback" in caplog.text
+
+
 # --------------------------------------------------------------------------- room-stage options
 
 
@@ -431,6 +463,18 @@ def test_pipeline_models_follow_the_settings_the_activities_read(settings: Setti
         single.text_model: ["TEXT_MODEL"],
         single.classify_model: ["CLASSIFY_MODEL"],
     }  # no surfaces call and no fusion in the single-call mode, no room step
+    # The grounded appraisal reading (the production default) adds its model; the pipeline's
+    # TEXT_MODEL stays (it reads a document the grounded reading could not).
+    grounded = single.model_copy(
+        update={"extraction_method": "grounded", "extraction_grounded_model": "gpt-6.1-sol"}
+    )
+    assert pipeline_models(grounded, None) == {
+        "gpt-6.1-sol": ["VISION_MODEL", "EXTRACTION_GROUNDED_MODEL"],
+        grounded.text_model: ["TEXT_MODEL"],
+        grounded.classify_model: ["CLASSIFY_MODEL"],
+    }
+    claude = grounded.model_copy(update={"extraction_grounded_model": "claude-reader"})
+    assert pipeline_models(claude, None)["claude-reader"] == ["EXTRACTION_GROUNDED_MODEL"]
     every = settings.model_copy(
         update={
             "vision_photo_mode": "decomposed",

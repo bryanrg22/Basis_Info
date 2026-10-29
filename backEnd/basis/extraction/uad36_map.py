@@ -3876,7 +3876,7 @@ MAPPING: Final[dict[str, dict[str, Any]]] = {
         "label": "Basement Area",
         "type": "int",
         "status": "mapped",
-        "rule": "sum",
+        "rule": "below_grade_area",
         "sources": (
             {
                 "uid": "0700.0137",
@@ -3893,6 +3893,30 @@ MAPPING: Final[dict[str, dict[str, Any]]] = {
                 "format": "Numeric",
                 "enums": {},
                 "captions": ("Area",),
+            },
+            {
+                "uid": "0700.0143",
+                "path": "MESSAGE/DOCUMENT_SETS/DOCUMENT_SET/DOCUMENTS/DOCUMENT/DEAL_SETS/DEAL_SET/DEALS/DEAL/SERVICES/SERVICE/VALUATION/VALUATION_RESPONSE/VALUATION_ANALYSES/VALUATION_ANALYSIS/PROPERTIES/PROPERTY/IMPROVEMENTS/IMPROVEMENT/PROPERTY_UNITS/PROPERTY_UNIT/PROPERTY_UNIT_AREA/UnitStandardBelowGradeFinishedAreaMeasure",
+                "attribute": "AreaUnitOfMeasureType",
+                "format": "Numeric",
+                "enums": {},
+                "captions": ("Finished Below Grade",),
+            },
+            {
+                "uid": "1800.0398",
+                "path": "MESSAGE/DOCUMENT_SETS/DOCUMENT_SET/DOCUMENTS/DOCUMENT/DEAL_SETS/DEAL_SET/DEALS/DEAL/SERVICES/SERVICE/VALUATION/VALUATION_RESPONSE/VALUATION_ANALYSES/VALUATION_ANALYSIS/PROPERTIES/PROPERTY/IMPROVEMENTS/IMPROVEMENT/PROPERTY_UNITS/PROPERTY_UNIT/PROPERTY_UNIT_AREA/UnitNonStandardBelowGradeFinishedAreaMeasure",
+                "attribute": "AreaUnitOfMeasureType",
+                "format": "Numeric",
+                "enums": {},
+                "captions": ("Finished Below Grade (Nonstandard)",),
+            },
+            {
+                "uid": "0700.0144",
+                "path": "MESSAGE/DOCUMENT_SETS/DOCUMENT_SET/DOCUMENTS/DOCUMENT/DEAL_SETS/DEAL_SET/DEALS/DEAL/SERVICES/SERVICE/VALUATION/VALUATION_RESPONSE/VALUATION_ANALYSES/VALUATION_ANALYSIS/PROPERTIES/PROPERTY/IMPROVEMENTS/IMPROVEMENT/PROPERTY_UNITS/PROPERTY_UNIT/PROPERTY_UNIT_AREA/UnitBelowGradeUnfinishedAreaMeasure",
+                "attribute": "AreaUnitOfMeasureType",
+                "format": "Numeric",
+                "enums": {},
+                "captions": ("Unfinished Below Grade",),
             },
         ),
         "where": {
@@ -3915,7 +3939,7 @@ MAPPING: Final[dict[str, dict[str, Any]]] = {
         ),
         "label_match": True,
         "via": "g1:1-144",
-        "note": "finished plus unfinished area of the below-grade levels (G-1 maps 1-144 to both)",
+        "note": "finished plus unfinished area of the below-grade levels (G-1 maps 1-144 to both); with no below-grade level, the Unit Interior's printed below-grade areas (A-1 10.006-10.008, delivered even when zero): 0 for no basement",
     },
     "improvements.basement_finish_percent": {
         "label": "Basement Finish",

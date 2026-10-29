@@ -169,6 +169,16 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
             logger.info("materials second look: per_photo")
     else:
         logger.info("room step: off (assets from the per-photo components)")
+    if settings.extraction_method == "grounded":
+        logger.info(
+            "appraisal extraction: grounded on %s at effort %s (budget %d), the pipeline "
+            "when it cannot run",
+            settings.extraction_grounded_model,
+            settings.extraction_grounded_reasoning_effort,
+            settings.extraction_grounded_max_tokens,
+        )
+    else:
+        logger.info("appraisal extraction: pipeline (Azure DI, text layer, TEXT_MODEL fallback)")
     logger.info(
         "text steps: extraction fallback %s at effort %s (budget %d); classifier %s at effort %s",
         settings.text_model,
@@ -227,8 +237,10 @@ def pipeline_models(
     :func:`~basis.activities.analyze_photo.fusion_config`), the room step's configuration
     (``rooms``, from :func:`basis.vision.room_step.load_config`; ``None`` when
     ``ROOM_RECONCILE`` is off: its reconciliation, second-look and room-call models, and the
-    surface-crop model when ``MATERIALS_SECOND_LOOK=surface_crops``), the extraction fallback
-    (``TEXT_MODEL``) and the residual classifier (``CLASSIFY_MODEL``)."""
+    surface-crop model when ``MATERIALS_SECOND_LOOK=surface_crops``), the appraisal's grounded
+    reading (``EXTRACTION_GROUNDED_MODEL`` when ``EXTRACTION_METHOD=grounded``), the extraction
+    fallback (``TEXT_MODEL``: the pipeline, also what a failed grounded reading falls back to)
+    and the residual classifier (``CLASSIFY_MODEL``)."""
     used: list[tuple[str, str]] = [("VISION_MODEL", settings.vision_model)]
     if settings.vision_photo_mode == "decomposed":
         used.append(("VISION_SURFACES_MODEL", settings.vision_surfaces_model))
@@ -244,6 +256,8 @@ def pipeline_models(
             used.append(("ROOM_CALL_MODEL", rooms.room_call.model))
         if settings.materials_second_look == "surface_crops":
             used.append(("SURFACE_CROP_MODEL", settings.surface_crop_model))
+    if settings.extraction_method == "grounded":
+        used.append(("EXTRACTION_GROUNDED_MODEL", settings.extraction_grounded_model))
     used += [("TEXT_MODEL", settings.text_model), ("CLASSIFY_MODEL", settings.classify_model)]
     models: dict[str, list[str]] = {}
     for setting, model in used:
