@@ -205,3 +205,28 @@ writes an export the scorer (`evals.e2e_report`) reads. Applied to run 1 and run
 section 38, the before/after of every engineer row is the measurement in EVAL_REPORT
 section 42. The firm-conventions layer is measured with the node test's second study, not
 with the client data (run 2 approved no asset corrections, so there is nothing to seed).
+
+## 8. As built (2026-10-29), where it differs from the sections above
+
+- Timeline events are dotted, as the vocabulary requires: `convention.promoted` and
+  `convention.replaced` (not `convention_promoted` / `convention_replaced`).
+- The provenance snapshot lives on the asset: `assets.convention` (JSONB, migration 0014,
+  allowed only when `method = 'cache'`), with `key`, `study_id`, `approved_at`,
+  `approvals`, `agrees_with_rules`, `reviewer_id`, `rule_key` and `citation`
+  (`"firm convention, uncited"` or null). The export's `assets[]` and `GET /assets` read it.
+- An approved `cache` asset (a convention the engineer let stand) adds one approval to its
+  convention; it never creates or replaces one. Priority inside one study when several
+  approved assets share a key: manual, then cited llm, then cache; if the winning group
+  disagrees on bucket, period or section, the key is skipped.
+- The promotion activity reads the `reviews` approve row only when there is a candidate to
+  promote; a revision with nothing to promote returns an empty output.
+- On the convention path only validator *errors* send the asset to review; the
+  label-heuristic warnings (`PERSONAL_AS_BUILDING`, `STRUCTURAL_AS_PERSONAL`) do not,
+  since a ruling against the rule row is the point of a convention.
+- `ClassifyContext.org_id`: the router never serves a convention of another firm.
+- `rule_key` on the convention path carries the rules-table key, so takeoffs use the same
+  key on every path.
+- The `promote_to_cache` function and `NotApprovedError` of the old cache are gone.
+- Not done here: the CSV export has no convention column (the JSON export and `/assets`
+  have it); no new replay history was recorded for the `firm-conventions-v1` patch (the
+  fresh-history test covers the new branch); the classifier prompt is unchanged.
