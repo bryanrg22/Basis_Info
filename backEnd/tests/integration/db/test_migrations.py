@@ -35,8 +35,9 @@
   the ``forbid_mutation()`` trigger), ``rooms.carried_from`` and ``studies.failure_code``,
   and downgrades back to ``0012``;
 * ``0014_eval_run_manifest`` adds the run-record columns of ``eval_runs`` (``git_dirty``,
-  ``release``, ``run_dir``, ``label_sha256``, ``label_version``, ``manifest``; NULL for rows
-  written before, nothing backfilled) and downgrades back to ``0013``;
+  ``release``, ``run_dir``, ``label_sha256``, ``label_version``, ``component``,
+  ``component_version``, ``manifest``; NULL for rows written before, nothing backfilled) and
+  downgrades back to ``0013``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -883,6 +884,8 @@ EVAL_RUN_COLUMNS_0014 = (
     "run_dir",
     "label_sha256",
     "label_version",
+    "component",
+    "component_version",
     "manifest",
 )
 
@@ -908,15 +911,23 @@ async def test_0014_eval_run_manifest_columns_and_downgrade(empty_database_url: 
         assert row is not None and all(row[c] is None for c in EVAL_RUN_COLUMNS_0014)
         await connection.execute(
             "UPDATE eval_runs SET git_dirty = true, release = 'v0.9.0', run_dir = 'out/run', "
-            "label_sha256 = $2, label_version = 'v1', manifest = '{\"kind\": \"scores\"}'::jsonb "
+            "label_sha256 = $2, label_version = 'v1', component = 'photo_countables', "
+            "component_version = 'v3', manifest = '{\"kind\": \"scores\"}'::jsonb "
             "WHERE id = $1",
             existing,
             "a" * 64,
         )
-        kind = await connection.fetchval(
-            "SELECT manifest->>'kind' FROM eval_runs WHERE id = $1", existing
+        row = await connection.fetchrow(
+            "SELECT manifest->>'kind' AS kind, component, component_version FROM eval_runs "
+            "WHERE id = $1",
+            existing,
         )
-        assert kind == "scores"
+        assert row is not None
+        assert (row["kind"], row["component"], row["component_version"]) == (
+            "scores",
+            "photo_countables",
+            "v3",
+        )
         with pytest.raises(asyncpg.StringDataRightTruncationError):
             await connection.execute(
                 "UPDATE eval_runs SET label_sha256 = $2 WHERE id = $1", existing, "a" * 65

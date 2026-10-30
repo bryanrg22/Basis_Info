@@ -27,8 +27,9 @@ Output in ``--out``:
   added points no mask was found for), each a predictions directory of the same three files;
 * ``marks_raw.jsonl`` (per photo and repeat: the marks, the answer, the tally, timings),
   ``run.json`` (models reported, spend, seconds, mask coverage);
-* ``llm_calls.jsonl``, ``llm/``, ``run.log``, ``manifest.json``: the run record
-  (:mod:`evals.record`).
+* ``llm_calls.jsonl``, ``llm/``, ``console.log``, ``manifest.json``, ``results.json``,
+  ``report.md``: the run record (:mod:`evals.record`); one case per (photo, repeat), passed
+  when the review tallied, a test error (with the recorded errors) when no answer came back.
 
 Usage (from ``backEnd/``)::
 
@@ -375,6 +376,7 @@ async def run(args: argparse.Namespace) -> int:
     for r in records:
         if r.get("tally") is not None:
             counts[r["file"]][int(r["repeat"]) - 1] = r["tally"]["counts"]
+    record_cases(rec, records, "tally")
     write_predictions(args.out, counts, args.base)
     if args.from_raw is None:
         write_raw(args.out / "marks_raw.jsonl", records)
@@ -404,12 +406,47 @@ async def run(args: argparse.Namespace) -> int:
     previous = args.out / "run.json"
     if args.from_raw is not None and previous.exists():
         run_info = {**json.loads(previous.read_text()), **run_info}
+        file_under(rec, run_info)
     print(f"wrote {args.out}", file=sys.stderr)
     rec.finish(run_info)  # run.json and the manifest
     if args.loop:
         for sub in ("loop_masked", "loop_all"):
             shutil.copy(previous, args.out / sub / "run.json")
     return 0
+
+
+def file_under(rec: record.EvalRun, info: Mapping[str, Any]) -> None:
+    """Declare where a run that made no model call files in the verification tree (the
+    default reads the prompt from the calls): ``--from-raw`` redoes a step over a previous
+    run's records, so it files under that run's prompt (``run.json`` ``prompt``); the Molmo
+    pointer files under ``photo_points`` as the system ``molmo-7b-d``."""
+    if rec.component is not None:
+        return
+    if info.get("pointer") == "molmo":
+        rec.component, rec.version = "photo_points", "molmo-7b-d"
+        return
+    prompt = info.get("prompt")
+    if isinstance(prompt, str) and "/" in prompt:
+        rec.component, _, rec.version = prompt.partition("/")
+
+
+def record_cases(rec: record.EvalRun, records: Sequence[Mapping[str, Any]], answer: str) -> None:
+    """One case per (photo, repeat) record: passed when ``answer`` (``tally``, ``points``) is
+    present, a test error carrying the recorded errors when the model gave no usable answer
+    (a provider failure after retries, or no structured answer)."""
+    for r in records:
+        case_id = f"{r['file']}#{r['repeat']}"
+        if r.get(answer) is not None:
+            rec.case(case_id, record.PASSED, kind="photo", seconds=r.get("seconds"))
+        else:
+            errors = [str(e) for e in r.get("errors") or []]
+            rec.case(
+                case_id,
+                record.TEST_ERROR,
+                kind="photo",
+                observed_error="; ".join(errors) or "no answer",
+                seconds=r.get("seconds"),
+            )
 
 
 async def ask_all(

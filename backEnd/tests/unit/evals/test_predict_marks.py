@@ -164,7 +164,17 @@ async def test_marks_run_counts_kept_plus_added_and_loops(
     ]
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos", "sam3", "base"]
     assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 2
-    assert f"wrote {out}" in (out / "run.log").read_text()
+    assert f"wrote {out}" in (out / "console.log").read_text()
+    # One case per (photo, repeat), both tallied; filed under the prompt the calls used.
+    results = json.loads((out / "results.json").read_text())
+    assert [(c["id"], c["outcome"]) for c in results["cases"]] == [
+        ("a.jpg#1", "passed"),
+        ("a.jpg#2", "passed"),
+    ]
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (2, 0, 0)
+    assert "results: 2 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("photo_marks", "v1")
 
     # --from-raw redoes the loop without calls, here with a stricter mask threshold
     again = ["--sam3", str(setup["sam"]), "--photos", str(setup["photos"])]
@@ -174,6 +184,33 @@ async def test_marks_run_counts_kept_plus_added_and_loops(
     assert len(provider.requests) == 2
     masked = json.loads((out / "loop_masked" / "photo_counts.json").read_text())
     assert masked["a.jpg"]["repeats"][0] == {"exterior_door": 1, "sink": 1, "window": 1}
+    # No call was made, so the redo files under the prompt of the run whose records it redid.
+    redo = json.loads((out / "manifest.json").read_text())
+    assert (redo["tree"]["component"], redo["tree"]["version"]) == ("photo_marks", "v1")
+    assert json.loads((out / "results.json").read_text())["summary"]["passed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_marks_run_records_an_unanswered_photo_as_a_test_error(
+    setup: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The model answers with the wrong shape every time: no tally, so the photo is a test
+    error carrying the recorded errors (the system was never judged), not a failure."""
+    provider = ScriptedProvider([ANSWER])  # a PointAnswer is not a MarksReview
+    monkeypatch.setattr(ProviderPool, "from_settings", staticmethod(lambda settings: provider))
+    args = ["--sam3", str(setup["sam"]), "--photos", str(setup["photos"])]
+    args += ["--out", str(setup["out"]), "--no-original"]
+    assert await predict_marks.run(predict_marks.parse_args(args)) == 0
+    out = setup["out"]
+    assert json.loads((out / "run.json").read_text())["unanswered_photos"] == 1
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (0, 0, 1)
+    [case] = results["cases"]
+    assert (case["id"], case["kind"], case["outcome"]) == ("a.jpg#1", "photo", "test_error")
+    assert "no structured answer" in case["observed_message"]
+    assert case["observed_error"] is None  # no catalogue code for a malformed answer
+    assert "results: 0 passed, 0 failed, 1 test errors" in (out / "report.md").read_text()
 
 
 @pytest.mark.asyncio
@@ -256,7 +293,13 @@ async def test_points_run_writes_pointed_stated_and_masked_counts(
         {"name": "photo_points", "version": "v1", "sha256": prompt.sha256, "calls": 2}
     ]
     assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 2
-    assert f"wrote {out}" in (out / "run.log").read_text()
+    assert f"wrote {out}" in (out / "console.log").read_text()
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (2, 0, 0)
+    assert [c["id"] for c in results["cases"]] == ["a.jpg#1", "a.jpg#2"]
+    assert "results: 2 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("photo_points", "v1")
 
 
 @dataclass
@@ -315,6 +358,17 @@ async def test_points_run_with_molmo_labels_lights_by_room(
     assert rows[0]["model"] == f"zsxkib/molmo-7b@{predict_points.MOLMO_VERSION}"
     assert (rows[0]["quantity"], rows[0]["unit"]) == ("1.0", "second")
     assert rows[0]["request_params"]["text"] == predict_points.MOLMO_QUERIES[0][1]
+    # The one photo pointed at is a passed case; a Molmo run makes no prompt call the default
+    # could read, so it files under the pointing step as the system molmo-7b-d.
+    results = json.loads((setup["out"] / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (1, 0, 0)
+    assert results["cases"][0]["id"] == "a.jpg#1"
+    assert "results: 1 passed, 0 failed, 0 test errors" in (setup["out"] / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "photo_points",
+        "molmo-7b-d",
+    )
 
 
 # --------------------------------------------------------------------------- compare_counts

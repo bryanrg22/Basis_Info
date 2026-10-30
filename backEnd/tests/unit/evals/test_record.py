@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import uuid
@@ -20,7 +21,7 @@ from basis.db.models import LlmCall
 from basis.llm import Budget, ScriptedProvider, ScriptedTurn, Usage, prompts
 from basis.llm.call import CallContext, call_model, step_entry
 from basis.llm.cost import PRICING_VERSION
-from basis.llm.errors import ProviderAccountError
+from basis.llm.errors import ProviderAccountError, ProviderUnavailable
 from basis.llm.provider import ChatRequest, ImagePart, Message
 from basis.llm.recorder import KIND_LOCALIZATION
 from evals import account_stop, record
@@ -341,7 +342,16 @@ async def test_the_manifest_names_code_components_data_and_cost(
     }
     assert manifest["calls"]["count"] == 2 and manifest["calls"]["input_tokens"] == 2000
     assert manifest["calls"]["cost_usd"] == round(float(run.recorder.spent()), 6)
-    assert manifest["files"] == {"log": None, "summary": "run.json", "ledger": "llm_calls.jsonl"}
+    assert manifest["files"] == {
+        "log": None,
+        "summary": "run.json",
+        "ledger": "llm_calls.jsonl",
+        "results": "results.json",
+        "report": "report.md",
+    }
+    assert manifest["results"]["total"] == 0
+    assert manifest["tree"]["component"] == "photo_countables"  # the prompt with the calls
+    assert manifest["tree"]["version"] == "v2"
     assert manifest["notes"] == {"scope": "house"}
     assert manifest["summary"] == {"photos": 2, "spent_usd": 0.1}
     assert json.loads((args.out / "run.json").read_text()) == {"photos": 2, "spent_usd": 0.1}
@@ -528,3 +538,259 @@ async def test_a_rerun_into_the_same_directory_describes_the_whole_ledger(tmp_pa
     assert manifest["notes"]["previous_manifest"]["id"] == first_manifest["id"]
     assert manifest["notes"]["previous_manifest"]["status"] == "ok"
     assert "this_run" not in first_manifest["calls"]
+
+
+# --------------------------------------------------------------------------- cases and the tree
+
+
+def test_error_code_reads_the_class_the_tag_or_nothing() -> None:
+    from basis.errors.codes import E
+    from basis.llm.errors import (
+        ProviderBadResponse,
+        ProviderConfigError,
+        ProviderRateLimited,
+        ProviderRequestRejected,
+        ProviderUnavailable,
+    )
+    from basis.llm.provider import BudgetExceededError
+
+    assert (
+        record.error_code(ProviderAccountError("x", provider="p", status=429)) == E.PROVIDER_ACCOUNT
+    )
+    assert (
+        record.error_code(ProviderConfigError("x", provider="p", status=404)) == E.PROVIDER_CONFIG
+    )
+    assert (
+        record.error_code(ProviderRequestRejected("x", provider="p", status=400))
+        == E.PROVIDER_REQUEST_REJECTED
+    )
+    assert record.error_code(ProviderBadResponse("x", provider="p")) == E.PROVIDER_BAD_RESPONSE
+    assert record.error_code(ProviderRateLimited("x", provider="p")) == E.PROVIDER_UNAVAILABLE
+    assert record.error_code(ProviderUnavailable("x", provider="p")) == E.PROVIDER_UNAVAILABLE
+    assert record.error_code(BudgetExceededError("x")) == E.BUDGET_PHOTO
+    assert record.error_code(RuntimeError("tagged [BASIS-WF-007]")) == "BASIS-WF-007"
+    assert record.error_code("ingest: heartbeat timeout [BASIS-WF-001]") == "BASIS-WF-001"
+    assert record.error_code(RuntimeError("plain")) is None
+    assert record.error_code(None) is None
+
+
+async def test_cases_are_summarised_with_three_distinct_outcomes_and_rendered(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run"
+    run = record.EvalRun.begin(
+        out, harness="evals.record", log=False, component="photo_countables", version="v3"
+    )
+    run.case("01_kitchen.jpg#1", "passed", kind="photo", detail={"labels": 3}, seconds=1.25)
+    run.case("02_bath.jpg#1", "failed", kind="photo", detail="bad output after retry")
+    run.case(
+        "03_hall.jpg#1",
+        "test_error",
+        kind="photo",
+        observed_error=ProviderUnavailable("503", provider="openai"),
+    )
+    run.case(
+        "bad_key",
+        "passed",
+        kind="expected_error",
+        expected_error="BASIS-PROVIDER-001",
+        observed_error=ProviderAccountError(
+            "invalid key", provider="openai", status=401, code="invalid_api_key"
+        ),
+    )
+    run.case(
+        "wrong_model",
+        "failed",
+        kind="expected_error",
+        expected_error="BASIS-PROVIDER-002",
+        observed_error=RuntimeError("nothing was refused"),
+    )
+    with pytest.raises(ValueError):
+        run.case("x", "skipped")
+    manifest = run.finish({"photos": 3})
+    results = json.loads((out / record.RESULTS_FILE).read_text())
+    assert results["summary"] == {
+        "total": 5,
+        "passed": 2,
+        "failed": 2,
+        "test_error": 1,
+        "expected_errors": {"cases": 2, "matched": 1, "mismatched": 0, "not_observed": 1},
+        "by_kind": {
+            "expected_error": {"passed": 1, "failed": 1, "test_error": 0},
+            "photo": {"passed": 1, "failed": 1, "test_error": 1},
+        },
+    }
+    assert manifest["results"] == results["summary"]
+    by_id = {c["id"]: c for c in results["cases"]}
+    assert by_id["01_kitchen.jpg#1"] == {
+        "id": "01_kitchen.jpg#1",
+        "kind": "photo",
+        "outcome": "passed",
+        "seconds": 1.25,
+        "detail": {"labels": 3},
+    }
+    assert by_id["03_hall.jpg#1"]["observed_error"] == "BASIS-PROVIDER-007"
+    assert by_id["03_hall.jpg#1"]["expected_error"] is None
+    assert by_id["03_hall.jpg#1"]["matched"] is False
+    assert by_id["bad_key"]["matched"] is True
+    assert by_id["bad_key"]["observed_error"] == "BASIS-PROVIDER-001"
+    assert (
+        by_id["wrong_model"]["matched"] is False and by_id["wrong_model"]["observed_error"] is None
+    )
+    report = (out / record.REPORT_FILE).read_text()
+    assert (
+        "**results: 2 passed, 2 failed, 1 test errors (5 cases); "
+        "expected errors: 1 matched, 0 mismatched, 1 not observed**" in report
+    )
+    assert "- component: `photo_countables` version `v3`" in report
+    assert (
+        "| `bad_key` | expected_error | passed | BASIS-PROVIDER-001 | BASIS-PROVIDER-001 | yes |"
+        in report
+    )
+    assert "| `wrong_model` | expected_error | failed | BASIS-PROVIDER-002 | - | no |" in report
+    assert "| `02_bath.jpg#1` | photo | failed | - | - | - | bad output after retry |" in report
+    assert record.read_results(out)["summary"]["test_error"] == 1
+
+
+async def test_the_summary_line_is_printed_through_the_tee(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "run"
+    run = record.EvalRun.begin(out, harness="evals.record")
+    run.case("a", "passed")
+    run.case("b", "test_error", observed_error=RuntimeError("harness broke"))
+    run.finish({})
+    line = "results: 1 passed, 0 failed, 1 test errors (2 cases)"
+    assert line in capsys.readouterr().err
+    assert line in (out / record.LOG_FILE).read_text()
+
+
+def test_add_cases_merges_by_id_and_rewrites_results_report_and_manifest(tmp_path: Path) -> None:
+    out = tmp_path / "run"
+    run = record.EvalRun.begin(out, harness="evals.record", log=False)
+    run.case("photo:a.jpg#1", "passed", kind="photo")
+    run.case("photo:b.jpg#1", "test_error", kind="photo", observed_error=RuntimeError("x"))
+    run.finish({})
+    results = record.add_cases(
+        out,
+        [
+            record._case(
+                "photo_components:a.jpg", "failed", kind="score", detail={"predicted": ["sink"]}
+            ),
+            record._case(
+                "photo_components:b.jpg", "test_error", kind="score", detail="no prediction"
+            ),
+            record._case("photo:a.jpg#1", "passed", kind="photo", detail="rewritten"),
+        ],
+    )
+    assert results["summary"]["total"] == 4
+    assert results["summary"]["by_kind"]["score"] == {"passed": 0, "failed": 1, "test_error": 1}
+    cases = {c["id"]: c for c in record.read_results(out)["cases"]}
+    assert cases["photo:a.jpg#1"]["detail"] == "rewritten"
+    manifest = json.loads((out / record.MANIFEST_FILE).read_text())
+    assert manifest["results"] == results["summary"]
+    assert "| `photo_components:a.jpg` | score | failed |" in (out / record.REPORT_FILE).read_text()
+
+
+def test_tree_location_prefers_the_declared_component_then_the_busiest_prompt() -> None:
+    prompts = [
+        {"name": "room_inventory", "version": "v3", "sha256": "x", "calls": 12},
+        {"name": "surface_material", "version": "v3", "sha256": "y", "calls": 20},
+    ]
+    manifest = {"components": {"prompts": prompts}, "harness": {"module": "evals.predict_rooms"}}
+    assert record.tree_location(manifest) == ("surface_material", "v3")
+    assert record.tree_location(manifest, component="room_inventory") == ("room_inventory", "v3")
+    assert record.tree_location(manifest, component="rooms", version="x") == ("rooms", "x")
+    assert record.tree_location(manifest, component="rooms") == ("rooms", "unversioned")
+    detector = {
+        "components": {"prompts": [], "detector": "gdino:IDEA/base"},
+        "harness": {"module": "evals.predict_detector"},
+    }
+    assert record.tree_location(detector) == ("detection", "gdino:IDEA_base")
+    assert record.tree_location(
+        {"components": {}, "harness": {"module": "evals.merge_photo_runs"}}
+    ) == (
+        "photo_analysis",
+        "unversioned",
+    )
+    assert record.tree_location({}) == ("unknown", "unversioned")
+    backfilled = {
+        "components": {
+            "prompts": [{"name": "photo_countables", "version": "v2", "calls": "unknown"}]
+        }
+    }
+    assert record.tree_location(backfilled) == ("photo_countables", "v2")
+
+
+async def test_a_run_is_filed_in_the_verification_tree_as_a_relative_link(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    out = data / "predictions" / "countables_v3_sol"
+    tree = data / "verification"
+    run = record.EvalRun.begin(out, harness="evals.record", log=False, tree=tree)
+    await _one_call(run, prompts.load("photo_countables", "v3"))
+    manifest = run.finish({})
+    link = tree / "photo_countables" / "v3" / "countables_v3_sol"
+    assert link.is_symlink() and link.resolve() == out.resolve()
+    assert os.readlink(link) == "../../../predictions/countables_v3_sol"
+    assert (link / record.MANIFEST_FILE).is_file()  # browsable through the link
+    assert manifest["tree"] == {
+        "component": "photo_countables",
+        "version": "v3",
+        "root": str(tree.resolve()),
+        "path": "photo_countables/v3/countables_v3_sol",
+        "link": str(link),
+        "target": "../../../predictions/countables_v3_sol",
+    }
+    readme = (tree / "README.md").read_text()
+    assert readme.startswith("# Verification") and "test_error" in readme
+    # A rerun replaces the link; a run written inside the tree needs none.
+    again = record.EvalRun.begin(out, harness="evals.record", log=False, tree=tree)
+    again.finish({})
+    assert link.is_symlink()
+    inside = tree / "photo_countables" / "v3" / "direct"
+    direct = record.EvalRun.begin(
+        inside,
+        harness="evals.record",
+        log=False,
+        tree=tree,
+        component="photo_countables",
+        version="v3",
+    )
+    section = direct.finish({})["tree"]
+    assert section["link"] is None and section["path"] == "photo_countables/v3/direct"
+    assert not (inside / "direct").exists()
+
+
+async def test_without_a_data_directory_no_link_is_made(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("BASIS_EVAL_DATA_DIR", raising=False)
+    run = record.EvalRun.begin(tmp_path / "run", harness="evals.record", log=False)
+    manifest = run.finish({})
+    assert manifest["tree"] == {"component": "unknown", "version": "unversioned", "link": None}
+    assert record.tree_root() is None
+
+
+def test_two_runs_of_the_same_name_never_share_a_slot(tmp_path: Path) -> None:
+    tree = tmp_path / "verification"
+    first = tmp_path / "sweep1" / "llm_all@gpt-6-luna"
+    second = tmp_path / "sweep1b" / "llm_all@gpt-6-luna"
+    for d in (first, second):
+        d.mkdir(parents=True)
+    component = "appraisal_fields_grounded"
+    one = record.link_into_tree(first, component, "v2", root=tree)
+    two = record.link_into_tree(second, component, "v2", root=tree)
+    slot = tree / component / "v2"
+    assert (slot / "llm_all@gpt-6-luna").resolve() == first.resolve()
+    assert two["renamed"] and two["path"].startswith(f"{component}/v2/llm_all@gpt-6-luna@")
+    assert (tree / two["path"]).resolve() == second.resolve()
+    assert "renamed" not in one
+    # A run id names the link; the same run again replaces its own link.
+    again = record.link_into_tree(
+        second, component, "v2", root=tree, run_id="sweep1b__llm_all@gpt-6-luna"
+    )
+    assert again["path"] == f"{component}/v2/sweep1b__llm_all@gpt-6-luna"
+    assert (tree / again["path"]).resolve() == second.resolve()
+    repeat = record.link_into_tree(first, component, "v2", root=tree)
+    assert "renamed" not in repeat
+    assert (slot / "llm_all@gpt-6-luna").resolve() == first.resolve()

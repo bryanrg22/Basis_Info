@@ -145,7 +145,21 @@ async def test_separate_mode_sums_the_parts(
     ]
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos"]
     assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 16
-    assert "wrote" in (out / "run.log").read_text()
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (photo, repeat), every part usable: all passed.
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert summary["total"] == 4
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (4, 0, 0)
+    assert [c["id"] for c in results["cases"]] == ["a.jpg#1", "b.jpg#1", "a.jpg#2", "b.jpg#2"]
+    assert results["cases"][0]["kind"] == "photo"
+    assert results["cases"][0]["detail"] == {"parts": 4, "attempts": 4}
+    assert results["cases"][0]["seconds"] >= 0
+    assert (
+        "**results: 4 passed, 0 failed, 0 test errors (4 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {"component": "photo_countables_tile", "version": "v1", "link": None}
 
 
 @pytest.mark.asyncio
@@ -200,6 +214,15 @@ async def test_a_part_unusable_twice_makes_the_photo_missing_not_zero(
     assert await predict_tiles.run(predict_tiles.parse_args(args)) == 0
     assert json.loads((out / "run.json").read_text())["missing"] == ["a.jpg#1"]
     assert "a.jpg" not in json.loads((out / "photo_counts.json").read_text())
+    # The missing photo is the model's failure (unusable twice), the other passed.
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (1, 1, 0)
+    failed, passed = results["cases"]
+    assert (failed["id"], failed["outcome"]) == ("a.jpg#1", "failed")
+    assert failed["detail"]["unusable_parts"] == 1 and "garbled" in failed["detail"]["errors"][0]
+    assert (passed["id"], passed["outcome"]) == ("b.jpg#1", "passed")
+    assert "results: 1 passed, 1 failed, 0 test errors" in (out / "report.md").read_text()
 
 
 @pytest.mark.asyncio

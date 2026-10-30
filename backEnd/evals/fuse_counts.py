@@ -21,9 +21,10 @@ boxes' ``photo_counts`` (``evals.datasets.photo_counts``) of ``--split``.
 Output in ``--out``: ``photo_counts.json`` (one fused answer per base repeat),
 ``photo_components.json`` and ``photo_rooms.json`` copied from the base (fusion changes
 counts only), and ``run.json``: the rules fitted on every photo, how often each rule was
-chosen across the folds per class, the sources and the summed spend; ``run.log`` and
-``manifest.json`` are the run record (:mod:`evals.record`). Score with
-``evals.run --predictions OUT --repeats N``.
+chosen across the folds per class, the sources and the summed spend; ``console.log``,
+``manifest.json``, ``results.json`` and ``report.md`` are the run record (:mod:`evals.record`;
+filed under ``photo_counts`` at the sources' versions joined, one passed case per photo fused).
+Score with ``evals.run --predictions OUT --repeats N``.
 
 Usage (from ``backEnd/``)::
 
@@ -44,6 +45,7 @@ from typing import Any, Final
 from basis.vision.fusion import Example, Rule, fit, fuse
 from evals import datasets as ds
 from evals import record
+from evals.merge_photo_runs import source_version
 
 CLASSES: Final[tuple[str, ...]] = (
     "window",
@@ -149,7 +151,16 @@ def build_examples(
 
 
 def fuse_counts(args: argparse.Namespace) -> dict[str, Any]:
-    run = record.EvalRun.begin(args.out, harness=__name__, args=args)
+    sources = [p for _, p in args.vlm] + [p for _, p in args.counts]
+    if args.sam3 is not None:
+        sources.append(args.sam3)
+    run = record.EvalRun.begin(
+        args.out,
+        harness=__name__,
+        args=args,
+        component="photo_counts",
+        version=source_version(sources),
+    )
     try:
         summary = _fuse(args, run)
     except BaseException as exc:
@@ -198,6 +209,12 @@ def _fuse(args: argparse.Namespace, run: record.EvalRun) -> dict[str, Any]:
             chosen[count_class][rule.name] += 1
         answers = [fuse(x.by_source, file_rules, base) for x in file_examples]
         fused[file] = answers[0] if len(answers) == 1 else {"repeats": answers}
+        run.case(
+            file,
+            record.PASSED,
+            kind="photo",
+            detail={"labelled": file in labelled, "repeats": len(answers)},
+        )
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "photo_counts.json").write_text(json.dumps(fused, indent=1, sort_keys=True))
     for name in ("photo_components.json", "photo_rooms.json"):

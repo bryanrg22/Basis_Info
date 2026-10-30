@@ -2,8 +2,14 @@
 
 ``python -m evals.appraisal.run --set client|gse_d1|synthetic_1004|all --mode live|replay``
 (``SPEC.md`` §7). Writes ``BASIS_EVAL_DATA_DIR/appraisal/runs/<id>/`` (or ``--out``):
-``predictions.json``, ``score.json``, ``report.md``, ``run.json``, and the run record
-(:mod:`evals.record`): ``llm_calls.jsonl``, ``llm/``, ``run.log``, ``manifest.json``.
+``predictions.json``, ``score.json``, ``report.md`` (the run record's results page, then the
+SPEC §8 scoring tables), ``run.json``, and the run record
+(:mod:`evals.record`): ``llm_calls.jsonl``, ``llm/``, ``console.log``, ``manifest.json``,
+``results.json`` (one case per document and repeat: passed when the system answered, failed
+when the extraction itself failed, a test error for a missing PDF or recording, a changed PDF,
+a missing input or a provider failure). A model system files under its prompt; a system with
+no prompt (``mismo_xml``, ``azure_1004``, ``--azure-only``) under ``appraisal_fields`` at the
+system's name.
 
 * **live**: the system with the configured clients. For ``production`` and ``pipeline``,
   :func:`basis.extraction.pipeline.extract_appraisal` with the context the ``extract_fields``
@@ -68,10 +74,12 @@ from basis.extraction.azure_di import AzureDiClient, AzureDocumentIntelligence
 from basis.extraction.fallback import PROMPT_NAME
 from basis.llm import prompts
 from basis.llm.call import CallContext
+from basis.llm.errors import ProviderError
 from basis.llm.families import CLAUDE_EFFORTS, is_claude_model, refuses_no_effort
 from basis.llm.pool import ProviderPool
-from basis.llm.provider import Budget, ChatProvider
+from basis.llm.provider import Budget, BudgetExceededError, ChatProvider
 from basis.llm.recorder import CallRecord, MemoryRecorder
+from evals import record
 from evals.appraisal import baseline, recordings
 from evals.appraisal.normalize import Columns, review_display
 from evals.appraisal.score import PageWords, render_report, score_run
@@ -263,6 +271,47 @@ def _failed(repeat: int, status: str, error: str | None) -> dict[str, Any]:
     return {"repeat": repeat, "status": status, "error": error}
 
 
+def _case(
+    state: RunState,
+    set_name: str,
+    doc: DocumentTruth,
+    repeat: int,
+    outcome: str,
+    *,
+    error: BaseException | str | None = None,
+    seconds: float | None = None,
+) -> None:
+    """One ``<set>/<document>#<repeat>`` case on the run record (none without a record)."""
+    if state.record is not None:
+        state.record.case(
+            f"{set_name}/{doc.document}#{repeat}",
+            outcome,
+            kind="document",
+            observed_error=error,
+            seconds=seconds,
+        )
+
+
+def _is_test_error(exc: BaseException) -> bool:
+    """Whether an exception a system raised says nothing about the system: the provider or
+    the budget refused (a catalogued error), or the harness could not read or write."""
+    return (
+        isinstance(exc, ProviderError | BudgetExceededError | OSError)
+        or record.error_code(exc) is not None
+    )
+
+
+def tree_declaration(options: Options) -> tuple[str | None, str | None]:
+    """``(component, version)`` the run files under: a system with no prompt (``mismo_xml``,
+    ``azure_1004``, ``--azure-only``) declares ``appraisal_fields`` at the system's name; a
+    model system leaves it to the prompt its calls used."""
+    if options.system.name in NO_MODEL_SYSTEMS:
+        return "appraisal_fields", options.system.name
+    if options.azure_only:
+        return "appraisal_fields", f"{options.system.name}-azure_only"
+    return None, None
+
+
 def _layout_client(
     options: Options, live: LiveDeps | None, directory: Path
 ) -> AzureDiClient | None:
@@ -328,6 +377,7 @@ async def predict_document(
     if not pdf_path.is_file():
         entry["status"] = "missing_pdf"
         entry["repeats"] = [_failed(1, "missing_pdf", None)]
+        _case(state, set_name, doc, 1, record.TEST_ERROR, error=f"missing_pdf: {doc.pdf}")
         return entry
     pdf = pdf_path.read_bytes()
     if state.record is not None:
@@ -335,6 +385,7 @@ async def predict_document(
     if hashlib.sha256(pdf).hexdigest() != doc.sha256:
         entry["status"] = "sha256_mismatch"
         entry["repeats"] = [_failed(1, "sha256_mismatch", None)]
+        _case(state, set_name, doc, 1, record.TEST_ERROR, error=f"sha256_mismatch: {doc.pdf}")
         return entry
     directory = recordings.recording_dir(appraisal, doc.sha256)
     current = ExtractionSettings.from_settings(settings)
@@ -380,11 +431,13 @@ async def predict_document(
             logger.warning("%s/%s: %s", set_name, doc.document, exc)
             entry["repeats"].append(_failed(repeat, "missing_recording", str(exc)))
             entry["status"] = "missing_recording"
+            _case(state, set_name, doc, repeat, record.TEST_ERROR, error=exc)
             break
         except MissingInput as exc:
             logger.warning("%s/%s: %s", set_name, doc.document, exc)
             entry["repeats"].append(_failed(repeat, "missing_input", str(exc)))
             entry["status"] = "missing_input"
+            _case(state, set_name, doc, repeat, record.TEST_ERROR, error=exc)
             break
         except Exception as exc:  # one document's failure must not stop the run
             logger.exception("%s/%s repeat %d failed", set_name, doc.document, repeat)
@@ -392,11 +445,15 @@ async def predict_document(
             entry["repeats"].append(_failed(repeat, status, str(exc)[:500]))
             if entry["status"] == "ok":
                 entry["status"] = status
+            # A provider or budget refusal says nothing about the system (test error); any
+            # other exception is the extraction failing on this document (failed).
+            outcome = record.TEST_ERROR if _is_test_error(exc) else record.FAILED
+            _case(state, set_name, doc, repeat, outcome, error=exc)
             continue
+        seconds = time.monotonic() - started
         usage = _usage(state.recorder.records[before:])
-        entry["repeats"].append(
-            _repeat_json(output, repeat, budget.spent_usd, time.monotonic() - started, usage)
-        )
+        entry["repeats"].append(_repeat_json(output, repeat, budget.spent_usd, seconds, usage))
+        _case(state, set_name, doc, repeat, record.PASSED, seconds=seconds)
     for client in (layout, mortgage):
         if isinstance(client, recordings.RecordingAzureClient | recordings.RecordingRawModel):
             state.azure_calls += client.calls
@@ -503,8 +560,14 @@ async def run_eval(
     run_id = f"{started.strftime('%Y%m%dT%H%M%SZ')}-{options.mode}-{options.system.label()}"
     directory = options.out or appraisal / "runs" / run_id
     directory.mkdir(parents=True, exist_ok=True)
+    component, version = tree_declaration(options)
     rec = EvalRun.begin(
-        directory, harness="evals.appraisal.run", args=asdict(options), settings=settings
+        directory,
+        harness="evals.appraisal.run",
+        args=asdict(options),
+        settings=settings,
+        component=component,
+        version=version,
     )
     for name in truths:
         rec.dataset(appraisal / "truth" / f"{name}.json", name=name)
@@ -512,6 +575,7 @@ async def run_eval(
     rec.prompt(fallback_prompt)
     rec.note(mode=options.mode, system=options.system.label())
     run: dict[str, Any] | None = None
+    scoring: str | None = None  # the SPEC §8 tables, appended to the record's report.md
     try:
         state = RunState(recorder=rec.recorder, record=rec)
         documents: list[dict[str, Any]] = []
@@ -582,14 +646,15 @@ async def run_eval(
         }
         _write(directory / "predictions.json", predictions)
         _write(directory / "score.json", score)
-        (directory / "report.md").write_text(render_report(score, run))
+        scoring = render_report(score, run)
         baseline_path = appraisal / options.baseline
         previous = baseline.load(baseline_path)
         found = baseline.regressions(previous, score, attempted) if previous is not None else []
         if options.accept_baseline:
             baseline.write(baseline_path, score, attempted, run=run_id, git_sha=sha)
             print(f"baseline written: {baseline_path}")
-        rec.finish(run)  # run.json and the manifest
+        rec.finish(run)  # run.json, results.json, report.md (the cases) and the manifest
+        _append_scoring(directory, scoring)
     except BaseException as exc:
         # A failed run still leaves run.json (when it got that far), the manifest and the log.
         if not rec.finished:
@@ -599,8 +664,19 @@ async def run_eval(
                 exit_code=1,
                 error="".join(traceback.format_exception(exc)),
             )
+            _append_scoring(directory, scoring)
         raise
     return RunOutput(directory=directory, score=score, run=run, regressions=found)
+
+
+def _append_scoring(directory: Path, scoring: str | None) -> None:
+    """``report.md`` is one page: the run record's results (:func:`evals.record.render_report`,
+    written by ``finish``) followed by the scoring tables (SPEC §8, :func:`render_report`),
+    when the run got as far as scoring."""
+    if scoring is None:
+        return
+    with (directory / "report.md").open("a", encoding="utf-8") as handle:
+        handle.write("\n---\n\n" + scoring)
 
 
 # --------------------------------------------------------------------------- CLI

@@ -23,8 +23,11 @@ Output in ``--out`` (each a predictions directory, with ``--base`` merged as in
 ``evals.predict_marks``): the top level counts the points; ``stated/`` the model's stated counts
 (chat only); ``masked/`` the distinct masks; ``masked_all/`` the distinct masks plus points no
 mask was found for. ``points_raw.jsonl`` and ``run.json`` (models reported, spend, seconds,
-mask coverage); ``llm_calls.jsonl``, ``llm/``, ``run.log``, ``manifest.json``: the run record
-(:mod:`evals.record`; a Molmo prediction is a ``localization`` row, billed in seconds).
+mask coverage); ``llm_calls.jsonl``, ``llm/``, ``console.log``, ``manifest.json``: the run record
+(:mod:`evals.record`; a Molmo prediction is a ``localization`` row, billed in seconds), with
+``results.json`` / ``report.md``: one case per (photo, repeat), passed when the pointer answered,
+a test error (with the recorded errors) when it did not. A chat run files under ``photo_points``
+at its prompt version, a Molmo run under ``photo_points`` / ``molmo-7b-d``.
 
 Usage (from ``backEnd/``)::
 
@@ -66,9 +69,11 @@ from basis.vision.prep import prepare_image
 from evals import record
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_marks import (
+    file_under,
     image_part,
     load_instances,
     prompt_sam,
+    record_cases,
     resolved_record,
     write_predictions,
     write_raw,
@@ -368,6 +373,8 @@ async def run(args: argparse.Namespace) -> int:
         write_raw(args.out / "points_raw.jsonl", records)
     repeats = max((int(r["repeat"]) for r in records), default=1)
     files = sorted(photos)
+    record_cases(rec, records, "points")
+    file_under(rec, info)  # a Molmo run or --from-raw makes no call the default could read
 
     def empty() -> dict[str, list[dict[str, int] | None]]:
         return {f: [None] * repeats for f in files}

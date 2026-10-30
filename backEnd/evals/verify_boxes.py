@@ -21,8 +21,11 @@ Detections are those of ``--classes`` scoring at least ``--min-score`` in an
 SAM 3 finds with overlapping phrases). Output in ``--out``: ``photo_counts.json`` (per photo
 and repeat, the confirmed detections per label; the door classes keep SAM 3's label),
 ``verdicts.jsonl`` (one line per detection and repeat), ``run.json`` and the run record
-(``llm_calls.jsonl``, ``llm/``, ``run.log``, ``manifest.json``; :mod:`evals.record`). Feed
-it to ``evals.fuse_counts --counts verified=OUT`` or score it alone with ``evals.run``.
+(``llm_calls.jsonl``, ``llm/``, ``console.log``, ``manifest.json``, and ``results.json`` /
+``report.md`` with one case per detection and repeat: passed when the model gave a verdict,
+failed when the answer stayed unusable or the input was refused, test_error when the
+provider or the harness failed; :mod:`evals.record`). Feed it to
+``evals.fuse_counts --counts verified=OUT`` or score it alone with ``evals.run``.
 
 Usage (from ``backEnd/``)::
 
@@ -56,7 +59,7 @@ from basis.vision.prep import JPEG_QUALITY, PreparedImage, prepare_image
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import photo_files
 from evals.predict_tiles import ask_structured
-from evals.record import EvalRun
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 VerdictLabel = Literal[
     "window",
@@ -247,7 +250,15 @@ async def run(args: argparse.Namespace) -> int:
         )
         async with semaphore:
             started = time.monotonic()
-            parsed, attempts, errors, reported = await ask_structured(pool, call, request)
+            try:
+                parsed, attempts, errors, reported = await ask_structured(pool, call, request)
+            except Exception as exc:
+                # Propagates as before (an outage after every retry, an account error, a
+                # harness fault); the case says nothing about the model.
+                eval_run.case(
+                    f"{file}:{index}#{repeat}", TEST_ERROR, kind="detection", observed_error=exc
+                )
+                raise
             seconds = round(time.monotonic() - started, 2)
         verdict = parsed.model_dump() if isinstance(parsed, Verdict) else None
         return {
@@ -277,6 +288,19 @@ async def run(args: argparse.Namespace) -> int:
             for result in results:
                 out.write(json.dumps(result, sort_keys=True) + "\n")
                 unanswered += result["verdict"] is None
+                eval_run.case(
+                    f"{result['file']}:{result['index']}#{repeat}",
+                    PASSED if result["verdict"] is not None else FAILED,
+                    kind="detection",
+                    detail={
+                        "label": result["label"],
+                        "verdict": (result["verdict"] or {}).get("label"),
+                        "confirmed": result["confirmed"],
+                        "attempts": result["attempts"],
+                        "errors": result["errors"],
+                    },
+                    seconds=result["seconds"],
+                )
                 if result["confirmed"]:
                     tally = per_file[result["file"]]
                     tally[result["label"]] = tally.get(result["label"], 0) + 1

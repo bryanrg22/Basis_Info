@@ -10,8 +10,10 @@ which ``report_rows`` reads) are taken from the run that supplies the room, repe
 fixed by the caller before scoring; nothing here looks at the labels.
 
 Output in ``--out``: ``room_inventory.json``, ``room_raw.jsonl``, ``run.json`` (base,
-override, the rooms taken), and ``run.log`` / ``manifest.json``, the run record
-(:mod:`evals.record`).
+override, the rooms taken), and ``console.log`` / ``manifest.json`` / ``results.json`` /
+``report.md``, the run record (:mod:`evals.record`; filed under ``room_inventory`` at the
+base run's tree version, one passed case per room written, a test error per room the
+override lacks).
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from evals import record
+from evals.merge_photo_runs import source_manifest
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -50,8 +53,22 @@ def _raw(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     return out
 
 
+def base_version(base: Path) -> str:
+    """The version the base run is filed under in the verification tree (its manifest's
+    ``tree.version``; the combination changes nothing about the prompt), else unversioned."""
+    tree = source_manifest(base).get("tree") or {}
+    version = tree.get("version")
+    return str(version) if version else record.UNVERSIONED
+
+
 def combine(args: argparse.Namespace) -> int:
-    run = record.EvalRun.begin(args.out, harness=__name__, args=args)
+    run = record.EvalRun.begin(
+        args.out,
+        harness=__name__,
+        args=args,
+        component="room_inventory",
+        version=base_version(args.base),
+    )
     try:
         return _combine(args, run)
     except BaseException as exc:
@@ -69,6 +86,8 @@ def _combine(args: argparse.Namespace, run: record.EvalRun) -> int:
     missing = sorted(chosen - set(other))
     if missing:
         print(f"rooms not in {args.override}: {missing}", file=sys.stderr)
+        for room in missing:
+            run.case(room, record.TEST_ERROR, kind="room", detail=f"not in {args.override}")
         run.finish(None, exit_code=2)
         return 2
     repeats = max(len(_repeats(v)) for v in [*base.values(), *other.values()])
@@ -80,13 +99,19 @@ def _combine(args: argparse.Namespace, run: record.EvalRun) -> int:
         values = _repeats(source[room])
         per_repeat = [values[r % len(values)] for r in range(repeats)]
         inventory[room] = per_repeat[0] if repeats == 1 else {"repeats": per_repeat}
+        run.case(
+            room,
+            record.PASSED,
+            kind="room",
+            detail={"from": "override" if room in chosen else "base", "repeats": repeats},
+        )
         raw_repeats = sorted(rep for (rid, rep) in raw if rid == room)
         for r in range(1, repeats + 1):
             if raw_repeats:
-                record = dict(raw[(room, raw_repeats[(r - 1) % len(raw_repeats)])])
-                record["repeat"] = r
-                record["combined_from"] = str(args.override if room in chosen else args.base)
-                lines.append(record)
+                row = dict(raw[(room, raw_repeats[(r - 1) % len(raw_repeats)])])
+                row["repeat"] = r
+                row["combined_from"] = str(args.override if room in chosen else args.base)
+                lines.append(row)
     (args.out / "room_inventory.json").write_text(json.dumps(inventory, indent=1, sort_keys=True))
     (args.out / "room_raw.jsonl").write_text(
         "".join(json.dumps(line, sort_keys=True) + "\n" for line in lines)

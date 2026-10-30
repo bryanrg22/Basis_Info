@@ -19,7 +19,11 @@ Output (what ``evals.run --predictions`` and ``evals.score_schedule`` read)::
     <out>/calls.jsonl           every call: scope, room, files, attempts, model, cost,
                                 seconds, dropped entries, errors, the raw response
     <out>/run.json              summary: model, effort, prompt, spend, seconds, models
-    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
+    <out>/results.json, report.md   one case per call: ``<room_id>#<repeat>`` (room scope),
+                                ``house#<repeat>`` or ``schedule#<repeat>``: passed when the
+                                answer was usable, failed when it stayed unusable or the input
+                                was refused, test_error when the provider or the harness failed
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json   the run record (evals.record)
 
 An unusable answer is retried once (as the reconciliation call does); a room or repeat
 whose answer stays unusable is recorded with an empty inventory and an error, never
@@ -34,7 +38,7 @@ import json
 import sys
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -59,9 +63,19 @@ from basis.vision.reconcile import ModelRoomInventory
 from basis.vision.rooms import name_hint, resolve_aliases
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, photo_files
-from evals.record import EvalRun
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 MAX_ATTEMPTS = 2
+
+
+def call_detail(record: Mapping[str, Any], checked: Checked | None) -> dict[str, Any]:
+    """What a call's case keeps: attempts, errors, the model, what the check dropped."""
+    return {
+        "attempts": record.get("attempts"),
+        "errors": list(record.get("errors") or []),
+        "model": record.get("model"),
+        "dropped": 0 if checked is None else len(checked.dropped),
+    }
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -224,11 +238,24 @@ async def run(args: argparse.Namespace, provider: ChatProvider | None = None) ->
         mine = rooms[room]
         async with semaphore:
             request = multiview.build_request("room", mine, call_settings)
-            parsed, record = await call_with_retries(provider, request, ctx)
+            try:
+                parsed, record = await call_with_retries(provider, request, ctx)
+            except Exception as exc:
+                # Propagates as before (an outage after every retry, an account error, a
+                # harness fault); the case says nothing about the model.
+                rec.case(f"{room}#{repeat}", TEST_ERROR, kind="room", observed_error=exc)
+                raise
         checked = (
             multiview.check_room(parsed, room, len(mine))
             if isinstance(parsed, ModelRoomInventory)
             else Checked(rooms={room: []})
+        )
+        rec.case(
+            f"{room}#{repeat}",
+            PASSED if parsed is not None else FAILED,
+            kind="room",
+            detail=call_detail(record, checked),
+            seconds=record.get("seconds"),
         )
         if parsed is None:
             errors.append({"room": room, "repeat": repeat, "errors": record["errors"]})
@@ -247,10 +274,15 @@ async def run(args: argparse.Namespace, provider: ChatProvider | None = None) ->
 
     async def one_property(repeat: int) -> None:
         request = multiview.build_request(scope, photos, call_settings, template)
-        parsed, record = await call_with_retries(provider, request, ctx)
+        try:
+            parsed, record = await call_with_retries(provider, request, ctx)
+        except Exception as exc:
+            rec.case(f"{scope}#{repeat}", TEST_ERROR, kind=scope, observed_error=exc)
+            raise
         names = [p.file for p in photos]
         if parsed is None:
             errors.append({"repeat": repeat, "errors": record["errors"]})
+        checked: Checked
         if scope == "house":
             checked = (
                 multiview.check_house(parsed, photos)
@@ -276,6 +308,13 @@ async def run(args: argparse.Namespace, provider: ChatProvider | None = None) ->
                 else Checked()
             )
             schedules.append(checked.rows)
+        rec.case(
+            f"{scope}#{repeat}",
+            PASSED if parsed is not None else FAILED,
+            kind=scope,
+            detail=call_detail(record, checked),
+            seconds=record.get("seconds"),
+        )
         calls.append({"scope": scope, "repeat": repeat, "dropped": checked.dropped, **record})
 
     started = time.monotonic()

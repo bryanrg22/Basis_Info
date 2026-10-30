@@ -117,6 +117,15 @@ def test_summary_guard_measure_and_gates() -> None:
     assert (exact["correct"]["k"], exact["correct"]["n"], exact["wrong"]["k"]) == (2, 2, 0)
     assert summary["counted"]["boxes_all"]["duplicates_created"]["k"] == 0
     assert M.gates(summary) == []
+    checks = M.gate_checks(summary)
+    assert [g.id for g in checks] == [
+        "exact_box_outlines_misses",
+        "box_exact_never_wrong",
+        "box_big_never_wrong",
+        "box_small_never_wrong",
+        "counted_boxes_no_duplicates",
+    ]
+    assert all(g.passed for g in checks)
     # A counted object's box never reaches the guard (it is the counted instance).
     assert all(
         r["guard_overlap"] is None
@@ -128,6 +137,9 @@ def test_summary_guard_measure_and_gates() -> None:
     assert by_box["box_exact"]["outcome"] == "correct"
     failing = M.summarize(M.evaluate([p], {}))
     assert any("exact box outlines 1/2" in f for f in M.gates(failing))
+    verdicts = {g.id: g.passed for g in M.gate_checks(failing)}
+    assert verdicts["exact_box_outlines_misses"] is False
+    assert M.gates(failing) == [g.detail for g in M.gate_checks(failing) if not g.passed]
     assert "| box_exact |" in M.table(summary)
 
 
@@ -233,7 +245,19 @@ def test_main_replays_a_data_directory_and_leaves_the_run_record(
     )
     assert manifest["notes"] == {"phrases": "all", "live": False, "gates": summary["gates"]}
     assert (manifest["status"], manifest["exit_code"]) == ("ok", 0)
-    assert "gates: passed" in (out / "run.log").read_text()
+    assert "gates: passed" in (out / "console.log").read_text()
+    # One case per gate, passed as the gates decided; filed under detection / manual_add.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (5, 0, 0)
+    assert all(c["kind"] == "gate" for c in results["cases"])
+    assert results["cases"][0]["id"] == "exact_box_outlines_misses"
+    assert results["cases"][0]["detail"].startswith("exact box outlines ")
+    assert "results: 5 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "detection",
+        "manual_add",
+    )
 
 
 def test_a_failed_replay_still_leaves_a_manifest(tmp_path: Path) -> None:
@@ -243,4 +267,4 @@ def test_a_failed_replay_still_leaves_a_manifest(tmp_path: Path) -> None:
     manifest = json.loads((out / "manifest.json").read_text())
     assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
     assert "FileNotFoundError" in manifest["error"]
-    assert (out / "run.log").exists()
+    assert (out / "console.log").exists()

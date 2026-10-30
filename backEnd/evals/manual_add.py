@@ -35,7 +35,9 @@ counted objects, at most :data:`MAX_DUPLICATES` of all box selections create a d
 
 Only indices, labels, boxes and rates are written or printed (no file names or pixels):
 ``--out`` gets ``records.json`` (one row per object and selection) and ``summary.json``,
-plus ``run.log`` and ``manifest.json``, the run record (:mod:`evals.record`).
+plus ``console.log``, ``manifest.json``, ``results.json`` and ``report.md``, the run record
+(:mod:`evals.record`; filed under ``detection`` / ``manual_add``, one case per gate, passed
+or failed as the gate decides).
 
 Usage (from ``backEnd/``)::
 
@@ -484,29 +486,52 @@ def guard_table(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return table
 
 
-def gates(summary: Mapping[str, Any]) -> list[str]:
-    """The release gates (module doc); empty when every one holds."""
-    failures = []
+@dataclass(frozen=True)
+class Gate:
+    """One release gate: its id, whether it holds, and the measure it was judged on."""
+
+    id: str
+    passed: bool
+    detail: str
+
+
+def gate_checks(summary: Mapping[str, Any]) -> list[Gate]:
+    """Every release gate (module doc) with its verdict."""
+    checks: list[Gate] = []
     exact = summary["misses"]["box_exact"]["correct"]
-    if exact["rate"] is None or exact["rate"] < MIN_CORRECT:
-        failures.append(
-            f"exact box outlines {exact['k']}/{exact['n']} misses, need >= {MIN_CORRECT}"
+    checks.append(
+        Gate(
+            "exact_box_outlines_misses",
+            exact["rate"] is not None and exact["rate"] >= MIN_CORRECT,
+            f"exact box outlines {exact['k']}/{exact['n']} misses, need >= {MIN_CORRECT}",
         )
+    )
     for variant in VARIANTS:
         wrong = summary["misses"][f"box_{variant}"]["wrong"]
         after = summary["misses"][f"box_{variant}"]["wrong_after_add_anyway"]
-        if wrong["k"] or after["k"]:
-            failures.append(
+        checks.append(
+            Gate(
+                f"box_{variant}_never_wrong",
+                not (wrong["k"] or after["k"]),
                 f"box_{variant} outlines a wrong object: {wrong['k']} "
-                f"({after['k']} after add anyway)"
+                f"({after['k']} after add anyway)",
             )
-    duplicates = summary["counted"]["boxes_all"]["duplicates_created"]
-    if duplicates["rate"] is None or duplicates["rate"] > MAX_DUPLICATES:
-        failures.append(
-            f"boxes on counted objects created {duplicates['k']}/{duplicates['n']} duplicates, "
-            f"allowed <= {MAX_DUPLICATES}"
         )
-    return failures
+    duplicates = summary["counted"]["boxes_all"]["duplicates_created"]
+    checks.append(
+        Gate(
+            "counted_boxes_no_duplicates",
+            duplicates["rate"] is not None and duplicates["rate"] <= MAX_DUPLICATES,
+            f"boxes on counted objects created {duplicates['k']}/{duplicates['n']} duplicates, "
+            f"allowed <= {MAX_DUPLICATES}",
+        )
+    )
+    return checks
+
+
+def gates(summary: Mapping[str, Any]) -> list[str]:
+    """The release gates (module doc) that do not hold; empty when every one holds."""
+    return [gate.detail for gate in gate_checks(summary) if not gate.passed]
 
 
 def table(summary: Mapping[str, Any]) -> str:
@@ -677,7 +702,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.data is None:
         raise SystemExit(f"--data or {ENV_VAR} is required")
-    eval_run = eval_record.EvalRun.begin(args.out, harness=__name__, args=args)
+    eval_run = eval_record.EvalRun.begin(
+        args.out, harness=__name__, args=args, component="detection", version="manual_add"
+    )
     try:
         code = _main(args, eval_run)
     except BaseException as exc:
@@ -699,7 +726,15 @@ def _main(args: argparse.Namespace, eval_run: eval_record.EvalRun) -> int:
         eval_run.input(name, args.data / name / "instances_raw.jsonl")
     eval_run.input("prompts", prompts_path)
     records, summary = run(args.data, prompts_path, args.phrases)
-    failures = gates(summary)
+    checks = gate_checks(summary)
+    for gate in checks:
+        eval_run.case(
+            gate.id,
+            eval_record.PASSED if gate.passed else eval_record.FAILED,
+            kind="gate",
+            detail=gate.detail,
+        )
+    failures = [gate.detail for gate in checks if not gate.passed]
     summary["gates"] = {"passed": not failures, "failures": failures, "phrases": args.phrases}
     eval_run.note(phrases=args.phrases, live=args.live, gates=summary["gates"])
     (args.out / "records.json").write_text(json.dumps(records, indent=1), encoding="utf-8")

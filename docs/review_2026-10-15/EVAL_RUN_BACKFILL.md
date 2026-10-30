@@ -17,9 +17,40 @@ Written by `python -m evals.backfill_manifests` over `/Users/bryanramirez-gonzal
 | release known from the recorded sha | 164 |
 | label files known (from `eval.md`; sha256 at the time unknown) | 40 |
 | terminal log kept (sibling `.log`) | 125 |
-| cited by name or prefix in EVAL_REPORT | 112 |
+| cited by name or prefix in EVAL_REPORT | 113 |
+| filed in `verification/<component>/<version>/` as a link | 351 |
 | stopped by an account error | 0 |
-| empty directories | 1 |
+| empty directories | 0 |
+
+## Component per run (where the tree files it)
+
+| component | runs |
+|---|---|
+| `appraisal_field_fallback` | 52 |
+| `appraisal_field_fallback_marks` | 36 |
+| `appraisal_field_fallback_uad36` | 16 |
+| `appraisal_fields` | 30 |
+| `appraisal_fields_grounded` | 39 |
+| `classify` | 12 |
+| `detection` | 28 |
+| `house_inventory` | 2 |
+| `house_schedule` | 2 |
+| `photo_analysis` | 38 |
+| `photo_countables` | 11 |
+| `photo_countables_joint` | 1 |
+| `photo_countables_tile` | 1 |
+| `photo_counts` | 4 |
+| `photo_lighting_electrical` | 2 |
+| `photo_marks` | 8 |
+| `photo_overlap` | 3 |
+| `photo_points` | 3 |
+| `photo_surfaces` | 11 |
+| `photo_verify_box` | 1 |
+| `room_inventory` | 39 |
+| `room_photos_inventory` | 4 |
+| `study_export` | 3 |
+| `surface_crop_material` | 4 |
+| `unknown` | 1 |
 
 ## Harness per run (from `run.json` keys or the files present)
 

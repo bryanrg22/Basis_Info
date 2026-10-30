@@ -157,4 +157,22 @@ async def test_run_counts_the_confirmed_detections(
     ]
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos", "sam3"]
     assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 6
-    assert "wrote" in (out / "run.log").read_text()
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (detection, repeat): every verdict was usable, so all passed, whether or
+    # not it confirmed the detection (a rejection is an answer, not a failure).
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert summary["total"] == 6
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (6, 0, 0)
+    assert [c["id"] for c in results["cases"][:3]] == ["a.jpg:0#1", "a.jpg:1#1", "a.jpg:2#1"]
+    assert all(c["kind"] == "detection" and c["seconds"] >= 0 for c in results["cases"])
+    assert [(c["detail"]["verdict"], c["detail"]["confirmed"]) for c in results["cases"][:3]] == [
+        ("exterior_door", True),
+        ("part_or_several", False),
+        ("kitchen_cabinet", True),
+    ]
+    assert (
+        "**results: 6 passed, 0 failed, 0 test errors (6 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {"component": "photo_verify_box", "version": "v1", "link": None}

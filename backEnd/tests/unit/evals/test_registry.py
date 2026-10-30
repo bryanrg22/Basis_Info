@@ -54,7 +54,8 @@ def _manifest(
             "repeats": 3,
         },
         "calls": {"count": calls, "cost_usd": cost},
-        "files": {"log": "run.log", "summary": "run.json", "ledger": "llm_calls.jsonl"},
+        "files": {"log": "console.log", "summary": "run.json", "ledger": "llm_calls.jsonl"},
+        "tree": {"component": prompts[0][0], "version": prompts[0][1], "link": None},
         "summary": {"photos": 52, "spent_usd": cost},
     }
 
@@ -136,6 +137,16 @@ def root(tmp_path: Path) -> Path:
             _manifest(
                 "countables_v3_sol", prompts=[("photo_countables", "v3")], model="gpt-6.1-sol"
             )
+        )
+    )
+    (a / record.RESULTS_FILE).write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {"id": f"p{i}#1", "kind": "photo", "outcome": "passed"} for i in range(50)
+                ]
+                + [{"id": f"q{i}#1", "kind": "photo", "outcome": "failed"} for i in range(2)]
+            }
         )
     )
     record.append_scores(
@@ -267,6 +278,8 @@ def test_a_manifest_run_carries_code_components_labels_and_the_latest_scores(roo
     assert entry.label_stems == {"photo_components_v2"}
     assert (entry.cost_usd, entry.calls) == (1.5, 52)
     assert entry.manifest is True and entry.backfilled is False
+    assert (entry.component, entry.version) == ("photo_countables", "v3")
+    assert entry.results == {"passed": 50, "failed": 2, "test_error": 0}
 
 
 def test_a_run_json_only_run_is_read_from_the_summary_and_its_eval_md(root: Path) -> None:
@@ -338,24 +351,26 @@ def test_the_question_which_runs_tested_a_prompt_version_on_a_model_against_labe
         "countables_v3_opus"
     }
     assert registry.filter_runs(entries, component="photo_countables/v9") == []
+    # The tree component matches too, with or without its version.
+    by_tree = registry.filter_runs(entries, component="appraisal_fields_grounded/v2")
+    assert [e.name for e in by_tree] == ["llm_all@gpt-6-luna"]
 
 
 def test_markdown_and_json_render_every_run_with_its_record_source(root: Path) -> None:
     entries = registry.scan(root)
     text = registry.render_markdown(entries)
     lines = text.splitlines()
-    assert lines[0].startswith("| run | started | release | git |")
+    assert lines[0].startswith("| run | component | version | started | release | git |")
     assert len(lines) == 2 + len(entries)
     sol = next(line for line in lines if "`countables_v3_sol`" in line)
-    assert "| v0.9.0 | bbbbbbb | predict_photos | photo_countables/v3 | gpt-6.1-sol | low |" in sol
-    assert "photo_components_v2 | photo_components f1=0.620 | $1.50 | 52 | manifest |" in sol
+    assert "| `countables_v3_sol` | photo_countables | v3 | 2026-10-20T10:00 | v0.9.0 |" in sol
+    assert "| bbbbbbb | predict_photos | photo_countables/v3 | gpt-6.1-sol | low |" in sol
+    assert "photo_components_v2 | 50 / 2 / 0 | photo_components f1=0.620 | $1.50 | 52 |" in sol
     old = next(line for line in lines if "`countables_v2_sol`" in line)
     assert old.endswith("| backfilled; §11,15 |")
     opus = next(line for line in lines if "`countables_v3_opus`" in line)
-    assert (
-        "| ? | ? | ? | photo_countables/v3 | claude-opus-5-5 | medium | photo_components_v1 |"
-        in opus
-    )
+    assert "| `countables_v3_opus` | ? | ? | ? | ? | ? | ? | photo_countables/v3 |" in opus
+    assert "| claude-opus-5-5 | medium | photo_components_v1 | - |" in opus
     assert "run.json |" in opus
     data = json.loads(registry.render_json(entries))
     assert {d["name"] for d in data} == {e.name for e in entries}
@@ -416,3 +431,25 @@ def test_the_cli_refuses_without_a_data_directory(
     monkeypatch.delenv("BASIS_EVAL_DATA_DIR", raising=False)
     assert registry.main([]) == 2
     assert "no data directory" in capsys.readouterr().err
+
+
+def test_runs_written_inside_the_tree_are_scanned_once_and_links_are_not_doubled(
+    root: Path,
+) -> None:
+    tree = root / "verification"
+    inside = tree / "photo_countables" / "v3" / "written_here"
+    inside.mkdir(parents=True)
+    (inside / "manifest.json").write_text(
+        json.dumps(
+            _manifest("written_here", prompts=[("photo_countables", "v3")], model="gpt-6.1-sol")
+        )
+    )
+    # A link to a predictions run, as the runner and the backfill make them.
+    link = tree / "photo_countables" / "v3" / "countables_v3_sol"
+    link.symlink_to("../../../predictions/countables_v3_sol", target_is_directory=True)
+    entries = registry.scan(root)
+    names = [e.name for e in entries]
+    assert names.count("countables_v3_sol") == 1 and "written_here" in names
+    inside_entry = next(e for e in entries if e.name == "written_here")
+    assert inside_entry.path == "verification/photo_countables/v3/written_here"
+    assert registry.tree_directories(root) == [inside]

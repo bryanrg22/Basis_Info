@@ -205,7 +205,29 @@ async def test_predict_writes_the_crop_answers_and_the_run_record(tmp_path: Path
     ]
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["surfaces", "photos"]
     assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 2
-    assert "wrote" in (out / "run.log").read_text()
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (file, surface, repeat), both answered: passed.
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert summary["total"] == 2
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (2, 0, 0)
+    assert [c["id"] for c in results["cases"]] == ["a.jpg:wall#1", "a.jpg:wall#2"]
+    assert results["cases"][0]["kind"] == "crop"
+    assert results["cases"][0]["detail"] == {
+        "material": "painted_drywall",
+        "attempts": 1,
+        "errors": [],
+    }
+    assert results["cases"][0]["seconds"] >= 0
+    assert (
+        "**results: 2 passed, 0 failed, 0 test errors (2 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {
+        "component": "surface_crop_material",
+        "version": "v1",
+        "link": None,
+    }
 
 
 def test_majority_breaks_ties_by_first_seen_and_respects_allowed() -> None:
@@ -263,7 +285,57 @@ def test_apply_replaces_surface_materials_by_the_crops_majority_over_the_rooms_p
     assert manifest["notes"] == {"rooms": str(rooms), "crops": str(crops)}
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["rooms", "crops"]
     assert not (out / "llm_calls.jsonl").exists()
-    assert "wrote" in (out / "run.log").read_text()
+    assert "wrote" in (out / "console.log").read_text()
+    # One passed case per (room, repeat) with what changed; the new directory is a room
+    # inventory still, filed with the rooms run's version (none here: unversioned).
+    results = json.loads((out / "results.json").read_text())
+    assert results["summary"]["total"] == 1 and results["summary"]["passed"] == 1
+    [case] = results["cases"]
+    assert (case["id"], case["kind"], case["detail"]) == (
+        "1_hall#1",
+        "room",
+        {"materials_changed": 1, "objects": 3},
+    )
+    assert (
+        "**results: 1 passed, 0 failed, 0 test errors (1 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {
+        "component": "room_inventory",
+        "version": "unversioned",
+        "link": None,
+    }
+
+
+def test_apply_files_under_the_rooms_runs_version_in_the_verification_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = tmp_path / "data"
+    monkeypatch.setenv("BASIS_EVAL_DATA_DIR", str(data))
+    rooms = data / "predictions" / "rooms_v2"
+    rooms.mkdir(parents=True)
+    (rooms / "room_raw.jsonl").write_text(
+        json.dumps({"room_id": "1_hall", "repeat": 1, "files": ["a.jpg"], "objects": []}) + "\n"
+    )
+    (rooms / "manifest.json").write_text(
+        json.dumps({"tree": {"component": "room_inventory", "version": "v2"}})
+    )
+    crops = data / "predictions" / "crops"
+    crops.mkdir()
+    (crops / "surface_crops.json").write_text(
+        json.dumps({"a.jpg": {"wall": {"repeats": [answer("painted_drywall")]}}})
+    )
+    out = data / "predictions" / "rooms_v2_crops"
+    assert ps.apply(argparse.Namespace(rooms=rooms, crops=crops, out=out)) == 0
+    assert ps.rooms_version(rooms) == "v2"
+    assert ps.rooms_version(crops) == "unversioned"  # no manifest
+    (crops / "manifest.json").write_text("{")
+    assert ps.rooms_version(crops) == "unversioned"  # unreadable manifest
+    link = data / "verification" / "room_inventory" / "v2" / "rooms_v2_crops"
+    assert link.is_symlink() and link.resolve() == out.resolve()
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["tree"]["path"] == "room_inventory/v2/rooms_v2_crops"
+    assert manifest["results"]["passed"] == 1
 
 
 def test_with_fallback_fills_only_the_kinds_the_crops_left_empty() -> None:

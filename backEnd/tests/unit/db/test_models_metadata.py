@@ -89,7 +89,7 @@ SPEC_TABLES = {
     "outbox": "id kind payload status attempts next_attempt_at delivered_at last_error created_at",
     # Migration 0014_eval_run_manifest: the run-record columns (evals.record).
     "eval_runs": "id dataset split git_sha model prompt_version created_at git_dirty release "
-    "run_dir label_sha256 label_version manifest",
+    "run_dir label_sha256 label_version component component_version manifest",
     "eval_results": "id eval_run_id metric value n stderr details",
     # v0.6: migration 0004_photo_objects (SAM 3 localization in the product path).
     "photo_localizations": "study_id document_id revision status reason instances "

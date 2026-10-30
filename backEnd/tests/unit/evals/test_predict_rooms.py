@@ -163,6 +163,42 @@ def jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
+def results_of(out: Path) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads((out / "results.json").read_text())
+    return data
+
+
+def counts_of(out: Path) -> tuple[int, int, int]:
+    summary = results_of(out)["summary"]
+    return summary["passed"], summary["failed"], summary["test_error"]
+
+
+def cases_by_id(out: Path) -> dict[str, dict[str, Any]]:
+    return {c["id"]: c for c in results_of(out)["cases"]}
+
+
+def test_room_outcome_fails_an_unusable_model_output_only() -> None:
+    assert predict_rooms.room_outcome({"needs_review": False, "review_reason": None}) == "passed"
+    assert (
+        predict_rooms.room_outcome({"needs_review": True, "review_reason": "dropped_objects:1"})
+        == "passed"
+    )
+    assert (
+        predict_rooms.room_outcome({"needs_review": False, "review_reason": "single_photo"})
+        == "passed"
+    )
+    assert (
+        predict_rooms.room_outcome({"needs_review": True, "review_reason": "invalid_model_output"})
+        == "failed"
+    )
+    assert (
+        predict_rooms.room_outcome(
+            {"needs_review": True, "review_reason": "overlap_merge:failed_pairs:2"}
+        )
+        == "failed"
+    )
+
+
 async def test_run_writes_the_heuristic_the_reconciled_inventory_and_raw_records(
     photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -238,7 +274,41 @@ async def test_run_writes_the_heuristic_the_reconciled_inventory_and_raw_records
     assert all(p["sha256"] == prompts.load(p["name"], p["version"]).sha256 for p in declared)
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos"]
     assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 5
-    assert "wrote" in (out / "run.log").read_text()
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (room, repeat), both passed; the run files under the room step at the
+    # room prompt's version, not under photo_analysis (which made more calls).
+    results = results_of(out)
+    assert results["summary"]["total"] == 2 and counts_of(out) == (2, 0, 0)
+    assert [(c["id"], c["kind"]) for c in results["cases"]] == [
+        ("b_bath#1", "room"),
+        ("1_kitchen#1", "room"),
+    ]
+    assert results["cases"][1]["detail"] == {
+        "source": "model",
+        "review_reason": None,
+        "objects": 2,
+        "images": 2,
+        "calls": 1,
+    }
+    assert (
+        "**results: 2 passed, 0 failed, 0 test errors (2 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {"component": "room_inventory", "version": "v1", "link": None}
+
+
+async def test_the_run_is_filed_under_room_inventory_in_the_verification_tree(
+    photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BASIS_EVAL_DATA_DIR", str(tmp_path / "data"))
+    use(monkeypatch, Router(FixtureVisionProvider(), FixtureRoomProvider()))
+    out = tmp_path / "data" / "predictions" / "rooms_v2"
+    assert await run("--photos", str(photo_dir), "--out", str(out), "--room-prompt", "v2") == 0
+    link = tmp_path / "data" / "verification" / "room_inventory" / "v2" / "rooms_v2"
+    assert link.is_symlink() and link.resolve() == out.resolve()
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("room_inventory", "v2")
+    assert manifest["tree"]["path"] == "room_inventory/v2/rooms_v2"
 
 
 async def test_repeats_aliases_and_rejected_images(
@@ -271,6 +341,19 @@ async def test_repeats_aliases_and_rejected_images(
     assert list(summary["rejected"]) == ["60_Attic.JPG"]
     assert summary["rejected"]["60_Attic.JPG"].startswith("too_small")
     assert summary["photos"] == 6 and summary["rooms"] == 3
+    # 3 rooms x 2 repeats passed, plus the rejected photo as one failed case (rejected
+    # once, before any repeat, so its id is the file).
+    results = results_of(out)
+    assert results["summary"]["total"] == 7 and counts_of(out) == (6, 1, 0)
+    assert results["summary"]["by_kind"] == {
+        "photo": {"passed": 0, "failed": 1, "test_error": 0},
+        "room": {"passed": 6, "failed": 0, "test_error": 0},
+    }
+    rejected = cases_by_id(out)["60_Attic.JPG"]
+    assert rejected["outcome"] == "failed" and rejected["detail"].startswith("too_small")
+    assert {c["id"] for c in results["cases"] if c["kind"] == "room"} == {
+        f"{room}#{repeat}" for room in ("b_bath", "1_kitchen", "2_bed_2") for repeat in (1, 2)
+    }
 
 
 async def test_per_photo_output_is_reused_without_per_photo_calls(
@@ -372,6 +455,15 @@ async def test_scripted_answers_fallback_and_files_per_object(
     inventory = json.loads((out / "room_inventory.json").read_text())
     assert inventory == {"b_bath": {"bathtub": 1, "toilet": 1}, "1_kitchen": {"countertop": 1}}
     assert json.loads((out / "run.json").read_text())["room_results_needing_review"] == 2
+    # The bath's model output was unusable twice (the heuristic stood in): failed. The
+    # kitchen has its inventory, flagged for a dropped object: passed.
+    assert counts_of(out) == (1, 1, 0)
+    cases = cases_by_id(out)
+    assert cases["b_bath#1"]["outcome"] == "failed"
+    assert cases["b_bath#1"]["detail"]["review_reason"] == "invalid_model_output"
+    assert cases["1_kitchen#1"]["outcome"] == "passed"
+    assert cases["1_kitchen#1"]["detail"]["review_reason"] == "dropped_objects:1"
+    assert "| `b_bath#1` | room | failed |" in (out / "report.md").read_text()
 
 
 @pytest.mark.parametrize(
@@ -465,6 +557,17 @@ async def test_a_persistent_provider_error_still_fails_the_run(
     # Every attempt failed: the retry happened, the error propagated, nothing was written.
     assert rooms.calls >= 2 and rooms.inner.requests == []
     assert not (tmp_path / "out" / "room_inventory.json").exists()
+    # The record still says what happened: the run errored, and the room whose retries
+    # ran out is a test error with the outage's code, never a failure of the room step.
+    out = tmp_path / "out"
+    assert json.loads((out / "manifest.json").read_text())["status"] == "error"
+    results = results_of(out)
+    assert results["summary"]["test_error"] >= 1 and results["summary"]["passed"] == 0
+    assert results["summary"]["failed"] == 0
+    first = results["cases"][0]
+    assert (first["id"], first["kind"], first["outcome"]) == ("b_bath#1", "room", "test_error")
+    assert first["observed_error"] == "BASIS-PROVIDER-007"
+    assert "azure returned 500" in first["observed_message"]
 
 
 @dataclass
@@ -501,6 +604,15 @@ async def test_an_account_error_stops_the_room_step_at_the_first_room(
     # What ran before the stop is kept; nothing claims to be the room inventory.
     assert {"photo_raw.jsonl", "rooms.json"} <= set(run_json["files_written"])
     assert not (out / "room_inventory.json").exists()
+    # Both rooms are test errors with the account error's code: the first was refused by
+    # the provider, the second by the account guard before its call was made.
+    results = results_of(out)
+    assert results["summary"]["total"] == 2 and counts_of(out) == (0, 0, 2)
+    assert {(c["id"], c["observed_error"]) for c in results["cases"]} == {
+        ("b_bath#1", "BASIS-PROVIDER-001"),
+        ("1_kitchen#1", "BASIS-PROVIDER-001"),
+    }
+    assert json.loads((out / "manifest.json").read_text())["status"] == "stopped"
 
 
 def test_argument_limits() -> None:
@@ -536,6 +648,14 @@ async def test_overlap_merge_replaces_the_reconciliation_call(
     assert summary["prompts"]["room_inventory"] is None
     assert summary["prompts"]["photo_overlap"] == "photo_overlap/v1"
     assert summary["overlap"] == "merge" and summary["materials"] == "none"
+    # No room-inventory call was made: the run files under the room step, but not as a
+    # test of a room prompt version.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "room_inventory",
+        "overlap_merge_v1",
+    )
+    assert counts_of(out) == (2, 0, 0)
 
 
 async def test_overlap_hints_prompt_v2_model_effort_and_material_second_look(
@@ -627,6 +747,10 @@ async def test_overlap_hints_prompt_v2_model_effort_and_material_second_look(
         "gpt-6.1-sol",
         "claude-sonnet-5-5",
     )
+    # Filed under the room prompt asked for, whatever the other steps called.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("room_inventory", "v2")
+    assert counts_of(out) == (2, 0, 0)
 
 
 def test_new_arguments_are_checked() -> None:

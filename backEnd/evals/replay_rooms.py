@@ -20,10 +20,14 @@ Output (what ``evals.run --predictions`` scores)::
     <out>/room_raw.jsonl        per (room, repeat): path, step, fallback, objects with
                                 materials and files, calls, second looks, crops, cost
     <out>/run.json              the configuration in effect, paths taken, spend, models
-    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
+    <out>/results.json, report.md   one case per (room, repeat): passed (an inventory),
+                                failed (unusable model output after the retry, the heuristic
+                                stood in), test_error (the provider or the harness failed)
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json   the run record (evals.record)
 
 Transient provider errors are retried per room (``evals.predict_rooms.with_retries``); an
-account error stops the run (``evals.account_stop``).
+account error stops the run (``evals.account_stop``). The run files in the verification
+tree under ``room_inventory`` at the ``ROOM_PROMPT_VERSION`` in effect.
 """
 
 from __future__ import annotations
@@ -52,8 +56,16 @@ from basis.vision.schemas import PhotoAnalysis
 from basis.vision.surface_segmenter import SurfaceSegmenter
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import photo_files
-from evals.predict_rooms import InputError, load_aliases, load_per_photo, with_retries
-from evals.record import EvalRun
+from evals.predict_rooms import (
+    COMPONENT,
+    InputError,
+    load_aliases,
+    load_per_photo,
+    room_detail,
+    room_outcome,
+    with_retries,
+)
+from evals.record import TEST_ERROR, EvalRun
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -172,7 +184,16 @@ async def run(
     analyses = {f.name: per_photo[f.name] for f in files}
     groups = group_photos([PhotoInput(f.name, analyses[f.name]) for f in files], aliases)
     args.out.mkdir(parents=True, exist_ok=True)
-    rec = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    rec = EvalRun.begin(
+        args.out,
+        harness=__name__,
+        args=args,
+        settings=settings,
+        # The room step at the room prompt in effect (the room call or the material second
+        # look may make more calls, so the default would name the wrong component).
+        component=COMPONENT,
+        version=config.room_prompt.version,
+    )
     rec.input("photos", args.photos)
     rec.input("per_photo", args.per_photo / "photo_raw.jsonl")
     if args.aliases is not None:
@@ -212,33 +233,39 @@ async def run(
                     ),
                 )
             )
-        async with gate:
-            built = await with_retries(
-                group.room_id,
-                lambda: room_step.inventory_room(
+        try:
+            async with gate:
+                built = await with_retries(
                     group.room_id,
-                    photos,
-                    config,
-                    call=call,
-                    provider=provider,
-                    room_type=room_type,
-                ),
-            )
-            found: crops.RoomCrops | None = None
-            if crop_prompt is not None:
-                objects, found = await crops.look_at_room(
-                    [(p.file, originals[p.file]) for p in group.photos],
-                    built.result.inventory.objects,
-                    segmenter,
-                    crops.CropContext(
+                    lambda: room_step.inventory_room(
+                        group.room_id,
+                        photos,
+                        config,
                         call=call,
                         provider=provider,
-                        prompt=crop_prompt,
-                        model=settings.surface_crop_model,
-                        reasoning_effort=settings.surface_crop_reasoning_effort,
+                        room_type=room_type,
                     ),
                 )
-                built.result.inventory = RoomInventory(objects=objects)
+                found: crops.RoomCrops | None = None
+                if crop_prompt is not None:
+                    objects, found = await crops.look_at_room(
+                        [(p.file, originals[p.file]) for p in group.photos],
+                        built.result.inventory.objects,
+                        segmenter,
+                        crops.CropContext(
+                            call=call,
+                            provider=provider,
+                            prompt=crop_prompt,
+                            model=settings.surface_crop_model,
+                            reasoning_effort=settings.surface_crop_reasoning_effort,
+                        ),
+                    )
+                    built.result.inventory = RoomInventory(objects=objects)
+        except Exception as exc:
+            # Propagates as before (an outage after every retry, an account error, a
+            # harness fault); the case says nothing about the room step.
+            rec.case(f"{group.room_id}#{repeat}", TEST_ERROR, kind="room", observed_error=exc)
+            raise
         return room_record(group, repeat, built, found)
 
     started = time.monotonic()
@@ -247,6 +274,17 @@ async def run(
     for repeat in range(1, args.repeats + 1):
         done = await asyncio.gather(*(one(g, repeat) for g in groups))
         for record in done:
+            rec.case(
+                f"{record['room_id']}#{repeat}",
+                room_outcome(record),
+                kind="room",
+                detail={
+                    **room_detail(record),
+                    "path": record["path"],
+                    "step": record["step"],
+                    "room_call_fallback": record["room_call_fallback"],
+                },
+            )
             counts: dict[str, int] = {}
             for obj in record["objects"]:
                 counts[obj["label"]] = counts.get(obj["label"], 0) + obj["count"]

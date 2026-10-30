@@ -23,7 +23,11 @@ production ``RETRIEVAL_SEARCH=hybrid`` path (EVAL_REPORT section 25). Writes wha
     <out>/assets_raw.jsonl   one line per (id, repeat): the result, review reasons, tool
                               calls, dropped citations, model calls with tokens and cost
     <out>/run.json           models reported, effort, spend, latency, errors
-    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
+    <out>/results.json, report.md   one case per (row, repeat): passed (the loop classified
+                              the row), failed (the loop failed and the fallback bucket was
+                              written), test_error (a provider outage, a rate limit or the
+                              harness budget aborted the loop; an account error stops the run)
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json   the run record (evals.record)
 
 A row whose loop failed gets the pipeline's fallback (section 1250, the building bucket,
 ``needs_review``), exactly what production would write, and is scored as such.
@@ -43,7 +47,7 @@ import os
 import sys
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -61,7 +65,7 @@ from basis.llm.provider import Budget, ChatProvider, ChatRequest, ChatResponse
 from basis.retrieval.chunk import split_text
 from evals import datasets as ds
 from evals.account_stop import guard, stops_on_account_error, track
-from evals.record import EvalRun
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 if TYPE_CHECKING:
     from basis.config import Settings
@@ -69,14 +73,27 @@ if TYPE_CHECKING:
 
 REFERENCE_VERSION = uuid.UUID(int=2)  # == evals.retrieval.CHUNK_VERSION (a test checks)
 
+# Loop failure reasons (basis.classify.residual) that are the harness's or the API's, not
+# the classifier's: the row's case is a test error, not a failure.
+HARNESS_REASONS: frozenset[str] = frozenset(
+    {
+        "provider_error:ProviderUnavailable",
+        "provider_error:ProviderRateLimited",
+        "budget_exceeded",
+    }
+)
+
 
 class ErrorLog:
-    """The pool, with every provider error's text kept: the loop reports only its type."""
+    """The pool, with every provider error's text kept: the loop reports only its type.
+    ``last_error`` keeps the exception itself per study (``eval-<row id>``) for the row's
+    case record."""
 
     def __init__(self, provider: ChatProvider) -> None:
         self._provider = provider
         self.name = provider.name
         self.errors: list[dict[str, str]] = []
+        self.last_error: dict[str | None, BaseException] = {}
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
         try:
@@ -85,6 +102,7 @@ class ErrorLog:
             self.errors.append(
                 {"study": request.study_id, "error": f"{type(exc).__name__}: {exc}"[:500]}
             )
+            self.last_error[request.study_id] = exc
             raise
 
 
@@ -242,6 +260,22 @@ def fold(values: list[Any]) -> Any:
     return values[0] if len(values) == 1 else {"repeats": values}
 
 
+def loop_failed(item: Mapping[str, Any]) -> bool:
+    """Whether a row's record is the pipeline's fallback (the loop produced no
+    classification: ``Unclassified``, confidence 0)."""
+    return bool(item["confidence"] == 0.0 and str(item["category"]).startswith("Unclassified"))
+
+
+def asset_outcome(item: Mapping[str, Any]) -> str:
+    """The case outcome of a row's record: ``passed`` when the loop classified it,
+    ``test_error`` when the loop was aborted by a provider outage, a rate limit or the
+    harness budget (:data:`HARNESS_REASONS`), else ``failed`` (the fallback bucket)."""
+    if not loop_failed(item):
+        return PASSED
+    reasons = [str(r) for r in item.get("review_reasons") or []]
+    return TEST_ERROR if any(r in HARNESS_REASONS for r in reasons) else FAILED
+
+
 @stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
@@ -299,7 +333,13 @@ async def run(args: argparse.Namespace) -> int:
     async def one(asset: ds.AssetLabel, repeat: int) -> dict[str, Any]:
         async with semaphore:
             started = time.monotonic()
-            result = await classify_with_model(component_view(asset), context(asset))
+            try:
+                result = await classify_with_model(component_view(asset), context(asset))
+            except Exception as exc:
+                # The loop raises only for an account error (the run stops) or a harness
+                # fault: the case says nothing about the classifier.
+                eval_run.case(f"{asset.id}#{repeat}", TEST_ERROR, kind="asset", observed_error=exc)
+                raise
             return record(asset.id, repeat, result, time.monotonic() - started)
 
     predictions: dict[str, list[dict[str, Any]]] = {a.id: [] for a in assets}
@@ -310,6 +350,21 @@ async def run(args: argparse.Namespace) -> int:
             for item in batch:
                 raw.write(json.dumps(item, sort_keys=True, default=str) + "\n")
                 predictions[item["id"]].append(item["prediction"])
+                outcome = asset_outcome(item)
+                # The provider error behind a failed loop, for the case's BASIS code.
+                error = pool.last_error.pop(f"eval-{item['id']}", None)
+                eval_run.case(
+                    f"{item['id']}#{repeat}",
+                    outcome,
+                    kind="asset",
+                    detail={
+                        **item["prediction"],
+                        "needs_review": item["needs_review"],
+                        "review_reasons": item["review_reasons"],
+                    },
+                    observed_error=None if outcome == PASSED else error,
+                    seconds=item["seconds"],
+                )
             records += batch
             print(
                 f"repeat {repeat}/{args.repeats}: {len(batch)} rows, spent ${budget.spent_usd:.4f}",
@@ -331,7 +386,7 @@ def summary(
     failures = [
         {"id": r["id"], "repeat": r["repeat"], "reasons": r["review_reasons"]}
         for r in records
-        if r["confidence"] == 0.0 and r["category"].startswith("Unclassified")
+        if loop_failed(r)
     ]
     return {
         "rows": len({r["id"] for r in records}),

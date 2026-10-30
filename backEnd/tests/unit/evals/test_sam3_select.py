@@ -185,7 +185,30 @@ def test_select_writes_the_choice_and_out_of_sample_predictions(
     assert manifest["notes"] == {"candidates": "pool", "max_phrases": 3, "grid_min": 0.3}
     assert manifest["summary"] is None
     assert (manifest["status"], manifest["exit_code"]) == ("ok", 0)
-    assert "leave one photo out" in (out / "run.log").read_text()
+    assert "leave one photo out" in (out / "console.log").read_text()
+    # One passed case per class chosen, with the choice; a pool without a manifest files the
+    # selection under detection / select-<candidates>.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (1, 0, 0)
+    [case] = results["cases"]
+    assert (case["id"], case["kind"]) == ("window", "class")
+    assert case["detail"] == report["final"]["window"]
+    assert "results: 1 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "detection",
+        "select-pool",
+    )
+    # A pool run with a manifest names the version selected from.
+    (pool / "manifest.json").write_text(
+        json.dumps({"tree": {"component": "detection", "version": "sam3-pool"}})
+    )
+    assert sel.main([*args[:-1], str(tmp_path / "again")]) == 0
+    again = json.loads((tmp_path / "again" / "manifest.json").read_text())
+    assert (again["tree"]["component"], again["tree"]["version"]) == (
+        "detection",
+        "select-sam3-pool",
+    )
 
 
 def test_select_refuses_a_pool_missing_photos(tmp_path: Path) -> None:
@@ -196,7 +219,14 @@ def test_select_refuses_a_pool_missing_photos(tmp_path: Path) -> None:
     assert sel.main(args) == 2
     manifest = json.loads((tmp_path / "o" / "manifest.json").read_text())
     assert (manifest["status"], manifest["exit_code"]) == ("ok", 2)
-    assert "no pool instances" in (tmp_path / "o" / "run.log").read_text()
+    assert "no pool instances" in (tmp_path / "o" / "console.log").read_text()
+    # The photo the pool lacks is a test error: nothing was selected.
+    results = json.loads((tmp_path / "o" / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (0, 0, 1)
+    assert (results["cases"][0]["id"], results["cases"][0]["kind"]) == ("c.jpg", "photo")
+    report = (tmp_path / "o" / "report.md").read_text()
+    assert "results: 0 passed, 0 failed, 1 test errors" in report
 
 
 def test_a_select_that_fails_still_leaves_a_manifest(tmp_path: Path) -> None:

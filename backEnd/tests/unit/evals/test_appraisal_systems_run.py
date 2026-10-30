@@ -332,7 +332,26 @@ def test_llm_all_live_records_and_replay_reproduces(tmp_path: Path) -> None:
         json.loads(x) for x in (tmp_path / "live" / "llm_calls.jsonl").read_text().splitlines()
     ]
     assert row["prompt_version"] == provider.requests[0].prompt_version
-    assert "synthetic_1004/doc_a: ok" in (tmp_path / "live" / "run.log").read_text()
+    assert "synthetic_1004/doc_a: ok" in (tmp_path / "live" / "console.log").read_text()
+    # The document is one passed case; the run files under the grounded prompt it called (the
+    # fallback prompt was declared but made no call).
+    results = json.loads((tmp_path / "live" / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (1, 0, 0)
+    assert results["cases"][0]["id"] == "synthetic_1004/doc_a#1"
+    assert (
+        "results: 1 passed, 0 failed, 0 test errors"
+        in (tmp_path / "live" / "report.md").read_text()
+    )
+    grounded_version = next(
+        p["version"]
+        for p in manifest["components"]["prompts"]
+        if p["name"] == "appraisal_fields_grounded"
+    )
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "appraisal_fields_grounded",
+        grounded_version,
+    )
     replay = asyncio.run(run_eval(options(tmp_path, "replay", spec, "replay"), settings=Settings()))
     assert replay is not None
     live_doc = json.loads((tmp_path / "live/predictions.json").read_text())["documents"][0]
@@ -348,6 +367,8 @@ def test_llm_all_live_records_and_replay_reproduces(tmp_path: Path) -> None:
     )
     assert missing is not None
     assert missing.score["documents"]["failed"][0]["status"] == "missing_recording"
+    summary = json.loads((tmp_path / "missing" / "results.json").read_text())["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (0, 0, 1)
 
 
 def test_production_sends_the_request_llm_all_recorded(tmp_path: Path) -> None:
@@ -451,6 +472,18 @@ def test_azure_1004_records_and_replays(tmp_path: Path) -> None:
     assert live is not None and mortgage.calls == 1
     assert (recordings.recording_dir(appraisal, sha) / recordings.AZURE_1004_RAW).is_file()
     assert outcome(live.score, "subject.occupant") == "correct"
+    # A system with no prompt files under appraisal_fields at its own name.
+    manifest = json.loads((tmp_path / "live" / "manifest.json").read_text())
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "appraisal_fields",
+        "azure_1004",
+    )
+    summary = json.loads((tmp_path / "live" / "results.json").read_text())["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (1, 0, 0)
+    assert (
+        "results: 1 passed, 0 failed, 0 test errors"
+        in (tmp_path / "live" / "report.md").read_text()
+    )
     replay = asyncio.run(run_eval(options(tmp_path, "replay", spec, "replay"), settings=Settings()))
     assert replay is not None and replay.score["overall"] == live.score["overall"]
     assert replay.score["usage"]["azure_pages"] == {"prebuilt-mortgage.us.1004": 1}

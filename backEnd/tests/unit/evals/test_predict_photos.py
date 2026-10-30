@@ -37,6 +37,26 @@ def photo_dir(tmp_path: Path) -> Path:
     return directory
 
 
+def results_of(out: Path) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads((out / "results.json").read_text())
+    return data
+
+
+def counts_of(out: Path) -> tuple[int, int, int]:
+    summary = results_of(out)["summary"]
+    return summary["passed"], summary["failed"], summary["test_error"]
+
+
+def test_photo_outcome_fails_the_invalid_output_fallback_only() -> None:
+    assert predict_photos.photo_outcome({"room_type": "kitchen", "review_reason": None}) == "passed"
+    assert predict_photos.photo_outcome({"review_reason": "low_confidence"}) == "passed"
+    assert predict_photos.photo_outcome({"review_reason": "invalid_model_output"}) == "failed"
+    assert (
+        predict_photos.photo_outcome({"review_reason": "invalid_model_output:countables"})
+        == "failed"
+    )
+
+
 def test_photo_files_takes_images_only_in_name_order(photo_dir: Path) -> None:
     assert [p.name for p in predict_photos.photo_files(photo_dir)] == [
         "01_kitchen.jpg",
@@ -85,7 +105,25 @@ async def test_run_writes_predictions_in_the_harness_format(
     [photos_input] = manifest["data"]["inputs"]
     assert (photos_input["name"], photos_input["files"]) == ("photos", 3)  # notes.txt too
     assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 4
-    assert "wrote" in (out / "run.log").read_text()
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (photo, repeat), every one passed; the report carries the summary line;
+    # the run files under the prompt that made the calls (no data directory: no link).
+    results = results_of(out)
+    assert results["summary"]["total"] == 4 and counts_of(out) == (4, 0, 0)
+    assert {c["id"] for c in results["cases"]} == {
+        "01_kitchen.jpg#1",
+        "01_kitchen.jpg#2",
+        "02_bathroom.jpg#1",
+        "02_bathroom.jpg#2",
+    }
+    assert all(c["kind"] == "photo" and c["seconds"] >= 0 for c in results["cases"])
+    assert results["cases"][0]["detail"]["room_type"] == labels[KITCHEN]["room_type"]
+    assert (
+        "**results: 4 passed, 0 failed, 0 test errors (4 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["results"] == results["summary"]
+    assert manifest["tree"] == {"component": "photo_analysis", "version": "v1", "link": None}
 
 
 async def test_single_repeat_writes_plain_values(
@@ -231,6 +269,7 @@ async def test_transient_provider_errors_are_retried_then_recorded(
     rooms = json.loads((out / "photo_rooms.json").read_text())
     assert set(rooms) == {"01_kitchen.jpg", "02_bathroom.jpg"}  # the failure was retried
     assert json.loads((out / "run.json").read_text())["errors"] == []
+    assert counts_of(out) == (2, 0, 0)  # a retried outage is not a case of anything
 
     hopeless = FlakyProvider(failures=99)
     monkeypatch.setattr(
@@ -249,6 +288,16 @@ async def test_transient_provider_errors_are_retried_then_recorded(
     assert [e["file"] for e in run["errors"]] == ["01_kitchen.jpg", "02_bathroom.jpg"]
     assert json.loads((out2 / "photo_rooms.json").read_text()) == {}
     assert hopeless.calls == 2 * (len(predict_photos.RETRY_DELAYS_S) + 1)
+    # An outage after every retry says nothing about the model: a test error, with the
+    # provider's catalogue code, never a failure.
+    results = results_of(out2)
+    assert results["summary"]["total"] == 2 and counts_of(out2) == (0, 0, 2)
+    assert [(c["id"], c["observed_error"]) for c in results["cases"]] == [
+        ("01_kitchen.jpg#1", "BASIS-PROVIDER-007"),
+        ("02_bathroom.jpg#1", "BASIS-PROVIDER-007"),
+    ]
+    assert "timed out" in results["cases"][0]["observed_message"]
+    assert "results: 0 passed, 0 failed, 2 test errors" in (out2 / "report.md").read_text()
 
 
 QUOTA = ProviderAccountError(
@@ -312,6 +361,9 @@ async def test_the_first_account_error_stops_the_run_with_a_partial_run_json(
     assert not (out / "photo_rooms.json").exists()  # no prediction file looks complete
     err = capsys.readouterr().err
     assert "STOPPED: openai account error (HTTP 429, insufficient_quota)" in err
+    # The results hold what ran before the stop: repeat 1's two cases, nothing for repeat 2.
+    assert counts_of(out) == (2, 0, 0)
+    assert json.loads((out / "manifest.json").read_text())["status"] == "stopped"
 
 
 class RefusesFirstPhoto:
@@ -351,6 +403,18 @@ async def test_a_refused_photo_is_recorded_as_rejected_and_the_run_goes_on(
     raw = [json.loads(line) for line in (out / "photo_raw.jsonl").read_text().splitlines()]
     assert raw[0]["file"] == "01_kitchen.jpg" and "content_filter" in raw[0]["rejected"]
     assert "analysis" not in raw[0] and "analysis" in raw[1]
+    # The refused photo is the system's failure (production fails it the same way), with
+    # the rejection's catalogue code; the other photo passed.
+    results = results_of(out)
+    assert counts_of(out) == (1, 1, 0)
+    refused, analyzed = results["cases"]
+    assert (refused["id"], refused["outcome"], refused["observed_error"]) == (
+        "01_kitchen.jpg#1",
+        "failed",
+        "BASIS-PROVIDER-005",
+    )
+    assert (analyzed["id"], analyzed["outcome"]) == ("02_bathroom.jpg#1", "passed")
+    assert "| `01_kitchen.jpg#1` | photo | failed |" in (out / "report.md").read_text()
 
 
 class HangThenRefuse:

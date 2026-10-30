@@ -37,7 +37,15 @@ Output, in what ``evals.run --predictions`` scores (``room_inventory``)::
     <out>/photo_raw.jsonl                the per-photo records (only when computed here;
                                          reusable with --per-photo)
     <out>/run.json                       summary: counts, models, prompts, spend, rejects
-    <out>/llm_calls.jsonl, llm/, run.log, manifest.json      the run record (evals.record)
+    <out>/results.json, report.md        one case per (room, repeat): passed (an inventory),
+                                         failed (unusable model output after the retry, the
+                                         heuristic stood in), test_error (the provider or
+                                         the harness failed; the run then fails or stops);
+                                         one failed case per photo the preparation rejected
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json      the run record (evals.record)
+
+The run files in the verification tree under ``room_inventory`` / the room prompt's version
+(``--overlap merge`` makes no room-inventory call: ``overlap_merge_<overlap version>``).
 
 Usage (from ``backEnd/``, ``BASIS_ENV=dev`` and provider credentials in the environment)::
 
@@ -55,14 +63,14 @@ import json
 import sys
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from basis.config import load_settings
 from basis.llm import prompts
 from basis.llm.call import CallContext
-from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
+from basis.llm.errors import ProviderRateLimited, ProviderRequestRejected, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.vision import overlap as overlap_step
@@ -70,6 +78,7 @@ from basis.vision import surface_material
 from basis.vision.analyze import VisionContext, analyze_photo_detailed, released_prompt
 from basis.vision.prep import ImageRejected, PreparedImage, prepare_image
 from basis.vision.reconcile import (
+    INVALID_OUTPUT,
     InventoryObject,
     ReconcileContext,
     RoomInventory,
@@ -82,7 +91,10 @@ from basis.vision.rooms import AliasCycleError, PhotoInput, RoomGroup, group_pho
 from basis.vision.schemas import PhotoAnalysis
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, photo_files
-from evals.record import EvalRun
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
+
+# What a room inventory files under in the verification tree.
+COMPONENT = "room_inventory"
 
 
 class InputError(ValueError):
@@ -242,6 +254,28 @@ def room_record(
     }
 
 
+def room_outcome(record: Mapping[str, Any]) -> str:
+    """The case outcome of a room record (:func:`room_record`, or ``evals.replay_rooms``'s):
+    ``failed`` when the model's output was unusable and the heuristic stood in
+    (``invalid_model_output`` after the retry, or overlap judgments that failed), else
+    ``passed``: an inventory was produced (a room flagged for dropped objects has one)."""
+    reason = str(record.get("review_reason") or "")
+    unusable = reason.startswith(INVALID_OUTPUT) or "failed_pairs" in reason
+    return FAILED if record.get("needs_review") and unusable else PASSED
+
+
+def room_detail(record: Mapping[str, Any]) -> dict[str, Any]:
+    """What the case keeps of a room record: the source (a replay record names its
+    ``step`` instead), the review reason, the sizes."""
+    return {
+        "source": record.get("source", record.get("step")),
+        "review_reason": record.get("review_reason"),
+        "objects": len(record.get("objects") or []),
+        "images": len(record.get("files") or []),
+        "calls": len(record.get("calls") or []),
+    }
+
+
 def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -325,6 +359,8 @@ async def run(args: argparse.Namespace) -> int:
             images[file.name] = prepare_image(file.read_bytes())
         except ImageRejected as exc:
             rejected[file.name] = f"{exc.reason}: {exc}"
+            # Rejected once, before any repeat: the case is the file.
+            eval_run.case(file.name, FAILED, kind="photo", detail=rejected[file.name])
     accepted = [f for f in files if f.name in images]
 
     analyses: dict[str, PhotoAnalysis | None]
@@ -392,8 +428,12 @@ async def run(args: argparse.Namespace) -> int:
     )
 
     model = args.model or settings.vision_model
-    rooms_prompt = prompts.load("room_inventory", args.room_prompt)
+    rooms_prompt = prompts.load(COMPONENT, args.room_prompt)
     eval_run.prompt(rooms_prompt)
+    # Where the run files: the room step, at the room prompt's version (surface_material
+    # or photo_overlap may make more calls, so the default would name the wrong component).
+    eval_run.component = COMPONENT
+    eval_run.version = rooms_prompt.version
     reconcile_ctx = ReconcileContext(
         call=call_context("evals.predict_rooms.room"),
         provider=pool,
@@ -408,6 +448,8 @@ async def run(args: argparse.Namespace) -> int:
         else None
     )
     eval_run.prompt(overlap_prompt)
+    if overlap_prompt is not None and args.overlap == "merge":
+        eval_run.version = f"overlap_merge_{overlap_prompt.version}"  # no room-inventory call
     overlap_ctx = (
         overlap_step.OverlapContext(
             call=call_context("evals.predict_rooms.overlap"),
@@ -448,6 +490,17 @@ async def run(args: argparse.Namespace) -> int:
         )
 
     async def reconcile(group: RoomGroup, repeat: int) -> dict[str, Any]:
+        try:
+            return await inventory(group, repeat)
+        except Exception as exc:
+            # Propagates as before (the run fails, or stops on an account error); the case
+            # says the provider or the harness failed on this room, except an input the
+            # provider refused, which is the room's failure.
+            outcome = FAILED if isinstance(exc, ProviderRequestRejected) else TEST_ERROR
+            eval_run.case(f"{group.room_id}#{repeat}", outcome, kind="room", observed_error=exc)
+            raise
+
+    async def inventory(group: RoomGroup, repeat: int) -> dict[str, Any]:
         async with semaphore:
             photos = [RoomPhoto(p.file, images[p.file], p.analysis) for p in group.photos]
             overlap: overlap_step.RoomOverlap | None = None
@@ -506,6 +559,12 @@ async def run(args: argparse.Namespace) -> int:
             records = await asyncio.gather(*(reconcile(g, repeat) for g in groups))
             for record in records:
                 raw.write(json.dumps(record, sort_keys=True) + "\n")
+                eval_run.case(
+                    f"{record['room_id']}#{repeat}",
+                    room_outcome(record),
+                    kind="room",
+                    detail=room_detail(record),
+                )
                 counts: dict[str, int] = {}
                 for obj in record["objects"]:
                     counts[obj["label"]] = counts.get(obj["label"], 0) + obj["count"]

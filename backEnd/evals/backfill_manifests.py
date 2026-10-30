@@ -28,7 +28,13 @@ What can be recovered, and from where (EVAL_REPORT section 42 and
   is unknown (``room_inventory_v1.json`` was edited on 2026-10-16; a ``.bak`` exists);
 * the terminal output: the sibling ``<name>.log`` where one was kept (referenced, not moved);
 * the EVAL_REPORT sections that cite the run by name, and the section a name prefix encodes
-  (``cost28_``, ``rooms16_``, ``arch26_``, ``s29_``).
+  (``cost28_``, ``rooms16_``, ``arch26_``, ``s29_``);
+* where the run files in the verification tree (``<data dir>/verification/<component>/
+  <version>/``): the first prompt named (call counts are unknown), else what the harness
+  stands for; with ``--write`` a relative symbolic link to the directory is made there, so
+  the old runs are reachable from the tree without moving them (EVAL_REPORT, the repro
+  scripts and the README all name ``predictions/<run>`` paths); a nested appraisal run is
+  linked as ``<sweep>__<cell>`` because the sweeps reuse cell names.
 
 Usage (from ``backEnd/``)::
 
@@ -251,9 +257,11 @@ def _times(directory: Path) -> tuple[datetime | None, datetime | None]:
 
 
 def _prompt_entries(ids: Sequence[str]) -> list[dict[str, Any]]:
+    """In the order given (the prompts a run called before the one it merely declared, so
+    the tree files the run under what ran), without duplicates."""
     released = prompts.manifest()
     out: list[dict[str, Any]] = []
-    for version_id in sorted(set(ids)):
+    for version_id in dict.fromkeys(ids):
         name, _, version = version_id.partition("/")
         sha = released.get(name, {}).get(version) if version else None
         out.append(
@@ -263,18 +271,62 @@ def _prompt_entries(ids: Sequence[str]) -> list[dict[str, Any]]:
 
 
 def _ids(summary: Mapping[str, Any]) -> list[str]:
+    """The prompt ids a ``run.json`` names: the ones its calls used first (``prompt_versions``,
+    ``prompts``), then the one it ran with (``prompt``), then the default it declared
+    (``prompt_version``, the appraisal runner's fallback prompt)."""
     ids: list[str] = []
-    for key in ("prompt", "prompt_version"):
-        value = summary.get(key)
-        if isinstance(value, str) and "/" in value:
-            ids.append(value)
-    for key in ("prompts", "prompt_versions"):
+    for key in ("prompt_versions", "prompts"):
         value = summary.get(key)
         if isinstance(value, dict):
             ids += [v for v in value.values() if isinstance(v, str) and v]
         elif isinstance(value, list):
             ids += [v for v in value if isinstance(v, str) and v]
+    for key in ("prompt", "prompt_version"):
+        value = summary.get(key)
+        if isinstance(value, str) and "/" in value:
+            ids.append(value)
     return ids
+
+
+def _source_prompt_version(summary: Mapping[str, Any]) -> str | None:
+    """A merged run's version from its sources' prompts (``merged_from[*].prompt``):
+    ``photo_countables-v2+photo_surfaces-v1``."""
+    parts: list[str] = []
+    for source in summary.get("merged_from") or []:
+        prompt = source.get("prompt") if isinstance(source, dict) else None
+        if isinstance(prompt, str) and "/" in prompt:
+            parts.append(prompt.replace("/", "-"))
+    return "+".join(parts) if parts else None
+
+
+def _tree_for(
+    harness: str, summary: Mapping[str, Any], components: Mapping[str, Any]
+) -> tuple[str, str, str]:
+    """``(component, version, how)`` a backfilled run files under."""
+    manifest = {"components": components, "harness": {"module": harness}}
+    if harness == "evals.appraisal.run" and not (summary.get("models") or summary.get("llm_calls")):
+        system = summary.get("system")
+        name = system.get("name") if isinstance(system, dict) else system
+        return (
+            "appraisal_fields",
+            str(name or record.UNVERSIONED),
+            "the appraisal runner made no model call: the system's name is the version",
+        )
+    if harness == "evals.merge_photo_runs":
+        version = _source_prompt_version(summary)
+        if version:
+            return "photo_analysis", version, "merged_from[*].prompt of run.json"
+    if harness == "evals.predict_assets" and not components.get("prompts"):
+        released = prompts.versions("classify")
+        if len(released) == 1:
+            return "classify", released[0], "the one released classify prompt version"
+    component, version = record.tree_location(manifest)
+    return (
+        component,
+        version,
+        "the prompt the run called (call counts unknown: the first named), else what the "
+        "harness stands for",
+    )
 
 
 def _models(summary: Mapping[str, Any]) -> tuple[list[str], list[str], list[str]]:
@@ -490,6 +542,8 @@ def backfill_directory(
         "EVAL_REPORT sections citing the name; the section a name prefix encodes"
     )
 
+    component, version, how = _tree_for(harness, summary, components)
+    sources["tree"] = how + "; a backfilled run is filed under it as a link"
     started_iso = started.isoformat() if started else None
     finished_iso = finished.isoformat() if finished else None
     return {
@@ -536,11 +590,22 @@ def backfill_directory(
             "report": "eval.md" if (directory / "eval.md").is_file() else None,
         },
         "report_sections": sections,
+        "tree": {"component": component, "version": version, "link": None},
         "summary": summary or None,
     }
 
 
 # --------------------------------------------------------------------------- the sweep
+
+
+def _run_id(directory: Path, root: Path) -> str:
+    """The name a run takes in the tree: its directory name under ``predictions/``; under
+    ``appraisal/runs/`` the path below it with ``/`` as ``__`` (the sweeps nest cells of the
+    same name: ``sweep1__llm_all@gpt-6-luna``)."""
+    parts = directory.relative_to(root).parts
+    if parts[:2] == ("appraisal", "runs"):
+        return "__".join(parts[2:])
+    return directory.name
 
 
 def backfill(
@@ -570,6 +635,18 @@ def backfill(
             continue
         manifest = backfill_directory(directory, root=root, history=history, mentions=mentions)
         if write:
+            tree = record.tree_root(root)
+            if tree is not None:
+                try:
+                    manifest["tree"] = record.link_into_tree(
+                        directory,
+                        manifest["tree"]["component"],
+                        manifest["tree"]["version"],
+                        root=tree,
+                        run_id=_run_id(directory, root),
+                    )
+                except OSError as exc:
+                    manifest["tree"]["error"] = f"{type(exc).__name__}: {exc}"
             text = json.dumps(manifest, indent=1, sort_keys=True, default=str) + "\n"
             (directory / record.MANIFEST_FILE).write_text(text, encoding="utf-8")
         lines.append(
@@ -616,6 +693,11 @@ def render_note(lines: Sequence[Mapping[str, Any]], *, root: Path) -> str:
         or line["manifest"]["components"]["models"]["answered"]
     ]
     cited = [line for line in backfilled if line["manifest"]["report_sections"]]
+    filed = [line for line in backfilled if (line["manifest"].get("tree") or {}).get("link")]
+    components: dict[str, int] = {}
+    for line in backfilled:
+        key = (line["manifest"].get("tree") or {}).get("component", UNKNOWN)
+        components[key] = components.get(key, 0) + 1
     stopped = [line for line in backfilled if line["manifest"]["status"] == "stopped"]
     empty = [line for line in backfilled if line["manifest"]["status"] == "empty"]
     harnesses: dict[str, int] = {}
@@ -648,8 +730,15 @@ def render_note(lines: Sequence[Mapping[str, Any]], *, root: Path) -> str:
         f"| label files known (from `eval.md`; sha256 at the time unknown) | {len(with_labels)} |",
         f"| terminal log kept (sibling `.log`) | {len(with_log)} |",
         f"| cited by name or prefix in EVAL_REPORT | {len(cited)} |",
+        f"| filed in `verification/<component>/<version>/` as a link | {len(filed)} |",
         f"| stopped by an account error | {len(stopped)} |",
         f"| empty directories | {len(empty)} |",
+        "",
+        "## Component per run (where the tree files it)",
+        "",
+        "| component | runs |",
+        "|---|---|",
+        *(f"| `{name}` | {count} |" for name, count in sorted(components.items())),
         "",
         "## Harness per run (from `run.json` keys or the files present)",
         "",

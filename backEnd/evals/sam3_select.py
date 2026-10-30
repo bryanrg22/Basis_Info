@@ -29,8 +29,10 @@ rule applied to all photos (``final``), reported in sample next to it.
 
 Writes ``<out>/selection.json`` (choices, per-fold choices, every metric),
 ``<out>/detection_boxes.json`` / ``photo_counts.json`` (the out-of-sample predictions, so
-``evals.run --predictions <out>`` reproduces the out-of-sample AP) and ``<out>/run.log`` /
-``manifest.json``, the run record (:mod:`evals.record`). ``score`` mode scores
+``evals.run --predictions <out>`` reproduces the out-of-sample AP) and ``<out>/console.log`` /
+``manifest.json`` / ``results.json`` / ``report.md``, the run record (:mod:`evals.record`;
+filed under ``detection`` as ``select-<pool version or --candidates>``, one passed case per
+class chosen). ``score`` mode scores
 a normal ``predict_boxes`` run at the localizer's per-class thresholds (the confirmation
 run of the shipped phrase set)::
 
@@ -66,6 +68,7 @@ from basis.vision.localize import (
 from basis.vision.schemas import ComponentLabel
 from evals import record
 from evals.datasets import DATASET_FILES, DetectionBoxes
+from evals.merge_photo_runs import source_version
 from evals.metrics import (
     DetectionImage,
     GoldBox,
@@ -549,8 +552,17 @@ def labelled_classes(images: Sequence[DetectionImage]) -> list[ComponentLabel]:
     return [ComponentLabel(label) for label in sorted({b.label for i in images for b in i.boxes})]
 
 
+def select_version(args: argparse.Namespace) -> str:
+    """``select-<pool version>`` (the pool run's manifest: ``sam3-pool``, a detector's name)
+    or, for a pool without a manifest, ``select-<--candidates>``."""
+    pool = source_version([args.pool])
+    return f"select-{args.candidates if pool == record.UNVERSIONED else pool}"
+
+
 def run_select(args: argparse.Namespace) -> int:
-    run = record.EvalRun.begin(args.out, harness=__name__, args=args)
+    run = record.EvalRun.begin(
+        args.out, harness=__name__, args=args, component="detection", version=select_version(args)
+    )
     try:
         return _select(args, run)
     except BaseException as exc:
@@ -567,6 +579,8 @@ def _select(args: argparse.Namespace, run: record.EvalRun) -> int:
     missing = sorted(i.file for i in images if i.file not in pool)
     if missing:
         print(f"{len(missing)} photos have no pool instances: {missing}", file=sys.stderr)
+        for file in missing:
+            run.case(file, record.TEST_ERROR, kind="photo", detail="no pool instances")
         run.finish(None, exit_code=2)
         return 2
     files = [i.file for i in images]
@@ -683,6 +697,12 @@ def _select(args: argparse.Namespace, run: record.EvalRun) -> int:
         print(f"{name}:\n" + table(result))
     for label, c in final.items():
         print(f"final {label}: {list(c.phrases)} @ {c.threshold}")
+        run.case(
+            label,
+            record.PASSED,
+            kind="class",
+            detail={"phrases": list(c.phrases), "threshold": c.threshold},
+        )
     run.finish(None)
     return 0
 

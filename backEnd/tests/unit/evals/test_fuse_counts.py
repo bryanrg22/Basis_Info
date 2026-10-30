@@ -109,7 +109,18 @@ def test_fuse_picks_the_better_source_per_class_out_of_sample(
     assert manifest["data"]["datasets"] == []  # no data directory in this test
     assert manifest["notes"] == {"cv": "loo", "thresholds": []}
     assert manifest["summary"] == summary
-    assert (out / "run.log").exists()
+    assert (out / "console.log").exists()
+    # One passed case per photo fused; no source manifest: unversioned photo_counts.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (6, 0, 0)
+    assert [c["id"] for c in results["cases"]] == sorted(truth)
+    assert results["cases"][0]["detail"] == {"labelled": True, "repeats": 2}
+    assert "results: 6 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "photo_counts",
+        "unversioned",
+    )
 
 
 def test_leave_one_out_differs_from_in_sample_when_one_photo_drives_the_choice(
@@ -152,6 +163,16 @@ def test_a_sam3_source_and_the_label_file_are_in_the_manifest(
     data = tmp_path / "data"
     data.mkdir()
     (data / ds.DATASET_FILES["detection_boxes"]).write_text("{}")
+    # The sources' manifests name what they exercised: the VLM run's prompt, the SAM 3 run's
+    # phrase set (filed under detection).
+    (a / "manifest.json").write_text(
+        json.dumps(
+            {"components": {"prompts": [{"name": "photo_countables", "version": "v2", "calls": 6}]}}
+        )
+    )
+    (sam / "manifest.json").write_text(
+        json.dumps({"tree": {"component": "detection", "version": "sam3-v3"}})
+    )
     out = tmp_path / "out"
     args = fuse_counts.parse_args(
         ["--vlm", f"a={a}", "--sam3", str(sam), "--thresholds", "0.5", "--data-dir", str(data),
@@ -160,10 +181,15 @@ def test_a_sam3_source_and_the_label_file_are_in_the_manifest(
     fuse_counts.fuse_counts(args)
     manifest = json.loads((out / "manifest.json").read_text())
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["a", "sam3"]
-    assert manifest["data"]["inputs"][1]["files"] == 1
+    assert manifest["data"]["inputs"][1]["files"] == 2  # instances_raw.jsonl and its manifest
     [dataset] = manifest["data"]["datasets"]
     assert (dataset["name"], dataset["version"]) == ("detection_boxes", "v1")
     assert manifest["notes"]["thresholds"] == [0.5]
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "photo_counts",
+        "photo_countables-v2+sam3-v3",
+    )
+    assert json.loads((out / "results.json").read_text())["summary"]["passed"] == 6
 
 
 def test_a_failed_fusion_still_leaves_a_manifest(

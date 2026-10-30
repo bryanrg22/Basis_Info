@@ -15,9 +15,17 @@ settings a run exercised. This module gives a run directory the same record a st
 ``llm/<call id>.request.json`` / ``.response.json``
     The request as sent (messages, images as ref + sha256, tools, schema) and the raw
     response, built and redacted by the same functions as the production archive.
-``run.log``
+``console.log``
     Everything the run printed to stdout and stderr and logged, API-key-shaped strings
-    redacted (:func:`basis.llm.errors.redact_api_keys`).
+    redacted (:func:`basis.llm.errors.redact_api_keys`): one tee, so the terminal and the
+    file never disagree.
+``results.json`` / ``report.md``
+    Every case the run recorded (:meth:`EvalRun.case`) with an outcome of exactly one of
+    ``passed``, ``failed`` or ``test_error`` (the harness or an API failed, which says
+    nothing about the system under test); the summary shows all three counts. An
+    expected-error case records the ``BASIS-<AREA>-<nnn>`` code it set out to provoke
+    (docs/ERROR_CODES.md), the one that occurred and whether they matched. The scorer
+    (``evals.run --predictions``) adds its per-item outcomes to the same files.
 ``manifest.json``
     The run manifest: what ran (harness module, its file's sha256, the command line and
     options), on which code (git sha, dirty flag, branch, nearest release tag), with which
@@ -26,7 +34,9 @@ settings a run exercised. This module gives a run directory the same record a st
     the models requested and the models that answered, the request parameters in effect,
     the model settings), on which data (the input files and dataset files with their
     sha256 and label version, the split, the repeats), what it cost (calls, tokens of every
-    kind, dollars) and how it ended (status, exit code, error), plus the ``run.json`` summary.
+    kind, dollars), how it ended (status, exit code, error), where it is filed (``tree``:
+    the component and version under ``<data dir>/verification/``), plus the ``run.json``
+    summary.
 ``run.json``
     The script's own summary, unchanged in shape (the registry and the repro scripts read it).
 ``scores.jsonl``
@@ -41,14 +51,21 @@ dirty flag and the component versions are added because the question this answer
 "was this component, at this version, tested against these labels on this model, on which
 release", from files alone (:mod:`evals.registry`).
 
+The verification tree (``<data dir>/verification/<component>/<version>/<run id>/``, one
+shape for every component, browsable without a tool) holds a relative symbolic link to each
+run directory, filed under the component the run exercised (the prompt with the most calls
+by default, or what the runner declares) and that component's version; its README explains
+the layout (:data:`TREE_README_TEXT`).
+
 Usage in a runner (``run(args)``)::
 
     run = record.EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
     recorder = run.recorder                  # instead of MemoryRecorder()
     run.input("photos", args.photos)          # what was read: a file or a directory
     run.dataset(data_dir / "assets_v1.json")  # a label/dataset file (version from its name)
+    run.case("21_kitchen.jpg#1", "passed", kind="photo")   # one case per unit of work
     ...
-    run.finish({...})                         # writes run.json and manifest.json
+    run.finish({...})                         # run.json, results.json, report.md, manifest.json
 
 :func:`evals.account_stop.stops_on_account_error` finishes a run its body left unfinished
 (an account stop or any other exception) so the manifest and the log are written whatever
@@ -80,6 +97,7 @@ from typing import Any, Final, TextIO
 
 from basis import __version__ as BASIS_VERSION
 from basis.domain.rules import RULES_VERSION
+from basis.errors.codes import E, code_in
 from basis.llm import prompts
 from basis.llm.cost import PRICING_VERSION
 from basis.llm.errors import redact_api_keys
@@ -105,18 +123,32 @@ __all__ = [
     "PAYLOAD_DIR",
     "SCORES_FILE",
     "SUMMARY_FILE",
+    "OUTCOMES",
+    "REPORT_FILE",
+    "RESULTS_FILE",
+    "TREE_DIR",
+    "UNVERSIONED",
     "EvalRun",
     "FileLedgerRecorder",
+    "add_cases",
     "append_scores",
+    "data_root",
     "environment",
+    "error_code",
     "finish_pending",
     "git_state",
     "label_version",
     "ledger_row",
+    "link_into_tree",
     "read_ledger",
+    "read_results",
+    "render_report",
     "score_entry",
     "sha256_file",
     "sha256_tree",
+    "summarize_cases",
+    "tree_location",
+    "tree_root",
 ]
 
 # The record format: bump when a file's shape changes (the registry reads every version).
@@ -124,7 +156,16 @@ FORMAT: Final = 1
 MANIFEST_FILE: Final = "manifest.json"
 LEDGER_FILE: Final = "llm_calls.jsonl"
 PAYLOAD_DIR: Final = "llm"
-LOG_FILE: Final = "run.log"
+LOG_FILE: Final = "console.log"
+RESULTS_FILE: Final = "results.json"
+REPORT_FILE: Final = "report.md"
+TREE_DIR: Final = "verification"
+TREE_README: Final = "README.md"
+UNVERSIONED: Final = "unversioned"
+PASSED: Final = "passed"
+FAILED: Final = "failed"
+TEST_ERROR: Final = "test_error"
+OUTCOMES: Final = (PASSED, FAILED, TEST_ERROR)
 SUMMARY_FILE: Final = "run.json"
 SCORES_FILE: Final = "scores.jsonl"
 STATUS_OK: Final = "ok"
@@ -436,6 +477,396 @@ class _Tee:
         return getattr(self._stream, name)
 
 
+# --------------------------------------------------------------------------- error codes
+
+# The catalogue code an exception stands for (docs/ERROR_CODES.md), by class name along the
+# MRO so a subclass is read before its parent: what an expected-error case records as
+# ``observed_error``. A message that already carries a ``[BASIS-...]`` tag wins.
+_CODE_BY_EXCEPTION: Final[tuple[tuple[str, str], ...]] = (
+    ("ProviderNotConfigured", E.PROVIDER_NOT_CONFIGURED_VISION),
+    ("ProviderConfigError", E.PROVIDER_CONFIG),
+    ("ProviderAccountError", E.PROVIDER_ACCOUNT),
+    ("ProviderRequestRejected", E.PROVIDER_REQUEST_REJECTED),
+    ("ProviderBadResponse", E.PROVIDER_BAD_RESPONSE),
+    ("ProviderRateLimited", E.PROVIDER_UNAVAILABLE),
+    ("ProviderUnavailable", E.PROVIDER_UNAVAILABLE),
+    ("BudgetExceededError", E.BUDGET_PHOTO),
+    ("LocalizerUnavailable", E.PROVIDER_LOCALIZER_UNAVAILABLE),
+    ("LocalizerError", E.PROVIDER_LOCALIZER_FAILED),
+)
+
+
+def error_code(error: BaseException | str | None) -> str | None:
+    """The ``BASIS-<AREA>-<nnn>`` code of an exception (or of a message), ``None`` when the
+    catalogue has none for it."""
+    if error is None:
+        return None
+    if isinstance(error, str):
+        return code_in(error)
+    tagged = code_in(str(error))
+    if tagged:
+        return tagged
+    names = [cls.__name__ for cls in type(error).__mro__]
+    for name in names:
+        for known, code in _CODE_BY_EXCEPTION:
+            if name == known:
+                return code
+    return None
+
+
+# --------------------------------------------------------------------------- results
+
+
+def _case(
+    case_id: str,
+    outcome: str,
+    *,
+    kind: str,
+    detail: Any = None,
+    expected_error: str | None = None,
+    observed_error: BaseException | str | None = None,
+    seconds: float | None = None,
+) -> dict[str, Any]:
+    if outcome not in OUTCOMES:
+        raise ValueError(f"outcome {outcome!r} is not one of {OUTCOMES}")
+    case: dict[str, Any] = {"id": case_id, "kind": kind, "outcome": outcome}
+    if seconds is not None:
+        case["seconds"] = round(seconds, 3)
+    if detail is not None:
+        case["detail"] = json.loads(_dumps(detail))
+    if expected_error is not None or observed_error is not None:
+        observed = error_code(observed_error)
+        case["expected_error"] = expected_error
+        case["observed_error"] = observed
+        case["observed_message"] = (
+            None if observed_error is None else redact_api_keys(str(observed_error))[:1000]
+        )
+        case["matched"] = expected_error is not None and observed == expected_error
+    return case
+
+
+def summarize_cases(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """The three counts, never folded into each other, plus the expected-error tally and
+    the counts per case kind."""
+    counts = Counter(str(c.get("outcome")) for c in cases)
+    expected = [c for c in cases if c.get("expected_error") is not None]
+    by_kind: dict[str, dict[str, int]] = {}
+    for case in cases:
+        kind = by_kind.setdefault(str(case.get("kind", "case")), dict.fromkeys(OUTCOMES, 0))
+        kind[str(case.get("outcome"))] = kind.get(str(case.get("outcome")), 0) + 1
+    return {
+        "total": len(cases),
+        PASSED: counts.get(PASSED, 0),
+        FAILED: counts.get(FAILED, 0),
+        TEST_ERROR: counts.get(TEST_ERROR, 0),
+        "expected_errors": {
+            "cases": len(expected),
+            "matched": sum(1 for c in expected if c.get("matched")),
+            # another catalogued error occurred / no error (or an uncatalogued one) occurred
+            "mismatched": sum(
+                1 for c in expected if not c.get("matched") and c.get("observed_error")
+            ),
+            "not_observed": sum(
+                1 for c in expected if not c.get("matched") and not c.get("observed_error")
+            ),
+        },
+        "by_kind": dict(sorted(by_kind.items())),
+    }
+
+
+def summary_line(summary: Mapping[str, Any]) -> str:
+    line = (
+        f"results: {summary[PASSED]} passed, {summary[FAILED]} failed, "
+        f"{summary[TEST_ERROR]} test errors ({summary['total']} cases)"
+    )
+    expected = summary.get("expected_errors") or {}
+    if expected.get("cases"):
+        line += (
+            f"; expected errors: {expected['matched']} matched, "
+            f"{expected['mismatched']} mismatched, {expected['not_observed']} not observed"
+        )
+    return line
+
+
+def render_report(manifest: Mapping[str, Any], results: Mapping[str, Any]) -> str:
+    """``report.md``: the run's identity, the summary line and one row per case."""
+    summary = results.get("summary") or summarize_cases(results.get("cases") or [])
+    tree = manifest.get("tree") or {}
+    git = manifest.get("git") or {}
+    calls = manifest.get("calls") or {}
+    lines = [
+        f"# {manifest.get('name', '?')}",
+        "",
+        f"- component: `{tree.get('component', '?')}` version `{tree.get('version', '?')}`",
+        f"- harness: `{(manifest.get('harness') or {}).get('module', '?')}`",
+        f"- started: {manifest.get('started_at', '?')}; status: {manifest.get('status', '?')}",
+        f"- code: `{git.get('short') or '?'}`"
+        + (" (dirty)" if git.get("dirty") is True else "")
+        + f", release `{git.get('release') or '?'}`",
+        f"- calls: {calls.get('count', '?')}, cost ${calls.get('cost_usd', 0) or 0:.4f}",
+        "",
+        f"**{summary_line(summary)}**",
+        "",
+    ]
+    cases = list(results.get("cases") or [])
+    if not cases:
+        lines.append("No cases recorded.")
+        return "\n".join(lines) + "\n"
+    expected = any(c.get("expected_error") is not None for c in cases)
+    header = ["case", "kind", "outcome"]
+    if expected:
+        header += ["expected error", "observed error", "matched"]
+    header += ["detail"]
+    lines += ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for case in cases:
+        row = [f"`{case.get('id', '?')}`", str(case.get("kind", "")), str(case.get("outcome", ""))]
+        if expected:
+            row += [
+                str(case.get("expected_error") or "-"),
+                str(case.get("observed_error") or "-"),
+                "-"
+                if case.get("expected_error") is None
+                else ("yes" if case.get("matched") else "no"),
+            ]
+        detail = case.get("detail")
+        if detail is None and case.get("observed_message"):
+            detail = case["observed_message"]
+        text = "" if detail is None else (detail if isinstance(detail, str) else _dumps(detail))
+        row.append(text.replace("|", "/").replace("\n", " ")[:200])
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def read_results(directory: Path) -> dict[str, Any]:
+    path = Path(directory) / RESULTS_FILE
+    if not path.is_file():
+        return {"summary": summarize_cases([]), "cases": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return {"summary": summarize_cases([]), "cases": []}
+    cases = list(data.get("cases") or [])
+    return {"summary": summarize_cases(cases), "cases": cases}
+
+
+def write_results(
+    directory: Path, manifest: Mapping[str, Any], cases: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """``results.json`` and its ``report.md`` for ``cases``; returns the results document."""
+    results = {
+        "format": FORMAT,
+        "kind": "results",
+        "summary": summarize_cases(cases),
+        "cases": list(cases),
+    }
+    directory = Path(directory)
+    (directory / RESULTS_FILE).write_text(_dumps(results, indent=1) + "\n", encoding="utf-8")
+    (directory / REPORT_FILE).write_text(render_report(manifest, results), encoding="utf-8")
+    return results
+
+
+def add_cases(directory: Path, cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Merge ``cases`` into a run directory's results (a later case with the same ``id``
+    replaces the earlier one) and rewrite ``results.json`` and ``report.md``; the scorer
+    adds its per-item outcomes to a prediction run this way."""
+    directory = Path(directory)
+    existing = read_results(directory)["cases"]
+    merged: dict[str, dict[str, Any]] = {str(c["id"]): dict(c) for c in existing}
+    for case in cases:
+        merged[str(case["id"])] = dict(case)
+    manifest_path = directory / MANIFEST_FILE
+    manifest: dict[str, Any] = {}
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except ValueError:
+            manifest = {}
+    manifest.setdefault("name", directory.name)
+    results = write_results(directory, manifest, list(merged.values()))
+    if manifest_path.is_file():
+        manifest["results"] = results["summary"]
+        manifest_path.write_text(_dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    return results
+
+
+# --------------------------------------------------------------------------- the tree
+
+
+def data_root() -> Path | None:
+    value = os.environ.get("BASIS_EVAL_DATA_DIR")
+    return Path(value) if value else None
+
+
+def tree_root(root: Path | None = None) -> Path | None:
+    """``<data dir>/verification``: the tree a person browses, component / version / run."""
+    root = root or data_root()
+    return None if root is None else root / TREE_DIR
+
+
+# The component a runner's output stands for when its calls name no prompt.
+HARNESS_COMPONENTS: Final[dict[str, str]] = {
+    "evals.predict_photos": "photo_analysis",
+    "evals.predict_rooms": "room_inventory",
+    "evals.replay_rooms": "room_inventory",
+    "evals.predict_fields": "appraisal_field_fallback",
+    "evals.predict_assets": "classify",
+    "evals.predict_marks": "photo_marks",
+    "evals.predict_points": "photo_points",
+    "evals.provoke_errors": "provider_errors",
+    "evals.predict_boxes": "detection",
+    "evals.predict_boxes (probe)": "detection",
+    "evals.predict_detector": "detection",
+    "evals.sam3_select": "detection",
+    "evals.manual_add": "detection",
+    "evals.verify_boxes": "detection",
+    "evals.merge_photo_runs": "photo_analysis",
+    "evals.aggregate_runs": "photo_analysis",
+    "evals.fuse_counts": "photo_counts",
+    "evals.combine_rooms": "room_inventory",
+    "evals.predict_surface_crops": "surface_crop_material",
+    "evals.appraisal.run": "appraisal_fields",
+    "docs/review_2026-10-15/repro/extraction_replay.py": "appraisal_fields",
+    "live study export (repro/live_export.py)": "study_export",
+    "evals.run": "scoring",
+}
+
+
+def tree_location(
+    manifest: Mapping[str, Any], *, component: str | None = None, version: str | None = None
+) -> tuple[str, str]:
+    """``(component, version)`` a run files under: what the runner declared, else the prompt
+    with the most calls (its name and version: the system's own names), else what the
+    harness stands for (a detector, a localizer, a merge) with the version its manifest
+    names, else ``unknown`` / ``unversioned``."""
+    components = manifest.get("components") or {}
+    prompts = [p for p in components.get("prompts") or [] if p.get("name")]
+    if component is None and prompts:
+        best = max(
+            prompts, key=lambda p: int(p.get("calls") or 0 if p.get("calls") != UNKNOWN else 0)
+        )
+        component = str(best["name"])
+        if version is None:
+            version = str(best.get("version") or UNVERSIONED)
+    if component is None:
+        harness = str((manifest.get("harness") or {}).get("module") or "")
+        component = HARNESS_COMPONENTS.get(harness, UNKNOWN)
+        if version is None:
+            detector = components.get("detector")
+            localizer = components.get("localizer")
+            version = str(detector or localizer or UNVERSIONED).replace("/", "_")
+    if version is None:
+        wanted = [p for p in prompts if p.get("name") == component]
+        version = str(wanted[0].get("version") or UNVERSIONED) if wanted else UNVERSIONED
+    return component, version
+
+
+def ensure_tree_readme(root: Path) -> Path:
+    """The verification tree's own README (written once; a person browsing the tree with
+    Finder reads it first)."""
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / TREE_README
+    if not path.exists():
+        path.write_text(TREE_README_TEXT, encoding="utf-8")
+    return path
+
+
+TREE_README_TEXT: Final = """# Verification
+
+Every evaluation run, filed by the component it exercised, then the version of that
+component, then the run:
+
+    verification/<component>/<version>/<run id>/
+        manifest.json      what ran (harness, command, options), on which code (git sha,
+                           dirty flag, release tag), with which components (every prompt
+                           name/version/sha256, price and rules table versions, embedder,
+                           models, request parameters, settings), on which data (inputs
+                           and label files with sha256 and version), what it cost, how it
+                           ended, where it is filed (tree)
+        results.json       every case with an outcome of exactly one of passed, failed or
+                           test_error (the harness or an API failed, not the system under
+                           test); an expected-error case names the BASIS-<AREA>-<nnn> code it
+                           expected, the one that occurred and whether they matched
+        report.md          the same results as a page: the summary line (all three counts)
+                           and one row per case
+        llm_calls.jsonl    one line per paid call: every column of the llm_calls table
+        llm/               <call id>.request.json (the prompt and messages as sent, images
+                           as ref + sha256) and <call id>.response.json (the raw answer)
+        console.log        everything the run printed and logged (API keys redacted)
+        run.json           the runner's own summary
+        scores.jsonl       appended by `evals.run --predictions`: the label files (version,
+                           sha256) and every metric of each scoring
+        ...                the runner's prediction files (photo_counts.json, room_inventory.json,
+                           fields_raw.jsonl, ...)
+
+Components are the system's own names: a released prompt (photo_countables, photo_surfaces,
+room_inventory, surface_material, house_inventory, classify, appraisal_fields_grounded, ...),
+`detection` (SAM 3 and the detectors), `photo_analysis` (merged per-photo runs),
+`photo_counts` (count fusion), `appraisal_fields` (the appraisal harness as configured),
+`provider_errors` (the expected-error runs), `scoring`. A version is the prompt, rule or
+table version the run exercised (`v3`); a component without one files under `unversioned`,
+a detector under its name.
+
+A run directory here is a symbolic link to where the runner wrote (`predictions/<run id>` or
+`appraisal/runs/<run id>`) unless it was written here directly; the link's target is in its
+manifest (`tree.target`). Runs made before manifests existed carry a backfilled manifest
+(`backfilled: true`, each field with its source, `unknown` where the files do not say) and
+no results.json. `python -m evals.registry` lists and filters the tree; `backEnd/evals/README.md`
+("Run records and the registry") and EVAL_REPORT section 42 describe the format.
+"""
+
+
+def _safe_name(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.@+-]+", "_", text) or UNKNOWN
+
+
+def link_into_tree(
+    out: Path, component: str, version: str, *, root: Path, run_id: str | None = None
+) -> dict[str, Any]:
+    """File ``out`` under ``root/<component>/<version>/<run id>`` as a relative symbolic link
+    (``run_id`` defaults to the directory's name), unless ``out`` is already inside the
+    tree. A stale link of the same name to the same directory is replaced; a link of the
+    same name to another directory is left alone and this run takes the name plus a short
+    hash of its path, so two runs never share a slot. Returns the manifest's ``tree``."""
+    out = Path(out).resolve()
+    root = Path(root).resolve()
+    ensure_tree_readme(root)
+    slot = root / _safe_name(component) / _safe_name(version)
+    name = _safe_name(run_id or out.name)
+    section: dict[str, Any] = {
+        "component": component,
+        "version": version,
+        "root": str(root),
+        "path": str((slot / name).relative_to(root)),
+    }
+    try:
+        out.relative_to(root)
+        section["link"] = None  # written inside the tree already
+        section["path"] = str(out.relative_to(root))
+        return section
+    except ValueError:
+        pass
+    slot.mkdir(parents=True, exist_ok=True)
+    link = slot / name
+    if link.is_symlink():
+        if link.resolve() == out:
+            link.unlink()
+        else:
+            name = f"{name}@{hashlib.sha256(str(out).encode()).hexdigest()[:8]}"
+            link = slot / name
+            section["path"] = str(link.relative_to(root))
+            section["renamed"] = "another run of the same name is filed in this slot"
+            if link.is_symlink():
+                link.unlink()
+    if link.exists():
+        section["link"] = None
+        section["error"] = f"{link} exists and is not a link"
+        return section
+    link.symlink_to(os.path.relpath(out, slot), target_is_directory=True)
+    section["link"] = str(link)
+    section["target"] = os.path.relpath(out, slot)
+    return section
+
+
 # --------------------------------------------------------------------------- the run
 
 
@@ -491,6 +922,10 @@ class EvalRun:
     datasets: list[dict[str, Any]] = field(default_factory=list)
     declared_prompts: dict[str, dict[str, Any]] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
+    cases: list[dict[str, Any]] = field(default_factory=list)
+    component: str | None = None
+    version: str | None = None
+    tree: Path | None = None
     finished: bool = False
     _log: _RedactingLog | None = None
     _streams: tuple[TextIO, TextIO] | None = None
@@ -506,10 +941,17 @@ class EvalRun:
         settings: Any = None,
         log: bool = True,
         cwd: Path | None = None,
+        component: str | None = None,
+        version: str | None = None,
+        tree: Path | None = None,
     ) -> EvalRun:
         """Start recording into ``out`` (created): the ledger recorder is ready, stdout,
-        stderr and logging are copied to ``run.log``. ``harness`` is the runner's module
-        name (``__name__``); ``args`` its options, to which the run attaches itself."""
+        stderr and logging are copied to ``console.log``. ``harness`` is the runner's module
+        name (``__name__``); ``args`` its options, to which the run attaches itself.
+        ``component`` and ``version`` say where the run files in the verification tree
+        (:func:`tree_location` derives them from the prompts called when not given);
+        ``tree`` is the tree's root (default ``$BASIS_EVAL_DATA_DIR/verification``; no link
+        is made when neither is known)."""
         global _active
         if _active is not None and not _active.finished:
             _active._release()
@@ -527,6 +969,9 @@ class EvalRun:
             options=_options(args),
             command=list(sys.argv),
             _t0=time.monotonic(),
+            component=component,
+            version=version,
+            tree=tree if tree is not None else tree_root(),
         )
         if log:
             run._capture()
@@ -587,6 +1032,36 @@ class EvalRun:
     def note(self, **fields: Any) -> None:
         """Extra manifest fields a runner wants kept (a scope, a mode, a source run)."""
         self.extra.update(fields)
+
+    # --- the cases
+
+    def case(
+        self,
+        case_id: str,
+        outcome: str,
+        *,
+        kind: str = "case",
+        detail: Any = None,
+        expected_error: str | None = None,
+        observed_error: BaseException | str | None = None,
+        seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Record one case: ``outcome`` is exactly one of ``passed`` (the system under test
+        did what the case asked), ``failed`` (it did not) or ``test_error`` (the harness or
+        an API failed, so the case says nothing about the system). An expected-error case
+        gives the ``BASIS-<AREA>-<nnn>`` code it set out to provoke and the exception (or
+        message) that occurred; the record keeps both codes and whether they matched."""
+        case = _case(
+            case_id,
+            outcome,
+            kind=kind,
+            detail=detail,
+            expected_error=expected_error,
+            observed_error=observed_error,
+            seconds=seconds,
+        )
+        self.cases.append(case)
+        return case
 
     # --- the log
 
@@ -747,12 +1222,13 @@ class EvalRun:
             },
             "calls": self._calls(),
             "files": {
-                "log": LOG_FILE
-                if self._log is not None or (self.out / LOG_FILE).exists()
-                else None,
+                "log": LOG_FILE if (self.out / LOG_FILE).exists() else None,
                 "summary": SUMMARY_FILE if summary is not None else None,
                 "ledger": LEDGER_FILE if self.recorder.records else None,
+                "results": RESULTS_FILE,
+                "report": REPORT_FILE,
             },
+            "results": summarize_cases(self.cases),
             **({"notes": self.extra} if self.extra else {}),
             "summary": None if summary is None else json.loads(_dumps(summary)),
         }
@@ -765,8 +1241,9 @@ class EvalRun:
         exit_code: int | None = 0,
         error: str | None = None,
     ) -> dict[str, Any]:
-        """Write ``run.json`` (when a summary is given; an existing one is read otherwise)
-        and ``manifest.json``, stop the log, and return the manifest."""
+        """Write ``run.json`` (when a summary is given; an existing one is read otherwise),
+        ``results.json`` and ``report.md`` from the cases, ``manifest.json``, file the run in
+        the verification tree, stop the log, and return the manifest."""
         if summary is not None:
             (self.out / SUMMARY_FILE).write_text(_dumps(summary, indent=1) + "\n", encoding="utf-8")
         elif (self.out / SUMMARY_FILE).is_file():
@@ -775,6 +1252,16 @@ class EvalRun:
             except ValueError:
                 summary = None
         manifest = self.manifest(summary, status=status, exit_code=exit_code, error=error)
+        component, version = tree_location(manifest, component=self.component, version=self.version)
+        manifest["tree"] = {"component": component, "version": version, "link": None}
+        if self.tree is not None:
+            try:
+                manifest["tree"] = link_into_tree(self.out, component, version, root=self.tree)
+            except OSError as exc:
+                manifest["tree"]["error"] = f"{type(exc).__name__}: {exc}"
+        results = write_results(self.out, manifest, self.cases)
+        # The one summary line, on the console and in console.log alike (the tee).
+        print(summary_line(results["summary"]), file=sys.stderr)
         if self._log is not None:
             self._log.write(f"# finished {manifest['finished_at']} status={status}\n")
         (self.out / MANIFEST_FILE).write_text(_dumps(manifest, indent=1) + "\n", encoding="utf-8")

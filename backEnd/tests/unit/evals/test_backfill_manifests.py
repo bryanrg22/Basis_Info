@@ -137,7 +137,10 @@ def root(tmp_path: Path) -> Path:
         predictions / "vision_decomposed_v2_sol",
         "run.json",
         {
-            "merged_from": [{"run": "x"}],
+            "merged_from": [
+                {"run": "x", "prompt": "photo_countables/v2"},
+                {"run": "y", "prompt": "photo_surfaces/v1"},
+            ],
             "room_from": "x",
             "photos": 52,
             "repeats": 3,
@@ -196,6 +199,22 @@ def root(tmp_path: Path) -> Path:
             "llm_calls": 12,
             "cost_usd": 0.0,
             "replayed_cost_usd": 0.04,
+        },
+    )
+    _write(
+        data / "appraisal" / "runs" / "sweep1" / "mismo",
+        "run.json",
+        {
+            "run": "m",
+            "mode": "replay",
+            "system": {"name": "mismo_xml", "model": {"model": None}},
+            "sets": ["gse_d1"],
+            "repeats": 1,
+            "prompt_version": "appraisal_field_fallback/v1",
+            "prompt_versions": [],
+            "models": [],
+            "llm_calls": 0,
+            "cost_usd": 0.0,
         },
     )
     _write(data / "appraisal" / "truth", "gse_d1.json", {"documents": []})
@@ -274,6 +293,7 @@ def test_backfill_recovers_what_the_files_say_and_marks_the_rest_unknown(
         "sam3_select_v1",
         "empty_killed",
         "llm_all@gpt-6-luna",
+        "mismo",
     }
 
     photos = by_name["vision_countables_v2_sol"]
@@ -321,6 +341,7 @@ def test_backfill_recovers_what_the_files_say_and_marks_the_rest_unknown(
         "report": "eval.md",
     }
     assert photos["report_sections"] == [15, 26]
+    assert photos["tree"] == {"component": "photo_countables", "version": "v2", "link": None}
     assert photos["status"] == "ok"
     assert photos["started_at"] and photos["finished_at"] and photos["wall_seconds"] >= 0
     assert photos["summary"]["spent_usd"] == 1.9
@@ -333,6 +354,7 @@ def test_backfill_recovers_what_the_files_say_and_marks_the_rest_unknown(
     ]
     assert rooms["components"]["models"]["requested"] == ["claude-sonnet-5-5"]
     assert rooms["report_sections"] == [16]  # the prefix encodes the section
+    assert rooms["tree"]["component"] == "room_inventory"  # the first prompt named
     assert rooms["data"]["labels"] == {} and "no eval.md" in rooms["sources"]["labels"]
     assert rooms["files"]["log"] is None
 
@@ -340,6 +362,10 @@ def test_backfill_recovers_what_the_files_say_and_marks_the_rest_unknown(
     assert by_name["vision_decomposed_v2_sol"]["components"]["prompts"] == []
     detector = by_name["arch26_det_gdino"]
     assert detector["harness"]["module"] == "evals.predict_detector"
+    assert (detector["tree"]["component"], detector["tree"]["version"]) == (
+        "detection",
+        "gdino:IDEA-Research_grounding-dino-base",
+    )
     assert detector["components"]["detector"] == "gdino:IDEA-Research/grounding-dino-base"
     assert detector["report_sections"] == [26]
     sam3 = by_name["sam3_photos_v3"]
@@ -358,10 +384,27 @@ def test_backfill_recovers_what_the_files_say_and_marks_the_rest_unknown(
     assert appraisal["git"]["sha"] == head and appraisal["git"]["release"] == "v0.2.0"
     assert appraisal["git"]["dirty"] == bf.UNKNOWN
     assert "recorded by the appraisal runner" in appraisal["sources"]["git"]
+    # The prompt the calls used comes before the fallback the runner merely declared, so
+    # the run files under what ran.
     assert [p["name"] for p in appraisal["components"]["prompts"]] == [
-        "appraisal_field_fallback",
         "appraisal_fields_grounded",
+        "appraisal_field_fallback",
     ]
+    assert (appraisal["tree"]["component"], appraisal["tree"]["version"]) == (
+        "appraisal_fields_grounded",
+        "v2",
+    )
+    mismo = by_name["mismo"]
+    assert (mismo["tree"]["component"], mismo["tree"]["version"]) == (
+        "appraisal_fields",
+        "mismo_xml",
+    )
+    assert "no model call" in mismo["sources"]["tree"]
+    merged = by_name["vision_decomposed_v2_sol"]
+    assert (merged["tree"]["component"], merged["tree"]["version"]) == (
+        "photo_analysis",
+        "photo_countables-v2+photo_surfaces-v1",
+    )
     assert appraisal["components"]["models"]["requested"] == ["gpt-6-luna"]
     assert appraisal["components"]["request_params"]["reasoning_effort"] == ["low"]
     [dataset] = appraisal["data"]["datasets"]
@@ -398,6 +441,15 @@ def test_write_is_idempotent_keeps_live_manifests_and_force_rewrites_backfills(
         (root / "predictions" / "vision_countables_v2_sol" / record.MANIFEST_FILE).read_text()
     )
     assert written["backfilled"] is True
+    link = root / "verification" / "photo_countables" / "v2" / "vision_countables_v2_sol"
+    assert link.is_symlink()
+    assert link.resolve() == (root / "predictions" / "vision_countables_v2_sol").resolve()
+    assert written["tree"]["path"] == "photo_countables/v2/vision_countables_v2_sol"
+    assert (root / "verification" / "README.md").is_file()
+    tree = root / "verification"
+    grounded = tree / "appraisal_fields_grounded" / "v2"
+    assert (grounded / "sweep1__llm_all@gpt-6-luna").is_symlink()  # nested: sweep__cell
+    assert (tree / "appraisal_fields" / "mismo_xml" / "sweep1__mismo").is_symlink()
     assert json.loads(live.read_text()) == {"format": 1, "kind": "eval_run", "name": "live"}
     second = bf.backfill(root, repo=repo, report=None, write=True)
     assert {line["action"] for line in second} == {"kept"}
@@ -427,16 +479,18 @@ def test_the_note_counts_what_was_and_was_not_recovered(
     _set_sha(root, _git(repo, "rev-parse", "HEAD"))
     lines = bf.backfill(root, repo=repo, report=None, write=False)
     note = bf.render_note(lines, root=root)
-    assert "| run directories found | 9 |" in note
-    assert "| backfilled | 9 (8 under `predictions/`, 1 under `appraisal/runs/`) |" in note
-    assert "| with a `run.json` summary | 7 |" in note
-    assert "| harness identified | 7 |" in note  # the stopped run left no file to read
-    assert "| prompts named (sha256 exact from the prompt manifest) | 3 |" in note
+    assert "| run directories found | 10 |" in note
+    assert "| backfilled | 10 (8 under `predictions/`, 2 under `appraisal/runs/`) |" in note
+    assert "| with a `run.json` summary | 8 |" in note
+    assert "| harness identified | 8 |" in note  # the stopped run left no file to read
+    assert "| prompts named (sha256 exact from the prompt manifest) | 4 |" in note
     assert "| git sha recorded (appraisal runner only) | 1 |" in note
     assert "| label files known (from `eval.md`; sha256 at the time unknown) | 1 |" in note
     assert "| terminal log kept (sibling `.log`) | 1 |" in note
     assert "| stopped by an account error | 1 |" in note
     assert "| empty directories | 1 |" in note
+    assert "| filed in `verification/<component>/<version>/` as a link | 0 |" in note  # dry run
+    assert "| `photo_countables` | 1 |" in note.split("## Component per run")[1]
     unidentified = note.split("## Runs whose harness could not be identified")[1]
     assert "`empty_killed`" in unidentified and "`stopped_run`" in unidentified
     assert "`sam3_select_v1`" in note.split("## Runs without a `run.json`")[1]
@@ -463,11 +517,11 @@ def test_the_cli_dry_runs_by_default_and_writes_the_note(
     )
     assert code == 0
     out = capsys.readouterr()
-    assert "would_write" in out.out and "would_write: 9" in out.err
+    assert "would_write" in out.out and "would_write: 10" in out.err
     assert note.read_text().startswith("# Backfilled run manifests")
     assert not list(root.rglob(record.MANIFEST_FILE))
     assert bf.main(["--root", str(root), "--repo", str(repo), "--write"]) == 0
-    assert len(list(root.rglob(record.MANIFEST_FILE))) == 9
+    assert len(list(root.rglob(record.MANIFEST_FILE))) == 10
 
 
 def test_the_cli_refuses_without_a_data_directory(

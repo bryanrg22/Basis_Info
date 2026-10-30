@@ -157,7 +157,24 @@ def test_replay_from_a_hand_written_recording_via_the_cli(
     assert [i["name"] for i in manifest["data"]["inputs"]] == ["synthetic_1004/doc_a"]
     assert manifest["notes"] == {"mode": "replay", "system": "production"}
     assert manifest["harness"]["options"]["azure_only"] is True
-    assert "synthetic_1004/doc_a: ok" in (out / "run.log").read_text()
+    assert "synthetic_1004/doc_a: ok" in (out / "console.log").read_text()
+    # One passed case for the document's one repeat. No prompt was called (the ablation), so
+    # the run files under appraisal_fields at the system's name, not under the declared
+    # fallback prompt. report.md is the record's page followed by the SPEC §8 tables.
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (1, 0, 0)
+    assert [(c["id"], c["kind"]) for c in results["cases"]] == [
+        ("synthetic_1004/doc_a#1", "document")
+    ]
+    report = (out / "report.md").read_text()
+    assert "results: 1 passed, 0 failed, 0 test errors" in report
+    assert "# Appraisal extraction evaluation" in report
+    assert report.index("results: 1 passed") < report.index("# Appraisal extraction evaluation")
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "appraisal_fields",
+        "production-azure_only",
+    )
 
 
 async def test_live_records_and_replay_reproduces(tmp_path: Path, settings: Settings) -> None:
@@ -198,7 +215,24 @@ async def test_live_records_and_replay_reproduces(tmp_path: Path, settings: Sett
     )
     rows = [json.loads(x) for x in (tmp_path / "live" / "llm_calls.jsonl").read_text().splitlines()]
     assert len(rows) == 4 and sum(1 for r in rows if r["kind"] == "chat") == 2
-    assert "synthetic_1004/doc_a: ok" in (tmp_path / "live" / "run.log").read_text()
+    assert "synthetic_1004/doc_a: ok" in (tmp_path / "live" / "console.log").read_text()
+    # Both repeats passed; the run files under the prompt its calls used.
+    results = json.loads((tmp_path / "live" / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (2, 0, 0)
+    assert [c["id"] for c in results["cases"]] == [
+        "synthetic_1004/doc_a#1",
+        "synthetic_1004/doc_a#2",
+    ]
+    assert all(c["seconds"] >= 0 for c in results["cases"])
+    assert (
+        "results: 2 passed, 0 failed, 0 test errors"
+        in (tmp_path / "live" / "report.md").read_text()
+    )
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        PROMPT_NAME,
+        latest.version,
+    )
 
     replay = await run_eval(
         opts(tmp_path, out=tmp_path / "replay"),
@@ -254,6 +288,17 @@ async def test_missing_recording_fails_only_its_document(
     assert output is not None
     failed = {f["document"]: f["status"] for f in output.score["documents"]["failed"]}
     assert failed == {"doc_a": "missing_recording", "doc_b": "missing_recording"}
+    # A missing recording is the harness's problem, not the system's: two test errors.
+    results = json.loads((tmp_path / "r" / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (0, 0, 2)
+    assert [c["id"] for c in results["cases"]] == [
+        "synthetic_1004/doc_a#1",
+        "synthetic_1004/doc_b#1",
+    ]
+    assert all("recording" in c["observed_message"] for c in results["cases"])
+    report = (tmp_path / "r" / "report.md").read_text()
+    assert "results: 0 passed, 0 failed, 2 test errors" in report
     # --azure-only needs no model answer: doc_a is scored, doc_b still lacks Azure DI.
     output = await run_eval(
         opts(tmp_path, azure_only=True, out=tmp_path / "s"),
@@ -262,6 +307,8 @@ async def test_missing_recording_fails_only_its_document(
     assert output is not None
     assert output.score["documents"]["scored"] == 1
     assert [f["document"] for f in output.score["documents"]["failed"]] == ["doc_b"]
+    summary = json.loads((tmp_path / "s" / "results.json").read_text())["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (1, 0, 1)
 
 
 async def test_a_changed_pdf_is_refused(tmp_path: Path, settings: Settings) -> None:
@@ -273,6 +320,12 @@ async def test_a_changed_pdf_is_refused(tmp_path: Path, settings: Settings) -> N
     )
     assert output is not None
     assert output.score["documents"]["failed"][0]["status"] == "sha256_mismatch"
+    results = json.loads((tmp_path / "r" / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (0, 0, 1)
+    [case] = results["cases"]
+    assert case["id"] == "synthetic_1004/doc_a#1"
+    assert case["observed_message"].startswith("sha256_mismatch:")
 
 
 async def test_baseline_accept_and_regression(tmp_path: Path, settings: Settings) -> None:
@@ -329,6 +382,13 @@ def test_cli_reports_a_refused_baseline(tmp_path: Path, capsys: pytest.CaptureFi
     assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
     assert "not accepting a baseline with failed documents" in manifest["error"]
     assert manifest["summary"] == json.loads((tmp_path / "r" / "run.json").read_text())
+    # Its one document (no recording) is a test error; the scoring tables still follow the
+    # record's page in report.md since the run got as far as scoring.
+    summary = json.loads((tmp_path / "r" / "results.json").read_text())["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (0, 0, 1)
+    report = (tmp_path / "r" / "report.md").read_text()
+    assert "results: 0 passed, 0 failed, 1 test errors" in report
+    assert "# Appraisal extraction evaluation" in report
 
 
 def test_cli_refuses_bad_flags() -> None:

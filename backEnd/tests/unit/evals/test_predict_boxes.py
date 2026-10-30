@@ -113,8 +113,9 @@ async def run(args: list[str]) -> int:
 
 
 async def test_dataset_run_writes_predictions_the_harness_scores(
-    dataset_dir: Path, tmp_path: Path, fake: FakeLocalizer
+    dataset_dir: Path, tmp_path: Path, fake: FakeLocalizer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("BASIS_EVAL_DATA_DIR", str(tmp_path / "data"))  # a verification tree
     out = tmp_path / "out"
     # the fake is scripted with v1 phrase texts ("window", "interior door")
     assert await run(["--dataset", str(dataset_dir), "--out", str(out), "--phrase-set", "v1"]) == 0
@@ -172,7 +173,26 @@ async def test_dataset_run_writes_predictions_the_harness_scores(
     )
     assert set(rows[0]["request_params"]["prompts"]) == expected
     assert rows[0]["request_params"]["phrase_set"] == "v1"
-    assert f"wrote {out}" in (out / "run.log").read_text()
+    assert f"wrote {out}" in (out / "console.log").read_text()
+    # One passed case per (photo, repeat); the run files under detection / sam3-<phrase set>
+    # (the phrase set is what a SAM 3 run versions) as a relative link in the data directory's
+    # verification tree.
+    results = json.loads((out / "results.json").read_text())
+    summary_counts = results["summary"]
+    assert (summary_counts["passed"], summary_counts["failed"], summary_counts["test_error"]) == (
+        2,
+        0,
+        0,
+    )
+    assert [(c["id"], c["detail"]) for c in results["cases"]] == [
+        ("a1.jpg#1", {"instances": 3}),
+        ("b2.jpg#1", {"instances": 3}),
+    ]
+    assert "results: 2 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("detection", "sam3-v1")
+    link = tmp_path / "data" / "verification" / "detection" / "sam3-v1" / "out"
+    assert link.is_symlink() and link.resolve() == out.resolve()
+    assert Path(manifest["tree"]["link"]).resolve() == out.resolve()
 
     data = DetectionBoxes.model_validate_json((dataset_dir / "detection_boxes_v1.json").read_text())
     rows = {r.metric: r for r in score_detection_boxes(data, "dev", 1, predictions).rows}
@@ -194,6 +214,9 @@ async def test_tiling_and_repeats(dataset_dir: Path, tmp_path: Path, fake: FakeL
     assert len(predictions["a1.jpg"]["repeats"]) == 2
     summary = json.loads((out / "run.json").read_text())
     assert summary["merge_metric"] == "ios" and summary["calls"] == 20
+    results = json.loads((out / "results.json").read_text())
+    assert results["summary"]["passed"] == 4  # photos x repeats
+    assert [c["id"] for c in results["cases"]] == ["a1.jpg#1", "b2.jpg#1", "a1.jpg#2", "b2.jpg#2"]
 
 
 async def test_photo_directory_with_vlm_labels(tmp_path: Path, fake: FakeLocalizer) -> None:
@@ -258,6 +281,19 @@ async def test_failures_are_recorded_not_fatal(
     manifest = json.loads((out / "manifest.json").read_text())
     assert (manifest["status"], manifest["calls"]["count"]) == ("ok", 0)
     assert not (out / "llm_calls.jsonl").exists()
+    # The localizer's failure says nothing about the photo (a test error with the catalogue
+    # code); the preparation refusing the photo is the system's verdict (failed).
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (0, 1, 1)
+    by_id = {c["id"]: c for c in results["cases"]}
+    assert by_id["a1.jpg#1"]["outcome"] == "test_error"
+    assert by_id["a1.jpg#1"]["observed_error"] == "BASIS-PROVIDER-008"  # localizer unavailable
+    assert "HTTP 503" in by_id["a1.jpg#1"]["observed_message"]
+    assert by_id["b2.jpg#1"]["outcome"] == "failed"
+    assert "not a readable image" in by_id["b2.jpg#1"]["detail"]
+    assert "results: 0 passed, 1 failed, 1 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("detection", "sam3-v3")
 
 
 async def test_no_token_no_photos_and_bad_options(

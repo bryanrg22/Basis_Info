@@ -23,9 +23,11 @@ stripped, at most 1024 px) and parts are cut from the prepared photo. Output in 
 summed counts and the union of the labels), ``photo_rooms.json`` (``joint`` only),
 ``tile_counts.json`` (``separate``: each part's counts, for other merge rules),
 ``photo_raw.jsonl`` (one line per photo and repeat with every call), ``run.json``
-(models reported, spent) and the run record (``llm_calls.jsonl``, ``llm/``, ``run.log``,
-``manifest.json``; :mod:`evals.record`). An unusable answer is retried once; a part still
-unusable after that makes the photo missing for that repeat (not zero).
+(models reported, spent) and the run record (``llm_calls.jsonl``, ``llm/``, ``console.log``,
+``manifest.json``, ``results.json`` and ``report.md`` with one case per photo and repeat;
+:mod:`evals.record`). An unusable answer is retried once; a part still unusable after that
+makes the photo missing for that repeat (not zero) and its case ``failed``; a provider
+outage after every retry fails the run and leaves the photo's case a ``test_error``.
 
 Usage (from ``backEnd/``)::
 
@@ -66,7 +68,7 @@ from basis.vision.prep import JPEG_QUALITY, PreparedImage, prepare_image
 from basis.vision.schemas import ModelPhotoAnalysis
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, label_counts, photo_files
-from evals.record import EvalRun
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 MODES: Final = ("separate", "joint")
 PROMPTS: Final = {"separate": "photo_countables_tile", "joint": "photo_countables_joint"}
@@ -286,15 +288,21 @@ async def run(args: argparse.Namespace) -> int:
             return answer
 
     async def one(name: str, repeat: int) -> dict[str, Any]:
-        if args.mode == "separate":
-            calls = await asyncio.gather(
-                *(call(_request(s, tile_text(t, args.upscale), [t.image])) for t in parts[name])
-            )
-        else:
-            positions = ", ".join(t.position for t in parts[name])
-            text = JOINT_TEXT.format(upscale=args.upscale, positions=positions)
-            images = [prepared[name], *(t.image for t in parts[name])]
-            calls = [await call(_request(s, text, images))]
+        try:
+            if args.mode == "separate":
+                calls = await asyncio.gather(
+                    *(call(_request(s, tile_text(t, args.upscale), [t.image])) for t in parts[name])
+                )
+            else:
+                positions = ", ".join(t.position for t in parts[name])
+                text = JOINT_TEXT.format(upscale=args.upscale, positions=positions)
+                images = [prepared[name], *(t.image for t in parts[name])]
+                calls = [await call(_request(s, text, images))]
+        except Exception as exc:
+            # A provider outage after every retry, an account error or a harness fault:
+            # propagates as before; the case says nothing about the model.
+            eval_run.case(f"{name}#{repeat}", TEST_ERROR, kind="photo", observed_error=exc)
+            raise
         return {
             "file": name,
             "repeat": repeat,
@@ -316,9 +324,31 @@ async def run(args: argparse.Namespace) -> int:
             for record in records:
                 raw.write(json.dumps(record, sort_keys=True) + "\n")
                 analyses = [c["analysis"] for c in record["calls"]]
+                case_id = f"{record['file']}#{repeat}"
                 if any(a is None for a in analyses):
-                    missing.append(f"{record['file']}#{repeat}")
+                    missing.append(case_id)
+                    eval_run.case(
+                        case_id,
+                        FAILED,
+                        kind="photo",
+                        detail={
+                            "unusable_parts": sum(1 for a in analyses if a is None),
+                            "parts": len(analyses),
+                            "errors": [e for c in record["calls"] for e in c["errors"]],
+                        },
+                        seconds=record["seconds"],
+                    )
                     continue
+                eval_run.case(
+                    case_id,
+                    PASSED,
+                    kind="photo",
+                    detail={
+                        "parts": len(analyses),
+                        "attempts": sum(c["attempts"] for c in record["calls"]),
+                    },
+                    seconds=record["seconds"],
+                )
                 per_call = [label_counts(a["components"]) for a in analyses]
                 total: dict[str, int] = {}
                 for part_counts in per_call:

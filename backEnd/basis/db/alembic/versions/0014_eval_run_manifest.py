@@ -16,6 +16,8 @@ and content) the scores refer to. ``evals.record`` now gives every run that mani
 * ``release``: the nearest release tag reachable from HEAD;
 * ``run_dir``: the predictions directory scored (``--predictions``), NULL for a baseline;
 * ``label_sha256`` / ``label_version``: the sha256 and ``v<n>`` of the dataset's label file;
+* ``component`` / ``component_version``: the component and version the scored run is filed
+  under in the verification tree (its ``manifest.json`` ``tree``), NULL for a baseline;
 * ``manifest``: the whole ``scores.jsonl`` entry the row was written from.
 
 Every column is nullable and nothing is backfilled: rows written before this migration carry
@@ -34,7 +36,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLE = "eval_runs"
-NULLABLE_TEXT = ("release", "run_dir", "label_version")
+NULLABLE_TEXT = ("release", "run_dir", "label_version", "component", "component_version")
 
 
 def upgrade() -> None:

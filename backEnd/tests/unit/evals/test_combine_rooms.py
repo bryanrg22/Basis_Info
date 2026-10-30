@@ -36,6 +36,10 @@ def test_exterior_rooms_come_from_the_override_repeat_by_repeat(tmp_path: Path) 
         {"x_front": {"retaining_wall": 1, "siding": 1}, "1_kitchen": {"window": 9}},
         [{"room_id": "x_front", "repeat": 1, "objects": [{"label": "retaining_wall"}]}],
     )
+    # The base run is filed under room_inventory / v3: the combination keeps that version.
+    (base / "manifest.json").write_text(
+        json.dumps({"tree": {"component": "room_inventory", "version": "v3"}})
+    )
     out = tmp_path / "out"
     args = argparse.Namespace(base=base, override=other, rooms=[], exterior=True, out=out)
     assert cr.combine(args) == 0
@@ -61,7 +65,18 @@ def test_exterior_rooms_come_from_the_override_repeat_by_repeat(tmp_path: Path) 
     assert manifest["notes"] == {"exterior": True}
     assert manifest["summary"] == summary
     assert (manifest["status"], manifest["exit_code"]) == ("ok", 0)
-    assert (out / "run.log").exists()
+    assert (out / "console.log").exists()
+    # One passed case per room written, saying which run supplied it.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (2, 0, 0)
+    assert [(c["id"], c["kind"], c["detail"]) for c in results["cases"]] == [
+        ("1_kitchen", "room", {"from": "base", "repeats": 2}),
+        ("x_front", "room", {"from": "override", "repeats": 2}),
+    ]
+    assert "results: 2 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("room_inventory", "v3")
+    assert cr.base_version(other) == "unversioned"  # no manifest
 
 
 def test_a_room_missing_from_the_override_is_an_error(tmp_path: Path) -> None:
@@ -76,7 +91,19 @@ def test_a_room_missing_from_the_override_is_an_error(tmp_path: Path) -> None:
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert (manifest["status"], manifest["exit_code"]) == ("ok", 2)
     assert manifest["summary"] is None
-    assert "rooms not in" in (tmp_path / "out" / "run.log").read_text()
+    assert "rooms not in" in (tmp_path / "out" / "console.log").read_text()
+    # The room the override lacks is a test error (the input, not the system).
+    results = json.loads((tmp_path / "out" / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (0, 0, 1)
+    assert (results["cases"][0]["id"], results["cases"][0]["kind"]) == ("x_front", "room")
+    assert (
+        "results: 0 passed, 0 failed, 1 test errors" in (tmp_path / "out" / "report.md").read_text()
+    )
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "room_inventory",
+        "unversioned",
+    )
 
 
 def test_a_missing_base_run_still_leaves_a_manifest(tmp_path: Path) -> None:

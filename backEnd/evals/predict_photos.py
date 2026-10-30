@@ -10,7 +10,10 @@ environment, and writes what ``evals.run --predictions`` scores::
     <out>/photo_counts.json       {"<file>": {"label": count} | {"repeats": [...]}}
     <out>/photo_raw.jsonl         one line per (file, repeat): the full analysis, model,
                                   provider, attempts, errors, estimated cost
-    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
+    <out>/results.json, report.md one case per (file, repeat): passed (an analysis), failed
+                                  (the photo refused, or unusable output after the retry),
+                                  test_error (a provider outage after every retry)
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json   the run record (evals.record)
 
 Usage (from ``backEnd/``, with ``BASIS_ENV=dev`` and the provider credentials in the
 environment)::
@@ -42,6 +45,7 @@ from basis.llm.errors import ProviderRateLimited, ProviderRequestRejected, Provi
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
 from basis.vision.analyze import (
+    INVALID_OUTPUT,
     PhotoResult,
     VisionContext,
     analyze_photo_detailed,
@@ -49,7 +53,7 @@ from basis.vision.analyze import (
 )
 from basis.vision.prep import ImageRejected
 from evals.account_stop import guard, stops_on_account_error, track
-from evals.record import EvalRun
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -108,6 +112,14 @@ def _record(file: str, repeat: int, result: PhotoResult, seconds: float) -> dict
 
 
 RETRY_DELAYS_S: tuple[float, ...] = (2.0, 6.0, 15.0)
+
+
+def photo_outcome(analysis: Mapping[str, Any]) -> str:
+    """The case outcome of a photo that has an analysis: ``failed`` when it is the
+    pipeline's invalid-output fallback (an ambiguous room with no components, flagged
+    ``invalid_model_output`` after the retry), else ``passed``."""
+    reason = str(analysis.get("review_reason") or "")
+    return FAILED if reason.startswith(INVALID_OUTPUT) else PASSED
 
 
 def label_counts(components: Sequence[Mapping[str, Any]]) -> dict[str, int]:
@@ -181,6 +193,8 @@ async def run(args: argparse.Namespace) -> int:
     rooms: dict[str, list[str]] = {f.name: [] for f in files}
     components: dict[str, list[list[str]]] = {f.name: [] for f in files}
     counts: dict[str, list[dict[str, int]]] = {f.name: [] for f in files}
+    # The exception behind a rejected or error record, for the case's BASIS code.
+    failures: dict[tuple[str, int], BaseException] = {}
 
     async def one(file: Path, repeat: int) -> dict[str, Any]:
         async with semaphore:
@@ -190,10 +204,12 @@ async def run(args: argparse.Namespace) -> int:
             except (ImageRejected, ProviderRequestRejected) as exc:
                 # Prepared and refused alike: the photo cannot be analyzed (the activity
                 # fails it the same way); recorded, the run goes on.
+                failures[(file.name, repeat)] = exc
                 return {"file": file.name, "repeat": repeat, "rejected": str(exc)}
             except (ProviderRateLimited, ProviderUnavailable) as exc:
                 # Transient after every retry: recorded, not fatal (Temporal retries the
                 # activity in production; here the photo is simply missing from the run).
+                failures[(file.name, repeat)] = exc
                 return {"file": file.name, "repeat": repeat, "error": str(exc)}
             return _record(file.name, repeat, result, time.monotonic() - started)
 
@@ -202,13 +218,30 @@ async def run(args: argparse.Namespace) -> int:
             records = await asyncio.gather(*(one(f, repeat) for f in files))
             for record in records:
                 raw.write(json.dumps(record, sort_keys=True) + "\n")
+                case_id = f"{record['file']}#{repeat}"
+                failure = failures.get((record["file"], repeat))
                 if "error" in record:
                     errors_seen.append(
                         {"file": record["file"], "repeat": repeat, "error": record["error"]}
                     )
+                    eval_run.case(case_id, TEST_ERROR, kind="photo", observed_error=failure)
+                elif "rejected" in record:
+                    eval_run.case(case_id, FAILED, kind="photo", observed_error=failure)
                 analysis = record.get("analysis")
                 if analysis is None:
                     continue
+                eval_run.case(
+                    case_id,
+                    photo_outcome(analysis),
+                    kind="photo",
+                    detail={
+                        "room_type": analysis["room_type"],
+                        "components": len(analysis["components"]),
+                        "attempts": record["attempts"],
+                        "review_reason": analysis.get("review_reason"),
+                    },
+                    seconds=record["seconds"],
+                )
                 rooms[record["file"]].append(analysis["room_type"])
                 components[record["file"]].append(
                     sorted({c["label"] for c in analysis["components"]})

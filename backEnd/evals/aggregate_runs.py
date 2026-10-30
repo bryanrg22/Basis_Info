@@ -24,8 +24,10 @@ Per photo, with ``--rule``:
 The output is one aggregated prediction per photo (score it with ``evals.run --repeats 1``
 or any ``--repeats``; every repeat is the same answer): ``photo_counts.json``,
 ``photo_components.json``, ``photo_rooms.json`` and ``run.json`` (sources, rule, samples per
-photo, summed spend), plus ``run.log`` and ``manifest.json``, the run record
-(:mod:`evals.record`). An aggregate over N samples costs N single runs.
+photo, summed spend), plus ``console.log``, ``manifest.json``, ``results.json`` and
+``report.md``, the run record (:mod:`evals.record`; filed under ``photo_analysis`` at the
+sources' prompt versions joined, one passed case per photo aggregated). An aggregate over N
+samples costs N single runs.
 
 ``--by-repeat`` aggregates repeat i of every run together instead of pooling them all, and
 writes one aggregated answer per repeat (``{"repeats": [...]}``): an ensemble of k runs
@@ -48,7 +50,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from evals import record
-from evals.merge_photo_runs import source_manifest_id
+from evals.merge_photo_runs import source_manifest_id, source_version
 
 __all__ = ["RULES", "aggregate", "aggregate_runs", "main", "parse_args", "samples"]
 
@@ -170,7 +172,9 @@ def _fold(values: list[Any]) -> Any:
 def aggregate_runs(
     runs: Sequence[Path], out: Path, rule: str, by_repeat: bool = False
 ) -> dict[str, Any]:
-    run = record.EvalRun.begin(out, harness=__name__)
+    run = record.EvalRun.begin(
+        out, harness=__name__, component="photo_analysis", version=source_version(runs)
+    )
     try:
         summary = _aggregate(runs, out, rule, by_repeat, run)
     except BaseException as exc:
@@ -201,6 +205,7 @@ def _aggregate(
         else:
             groups = [photo_samples]
         results[file] = [_aggregate_photo(g, rule) for g in groups]
+        run.case(file, record.PASSED, kind="photo", detail={"samples": len(photo_samples)})
     out_files = {
         "photo_counts": {f: _fold([r["counts"] for r in rs]) for f, rs in results.items()},
         "photo_components": {

@@ -14,7 +14,11 @@ what did it score, cost and when?* Every run directory under ``<data dir>/predic
 * ``scores.jsonl``: every scoring of the directory by ``evals.run --predictions`` (the label
   file, version and sha256 per dataset, the metrics); the latest scoring per dataset wins;
 * ``eval.md``: an older scoring's report (metrics parsed from its tables, labels by name);
-* ``score.json`` (appraisal runs): the appraisal scorer's output.
+* ``score.json`` (appraisal runs): the appraisal scorer's output;
+* ``results.json``: the run's cases (passed / failed / test_error) and, from its manifest's
+  ``tree`` section, the component and version it is filed under in
+  ``<data dir>/verification/<component>/<version>/<run>`` (runs written inside the tree
+  itself are scanned too; the links there point back at ``predictions/``).
 
 Usage (from ``backEnd/``)::
 
@@ -28,8 +32,10 @@ Filters: ``--component NAME[/vN]`` (a prompt name or version id, a detector, a l
 anything the manifest lists under components), ``--model M`` (requested or answered;
 ``M*`` for a prefix), ``--labels FILE_STEM`` / ``--dataset NAME``, ``--release vX.Y.Z``,
 ``--harness evals.predict_photos``, ``--status ok|stopped|error|unknown``, ``--since DATE``.
+``--component`` also matches the tree component (``room_inventory``, ``room_inventory/v3``).
 ``--matrix`` prints, for the matching runs, prompt version ids against models with the
-number of runs in each cell (and the label versions seen), the "fully tested?" view.
+number of runs in each cell (and the label versions seen), the "fully tested?" view. The
+``results`` column is ``passed / failed / test_error`` from ``results.json``.
 Nothing here calls a model or reads client data beyond the run directories' own files.
 """
 
@@ -61,6 +67,7 @@ __all__ = [
     "render_matrix",
     "run_directories",
     "scan",
+    "tree_directories",
 ]
 
 # The one metric per dataset the table shows (every metric is in the JSON output).
@@ -106,6 +113,9 @@ class RunEntry:
     calls: int | None
     manifest: bool
     backfilled: bool
+    component: str | None = None  # where the run files in the verification tree
+    version: str | None = None
+    results: dict[str, int] = field(default_factory=dict)  # passed / failed / test_error
     report_sections: list[int] = field(default_factory=list)
     files: dict[str, str | None] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
@@ -281,9 +291,18 @@ def read_run(directory: Path, root: Path) -> RunEntry:
     efforts = (components.get("request_params") or {}).get("reasoning_effort")
     if not efforts:
         efforts = _as_list(summary.get("reasoning_effort"))
+    tree = (manifest or {}).get("tree") or {}
+    outcomes = (
+        record.read_results(directory)["summary"]
+        if (directory / record.RESULTS_FILE).is_file()
+        else {}
+    )
     return RunEntry(
         name=directory.name,
         path=str(directory.relative_to(root)),
+        component=_known(tree.get("component")),
+        version=_known(tree.get("version")),
+        results={k: int(outcomes[k]) for k in record.OUTCOMES if k in outcomes},
         kind=kind,
         harness=((manifest or {}).get("harness") or {}).get("module"),
         status=(manifest or {}).get("status")
@@ -335,10 +354,26 @@ def run_directories(root: Path) -> list[Path]:
     return found
 
 
+def tree_directories(root: Path) -> list[Path]:
+    """Run directories written directly inside ``verification/<component>/<version>/``
+    (not the links, which point at ``predictions/`` or ``appraisal/runs/`` and are already
+    scanned there)."""
+    tree = record.tree_root(root)
+    if tree is None or not tree.is_dir():
+        return []
+    found: list[Path] = []
+    for component in sorted(p for p in tree.iterdir() if p.is_dir()):
+        for version in sorted(p for p in component.iterdir() if p.is_dir()):
+            for run in sorted(p for p in version.iterdir() if p.is_dir() and not p.is_symlink()):
+                found.append(run)
+    return found
+
+
 def scan(root: Path) -> list[RunEntry]:
-    """Every run directory under ``root`` (:func:`run_directories`), newest first (by start
-    time, then name)."""
-    entries = [read_run(directory, root) for directory in run_directories(root)]
+    """Every run directory under ``root`` (:func:`run_directories` and the runs written
+    inside the verification tree), newest first (by start time, then name)."""
+    directories = run_directories(root) + tree_directories(root)
+    entries = [read_run(directory, root) for directory in directories]
     entries.sort(key=lambda e: (e.started_at or "", e.name), reverse=True)
     return entries
 
@@ -367,7 +402,15 @@ def filter_runs(
 ) -> list[RunEntry]:
     out: list[RunEntry] = []
     for entry in entries:
-        if component and component not in entry.components:
+        if (
+            component
+            and component not in entry.components
+            and component
+            not in (
+                entry.component,
+                f"{entry.component}/{entry.version}",
+            )
+        ):
             continue
         if model and not _matches_model(entry, model):
             continue
@@ -410,6 +453,13 @@ def _headline(entry: RunEntry) -> str:
     return "; ".join(parts) if parts else "not scored"
 
 
+def _results(entry: RunEntry) -> str:
+    if not entry.results:
+        return "-"
+    r = entry.results
+    return f"{r.get('passed', 0)} / {r.get('failed', 0)} / {r.get('test_error', 0)}"
+
+
 def _labels(entry: RunEntry) -> str:
     stems = sorted(entry.label_stems)
     return ", ".join(stems) if stems else "?"
@@ -417,9 +467,9 @@ def _labels(entry: RunEntry) -> str:
 
 def render_markdown(entries: Sequence[RunEntry]) -> str:
     lines = [
-        "| run | started | release | git | harness | prompts | model | effort | labels | "
-        "scores | cost | calls | record |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| run | component | version | started | release | git | harness | prompts | model | "
+        "effort | labels | results | scores | cost | calls | record |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for e in entries:
         prompts = ", ".join(_prompt_id(p) for p in e.prompts)
@@ -432,6 +482,8 @@ def render_markdown(entries: Sequence[RunEntry]) -> str:
                 cell.replace("|", "/")
                 for cell in (
                     f"`{e.name}`",
+                    e.component or "?",
+                    e.version or "?",
                     (e.started_at or "?")[:16],
                     e.release or "?",
                     git,
@@ -440,6 +492,7 @@ def render_markdown(entries: Sequence[RunEntry]) -> str:
                     ", ".join(e.models_requested) or "-",
                     ", ".join(e.reasoning_effort) or "-",
                     _labels(e),
+                    _results(e),
                     _headline(e),
                     "?" if e.cost_usd is None else f"${e.cost_usd:.2f}",
                     _fmt(e.calls),
