@@ -76,10 +76,13 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harnes
     assert worksheet["location_source"] == "intake"
     assert worksheet["building_basis"] == "560000.00" and worksheet["total_basis"] == "560180.00"
 
-    # The use decided the building period (39 years on the worksheet); the fixture's six
-    # assets are all section 1245 rule hits, so no asset is a building row here (the
-    # 39-year building row itself is tests/unit/activities/test_process_assets.py).
-    assert {a["bucket"] for a in exported["assets"]} == {"y5"}
+    # The use decided the building period (39 years on the worksheet): the fixture's
+    # bathtub and toilet are building rows since RULES_VERSION 2026-10-29.1 (ATG p.315), so
+    # they take 39 years for this nonresidential use; the cabinets and countertops are
+    # section 1245 rule hits, 5 years.
+    buckets = {a["label"]: a["bucket"] for a in exported["assets"]}
+    assert {buckets["bathtub"], buckets["toilet"]} == {"y39"}
+    assert {a["bucket"] for a in exported["assets"]} == {"y5", "y39"}
     assert all(a["recovery_period"] != "27.5" for a in exported["assets"])
 
     # The takeoff inputs, read back from the rows: the intake's year and state applied to

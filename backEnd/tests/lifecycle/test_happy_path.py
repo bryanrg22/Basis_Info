@@ -108,11 +108,12 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         assert len(assets) == 6
         citations = (await session.scalars(select(Citation).where(Citation.study_id == sid))).all()
         # Every asset here is a rules-table hit whose citations resolved against the
-        # seeded reference corpus (none unverified). Every one goes to review because every
-        # row hit is contested: the plumbing fixtures (Treas. Reg. 1.48-1(e)(2)) and the
-        # kitchen cabinets and countertops (section 1250 in the ATG's residential rental
-        # matrix). Cross-validation adds its own reasons to the countertops (a synthetic
-        # takeoff too large for section 1245, and no cost row).
+        # seeded reference corpus (none unverified). Every one goes to review: the kitchen
+        # cabinets and countertops because their rows are contested (section 1250 in the
+        # ATG's residential rental matrix), the bathtub and toilet only because
+        # cross-validation finds no cost row (since RULES_VERSION 2026-10-29.1 they are
+        # uncontested building rows, ATG p.315). Cross-validation adds its own reasons to
+        # the contested rows too.
         labels = {c.id: c.label for c in components}
         assert {c.asset_id for c in citations} == {a.id for a in assets}
         assert all(c.verified_at is not None for c in citations)
@@ -128,7 +129,15 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
             "kitchen_cabinet",
             "toilet",
         ]
-        assert all(reason.startswith(f"rule_contested:{label}") for label, reason in flagged)
+        contested = {"countertop", "kitchen_cabinet"}
+        assert all(
+            reason.startswith(f"rule_contested:{label}")
+            for label, reason in flagged
+            if label in contested
+        )
+        assert all(
+            "rule_contested" not in reason for label, reason in flagged if label not in contested
+        )
         # Cross-validation still runs on a contested hit and adds its own reasons.
         assert all("cross:" in reason for label, reason in flagged if label == "countertop")
 

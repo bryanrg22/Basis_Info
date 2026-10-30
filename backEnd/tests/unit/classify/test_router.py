@@ -63,9 +63,11 @@ async def test_rule_without_a_reference_corpus_flags_citation_unverified() -> No
 
 
 async def test_contested_rule_goes_to_review() -> None:
-    result = await classify(component("toilet"), make_ctx(ScriptedProvider([])))
+    # toilet was the contested example until RULES_VERSION 2026-10-29.1 made it a building
+    # row; doorbell is still contested (no document names it)
+    result = await classify(component("doorbell"), make_ctx(ScriptedProvider([])))
     assert result.method == "rule" and result.bucket is Bucket.Y5
-    assert "rule_contested:toilet" in result.review_reasons
+    assert "rule_contested:doorbell" in result.review_reasons
 
 
 def cached(key: str, chunk: str = str(STRUCTURAL_CHUNK)) -> CachedClassification:

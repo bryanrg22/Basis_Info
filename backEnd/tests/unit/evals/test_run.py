@@ -49,8 +49,10 @@ def test_dry_run_writes_a_report_for_every_dataset(
     assert "eval_runs" not in capsys.readouterr().out  # no database configured
 
 
-def test_rules_table_baseline_shows_the_contested_rows() -> None:
-    """The synthetic corpus treats bathtubs and toilets as 1250; the legacy rows say 1245."""
+def test_rules_table_baseline_agrees_on_bathtubs_and_toilets() -> None:
+    """The synthetic corpus treats bathtubs and toilets as 1250, and so do the rows since
+    RULES_VERSION 2026-10-29.1 (they were 1245 before); the two labels without a row
+    abstain."""
     [assets] = [
         r
         for r in evaluate(
@@ -59,8 +61,8 @@ def test_rules_table_baseline_shows_the_contested_rows() -> None:
         if r.dataset == "assets"
     ]
     rows = {r.metric: r for r in assets.rows}
-    assert rows["section_accuracy"].value == pytest.approx(2 / 6)
-    assert rows["section_accuracy"].details["confusion"]["1250"] == {"1245": 2, "abstain": 2}
+    assert rows["section_accuracy"].value == pytest.approx(4 / 6)
+    assert rows["section_accuracy"].details["confusion"]["1250"] == {"1250": 2, "abstain": 2}
     assert rows["section_coverage"].value == pytest.approx(4 / 6)
 
 
