@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-216 codes in 18 areas.
+217 codes in 18 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
