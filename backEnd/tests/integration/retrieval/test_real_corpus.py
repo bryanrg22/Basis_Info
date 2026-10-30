@@ -374,7 +374,7 @@ async def test_every_rules_table_citation_resolves_in_the_ingested_chunks(
         verified += len(ok)
         unresolved += [f"{hit_name(hit)} {d.chunk_id}" for d in dropped]
     _report(record_property, citations=claimed, resolved=verified)
-    assert claimed == 104  # 89 on the 54 rows, 15 on their 7 variants
+    assert claimed == 106  # 89 on the 54 rows, 17 on their 8 variants
     assert unresolved == []
 
 
