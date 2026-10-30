@@ -34,6 +34,10 @@
 * ``0013_study_events`` adds the append-only ``study_events`` (the per-study timeline, with
   the ``forbid_mutation()`` trigger), ``rooms.carried_from`` and ``studies.failure_code``,
   and downgrades back to ``0012``;
+* ``0014_firm_conventions`` recreates ``classification_cache`` scoped by firm (primary key
+  ``(org_id, key)``, the seeding approval, the rules-table agreement, ``approvals >= 1``,
+  its ``updated_at`` trigger) and adds ``assets.convention`` (only on ``cache`` assets);
+  rows of the old table are dropped, and it downgrades back to ``0013`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -66,8 +70,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0013"
-HISTORY = [f"{n:04d}" for n in range(13, 0, -1)]  # "0013" .. "0001"
+HEAD = "0014"
+HISTORY = [f"{n:04d}" for n in range(14, 0, -1)]  # "0014" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -870,6 +874,102 @@ async def test_0013_study_events_append_only_and_downgrade(empty_database_url: s
     finally:
         await connection.close()
     await upgrade(empty_database_url)
+
+
+# --------------------------------------------------------------------------- 0014
+
+
+async def _table_columns(url: str, table: str) -> list[tuple[str, str, str]]:
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        rows = await connection.fetch(
+            "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
+            "WHERE table_name = $1 ORDER BY ordinal_position",
+            table,
+        )
+    finally:
+        await connection.close()
+    return [(r["column_name"], r["data_type"], r["is_nullable"]) for r in rows]
+
+
+async def test_0014_firm_conventions_scoped_by_firm_and_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0013")
+    at_0013 = await snapshot(url)
+    cache_0013 = await _table_columns(url, "classification_cache")
+    assets_0013 = await _table_columns(url, "assets")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, user = await _photo(connection)
+        org = await connection.fetchval("SELECT org_id FROM studies WHERE id = $1", study)
+        # A row of the old, unscoped table has no firm: the upgrade drops it (the table was
+        # empty everywhere; the migration says so).
+        await connection.execute(
+            "INSERT INTO classification_cache (key, result, source, rules_version) "
+            "VALUES ('k|||residential_rental|v', '{}'::jsonb, 's', 'v')"
+        )
+    finally:
+        await connection.close()
+    await upgrade(url)
+    triggers = (await snapshot(url))["triggers"]
+    assert ("classification_cache_set_updated_at", "classification_cache") in triggers  # type: ignore[operator]
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        assert await connection.fetchval("SELECT count(*) FROM classification_cache") == 0
+        other_org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('p') RETURNING id")
+        insert = (
+            "INSERT INTO classification_cache (org_id, key, result, source, rules_version, "
+            "study_id, reviewer_id, approved_at, rule_key, agrees_with_rules{extra}) "
+            "VALUES ($1, $2, '{{}}'::jsonb, 's', 'v', $3, $4, now(), $5, $6{values}) "
+            "RETURNING approvals, hits, updated_at"
+        )
+        plain = insert.format(extra="", values="")
+        row = await connection.fetchrow(plain, org, "k", study, user, None, None)
+        assert (row["approvals"], row["hits"]) == (1, 0)
+        # The same key at another firm is another convention; twice at one firm is not.
+        await connection.execute(plain, other_org, "k", study, user, "carpet", False)
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await connection.execute(plain, org, "k", study, user, None, None)
+        with pytest.raises(asyncpg.CheckViolationError, match="approvals_positive"):
+            await connection.execute(
+                insert.format(extra=", approvals", values=", 0"),
+                org,
+                "k2",
+                study,
+                user,
+                None,
+                None,
+            )
+        with pytest.raises(asyncpg.CheckViolationError, match="rule_agreement"):
+            await connection.execute(plain, org, "k3", study, user, "carpet", None)
+        with pytest.raises(asyncpg.NotNullViolationError):
+            await connection.execute(plain, None, "k4", study, user, None, None)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute(plain, uuid.uuid4(), "k5", study, user, None, None)
+        updated = await connection.fetchval(
+            "UPDATE classification_cache SET approvals = approvals + 1 "
+            "WHERE org_id = $1 AND key = 'k' RETURNING updated_at",
+            org,
+        )
+        assert updated >= row["updated_at"]  # the set_updated_at trigger is back
+        asset = (
+            "INSERT INTO assets (study_id, revision, category, bucket, recovery_period, method, "
+            "convention) VALUES ($1, 1, 'c', 'y5', 5, $2, $3::jsonb)"
+        )
+        await connection.execute(asset, study, "cache", '{"key": "k"}')
+        await connection.execute(asset, study, "rule", None)
+        for method, value in (("rule", '{"key": "k"}'), ("cache", '["k"]')):
+            with pytest.raises(asyncpg.CheckViolationError, match="convention_from_cache"):
+                await connection.execute(asset, study, method, value)
+    finally:
+        await connection.close()
+    await downgrade(url, "0013")
+    assert await snapshot(url) == at_0013
+    assert await _table_columns(url, "classification_cache") == cache_0013
+    assert await _table_columns(url, "assets") == assets_0013
+    await upgrade(url)
 
 
 # --------------------------------------------------------------------------- 0011

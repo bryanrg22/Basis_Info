@@ -85,6 +85,8 @@ OPTIONS: Final[dict[str, ActivityOptions]] = {
     "mark_stalled": _DB_30S,
     "record_failure": _DB_30S,
     "apply_corrections": ActivityOptions(timedelta(minutes=1), DB_ATTEMPTS),
+    # A few queries and one upsert per promoted key; no loop long enough to heartbeat.
+    "promote_conventions": _DB_30S,
     "ingest_appraisal": ActivityOptions(
         timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
     ),

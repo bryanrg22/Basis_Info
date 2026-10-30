@@ -2069,6 +2069,31 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Raise the budget and retry, or approve as is.",
         "no",
     ),
+    _e(
+        E.ASSETS_CONVENTION_PROMOTION_FAILED,
+        "outcome",
+        "promote_conventions",
+        "basis.workflow.study_workflow",
+        "The approved assets could not be promoted to the firm's conventions; the study "
+        "continued to the export (its result does not depend on the conventions).",
+        "A worker-log warning with this code and the `promote_conventions` "
+        "`activity.failed` events; no `convention.promoted` events for the revision.",
+        "Fix the cause (the activity's error code). This study's rulings stay unpromoted; "
+        "a later approved study with the same components seeds them.",
+        "no",
+    ),
+    _e(
+        E.ASSETS_CONVENTION_REPLACED,
+        "outcome",
+        "promote_conventions",
+        "basis.activities.promote_conventions",
+        "An approved answer for a context key differed from the firm's convention for it, "
+        "so the convention was replaced (approvals back to 1).",
+        "A `convention.replaced` timeline event with this code: `before` the replaced "
+        "convention, `after` the new one.",
+        "None if the new ruling is intended; otherwise correct the asset in a later study.",
+        "no",
+    ),
     # ------------------------------------------------------------------ EXPORT
     _e(
         E.EXPORT_STUDY_NOT_FOUND,

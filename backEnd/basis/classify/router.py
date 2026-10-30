@@ -1,17 +1,23 @@
-"""``classify(component, ctx)``: rules table, then the approved-answer cache, then the model.
+"""``classify(component, ctx)``: the firm's conventions, then the rules table, then the model.
 
-1. **Rule** (:func:`basis.domain.rules.lookup`): no model call. The rule's citation
-   claims are resolved against the reference corpus (search for the excerpt, keep a hit
-   from the cited document and page whose text contains it).
-2. **Cache** (``ctx.cache``, prefetched from ``classification_cache``): no model call;
-   cached citations are re-verified against the reference corpus version in use.
+1. **Convention** (``ctx.cache``, the study's firm's rows of ``classification_cache``,
+   prefetched by context key; docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section
+   5): no model call. An engineer's approved ruling beats the rules table, so it is not sent
+   to review for disagreeing with it; the rationale says who approved it, on which study,
+   when, how many approvals it has and whether the rules table agrees. Its citations, when
+   it has any, are re-verified against the reference corpus version in use; an uncited
+   ruling is served as such (``citation: firm convention, uncited`` in its provenance).
+2. **Rule** (:func:`basis.domain.rules.lookup`, with the component's room so the context
+   variants fire): no model call. The rule's citation claims are resolved against the
+   reference corpus (search for the excerpt, keep a hit from the cited document and page
+   whose text contains it).
 3. **LLM** (:mod:`basis.classify.residual`): the bounded tool loop. Citations must
    resolve, be in scope, have been retrieved during this loop, and contain the excerpt.
 
 Review policy (any one sets ``needs_review``; all reasons are kept, in a fixed order):
 a dropped or unresolvable citation (``citation_unverified``), zero verified citations on
-the model path (``citation_unverified``), a model answer without any search
-(``missing_evidence``), a contested rule row, a model that asks
+the model path or on a cited convention (``citation_unverified``), a model answer without
+any search (``missing_evidence``), a contested rule row, a model that asks
 for review, a loop failure, and any validator error or warning. When the model gives no
 usable answer the asset gets the building bucket for the property class (no accelerated
 depreciation is claimed) with confidence 0 and the failure as the reason. A model answer
@@ -27,13 +33,12 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from basis.classify.cache import (
     CachedClassification,
     ClassificationCacheRepository,
     cache_key,
-    promote_to_cache,
 )
 from basis.classify.prompt import PROMPT_VERSION, load_prompt
 from basis.classify.residual import (
@@ -97,6 +102,8 @@ class ClassifyContext:
     # ledger about the component it classifies (``process_assets``); the evaluation
     # runners leave it unset and price calls with ``price``.
     call: CallContext | None = None
+    # The study's firm: a convention of another firm in ``cache`` is never served.
+    org_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +124,8 @@ class ClassificationResult:
     rationale: str = ""
     tool_calls: tuple[ToolCallTrace, ...] = ()
     calls: tuple[CallRecord, ...] = ()
+    # The convention's provenance (``CachedClassification.provenance``) on the cache path.
+    convention: Mapping[str, Any] | None = None
 
     @property
     def irs_section(self) -> str | None:
@@ -136,8 +145,16 @@ def _unique(reasons: list[str]) -> tuple[str, ...]:
 
 
 def _validation_reasons(
-    component: ComponentView, section: str | None, bucket: Bucket, property_class: str
+    component: ComponentView,
+    section: str | None,
+    bucket: Bucket,
+    property_class: str,
+    *,
+    errors_only: bool = False,
 ) -> list[str]:
+    """The validators' reasons; ``errors_only`` keeps the inconsistencies (a section that
+    cannot hold the bucket, a building bucket of the other property class) and drops the
+    label heuristics' warnings, which an engineer's ruling has already answered."""
     issues = validate_classification(
         label=component.label,
         section=section,
@@ -146,7 +163,11 @@ def _validation_reasons(
         property_class=property_class,
         room_type=component.room_type,
     )
-    return [f"validation:{i.code}" for i in issues if i.needs_review]
+    return [
+        f"validation:{i.code}"
+        for i in issues
+        if i.needs_review and (i.severity == "error" or not errors_only)
+    ]
 
 
 async def resolve_rule_citations(
@@ -215,31 +236,68 @@ async def _from_rule(
     )
 
 
+def convention_rationale(cached: CachedClassification) -> str:
+    """``firm convention (approved by <reviewer> on study <id>, <date>; <n> approvals);
+    agrees with the rules table: yes|no (<rule key> says <bucket>)``, then ``uncited`` for a
+    ruling without citations and the engineer's reason when there is one."""
+    when = cached.approved_at.date().isoformat() if cached.approved_at else "unknown date"
+    plural = "approval" if cached.approvals == 1 else "approvals"
+    head = (
+        f"firm convention (approved by {cached.reviewer_id} on study {cached.study_id}, "
+        f"{when}; {cached.approvals} {plural})"
+    )
+    if cached.rule_key is None or cached.agrees_with_rules is None:
+        rules = "agrees with the rules table: n/a (no rule row)"
+    else:
+        says = cached.rule_bucket.value if cached.rule_bucket is not None else "?"
+        verdict = "yes" if cached.agrees_with_rules else "no"
+        rules = f"agrees with the rules table: {verdict} ({cached.rule_key} says {says})"
+    parts = [f"{head}; {rules}"]
+    if not cached.citations:
+        parts.append("uncited")
+    if cached.rationale:
+        parts.append(f"reason: {cached.rationale}")
+    return "; ".join(parts)
+
+
 async def _from_cache(
     component: ComponentView, cached: CachedClassification, ctx: ClassifyContext
 ) -> ClassificationResult:
-    allowed = frozenset(v for v in (ctx.reference_version_id,) if v is not None)
-    verified, dropped = await verify_citations(
-        cached.citations, ctx.store, allowed_versions=allowed, method="cache:resolved+substring"
-    )
+    verified: list[VerifiedCitation] = []
+    dropped: list[DroppedCitation] = []
     reasons: list[str] = []
-    if dropped or not verified:
-        reasons.append(CITATION_UNVERIFIED)
-    reasons += _validation_reasons(component, cached.section, cached.bucket, ctx.property_class)
+    if cached.citations:
+        allowed = frozenset(v for v in (ctx.reference_version_id,) if v is not None)
+        verified, dropped = await verify_citations(
+            cached.citations,
+            ctx.store,
+            allowed_versions=allowed,
+            method="cache:resolved+substring",
+        )
+        if dropped or not verified:
+            reasons.append(CITATION_UNVERIFIED)
+    # A ruling that disagrees with the rules table, or with the validators' label heuristics
+    # ("looks like personal property"), is not a reason for review: overriding the defaults
+    # is what a convention is for (the rationale says so). An inconsistent ruling still is.
+    reasons += _validation_reasons(
+        component, cached.section, cached.bucket, ctx.property_class, errors_only=True
+    )
     return ClassificationResult(
         method="cache",
         category=cached.category,
         section=cached.section,
         bucket=cached.bucket,
-        recovery_period=RECOVERY_YEARS[cached.bucket],
+        recovery_period=cached.period,
         asset_class=cached.asset_class,
         confidence=CACHE_CONFIDENCE,
         needs_review=bool(reasons),
         review_reasons=_unique(reasons),
         citations=tuple(verified),
         dropped=tuple(dropped),
+        rule_key=cached.rule_key,
         cache_key=cached.key,
-        rationale=f"engineer-approved classification ({cached.source})",
+        rationale=convention_rationale(cached),
+        convention=cached.provenance(),
     )
 
 
@@ -341,17 +399,34 @@ async def classify_with_model(
     return await _from_model(component, ctx)
 
 
+def context_key(component: ComponentView, property_class: str) -> str:
+    """The component's context key (``basis.classify.cache.cache_key``)."""
+    return cache_key(
+        component.label,
+        component.material,
+        component.attachment,
+        property_class,
+        component.room_type,
+    )
+
+
 def route(
     component: ComponentView, ctx: ClassifyContext
 ) -> tuple[Method, RuleHit | CachedClassification | None]:
-    """Which path ``classify`` takes, without running it (used to reserve budget)."""
-    hit = lookup(component.label, component.material, component.attachment, ctx.property_class)
+    """Which path ``classify`` takes, without running it (used to reserve budget): the
+    firm's convention for the context key, else the rules table, else the model."""
+    cached = ctx.cache.get(context_key(component, ctx.property_class))
+    if cached is not None and cached.org_id == ctx.org_id:
+        return "cache", cached
+    hit = lookup(
+        component.label,
+        component.material,
+        component.attachment,
+        ctx.property_class,
+        room_type=component.room_type,
+    )
     if hit is not None:
         return "rule", hit
-    key = cache_key(component.label, component.material, component.attachment, ctx.property_class)
-    cached = ctx.cache.get(key)
-    if cached is not None:
-        return "cache", cached
     return "llm", None
 
 
@@ -371,7 +446,8 @@ __all__ = [
     "ClassifyContext",
     "classify",
     "classify_with_model",
-    "promote_to_cache",
+    "context_key",
+    "convention_rationale",
     "resolve_rule_citations",
     "route",
 ]

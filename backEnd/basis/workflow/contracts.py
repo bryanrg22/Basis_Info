@@ -329,6 +329,26 @@ class ProcessAssetsOutput(_Frozen):
     cost_usd: float = 0.0
 
 
+class PromoteConventionsInput(_Frozen):
+    """Promote the approved revision's rulings to the firm's conventions (patch
+    ``firm-conventions-v1``; docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 5)."""
+
+    study_id: str
+    revision: int
+    idempotency_key: str
+
+
+class PromoteConventionsOutput(_Frozen):
+    """Per context key: a new convention, one more approval of the same answer, or a
+    different answer replacing the convention; ``skipped``: keys this study had already
+    promoted (a re-run) or whose approved assets disagree with each other."""
+
+    created: int = 0
+    confirmed: int = 0
+    replaced: int = 0
+    skipped: int = 0
+
+
 class ExportReportInput(_Frozen):
     study_id: str
     revision: int

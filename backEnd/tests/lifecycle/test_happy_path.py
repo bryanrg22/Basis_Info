@@ -64,13 +64,21 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
             # components_review, assets_processing, assets_review, exporting, completed
             "transition": 9,
             "process_assets": 1,
+            # After the assets approval (patch firm-conventions-v1).
+            "promote_conventions": 1,
             "export_report": 1,
             "record_run_end": 1,
         }
     )
     assert sequence.index("extract_fields") > sequence.index("ingest_appraisal")
     assert sequence.index("process_assets") > sequence.index("extract_fields")
-    assert sequence[-3:] == ["export_report", "transition", "record_run_end"]
+    assert sequence[-5:] == [
+        "promote_conventions",
+        "transition",
+        "export_report",
+        "transition",
+        "record_run_end",
+    ]
 
     study = await harness.study_row(started.study_id)
     assert (study.current_stage, study.status, study.revision) == (

@@ -4,7 +4,8 @@ Conventions (S1_SPEC §1) and how they are enforced here:
 
 * Primary keys are ``UUID DEFAULT gen_random_uuid()`` (server side), except the natural
   keys the spec names (``org_members``, ``document_pages``, ``photo_rooms``,
-  ``classification_cache``, ``idempotency_keys``).
+  ``classification_cache`` (``(org_id, key)`` since migration ``0014``),
+  ``idempotency_keys``).
 * Every table has ``created_at TIMESTAMPTZ NOT NULL DEFAULT now()``. Mutable tables
   (``studies``, ``activity_results``, ``classification_cache``) also have ``updated_at``,
   maintained by the ``set_updated_at()`` trigger.
@@ -626,6 +627,10 @@ class Asset(Base):
             ["study_id", "component_id"], ["components.study_id", "components.id"]
         ),
         _confidence_check("confidence"),
+        CheckConstraint(
+            "convention IS NULL OR (method = 'cache' AND jsonb_typeof(convention) = 'object')",
+            name="convention_from_cache",
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -641,6 +646,10 @@ class Asset(Base):
     needs_review: Mapped[bool] = mapped_column(server_default=FALSE)
     review_reason: Mapped[str | None]
     verified: Mapped[bool] = mapped_column(server_default=FALSE)
+    # The firm convention it was classified from, as of its classification (migration
+    # ``0014_firm_conventions``; ``CachedClassification.provenance``): NULL unless
+    # ``method = 'cache'``.
+    convention: Mapped[Any | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -972,14 +981,34 @@ class LlmCall(Base):
 
 
 class ClassificationCacheEntry(Base):
-    __tablename__ = "classification_cache"
-    __table_args__ = (CheckConstraint("hits >= 0", name="hits_nonnegative"),)
+    """A firm's convention (migration ``0014_firm_conventions``): an engineer-approved
+    classification for one context key (``basis.classify.cache``), scoped by firm.
 
-    key: Mapped[str] = mapped_column(primary_key=True)
+    ``study_id``/``reviewer_id``/``approved_at`` name the approval that seeded the row;
+    ``rule_key``/``agrees_with_rules`` what the rules table says for the same key (NULL when
+    no rule row); ``approvals`` how many approved studies at the firm gave the same answer.
+    """
+
+    __tablename__ = "classification_cache"
+    __table_args__ = (
+        PrimaryKeyConstraint("org_id", "key"),
+        CheckConstraint("hits >= 0", name="hits_nonnegative"),
+        CheckConstraint("approvals >= 1", name="approvals_positive"),
+        CheckConstraint("(rule_key IS NULL) = (agrees_with_rules IS NULL)", name="rule_agreement"),
+    )
+
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
+    key: Mapped[str]
     result: Mapped[Any] = mapped_column(JSON_DOC)
     hits: Mapped[int] = mapped_column(server_default=ZERO)
     source: Mapped[str]
     rules_version: Mapped[str]
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    reviewer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    approved_at: Mapped[datetime]
+    rule_key: Mapped[str | None]
+    agrees_with_rules: Mapped[bool | None]
+    approvals: Mapped[int] = mapped_column(server_default=text("1"))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 

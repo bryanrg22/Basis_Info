@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-213 codes in 18 areas.
+215 codes in 18 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -266,6 +266,8 @@ stale).
 | `BASIS-ASSETS-009` | flag | process_assets; `basis.classify.router` | The model itself asked for review and said why. | `review_reasons` `model:<reason>`. (reason `model:`) | Read the reason. | no |
 | `BASIS-ASSETS-010` | flag | process_assets; `basis.activities.process_assets` | The quantity is an upper bound (landscaping: the whole unbuilt lot). | `review_reasons` `takeoff:upper_bound`. (reason `takeoff:upper_bound`) | Measure or confirm the quantity. | no |
 | `BASIS-ASSETS-011` | outcome | process_assets; `basis.workflow.study_workflow` | The assets step did not run for want of budget (BASIS-BUDGET-003). | `needs_review_stages` has `assets_review` and the revision has no assets. | Raise the budget and retry, or approve as is. | no |
+| `BASIS-ASSETS-012` | outcome | promote_conventions; `basis.workflow.study_workflow` | The approved assets could not be promoted to the firm's conventions; the study continued to the export (its result does not depend on the conventions). | A worker-log warning with this code and the `promote_conventions` `activity.failed` events; no `convention.promoted` events for the revision. | Fix the cause (the activity's error code). This study's rulings stay unpromoted; a later approved study with the same components seeds them. | no |
+| `BASIS-ASSETS-013` | outcome | promote_conventions; `basis.activities.promote_conventions` | An approved answer for a context key differed from the firm's convention for it, so the convention was replaced (approvals back to 1). | A `convention.replaced` timeline event with this code: `before` the replaced convention, `after` the new one. | None if the new ruling is intended; otherwise correct the asset in a later study. | no |
 
 ## EXPORT: export_report
 
