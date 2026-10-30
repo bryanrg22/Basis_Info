@@ -109,12 +109,11 @@ from basis.activities._support import (
 from basis.activities.apply_corrections import CARRIED_FROM
 from basis.activities.corrections import check_asset, parse_bucket, parse_recovery_period
 from basis.activities.deps import Deps
-from basis.classify.cache import ClassificationCacheRepository
+from basis.classify.cache import ClassificationCacheRepository, ConventionIndex
 from basis.classify.router import (
     ClassificationResult,
     ClassifyContext,
     classify,
-    context_key,
     route,
 )
 from basis.classify.schemas import ComponentView
@@ -319,13 +318,16 @@ async def _prepare(
             )
             for label in STRUCTURE_LABELS
         }
-    # Every component's context key, not only the rules table's misses: a convention beats
-    # a rule row (docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 2).
-    keys = {context_key(v, property_class) for v in views.values()}
+    # Every component's label, not only the rules table's misses: a convention beats a
+    # rule row (docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 2), and the
+    # tiers of section 9 need every row of the firm with the label, whatever its material,
+    # attachment and room. The concealed rows' labels too: their rulings are conventions.
+    labels = {v.label for v in (*views.values(), *structure_views.values())}
     org_id = None if study is None else study.org_id
-    conventions = {}
+    conventions = ConventionIndex()
     if org_id is not None:
-        conventions = await ClassificationCacheRepository(session).get_many(org_id, keys)
+        rows = await ClassificationCacheRepository(session).get_for_labels(org_id, labels)
+        conventions = ConventionIndex(rows)
     reference_version, study_version = await corpus_versions(session, study_id)
     budget = Budget(remaining_usd=max(input.budget_remaining_usd, 0.0))
     origin = await call_origin(session, study_id)

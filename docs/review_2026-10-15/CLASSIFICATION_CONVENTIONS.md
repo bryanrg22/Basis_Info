@@ -135,8 +135,8 @@ default; it is not part of this change.
 | `hits` | as today |
 
 The table is empty everywhere, so the migration drops and recreates it (documented in the
-migration docstring). `ClassificationCacheRepository.get_many(org_id, keys)` and
-`put(org_id, key, ...)`.
+migration docstring). `ClassificationCacheRepository.get_many(org_id, keys)` (replaced by
+`get_for_labels` in section 9) and `put(org_id, key, ...)`.
 
 **Writer:** a new activity `promote_conventions` runs in the workflow right after the
 `assets_review` approval and before `exporting`. For the approved revision it promotes:
@@ -230,3 +230,117 @@ with the client data (run 2 approved no asset corrections, so there is nothing t
 - Not done here: the CSV export has no convention column (the JSON export and `/assets`
   have it); no new replay history was recorded for the `firm-conventions-v1` patch (the
   fresh-history test covers the new branch); the classifier prompt is unchanged.
+
+## 9. The key hierarchy: a ruling matches the next study's component when the photo step reads it differently (design, 2026-10-30)
+
+Why: EVAL_REPORT section 42.5, finding 1. On the live pair of studies, study B's two
+fireplaces came out of the photo step with no material where study A's rulings were keyed
+on `wood` and `other`, so no convention matched and Fireplaces was the one wrong row; nine
+more convention-row assets had no ruling because their room or material was one the first
+study never showed. The material and attachment the vision step reads vary between runs;
+a ruling keyed on all six parts does not generalize as far as the engineer meant it.
+EVAL_REPORT section 46 reports the result.
+
+### 9.1 Three tiers, most specific first
+
+The context key stays `label|material|attachment|room|property_class|RULES_VERSION` and
+the table keeps one row per exact key. The *reader* derives a hierarchy from it:
+
+| tier | `matched_tier` | the firm's rows that are candidates | beats |
+|---|---|---|---|
+| 1 | `exact` | the row with the component's exact key | everything (as today) |
+| 2 | `label_room` | the rows with the same label, room, property class and rules version, whatever their material and attachment | the rules table and the model |
+| 3 | `label` | the rows with the same label, property class and rules version, whatever their material, attachment and room | the model, and a *contested* rule row |
+
+The most specific tier with a candidate serves. Property class and rules version are never
+relaxed: a ruling for a residential rental is not a ruling for a nonresidential building,
+and a ruling made under older rules is never served (section 3).
+
+Two labels are exceptions, measured on the live pair before they were written down
+(`evals.conventions_replay`, section 9.5):
+
+- **A label whose material is the item keeps it at every tier** (`MATERIAL_LABELS`). The
+  generic floors `flooring`, `floor`, `floor_covering` and `floors` carry no answer of
+  their own; the rules table resolves them by material (vinyl, carpet, tile ...). The
+  surface finishes `wall_finish` and `ceiling_finish` are the same: on the live pair the
+  firm ruled wallpaper and wood paneling 5-year (wall coverings) and drywall, painted
+  masonry and fiberglass building (the wall), and with the material relaxed those rulings
+  conflicted on six of study B's walls (9.3) where keeping it serves four of them from the
+  matching material's ruling and sends the two unruled materials to the model. So the
+  tiers for these labels are `label|material|attachment|room`, then
+  `label|material|·|room`, then `label|material|·|·`. Every other label carries the item
+  (carpet and tile, baseboard and crown molding are different labels), so the material is
+  a reading of the photo, not part of the ruling.
+- **The catch-all label never generalizes.** `other` names nothing: a ruling on
+  `other|wood|freestanding|exterior` (a bench) says nothing about `other|fabric|exterior`
+  (an awning). On study B the label tiers would have served 16 `other` assets from
+  unrelated rulings, with 11 conflicts. `other` matches at the exact tier only.
+
+Attachment is relaxed at tiers 2 and 3 for the same reason as material: `permanent`,
+`removable` and `freestanding` are what the vision step read this time. Where a firm has
+ruled the same label in the same room differently by attachment (a hanging mirror 5-year,
+a glued one building), the two rulings disagree at tier 2 and the rules table, whose mirror
+row keys on the attachment, decides (9.3).
+
+### 9.2 Why the label tier does not outrank an uncontested rule row
+
+A tier-2 match is the engineer's ruling on this item in this room, read with another
+material: it is the ruling. A tier-3 match is the ruling on this item in *another* room,
+and the room is the dimension the rules table itself keys on (section 4: a cabinet in a
+bathroom, furniture in an office). Measured on study B with the plain label tier: the
+firm's two sink rulings (the kitchen sink and the garage utility sink, 5-year, against the
+guide) would have served the seven bathroom sinks, which the guide puts with the building
+(ATG p.315) and the engineer's Plumbing row agrees. The engineer never ruled on a bathroom
+sink because the rule row was already right, and a rule asset is never promoted (section
+5), so the table holds no counter-evidence.
+
+So: at tier 3 a ruling beats the model and beats a *contested* rule row (the guide names
+no passage for the item, or practitioners differ: the row goes to the engineer anyway, and
+the firm's position across rooms is the better default), but not an uncontested one (the
+guide names the item for this context; the engineer's correction in *this* room, which
+tier 2 then serves, is what outranks it). On study B that gate blocks exactly the seven
+bathroom sinks and nothing else. The hardwood floors in the lobby (contested row) and the
+baseboards and wainscoting in rooms study A never showed (no rule row) are served.
+
+### 9.3 Disagreement inside a tier
+
+Several rows can be candidates at tiers 2 and 3. They are grouped by answer
+(`answer_of`: bucket, recovery period, section). One answer: the row with the most
+approvals serves (then the smallest key, so the choice is stable). Several answers: the
+answer whose strongest ruling has the most approvals wins; when the strongest rulings are
+equally approved the firm is split on this component, no coarser tier is consulted (it is
+less specific still), and the rules table decides, then the model. The asset the table or
+the model classifies then carries `review_reasons` `convention_conflict:<tier>`
+(`BASIS-ASSETS-014`) naming the tier where the firm's rulings disagreed, so the engineer
+can settle it: their ruling at this study's gate becomes the exact row that wins next time.
+
+### 9.4 Counting, provenance, the writer
+
+- **Approvals and hits are counted on the row that served.** `process_assets` records the
+  hit on the served row's key; when the study is approved, an asset let stand (`cache`)
+  confirms the row named in its `convention.key`, not a row for its own exact key (there
+  is none). `promote_conventions` therefore groups a `cache` asset under the served key.
+- **The asset says which tier matched.** `assets.convention` gains `matched_tier`
+  (`exact`, `label_room`, `label`); the rationale gains `matched: exact` or
+  `matched: label and room (ruling keyed fireplace|wood|permanent|living_room|...)` /
+  `matched: label only (...)`. `GET /assets` (`ConventionOut.matched_tier`) and the
+  export's `assets[].convention` carry it; an asset classified before this change has no
+  member and is read as `exact`. The rest of the provenance (`key`, `agrees_with_rules`,
+  `rule_key`, approvals, reviewer, study, citation) is the served row's.
+- **The writer still writes exact keys only.** The tiers are derived at read time, so an
+  engineer's later ruling on the exact context always wins at tier 1, and no row ever has
+  to be rewritten when a coarser one would have served. No migration: the table's key is
+  unchanged.
+- **The prefetch is by label.** `process_assets` fetches the firm's rows whose label is one
+  of the revision's labels at the current rules version (`get_for_labels`), including the
+  concealed rows' labels (the structure model's views were not prefetched before, so a
+  ruling on a concealed row could never be served). `route()` builds the tiers from them
+  (`ConventionIndex`).
+
+### 9.5 Measured offline (EVAL_REPORT section 46)
+
+`evals.conventions_replay`: study B's stored export and a dump of the firm's conventions
+as of study A's approval; for every asset the tier that would serve, the conflicts, the
+convention-row assets still without a ruling, and the rescored export through
+`evals.e2e_report`, under the policy above and under the plain label tier (no gate, no
+catch-all exception) so the two guards are measured, not asserted.

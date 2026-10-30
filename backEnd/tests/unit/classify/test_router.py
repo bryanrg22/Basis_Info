@@ -1,8 +1,11 @@
-"""Router: convention -> rule -> model; the six-part context key; firm and room scoping.
+"""Router: convention -> rule -> model; the six-part context key; firm scoping; the tiers.
 
 BUILD_PLAN 6.1 ``unit/classify/test_router.py``; the firm's conventions and the context key
-(docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md sections 3, 5 and 6): a convention
-beats a rule row and says whose ruling it is, and never matches another room or firm.
+(docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md sections 3, 5, 6 and 9): a convention
+beats a rule row and says whose ruling it is and which tier matched; the exact key wins,
+then the same label and room, then the label alone (never an uncontested rule row from
+another room, never a catch-all label, never another firm); rulings that disagree with
+equal weight inside a tier serve nothing and flag the asset.
 """
 
 from __future__ import annotations
@@ -26,8 +29,15 @@ from classifytest_support import (
     tools_turn,
 )
 
-from basis.classify.cache import CachedClassification, cache_key
-from basis.classify.router import classify, route
+from basis.classify.cache import (
+    CachedClassification,
+    ConventionConflict,
+    ConventionMatch,
+    cache_key,
+    tier_key,
+    tier_keys,
+)
+from basis.classify.router import Route, classify, route
 from basis.classify.schemas import CitationClaim
 from basis.db.enums import Bucket
 from basis.domain.rules import RULES_VERSION, RuleHit
@@ -151,8 +161,7 @@ async def test_property_class_is_part_of_the_cache_key() -> None:
         cache={residential: cached(residential)},
         org_id=FIRM,
     )
-    method, found = route(component(), ctx)
-    assert (method, found) == ("llm", None)
+    assert route(component(), ctx) == Route("llm", None, None)
 
 
 def test_cache_key_has_six_parts_normalized_and_versioned() -> None:
@@ -191,11 +200,12 @@ async def test_a_convention_beats_a_rule_row_and_says_whose_ruling_it_is() -> No
     assert (result.needs_review, result.review_reasons, result.citations) == (False, (), ())
     assert result.rationale == (
         f"firm convention (approved by {REVIEWER} on study {SEEDING_STUDY}, 2026-10-29; "
-        "3 approvals); agrees with the rules table: no (carpet says y5); uncited; "
-        "reason: glued down over the slab"
+        "3 approvals); agrees with the rules table: no (carpet says y5); matched: exact; "
+        "uncited; reason: glued down over the slab"
     )
     assert result.convention == {
         "key": key,
+        "matched_tier": "exact",
         "study_id": str(SEEDING_STUDY),
         "reviewer_id": str(REVIEWER),
         "approved_at": APPROVED_AT.isoformat(),
@@ -245,32 +255,234 @@ async def test_no_rule_row_is_named_in_the_rationale() -> None:
     result = await classify(
         component(), make_ctx(ScriptedProvider([]), cache={key: cached(key)}, org_id=FIRM)
     )
-    assert result.rationale.endswith("agrees with the rules table: n/a (no rule row)")
+    assert result.rationale.endswith(
+        "agrees with the rules table: n/a (no rule row); matched: exact"
+    )
     assert result.convention is not None and result.convention["agrees_with_rules"] is None
 
 
-async def test_a_convention_does_not_match_another_room() -> None:
-    key = garage_key("garage")
-    ctx = make_ctx(ScriptedProvider([]), cache={key: cached(key)}, org_id=FIRM)
-    assert route(component(room_type="garage"), ctx)[0] == "cache"
-    assert route(component(room_type="basement"), ctx) == ("llm", None)
-    assert route(component(room_type=None), ctx) == ("llm", None)
+def test_tier_keys_most_specific_first() -> None:
+    key = cache_key("fireplace", "wood", "permanent", "nonresidential", "living_room")
+    assert tier_keys(key) == (
+        ("exact", key),
+        ("label_room", f"fireplace|||living_room|nonresidential|{RULES_VERSION}"),
+        ("label", f"fireplace||||nonresidential|{RULES_VERSION}"),
+    )
+    # No room: the label-and-room tier would be the label tier, so it is not repeated.
+    assert [t for t, _ in tier_keys(cache_key("fireplace", "wood", None, "nonresidential"))] == [
+        "exact",
+        "label",
+    ]
+    # A generic floor keeps its material (the rules table resolves it by material).
+    floor = cache_key("flooring", "vinyl", "removable", "residential_rental", "kitchen")
+    assert (
+        tier_key(floor, "label_room")
+        == f"flooring|vinyl||kitchen|residential_rental|{RULES_VERSION}"
+    )
+    assert tier_key(floor, "label") == f"flooring|vinyl|||residential_rental|{RULES_VERSION}"
+    # A surface finish keeps its material too: wallpaper and drywall are different answers.
+    wall = cache_key("wall_finish", "wallpaper", "permanent", "nonresidential", "hallway")
+    assert tier_key(wall, "label") == f"wall_finish|wallpaper|||nonresidential|{RULES_VERSION}"
+    # The catch-all label never generalizes.
+    assert tier_keys(cache_key("other", "wood", "freestanding", "nonresidential", "exterior")) == (
+        ("exact", f"other|wood|freestanding|exterior|nonresidential|{RULES_VERSION}"),
+    )
+    with pytest.raises(ValueError):
+        tier_keys("not|a|key")
 
 
-async def test_a_convention_of_another_firm_is_never_served() -> None:
+def door(material: str | None, attachment: str | None, room: str | None = "garage") -> str:
+    return cache_key("garage_door", material, attachment, "residential_rental", room)
+
+
+async def test_each_tier_matches_and_the_more_specific_one_wins() -> None:
+    # garage_door has no rule row. Three rulings: the exact context, the same room read
+    # with another material, and another room.
+    exact, same_room, other_room = (
+        door("steel", "permanent"),
+        door("wood", "permanent"),
+        door("steel", "permanent", "basement"),
+    )
+    rows = {
+        exact: cached(exact, category="Exact", approvals=1),
+        same_room: cached(same_room, category="Same room", approvals=5),
+        other_room: cached(other_room, category="Other room", approvals=9),
+    }
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+
+    served = route(component(material="steel", attachment="permanent"), ctx)
+    assert served.method == "cache" and isinstance(served.found, ConventionMatch)
+    assert (served.found.tier, served.found.cached.key) == ("exact", exact)
+    # The exact ruling wins even with fewer approvals than the coarser ones.
+    result = await classify(component(material="steel", attachment="permanent"), ctx)
+    assert (result.category, result.cache_key) == ("Exact", exact)
+    assert result.convention is not None and result.convention["matched_tier"] == "exact"
+    assert "; matched: exact" in result.rationale
+
+    # No exact row for a glass door read as removable: the same label and room serves.
+    glass = await classify(component(material="glass", attachment="removable"), ctx)
+    assert (glass.method, glass.category, glass.cache_key) == ("cache", "Same room", same_room)
+    assert glass.convention is not None and glass.convention["matched_tier"] == "label_room"
+    assert glass.convention["key"] == same_room
+    assert f"; matched: label and room (ruling keyed {same_room})" in glass.rationale
+    assert not glass.needs_review
+
+    # A room the firm never ruled on: the label alone serves (no rule row to outrank).
+    attic = await classify(component(room_type="attic"), ctx)
+    assert attic.method == "cache" and attic.convention is not None
+    assert attic.convention["matched_tier"] == "label"
+    assert "; matched: label only (ruling keyed " in attic.rationale
+    # Inside the label tier the most approved ruling serves (9 beats 5 beats 1).
+    assert attic.cache_key == other_room
+    # An unknown room is the label tier too.
+    assert route(component(room_type=None), ctx).found.tier == "label"  # type: ignore[union-attr]
+
+
+async def test_a_label_only_match_does_not_outrank_an_uncontested_rule_row() -> None:
+    # The firm ruled the kitchen sink 5-year (against the guide); a bathroom sink is a
+    # building row the guide names (ATG p.315), so the ruling from another room does not
+    # outrank it. The same ruling does serve a kitchen sink read with another material.
+    kitchen = cache_key("sink", "ceramic", "permanent", "residential_rental", "kitchen")
+    ruling = cached(kitchen, chunk=None, category="Utility sink", bucket=Bucket.Y5, section="1245")
+    ctx = make_ctx(ScriptedProvider([]), cache={kitchen: ruling}, org_id=FIRM)
+    bath = route(component("sink", material="porcelain", room_type="bathroom"), ctx)
+    assert bath.method == "rule" and isinstance(bath.found, RuleHit)
+    assert (bath.found.key, bath.found.bucket, bath.conflict) == ("sink", Bucket.Y27_5, None)
+    served = await classify(component("sink", material="porcelain", room_type="kitchen"), ctx)
+    assert (served.method, served.bucket) == ("cache", Bucket.Y5)
+    assert served.convention is not None and served.convention["matched_tier"] == "label_room"
+    # A contested rule row (hardwood_floor: the guide names no passage) is outranked.
+    hallway = cache_key("hardwood_floor", "wood", "permanent", "residential_rental", "hallway")
+    glued = cached(hallway, chunk=None, category="Glued hardwood", bucket=Bucket.Y5, section="1245")
+    ctx = make_ctx(ScriptedProvider([]), cache={hallway: glued}, org_id=FIRM)
+    lobby = await classify(component("hardwood_floor", room_type="lobby"), ctx)
+    assert (lobby.method, lobby.bucket) == ("cache", Bucket.Y5)
+    assert lobby.convention is not None and lobby.convention["matched_tier"] == "label"
+    assert "rule_contested" not in lobby.review_reasons
+
+
+async def test_rulings_that_disagree_with_equal_weight_fall_to_the_rules_table() -> None:
+    # Two bedroom carpet rulings, one approval each: glued (building) and loose-laid (5-year).
+    glued = cache_key("carpet", "wool", "permanent", "residential_rental", "bedroom")
+    loose = cache_key("carpet", "nylon", "removable", "residential_rental", "bedroom")
+    rows = {
+        glued: cached(glued, chunk=None, category="Glued carpet", approvals=1),
+        loose: cached(
+            loose,
+            chunk=None,
+            category="Loose carpet",
+            bucket=Bucket.Y5,
+            section="1245",
+            approvals=1,
+        ),
+    }
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+    decided = route(component("carpet", material="polyester", room_type="bedroom"), ctx)
+    assert decided.method == "rule" and isinstance(decided.found, RuleHit)
+    assert isinstance(decided.conflict, ConventionConflict)
+    assert decided.conflict.tier == "label_room"
+    assert sorted(r.key for r in decided.conflict.rows) == sorted([glued, loose])
+    result = await classify(component("carpet", material="polyester", room_type="bedroom"), ctx)
+    assert (result.method, result.bucket, result.needs_review) == ("rule", Bucket.Y5, True)
+    assert result.review_reasons[-1] == "convention_conflict:label_room"
+    # No coarser tier is consulted once a tier disagrees: a hallway carpet ruling that
+    # would agree with neither is not reached.
+    hallway = cache_key("carpet", "wool", "permanent", "residential_rental", "hallway")
+    rows[hallway] = cached(hallway, chunk=None, category="Hallway", approvals=7)
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+    again = route(component("carpet", material="polyester", room_type="bedroom"), ctx)
+    assert again.method == "rule" and again.conflict is not None
+
+    # With no rule row the model decides, and the asset is flagged the same way.
+    a, b = door("steel", "permanent"), door("wood", "permanent")
+    split = {
+        a: cached(a, chunk=None, approvals=2),
+        b: cached(b, chunk=None, bucket=Bucket.Y5, section="1245", approvals=2),
+    }
+    provider = ScriptedProvider(happy_turns())
+    modelled = await classify(
+        component(material="glass", attachment="permanent"),
+        make_ctx(provider, cache=split, org_id=FIRM),
+    )
+    assert modelled.method == "llm" and len(provider.requests) == 2
+    assert "convention_conflict:label_room" in modelled.review_reasons and modelled.needs_review
+
+
+async def test_the_most_approved_answer_wins_a_disagreement() -> None:
+    a, b = door("steel", "permanent"), door("wood", "permanent")
+    rows = {
+        a: cached(a, chunk=None, category="Building", approvals=3),
+        b: cached(
+            b, chunk=None, category="Personal", bucket=Bucket.Y5, section="1245", approvals=2
+        ),
+    }
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+    result = await classify(component(material="glass", attachment="permanent"), ctx)
+    assert (result.method, result.category, result.cache_key) == ("cache", "Building", a)
+    assert not result.needs_review and result.convention is not None
+    assert result.convention["approvals"] == 3
+
+
+async def test_a_generic_floor_keeps_its_material_in_every_tier() -> None:
+    vinyl = cache_key("flooring", "vinyl", "removable", "residential_rental", "kitchen")
+    ruling = cached(vinyl, chunk=None, category="Sheet vinyl", bucket=Bucket.Y5, section="1245")
+    ctx = make_ctx(ScriptedProvider([]), cache={vinyl: ruling}, org_id=FIRM)
+    # The same material read as permanent: served (label and room).
+    kitchen = route(
+        component("flooring", material="vinyl", attachment="permanent", room_type="kitchen"), ctx
+    )
+    assert isinstance(kitchen.found, ConventionMatch) and kitchen.found.tier == "label_room"
+    # In another room the vinyl rule row (uncontested) outranks the label tier.
+    bedroom = route(component("flooring", material="vinyl", room_type="bedroom"), ctx)
+    assert bedroom.method == "rule" and isinstance(bedroom.found, RuleHit)
+    assert (bedroom.found.key, bedroom.conflict) == ("vinyl_flooring", None)
+    # Another material is another floor: the rules table resolves it by material.
+    carpet = route(component("flooring", material="carpet", room_type="kitchen"), ctx)
+    assert carpet.method == "rule" and isinstance(carpet.found, RuleHit)
+    assert (carpet.found.key, carpet.conflict) == ("carpet", None)
+    # No material at all: no ruling, no rule row, the model.
+    assert route(component("flooring", room_type="kitchen"), ctx) == Route("llm", None, None)
+    # Laminate's rule row is contested, so the firm's laminate ruling serves in any room,
+    # and only for laminate.
+    laminate = cache_key("flooring", "laminate", "removable", "residential_rental", "kitchen")
+    glued = cached(laminate, chunk=None, category="Glued laminate")
+    ctx = make_ctx(ScriptedProvider([]), cache={laminate: glued}, org_id=FIRM)
+    hall = route(component("flooring", material="laminate", room_type="hallway"), ctx)
+    assert isinstance(hall.found, ConventionMatch) and hall.found.tier == "label"
+    tile = route(component("flooring", material="tile", room_type="hallway"), ctx)
+    assert tile.method == "rule" and isinstance(tile.found, RuleHit) and tile.found.key == "tile"
+
+
+async def test_the_catch_all_label_matches_at_the_exact_tier_only() -> None:
+    bench = cache_key("other", "wood", "freestanding", "residential_rental", "exterior")
+    ruling = cached(bench, chunk=None, category="Bench", bucket=Bucket.Y5, section="1245")
+    ctx = make_ctx(ScriptedProvider([]), cache={bench: ruling}, org_id=FIRM)
+    exact = route(
+        component("other", material="wood", attachment="freestanding", room_type="exterior"), ctx
+    )
+    assert exact.method == "cache"
+    assert route(component("other", material="fabric", room_type="exterior"), ctx) == Route(
+        "llm", None, None
+    )
+    assert route(component("other", room_type="kitchen"), ctx) == Route("llm", None, None)
+
+
+async def test_a_convention_of_another_firm_is_never_served_at_any_tier() -> None:
     key = garage_key()
     ctx = make_ctx(ScriptedProvider([]), cache={key: cached(key)}, org_id=OTHER_FIRM)
-    assert route(component(), ctx) == ("llm", None)
+    assert route(component(), ctx) == Route("llm", None, None)
+    assert route(component(material="wood"), ctx) == Route("llm", None, None)
+    assert route(component(room_type="attic"), ctx) == Route("llm", None, None)
     unscoped = make_ctx(ScriptedProvider([]), cache={key: cached(key)})
-    assert route(component(), unscoped) == ("llm", None)
+    assert route(component(), unscoped) == Route("llm", None, None)
 
 
 async def test_the_rule_variant_for_the_room_fires_in_production() -> None:
     # The router passes the component's room to lookup: a bathroom cabinet is building
     # (ATG p.298/p.317), a kitchen cabinet keeps the 5-year base row.
     ctx = make_ctx(ScriptedProvider([]))
-    _, bathroom = route(component("kitchen_cabinet", room_type="Restroom"), ctx)
-    _, kitchen = route(component("kitchen_cabinet", room_type="kitchen"), ctx)
+    bathroom = route(component("kitchen_cabinet", room_type="Restroom"), ctx).found
+    kitchen = route(component("kitchen_cabinet", room_type="kitchen"), ctx).found
     assert isinstance(bathroom, RuleHit) and isinstance(kitchen, RuleHit)
     assert (bathroom.bucket, bathroom.context) == (Bucket.Y27_5, "room=bathroom")
     assert (kitchen.bucket, kitchen.context) == (Bucket.Y5, None)

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-215 codes in 18 areas.
+216 codes in 18 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -268,6 +268,7 @@ stale).
 | `BASIS-ASSETS-011` | outcome | process_assets; `basis.workflow.study_workflow` | The assets step did not run for want of budget (BASIS-BUDGET-003). | `needs_review_stages` has `assets_review` and the revision has no assets. | Raise the budget and retry, or approve as is. | no |
 | `BASIS-ASSETS-012` | outcome | promote_conventions; `basis.workflow.study_workflow` | The approved assets could not be promoted to the firm's conventions; the study continued to the export (its result does not depend on the conventions). | A worker-log warning with this code and the `promote_conventions` `activity.failed` events; no `convention.promoted` events for the revision. | Fix the cause (the activity's error code). This study's rulings stay unpromoted; a later approved study with the same components seeds them. | no |
 | `BASIS-ASSETS-013` | outcome | promote_conventions; `basis.activities.promote_conventions` | An approved answer for a context key differed from the firm's convention for it, so the convention was replaced (approvals back to 1). | A `convention.replaced` timeline event with this code: `before` the replaced convention, `after` the new one. | None if the new ruling is intended; otherwise correct the asset in a later study. | no |
+| `BASIS-ASSETS-014` | flag | process_assets; `basis.classify.router` | The firm's rulings for the component's label disagree with equal weight at the tier that would have served it (CLASSIFICATION_CONVENTIONS.md section 9.3), so the rules table or the model classified it instead. | `review_reasons` `convention_conflict:<tier>` (`label_room` or `label`). (reason `convention_conflict:`) | The engineer rules on the asset at the assets review; the approved ruling becomes the exact convention, which wins next time. | no |
 
 ## EXPORT: export_report
 
