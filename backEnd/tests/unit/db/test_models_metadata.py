@@ -91,7 +91,9 @@ SPEC_TABLES = {
     "idempotency_keys": "key user_id route request_hash status_code response created_at expires_at",
     # S2: ``status`` added by migration 0002_outbox_status (tests/unit/db/test_outbox_status.py).
     "outbox": "id kind payload status attempts next_attempt_at delivered_at last_error created_at",
-    "eval_runs": "id dataset split git_sha model prompt_version created_at",
+    # Migration 0015_eval_run_manifest: the run-record columns (evals.record).
+    "eval_runs": "id dataset split git_sha model prompt_version created_at git_dirty release "
+    "run_dir label_sha256 label_version component component_version manifest",
     "eval_results": "id eval_run_id metric value n stderr details",
     # v0.6: migration 0004_photo_objects (SAM 3 localization in the product path).
     "photo_localizations": "study_id document_id revision status reason instances "
@@ -557,8 +559,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
     # manual add: object_prompts.params; v0.13: extraction_fields.regions; the ledger
     # (0012): llm_calls.request_params; the timeline (0013): study_events.before/after/detail;
-    # firm conventions (0014): assets.convention
-    assert len(jsonb) == 23
+    # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest
+    assert len(jsonb) == 24
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

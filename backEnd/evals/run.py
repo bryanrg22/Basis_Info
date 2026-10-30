@@ -50,8 +50,23 @@ orchestrator and scored through ``--predictions``. Every metric is reported with
 Wilson interval for proportions, and a standard error clustered by document; with
 ``--repeats N`` > 1, pass^k over the N repeats is reported too.
 
+With ``--predictions`` every scored item is also a case of the run's record
+(:mod:`evals.record`): ``results.json`` and ``report.md`` in the predictions directory gain
+one ``kind: score`` case per item, ``<dataset>:<item>``, ``passed`` or ``failed`` by the
+dataset's per-item criterion (:attr:`TaskResult.cases`): a field's normalized match, a
+photo's room type, a photo's component set, a (photo, class) count, an asset's bucket (its
+section when no bucket is labelled), a room's exact inventory, a photo-derivable report row
+evidenced, an (image, class) count at the detection threshold, a query with a relevant page
+in its top 10. An item the predictions file does not cover
+is ``test_error`` ("no prediction") when the run's own results say the runner failed on it
+(a ``test_error`` case whose id before ``#`` is the item's file or key), ``failed``
+otherwise. A baseline system records no cases (``rule_citations`` included: its check is
+derived from the code, not from the run): they are not the run's. The per-dataset case counts
+go into the ``scores.jsonl`` entry (``results.<dataset>.cases``).
+
 When ``DATABASE_URL`` is set (and ``--no-db`` is not given) one ``eval_runs`` row per
-dataset and one ``eval_results`` row per metric are written.
+dataset and one ``eval_results`` row per metric are written; a predictions directory's
+``component`` and ``component_version`` (its manifest's ``tree``) are stored on the rows.
 """
 
 from __future__ import annotations
@@ -68,7 +83,7 @@ import tempfile
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -80,6 +95,7 @@ from basis.classify.store_protocol import InMemoryChunkStore, StoredChunk
 from basis.domain.rules import lookup, normalize_label
 from basis.retrieval.embed import Embedder
 from evals import datasets as ds
+from evals import record
 from evals.metrics import (
     DetectionImage,
     FieldScore,
@@ -133,6 +149,22 @@ class TaskResult:
     skipped: bool = False
     # Extra Markdown tables for the report: (title, headers, rows).
     tables: list[tuple[str, list[str], list[list[str]]]] = field(default_factory=list)
+    # Repeat 1 of a scoring of saved predictions, per item: (item id, passed, detail), the
+    # detail a short dict of predicted vs expected, or :func:`_no_prediction`'s marker for an
+    # item the predictions file does not cover. Empty for a baseline system.
+    cases: list[tuple[str, bool, Any]] = field(default_factory=list)
+
+
+# The detail of a scored case whose item has no saved prediction.
+NO_PREDICTION: Final = "no prediction"
+_MISSING: Final = "no_prediction"
+
+
+def _no_prediction(item: str, key: str) -> tuple[str, bool, Any]:
+    """The case of an item the predictions file does not cover: ``key`` is the file or key
+    the runner names its own case by (``main`` reads the run's results to say whether the
+    runner failed on it, which makes the case a ``test_error``, not a ``failed``)."""
+    return (item, False, {_MISSING: key})
 
 
 # --------------------------------------------------------------------------- systems
@@ -208,15 +240,21 @@ def score_photo_counts(
     per_class: dict[str, list[tuple[int, int]]] = {}
     missing = 0
     for photo in photos:
-        for counts in _repeats(saved.get(photo.file), repeats):
+        for r, counts in enumerate(_repeats(saved.get(photo.file), repeats)):
             if counts is None:
                 missing += 1
+                if r == 0:
+                    for label in photo.counts:
+                        result.cases.append(_no_prediction(f"{photo.file}:{label}", photo.file))
                 continue
             for label, true in photo.counts.items():
                 predicted = predicted_count(counts, label)
                 pairs.append((predicted, true))
                 clusters.append(photo.document)
                 per_class.setdefault(label, []).append((predicted, true))
+                if r == 0:
+                    detail = {"predicted": predicted, "expected": true}
+                    result.cases.append((f"{photo.file}:{label}", predicted == true, detail))
 
     def rows(name: str, values: list[tuple[int, int]], suffix: str = "") -> list[MetricRow]:
         errors = [float(abs(p - t)) for p, t in values]
@@ -358,6 +396,16 @@ def score_fields(
                     relative=label.relative,
                 )
                 per_repeat[r].append(FieldScore(label.field, exact, normalized, doc.document))
+                if r == 0 and saved is not None:
+                    # One case per (document, field), the normalized match; a document the
+                    # predictions do not cover has no prediction (a missing field of a
+                    # covered document is a prediction of nothing: failed).
+                    item = f"{doc.document}:{label.field}"
+                    if doc.document not in saved:
+                        result.cases.append(_no_prediction(item, doc.document))
+                    else:
+                        detail = {"predicted": predicted, "expected": label.expected}
+                        result.cases.append((item, normalized, detail))
     first = per_repeat[0]
     if not first:
         result.skipped = True
@@ -431,6 +479,13 @@ def score_photo_rooms(
     ]
     truth = [p.room_type for p in photos]
     predicted = [r[0] for r in runs]
+    if saved is not None:
+        for photo, guess, true in zip(photos, predicted, truth, strict=True):
+            if photo.file not in saved:
+                result.cases.append(_no_prediction(photo.file, photo.file))
+            else:
+                detail = {"predicted": guess, "expected": true}
+                result.cases.append((photo.file, guess == true, detail))
     metrics = classification_metrics(truth, predicted, abstain="ambiguous")
     hits = [t == p for t, p in zip(truth, predicted, strict=True)]
     summary = summarize_proportion(hits, [p.document for p in photos])
@@ -483,6 +538,12 @@ def score_photo_components(
         fp += len(predicted - truth)
         fn += len(truth - predicted)
         per_photo.append(truth == predicted)
+        if saved is not None:
+            if photo.file not in saved:
+                result.cases.append(_no_prediction(photo.file, photo.file))
+            else:
+                detail = {"predicted": sorted(predicted), "expected": sorted(truth)}
+                result.cases.append((photo.file, truth == predicted, detail))
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else 0.0
@@ -531,6 +592,20 @@ def score_assets(
                 claimed += int(citations.get("claimed", 0))
                 verified += int(citations.get("verified", 0))
                 cited_rows.append(int(citations.get("verified", 0)) > 0)
+            # One case per asset: the bucket when one is labelled, else the section.
+            if asset.id not in saved:
+                result.cases.append(_no_prediction(asset.id, asset.id))
+            elif asset.bucket is not None or asset.section is not None:
+                right = (
+                    str(bucket) == asset.bucket
+                    if asset.bucket is not None
+                    else str(section) == asset.section
+                )
+                detail = {
+                    "predicted": {"section": str(section), "bucket": str(bucket)},
+                    "expected": {"section": asset.section, "bucket": asset.bucket},
+                }
+                result.cases.append((asset.id, right, detail))
         else:
             hit = lookup(asset.component, asset.material, asset.attachment, asset.property_class)
             section = hit.section if hit else ABSTAIN
@@ -665,6 +740,17 @@ def score_retrieval(
         }
         result.notes.append(f"{len(store.chunks)} page chunks from {len(pdfs)} PDFs")
     result.rows = _ir_rows(run, qrels)
+    if saved is not None:
+        # One case per judged query: passed when a relevant page is in its top 10
+        # (recall@10 > 0); a query with no relevant judgment is excluded by ir_metrics.
+        recall = _per_query(result, "recall_10")
+        rank = _per_query(result, "mrr")
+        for qid in sorted(recall):
+            if qid not in saved:
+                result.cases.append(_no_prediction(qid, qid))
+            else:
+                detail = {"recall_10": recall[qid], "mrr": rank[qid]}
+                result.cases.append((qid, recall[qid] > 0, detail))
     return result
 
 
@@ -862,6 +948,8 @@ def score_rule_citations(
         page_citation_status(c.excerpt, c.page, pages.get(c.doc_id)) for c in data.citations
     ]
     hits = [s == "resolved" for s in statuses]
+    # No cases: this is a baseline derived from the code, never a run's own output, and its
+    # per-citation view is the metric's ``unresolved`` detail.
     summary = summarize_proportion(hits, [c.rule for c in data.citations])
     unresolved = [
         {"rule": c.rule, "doc_id": c.doc_id, "page": c.page, "status": s}
@@ -1009,6 +1097,13 @@ def score_room_inventory(
     metrics = inventory_metrics(gold, runs[0])
     documents = {r.room_id: r.document for r in rooms}
     room_ids = list(metrics.per_room)
+    if saved is not None:
+        for room_id in room_ids:  # one case per labelled room: the exact inventory
+            if room_id not in saved:
+                result.cases.append(_no_prediction(room_id, room_id))
+            else:
+                detail = {"predicted": runs[0].get(room_id, {}), "expected": gold[room_id]}
+                result.cases.append((room_id, metrics.per_room[room_id].exact, detail))
     clusters = [documents[room] for room in room_ids]
     scores = [metrics.per_room[room] for room in room_ids]
     exact = summarize_proportion([s.exact for s in scores], clusters)
@@ -1126,6 +1221,13 @@ def score_detection_boxes(
     if missing:
         result.notes.append(f"{len(missing)} images have no predictions (scored as empty)")
     metrics = detection_metrics(gold, runs[0], threshold=threshold)
+    for pair in metrics.pairs:  # one case per (image, class) count pair at the threshold
+        item = f"{pair.file}:{pair.label}"
+        if pair.file not in saved:
+            result.cases.append(_no_prediction(item, pair.file))
+        else:
+            detail = {"predicted": pair.predicted, "expected": pair.gold}
+            result.cases.append((item, pair.predicted == pair.gold, detail))
     scored_classes = {c: v for c, v in metrics.classes.items() if v.positives > 0}
     result.rows.append(
         MetricRow(
@@ -1372,6 +1474,14 @@ def score_report_rows(
     missed = [o for o in derivable if o.outcome == "missed"]
     gaps = [o for o in derivable if o.outcome == "vocabulary_gap"]
     not_derivable = [o for o in outcomes if not o.row.photo_derivable]
+    if saved is not None:
+        for o in derivable:  # one case per photo-derivable row: evidenced or not
+            detail = {
+                "outcome": o.outcome,
+                "expected": "evidenced",
+                "evidence": [f"{e.room}: {e.label} x{e.count}" for e in o.evidence[:6]],
+            }
+            result.cases.append((o.row.id, o.evidenced, detail))
 
     def proportion(metric: str, hits: Sequence[bool], items: Sequence[RowOutcome]) -> MetricRow:
         summary = summarize_proportion(list(hits), [o.row.document for o in items])
@@ -1573,8 +1683,20 @@ def _fmt(value: float) -> str:
 
 
 def render_report(
-    results: Sequence[TaskResult], *, split: str, repeats: int, source: str, git_sha: str
+    results: Sequence[TaskResult],
+    *,
+    split: str,
+    repeats: int,
+    source: str,
+    git_sha: str,
+    git: Mapping[str, Any] | None = None,
 ) -> str:
+    """The Markdown report. ``git`` is :func:`evals.record.git_state`: its ``release`` (the
+    nearest release tag, ``none`` when no tag is reachable) and ``dirty`` flag are printed
+    under the sha; without it both read ``unknown``."""
+    state = git or {}
+    release = state.get("release")
+    dirty = state.get("dirty")
     lines = [
         "# Basis evaluation report",
         "",
@@ -1582,6 +1704,8 @@ def render_report(
         f"- repeats: {repeats}",
         f"- data: {source}",
         f"- git sha: `{git_sha}`",
+        f"- release: `{release}`" if release else f"- release: {'none' if git else 'unknown'}",
+        f"- dirty: {'unknown' if dirty is None else 'yes' if dirty else 'no'}",
         f"- generated: {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}",
         "",
         "Intervals are 95% Wilson intervals for proportions; SE is the standard error of the "
@@ -1622,22 +1746,45 @@ async def write_results(
     git_sha: str,
     model: str | None = None,
     prompt_version: str | None = None,
+    manifest: Mapping[str, Any] | None = None,
+    run_dir: str | Path | None = None,
+    component: str | None = None,
+    component_version: str | None = None,
 ) -> list[uuid.UUID]:
-    """One ``eval_runs`` row per scored dataset, one ``eval_results`` row per metric."""
+    """One ``eval_runs`` row per scored dataset, one ``eval_results`` row per metric.
+
+    ``manifest`` is the ``scores.jsonl`` entry (:func:`evals.record.score_entry`): its git
+    ``dirty`` flag and ``release``, and the dataset's label file sha256 and version from
+    ``data.labels``, fill the row's columns, and the whole entry is stored in ``manifest``.
+    ``run_dir`` is the predictions directory scored (``--predictions``), NULL for a baseline;
+    ``component`` and ``component_version`` are what that directory's manifest files it under
+    (:func:`run_component`), NULL for a baseline too. Without a manifest those columns stay
+    NULL."""
     from basis.db.models import EvalResult, EvalRun
     from basis.db.session import session_scope
 
+    git = (manifest or {}).get("git") or {}
+    labels = ((manifest or {}).get("data") or {}).get("labels") or {}
     run_ids: list[uuid.UUID] = []
     async with session_scope(sessionmaker) as session:
         for task in results:
             if task.skipped:
                 continue
+            label = labels.get(task.dataset) or {}
             run = EvalRun(
                 dataset=task.dataset,
                 split=split,
                 git_sha=git_sha,
                 model=model or task.system,
                 prompt_version=prompt_version,
+                git_dirty=git.get("dirty"),
+                release=git.get("release"),
+                run_dir=None if run_dir is None else str(run_dir),
+                label_sha256=label.get("sha256"),
+                label_version=label.get("version"),
+                component=component,
+                component_version=component_version,
+                manifest=None if manifest is None else dict(manifest),
             )
             session.add(run)
             await session.flush()
@@ -1660,7 +1807,16 @@ async def write_results(
     return run_ids
 
 
-async def _write_to_configured_db(results: Sequence[TaskResult], split: str, git_sha: str) -> int:
+async def _write_to_configured_db(
+    results: Sequence[TaskResult],
+    split: str,
+    git_sha: str,
+    *,
+    manifest: Mapping[str, Any] | None = None,
+    run_dir: Path | None = None,
+    component: str | None = None,
+    component_version: str | None = None,
+) -> int:
     from basis.config import load_settings
     from basis.db.engine import create_engine
     from basis.db.session import create_sessionmaker
@@ -1668,17 +1824,86 @@ async def _write_to_configured_db(results: Sequence[TaskResult], split: str, git
     engine = create_engine(load_settings())
     try:
         ids = await write_results(
-            create_sessionmaker(engine), results, split=split, git_sha=git_sha
+            create_sessionmaker(engine),
+            results,
+            split=split,
+            git_sha=git_sha,
+            manifest=manifest,
+            run_dir=run_dir,
+            component=component,
+            component_version=component_version,
         )
     finally:
         await engine.dispose()
     return len(ids)
 
 
+# --------------------------------------------------------------------------- the run record
+
+
+def run_errors(directory: Path) -> set[str]:
+    """The items the runner itself failed on: the id before ``#`` of every ``test_error``
+    case in the run directory's own ``results.json`` (``photos/01.jpg#2`` -> ``photos/01.jpg``)."""
+    return {
+        str(case.get("id", "")).partition("#")[0]
+        for case in record.read_results(directory)["cases"]
+        if case.get("outcome") == record.TEST_ERROR
+    }
+
+
+def score_cases(
+    results: Sequence[TaskResult], *, errored: Collection[str] = ()
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, int]]]:
+    """The ``kind: score`` cases of a scoring, ``<dataset>:<item>``, and their counts per
+    dataset. An item with no saved prediction is ``test_error`` when the runner recorded a
+    ``test_error`` on its file or key (``errored``, :func:`run_errors`), else ``failed``,
+    with the detail ``"no prediction"``."""
+    cases: list[dict[str, Any]] = []
+    counts: dict[str, dict[str, int]] = {}
+    for task in results:
+        for item, passed, detail in task.cases:
+            if isinstance(detail, Mapping) and _MISSING in detail:
+                outcome = record.TEST_ERROR if detail[_MISSING] in errored else record.FAILED
+                detail = NO_PREDICTION
+            else:
+                outcome = record.PASSED if passed else record.FAILED
+            case_id = f"{task.dataset}:{item}"
+            cases.append(record._case(case_id, outcome, kind="score", detail=detail))
+            tally = counts.setdefault(task.dataset, dict.fromkeys(record.OUTCOMES, 0))
+            tally[outcome] += 1
+    return cases, counts
+
+
+def run_component(directory: Path | None) -> tuple[str | None, str | None]:
+    """``(component, version)`` a predictions directory is filed under in the verification
+    tree (its ``manifest.json`` ``tree``); ``(None, None)`` without a directory or a manifest
+    (a baseline is no component's run)."""
+    if directory is None:
+        return None, None
+    path = directory / record.MANIFEST_FILE
+    if not path.is_file():
+        return None, None
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None, None
+    tree = manifest.get("tree") if isinstance(manifest, dict) else None
+    if not isinstance(tree, dict):
+        return None, None
+    component, version = tree.get("component"), tree.get("version")
+    return (
+        None if component is None else str(component),
+        None if version is None else str(version),
+    )
+
+
 # --------------------------------------------------------------------------- main
 
 
 def git_sha() -> str:
+    """The short sha the report and the ``eval_runs.git_sha`` column name (``GIT_SHA`` from the
+    environment where there is no checkout). :func:`evals.record.git_state` gives the full
+    state (dirty flag, release tag) for the manifest."""
     if os.environ.get("GIT_SHA"):
         return os.environ["GIT_SHA"]
     try:
@@ -1874,6 +2099,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         corpus_dir: Path | None = ds.SYNTHETIC_DIR / "corpus"
         source = "synthetic smoke dataset (tests/fixtures/synthetic)"
         report_dir = Path(tempfile.gettempdir())
+        data_dir = ds.SYNTHETIC_DIR
     else:
         root = ds.data_dir(args.data_dir)
         data = ds.load_available(root)
@@ -1881,7 +2107,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         files = sum(1 for name in data if name in ds.DATASET_FILES)
         source = f"{ds.ENV_VAR} ({files} dataset files; derived: {', '.join(ds.DERIVED_DATASETS)})"
         report_dir = root / "reports"
+        data_dir = root
     sha = git_sha()
+    state = record.git_state()
     results = evaluate(
         data,
         split=args.split,
@@ -1894,15 +2122,52 @@ def main(argv: Sequence[str] | None = None) -> int:
         retrieval_systems=args.retrieval_systems,
         fusion_sweep=args.fusion_sweep,
     )
+    # The run record (evals.record): which label files, at which version and content, these
+    # scores refer to, on which code. Appended to the predictions directory's scores.jsonl
+    # when one was scored; a baseline has no run directory, so the entry only reaches the
+    # database row.
+    entry = record.score_entry(
+        results,
+        harness=__name__,
+        data_dir=data_dir,
+        label_files=ds.DATASET_FILES,
+        split=args.split,
+        repeats=args.repeats,
+        options={k: v for k, v in vars(args).items() if not k.startswith("_")},
+    )
+    entry["git"] = state  # one git state per run: the report and the rows agree
+    cases: list[dict[str, Any]] = []
+    if args.predictions is not None:
+        # Every scored item is a case of the run's record; an item the run did not predict
+        # is a test error when the runner said so, a failure otherwise.
+        cases, counts = score_cases(results, errored=run_errors(args.predictions))
+        for dataset, tally in counts.items():
+            entry["results"][dataset]["cases"] = tally
+    component, component_version = run_component(args.predictions)
     report = render_report(
-        results, split=args.split, repeats=args.repeats, source=source, git_sha=sha
+        results, split=args.split, repeats=args.repeats, source=source, git_sha=sha, git=state
     )
     path = args.report or report_dir / f"basis-eval-{args.split}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report, encoding="utf-8")
     print(f"report written to {path}")
+    if args.predictions is not None:
+        scores = record.append_scores(args.predictions, entry)
+        print(f"scores appended to {scores}")
+        record.add_cases(args.predictions, cases)
+        print(f"scored {len(cases)} cases into {args.predictions / record.RESULTS_FILE}")
     if os.environ.get("DATABASE_URL") and not args.no_db:
-        written = asyncio.run(_write_to_configured_db(results, args.split, sha))
+        written = asyncio.run(
+            _write_to_configured_db(
+                results,
+                args.split,
+                sha,
+                manifest=entry,
+                run_dir=args.predictions,
+                component=component,
+                component_version=component_version,
+            )
+        )
         print(f"{written} eval_runs rows written")
     for task in results:
         headline = ", ".join(f"{r.metric}={_fmt(r.value)}" for r in task.rows[:3])
@@ -1914,4 +2179,13 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-__all__ = ["evaluate", "main", "mean", "render_report", "write_results"]
+__all__ = [
+    "evaluate",
+    "main",
+    "mean",
+    "render_report",
+    "run_component",
+    "run_errors",
+    "score_cases",
+    "write_results",
+]

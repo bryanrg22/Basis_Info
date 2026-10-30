@@ -10,6 +10,10 @@ environment, and writes what ``evals.run --predictions`` scores::
     <out>/photo_counts.json       {"<file>": {"label": count} | {"repeats": [...]}}
     <out>/photo_raw.jsonl         one line per (file, repeat): the full analysis, model,
                                   provider, attempts, errors, estimated cost
+    <out>/results.json, report.md one case per (file, repeat): passed (an analysis), failed
+                                  (the photo refused, or unusable output after the retry),
+                                  test_error (a provider outage after every retry)
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json   the run record (evals.record)
 
 Usage (from ``backEnd/``, with ``BASIS_ENV=dev`` and the provider credentials in the
 environment)::
@@ -40,8 +44,8 @@ from basis.llm.cost import is_anthropic_model
 from basis.llm.errors import ProviderRateLimited, ProviderRequestRejected, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
-from basis.llm.recorder import MemoryRecorder
 from basis.vision.analyze import (
+    INVALID_OUTPUT,
     PhotoResult,
     VisionContext,
     analyze_photo_detailed,
@@ -49,6 +53,7 @@ from basis.vision.analyze import (
 )
 from basis.vision.prep import ImageRejected
 from evals.account_stop import guard, stops_on_account_error, track
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -109,6 +114,14 @@ def _record(file: str, repeat: int, result: PhotoResult, seconds: float) -> dict
 RETRY_DELAYS_S: tuple[float, ...] = (2.0, 6.0, 15.0)
 
 
+def photo_outcome(analysis: Mapping[str, Any]) -> str:
+    """The case outcome of a photo that has an analysis: ``failed`` when it is the
+    pipeline's invalid-output fallback (an ambiguous room with no components, flagged
+    ``invalid_model_output`` after the retry), else ``passed``."""
+    reason = str(analysis.get("review_reason") or "")
+    return FAILED if reason.startswith(INVALID_OUTPUT) else PASSED
+
+
 def label_counts(components: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     """``{label: count}`` with same-label entries added up (``photo_counts`` predictions)."""
     counts: dict[str, int] = {}
@@ -149,10 +162,11 @@ async def run(args: argparse.Namespace) -> int:
     if not files:
         print(f"no photos in {args.photos}", file=sys.stderr)
         return 2
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.input("photos", args.photos)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = eval_run.recorder
     model = args.model or settings.vision_model
     ctx = VisionContext(
         call=CallContext(
@@ -172,12 +186,15 @@ async def run(args: argparse.Namespace) -> int:
         reasoning_effort=args.reasoning_effort,
         **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
     )
+    eval_run.prompt(ctx.prompt)
     semaphore = asyncio.Semaphore(args.concurrency)
     raw_path = args.out / "photo_raw.jsonl"
     errors_seen: list[dict[str, Any]] = []
     rooms: dict[str, list[str]] = {f.name: [] for f in files}
     components: dict[str, list[list[str]]] = {f.name: [] for f in files}
     counts: dict[str, list[dict[str, int]]] = {f.name: [] for f in files}
+    # The exception behind a rejected or error record, for the case's BASIS code.
+    failures: dict[tuple[str, int], BaseException] = {}
 
     async def one(file: Path, repeat: int) -> dict[str, Any]:
         async with semaphore:
@@ -187,10 +204,12 @@ async def run(args: argparse.Namespace) -> int:
             except (ImageRejected, ProviderRequestRejected) as exc:
                 # Prepared and refused alike: the photo cannot be analyzed (the activity
                 # fails it the same way); recorded, the run goes on.
+                failures[(file.name, repeat)] = exc
                 return {"file": file.name, "repeat": repeat, "rejected": str(exc)}
             except (ProviderRateLimited, ProviderUnavailable) as exc:
                 # Transient after every retry: recorded, not fatal (Temporal retries the
                 # activity in production; here the photo is simply missing from the run).
+                failures[(file.name, repeat)] = exc
                 return {"file": file.name, "repeat": repeat, "error": str(exc)}
             return _record(file.name, repeat, result, time.monotonic() - started)
 
@@ -199,13 +218,30 @@ async def run(args: argparse.Namespace) -> int:
             records = await asyncio.gather(*(one(f, repeat) for f in files))
             for record in records:
                 raw.write(json.dumps(record, sort_keys=True) + "\n")
+                case_id = f"{record['file']}#{repeat}"
+                failure = failures.get((record["file"], repeat))
                 if "error" in record:
                     errors_seen.append(
                         {"file": record["file"], "repeat": repeat, "error": record["error"]}
                     )
+                    eval_run.case(case_id, TEST_ERROR, kind="photo", observed_error=failure)
+                elif "rejected" in record:
+                    eval_run.case(case_id, FAILED, kind="photo", observed_error=failure)
                 analysis = record.get("analysis")
                 if analysis is None:
                     continue
+                eval_run.case(
+                    case_id,
+                    photo_outcome(analysis),
+                    kind="photo",
+                    detail={
+                        "room_type": analysis["room_type"],
+                        "components": len(analysis["components"]),
+                        "attempts": record["attempts"],
+                        "review_reason": analysis.get("review_reason"),
+                    },
+                    seconds=record["seconds"],
+                )
                 rooms[record["file"]].append(analysis["room_type"])
                 components[record["file"]].append(
                     sorted({c["label"] for c in analysis["components"]})
@@ -230,27 +266,23 @@ async def run(args: argparse.Namespace) -> int:
         json.dumps({f: fold(v) for f, v in counts.items() if v}, indent=1, sort_keys=True)
     )
     models = sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""})
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "photos": len(files),
-                "repeats": args.repeats,
-                "vision_model_setting": settings.vision_model,
-                "model_requested": model,
-                # The effort in effect: the flag, else the Anthropic default for a Claude
-                # model (ANTHROPIC_EFFORT), else the model's own default (null).
-                "reasoning_effort": args.reasoning_effort
-                or (settings.anthropic_effort if is_anthropic_model(model) else None),
-                "max_tokens": ctx.max_tokens,
-                "models_reported": models,
-                "spent_usd": round(budget.spent_usd, 6),
-                "errors": errors_seen,
-                "prompt": ctx.prompt.version_id,
-            },
-            indent=1,
-        )
-    )
+    report = {
+        "photos": len(files),
+        "repeats": args.repeats,
+        "vision_model_setting": settings.vision_model,
+        "model_requested": model,
+        # The effort in effect: the flag, else the Anthropic default for a Claude
+        # model (ANTHROPIC_EFFORT), else the model's own default (null).
+        "reasoning_effort": args.reasoning_effort
+        or (settings.anthropic_effort if is_anthropic_model(model) else None),
+        "max_tokens": ctx.max_tokens,
+        "models_reported": models,
+        "spent_usd": round(budget.spent_usd, 6),
+        "errors": errors_seen,
+        "prompt": ctx.prompt.version_id,
+    }
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 

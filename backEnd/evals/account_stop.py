@@ -39,6 +39,7 @@ from typing import Any, Final, cast
 
 from basis.llm.errors import ProviderAccountError, ProviderConfigError
 from basis.llm.provider import Budget, ChatProvider, ChatRequest, ChatResponse
+from evals import record
 
 ACCOUNT_STOPPED: Final = 3
 REASON: Final = "provider_account_error"
@@ -134,10 +135,11 @@ def stops_on_account_error[**P](
         args: Any = a[0] if a else kw["args"]
         before = asyncio.all_tasks()
         try:
-            return await run(*a, **kw)
+            code = await run(*a, **kw)
         except Exception as exc:
             error = find_account_error(exc)
             if error is None:
+                record.finish_pending(args, exit_code=1, error=exc)
                 raise
             await _cancel_started_since(before)
             budget = getattr(args, _BUDGET_ATTR, None)
@@ -157,7 +159,11 @@ def stops_on_account_error[**P](
                 f"{fix} and run again.",
                 file=sys.stderr,
             )
+            record.finish_pending(args, exit_code=ACCOUNT_STOPPED, error=f"{error}")
             return ACCOUNT_STOPPED
+        # The run's manifest and log (evals.record) are written whatever the body did.
+        record.finish_pending(args, exit_code=code, error=None)
+        return code
 
     return wrapped
 

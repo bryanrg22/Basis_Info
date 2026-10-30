@@ -172,6 +172,43 @@ def test_select_writes_the_choice_and_out_of_sample_predictions(
     assert set(boxes) == {"a.jpg", "b.jpg", "c.jpg"}
     assert all(b["label"] == "window" for v in boxes.values() for b in v)
     assert "leave one photo out" in capsys.readouterr().out
+    # The run record: a manifest naming the pool and the labels, no model call, the log.
+    assert not (out / "run.json").exists()  # select writes no summary file
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.sam3_select"
+    assert manifest["harness"]["options"]["mode"] == "select"
+    assert manifest["calls"]["count"] == 0
+    assert [(i["name"], i["path"]) for i in manifest["data"]["inputs"]] == [("pool", str(pool))]
+    [labels] = manifest["data"]["datasets"]
+    assert (labels["name"], labels["version"]) == ("detection_boxes", "v1")
+    assert labels["sha256"] is not None
+    assert manifest["notes"] == {"candidates": "pool", "max_phrases": 3, "grid_min": 0.3}
+    assert manifest["summary"] is None
+    assert (manifest["status"], manifest["exit_code"]) == ("ok", 0)
+    assert "leave one photo out" in (out / "console.log").read_text()
+    # One passed case per class chosen, with the choice; a pool without a manifest files the
+    # selection under detection / select-<candidates>.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (1, 0, 0)
+    [case] = results["cases"]
+    assert (case["id"], case["kind"]) == ("window", "class")
+    assert case["detail"] == report["final"]["window"]
+    assert "results: 1 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "detection",
+        "select-pool",
+    )
+    # A pool run with a manifest names the version selected from.
+    (pool / "manifest.json").write_text(
+        json.dumps({"tree": {"component": "detection", "version": "sam3-pool"}})
+    )
+    assert sel.main([*args[:-1], str(tmp_path / "again")]) == 0
+    again = json.loads((tmp_path / "again" / "manifest.json").read_text())
+    assert (again["tree"]["component"], again["tree"]["version"]) == (
+        "detection",
+        "select-sam3-pool",
+    )
 
 
 def test_select_refuses_a_pool_missing_photos(tmp_path: Path) -> None:
@@ -180,6 +217,27 @@ def test_select_refuses_a_pool_missing_photos(tmp_path: Path) -> None:
     (pool / "instances_raw.jsonl").write_text("\n".join(lines[:2]) + "\n")
     args = ["select", "--pool", str(pool), "--dataset", str(dataset), "--out", str(tmp_path / "o")]
     assert sel.main(args) == 2
+    manifest = json.loads((tmp_path / "o" / "manifest.json").read_text())
+    assert (manifest["status"], manifest["exit_code"]) == ("ok", 2)
+    assert "no pool instances" in (tmp_path / "o" / "console.log").read_text()
+    # The photo the pool lacks is a test error: nothing was selected.
+    results = json.loads((tmp_path / "o" / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (0, 0, 1)
+    assert (results["cases"][0]["id"], results["cases"][0]["kind"]) == ("c.jpg", "photo")
+    report = (tmp_path / "o" / "report.md").read_text()
+    assert "results: 0 passed, 0 failed, 1 test errors" in report
+
+
+def test_a_select_that_fails_still_leaves_a_manifest(tmp_path: Path) -> None:
+    dataset, _ = write_pool(tmp_path)
+    out = tmp_path / "o"
+    pool = str(tmp_path / "nope")
+    with pytest.raises(FileNotFoundError):
+        sel.main(["select", "--pool", pool, "--dataset", str(dataset), "--out", str(out)])
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
+    assert manifest["data"]["inputs"][0]["error"] == "not found"
 
 
 def test_score_mode_counts_at_the_localizers_per_class_thresholds(
@@ -193,6 +251,7 @@ def test_score_mode_counts_at_the_localizers_per_class_thresholds(
         json.dumps({"a.jpg": [{**box, "score": 0.9}], "c.jpg": [{**box, "score": 0.45}]})
     )
     assert sel.main(["score", "--predictions", str(predictions), "--dataset", str(dataset)]) == 0
+    assert not (predictions / "manifest.json").exists()  # score writes a report only
     images = sel.gold_images(sel.load_dataset(dataset))
     boxes = sel.read_boxes(predictions / "detection_boxes.json")
     at_class = sel.score_predictions(images, boxes, sel.count_threshold)

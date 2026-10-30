@@ -18,6 +18,7 @@ from PIL import Image
 
 from basis.vision.localize import (
     COUNTABLE,
+    L40S_USD_PER_SECOND,
     PHRASES,
     Box,
     FakeLocalizer,
@@ -112,8 +113,9 @@ async def run(args: list[str]) -> int:
 
 
 async def test_dataset_run_writes_predictions_the_harness_scores(
-    dataset_dir: Path, tmp_path: Path, fake: FakeLocalizer
+    dataset_dir: Path, tmp_path: Path, fake: FakeLocalizer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("BASIS_EVAL_DATA_DIR", str(tmp_path / "data"))  # a verification tree
     out = tmp_path / "out"
     # the fake is scripted with v1 phrase texts ("window", "interior door")
     assert await run(["--dataset", str(dataset_dir), "--out", str(out), "--phrase-set", "v1"]) == 0
@@ -145,6 +147,52 @@ async def test_dataset_run_writes_predictions_the_harness_scores(
     assert (summary["calls"], summary["phrases_from"], summary["tiling"]) == (2, "dataset", False)
     assert summary["model"] == "vufinder/sam3" and summary["errors"] == []
     assert (summary["phrase_set"], summary["count_threshold"]) == ("v1", "per_class")
+    # The run record (evals.record): one localization row per SAM 3 prediction, metered in
+    # predict seconds as production records them; the dataset named with its version.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_boxes"
+    assert manifest["summary"] == summary
+    assert manifest["calls"]["count"] == 2 and manifest["calls"]["by_kind"] == {"localization": 2}
+    assert manifest["calls"]["cost_usd"] == pytest.approx(2 * 1.0 * L40S_USD_PER_SECOND, abs=1e-6)
+    assert manifest["components"]["prompts"] == []  # no released prompt: phrases
+    assert manifest["components"]["models"]["answered"] == ["fake-sam3@fake"]
+    [dataset] = manifest["data"]["datasets"]
+    assert (dataset["name"], dataset["version"], dataset["file"]) == (
+        "detection_boxes",
+        "v1",
+        "detection_boxes_v1.json",
+    )
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["images"]
+    assert manifest["notes"] == {"phrase_set": "v1", "phrases_from": "dataset"}
+    rows = [json.loads(line) for line in (out / "llm_calls.jsonl").read_text().splitlines()]
+    assert len(rows) == 2
+    assert (rows[0]["kind"], rows[0]["quantity"], rows[0]["unit"]) == (
+        "localization",
+        "1.0",
+        "second",
+    )
+    assert set(rows[0]["request_params"]["prompts"]) == expected
+    assert rows[0]["request_params"]["phrase_set"] == "v1"
+    assert f"wrote {out}" in (out / "console.log").read_text()
+    # One passed case per (photo, repeat); the run files under detection / sam3-<phrase set>
+    # (the phrase set is what a SAM 3 run versions) as a relative link in the data directory's
+    # verification tree.
+    results = json.loads((out / "results.json").read_text())
+    summary_counts = results["summary"]
+    assert (summary_counts["passed"], summary_counts["failed"], summary_counts["test_error"]) == (
+        2,
+        0,
+        0,
+    )
+    assert [(c["id"], c["detail"]) for c in results["cases"]] == [
+        ("a1.jpg#1", {"instances": 3}),
+        ("b2.jpg#1", {"instances": 3}),
+    ]
+    assert "results: 2 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("detection", "sam3-v1")
+    link = tmp_path / "data" / "verification" / "detection" / "sam3-v1" / "out"
+    assert link.is_symlink() and link.resolve() == out.resolve()
+    assert Path(manifest["tree"]["link"]).resolve() == out.resolve()
 
     data = DetectionBoxes.model_validate_json((dataset_dir / "detection_boxes_v1.json").read_text())
     rows = {r.metric: r for r in score_detection_boxes(data, "dev", 1, predictions).rows}
@@ -166,6 +214,9 @@ async def test_tiling_and_repeats(dataset_dir: Path, tmp_path: Path, fake: FakeL
     assert len(predictions["a1.jpg"]["repeats"]) == 2
     summary = json.loads((out / "run.json").read_text())
     assert summary["merge_metric"] == "ios" and summary["calls"] == 20
+    results = json.loads((out / "results.json").read_text())
+    assert results["summary"]["passed"] == 4  # photos x repeats
+    assert [c["id"] for c in results["cases"]] == ["a1.jpg#1", "b2.jpg#1", "a1.jpg#2", "b2.jpg#2"]
 
 
 async def test_photo_directory_with_vlm_labels(tmp_path: Path, fake: FakeLocalizer) -> None:
@@ -200,6 +251,12 @@ async def test_photo_directory_with_vlm_labels(tmp_path: Path, fake: FakeLocaliz
     assert json.loads((out / "run.json").read_text())["notes"] == [
         "1 photos have no VLM labels: countable set only"
     ]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert [(i["name"], i["files"]) for i in manifest["data"]["inputs"]] == [
+        ("photos", 3),
+        ("photo_raw", 1),
+    ]
+    assert manifest["data"]["datasets"] == []
 
 
 async def test_failures_are_recorded_not_fatal(
@@ -220,6 +277,23 @@ async def test_failures_are_recorded_not_fatal(
         and "not a readable image" in errors[1]["error"]
     )
     assert json.loads((out / "detection_boxes.json").read_text()) == {}
+    # No prediction answered: a manifest with no calls and no ledger, still status ok.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["status"], manifest["calls"]["count"]) == ("ok", 0)
+    assert not (out / "llm_calls.jsonl").exists()
+    # The localizer's failure says nothing about the photo (a test error with the catalogue
+    # code); the preparation refusing the photo is the system's verdict (failed).
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (0, 1, 1)
+    by_id = {c["id"]: c for c in results["cases"]}
+    assert by_id["a1.jpg#1"]["outcome"] == "test_error"
+    assert by_id["a1.jpg#1"]["observed_error"] == "BASIS-PROVIDER-008"  # localizer unavailable
+    assert "HTTP 503" in by_id["a1.jpg#1"]["observed_message"]
+    assert by_id["b2.jpg#1"]["outcome"] == "failed"
+    assert "not a readable image" in by_id["b2.jpg#1"]["detail"]
+    assert "results: 0 passed, 1 failed, 1 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("detection", "sam3-v3")
 
 
 async def test_no_token_no_photos_and_bad_options(

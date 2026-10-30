@@ -18,6 +18,7 @@ import pytest
 
 from basis.classify.schemas import CitationClaim, Classification
 from basis.extraction.fallback import FallbackAnswer, FallbackValue
+from basis.llm import prompts
 from basis.llm.errors import ProviderAccountError, ProviderBadResponse
 from basis.llm.provider import ScriptedProvider, ScriptedTurn, ToolCall
 from evals import account_stop, predict_assets, predict_fields
@@ -41,6 +42,16 @@ def use(module: Any, provider: ScriptedProvider, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(
         module.ProviderPool, "from_settings", staticmethod(lambda settings: provider)
     )
+
+
+def results_of(out: Path) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads((out / "results.json").read_text())
+    return data
+
+
+def counts_of(out: Path) -> tuple[int, int, int]:
+    summary = results_of(out)["summary"]
+    return summary["passed"], summary["failed"], summary["test_error"]
 
 
 # --------------------------------------------------------------------------- fields
@@ -163,6 +174,44 @@ async def test_fields_run_writes_guarded_predictions_with_repeats(
     assert rows["normalized_accuracy"] == pytest.approx(2 / 4)
     assert rows["critical_accuracy"] == 1.0 and rows["critical_pass^2"] == 1.0
     assert rows["pass^2"] == pytest.approx(1 / 4)
+    # The run record (evals.record): the prompt, the label file, the PDF read, the ledger.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_fields"
+    assert manifest["calls"]["count"] == 2
+    assert manifest["components"]["prompts"] == [
+        {
+            "name": "appraisal_field_fallback",
+            "version": "v1",
+            "sha256": prompts.load("appraisal_field_fallback", "v1").sha256,
+            "calls": 2,
+        }
+    ]
+    [dataset] = manifest["data"]["datasets"]
+    assert (dataset["name"], dataset["version"]) == ("appraisal_fields", "v1")
+    assert dataset["sha256"]
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["inputs/appraisal.pdf"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 2
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (document, repeat), both passed (a value survived the guard each time).
+    results = results_of(out)
+    assert results["summary"]["total"] == 2 and counts_of(out) == (2, 0, 0)
+    first, second = results["cases"]
+    assert (first["id"], first["kind"], second["id"]) == (
+        "inputs/appraisal.pdf#1",
+        "document",
+        "inputs/appraisal.pdf#2",
+    )
+    assert first["detail"] == {"fields": 4, "accepted": 2, "unguarded": 3, "dropped": 2}
+    assert second["detail"]["accepted"] == 1 and second["seconds"] >= 0
+    assert (
+        "**results: 2 passed, 0 failed, 0 test errors (2 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {
+        "component": "appraisal_field_fallback",
+        "version": "v1",
+        "link": None,
+    }
 
 
 def saved_doc(out: Path) -> dict[str, Any]:
@@ -186,6 +235,26 @@ async def test_fields_provider_error_is_a_missing_repeat_not_a_crash(
     assert run["errors"][0]["repeat"] == 1 and "400 bad" in run["errors"][0]["error"]
     saved = json.loads((out / "appraisal_fields.json").read_text())
     assert set(saved["inputs/appraisal.pdf"].values()) == {None}
+    # An unusable answer is the model's failure on the document, with its catalogue code.
+    assert counts_of(out) == (0, 1, 0)
+    [case] = results_of(out)["cases"]
+    assert (case["id"], case["outcome"], case["observed_error"]) == (
+        "inputs/appraisal.pdf#1",
+        "failed",
+        "BASIS-PROVIDER-006",
+    )
+
+
+def test_error_outcome_tells_the_models_failures_from_the_providers() -> None:
+    from basis.llm.errors import ProviderRateLimited, ProviderRequestRejected, ProviderUnavailable
+
+    assert predict_fields.error_outcome(ProviderBadResponse("bad")) == "failed"
+    assert (
+        predict_fields.error_outcome(ProviderRequestRejected("no", provider="p", status=400))
+        == "failed"
+    )
+    assert predict_fields.error_outcome(ProviderUnavailable("503")) == "test_error"
+    assert predict_fields.error_outcome(ProviderRateLimited("429")) == "test_error"
 
 
 async def test_fields_account_error_stops_the_run(
@@ -205,6 +274,11 @@ async def test_fields_account_error_stops_the_run(
     run = json.loads((out / "run.json").read_text())
     assert run["complete"] is False and run["stopped"]["status"] == 401
     assert not (out / "appraisal_fields.json").exists()
+    # The refused repeat is a test error with the account error's code; repeat 2 never ran.
+    results = results_of(out)
+    assert results["summary"]["total"] == 1 and counts_of(out) == (0, 0, 1)
+    assert results["cases"][0]["observed_error"] == "BASIS-PROVIDER-001"
+    assert json.loads((out / "manifest.json").read_text())["status"] == "stopped"
 
 
 # --------------------------------------------------------------------------- assets
@@ -333,6 +407,33 @@ async def test_assets_run_scores_bucket_and_citations(
     rows = {r.metric: r.value for r in score_assets(data, "dev", 2, saved).rows}
     assert rows["bucket_accuracy"] == 1.0 and rows["bucket_pass^2"] == 0.0
     assert rows["citation_validity"] == pytest.approx(1 / 2)
+    # The run record (evals.record): the classifier's calls are in the ledger, with
+    # the label file and the corpus read.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_assets"
+    assert manifest["calls"]["count"] == 4
+    [prompt] = manifest["components"]["prompts"]
+    assert (prompt["name"], prompt["version"], prompt["calls"]) == ("classify", "v1", 4)
+    assert prompt["sha256"]
+    [dataset] = manifest["data"]["datasets"]
+    assert (dataset["file"], dataset["version"]) == ("assets_v1.json", "v1")
+    [corpus] = manifest["data"]["inputs"]
+    assert (corpus["name"], corpus["files"]) == ("corpus", 2)
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 4
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (row, repeat), both classified by the loop: passed, whatever the bucket.
+    results = results_of(out)
+    assert results["summary"]["total"] == 2 and counts_of(out) == (2, 0, 0)
+    first, second = results["cases"]
+    assert (first["id"], first["kind"], second["id"]) == ("r1#1", "asset", "r1#2")
+    assert first["detail"]["bucket"] == "y5" and second["detail"]["bucket"] == "y7"
+    assert first["detail"]["citations"] == {"claimed": 2, "verified": 1}
+    assert "observed_error" not in first and first["seconds"] >= 0
+    assert (
+        "**results: 2 passed, 0 failed, 0 test errors (2 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {"component": "classify", "version": "v1", "link": None}
 
 
 async def test_assets_loop_failure_is_the_production_fallback_with_the_error_kept(
@@ -360,6 +461,38 @@ async def test_assets_loop_failure_is_the_production_fallback_with_the_error_kep
         {"id": "r1", "repeat": 1, "reasons": ["provider_error:ProviderBadResponse"]}
     ]
     assert "not supported" in run["provider_errors"][0]["error"]
+    # The fallback row is the loop's failure, with the bad response's catalogue code.
+    assert counts_of(out) == (0, 1, 0)
+    [case] = results_of(out)["cases"]
+    assert (case["id"], case["outcome"], case["observed_error"]) == (
+        "r1#1",
+        "failed",
+        "BASIS-PROVIDER-006",
+    )
+    assert case["detail"]["review_reasons"] == ["provider_error:ProviderBadResponse"]
+    assert case["detail"]["bucket"] == "y39"
+
+
+def test_asset_outcome_tells_the_loops_failures_from_the_harness_and_the_apis() -> None:
+    def item(reasons: list[str], failed: bool = True) -> dict[str, Any]:
+        return {
+            "confidence": 0.0 if failed else 0.9,
+            "category": "Unclassified: x" if failed else "Carpet",
+            "review_reasons": reasons,
+        }
+
+    assert predict_assets.asset_outcome(item([], failed=False)) == "passed"
+    assert predict_assets.asset_outcome(item(["low_confidence"], failed=False)) == "passed"
+    assert predict_assets.asset_outcome(item(["invalid_output"])) == "failed"
+    assert predict_assets.asset_outcome(item(["timeout"])) == "failed"
+    assert predict_assets.asset_outcome(item(["provider_error:ProviderBadResponse"])) == "failed"
+    assert (
+        predict_assets.asset_outcome(item(["provider_error:ProviderUnavailable"])) == "test_error"
+    )
+    assert (
+        predict_assets.asset_outcome(item(["provider_error:ProviderRateLimited"])) == "test_error"
+    )
+    assert predict_assets.asset_outcome(item(["budget_exceeded"])) == "test_error"
 
 
 async def test_assets_account_error_stops_the_run_instead_of_a_fallback_row(
@@ -387,6 +520,13 @@ async def test_assets_account_error_stops_the_run_instead_of_a_fallback_row(
     run = json.loads((out / "run.json").read_text())
     assert run["complete"] is False and run["stopped"]["provider"] == "anthropic"
     assert not (out / "assets.json").exists()  # no 1250/y39 fallback row was written
+    # The row whose loop the account error aborted is a test error with the error's code.
+    results = results_of(out)
+    assert results["summary"]["total"] == 1 and counts_of(out) == (0, 0, 1)
+    assert (results["cases"][0]["id"], results["cases"][0]["observed_error"]) == (
+        "r1#1",
+        "BASIS-PROVIDER-001",
+    )
 
 
 async def test_assets_without_corpus_pdfs_stops_before_any_call(

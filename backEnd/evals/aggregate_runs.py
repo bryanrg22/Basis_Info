@@ -24,7 +24,10 @@ Per photo, with ``--rule``:
 The output is one aggregated prediction per photo (score it with ``evals.run --repeats 1``
 or any ``--repeats``; every repeat is the same answer): ``photo_counts.json``,
 ``photo_components.json``, ``photo_rooms.json`` and ``run.json`` (sources, rule, samples per
-photo, summed spend). An aggregate over N samples costs N single runs.
+photo, summed spend), plus ``console.log``, ``manifest.json``, ``results.json`` and
+``report.md``, the run record (:mod:`evals.record`; filed under ``photo_analysis`` at the
+sources' prompt versions joined, one passed case per photo aggregated). An aggregate over N
+samples costs N single runs.
 
 ``--by-repeat`` aggregates repeat i of every run together instead of pooling them all, and
 writes one aggregated answer per repeat (``{"repeats": [...]}``): an ensemble of k runs
@@ -45,6 +48,9 @@ from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
+
+from evals import record
+from evals.merge_photo_runs import source_manifest_id, source_version
 
 __all__ = ["RULES", "aggregate", "aggregate_runs", "main", "parse_args", "samples"]
 
@@ -166,8 +172,29 @@ def _fold(values: list[Any]) -> Any:
 def aggregate_runs(
     runs: Sequence[Path], out: Path, rule: str, by_repeat: bool = False
 ) -> dict[str, Any]:
+    run = record.EvalRun.begin(
+        out, harness=__name__, component="photo_analysis", version=source_version(runs)
+    )
+    try:
+        summary = _aggregate(runs, out, rule, by_repeat, run)
+    except BaseException as exc:
+        run.finish(None, status="error", exit_code=1, error=repr(exc))
+        raise
+    run.finish(summary)
+    return summary
+
+
+def _aggregate(
+    runs: Sequence[Path], out: Path, rule: str, by_repeat: bool, run: record.EvalRun
+) -> dict[str, Any]:
+    for i, source in enumerate(runs, 1):
+        run.input(f"run{i}", source)
+    run.note(
+        rule=rule,
+        by_repeat=by_repeat,
+        sources=[{"run": str(p), "manifest_id": source_manifest_id(p)} for p in runs],
+    )
     pooled = samples(runs)
-    out.mkdir(parents=True, exist_ok=True)
     results: dict[str, list[dict[str, Any]]] = {}
     for file, photo_samples in sorted(pooled.items()):
         if by_repeat:
@@ -178,6 +205,7 @@ def aggregate_runs(
         else:
             groups = [photo_samples]
         results[file] = [_aggregate_photo(g, rule) for g in groups]
+        run.case(file, record.PASSED, kind="photo", detail={"samples": len(photo_samples)})
     out_files = {
         "photo_counts": {f: _fold([r["counts"] for r in rs]) for f, rs in results.items()},
         "photo_components": {
@@ -195,10 +223,10 @@ def aggregate_runs(
         (out / f"{name}.json").write_text(json.dumps(data, indent=1, sort_keys=True))
     spent = 0.0
     sources = []
-    for run in runs:
-        summary = _load(run, "run")
+    for source in runs:
+        summary = _load(source, "run")
         spent += float(summary.get("spent_usd") or 0.0)
-        sources.append({"run": str(run), "spent_usd": summary.get("spent_usd")})
+        sources.append({"run": str(source), "spent_usd": summary.get("spent_usd")})
     per_photo = sorted(
         {len(s) // (len({x["repeat"] for x in s}) if by_repeat else 1) for s in pooled.values()}
     )
@@ -210,7 +238,6 @@ def aggregate_runs(
         "samples_per_photo": per_photo,
         "spent_usd": round(spent, 6),
     }
-    (out / "run.json").write_text(json.dumps(summary, indent=1))
     return summary
 
 

@@ -26,7 +26,10 @@ Output in ``--out``:
 * with ``--loop``: ``loop_masked/`` (only objects with a mask) and ``loop_all/`` (masked plus
   added points no mask was found for), each a predictions directory of the same three files;
 * ``marks_raw.jsonl`` (per photo and repeat: the marks, the answer, the tally, timings),
-  ``run.json`` (models reported, spend, seconds, mask coverage).
+  ``run.json`` (models reported, spend, seconds, mask coverage);
+* ``llm_calls.jsonl``, ``llm/``, ``console.log``, ``manifest.json``, ``results.json``,
+  ``report.md``: the run record (:mod:`evals.record`); one case per (photo, repeat), passed
+  when the review tallied, a test error (with the recorded errors) when no answer came back.
 
 Usage (from ``backEnd/``)::
 
@@ -57,11 +60,11 @@ from basis.llm.cost import is_anthropic_model
 from basis.llm.errors import ProviderAccountError
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, ImagePart, Message
-from basis.llm.recorder import MemoryRecorder
 from basis.vision import marks as mk
 from basis.vision.localize import Instance, Point
 from basis.vision.prep import PreparedImage, prepare_image
 from basis.vision.schemas import ComponentLabel
+from evals import record
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import photo_files
 from evals.predict_tiles import ask_structured
@@ -343,9 +346,18 @@ async def run(args: argparse.Namespace) -> int:
         for f in photos
     }
     args.out.mkdir(parents=True, exist_ok=True)
+    rec = record.EvalRun.begin(args.out, harness=__name__, args=args, settings=load_settings())
+    rec.input("photos", args.photos)
+    for directory in args.sam3:
+        rec.input("sam3", directory / "instances_raw.jsonl")
+    for directory in args.pool or ():
+        rec.input("pool", directory / "instances_raw.jsonl")
+    if args.base is not None:
+        rec.input("base", args.base)
     records: list[dict[str, Any]]
     run_info: dict[str, Any]
     if args.from_raw is not None:
+        rec.input("from_raw", args.from_raw)
         records = [
             json.loads(line)
             for line in args.from_raw.read_text(encoding="utf-8").splitlines()
@@ -354,7 +366,7 @@ async def run(args: argparse.Namespace) -> int:
         records = [r for r in records if r["file"] in photos]
         run_info = {"from_raw": str(args.from_raw)}
     else:
-        asked = await ask_all(args, photos, marks)
+        asked = await ask_all(args, photos, marks, rec)
         if asked is None:
             return 2
         records, run_info = asked
@@ -364,6 +376,7 @@ async def run(args: argparse.Namespace) -> int:
     for r in records:
         if r.get("tally") is not None:
             counts[r["file"]][int(r["repeat"]) - 1] = r["tally"]["counts"]
+    record_cases(rec, records, "tally")
     write_predictions(args.out, counts, args.base)
     if args.from_raw is None:
         write_raw(args.out / "marks_raw.jsonl", records)
@@ -393,16 +406,54 @@ async def run(args: argparse.Namespace) -> int:
     previous = args.out / "run.json"
     if args.from_raw is not None and previous.exists():
         run_info = {**json.loads(previous.read_text()), **run_info}
-    previous.write_text(json.dumps(run_info, indent=1, sort_keys=True))
+        file_under(rec, run_info)
+    print(f"wrote {args.out}", file=sys.stderr)
+    rec.finish(run_info)  # run.json and the manifest
     if args.loop:
         for sub in ("loop_masked", "loop_all"):
             shutil.copy(previous, args.out / sub / "run.json")
-    print(f"wrote {args.out}", file=sys.stderr)
     return 0
 
 
+def file_under(rec: record.EvalRun, info: Mapping[str, Any]) -> None:
+    """Declare where a run that made no model call files in the verification tree (the
+    default reads the prompt from the calls): ``--from-raw`` redoes a step over a previous
+    run's records, so it files under that run's prompt (``run.json`` ``prompt``); the Molmo
+    pointer files under ``photo_points`` as the system ``molmo-7b-d``."""
+    if rec.component is not None:
+        return
+    if info.get("pointer") == "molmo":
+        rec.component, rec.version = "photo_points", "molmo-7b-d"
+        return
+    prompt = info.get("prompt")
+    if isinstance(prompt, str) and "/" in prompt:
+        rec.component, _, rec.version = prompt.partition("/")
+
+
+def record_cases(rec: record.EvalRun, records: Sequence[Mapping[str, Any]], answer: str) -> None:
+    """One case per (photo, repeat) record: passed when ``answer`` (``tally``, ``points``) is
+    present, a test error carrying the recorded errors when the model gave no usable answer
+    (a provider failure after retries, or no structured answer)."""
+    for r in records:
+        case_id = f"{r['file']}#{r['repeat']}"
+        if r.get(answer) is not None:
+            rec.case(case_id, record.PASSED, kind="photo", seconds=r.get("seconds"))
+        else:
+            errors = [str(e) for e in r.get("errors") or []]
+            rec.case(
+                case_id,
+                record.TEST_ERROR,
+                kind="photo",
+                observed_error="; ".join(errors) or "no answer",
+                seconds=r.get("seconds"),
+            )
+
+
 async def ask_all(
-    args: argparse.Namespace, photos: Mapping[str, Path], marks: Mapping[str, list[mk.Mark]]
+    args: argparse.Namespace,
+    photos: Mapping[str, Path],
+    marks: Mapping[str, list[mk.Mark]],
+    rec: record.EvalRun,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
     settings = load_settings()
     pool = guard(ProviderPool.from_settings(settings))
@@ -410,9 +461,10 @@ async def ask_all(
         print("no model provider configured", file=sys.stderr)
         return None
     prompt = prompts.load(PROMPT, args.prompt)
+    rec.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = rec.recorder
     call = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,

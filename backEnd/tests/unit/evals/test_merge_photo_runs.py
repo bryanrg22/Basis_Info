@@ -116,7 +116,106 @@ def test_merge_runs_writes_the_harness_files(tmp_path: Path) -> None:
         "photo_countables/v1",
         "photo_surfaces/v1",
     ]
+    assert json.loads((out / "run.json").read_text()) == summary
+    # The run record: a manifest naming the source runs, no model call, and the log.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.merge_photo_runs"
+    assert manifest["calls"]["count"] == 0
+    assert [(i["name"], i["path"]) for i in manifest["data"]["inputs"]] == [
+        ("run1", str(a)),
+        ("run2", str(b)),
+    ]
+    assert manifest["notes"]["sources"] == [
+        {"run": str(a), "manifest_id": None},
+        {"run": str(b), "manifest_id": None},
+    ]
+    assert manifest["summary"] == summary
+    assert (out / "console.log").exists()
+    # One case per merged (photo, repeat); the repeat the surfaces run lacks is a test error.
+    # Sources without a manifest give no version: unversioned under photo_analysis.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (3, 0, 1)
+    assert [(c["id"], c["outcome"]) for c in results["cases"]] == [
+        ("1.jpg#1", "passed"),
+        ("1.jpg#2", "passed"),
+        ("2.jpg#1", "passed"),
+        ("2.jpg#2", "test_error"),
+    ]
+    assert results["cases"][3]["detail"] == "missing in run2"
+    assert "results: 3 passed, 0 failed, 1 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "photo_analysis",
+        "unversioned",
+    )
     assert merge_photo_runs.main(["--runs", str(a), str(b), "--out", str(tmp_path / "m2")]) == 0
+    # A source run that has its own manifest is named by its id.
+    second = merge_photo_runs.merge_runs([tmp_path / "m2", b], tmp_path / "m3")
+    assert second["photos"] == 2
+    m3 = json.loads((tmp_path / "m3" / "manifest.json").read_text())
+    m2_id = json.loads((tmp_path / "m2" / "manifest.json").read_text())["id"]
+    assert m3["notes"]["sources"][0] == {"run": str(tmp_path / "m2"), "manifest_id": m2_id}
+
+
+def manifest_with(root: Path, name: str, **sections: Any) -> None:
+    (root / name / "manifest.json").write_text(json.dumps({"id": f"id-{name}", **sections}))
+
+
+def test_source_version_joins_the_sources_prompt_versions(tmp_path: Path) -> None:
+    """The version a derived run files under: each source's prompts (the ones that made
+    calls, else every declared one), else the component and version it is filed under (a
+    derived source's version alone, since it already names its prompts), deduplicated and
+    joined; unversioned when no source says."""
+    a = write_run(tmp_path, "a", "photo_countables/v2", [record("1.jpg", 1, "k", [])], 0.1)
+    b = write_run(tmp_path, "b", "photo_surfaces/v1", [record("1.jpg", 1, "k", [])], 0.1)
+    c = write_run(tmp_path, "c", "x", [record("1.jpg", 1, "k", [])], 0.1)
+    d = write_run(tmp_path, "d", "x", [record("1.jpg", 1, "k", [])], 0.1)
+    e = write_run(tmp_path, "e", "x", [record("1.jpg", 1, "k", [])], 0.1)
+    manifest_with(
+        tmp_path,
+        "a",
+        components={
+            "prompts": [
+                {"name": "photo_countables", "version": "v2", "calls": 3},
+                {"name": "photo_surfaces", "version": "v1", "calls": 0},  # declared, unused
+            ]
+        },
+    )
+    manifest_with(tmp_path, "b", tree={"component": "photo_surfaces", "version": "v1"})
+    manifest_with(  # a merged run: its version already names its prompts
+        tmp_path,
+        "c",
+        tree={"component": "photo_analysis", "version": "photo_countables-v2+photo_surfaces-v1"},
+    )
+    manifest_with(tmp_path, "d", tree={"component": "unknown", "version": "unversioned"})
+    assert merge_photo_runs.source_version([a]) == "photo_countables-v2"
+    assert merge_photo_runs.source_version([b]) == "photo_surfaces-v1"
+    assert merge_photo_runs.source_version([a, b]) == "photo_countables-v2+photo_surfaces-v1"
+    assert merge_photo_runs.source_version([c, a, b]) == "photo_countables-v2+photo_surfaces-v1"
+    assert merge_photo_runs.source_version([d, e]) == "unversioned"
+    assert merge_photo_runs.source_version([]) == "unversioned"
+    assert merge_photo_runs.source_manifest(e) == {}
+    assert merge_photo_runs.source_manifest_id(a) == "id-a"
+    out = tmp_path / "merged"
+    merge_photo_runs.merge_runs([a, b], out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "photo_analysis",
+        "photo_countables-v2+photo_surfaces-v1",
+    )
+    assert json.loads((out / "results.json").read_text())["summary"]["passed"] == 1
+
+
+def test_a_failed_merge_still_leaves_a_manifest(tmp_path: Path) -> None:
+    a = write_run(tmp_path, "a", "p/a", [record("1.jpg", 1, "kitchen", [component("sink")])], 0.1)
+    out = tmp_path / "merged"
+    with pytest.raises(FileNotFoundError):
+        merge_photo_runs.merge_runs([a, tmp_path / "missing"], out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
+    assert "FileNotFoundError" in manifest["error"]
+    assert manifest["data"]["inputs"][1]["error"] == "not found"
+    assert not (out / "run.json").exists()
 
 
 def test_room_type_can_come_from_another_run(tmp_path: Path) -> None:
@@ -129,5 +228,6 @@ def test_room_type_can_come_from_another_run(tmp_path: Path) -> None:
     assert raw["analysis"]["room_type"] == "other"
     assert {c["label"] for c in raw["analysis"]["components"]} == {"sink", "tile"}
     assert summary["room_from"] == str(b)
+    assert json.loads((out / "manifest.json").read_text())["notes"]["room_from"] == 2
     with pytest.raises(SystemExit):
         merge_photo_runs.parse_args(["--runs", str(a), "--out", "x", "--room-from", "2"])

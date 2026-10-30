@@ -17,6 +17,10 @@ scores a single run:
   decomposed step runs); ``model`` and ``prompt`` name every source; ``seconds`` and the
   cost add up.
 * ``run.json``: the sources, their prompts and the summed spend.
+* ``console.log``, ``manifest.json``, ``results.json``, ``report.md``: the run record
+  (:mod:`evals.record`), filed under ``photo_analysis`` at the sources' prompt versions
+  joined (:func:`source_version`, ``photo_countables-v2+photo_surfaces-v1``); one case per
+  merged (photo, repeat), a test error when some source run lacks it.
 
 Usage (from ``backEnd/``)::
 
@@ -33,9 +37,76 @@ from pathlib import Path
 from typing import Any
 
 from basis.vision.merge import merge_components
+from evals import record
 from evals.predict_photos import label_counts
 
-__all__ = ["main", "merge_components", "merge_records", "merge_runs", "parse_args", "read_raw"]
+__all__ = [
+    "main",
+    "merge_components",
+    "merge_records",
+    "merge_runs",
+    "parse_args",
+    "read_raw",
+    "source_manifest",
+    "source_manifest_id",
+    "source_version",
+]
+
+
+def source_manifest(run: Path) -> dict[str, Any]:
+    """A source run's ``manifest.json`` as a dict (empty when there is none or it is unreadable)."""
+    path = Path(run) / record.MANIFEST_FILE
+    if not path.is_file():
+        return {}
+    try:
+        found = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
+def source_manifest_id(run: Path) -> str | None:
+    """The ``id`` of a source run's ``manifest.json`` (``None`` when it has none)."""
+    found = source_manifest(run).get("id")
+    return str(found) if found is not None else None
+
+
+# The components that are not a prompt: a run filed under one of these carries the versions
+# it was made from in its tree version already (``photo_countables-v2+photo_surfaces-v1``).
+_DERIVED_COMPONENTS = frozenset(record.HARNESS_COMPONENTS.values())
+
+
+def _source_versions(run: Path) -> list[str]:
+    """What one source run exercised, as ``<prompt>-<version>`` names: the prompts its
+    manifest lists (those that made calls, else every declared one), else the component
+    and version it is filed under in the verification tree; empty when the manifest says
+    nothing."""
+    manifest = source_manifest(run)
+    components = manifest.get("components") or {}
+    prompts = [p for p in components.get("prompts") or [] if isinstance(p, dict) and p.get("name")]
+    called = [p for p in prompts if isinstance(p.get("calls"), int) and p["calls"] > 0]
+    names = [f"{p['name']}-{p.get('version') or record.UNVERSIONED}" for p in (called or prompts)]
+    if names:
+        return names
+    tree = manifest.get("tree") or {}
+    component, version = tree.get("component"), tree.get("version")
+    if not component or component == record.UNKNOWN:
+        return []
+    if component in _DERIVED_COMPONENTS:  # its version already joins its sources' names
+        return [v for v in str(version or "").split("+") if v and v != record.UNVERSIONED]
+    return [f"{component}-{version or record.UNVERSIONED}"]
+
+
+def source_version(paths: Sequence[Path]) -> str:
+    """The version a run derived from ``paths`` files under: every source's prompt versions
+    (:func:`_source_versions`), deduplicated in order and joined with ``+``
+    (``photo_countables-v2+photo_surfaces-v1``); ``unversioned`` when no source says."""
+    seen: list[str] = []
+    for path in paths:
+        for name in _source_versions(Path(path)):
+            if name not in seen:
+                seen.append(name)
+    return "+".join(seen) if seen else record.UNVERSIONED
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -89,15 +160,43 @@ def merge_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str, Any]:
     """``room_from`` is the 1-based index of the run whose room type the merge keeps."""
-    raws = [read_raw(run) for run in runs]
+    run = record.EvalRun.begin(
+        out, harness=__name__, component="photo_analysis", version=source_version(runs)
+    )
+    try:
+        summary = _merge(runs, out, room_from, run)
+    except BaseException as exc:
+        run.finish(None, status="error", exit_code=1, error=repr(exc))
+        raise
+    run.finish(summary)
+    return summary
+
+
+def _merge(runs: Sequence[Path], out: Path, room_from: int, run: record.EvalRun) -> dict[str, Any]:
+    for i, source in enumerate(runs, 1):
+        run.input(f"run{i}", source)
+    run.note(
+        room_from=room_from,
+        sources=[{"run": str(p), "manifest_id": source_manifest_id(p)} for p in runs],
+    )
+    raws = [read_raw(source) for source in runs]
     keys = sorted(set(raws[0]))
-    out.mkdir(parents=True, exist_ok=True)
     rooms: dict[str, list[str]] = {}
     components: dict[str, list[list[str]]] = {}
     counts: dict[str, list[dict[str, int]]] = {}
     with (out / "photo_raw.jsonl").open("w", encoding="utf-8") as raw_out:
         for key in keys:
             present = [raw[key] for raw in raws if key in raw]
+            absent = [i for i, raw in enumerate(raws, 1) if key not in raw]
+            if absent:
+                run.case(
+                    f"{key[0]}#{key[1]}",
+                    record.TEST_ERROR,
+                    kind="photo",
+                    detail=f"missing in run{', run'.join(str(i) for i in absent)}",
+                )
+            else:
+                run.case(f"{key[0]}#{key[1]}", record.PASSED, kind="photo")
             merged = merge_records(present)
             room_source = raws[room_from - 1].get(key)
             if room_source is not None:
@@ -124,12 +223,12 @@ def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str,
     )
     sources = []
     spent = 0.0
-    for run in runs:
-        summary_path = run / "run.json"
+    for source in runs:
+        summary_path = source / "run.json"
         summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
         sources.append(
             {
-                "run": str(run),
+                "run": str(source),
                 "prompt": summary.get("prompt"),
                 "spent_usd": summary.get("spent_usd"),
             }
@@ -145,7 +244,6 @@ def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str,
             {f"{k[0]}#{k[1]}" for raw in raws[1:] for k in keys if k not in raw}
         ),
     }
-    (out / "run.json").write_text(json.dumps(summary, indent=1))
     return summary
 
 

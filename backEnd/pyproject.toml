@@ -101,7 +101,7 @@ select = ["E", "F", "I", "UP", "B"]
 "**/basis/errors/catalogue.py" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["basis", "evals"]
+known-first-party = ["basis", "evals", "tests"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -183,6 +183,85 @@ class Recorder(Protocol):
         ...
 
 
+# --------------------------------------------------------------------------- columns
+
+
+def prompt_name_of(prompt_version: str | None) -> str | None:
+    """The ``<name>`` of a ``<name>/<version>`` id, for an entry built without one."""
+    return prompt_version.partition("/")[0] if prompt_version else None
+
+
+def _text(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _int(value: object) -> int | None:
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def _float(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def ledger_columns(record: CallRecord, *, build_sha: str | None = None) -> dict[str, Any]:
+    """Every ``llm_calls`` column of a priced record except ``created_at`` (the database
+    fills it), keyed by column name: what :meth:`LlmCallRepository.add_record` writes and
+    what the evaluation ledger (:mod:`evals.record`) writes as one JSONL line, so the two
+    are the same record by construction (``tests/unit/llm/test_ledger_columns.py`` holds
+    the key set equal to the table's columns)."""
+    e = record.entry
+    return {
+        "id": record.id,
+        "study_id": e.study_id,
+        "run_id": e.run_id,
+        "activity": e.activity,
+        "provider": e.provider,
+        "model": e.model,
+        "prompt_version": e.prompt_version,
+        "input_tokens": e.usage.input_tokens,
+        "output_tokens": e.usage.output_tokens,
+        "cost_usd": record.cost_usd,
+        "latency_ms": e.latency_ms,
+        "kind": e.kind,
+        "status": e.status,
+        "error": e.error,
+        "stage": e.stage,
+        "revision": e.revision,
+        "activity_attempt": e.activity_attempt,
+        "component": e.component,
+        "prompt_name": e.prompt_name or prompt_name_of(e.prompt_version),
+        "prompt_sha256": e.prompt_sha256,
+        "build_sha": build_sha,
+        "entity_type": e.entity_type,
+        "entity_id": e.entity_id,
+        "requested_model": e.requested_model,
+        "endpoint": e.endpoint,
+        "response_id": e.response_id,
+        "request_id": e.request_id,
+        "finish_reason": e.finish_reason,
+        "reasoning_effort": _text(e.request_params.get("reasoning_effort")),
+        "max_output_tokens": _int(e.request_params.get("max_output_tokens")),
+        "temperature": _float(e.request_params.get("temperature")),
+        "response_format": _text(e.request_params.get("response_format")),
+        "image_count": _int(e.request_params.get("image_count")),
+        "image_bytes": _int(e.request_params.get("image_bytes")),
+        "request_params": e.request_params or None,
+        "cache_read_input_tokens": e.usage.cache_read_input_tokens,
+        "cache_creation_input_tokens": e.usage.cache_creation_input_tokens,
+        "reasoning_output_tokens": e.usage.reasoning_output_tokens,
+        "quantity": e.quantity,
+        "unit": e.unit,
+        "unit_price_usd": e.unit_price_usd,
+        "price_row": record.price_row,
+        "pricing_version": record.pricing_version,
+        "elapsed_ms": e.elapsed_ms,
+        "request_uri": record.request_uri,
+        "request_sha256": record.request_sha256,
+        "response_uri": record.response_uri,
+        "response_sha256": record.response_sha256,
+    }
+
+
 # --------------------------------------------------------------------------- pricing
 
 

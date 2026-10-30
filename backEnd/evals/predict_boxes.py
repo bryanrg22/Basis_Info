@@ -15,6 +15,13 @@ dataset directory (``--dataset``: ``detection_boxes_v1.json`` and the photos in
                                  run-length mask (for evals.render_masks and the UI
                                  experiment), the calls, predict seconds and cost
     <out>/run.json               settings, model version, calls, predict seconds, spent
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json   the run record (evals.record):
+                                 one localization row per SAM 3 prediction, as production
+                                 records them (basis.activities.localize_photo); filed under
+                                 detection / sam3-<phrase set>
+    <out>/results.json, report.md   one case per (file, repeat): passed when instances came
+                                 back, failed when the preparation refused the photo, a test
+                                 error when the localizer or the budget failed
 
 Which labels are prompted (``--phrases-from``), always together with the countable set:
 
@@ -43,16 +50,20 @@ import asyncio
 import json
 import sys
 import time
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from basis.config import Settings, load_settings
+from basis.llm.call import CallContext, step_entry
 from basis.llm.provider import Budget, BudgetExceededError
+from basis.llm.recorder import KIND_LOCALIZATION
 from basis.vision.localize import (
     DEFAULT_PHRASE_SET,
     PHRASE_SETS,
     Localization,
+    LocalizeCall,
     Localizer,
     LocalizerError,
     build_replicate_localizer,
@@ -67,6 +78,7 @@ from basis.vision.schemas import ComponentLabel
 from evals.datasets import DATASET_FILES, DetectionBoxes
 from evals.metrics import CLASS_UNION
 from evals.predict_photos import photo_files
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun, finish_pending
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -174,6 +186,31 @@ def _photos(args: argparse.Namespace) -> tuple[list[tuple[str, Path]], Detection
     return paths, data
 
 
+async def record_calls(
+    ledger: CallContext, localizer: Localizer, calls: Sequence[LocalizeCall], phrase_set: str
+) -> None:
+    """One ledger row per SAM 3 prediction (``kind = localization``): the predict seconds at
+    the backend's rate and the cost as metered, as ``basis.activities.localize_photo`` records
+    a production prediction."""
+    model = str(getattr(localizer, "model", None) or type(localizer).__name__)
+    version = getattr(localizer, "version", None)
+    for call in calls:
+        entry = step_entry(
+            ledger,
+            kind=KIND_LOCALIZATION,
+            provider=str(getattr(localizer, "provider", type(localizer).__name__)),
+            model=f"{model}@{version}" if version else model,
+            quantity=call.predict_seconds,
+            unit="second",
+            unit_price_usd=float(getattr(localizer, "usd_per_second", 0.0) or 0.0),
+            cost_usd=call.cost_usd,
+            response_id=call.prediction_id,
+            params={"prompts": list(call.prompts), "phrase_set": phrase_set},
+            response={"status": call.status, "predict_seconds": call.predict_seconds},
+        )
+        await ledger.recorder.record(entry)
+
+
 def _box_record(localization: Localization) -> list[dict[str, Any]]:
     return [
         {
@@ -217,97 +254,145 @@ async def run(args: argparse.Namespace) -> int:
         print("no localizer configured (REPLICATE_API_TOKEN)", file=sys.stderr)
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
-    semaphore = asyncio.Semaphore(args.concurrency or settings.localizer_concurrency)
-    tiling = args.tiling == "on"
-
-    async def one(key: str, path: Path, repeat: int) -> dict[str, Any]:
-        labels = per_file_labels.get(key, []) if args.phrases_from == "vlm" else fixed
-        base: dict[str, Any] = {
-            "file": key,
-            "repeat": repeat,
-            "labels": [label.value for label in prompt_labels(labels)],
-        }
-        async with semaphore:
-            started = time.monotonic()
-            try:
-                image = prepare_image(path.read_bytes())
-            except (ImageRejected, OSError) as exc:
-                return base | {"rejected": str(exc)}
-            try:
-                found = await localize_photo(
-                    image,
-                    labels,
-                    localizer,
-                    tiling=tiling,
-                    threshold=args.threshold,
-                    merge_metric=args.merge_metric,
-                    phrase_set=args.phrase_set,
-                    dedupe=args.phrase_dedupe == "on",
-                )
-            except (LocalizerError, BudgetExceededError) as exc:
-                return base | {"error": f"{type(exc).__name__}: {exc}"}
-        return base | {
-            "image": {"width": found.width, "height": found.height, "sha256": found.image_sha256},
-            "instances": [i.model_dump(mode="json") for i in found.instances],
-            "calls": [c.model_dump(mode="json") for c in found.calls],
-            "counts": (
-                class_counts(found, args.phrase_set)
-                if args.count_threshold is None
-                else counts(found, args.count_threshold)
-            ),
-            "unlocalized": unlocalized(labels, found) if args.phrases_from == "vlm" else [],
-            "boxes": _box_record(found),
-            "predict_seconds": round(found.predict_seconds, 3),
-            "cost_usd": round(found.cost_usd, 6),
-            "seconds": round(time.monotonic() - started, 2),
-        }
-
-    boxes: dict[str, list[Any]] = {key: [] for key, _ in files}
-    photo_counts: dict[str, list[Any]] = {key: [] for key, _ in files}
-    errors: list[dict[str, Any]] = []
-    calls = 0
-    predict_seconds = 0.0
+    rec = EvalRun.begin(
+        args.out,
+        harness=__name__,
+        args=args,
+        settings=settings,
+        component="detection",
+        version=f"sam3-{args.phrase_set}",  # the phrase set is what a SAM 3 run versions
+    )
     try:
-        with (args.out / "instances_raw.jsonl").open("w", encoding="utf-8") as raw:
-            for repeat in range(1, args.repeats + 1):
-                records = await asyncio.gather(*(one(k, p, repeat) for k, p in files))
-                for record in records:
-                    boxes_out = record.pop("boxes", None)
-                    raw.write(json.dumps(record, sort_keys=True) + "\n")
-                    if "error" in record or "rejected" in record:
-                        errors.append(
-                            {
-                                "file": record["file"],
-                                "repeat": repeat,
-                                "error": record.get("error") or record.get("rejected"),
-                            }
+        if args.dataset is not None:
+            rec.dataset(args.dataset / DATASET_FILES["detection_boxes"])
+            rec.input("images", args.dataset / "images")
+        else:
+            rec.input("photos", args.photos)
+        if args.photo_raw is not None:
+            rec.input("photo_raw", args.photo_raw)
+        rec.note(phrase_set=args.phrase_set, phrases_from=args.phrases_from)
+        ledger = CallContext(
+            study_id=uuid.uuid4(),
+            run_id=None,
+            activity="evals.predict_boxes",
+            budget=budget,
+            recorder=rec.recorder,
+        )
+        semaphore = asyncio.Semaphore(args.concurrency or settings.localizer_concurrency)
+        tiling = args.tiling == "on"
+
+        async def one(key: str, path: Path, repeat: int) -> tuple[dict[str, Any], Exception | None]:
+            """``(record, error)``: the raw record and, when the localizer or the budget
+            failed, the exception itself (its catalogue code goes into the case)."""
+            labels = per_file_labels.get(key, []) if args.phrases_from == "vlm" else fixed
+            base: dict[str, Any] = {
+                "file": key,
+                "repeat": repeat,
+                "labels": [label.value for label in prompt_labels(labels)],
+            }
+            async with semaphore:
+                started = time.monotonic()
+                try:
+                    image = prepare_image(path.read_bytes())
+                except (ImageRejected, OSError) as exc:
+                    return base | {"rejected": str(exc)}, None
+                try:
+                    found = await localize_photo(
+                        image,
+                        labels,
+                        localizer,
+                        tiling=tiling,
+                        threshold=args.threshold,
+                        merge_metric=args.merge_metric,
+                        phrase_set=args.phrase_set,
+                        dedupe=args.phrase_dedupe == "on",
+                    )
+                except (LocalizerError, BudgetExceededError) as exc:
+                    return base | {"error": f"{type(exc).__name__}: {exc}"}, exc
+                await record_calls(ledger, localizer, found.calls, args.phrase_set)
+            return base | {
+                "image": {
+                    "width": found.width,
+                    "height": found.height,
+                    "sha256": found.image_sha256,
+                },
+                "instances": [i.model_dump(mode="json") for i in found.instances],
+                "calls": [c.model_dump(mode="json") for c in found.calls],
+                "counts": (
+                    class_counts(found, args.phrase_set)
+                    if args.count_threshold is None
+                    else counts(found, args.count_threshold)
+                ),
+                "unlocalized": unlocalized(labels, found) if args.phrases_from == "vlm" else [],
+                "boxes": _box_record(found),
+                "predict_seconds": round(found.predict_seconds, 3),
+                "cost_usd": round(found.cost_usd, 6),
+                "seconds": round(time.monotonic() - started, 2),
+            }, None
+
+        boxes: dict[str, list[Any]] = {key: [] for key, _ in files}
+        photo_counts: dict[str, list[Any]] = {key: [] for key, _ in files}
+        errors: list[dict[str, Any]] = []
+        calls = 0
+        predict_seconds = 0.0
+        try:
+            with (args.out / "instances_raw.jsonl").open("w", encoding="utf-8") as raw:
+                for repeat in range(1, args.repeats + 1):
+                    records = await asyncio.gather(*(one(k, p, repeat) for k, p in files))
+                    for record, error in records:
+                        boxes_out = record.pop("boxes", None)
+                        raw.write(json.dumps(record, sort_keys=True) + "\n")
+                        case_id = f"{record['file']}#{repeat}"
+                        if "error" in record or "rejected" in record:
+                            errors.append(
+                                {
+                                    "file": record["file"],
+                                    "repeat": repeat,
+                                    "error": record.get("error") or record.get("rejected"),
+                                }
+                            )
+                            if "rejected" in record:  # the preparation refused the photo
+                                rec.case(case_id, FAILED, kind="photo", detail=record["rejected"])
+                            else:  # the localizer or the budget: nothing about the photo
+                                rec.case(
+                                    case_id,
+                                    TEST_ERROR,
+                                    kind="photo",
+                                    observed_error=error or record["error"],
+                                )
+                            continue
+                        rec.case(
+                            case_id,
+                            PASSED,
+                            kind="photo",
+                            detail={"instances": len(record["instances"])},
+                            seconds=record["seconds"],
                         )
-                        continue
-                    boxes[record["file"]].append(boxes_out)
-                    photo_counts[record["file"]].append(record["counts"])
-                    calls += len(record["calls"])
-                    predict_seconds += record["predict_seconds"]
-                print(
-                    f"repeat {repeat}/{args.repeats}: {len(records)} photos, "
-                    f"spent ${budget.spent_usd:.4f}",
-                    file=sys.stderr,
-                )
-    finally:
-        client = getattr(localizer, "client", None)
-        if client is not None:
-            await client.aclose()
+                        boxes[record["file"]].append(boxes_out)
+                        photo_counts[record["file"]].append(record["counts"])
+                        calls += len(record["calls"])
+                        predict_seconds += record["predict_seconds"]
+                    print(
+                        f"repeat {repeat}/{args.repeats}: {len(records)} photos, "
+                        f"spent ${budget.spent_usd:.4f}",
+                        file=sys.stderr,
+                    )
+        finally:
+            client = getattr(localizer, "client", None)
+            if client is not None:
+                await client.aclose()
 
-    def fold(values: list[Any]) -> Any:
-        return values[0] if len(values) == 1 else {"repeats": values}
+        def fold(values: list[Any]) -> Any:
+            return values[0] if len(values) == 1 else {"repeats": values}
 
-    (args.out / "detection_boxes.json").write_text(
-        json.dumps({f: fold(v) for f, v in boxes.items() if v}, indent=1, sort_keys=True)
-    )
-    (args.out / "photo_counts.json").write_text(
-        json.dumps({f: fold(v) for f, v in photo_counts.items() if v}, indent=1, sort_keys=True)
-    )
-    (args.out / "run.json").write_text(
-        json.dumps(
+        (args.out / "detection_boxes.json").write_text(
+            json.dumps({f: fold(v) for f, v in boxes.items() if v}, indent=1, sort_keys=True)
+        )
+        (args.out / "photo_counts.json").write_text(
+            json.dumps({f: fold(v) for f, v in photo_counts.items() if v}, indent=1, sort_keys=True)
+        )
+        print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+        rec.finish(  # run.json and the manifest
             {
                 "source": str(args.dataset or args.photos),
                 "photos": len(files),
@@ -328,12 +413,12 @@ async def run(args: argparse.Namespace) -> int:
                 "spent_usd": round(budget.spent_usd, 6),
                 "errors": errors,
                 "notes": notes,
-            },
-            indent=1,
+            }
         )
-    )
-    print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
-    return 0
+        return 0
+    except BaseException as exc:  # a failed run still leaves its manifest and log
+        finish_pending(args, exit_code=1, error=exc)
+        raise
 
 
 def main(argv: Sequence[str] | None = None) -> int:

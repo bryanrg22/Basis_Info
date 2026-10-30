@@ -85,6 +85,29 @@ def test_median_over_three_repeats(tmp_path: Path) -> None:
     assert summary["samples_per_photo"] == [1, 3]
     assert summary["spent_usd"] == 2.5
     assert summary["rule"] == "median"
+    assert json.loads((out / "run.json").read_text()) == summary
+    # The run record: a manifest naming the source run, no model call, and the log.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.aggregate_runs"
+    assert manifest["calls"]["count"] == 0
+    assert [(i["name"], i["path"]) for i in manifest["data"]["inputs"]] == [("run1", str(run))]
+    assert manifest["notes"]["rule"] == "median" and manifest["notes"]["by_repeat"] is False
+    assert manifest["notes"]["sources"] == [{"run": str(run), "manifest_id": None}]
+    assert manifest["summary"] == summary
+    assert (out / "console.log").exists()
+    # One passed case per photo aggregated; no source manifest: unversioned photo_analysis.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (2, 0, 0)
+    assert [(c["id"], c["detail"]) for c in results["cases"]] == [
+        ("a.jpg", {"samples": 3}),
+        ("b.jpg", {"samples": 1}),
+    ]
+    assert "results: 2 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "photo_analysis",
+        "unversioned",
+    )
 
 
 def test_max_is_the_union_and_the_largest_count(tmp_path: Path) -> None:
@@ -170,3 +193,19 @@ def test_by_repeat_aggregates_repeat_i_of_every_run(tmp_path: Path) -> None:
     assert read(out, "photo_components") == {"a.jpg": {"repeats": [["window"], ["window"]]}}
     assert summary["samples_per_photo"] == [3]
     assert summary["by_repeat"] is True
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["notes"]["by_repeat"] is True
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["run1", "run2", "run3"]
+    assert json.loads((out / "results.json").read_text())["summary"]["passed"] == 1
+    # Sources with manifests: the version is their prompt versions, deduplicated and joined.
+    versions = ("photo_countables/v2", "photo_countables/v2", "x/v1")
+    for run, prompt in zip(runs, versions, strict=True):
+        name, _, version = prompt.partition("/")
+        prompts = [{"name": name, "version": version, "calls": 2}]
+        (run / "manifest.json").write_text(json.dumps({"components": {"prompts": prompts}}))
+    aggregate_runs.aggregate_runs(runs, tmp_path / "versioned", "median", by_repeat=True)
+    manifest = json.loads((tmp_path / "versioned" / "manifest.json").read_text())
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "photo_analysis",
+        "photo_countables-v2+x-v1",
+    )

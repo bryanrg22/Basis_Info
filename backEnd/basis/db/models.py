@@ -1061,6 +1061,17 @@ class OutboxMessage(Base):
 
 
 class EvalRun(Base):
+    """One scored dataset of an ``evals.run`` invocation (``eval_results`` holds its metrics).
+
+    Migration 0015 added the run-record columns (``evals.record``): the dirty flag and the
+    nearest release tag of the scorer's checkout, the predictions directory scored, the
+    sha256 and version of the dataset's label file, the component and component version the
+    scored run is filed under in the verification tree (``manifest.json`` ``tree``; NULL for
+    a baseline, which is no component's run), and ``manifest``, the whole ``scores.jsonl``
+    entry the row was written from. Rows written before 0015 carry NULL there: the
+    information was not recorded.
+    """
+
     __tablename__ = "eval_runs"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -1070,6 +1081,15 @@ class EvalRun(Base):
     model: Mapped[str | None]
     prompt_version: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
+    # Migration 0015 (all nullable).
+    git_dirty: Mapped[bool | None]
+    release: Mapped[str | None]
+    run_dir: Mapped[str | None]
+    label_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    label_version: Mapped[str | None]
+    component: Mapped[str | None]
+    component_version: Mapped[str | None]
+    manifest: Mapped[Any | None] = mapped_column(JSON_DOC)
 
 
 class EvalResult(Base):
