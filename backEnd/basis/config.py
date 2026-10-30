@@ -348,7 +348,10 @@ class Settings(BaseSettings):
     # for a study with no intake (started before the intake was required, EVAL_REPORT 37):
     # the intake's property_use decides the class of every study that has one.
     property_class: Literal["residential_rental", "nonresidential"] = "residential_rental"
-    cost_year: int = Field(default=2026, ge=2020, le=2026)  # the cost table's range
+    # The fallback cost year (the study's placed-in-service year applies first). The
+    # Historical Cost Index (basis.domain.cost_indices) starts in 1970; a year after the
+    # latest published index is priced at that index and flagged (COST_INDICES.md 4).
+    cost_year: int = Field(default=2026, ge=1970, le=2100)
     cost_location_factor: float = Field(default=1.0, gt=0, le=3)
     # Where the takeoff's areas come from (basis.domain.measurements; EVAL_REPORT section
     # 35). appraisal: room areas from the appraisal's GLA, basement and garage fields,
@@ -365,6 +368,11 @@ class Settings(BaseSettings):
     # The engineer's unit-cost table (basis.domain.cost_table: JSON, licensed data, never
     # in the repository); unset: only the six legacy rows price (EVAL_REPORT 27, item 6).
     cost_table_path: str | None = None
+    # The firm's later Historical Cost Index values (basis.domain.cost_indices
+    # parse_supplement: JSON, one entry per year after the released 2020 book, each with its
+    # source); unset: a cost year after 2020 is priced at the Jan. 1, 2020 index and every
+    # row is flagged cost:YEAR_INDEX_EXTRAPOLATED (COST_INDICES.md section 4).
+    cost_index_supplement_path: str | None = None
     # The structure model (docs/review_2026-10-15/STRUCTURE_MODEL.md): on writes one
     # concealed row per building system from the appraisal's cost approach (or the RSMeans
     # square-foot model) carved against the itemized assets, depreciates the schedule and

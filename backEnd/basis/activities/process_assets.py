@@ -129,8 +129,15 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
+from basis.domain.cost_indices import supplement_for
 from basis.domain.cost_table import CostTable, cost_table_for
-from basis.domain.costs import CostError, CostEstimate, NeedsQuantity, estimate_cost
+from basis.domain.costs import (
+    CostError,
+    CostEstimate,
+    NeedsQuantity,
+    estimate_cost,
+    year_factor_index,
+)
 from basis.domain.cross_validation import cross_validate
 from basis.domain.intake import StudyIntake
 from basis.domain.measurements import (
@@ -171,6 +178,10 @@ from basis.workflow.contracts import CorrectionInput, ProcessAssetsInput, Proces
 ACTIVITY: Final = "process_assets"
 # The concealed rows' synthetic component ids (they have no component row): one per label.
 STRUCTURE_NAMESPACE: Final = uuid.UUID("5a1f0d6e-7c3b-4b2e-9c1d-2f6e8a9b0c11")
+
+# The review reason of a cost row priced on an extrapolated year index (the catalogue's
+# CHECK_COST_YEAR_INDEX_EXTRAPOLATED).
+EXTRAPOLATED_REASON: Final = "cost:YEAR_INDEX_EXTRAPOLATED"
 
 
 def structure_id(label: str) -> uuid.UUID:
@@ -468,6 +479,10 @@ async def _write(
             if i.needs_review
         ]
         extra_reasons = [f"cross:{i.code}" for i in issues]
+        if cost is not None and cost.year_assumption is not None:
+            # The cost year has no published index loaded (COST_INDICES.md section 4): the
+            # dollars stand on the latest index until the firm supplies the year's.
+            extra_reasons.append(EXTRAPOLATED_REASON)
         if takeoff.inputs.get("quantity_bound") == "upper":
             # A derived quantity that is an upper bound (landscaping = the whole unbuilt
             # lot): priced, but the engineer must confirm or measure it.
@@ -571,6 +586,7 @@ async def _write_structure(
         location_factor=inputs.location_factor,
         location_source=inputs.location_source,
         rcn_source=inputs.rcn_source,
+        year=inputs.year,
     )
     carve = None
     if building is not None:
@@ -609,6 +625,12 @@ async def _write_structure(
                 if building is None or building.source == "appraisal_cost_approach"
                 else inputs.location_factor
             )
+            if (
+                building is not None
+                and building.source == "square_foot_model"
+                and plan.index.year_assumption is not None
+            ):
+                reasons.append(EXTRAPOLATED_REASON)
         else:
             # A small system: priced from the cost table's row for the label, like any
             # other label; without a row it stays unpriced with the reason.
@@ -621,6 +643,8 @@ async def _write_structure(
                 reasons.append(
                     "cross:COST_NEEDS_QUANTITY" if priced_per else "cross:COST_ROW_MISSING"
                 )
+            elif cost.year_assumption is not None:
+                reasons.append(EXTRAPOLATED_REASON)
         extra_inputs: dict[str, Any] = {}
         if override is not None:
             # The engineer's correction of the rejected revision's row: their classification,
@@ -950,6 +974,7 @@ class TakeoffPlan:
             }
             quantities = property_quantities(measurements)
         setting_factor = Decimal(str(settings.cost_location_factor))
+        supplement = supplement_for(settings.cost_index_supplement_path)
         if settings.cost_index == "study" and (measurements is not None or intake is not None):
             index = resolve_cost_index(
                 measurements,
@@ -957,9 +982,17 @@ class TakeoffPlan:
                 location_factor=setting_factor,
                 placed_in_service=None if intake is None else intake.placed_in_service_date,
                 state=None if intake is None else intake.state,
+                zip_code=None if intake is None else intake.zip,
+                supplement=supplement,
             )
         else:
-            index = CostIndex(settings.cost_year, None, setting_factor, None)
+            index = CostIndex(
+                settings.cost_year,
+                None,
+                setting_factor,
+                None,
+                year_factor_index(settings.cost_year, supplement),
+            )
         study_inputs: dict[str, str | int | bool | None] = {}
         if intake is not None or index.year_source is not None:
             study_inputs = {
@@ -968,6 +1001,9 @@ class TakeoffPlan:
                 "property_class": property_class,
                 "property_class_source": class_source,
             }
+        if index.year_assumption is not None:
+            # Every priced row rests on the assumption; it is written where the sources are.
+            study_inputs["cost_year_assumption"] = index.year_assumption
         return cls(areas, quantities, index, property_class, from_appraisal, study_inputs)
 
 
@@ -1090,6 +1126,7 @@ def _cost(
             label=label,
             year_source=index.year_source,
             location_source=index.location_source,
+            year=index.year,
         )
     except NeedsQuantity as exc:
         return None, exc.unit

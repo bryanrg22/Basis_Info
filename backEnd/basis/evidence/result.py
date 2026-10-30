@@ -50,6 +50,8 @@ from basis.domain.basis import (
     allocate,
     worksheet,
 )
+from basis.domain.cost_indices import supplement_for
+from basis.domain.costs import year_factor_index
 from basis.domain.intake import StudyIntake
 from basis.domain.measurements import (
     BuildingMeasurements,
@@ -595,6 +597,7 @@ def compute_result(
             location_factor=structure.location_factor,
             location_source=structure.location_source,
             rcn_source=structure.rcn_source,
+            year=structure.year,
         )
         depr = depreciation(structure.cost_approach, structure.depreciation_method)
         if building is not None:
@@ -808,6 +811,7 @@ def structure_inputs(
 ) -> StructureInputs:
     """The inputs with the cost index resolved as ``process_assets`` resolves it."""
     setting_factor = Decimal(str(settings.cost_location_factor))
+    supplement = supplement_for(settings.cost_index_supplement_path)
     if settings.cost_index == "study" and (measurements is not None or intake is not None):
         index: CostIndex = resolve_cost_index(
             measurements,
@@ -815,9 +819,17 @@ def structure_inputs(
             location_factor=setting_factor,
             placed_in_service=None if intake is None else intake.placed_in_service_date,
             state=None if intake is None else intake.state,
+            zip_code=None if intake is None else intake.zip,
+            supplement=supplement,
         )
     else:
-        index = CostIndex(settings.cost_year, None, setting_factor, None)
+        index = CostIndex(
+            settings.cost_year,
+            None,
+            setting_factor,
+            None,
+            year_factor_index(settings.cost_year, supplement),
+        )
     return StructureInputs(
         measurements=measurements,
         cost_approach=cost_approach,
@@ -825,6 +837,7 @@ def structure_inputs(
         year_source=index.year_source,
         location_factor=index.location_factor,
         location_source=index.location_source,
+        year=index.year,
         rcn_source=settings.structure_rcn_source,
     )
 

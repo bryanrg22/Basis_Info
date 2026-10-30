@@ -1,0 +1,8 @@
+{
+ "note": "sha256 of every released cost-index file (basis.domain.cost_indices verifies it at load). Never edit a released file: add the next one and its entry here.",
+ "files": {
+  "rsmeans_2020.json": {
+   "sha256": "683dda1b63f858248493d7bf65ac37e345401896acba3d22c29338f5ee079b10"
+  }
+ }
+}

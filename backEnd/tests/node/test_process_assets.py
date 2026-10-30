@@ -185,12 +185,13 @@ async def test_rule_model_and_fabricated_paths(
     assert output.cost_usd == pytest.approx(
         4 * cost_usd("scripted-model", Usage(input_tokens=100, output_tokens=50))
     )
-    # Bedroom: 150 SF typical -> 150 / 9 x 1.10 = 18.33 SY; 61.20/SY x 1.22 = 74.66.
+    # Bedroom: 150 SF typical -> 150 / 9 x 1.10 = 18.33 SY; 61.20/SY x 1.0000 (2026: after
+    # the book's last index, the Jan 2020 one applies and the row is flagged) = 61.20.
     assert (carpet_takeoff.quantity, carpet_takeoff.unit) == (Decimal("18.33"), "SY")
     assert carpet_takeoff.inputs["room_area_source"] == "typical_for_room_type"
     assert (carpet_cost.unit_cost, carpet_cost.total, carpet_cost.cost_year) == (
-        Decimal("74.66"),
-        Decimal("1368.52"),
+        Decimal("61.20"),
+        Decimal("1121.80"),
         2026,
     )
     assert output.needs_review == 3

@@ -219,9 +219,10 @@ view the end-to-end scorer prints.
 ```json
 {
   "cost_year": 2024,
-  "location_factor": "1.200",
+  "location_factor": "1.010",
   "cost_year_source": "placed in service 2024-03-01 (intake)",
-  "location_source": "state NY (intake)",
+  "location_source": "zip 10001 (intake): 100-102 New York 1.01, RSMeans Residential 2020 Location Factors - Residential p.720",
+  "cost_year_assumption": "no published cost index for 2024 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Load the 2024 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book) through COST_INDEX_SUPPLEMENT_PATH before the study is signed",
   "property_class": "nonresidential",
   "property_class_source": "intake property_use",
   "area_sources": {"appraisal_derived": 4, "gla_share": 212, "typical_for_room_type": 9},
@@ -232,11 +233,18 @@ view the end-to-end scorer prints.
 * `cost_year`, `location_factor`: the cost rows' values (one per revision; null when the rows
   disagree or none has one).
 * `cost_year_source`, `location_source`: in order of preference the intake (`placed in service
-  <date> (intake)`, `state <XX> (intake)`), the appraisal (`appraisal effective date <date>
-  (<field> (<source>))`, `state <XX> (subject.state (<source>))`), the setting (`COST_YEAR
-  setting`, `COST_LOCATION_FACTOR setting`); a candidate that was given but unusable (a year
-  outside the 2020–2026 factor table, a state with no factor) is named after a semicolon.
+  <date> (intake)`, `zip <#####> (intake): <city row>`, `state <XX> (intake): mean of <n> <XX>
+  cities`), the appraisal (`appraisal effective date <date> (<field> (<source>))`, `zip` /
+  `state ... (subject.zip|subject.state (<source>))`), the setting (`COST_YEAR setting`,
+  `COST_LOCATION_FACTOR setting`); the location source cites the RSMeans Residential 2020
+  Location Factors row (or the cities averaged) with its page (EVAL_REPORT 45,
+  COST_INDICES.md); a candidate that was given but unusable (a year before the 1970-2020
+  Historical Cost Index, a ZIP or state not in the table) is named after a semicolon.
+* `cost_year_assumption`: present when the cost year is after the latest published index
+  loaded (the 2020 books end at Jan. 1, 2020): the rows are priced at that index and flagged
+  `cost:YEAR_INDEX_EXTRAPOLATED`; null otherwise. Each asset's `cost_source` text carries the
+  index values and pages behind both factors.
 * `property_class`, `property_class_source`: `intake property_use` or `PROPERTY_CLASS setting`.
-* The four source members are null on an export whose rows were written before section 37, or
+* The source members are null on an export whose rows were written before section 37, or
   priced from the settings alone with no intake: nothing is inferred from text.
 * `area_sources`: the assets by quantity source; `needs_measurement`: the site items awaiting one.

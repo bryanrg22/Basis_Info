@@ -640,6 +640,29 @@ async def seed_extraction(deps: Deps, seeded: SeededStudy, fields: dict[str, Any
             )
 
 
+# The cost index citations every priced row carries since EVAL_REPORT 45.
+HCI_2020 = (
+    "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction "
+    "Costs 2020 p.778"
+)
+LOCATION_TABLE = "RSMeans Residential 2020 Location Factors - Residential"
+SCHENECTADY = f"zip 12345 (intake): 123 Schenectady 0.98, {LOCATION_TABLE} p.720"
+SETTING_2026 = (
+    f"(base 2020, x1.0000 for 2026 = {HCI_2020}; no 2026 index loaded, the latest applied "
+    "(assumption); x1.0 location)"
+)
+ROOF_IL_2025 = (
+    f"(base 2020, x1.0000 for 2025 = {HCI_2020}; no 2025 index loaded, the latest applied "
+    "(assumption), from appraisal effective date 2025-06-01 "
+    "(reconciliation.effective_date_of_appraisal (azure)); x0.959 location from "
+    f"state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), {LOCATION_TABLE} "
+    "pp.718-722)"
+)
+SCHENECTADY_2024 = (
+    f"(base 2020, x1.0000 for 2024 = {HCI_2020}; no 2024 index loaded, the latest applied "
+    f"(assumption), from placed in service 2024-03-01 (intake); x0.98 location from {SCHENECTADY})"
+)
+
 MEASURED_FIELDS: dict[str, Any] = {
     "improvements.gla_sqft": 2400,
     "improvements.stories": 2,
@@ -748,16 +771,16 @@ async def test_measured_areas_price_the_property_items_and_size_the_rooms(
     assert roofs[0].inputs["pitch_factor"] == "1.118"
     assert roofs[1].formula == f"measured once per property: see asset {roofs[0].asset_id}"
     roof_cost = costs[roofs[0].asset_id]
-    # synthetic_2020 roof: (100 + 50) x 0.01 = 1.50/SF x 1.18 (2025) x 1.05 (IL) = 1.86.
-    assert (roof_cost.unit_cost, roof_cost.total) == (Decimal("1.86"), Decimal("3754.15"))
-    assert (roof_cost.cost_year, roof_cost.location_factor) == (2025, Decimal("1.05"))
-    assert roof_cost.source_row is not None and roof_cost.source_row.endswith(
-        "(base 2020, x1.18 for 2025 from appraisal effective date 2025-06-01 "
-        "(reconciliation.effective_date_of_appraisal (azure)), x1.05 location from "
-        "state IL (subject.state (azure)))"
-    )
+    # synthetic_2020 roof: (100 + 50) x 0.01 = 1.50/SF x 1.0000 (2025: after the book's
+    # last index, flagged) x 0.959 (IL: the mean of its 19 cities) = 1.4385.
+    assert (roof_cost.unit_cost, roof_cost.total) == (Decimal("1.44"), Decimal("2906.44"))
+    assert (roof_cost.cost_year, roof_cost.location_factor) == (2025, Decimal("0.959"))
+    assert roof_cost.source_row is not None and roof_cost.source_row.endswith(ROOF_IL_2025)
     roof_assets = [a for label, a in rows if label == "roof"]
     assert not any("COST_NEEDS_QUANTITY" in (a.review_reason or "") for a in roof_assets)
+    # Every priced row stands on the 2020 index until the firm loads 2025's (EVAL_REPORT 45).
+    assert "cost:YEAR_INDEX_EXTRAPOLATED" in (roof_assets[0].review_reason or "")
+    assert "no published cost index for 2025" in roofs[0].inputs["cost_year_assumption"]
 
     # Patio: no appraisal input; still a count, COST_NEEDS_QUANTITY, the measurement named.
     patio = next(a for label, a in rows if label == "patio")
@@ -788,7 +811,7 @@ async def test_without_extraction_fields_the_takeoffs_are_the_legacy_ones(
     assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
     assert "room_area_formula" not in takeoffs[tile.id].inputs
     assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        "(base 2020, x1.22 for 2026, x1.0 location)"
+        SETTING_2026
     )
     assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2026, Decimal("1.0"))
 
@@ -812,7 +835,7 @@ async def test_takeoff_areas_typical_and_cost_index_setting_ignore_the_appraisal
     assert (takeoffs[roof.id].unit, takeoffs[roof.id].inputs["method"]) == ("EA", "count")
     assert "needs_measurement" not in takeoffs[roof.id].inputs
     assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        "(base 2020, x1.22 for 2026, x1.0 location)"
+        SETTING_2026
     )
 
 
@@ -828,10 +851,11 @@ async def test_cost_index_from_the_study_with_typical_areas(
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
     assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
-    assert costs[tile.id].location_factor == Decimal("1.20")
+    assert costs[tile.id].location_factor == Decimal("0.976")
     assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        "(base 2020, x1.22 for 2026 from COST_YEAR setting, x1.20 location from state NY "
-        "(subject.state (azure)))"
+        f"(base 2020, x1.0000 for 2026 = {HCI_2020}; no 2026 index loaded, the latest applied "
+        "(assumption), from COST_YEAR setting; x0.976 location from state NY "
+        f"(subject.state (azure)): mean of 32 NY cities (0.91-1.04), {LOCATION_TABLE} pp.718-722)"
     )
 
 
@@ -873,14 +897,12 @@ async def test_the_intake_sets_the_cost_index_and_the_property_class(
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
 
-    # The index: the intake's year (x1.15 for 2024 in the synthetic table) and NY (1.20).
+    # The index: the intake's year (2024: after the book's last index, so the Jan 2020
+    # index applies, flagged) and the intake's ZIP 12345 (123 Schenectady, 0.98).
     roof = max((takeoffs[a.id] for label, a in rows if label == "roof"), key=lambda t: t.quantity)
     roof_cost = costs[roof.asset_id]
-    assert (roof_cost.cost_year, roof_cost.location_factor) == (2024, Decimal("1.20"))
-    assert roof_cost.source_row is not None and roof_cost.source_row.endswith(
-        "(base 2020, x1.15 for 2024 from placed in service 2024-03-01 (intake), x1.20 "
-        "location from state NY (intake))"
-    )
+    assert (roof_cost.cost_year, roof_cost.location_factor) == (2024, Decimal("0.98"))
+    assert roof_cost.source_row is not None and roof_cost.source_row.endswith(SCHENECTADY_2024)
     # The areas are still the appraisal's: 2400 x 75 / 1540 = 116.88 SF x 1.15 waste.
     tile = next(a for label, a in rows if label == "tile_flooring")
     assert takeoffs[tile.id].quantity == Decimal("134.41")
@@ -902,7 +924,8 @@ async def test_the_intake_sets_the_cost_index_and_the_property_class(
     # Every takeoff says where the index and the class came from.
     for takeoff in takeoffs.values():
         assert takeoff.inputs["cost_year_source"] == "placed in service 2024-03-01 (intake)"
-        assert takeoff.inputs["location_source"] == "state NY (intake)"
+        assert takeoff.inputs["location_source"] == SCHENECTADY
+        assert "no published cost index for 2024" in takeoff.inputs["cost_year_assumption"]
         assert (takeoff.inputs["property_class"], takeoff.inputs["property_class_source"]) == (
             "nonresidential",
             "intake property_use",
@@ -924,10 +947,12 @@ async def test_an_intake_without_a_state_falls_back_to_the_appraisal_state(
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
-    assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2023, Decimal("1.05"))
+    assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2023, Decimal("0.959"))
     assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        "(base 2020, x1.12 for 2023 from placed in service 2023-07-01 (intake), x1.05 "
-        "location from state IL (subject.state (azure)))"
+        f"(base 2020, x1.0000 for 2023 = {HCI_2020}; no 2023 index loaded, the latest applied "
+        "(assumption), from placed in service 2023-07-01 (intake); x0.959 location from "
+        f"state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), {LOCATION_TABLE} "
+        "pp.718-722)"
     )
     assert takeoffs[tile.id].inputs["property_class"] == "residential_rental"
     assert takeoffs[tile.id].inputs["property_class_source"] == "intake property_use"
@@ -951,10 +976,9 @@ async def test_the_intake_alone_prices_a_study_with_no_extraction_fields(
     tile = next(a for label, a in rows if label == "tile_flooring")
     assert takeoffs[tile.id].quantity == Decimal("86.25")  # 75 x 1.15: the typical area
     assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
-    assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2024, Decimal("1.20"))
+    assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2024, Decimal("0.98"))
     assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        "(base 2020, x1.15 for 2024 from placed in service 2024-03-01 (intake), x1.20 "
-        "location from state NY (intake))"
+        SCHENECTADY_2024
     )
 
 
@@ -982,7 +1006,7 @@ async def test_cost_index_setting_ignores_the_intake_but_its_use_still_classifie
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
     assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        "(base 2020, x1.22 for 2026, x1.0 location)"
+        SETTING_2026
     )
     assert (
         takeoffs[tile.id].inputs["cost_year_source"],
@@ -1007,3 +1031,6 @@ async def test_without_an_intake_or_fields_no_source_keys_are_written(
     takeoffs, _ = await takeoffs_and_costs(deps, analyzed.study_id)
     for takeoff in takeoffs.values():
         assert not {"cost_year_source", "location_source", "property_class"} & set(takeoff.inputs)
+        # Except the one fact that is new since EVAL_REPORT 45: the settings' 2026 is after
+        # the book's last published index, and every row says so.
+        assert "no published cost index for 2026" in takeoff.inputs["cost_year_assumption"]

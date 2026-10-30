@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-215 codes in 18 areas.
+216 codes in 18 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -294,6 +294,7 @@ stale).
 | `BASIS-CHECK-013` | flag | process_assets; `basis.domain.cross_validation` | The unit cost is below the row's plausible range. | `cross:COST_BELOW_RANGE`. (reason `cross:COST_BELOW_RANGE`) | Check the row and the quantity. | no |
 | `BASIS-CHECK-014` | flag | process_assets; `basis.domain.cross_validation` | The unit cost is above the row's plausible range. | `cross:COST_ABOVE_RANGE`. (reason `cross:COST_ABOVE_RANGE`) | Check the row and the quantity. | no |
 | `BASIS-CHECK-015` | flag | process_assets; `basis.domain.cross_validation` | The total is not quantity times unit cost. | `cross:COST_TOTAL_MISMATCH`. (reason `cross:COST_TOTAL_MISMATCH`) | Report it: a pricing defect. | no |
+| `BASIS-CHECK-016` | flag | process_assets; `basis.domain.cost_indices` | The cost year is after the latest published RSMeans Historical Cost Index loaded; the row is priced at that index (COST_INDICES.md section 4). | `cost:YEAR_INDEX_EXTRAPOLATED`; the takeoff inputs' `cost_year_assumption`. (reason `cost:YEAR_INDEX_EXTRAPOLATED`) | Load the year's published index through `COST_INDEX_SUPPLEMENT_PATH` and rerun the assets step. | no |
 | `BASIS-CHECK-020` | flag | extract_fields; `basis.extraction.confidence` | A critical field is empty. | `review_reasons` `missing:<key>`. (reason `missing:`) | Fill it at the appraisal review (an `extraction_field` correction). | no |
 | `BASIS-CHECK-021` | flag | extract_fields; `basis.extraction.confidence` | A critical field is below the review threshold. | `low_confidence:<key>=<c><<t>`. (reason `low_confidence:`) | Confirm or correct the value. | no |
 | `BASIS-CHECK-022` | flag | extract_fields; `basis.extraction.validation` | The validator found a critical field missing. | issue `missing_critical`. (reason `missing_critical`) | Fill it. | no |

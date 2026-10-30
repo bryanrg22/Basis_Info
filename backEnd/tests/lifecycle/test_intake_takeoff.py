@@ -25,6 +25,11 @@ from basis.db.enums import Stage, StudyStatus
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
+NEW_YORK = (
+    "zip 10001 (intake): 100-102 New York 1.01, "
+    "RSMeans Residential 2020 Location Factors - Residential p.720"
+)
+
 
 async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harness) -> None:
     study = await harness.seed()
@@ -122,9 +127,11 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harnes
     # The takeoff inputs, read back from the rows: the intake's year and state applied to
     # every cost row, and the class came from the intake's use.
     takeoff = exported["summary"]["takeoff"]
-    assert (takeoff["cost_year"], takeoff["location_factor"]) == (2024, "1.200")
+    # The intake's ZIP names the city in the book (EVAL_REPORT 45): 100-102 New York 1.01;
+    # 2024 is after the book's last index, so the Jan 2020 index applies and every row says so.
+    assert (takeoff["cost_year"], takeoff["location_factor"]) == (2024, "1.010")
     assert takeoff["cost_year_source"] == "placed in service 2024-03-01 (intake)"
-    assert takeoff["location_source"] == "state NY (intake)"
+    assert takeoff["location_source"] == NEW_YORK
     assert (takeoff["property_class"], takeoff["property_class_source"]) == (
         "nonresidential",
         "intake property_use",
@@ -132,16 +139,19 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harnes
     assert takeoff["area_sources"]["structure_model"] == 13
     assert sum(takeoff["area_sources"].values()) == 19
     for asset in itemized:
-        assert (asset["cost_year"], asset["location_factor"]) == (2024, "1.200")
+        assert (asset["cost_year"], asset["location_factor"]) == (2024, "1.010")
         assert asset["takeoff_inputs"]["property_class_source"] == "intake property_use"
+        assert "no published cost index for 2024" in asset["takeoff_inputs"]["cost_year_assumption"]
         if asset["cost_source"] and not asset["cost_source"].startswith("missing"):
             assert asset["cost_source"].endswith(
-                "from placed in service 2024-03-01 (intake), x1.20 location from state NY (intake))"
+                "; no 2024 index loaded, the latest applied (assumption), from placed in service "
+                f"2024-03-01 (intake); x1.01 location from {NEW_YORK})"
             )
+            assert "cost:YEAR_INDEX_EXTRAPOLATED" in (asset["review_reason"] or "")
     # A concealed building row priced from the square-foot model (national dollars) carries
     # the study's location factor, like the itemized rows (with STRUCTURE_RCN_SOURCE set to
     # the appraisal's local figure it would carry none); a small system is priced from the
     # cost table like any label, so it carries one.
-    assert concealed["foundation"]["location_factor"] == "1.200"
-    assert concealed["access_control"]["location_factor"] in ("1.200", None)
+    assert concealed["foundation"]["location_factor"] == "1.010"
+    assert concealed["access_control"]["location_factor"] in ("1.010", None)
     assert all(a["cost_year"] == 2024 for a in concealed.values())

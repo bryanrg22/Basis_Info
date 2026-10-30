@@ -179,15 +179,19 @@ with no input is the "rule of thumb" the ATG objects to (C.6).
 
 ### 3.9 Cost index
 
-* Location: RSMeans' location factor by state (`REGIONAL_COST_FACTORS`, the legacy
-  state table; the city cost index by ZIP is a follow-up) from the intake's `state`
-  (required before a study starts since EVAL_REPORT section 37), else the appraisal's
-  `subject.state` (a study started before the intake was required), else the
-  `COST_LOCATION_FACTOR` setting when neither names a state in the table.
+* Location (COST_INDICES.md, EVAL_REPORT 45; before that a legacy state table with no
+  source): the RSMeans Residential 2020 Location Factor of the study's city by the first
+  three digits of the ZIP (the intake's `zip`, else the appraisal's `subject.zip`), else the
+  mean of the state's listed cities (the intake's `state`, required before a study starts
+  since EVAL_REPORT section 37, else the appraisal's `subject.state`), else the
+  `COST_LOCATION_FACTOR` setting when none of them is in the table. The row cites the city
+  row or the cities averaged, with the book and page.
 * Year: the placed-in-service year (the intake's `placed_in_service_date`), else the year
   of the appraisal's effective date (the purchase appraisal is dated at or near the
-  acquisition), else the `COST_YEAR` setting; a year outside the escalation table
-  (2020-2026) falls back to the next source with the reason recorded.
+  acquisition), else the `COST_YEAR` setting; a year before the Historical Cost Index
+  (1970) falls back to the next source with the reason recorded; a year after the latest
+  published index is priced at that index with the assumption on every row and the asset
+  flagged (COST_INDICES.md section 4).
 * Use: the intake's `property_use` is the property class (27.5 or 39 years for the
   building rows, and the typical-area family when no GLA is extracted), in place of the
   `PROPERTY_CLASS` setting.

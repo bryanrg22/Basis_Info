@@ -81,7 +81,7 @@ def test_total_that_does_not_recompute_is_an_error() -> None:
 
 def test_large_adjustment_is_informational() -> None:
     takeoff = estimate_quantity("light_fixture", 100, 1)
-    cost = estimate_cost(takeoff, 2026, "1.15")  # x1.403
+    cost = estimate_cost(takeoff, 2010, "0.85")  # x0.7675 (2010) x 0.85 = x0.652
     issues = check_takeoff_cost(takeoff, cost)
     assert codes(issues) == ["COST_MULTIPLIER_DETECTED"]
     assert not issues[0].needs_review

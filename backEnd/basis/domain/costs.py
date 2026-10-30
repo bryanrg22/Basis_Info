@@ -1,17 +1,17 @@
 """Cost tables and the deterministic estimate: unit cost x quantity x year x location.
 
 Migrated from ``agentic/agents/cost_agent.py`` (``TYPICAL_UNIT_COSTS``,
-``REGIONAL_COST_FACTORS``, ``YEAR_ADJUSTMENT_FACTORS``, ``MATERIAL_LABOR_SPLIT`` and
-``estimate_cost_static``). The unit costs are the legacy "typical RSMeans" values on a
-2020 base; they are placeholders until the engineer's cost source is loaded, and every
-estimate names the row it used (``source_row``) so it can be audited.
+``MATERIAL_LABOR_SPLIT`` and ``estimate_cost_static``). The unit costs are the legacy
+"typical RSMeans" values on a 2020 base; they are placeholders until the engineer's cost
+source is loaded, and every estimate names the row it used (``source_row``) so it can be
+audited.
 
 Changes from legacy, each a bug fix:
 
 * A component without a cost row raises :class:`MissingCostRow` (legacy returned a zero
   cost marked for review, which summed silently into totals).
-* A cost year outside the adjustment table raises :class:`UnknownCostYear` (legacy used
-  1.15 for any unknown year).
+* A cost year before the index table raises :class:`UnknownCostYear` (legacy used 1.15
+  for any unknown year).
 * Units are reconciled: a carpet takeoff in square yards is priced with the per-SF row
   times 9 (legacy multiplied SY by the per-SF price, a 9x undercount). Any other unit
   mismatch raises :class:`UnitMismatch`.
@@ -23,20 +23,31 @@ engineer's licensed unit costs, by component label). A table row in another unit
 takeoff raises :class:`NeedsQuantity` (the component is priced per area or length that
 the takeoff does not measure), which the cross-validation reports apart from a missing
 row.
+
+Cost indices (EVAL_REPORT section 45, docs/review_2026-10-15/COST_INDICES.md): the year
+and location factors are RSMeans' published indices (:mod:`basis.domain.cost_indices`),
+not the hand-typed tables the legacy code carried. The year factor is the Historical Cost
+Index of the cost year over the books' Jan. 1, 2020 basis; the location factor is the
+Residential Location Factor of the study's city (by ZIP) or the mean of its state's
+cities. Every cost row cites the index values, book and page it used; a cost year after
+the latest published index carries the assumption on the row (``year_assumption``).
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final, Literal
 
+from basis.domain import cost_indices
+from basis.domain.cost_indices import YearFactor, YearIndex, year_factor_for
 from basis.domain.cost_table import CostTable
 from basis.domain.takeoffs import SF_PER_SY, Takeoff
 
 Tier = Literal["economy", "standard", "premium", "luxury"]
 CENTS: Final = Decimal("0.01")
-BASE_YEAR: Final = 2020
+BASE_YEAR: Final = 2020  # the RSMeans 2020 books' cost basis (Jan. 1, 2020)
 
 
 class CostError(ValueError):
@@ -48,7 +59,7 @@ class MissingCostRow(CostError):
 
 
 class UnknownCostYear(CostError):
-    pass
+    """The cost year is before the first published index (1970)."""
 
 
 class UnitMismatch(CostError):
@@ -118,75 +129,6 @@ TYPICAL_UNIT_COSTS: Final[dict[str, dict[Tier, UnitCost]]] = {
     },
 }
 
-# RSMeans-style city cost index per state (legacy values).
-REGIONAL_COST_FACTORS: Final[dict[str, Decimal]] = {
-    code: Decimal(value)
-    for code, value in {
-        "AL": "0.85",
-        "AK": "1.25",
-        "AZ": "0.95",
-        "AR": "0.82",
-        "CA": "1.15",
-        "CO": "0.98",
-        "CT": "1.12",
-        "DE": "1.02",
-        "FL": "0.92",
-        "GA": "0.89",
-        "HI": "1.30",
-        "ID": "0.90",
-        "IL": "1.05",
-        "IN": "0.95",
-        "IA": "0.92",
-        "KS": "0.90",
-        "KY": "0.88",
-        "LA": "0.87",
-        "ME": "0.95",
-        "MD": "0.98",
-        "MA": "1.15",
-        "MI": "1.00",
-        "MN": "1.02",
-        "MS": "0.80",
-        "MO": "0.95",
-        "MT": "0.92",
-        "NE": "0.88",
-        "NV": "1.02",
-        "NH": "1.00",
-        "NJ": "1.15",
-        "NM": "0.90",
-        "NY": "1.20",
-        "NC": "0.85",
-        "ND": "0.88",
-        "OH": "0.95",
-        "OK": "0.85",
-        "OR": "1.02",
-        "PA": "1.00",
-        "RI": "1.08",
-        "SC": "0.82",
-        "SD": "0.85",
-        "TN": "0.85",
-        "TX": "0.88",
-        "UT": "0.92",
-        "VT": "0.95",
-        "VA": "0.92",
-        "WA": "1.05",
-        "WV": "0.92",
-        "WI": "0.98",
-        "WY": "0.88",
-        "DC": "1.02",
-    }.items()  # fmt: skip
-}
-
-# Escalation from the 2020 base year (legacy values).
-YEAR_ADJUSTMENT_FACTORS: Final[dict[int, Decimal]] = {
-    2020: Decimal("1.00"),
-    2021: Decimal("1.03"),
-    2022: Decimal("1.08"),
-    2023: Decimal("1.12"),
-    2024: Decimal("1.15"),
-    2025: Decimal("1.18"),
-    2026: Decimal("1.22"),
-}
-
 MATERIAL_LABOR_SPLIT: Final[dict[str, tuple[Decimal, Decimal, Decimal]]] = {
     name: (Decimal(m), Decimal(lab), Decimal(e))
     for name, (m, lab, e) in {
@@ -218,20 +160,33 @@ class CostEstimate:
     location_factor: Decimal
     cost_year: int
     unit: str
+    year_assumption: str | None = None  # set when the cost year has no published index
 
 
 def location_factor_for_state(state: str) -> Decimal:
-    code = state.strip().upper()
-    if code not in REGIONAL_COST_FACTORS:
-        raise CostError(f"no regional cost factor for state {state!r}")
-    return REGIONAL_COST_FACTORS[code]
+    """The mean Residential Location Factor of the state's listed cities (three decimals);
+    :class:`CostError` for a code the table does not have."""
+    found = cost_indices.location_factor_for_state_code(state)
+    if found is None:
+        raise CostError(f"no location factor for state {state!r}")
+    return found.factor
 
 
-def year_factor(cost_year: int) -> Decimal:
-    if cost_year not in YEAR_ADJUSTMENT_FACTORS:
-        known = f"{min(YEAR_ADJUSTMENT_FACTORS)}-{max(YEAR_ADJUSTMENT_FACTORS)}"
-        raise UnknownCostYear(f"no cost adjustment for {cost_year}; the table covers {known}")
-    return YEAR_ADJUSTMENT_FACTORS[cost_year]
+def year_factor_index(
+    cost_year: int, supplement: Mapping[int, YearIndex] | None = None
+) -> YearFactor:
+    """The cost year's time factor with its index values and source; a year after the
+    latest published index is extrapolated with the assumption recorded (the
+    ``extrapolated`` flag); :class:`UnknownCostYear` before the table."""
+    try:
+        return year_factor_for(cost_year, supplement)
+    except cost_indices.UnknownCostYear as exc:
+        raise UnknownCostYear(str(exc)) from exc
+
+
+def year_factor(cost_year: int, supplement: Mapping[int, YearIndex] | None = None) -> Decimal:
+    """``Historical Cost Index(cost_year) / Historical Cost Index(Jan. 1, 2020)``."""
+    return year_factor_index(cost_year, supplement).factor
 
 
 def has_cost_row(component: str) -> bool:
@@ -258,6 +213,7 @@ def estimate_cost(
     label: str | None = None,
     year_source: str | None = None,
     location_source: str | None = None,
+    year: YearFactor | None = None,
 ) -> CostEstimate:
     """Price a takeoff: ``unit_cost = base x year factor x location``; ``total = unit_cost x qty``.
 
@@ -265,9 +221,11 @@ def estimate_cost(
     table's row for ``label`` (the component's label), else its row for the takeoff
     component. Raises :class:`MissingCostRow`, :class:`NeedsQuantity` (a table row in
     another unit), :class:`UnknownCostYear` or :class:`UnitMismatch` instead of guessing.
-    ``year_source`` and ``location_source`` (where the study's cost year and location
-    factor came from: :func:`basis.domain.measurements.resolve_cost_index`) are written
-    into ``source_row`` after the factors when given.
+    ``year`` is the resolved time factor of the study (``CostIndex.year``, which may carry
+    the firm's supplement); without it the cost year's factor comes from the released book
+    alone. ``year_source`` and ``location_source`` (where the study's cost year and
+    location factor came from: :func:`basis.domain.measurements.resolve_cost_index`) are
+    written into ``source_row`` after the factors when given.
     """
     location = Decimal(str(location_factor))
     if not location.is_finite() or location <= 0:
@@ -301,22 +259,27 @@ def estimate_cost(
             source += f" x{found.factor} from per {found.source_unit}"
         if found.assumption:
             source += f"; assumes {found.assumption}"
-    factor = year_factor(cost_year)
+    if year is None or year.cost_year != cost_year:
+        year = year_factor_index(cost_year)
+    factor = year.factor
     unit_cost = (base * factor * location).quantize(CENTS, rounding=ROUND_HALF_UP)
     total = (unit_cost * takeoff.quantity).quantize(CENTS, rounding=ROUND_HALF_UP)
-    year_text = f"x{factor} for {cost_year}"
+    year_text = f"x{factor} for {cost_year} = {year.citation()}"
+    if year.extrapolated:
+        year_text += f"; no {cost_year} index loaded, the latest applied (assumption)"
     if year_source:
-        year_text += f" from {year_source}"
+        year_text += f", from {year_source}"
     location_text = f"x{location} location"
     if location_source:
         location_text += f" from {location_source}"
     return CostEstimate(
         unit_cost=unit_cost,
         total=total,
-        source_row=f"{source} (base {BASE_YEAR}, {year_text}, {location_text})",
+        source_row=f"{source} (base {BASE_YEAR}, {year_text}; {location_text})",
         base_unit_cost=base.quantize(CENTS, rounding=ROUND_HALF_UP),
         year_factor=factor,
         location_factor=location,
         cost_year=cost_year,
         unit=takeoff.unit,
+        year_assumption=year.assumption,
     )

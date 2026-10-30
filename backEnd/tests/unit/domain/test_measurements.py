@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import pytest
 
+from basis.domain.cost_indices import parse_supplement
 from basis.domain.measurements import (
     NEEDS_MEASUREMENT,
     BuildingMeasurements,
@@ -333,33 +334,65 @@ def test_two_garage_rooms_share_the_garage(full: BuildingMeasurements) -> None:
 
 def test_cost_index_from_the_study(full: BuildingMeasurements) -> None:
     index = resolve_cost_index(full, cost_year=2026, location_factor=Decimal(1))
-    assert (index.cost_year, index.location_factor) == (2025, Decimal("1.05"))
+    assert (index.cost_year, index.location_factor) == (2025, Decimal("1.00"))
     assert index.year_source == (
         "appraisal effective date 2025-06-01 (reconciliation.effective_date_of_appraisal (azure))"
     )
-    assert index.location_source == "state IL (subject.state (azure))"
+    # The appraisal's ZIP names its city in the book (EVAL_REPORT 45): the city's factor.
+    assert index.location_source == (
+        "zip 60601 (subject.zip (azure)): 606-608 Chicago 1.00, "
+        "RSMeans Residential 2020 Location Factors - Residential p.719"
+    )
+    assert index.location is not None and index.location.city is not None
+    # 2025 is after the book's last index: the latest applies, with the assumption.
+    assert index.year is not None and index.year.extrapolated
+    assert index.year.factor == Decimal("1.0000")
+    assert index.year_assumption is not None
+    assert "no published cost index for 2025 is loaded" in index.year_assumption
+
+
+def test_cost_index_within_the_table_carries_no_assumption() -> None:
+    m = measurements_from_fields(
+        [
+            Row("subject", "state", value_text="IL"),
+            Row("reconciliation", "effective_date_of_appraisal", value_date=date(2018, 3, 1)),
+        ]
+    )
+    index = resolve_cost_index(m, cost_year=2026, location_factor=Decimal(1))
+    assert (index.cost_year, index.location_factor) == (2018, Decimal("0.959"))
+    assert index.year is not None and index.year.factor == Decimal("0.9322")
+    assert index.year_assumption is None
+    assert index.location_source == (
+        "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), "
+        "RSMeans Residential 2020 Location Factors - Residential pp.718-722"
+    )
+    assert index.location is not None and index.location.is_state_mean
 
 
 def test_cost_index_falls_back_to_the_settings_with_the_reason() -> None:
     m = measurements_from_fields(
         [
             Row("subject", "state", value_text="XX"),
-            Row("reconciliation", "effective_date_of_appraisal", value_date=date(2019, 3, 1)),
+            Row("reconciliation", "effective_date_of_appraisal", value_date=date(1950, 3, 1)),
         ]
     )
     index = resolve_cost_index(m, cost_year=2024, location_factor=Decimal("0.9"))
     assert (index.cost_year, index.location_factor) == (2024, Decimal("0.9"))
     assert index.year_source == (
-        "COST_YEAR setting: appraisal effective date 2019-03-01 is outside the 2020-2026 "
-        "factor table"
+        "COST_YEAR setting: appraisal effective date 1950-03-01 is before the 1970-2020 "
+        "Historical Cost Index"
     )
-    assert index.location_source == "COST_LOCATION_FACTOR setting: no factor for state 'XX'"
+    assert index.location_source == (
+        "COST_LOCATION_FACTOR setting: no location factor for state 'XX' (subject.state (azure))"
+    )
+    assert index.location is None
     bare = resolve_cost_index(None, cost_year=2024, location_factor=Decimal("0.9"))
     assert (bare.cost_year, bare.year_source, bare.location_source) == (
         2024,
         "COST_YEAR setting",
         "COST_LOCATION_FACTOR setting",
     )
+    assert bare.year is not None and bare.year.extrapolated  # the setting's year, flagged too
     empty = resolve_cost_index(
         measurements_from_fields([]), cost_year=2024, location_factor=Decimal(1)
     )
@@ -378,26 +411,84 @@ def test_placed_in_service_wins_over_the_appraisal_date(full: BuildingMeasuremen
         "placed in service 2023-01-15 (intake)",
     )
     outside = resolve_cost_index(
-        full, cost_year=2026, location_factor=Decimal(1), placed_in_service=date(2019, 1, 15)
+        full, cost_year=2026, location_factor=Decimal(1), placed_in_service=date(1960, 1, 15)
     )
     # The appraisal's year applies; the source says why the intake's date did not.
     assert outside.cost_year == 2025
     assert outside.year_source == (
         "appraisal effective date 2025-06-01 (reconciliation.effective_date_of_appraisal "
-        "(azure)); placed in service 2019-01-15 (intake) is outside the 2020-2026 factor table"
+        "(azure)); placed in service 1960-01-15 (intake) is before the 1970-2020 Historical "
+        "Cost Index"
+    )
+    # A placed-in-service year inside the table is priced at its own index.
+    inside = resolve_cost_index(
+        full, cost_year=2026, location_factor=Decimal(1), placed_in_service=date(2018, 5, 1)
+    )
+    assert inside.year is not None and (inside.cost_year, inside.year.factor) == (
+        2018,
+        Decimal("0.9322"),
     )
 
 
 def test_the_intake_state_wins_over_the_appraisal_state(full: BuildingMeasurements) -> None:
-    """EVAL_REPORT 37: the intake's state (NY, 1.20) ahead of the appraisal's (IL, 1.05)."""
+    """EVAL_REPORT 37: the intake's state (NY) ahead of the appraisal's (IL); since 45 the
+    state's factor is the mean of its listed cities, and the source cites the table."""
     index = resolve_cost_index(full, cost_year=2026, location_factor=Decimal(1), state="NY")
-    assert (index.location_factor, index.location_source) == (Decimal("1.20"), "state NY (intake)")
-    # An intake state the table lacks: the appraisal's applies and the miss is recorded.
+    assert (index.location_factor, index.location_source) == (
+        Decimal("0.976"),
+        "state NY (intake): mean of 32 NY cities (0.91-1.04), "
+        "RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+    )
+    # An intake state the table lacks: the appraisal's ZIP applies and the miss is recorded.
     unknown = resolve_cost_index(full, cost_year=2026, location_factor=Decimal(1), state="XX")
     assert (unknown.location_factor, unknown.location_source) == (
-        Decimal("1.05"),
-        "state IL (subject.state (azure)); no factor for state 'XX' (intake)",
+        Decimal("1.00"),
+        "zip 60601 (subject.zip (azure)): 606-608 Chicago 1.00, RSMeans Residential 2020 "
+        "Location Factors - Residential p.719; no location factor for state 'XX' (intake)",
     )
+
+
+def test_the_intake_zip_names_the_city_ahead_of_its_state(full: BuildingMeasurements) -> None:
+    """The book's method is the city factor by the first three digits of the ZIP; the
+    intake's ZIP (nine digits accepted) wins over its state, and a ZIP the table does not
+    list falls to the state mean with the miss recorded."""
+    index = resolve_cost_index(
+        full, cost_year=2018, location_factor=Decimal(1), state="NY", zip_code="10001-1234"
+    )
+    assert (index.location_factor, index.location_source) == (
+        Decimal("1.01"),
+        "zip 10001-1234 (intake): 100-102 New York 1.01, "
+        "RSMeans Residential 2020 Location Factors - Residential p.720",
+    )
+    unlisted = resolve_cost_index(
+        full, cost_year=2018, location_factor=Decimal(1), state="NY", zip_code="00501"
+    )
+    assert (unlisted.location_factor, unlisted.location_source) == (
+        Decimal("0.976"),
+        "state NY (intake): mean of 32 NY cities (0.91-1.04), RSMeans Residential 2020 "
+        "Location Factors - Residential pp.718-722; no location factor for zip '00501' (intake)",
+    )
+
+
+def test_a_supplement_lifts_the_assumption_for_a_later_year() -> None:
+    supplement = parse_supplement(
+        {
+            "schema_version": 1,
+            "historical_cost_index": [
+                {"year": 2024, "as_of": "2024-01-01", "index": "300.0", "source": "Book 2024 p.1"}
+            ],
+        }
+    )
+    index = resolve_cost_index(
+        None,
+        cost_year=2026,
+        location_factor=Decimal(1),
+        placed_in_service=date(2024, 3, 1),
+        supplement=supplement,
+    )
+    assert index.year is not None and not index.year.extrapolated
+    assert (index.cost_year, index.year.factor) == (2024, Decimal("1.2547"))
+    assert index.year_assumption is None
 
 
 def test_the_intake_alone_sets_the_index_without_any_appraisal_field() -> None:
@@ -410,24 +501,25 @@ def test_the_intake_alone_sets_the_index_without_any_appraisal_field() -> None:
         placed_in_service=date(2024, 3, 1),
         state="ny",
     )
-    assert (index.cost_year, index.location_factor) == (2024, Decimal("1.20"))
+    assert (index.cost_year, index.location_factor) == (2024, Decimal("0.976"))
     assert (index.year_source, index.location_source) == (
         "placed in service 2024-03-01 (intake)",
-        "state NY (intake)",
+        "state NY (intake): mean of 32 NY cities (0.91-1.04), "
+        "RSMeans Residential 2020 Location Factors - Residential pp.718-722",
     )
     # Neither usable: the settings, with both reasons.
     neither = resolve_cost_index(
         measurements_from_fields([]),
         cost_year=2026,
         location_factor=Decimal("0.9"),
-        placed_in_service=date(2030, 1, 1),
+        placed_in_service=date(1950, 1, 1),
         state="ZZ",
     )
     assert (neither.cost_year, neither.location_factor) == (2026, Decimal("0.9"))
     assert neither.year_source == (
-        "COST_YEAR setting: placed in service 2030-01-01 (intake) is outside the 2020-2026 "
-        "factor table"
+        "COST_YEAR setting: placed in service 1950-01-01 (intake) is before the 1970-2020 "
+        "Historical Cost Index"
     )
-    assert (
-        neither.location_source == "COST_LOCATION_FACTOR setting: no factor for state 'ZZ' (intake)"
+    assert neither.location_source == (
+        "COST_LOCATION_FACTOR setting: no location factor for state 'ZZ' (intake)"
     )
