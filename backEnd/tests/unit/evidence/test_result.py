@@ -236,7 +236,13 @@ def test_the_structure_path_depreciates_reconciles_and_allocates_on_rcnld() -> N
         1,
         structure(),  # type: ignore[arg-type]
     )
-    assert result.missing == []
+    # The fixture's 2024 has no loaded index (the released book stops at 2020): the result
+    # says which value to enter, and nothing else is missing.
+    assert result.missing == ["cost_index"]
+    assert result.cost_index is not None and result.cost_index.status == "missing"
+    assert result.cost_index.factor == D("1.0000")
+    assert "2024 RSMeans Historical Cost Index" in (result.cost_index.needed or "")
+    assert "POST /v1/cost-indices" in (result.cost_index.how or "")
     schedule = result.schedule
     assert (schedule.priced, schedule.concealed, schedule.concealed_rcn) == (6, 5, D("200000.00"))
     assert (schedule.rcn_total, schedule.rcnld_total) == (D("220000.00"), D("165000.00"))
@@ -332,7 +338,7 @@ def test_outside_tolerance_the_allocation_is_withheld_with_the_diagnosis() -> No
         1,
         structure(),  # type: ignore[arg-type]
     )
-    assert result.missing == ["allocation"] and result.allocation is None
+    assert result.missing == ["cost_index", "allocation"] and result.allocation is None
     r = result.reconciliation
     assert r is not None and r.status == "unreconciled"
     assert (r.gap, r.gap_share) == (D("-65000.00"), D("-0.650000"))
@@ -356,14 +362,14 @@ def test_outside_tolerance_the_allocation_is_withheld_with_the_diagnosis() -> No
 def test_without_a_building_rcn_or_a_rate_the_result_says_what_is_missing() -> None:
     bare = structure(fields(improvements__stories=2))  # no GLA, no cost approach
     result = compute_result(PRODUCED, intake(purchase_price="180000.00"), 1, bare)  # type: ignore[arg-type]
-    assert result.missing == ["building_rcn", "depreciation", "allocation"]
+    assert result.missing == ["cost_index", "building_rcn", "depreciation", "allocation"]
     assert result.reconciliation is not None and result.reconciliation.status == "not_checked"
     assert result.structure is not None and result.structure.building_rcn is None
     assert result.structure.components == [] and len(result.structure.concealed) == 5
     assert result.schedule.rcnld_total is None
     # No intake: the structure block still describes the model; nothing is reconciled.
     alone = compute_result(PRODUCED, None, 1, structure())
-    assert alone.missing == ["intake"] and alone.structure is not None
+    assert alone.missing == ["cost_index", "intake"] and alone.structure is not None
     assert alone.reconciliation is None and alone.depreciation is not None
 
 

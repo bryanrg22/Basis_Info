@@ -62,6 +62,7 @@ AREA_TITLES: Final[dict[str, str]] = {
     "ASSETS": "process_assets",
     "EXPORT": "export_report",
     "CHECK": "Checks that flag a row for review",
+    "COST": "The cost index store: the missing-year rule, conversions, acquisition",
     "INF": "Infrastructure: worker start-up and the outbox relay",
 }
 
@@ -2275,19 +2276,6 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         signal="cross:COST_TOTAL_MISMATCH",
     ),
     _e(
-        E.CHECK_COST_YEAR_INDEX_EXTRAPOLATED,
-        "flag",
-        "process_assets",
-        "basis.domain.cost_indices",
-        "The cost year is after the latest published RSMeans Historical Cost Index loaded; "
-        "the row is priced at that index (COST_INDICES.md section 4).",
-        "`cost:YEAR_INDEX_EXTRAPOLATED`; the takeoff inputs' `cost_year_assumption`.",
-        "Load the year's published index through `COST_INDEX_SUPPLEMENT_PATH` and rerun the "
-        "assets step.",
-        "no",
-        signal="cost:YEAR_INDEX_EXTRAPOLATED",
-    ),
-    _e(
         E.CHECK_EXTRACTION_MISSING,
         "flag",
         "extract_fields",
@@ -2572,6 +2560,75 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Classify by hand.",
         "no",
         signal="no_answer",
+    ),
+    # ------------------------------------------------------------------ COST
+    _e(
+        E.COST_YEAR_INDEX_MISSING,
+        "flag",
+        "process_assets",
+        "basis.domain.cost_indices",
+        "No cost index is loaded for the study's cost year (the store holds none and no "
+        "fetcher supplied one); every priced row takes the latest loaded index with the "
+        "assumption recorded (COST_INDICES.md section 4), and `summary.basis.cost_index` "
+        "names the value to enter.",
+        "`cost:YEAR_INDEX_MISSING` on every priced row; the takeoff inputs' "
+        "`cost_year_assumption`; `summary.basis.cost_index.status` `missing`.",
+        "Enter the year's RSMeans Historical Cost Index (`POST /v1/cost-indices`, or "
+        "`python -m basis.costs.refresh enter`) or run the refresh job, then rerun the "
+        "assets step.",
+        "no",
+        signal="cost:YEAR_INDEX_MISSING",
+    ),
+    _e(
+        E.COST_YEAR_INDEX_CONVERTED,
+        "flag",
+        "process_assets",
+        "basis.costs.indices",
+        "The cost year's index is not a published RSMeans value but one converted from a "
+        "public series (the BLS Producer Price Index) with the error band recorded "
+        "(COST_INDICES.md section 11).",
+        "`cost:YEAR_INDEX_CONVERTED` on every priced row; the takeoff inputs' "
+        "`cost_year_conversion`; `summary.basis.cost_index.status` `converted`.",
+        "Enter the year's published RSMeans Historical Cost Index; a manual entry outranks "
+        "the converted value.",
+        "no",
+        signal="cost:YEAR_INDEX_CONVERTED",
+    ),
+    _e(
+        E.COST_INDEX_DUPLICATE,
+        "refusal",
+        "POST /v1/cost-indices",
+        "basis.api.routes.cost_indices",
+        "The store's latest version of this source, series, year and region already "
+        "carries the same value and citation; nothing is written twice.",
+        PROBLEM,
+        "Nothing to do; to revise a value, send the new value or citation (it becomes the "
+        "next version).",
+        "no",
+        problem="duplicate-value",
+    ),
+    _e(
+        E.COST_INDEX_SOURCE_UNAVAILABLE,
+        "outcome",
+        "python -m basis.costs.refresh",
+        "basis.costs.refresh",
+        "A configured source was not asked: fetching is off (`COST_INDEX_FETCH`) or the "
+        "source lacks its credentials (the RSMeans API without a subscription).",
+        "A `cost_index_runs` row with status `skipped` and the reason in `detail.reason`.",
+        "Turn fetching on or configure the source; or enter the value manually.",
+        "no",
+    ),
+    _e(
+        E.COST_INDEX_FETCH_FAILED,
+        "outcome",
+        "python -m basis.costs.refresh",
+        "basis.costs.refresh",
+        "A fetcher raised or returned no value for a wanted year (network, timeout, an "
+        "unexpected document); the store is unchanged for that source.",
+        "A `cost_index_runs` row with status `failed` and the errors in `failures`; the "
+        "job's exit status 1.",
+        "Retry (the next scheduled run does); the failures name the year and the cause.",
+        "yes",
     ),
     # ------------------------------------------------------------------ INF
     _e(

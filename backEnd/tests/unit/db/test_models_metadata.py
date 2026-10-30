@@ -112,6 +112,12 @@ SPEC_TABLES = {
     "study_events": "id study_id seq event_type stage revision actor_type actor_id workflow_id "
     "run_id activity activity_id attempt started_at duration_ms entity_type entity_id code "
     "request_id before after detail",
+    # The cost index store and its ledger (migration 0016_cost_indices).
+    "cost_indices": "id source series year region value as_of citation url derived version "
+    "obtained_at obtained_by obtained_by_name document_sha256 run_id detail",
+    "cost_index_runs": "id source trigger actor_type actor_id actor_name status started_at "
+    "finished_at rows_added years_wanted years_added failures document_sha256 request_id "
+    "detail",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -218,6 +224,9 @@ SPEC_SIMPLE_FKS = {
     ("classification_cache", "org_id", "orgs"),
     ("classification_cache", "study_id", "studies"),
     ("classification_cache", "reviewer_id", "users"),
+    ("cost_indices", "obtained_by", "users"),
+    ("cost_indices", "run_id", "cost_index_runs"),
+    ("cost_index_runs", "actor_id", "users"),
 }
 
 SPEC_UNIQUES = {
@@ -239,6 +248,7 @@ SPEC_UNIQUES = {
     ("activity_results", ("idempotency_key",)),
     ("photo_objects", ("study_id", "id")),
     ("study_events", ("seq",)),
+    ("cost_indices", ("source", "series", "year", "region", "version")),
 }
 
 SPEC_PRIMARY_KEYS = {
@@ -282,6 +292,13 @@ SPEC_CHECKS = {
     "ck_classification_cache_approvals_positive",
     "ck_classification_cache_rule_agreement",
     "ck_assets_convention_from_cache",
+    "ck_cost_indices_series_valid",
+    "ck_cost_indices_value_positive",
+    "ck_cost_indices_version_positive",
+    "ck_cost_indices_year_range",
+    "ck_cost_index_runs_actor_valid",
+    "ck_cost_index_runs_status_valid",
+    "ck_cost_index_runs_rows_added_nonnegative",
 }
 
 SPEC_NOT_NULL = {
@@ -312,6 +329,9 @@ SPEC_NOT_NULL = {
     "object_prompts": "revision label params status returned created_by",
     "invitations": "org_id email role expires_at",
     "study_events": "study_id seq event_type actor_type",
+    "cost_indices": "source series year region value as_of citation version obtained_at "
+    "obtained_by_name",
+    "cost_index_runs": "source trigger actor_type status started_at finished_at rows_added",
 }
 
 STUDY_SCOPED = {
@@ -437,7 +457,13 @@ def test_migration_trigger_tables_match_models() -> None:
     assert migration.UPDATED_AT_TABLES == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
-    assert (*migration.APPEND_ONLY_TABLES, *events.APPEND_ONLY_TABLES) == APPEND_ONLY_TABLES
+    # 0016 adds the cost index store and its ledger.
+    store = load_migration(VERSIONS / "0016_cost_indices.py")
+    assert (
+        *migration.APPEND_ONLY_TABLES,
+        *events.APPEND_ONLY_TABLES,
+        *store.APPEND_ONLY_TABLES,
+    ) == APPEND_ONLY_TABLES
     with_updated_at = {t.name for t in Base.metadata.sorted_tables if "updated_at" in t.c}
     assert with_updated_at == set(UPDATED_AT_TABLES)
 
@@ -559,8 +585,10 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
     # manual add: object_prompts.params; v0.13: extraction_fields.regions; the ledger
     # (0012): llm_calls.request_params; the timeline (0013): study_events.before/after/detail;
-    # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest
-    assert len(jsonb) == 24
+    # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest;
+    # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
+    # years_added / failures / detail
+    assert len(jsonb) == 29
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

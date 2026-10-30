@@ -4994,6 +4994,429 @@
           }
         }
       }
+    },
+    "/v1/cost-indices": {
+      "get": {
+        "tags": [
+          "cost indices"
+        ],
+        "summary": "The cost index store: every value obtained, with its citation",
+        "operationId": "list_cost_indices_v1_cost_indices_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Rows per page.",
+              "default": 200,
+              "title": "Limit"
+            },
+            "description": "Rows per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` of the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` of the previous page."
+          },
+          {
+            "name": "series",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(historical|city)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this series.",
+              "title": "Series"
+            },
+            "description": "Only this series."
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2200,
+                  "minimum": 1900
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this year.",
+              "title": "Year"
+            },
+            "description": "Only this year."
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "all_versions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Also the superseded versions (default: current rows only).",
+              "default": false,
+              "title": "All Versions"
+            },
+            "description": "Also the superseded versions (default: current rows only)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostIndexPageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cost indices"
+        ],
+        "summary": "Enter a cost index value by hand, with its citation",
+        "description": "A firm owner enters a published value the store lacks (the year's RSMeans Historical Cost Index, a location factor). The row is appended with the entering user and the time; a value for a key the store holds becomes its next version and the old row stays. The same value and citation as the current version is 409 `duplicate-value`.",
+        "operationId": "create_cost_index_v1_cost_indices_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostIndexCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostIndexCreatedOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cost-indices/runs": {
+      "get": {
+        "tags": [
+          "cost indices"
+        ],
+        "summary": "The ledger: every attempt to obtain values, newest first",
+        "operationId": "list_cost_index_runs_v1_cost_indices_runs_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Rows per page.",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Rows per page."
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostIndexRunsOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7485,6 +7908,557 @@
         ],
         "title": "CostCategory",
         "description": "A settlement-statement line. Capitalized ones add to basis (Reg. §1.263(a)-2(f),\nPub. 551 \"Settlement costs\"); the others are refused with the reason."
+      },
+      "CostIndexCreate": {
+        "properties": {
+          "series": {
+            "type": "string",
+            "enum": [
+              "historical",
+              "city"
+            ],
+            "title": "Series",
+            "description": "`historical`: the RSMeans Historical Cost Index (Jan. 1, 1993 = 100), one national value per year; `city`: a location factor (the City Cost Index's weighted average over 100) of one city row or state."
+          },
+          "year": {
+            "type": "integer",
+            "maximum": 2200.0,
+            "minimum": 1900.0,
+            "title": "Year",
+            "description": "The year the value is for."
+          },
+          "region": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^(US|[A-Z]{2}|[A-Z]{2}:[0-9]{3}(-[0-9]{3})?(,[0-9]{3}(-[0-9]{3})?)*)$",
+            "title": "Region",
+            "description": "`US` for a historical value; for a city row `<state>:<ZIP prefixes>` as the book prints them (`CA:900-902`), or a state code for a state value.",
+            "default": "US"
+          },
+          "value": {
+            "type": "string",
+            "pattern": "^[0-9]{1,10}(\\.[0-9]{1,4})?$",
+            "title": "Value",
+            "description": "The index as printed, as a decimal string (`294.8`, `0.96`): up to ten digits and four decimals, above zero (the store's column scale; the pattern is the whole rule, so a client can check it)."
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date",
+            "title": "As Of",
+            "description": "The date the value is for (`2024-07-01` for a July index)."
+          },
+          "citation": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Citation",
+            "description": "Publication, table and page (or URL) as printed: what the IRS guide asks of a cost source (ATG ch. 3 C.2(2))."
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1,
+                "pattern": "^[^\\x00]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "derived": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived",
+            "description": "Only for a value that is not a published RSMeans index but one you converted from another series: the conversion and its error band. Every row priced with it is flagged `cost:YEAR_INDEX_CONVERTED`; a published value for the same year outranks it."
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200,
+                      "pattern": "^[^\\x00]*$"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail",
+            "description": "For a city row: `city` (required), `state`, `zip_prefixes`, `printed_page`; `estimated` for a published estimate."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "series",
+          "year",
+          "value",
+          "as_of",
+          "citation"
+        ],
+        "title": "CostIndexCreate",
+        "description": "One value entered by hand, with its citation (source `manual`)."
+      },
+      "CostIndexCreatedOut": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/CostIndexOut"
+          },
+          "run": {
+            "$ref": "#/components/schemas/CostIndexRunOut",
+            "description": "The ledger row of this entry (who, when)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "run"
+        ],
+        "title": "CostIndexCreatedOut"
+      },
+      "CostIndexOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "`rsmeans_2020_book`, `rsmeans_public`, `manual` or `rsmeans_api`."
+          },
+          "series": {
+            "type": "string",
+            "enum": [
+              "historical",
+              "city"
+            ],
+            "title": "Series"
+          },
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "region": {
+            "type": "string",
+            "title": "Region"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date",
+            "title": "As Of"
+          },
+          "citation": {
+            "type": "string",
+            "title": "Citation"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "derived": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived",
+            "description": "How a non-RSMeans value was converted to the RSMeans base, with its error band; null for a published value."
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "1 for the first value of this key; a revision is the next."
+          },
+          "obtained_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Obtained At"
+          },
+          "obtained_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obtained By",
+            "description": "The user of a manual entry."
+          },
+          "obtained_by_name": {
+            "type": "string",
+            "title": "Obtained By Name",
+            "description": "Their name or email, or the fetcher's name."
+          },
+          "document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Sha256"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "series",
+          "year",
+          "region",
+          "value",
+          "as_of",
+          "citation",
+          "url",
+          "derived",
+          "version",
+          "obtained_at",
+          "obtained_by",
+          "obtained_by_name",
+          "document_sha256",
+          "run_id",
+          "detail"
+        ],
+        "title": "CostIndexOut"
+      },
+      "CostIndexPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CostIndexOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "CostIndexPageOut"
+      },
+      "CostIndexRunOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "trigger": {
+            "type": "string",
+            "title": "Trigger",
+            "description": "`seed`, `refresh`, `manual` or `import`."
+          },
+          "actor_type": {
+            "type": "string",
+            "title": "Actor Type"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "actor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "`ok`, `skipped` (with `detail.reason`) or `failed`."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Finished At"
+          },
+          "rows_added": {
+            "type": "integer",
+            "title": "Rows Added"
+          },
+          "years_wanted": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Wanted"
+          },
+          "years_added": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Added"
+          },
+          "failures": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failures"
+          },
+          "document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Sha256"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "trigger",
+          "actor_type",
+          "actor_id",
+          "actor_name",
+          "status",
+          "started_at",
+          "finished_at",
+          "rows_added",
+          "years_wanted",
+          "years_added",
+          "failures",
+          "document_sha256",
+          "detail"
+        ],
+        "title": "CostIndexRunOut"
+      },
+      "CostIndexRunsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CostIndexRunOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CostIndexRunsOut"
+      },
+      "CostIndexStatusOut": {
+        "properties": {
+          "cost_year": {
+            "type": "integer",
+            "title": "Cost Year"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "published",
+              "missing",
+              "converted"
+            ],
+            "title": "Status",
+            "description": "`published`: the cost year's index is loaded (RSMeans' value, cited); `missing`: no index for the year, the latest loaded one is applied and every priced row is flagged `cost:YEAR_INDEX_MISSING`; `converted`: the year's value was converted from another series (flagged `cost:YEAR_INDEX_CONVERTED`)."
+          },
+          "factor": {
+            "type": "string",
+            "title": "Factor",
+            "description": "The year factor applied (index / Jan. 1, 2020 index)."
+          },
+          "applied": {
+            "type": "string",
+            "title": "Applied",
+            "description": "The index value and citation the factor rests on."
+          },
+          "needed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needed",
+            "description": "When not `published`: the value the engineer must enter, in words."
+          },
+          "how": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "How",
+            "description": "When not `published`: where to enter it."
+          },
+          "assumption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assumption",
+            "description": "The assumption written on every priced row."
+          }
+        },
+        "type": "object",
+        "required": [
+          "cost_year",
+          "status",
+          "factor",
+          "applied",
+          "needed",
+          "how",
+          "assumption"
+        ],
+        "title": "CostIndexStatusOut",
+        "description": "The time index the revision's dollars rest on (COST_INDICES.md section 10): what the\nengineer must enter, when the cost year has no loaded index."
       },
       "CostOut": {
         "properties": {
@@ -11811,7 +12785,18 @@
             },
             "type": "array",
             "title": "Missing",
-            "description": "What the result lacks: `intake` (no basis without it), `building_rcn` (no appraisal cost approach and no living area), `depreciation` (no rate), `allocation` (nothing priced, or the reconciliation is not within tolerance), or nothing."
+            "description": "What the result lacks: `intake` (no basis without it), `building_rcn` (no appraisal cost approach and no living area), `depreciation` (no rate), `allocation` (nothing priced, or the reconciliation is not within tolerance), `cost_index` (no loaded index for the cost year: `cost_index` says which value to enter), or nothing."
+          },
+          "cost_index": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostIndexStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The time index the dollars rest on; null without structure inputs."
           },
           "worksheet": {
             "anyOf": [

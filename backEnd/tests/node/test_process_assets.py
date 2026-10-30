@@ -148,7 +148,7 @@ async def test_rule_model_and_fabricated_paths(
         Bucket.Y5,
         True,
     )
-    assert carpet.review_reason == "cost:YEAR_INDEX_EXTRAPOLATED"
+    assert carpet.review_reason == "cost:YEAR_INDEX_MISSING"
     cited = await citations_of(sessionmaker, carpet.id)
     assert {c.chunk_id for c in cited} == {CARPET_CHUNK, ASSET_CLASS_CHUNK}
     assert all(c.verified_at is not None and c.verification_method for c in cited)

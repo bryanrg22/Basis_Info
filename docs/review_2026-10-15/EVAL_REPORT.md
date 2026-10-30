@@ -6952,3 +6952,162 @@ resolved year factor and priced at the book's alone while the result used the su
 integration set with Docker: see the PR for the tally. Client data: none in the repository
 (the data file holds published index numbers and place names; `tooling/check_no_client_data.py`
 clean).
+
+
+## 47. The cost index store: every study gets a sourced year index without a code change, and a value is never fetched twice (2026-10-30)
+
+Follows section 45 (the indices from the 2020 books, PR #96), which left every 2024 study
+priced at the Jan. 1, 2020 index with the assumption on every row and the reconciliation 30 %
+under the basis, because no later Historical Cost Index was in the corpus and the only way to
+load one was a file path in the settings. Bryan's rule for what should happen instead: "if we
+already searched for 2024 and we've already used it, we don't have to go back and get it
+again. We could just put it on or save it somewhere so that we can check first there."
+Section 46 is PR #95's (the conventions key hierarchy). Design: COST_INDICES.md sections 9-12;
+the API: docs/api/COST_INDICES.md. No paid run: both live exports of section 42.5 were
+repriced and replayed offline. No client dollar amount appears here; ratios and shares only
+(artifacts: `work/e2e_artifacts/cost_index_store_2026-10-30/`, private).
+
+### 47.1 Research: where the index is published, and why no conversion
+
+The brief asked for one public fallback series with a documented conversion to the RSMeans
+base and its error quantified on 2020-2024. The research (every URL in the session's
+hand-over note) found something better than a stand-in: **Gordian publishes the actual
+RSMeans Historical Cost Index free**, one landing page per cost-book year
+(`https://www.rsmeans.com/landing-pages/<year>-rsmeans-cost-index`), as four lines of the form
+"The actual July 2024 Historical Index = 294.8" (January, April, July, October), verified by
+fetching every page 2020-2026 on 2026-10-30. The July values (the ones the books print as a
+past year's value) are 2020 234.6, 2021 257.5, 2022 297.1, 2023 293.7, 2024 294.8, 2025 300.7,
+2026 314.5; a Virginia DMAS worksheet reprints the same July series and Gordian's Quarterly
+Construction Cost Insights reports state the base ("a 30-city national average with a base of
+100 on January 1, 1993"). The books' 2015-2019 values on a third-party page that lists the
+same series match the 2020 book exactly, which validates the series identity.
+
+The stand-ins were measured anyway, as the ratio of each series to its 2020 value against the
+HCI's July ratio (1.098 / 1.266 / 1.252 / 1.257 / 1.282 for 2021-2025): ENR's Building Cost
+Index annual average is within 3.4 % where it is public (2021-2023; 2024-2025 are behind a
+subscription); Turner's annual average lags by 7 to 13 % in 2021-2023 and 2 to 4 % after;
+Turner's fourth quarter by 4 to 10 % then within 2 %; the BLS Producer Price Index for
+construction inputs (goods) overshoots by 8 to 12 % every year (materials only, where the HCI
+includes installation); the Census constant-quality house index by 4 to 9 %. No free series
+tracks the HCI within 2 % every year, and the one number that sets every dollar is free on
+Gordian's own page. Decision: the public source is the HCI itself (`rsmeans_public`), read from
+the page with the line as printed, the URL and the page's sha256 on the row; no fetcher
+converts. The `derived` column and the `cost:YEAR_INDEX_CONVERTED` flag exist for a firm that
+enters a converted value by hand for a year no page covers, with the error band from the table
+above in the row. RSMeans Data Online (the subscription; no public API documentation, data
+integration sold through sales) is a stub that reads its credentials from the settings and
+records itself unavailable without them.
+
+### 47.2 What was built
+
+* **The store** (migration `0016_cost_indices`, `basis/db/repositories/cost_index.py`):
+  `cost_indices`, one append-only row per obtained value keyed by `(source, series, year,
+  region, version)` with the value as published, `as_of`, the citation, URL, the document's
+  sha256, who obtained it and when, and the ledger row that added it; `cost_index_runs`, one
+  append-only row per attempt (what was asked for, what arrived, what failed, who). A value is
+  written only when its key is new or its current version differs (`plan` then `insert` under
+  one advisory lock): never twice, whoever asks; a revision is the next version and the old row
+  stays, so a completed study reproduces. Seeded from the released 2020-book file (51 years,
+  651 location rows, each citing its page) by `python -m basis.costs.refresh seed`,
+  idempotently; an empty store prices exactly as the file alone (tests pin both).
+* **Selection** (`basis/costs/indices/select.py`): the store's current rows become the values
+  a study prices with, by source rank (a manual entry first, then `COST_INDEX_SOURCES` in
+  order, then the released book; a converted value never outranks a published one), the book
+  under everything; the location table of the latest year at or before the cost year. The
+  per-study choice (the intake's placed-in-service year, the appraisal's effective date as
+  the cross-check, the intake's ZIP or state, then the appraisal's) is unchanged and the
+  citations on every takeoff and in `cost_source` are byte-identical to section 45's for the
+  seeded store (the regression check).
+* **The missing-year rule**, now an outcome code: no loaded index for the cost year means the
+  latest loaded one is applied, the assumption is on every priced row, every priced row is
+  flagged `cost:YEAR_INDEX_MISSING` (BASIS-COST-001; the study completes), and
+  `summary.basis.cost_index` says `status: missing`, the factor applied, the value the engineer
+  must enter in words and where; `missing` lists `cost_index`. Never a silent fallback, never a
+  stopped study (BASIS-CHECK-016 of section 45 is retired into it; it was never released).
+* **Acquisition, in order**: the store; else the configured fetchers (`basis/costs/indices/
+  <source>.py`, one protocol: `name`, `network`, `unavailable`, `wanted`, `fetch`), each asked
+  only for the years the store lacks from that source; else the flag. Three sources:
+  `rsmeans_2020_book` (offline, the seed), `rsmeans_public` (Gordian's pages; the year's value
+  is the July figure as the books list past years, an earlier quarter stands in marked
+  provisional until July appears; HTML comments and scripts stripped first because the 2026
+  page carries the previous year's lines in a comment; a month printed twice with different
+  values fails the year rather than guessing), `rsmeans_api` (the stub). Manual entry:
+  `POST /v1/cost-indices` (a firm owner; validation of series, year, region, value, `as_of`,
+  citation; the row and a ledger row with the user; the same value twice is 409 and nothing is
+  written) and `GET /v1/cost-indices`, `GET /v1/cost-indices/runs`; the CLI's `enter`,
+  `import`, `export`.
+* **Refresh**: `python -m basis.costs.refresh` (cron or Cloud Scheduler, monthly or on
+  demand; the relay's pattern of a process with its own entrypoint), one ledger row per
+  source per run, a timeout per fetch, exit 1 on a failed source; a second run adds nothing.
+  It never touches a study: a value that arrives later reaches a study when its assets step
+  reruns. Network fetches happen only there, never in a request. Two settings, not
+  assumptions: `COST_INDEX_FETCH` (default off: the seeded store and manual entries only) and
+  `COST_INDEX_SOURCES` (default `rsmeans_2020_book,rsmeans_public`).
+* The offline replays take the store's values: `evals.reprice_export --supplement` and, new,
+  `evals.structure_replay --supplement` (section 45's replay had priced the square-foot RCN
+  from the book alone: the first replay here showed the building bucket's share falling while
+  the itemized rows rose, which is how the gap was found; the assets step itself already
+  handed the structure rows the resolved factor, section 45).
+
+### 47.3 The two live exports, replayed with the published July 2024 index
+
+Both studies: cost year 2024 (placed in service 2024-12-03), California, no ZIP on the intake.
+"Section 45" = the same replay with the 2020 index applied to 2024 (the missing-year rule);
+"now" = the July 2024 Historical Cost Index from Gordian's page (294.8; year factor 294.8 /
+239.1 = 1.2330), entered as the store's value, every other input unchanged. "Placeholder" is
+section 44's run with the hand-typed 1.15 x 1.15.
+
+| | Run 3A, section 45 | Run 3A, now | Run 3B, section 45 | Run 3B, now |
+|---|---|---|---|---|
+| Year factor (2024) | 1.0000 (Jan 2020 index, assumption, flagged) | 1.2330 (July 2024 = 294.8, cited; no assumption, no flag) | 1.0000 | 1.2330 |
+| Location factor (CA) | 1.001 (mean of 37 cities) | 1.001 | 1.001 | 1.001 |
+| Priced itemized total, as a share of the placeholder's | 0.7561 | 0.9336 | 0.7560 | 0.9336 |
+| Bucket shares y5 / y7 / y15 / y39 (%) | 11.28 / 0.87 / 3.96 / 83.90 | 11.27 / 0.86 / 4.01 / 83.85 | 8.38 / 0.86 / 3.99 / 86.78 | 8.37 / 0.86 / 4.04 / 86.73 |
+| Bucket share error, mean / max (points) | 2.08 / 3.7 | 2.06 / 3.6 | 3.52 / 6.5 | 3.49 / 6.5 |
+| Row-share distance (TVD, points) | 21.05 | 21.05 | 21.80 | 21.79 |
+| Photo-visible rows evidenced / bucket right | 35 / 35 | 35 / 35 | 35 / 34 | 35 / 34 |
+| Kind C rows produced / bucket right | 8 / 7 | 8 / 7 | 8 / 7 | 8 / 7 |
+| RCN / B, RCNLD / B | 0.886, 0.696 | 1.092, 0.858 | 0.893, 0.702 | 1.102, 0.866 |
+| Reconciliation | unreconciled, RCNLD 30.4 % below B | unreconciled, 14.2 % below B | unreconciled, 29.8 % below | unreconciled, 13.4 % below |
+| Implied uniform factor on RCNLD | 1.131 | 0.917 | 1.121 | 0.909 |
+| Allocation | withheld | withheld (`missing: allocation`) | withheld | withheld |
+
+### 47.4 Reading
+
+* **The year factor is now a published number with its page on every row**, and the
+  assumption and the flag are gone from both studies. The factor the placeholder had guessed
+  (1.15) was 7 % low against the index's own 1.233; section 45's honest 1.0000 was 19 % low.
+* **The shares do not move** (the factor multiplies every itemized row and the square-foot
+  RCN alike): bucket errors and the row-share distance are unchanged to within 0.05 points,
+  and the photo-visible and kind C scores are identical. The regression check holds.
+* **The reconciliation halves its gap and still does not reconcile.** With the dollars
+  escalated to 2024 the replacement cost new is 9-10 % above the basis and the depreciated
+  total 13-14 % below it, outside the 10 % tolerance, so the allocation stays withheld and the
+  diagnosis stands: the implied uniform factor moved from 1.13 (the schedule short of the
+  basis) to 0.91 (the schedule, depreciated at the appraiser's 21 % physical rate, short by the
+  depreciation itself). The remaining gap is not the index: it is the depreciation rate and the
+  5-year side (section 44.4's cabinets, FF&E and window treatments), which the engineer's
+  report allocates without depreciating. That is a structure-model question for the next
+  section, not a cost-index one; the index did what it could, and the result now says so with
+  `cost_index.status: published` instead of a `missing` note.
+* **What the firm does now**: nothing in code. On the deployment, `python -m
+  basis.costs.refresh seed` once, then either `COST_INDEX_FETCH=on` and the monthly job, or
+  `POST /v1/cost-indices` with the year's value and its citation. The 2024 study reruns its
+  assets step and prices on 1.2330 with the page cited.
+
+### 47.5 Tests and gates
+
+Unit: `tests/unit/costs/` (the book fetcher, the public page parser against a recorded copy of
+the 2024 page with the 2026 page's comment decoy, the selection and its priority, the CLI
+parser and the export round trip; 25 tests), the domain tests updated for the store-first
+lookup, the result's `cost_index`, the metadata of the two tables. Integration with Docker:
+`tests/integration/db/test_cost_index_store.py` (append-only, versioned, never twice; the
+refresh job seeds once and adds nothing twice, skips a network source while fetching is off
+with the reason, asks once when on, records a failure without writing; the manual path; 11
+tests), `tests/api/test_cost_indices.py` (owner-only entry, validation, 409 on a repeat with
+nothing written, revision, listing, ledger, idempotency; 15 tests), migration 0016 forward and
+back, the OpenAPI contract on the new routes, and the lifecycle study whose 2024 index now
+arrives through the store's manual path. Gates from `backEnd/`: `ruff check`, `ruff format
+--check`, `mypy basis evals` clean; unit `-m "not integration and not slow"` and the
+integration set: see the PR for the tallies. Client data: none in the repository (the recorded
+page is a public marketing page's index block; `tooling/check_no_client_data.py` clean).

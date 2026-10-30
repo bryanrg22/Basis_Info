@@ -195,7 +195,16 @@ route follows a later intake change.
   `total` by construction.
 * `not_produced`: the concealed systems no priced structure row answers in this schedule (all
   thirteen when the structure model did not run), so the gap is explicit.
+* `cost_index`: the time index the revision's dollars rest on (COST_INDICES.md section 10):
+  `cost_year`, `status` (`published`: the year's RSMeans index is loaded; `missing`: no
+  index for the year, the latest loaded one is applied and every priced row is flagged
+  `cost:YEAR_INDEX_MISSING`; `converted`: the stored value is a conversion from another
+  series, flagged `cost:YEAR_INDEX_CONVERTED`), `factor`, `applied` (the index value and
+  citation), and when not `published` `needed` (the value the engineer must enter, in words),
+  `how` (`POST /v1/cost-indices`, the CLI, or the refresh job) and `assumption` (the text
+  written on every priced row). Null without structure inputs.
 * `missing`: `["intake"]` (no worksheet, no allocation; the schedule is still returned),
+  `cost_index` (no loaded index for the cost year; see `cost_index`),
   `building_rcn` (no cost approach and no living area), `depreciation` (no rate), or
   `allocation` (nothing priced, or the reconciliation is `unreconciled` or `not_checked`: the
   allocation is withheld rather than scaled, and the diagnosis says what to fix). Nothing is
@@ -222,7 +231,7 @@ view the end-to-end scorer prints.
   "location_factor": "1.010",
   "cost_year_source": "placed in service 2024-03-01 (intake)",
   "location_source": "zip 10001 (intake): 100-102 New York 1.01, RSMeans Residential 2020 Location Factors - Residential p.720",
-  "cost_year_assumption": "no published cost index for 2024 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Load the 2024 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book) through COST_INDEX_SUPPLEMENT_PATH before the study is signed",
+  "cost_year_assumption": "no published cost index for 2024 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2024 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
   "property_class": "nonresidential",
   "property_class_source": "intake property_use",
   "area_sources": {"appraisal_derived": 4, "gla_share": 212, "typical_for_room_type": 9},
@@ -240,10 +249,12 @@ view the end-to-end scorer prints.
   Location Factors row (or the cities averaged) with its page (EVAL_REPORT 45,
   COST_INDICES.md); a candidate that was given but unusable (a year before the 1970-2020
   Historical Cost Index, a ZIP or state not in the table) is named after a semicolon.
-* `cost_year_assumption`: present when the cost year is after the latest published index
-  loaded (the 2020 books end at Jan. 1, 2020): the rows are priced at that index and flagged
-  `cost:YEAR_INDEX_EXTRAPOLATED`; null otherwise. Each asset's `cost_source` text carries the
-  index values and pages behind both factors.
+* `cost_year_assumption`: present when no index is loaded for the cost year (the store,
+  docs/api/COST_INDICES.md, holds the 2020 books and whatever the firm or the refresh job added):
+  the rows are priced at the latest loaded index and flagged `cost:YEAR_INDEX_MISSING`; null
+  otherwise. `cost_year_conversion`: present when the year's stored value is a conversion from
+  another series (`cost:YEAR_INDEX_CONVERTED`). Each asset's `cost_source` text carries the
+  index values and citations behind both factors.
 * `property_class`, `property_class_source`: `intake property_use` or `PROPERTY_CLASS setting`.
 * The source members are null on an export whose rows were written before section 37, or
   priced from the settings alone with no intake: nothing is inferred from text.

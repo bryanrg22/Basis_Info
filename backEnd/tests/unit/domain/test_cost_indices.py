@@ -152,7 +152,7 @@ def test_a_year_after_the_latest_index_takes_it_with_the_assumption(year: int) -
     assert got.index is BOOK.years[2020]
     assert got.assumption is not None
     assert f"no published cost index for {year} is loaded" in got.assumption
-    assert "COST_INDEX_SUPPLEMENT_PATH" in got.assumption
+    assert "POST /v1/cost-indices" in got.assumption
 
 
 def test_year_ratio_moves_a_cost_between_two_published_years() -> None:
@@ -268,10 +268,6 @@ def test_a_supplement_adds_later_years_each_with_its_source(tmp_path: Path) -> N
             "its own source",
         ),
         (
-            supplement(a={"year": 2020, "as_of": "2020-07-01", "index": "240.0", "source": "x"}),
-            "covers through 2020",
-        ),
-        (
             supplement(a={"year": 2024, "as_of": "2023-12-01", "index": "300.0", "source": "x"}),
             "dated",
         ),
@@ -284,6 +280,18 @@ def test_a_supplement_adds_later_years_each_with_its_source(tmp_path: Path) -> N
 def test_a_bad_supplement_is_refused_with_the_defect(doc: dict[str, object], match: str) -> None:
     with pytest.raises(ci.CostIndexError, match=match):
         ci.parse_supplement(doc)
+
+
+def test_a_supplement_may_revise_a_year_the_released_book_covers() -> None:
+    # A later book prints the actual July value where the earlier one printed an estimate;
+    # the store keeps both as versions (COST_INDICES.md section 9), so the import accepts it.
+    got = ci.parse_supplement(
+        supplement(a={"year": 2020, "as_of": "2020-07-01", "index": "234.6", "source": "2021 book"})
+    )
+    assert got[2020].index == D("234.6") and got[2020].source == "2021 book"
+    # And the stored value, handed in as the supplement, outranks the released file's.
+    assert ci.year_index(2020, got).index == D("234.6")
+    assert ci.year_factor_for(2020, got).factor == D("0.9812")
 
 
 def test_an_empty_supplement_adds_nothing() -> None:

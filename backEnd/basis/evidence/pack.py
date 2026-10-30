@@ -340,6 +340,7 @@ STUDY_INPUT_KEYS: Final = (
     "cost_year_source",
     "location_source",
     "cost_year_assumption",
+    "cost_year_conversion",
     "property_class",
     "property_class_source",
 )

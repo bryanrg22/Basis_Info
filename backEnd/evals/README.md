@@ -417,8 +417,8 @@ step exists; the share comparison is like-for-like.
 ### `structure_replay` (the structure model over a stored export)
 
 `python -m evals.structure_replay export/rev-5.json --out export/rev-5.structure.json
---cost-table costs/unit_costs_rsmeans_2020.json [--intake intake.json] [--changes run.json]`
-(EVAL_REPORT section 44). From the export's extraction fields it reads the appraisal's cost
+--cost-table costs/unit_costs_rsmeans_2020.json [--intake intake.json] [--changes run.json]
+[--supplement indices.json]` (EVAL_REPORT section 44). From the export's extraction fields it reads the appraisal's cost
 approach and measurements, from its assets the itemized rows, and does what `process_assets`
 does after the component loop and what the result does after it (`basis.domain.structure`,
 docs/review_2026-10-15/STRUCTURE_MODEL.md): the building RCN, the split, the carve-out, one
@@ -427,9 +427,13 @@ the cost table's row for its label), depreciation, reconciliation and the alloca
 The output is the export with the concealed rows appended and `summary.basis` replaced, so
 `evals.e2e_report` scores it like any export and the kind C rows become `produced` rows. The
 intake is rebuilt from the export's worksheet unless `--intake` gives the study's own. The
-cost year, location factor and property class are the export's `summary.takeoff`. The eval
-cost table carries rows for the four small systems (`fire_alarm_system`, `data_cabling`,
-`access_control`, `site_utilities`), each cited to its RSMeans page.
+cost year, location factor and property class are the export's `summary.takeoff`; the
+year's time factor comes from `--supplement` (the store's Historical Cost Index values as
+`python -m basis.costs.refresh export` writes them; EVAL_REPORT 47) over the released book,
+as the assets step resolves it, so the square-foot RCN and the small systems price on the
+same factor as the itemized rows. The eval cost table carries rows for the four small systems
+(`fire_alarm_system`, `data_cabling`, `access_control`, `site_utilities`), each cited to its
+RSMeans page.
 
 ### `structure_sweep` (every variant of the structure model, scored)
 
@@ -449,7 +453,8 @@ pick and the runner-up; unsourced variants (Marshall & Swift) reported as such.
 prices every itemized asset of a stored export again through `estimate_cost` with the RSMeans
 cost indices (`basis.domain.cost_indices`, EVAL_REPORT 45, COST_INDICES.md): the export's
 cost year and the study's location (the city factor of `--zip`, else the mean of `--state`'s
-cities; the state defaults to the export's `location_source`). The concealed rows are dropped
+cities; the state defaults to the export's `location_source`; `--supplement` is the store's
+values from `python -m basis.costs.refresh export`). The concealed rows are dropped
 and `summary` recomputed, so `structure_replay` then rebuilds them on the same factors and
 `e2e_report` scores the result. The stored dollars are checked against the row (`base_mismatch`
 counts an asset whose old unit cost over the old factors is not the row's base). Deterministic,

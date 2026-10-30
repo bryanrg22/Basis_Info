@@ -780,7 +780,7 @@ async def test_measured_areas_price_the_property_items_and_size_the_rooms(
     roof_assets = [a for label, a in rows if label == "roof"]
     assert not any("COST_NEEDS_QUANTITY" in (a.review_reason or "") for a in roof_assets)
     # Every priced row stands on the 2020 index until the firm loads 2025's (EVAL_REPORT 45).
-    assert "cost:YEAR_INDEX_EXTRAPOLATED" in (roof_assets[0].review_reason or "")
+    assert "cost:YEAR_INDEX_MISSING" in (roof_assets[0].review_reason or "")
     assert "no published cost index for 2025" in roofs[0].inputs["cost_year_assumption"]
 
     # Patio: no appraisal input; still a count, COST_NEEDS_QUANTITY, the measurement named.
