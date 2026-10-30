@@ -81,6 +81,7 @@ from basis.db.models import (
 from basis.db.repositories.activity_result import COMPLETED, RUNNING
 from basis.db.session import create_sessionmaker, session_scope
 from basis.domain.rules import lookup
+from basis.domain.structure import STRUCTURE_LABELS
 from basis.storage import LocalStorage
 from basis.worker.search_attributes import ensure_search_attributes
 from basis.workflow.activity_options import options_for
@@ -509,6 +510,11 @@ async def rule_citation_count(sm: async_sessionmaker[AsyncSession], study_id: uu
         hit = lookup(component.label, component.material, component.attachment)
         assert hit is not None, component.label  # every stub component is a rules-table hit
         total += len(hit.citations)
+    # The structure model's concealed rows cite their rules rows too (STRUCTURE_MODEL.md).
+    for label in STRUCTURE_LABELS:
+        hit = lookup(label, None, "permanent")
+        assert hit is not None, label
+        total += len(hit.citations)
     return total
 
 
@@ -554,14 +560,19 @@ async def test_database_unreachable_for_one_attempt(outage: Outage, name: str) -
     # Attempt 1 failed before claiming its key: nothing written, no claim row.
     (failure,) = outage.failures
     assert isinstance(failure, DatabaseUnavailableError)
-    expected_assets = 0 if name == "process_assets" else await count(sm, Component, study.study_id)
+    # The structure model writes 13 concealed rows beside the components' assets
+    # (STRUCTURE_MODEL.md), each with a takeoff and a cost row.
+    concealed = 13
+    expected_assets = (
+        0 if name == "process_assets" else await count(sm, Component, study.study_id) + concealed
+    )
     assert snapshots == [{"claims": 0, "assets": expected_assets, "export_exists": False}]
     await assert_retried_once(started.handle, name)
     await assert_each_key_once_completed(harness, started.handle.id)
     components = await count(sm, Component, study.study_id)
     assert components == 4  # two photos, two stub components each
     for model in (Asset, Takeoff, CostEstimate):
-        assert await count(sm, model, study.study_id) == components, model.__name__
+        assert await count(sm, model, study.study_id) == components + concealed, model.__name__
     # One citation row per rule citation: the seeded reference corpus holds every page
     # the rules table cites, so each resolves (a rule may cite more than one page).
     assert await count(sm, Citation, study.study_id) == await rule_citation_count(

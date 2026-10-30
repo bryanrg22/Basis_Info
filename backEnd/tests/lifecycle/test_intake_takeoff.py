@@ -4,10 +4,12 @@ the intake decided (EVAL_REPORT section 37).
 The happy path (``test_happy_path.py``) seeds no intake, as every study did before the intake
 was required. Here the study has one: a nonresidential use (a house let by the night), placed
 in service in 2024, in New York. The workflow is the real one on the time-skipping server;
-the assertions are on the stored export: ``summary.basis`` has the worksheet and the
-allocation (no ``missing``), the schedule's building rows are 39-year, and
+the assertions are on the stored export: ``summary.basis`` has the worksheet, the
+structure model's rows and reconciliation and the allocation on RCNLD (no ``missing``;
+STRUCTURE_MODEL.md, EVAL_REPORT 44), the schedule's building rows are 39-year, and
 ``summary.takeoff`` names the intake as the source of the cost year, the location factor and
-the property class.
+the property class. The purchase price is set so the synthetic appraisal's cost new less
+its depreciation lands within the reconciliation's tolerance of the price less land.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harnes
         harness.sessionmaker,
         study.study_id,
         intake_document(
+            purchase_price="400000.00",
             property_use="nonresidential",
             dwelling_unit_income_share=None,
             transient_lodging=True,
@@ -55,17 +58,48 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harnes
     assert row.intake is not None and row.intake.state == "NY"
 
     exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))
-    assert exported["revision"] == 1 and len(exported["assets"]) == 6
+    assert exported["revision"] == 1
+    itemized = [a for a in exported["assets"] if a["component_id"] is not None]
+    concealed = {a["label"]: a for a in exported["assets"] if a["component_id"] is None}
+    assert len(itemized) == 6 and len(concealed) == 13
 
-    # The basis: the worksheet from the intake. The fixture's six assets price on the six
-    # legacy cost rows; when none of them does, the result says the allocation is missing
-    # rather than inventing one (docs/api/STUDY_RESULT.md, ``missing``).
+    # The structure model (STRUCTURE_MODEL.md): the synthetic appraisal's cost approach gives
+    # the building's RCN (Average 2 Story: Q4, two stories), one concealed row per system,
+    # the appraiser's physical depreciation on every row, and a schedule that reconciles
+    # to the price less land within tolerance, so the basis is allocated pro rata on RCNLD.
     basis = exported["summary"]["basis"]
-    assert basis["intake"] is True
-    if basis["schedule"]["priced"] == 0:
-        assert basis["missing"] == ["allocation"] and basis["allocation"] is None
-    else:
-        assert basis["missing"] == [] and basis["allocation"]["total"] == "560180.00"
+    assert basis["intake"] is True and basis["missing"] == []
+    structure = basis["structure"]
+    assert structure["building_rcn"]["source"] == "square_foot_model"  # the sweep's pick
+    assert structure["building_rcn"]["model"]["name"] == "Average 2 Story"
+    assert sorted(c["label"] for c in structure["concealed"]) == sorted(concealed)
+    foundation = concealed["foundation"]
+    assert foundation["bucket"] == "y39" and foundation["method"] == "rule"
+    assert foundation["takeoff_inputs"]["concealed"] is True
+    assert foundation["takeoff_inputs"]["system"] == "Miscellaneous Building Components"
+    assert foundation["unit"] == "SF" and foundation["total"] is not None
+    assert "ATG ch. 4 C.11" in foundation["takeoff_inputs"]["overhead_spread"]
+    assert concealed["data_cabling"]["bucket"] == "y5"
+    assert concealed["access_control"]["needs_review"] is True  # contested row
+    assert basis["depreciation"]["method"] == "appraisal_physical_depreciation"
+    reconciliation = basis["reconciliation"]
+    assert reconciliation["status"] == "reconciled", reconciliation["checks"]
+    assert abs(float(reconciliation["gap_share"])) <= 0.10
+    assert [c["code"] for c in reconciliation["causes"]][:2] == ["land_fmv", "assets_missing"]
+    allocation = basis["allocation"]
+    assert allocation["depreciated"] is True and allocation["total"] == "310180.00"
+    assert {c["code"]: c["severity"] for c in allocation["checks"]} == {"rcnld_factor": "ok"}
+    assert allocation["by_system"] is not None
+    # The harness configures no cost table, so the four small systems (priced from the
+    # table's row for their label) stay unpriced and are listed as not produced; the nine
+    # building rows are priced from the appraisal's cost new.
+    assert [n["system"] for n in basis["not_produced"]] == [
+        "Fire Protection & Alarm",
+        "Communication / Data",
+        "Access Control",
+        "Site Utilities",
+    ]
+    assert all(concealed[label]["total"] is None for label in ("fire_alarm_system", "data_cabling"))
     worksheet = basis["worksheet"]
     assert (worksheet["property_use"], worksheet["recovery_period"]) == ("nonresidential", "39")
     assert (worksheet["placed_in_service_date"], worksheet["state"], worksheet["zip"]) == (
@@ -74,7 +108,7 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harnes
         "10001",
     )
     assert worksheet["location_source"] == "intake"
-    assert worksheet["building_basis"] == "560000.00" and worksheet["total_basis"] == "560180.00"
+    assert worksheet["building_basis"] == "310000.00" and worksheet["total_basis"] == "310180.00"
 
     # The use decided the building period (39 years on the worksheet): the fixture's
     # bathtub and toilet are building rows since RULES_VERSION 2026-10-29.1 (ATG p.315), so
@@ -95,11 +129,19 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(harness: Harnes
         "nonresidential",
         "intake property_use",
     )
-    assert sum(takeoff["area_sources"].values()) == 6
-    for asset in exported["assets"]:
+    assert takeoff["area_sources"]["structure_model"] == 13
+    assert sum(takeoff["area_sources"].values()) == 19
+    for asset in itemized:
         assert (asset["cost_year"], asset["location_factor"]) == (2024, "1.200")
         assert asset["takeoff_inputs"]["property_class_source"] == "intake property_use"
         if asset["cost_source"] and not asset["cost_source"].startswith("missing"):
             assert asset["cost_source"].endswith(
                 "from placed in service 2024-03-01 (intake), x1.20 location from state NY (intake))"
             )
+    # A concealed building row priced from the square-foot model (national dollars) carries
+    # the study's location factor, like the itemized rows (with STRUCTURE_RCN_SOURCE set to
+    # the appraisal's local figure it would carry none); a small system is priced from the
+    # cost table like any label, so it carries one.
+    assert concealed["foundation"]["location_factor"] == "1.200"
+    assert concealed["access_control"]["location_factor"] in ("1.200", None)
+    assert all(a["cost_year"] == 2024 for a in concealed.values())

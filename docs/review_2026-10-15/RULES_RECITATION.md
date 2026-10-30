@@ -220,3 +220,30 @@ found in a furnished house, condo, apartment, etc.") and the 57.0 sentence (p.29
 freestanding shelf unit is a furnishing, a built-in one is finish carpentry (p.305).
 Not changed, for the engineer: `office_furniture`, `office_chair` and `conference_table`
 resolve to the 57.0 rows and take 00.11 only in an office room.
+
+## Rows added 2026-10-30: the structure model's concealed rows (`RULES_VERSION` `2026-10-30.1`)
+
+One row per concealed label of the structure model (`basis/domain/structure.py`,
+STRUCTURE_MODEL.md sections 3.5-3.6). Each excerpt was read on the page image and checked
+verbatim in the page's text as pdfplumber reads it (the production parser's input), avoiding
+the first line of a matrix row, where the three columns interleave. Page numbers are PDF pages
+of the ATG.
+
+| Rule | Section, bucket | Citation | Status | Why |
+|---|---|---|---|---|
+| `foundation` | 1250 building | p.299: "Includes excavation and backfill for building footings and foundations, but does not include site grading costs."<br>p.299: "formwork, reinforcement, concrete block, and pre-cast or cast-in-place work." | supported | Concrete Footings and Foundations - Building. |
+| `structural_framing` | 1250 building | p.321: "posts, beams, girders, curtain walls, tilt up panels, studs, framing, sheetrock, insulation, windows, doors, exterior façade, brick, masonry, etc."<br>p.317: "including but not limited to joists, rafters, deck, shingles, vapor barrier, skylights, trusses, girders, and gutters." | supported | Walls - Exterior names studs and framing; Roof names joists, rafters and trusses. |
+| `exterior_wall_assembly` | 1250 building | p.321 (the Walls - Exterior list) | supported | Sheathing, housewrap and insulation are the exterior wall. |
+| `roofing_assembly` | 1250 building | p.317 (the Roof list) | supported | Deck, vapor barrier and flashings are the roof. |
+| `interior_partition` | 1250 building | p.321: "load bearing partitions regardless of height (typically constructed of studs and sheetrock or other materials) that divide or create rooms or provide traffic control."<br>p.321: "Includes rough carpentry and plaster, dry wall or gypsum board, and other finishes." | supported | Walls - Interior. |
+| `painting` | 1250 building | p.320: "paint; ceramic or quarry tile, marble, stone, brick, and other" | supported | Wall Coverings - Permanent: "Includes interior and exterior paint" (the row's first line, interleaved on the page; the excerpt is its continuation). |
+| `plumbing_rough_in` | 1250 building | p.315: "all other components of a building plumbing system (water or gas) not specifically identified elsewhere" | supported | Plumbing - Building (the water_heater row's passage). |
+| `hvac_distribution` | 1250 building | p.310: "air conditioning system. HVAC systems that are primarily installed for the temperature, humidity, and ventilation of the residence and its occupants are building components." | supported | HVAC - Residence. |
+| `electrical_wiring` | 1250 building | p.301: "Branch circuits are the electrical connections between a distribution or subpanel and the end-use equipment. This includes wire and conduit, junction boxes, wall switches, and outlets."<br>p.303: "May include feeder circuits, power service entrance equipment, transformers, and conduit." | supported | Electrical Branch Circuits - Building; Electrical - Primary and Secondary EDS - Building. |
+| `fire_alarm_system` | 1250 building | p.305: "computer controls, sprinkler heads, piping or plumbing, pumps, visual and audible alarms, alarm control panels, heat and smoke detection devices, fire escapes, fire doors" | supported | Fire Protection and Alarm Systems. |
+| `data_cabling` | 1245 y5 (57.0) | p.300: "internet, cable TV, satellite TV,"<br>p.297: the Asset Class 57.0 sentence | supported | Data Cable and Wiring: section 1245, 57.0, 5 years (the engineer's Communication / Data row is 5-year too). The short excerpt is the one contiguous fragment of the row's first sentence; it is 33 characters normalized. |
+| `access_control` | 1250 building, contested | p.300: "Includes computerized door locks, encoders, computers, and other associated hardware of the computerized lock system."<br>p.318: "Examples include window and door locks; card key access systems; keyless entry systems;" | contested | Doors and Security Systems - Building put locks and keyless entry on the building side; the design partner's report has Access Control as 5-year. The documents' position is adopted and the hit goes to the engineer (a firm convention then carries the ruling). |
+| `site_utilities` | 1250 building | p.319: "are used to distribute utility services from the property line to the building. Includes water, sanitary sewer, gas, and electrical services." | supported | Site Utilities. |
+
+Count after this change: 67 rows (54 + 13), 7 variants, the contested set is 11 (the 10 of
+section 4 plus `access_control`).

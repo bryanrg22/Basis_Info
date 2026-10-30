@@ -205,7 +205,7 @@ def test_label_file_must_cover_the_vocabulary_once() -> None:
             {"id": "r", "system": "S", "kind": "A", "assign": [{"label": "carpet"}]},
             {"id": "r", "system": "T", "kind": "A", "assign": [{"label": "tile"}]},
         )
-    with pytest.raises(ValidationError, match="not a component label"):
+    with pytest.raises(ValidationError, match="not a component or structure label"):
         rows({"id": "r", "system": "S", "kind": "A", "assign": [{"label": "other"}]})
     with pytest.raises(ValidationError, match="not a room type"):
         rows(
@@ -404,6 +404,64 @@ def fabricated_export() -> StudyExport:
         asset("mirror", "y5", "75.00"),  # unassigned, listed
         asset(None, "y7", None),  # other
     )
+
+
+def test_a_structure_row_makes_a_kind_c_row_produced_and_scored() -> None:
+    """EVAL_REPORT 44: a concealed asset of the structure model (a structure label, or
+    ``takeoff_inputs.concealed``) charged to a kind C row scores it; the photo hints alone
+    leave it not produced, as before."""
+    label_rows = rows(
+        {"id": "r1", "system": "Carpet", "kind": "B", "assign": [{"label": "carpet"}]},
+        {"id": "r2", "system": "Cabinets", "kind": "A", "assign": [{"label": "kitchen_cabinet"}]},
+        {"id": "r3", "system": "Driveway", "kind": "A", "assign": [{"label": "driveway"}]},
+        {"id": "r4", "system": "Windows", "kind": "A", "assign": [{"label": "window"}]},
+        {"id": "r5", "system": "Circuits", "kind": "A"},
+        {
+            "id": "r6",
+            "system": "Foundations",
+            "kind": "C",
+            "assign": [{"label": "smoke_detector"}, {"label": "foundation"}],
+        },
+        unassigned={"mirror": "decor"},
+    )
+    concealed = ExportAsset(
+        id="foundation-1",
+        label="foundation",
+        bucket="y39",
+        total=D("3000.00"),
+        takeoff_inputs={
+            "concealed": True,
+            "label": "foundation",
+            "quantity_source": "structure_model",
+        },
+    )
+    hint = asset("smoke_detector", "y5", "25.00")
+    assert concealed.concealed and not hint.concealed
+    produced = score(export(asset("carpet", "y5", "400.00"), hint, concealed), label_rows, report())
+    r6 = {r.row.id: r for r in produced.rows}["r6"]
+    assert (r6.outcome, r6.scored, r6.bucket_by_count, r6.bucket_right_by_count) == (
+        "produced",
+        True,
+        "y39",
+        True,
+    )
+    assert r6.structure_assets == [concealed] and r6.sources == {"none": 1, "structure_model": 1}
+    c = produced.summary["classification"]
+    assert (c["kind_c_rows"], c["kind_c_produced"], c["kind_c_bucket_right"]) == (1, 1, 1)
+    assert c["kind_c_produced_rows"] == ["Foundations"] and c["kind_c_not_produced_rows"] == []
+    assert c["kind_c_produced_engineer_share"] == 0.38 and c["concealed_assets"] == 1
+    assert c["concealed_priced_dollars"] == "3000.00"
+    # Kind C rows are not photo-visible: the photo-visible rates do not count them.
+    assert (c["evidenced"], c["bucket_right_by_count"]) == (1, 1)
+    hints_only = score(export(asset("carpet", "y5", "400.00"), hint), label_rows, report())
+    r6 = {r.row.id: r for r in hints_only.rows}["r6"]
+    assert (r6.outcome, r6.scored) == ("not_produced", False)
+    assert hints_only.summary["classification"]["kind_c_produced"] == 0
+    text = render_markdown(produced, data_free=True)
+    assert "produced by the structure model: 1 of 1 rows" in text
+    # A structure label is a valid assignment; a made-up one is not.
+    with pytest.raises(ValidationError, match="not a component or structure label"):
+        rows({"id": "r9", "system": "X", "kind": "C", "assign": [{"label": "structural_frame"}]})
 
 
 def test_score_outcomes_buckets_dollars_and_shares() -> None:

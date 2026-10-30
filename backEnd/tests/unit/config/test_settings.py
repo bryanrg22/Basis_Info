@@ -442,11 +442,15 @@ def test_takeoff_and_cost_index_settings(clean_env: pytest.MonkeyPatch) -> None:
     settings = load_settings()
     assert (settings.takeoff_areas, settings.cost_index) == ("appraisal", "study")
     assert (settings.cost_year, settings.cost_location_factor) == (2026, 1.0)
+    # EVAL_REPORT 44: the structure model's concealed rows are written by default.
+    assert settings.structure_step == "on"
     reset_settings()
     clean_env.setenv("TAKEOFF_AREAS", "typical")
     clean_env.setenv("COST_INDEX", "setting")
+    clean_env.setenv("STRUCTURE_STEP", "off")
     settings = load_settings()
     assert (settings.takeoff_areas, settings.cost_index) == ("typical", "setting")
+    assert settings.structure_step == "off"
     reset_settings()
     clean_env.setenv("TAKEOFF_AREAS", "sketch")
     with pytest.raises(ValidationError):

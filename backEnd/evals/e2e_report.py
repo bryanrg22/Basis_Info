@@ -70,6 +70,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from basis.domain.structure import STRUCTURE_LABELS
 from basis.vision.schemas import COMPONENT_LABELS, ROOM_TYPES
 from evals.datasets import ENV_VAR, data_dir
 from evals.metrics import wilson_interval
@@ -88,7 +89,7 @@ from evals.report_math import (
 
 Bucket = Literal["y5", "y7", "y15", "y27_5", "y39"]
 RowKind = Literal["A", "B", "C"]
-Outcome = Literal["evidenced", "missed", "vocabulary_gap", "not_produced"]
+Outcome = Literal["evidenced", "missed", "vocabulary_gap", "not_produced", "produced"]
 EXPORT_FORMATS: Final = frozenset({"basis-export/2", "basis-evidence/1"})
 LABELS_DIR: Final = "labels"
 ROWS_FILE: Final = "e2e_rows_v1.json"
@@ -135,6 +136,13 @@ class ExportAsset(BaseModel):
         area: a GLA share, a typical area, ...), else ``none`` (no takeoff inputs)."""
         inputs = self.takeoff_inputs if isinstance(self.takeoff_inputs, dict) else {}
         return str(inputs.get("quantity_source") or inputs.get("room_area_source") or "none")
+
+    @property
+    def concealed(self) -> bool:
+        """A row the structure model wrote (``takeoff_inputs.concealed``, or a structure
+        label)."""
+        inputs = self.takeoff_inputs if isinstance(self.takeoff_inputs, dict) else {}
+        return inputs.get("concealed") is True or self.label in STRUCTURE_LABELS
 
     @property
     def unpriced_reason(self) -> str:
@@ -198,10 +206,14 @@ def load_export(path: Path) -> StudyExport:
         return StudyExport(
             study_id=study_id, revision=revision, assets=[_asset_from_csv(r) for r in rows]
         )
-    document = json.loads(path.read_text(encoding="utf-8"))
+    return export_from_document(json.loads(path.read_text(encoding="utf-8")), str(path))
+
+
+def export_from_document(document: Mapping[str, Any], name: str = "export") -> StudyExport:
+    """The export from its parsed JSON (``basis-export/2``, or a bare evidence pack)."""
     fmt = document.get("format")
     if fmt not in EXPORT_FORMATS:
-        raise E2EError(f"{path}: not a study export (format {fmt!r})")
+        raise E2EError(f"{name}: not a study export (format {fmt!r})")
     return StudyExport(
         study_id=str(document["study_id"]),
         revision=int(document["revision"]),
@@ -242,8 +254,8 @@ class Assignment(_Model):
     @field_validator("label")
     @classmethod
     def _label_in_vocabulary(cls, value: str) -> str:
-        if value == "other" or value not in COMPONENT_LABELS:
-            raise ValueError(f"{value!r} is not a component label (or is 'other')")
+        if value == "other" or value not in LABELS:
+            raise ValueError(f"{value!r} is not a component or structure label (or is 'other')")
         return value
 
     @field_validator("room_types", "exclude_room_types")
@@ -279,10 +291,16 @@ class Assignment(_Model):
         return not (tokens & set(self.exclude_materials))
 
 
+# The labels an assignment may name: the vision vocabulary and the structure model's
+# concealed rows (basis.domain.structure, EVAL_REPORT section 44).
+LABELS: Final = frozenset({*COMPONENT_LABELS, *STRUCTURE_LABELS})
+
+
 class E2ERow(_Model):
     """One engineer row: its kind and the assignments that charge pipeline assets to it.
-    A kind C row may carry assignments (hints charged to it for the totals); it is never
-    scored. A kind A or B row with no assignment is a vocabulary gap."""
+    A kind C row is scored only when a structure-model row (a concealed asset) is charged
+    to it; its other assignments are hints charged for the totals. A kind A or B row with
+    no assignment is a vocabulary gap."""
 
     id: str
     system: str
@@ -299,6 +317,10 @@ class E2ERow(_Model):
         return self.kind != "C"
 
     @property
+    def structure_labels(self) -> list[str]:
+        return sorted({a.label for a in self.assign if a.label in STRUCTURE_LABELS})
+
+    @property
     def vocabulary_gap(self) -> bool:
         return self.photo_derivable and not self.assign
 
@@ -313,8 +335,8 @@ class UnassignedLabel(_Model):
     @field_validator("label")
     @classmethod
     def _label_known(cls, value: str) -> str:
-        if value not in COMPONENT_LABELS:
-            raise ValueError(f"{value!r} is not a component label")
+        if value not in LABELS:
+            raise ValueError(f"{value!r} is not a component or structure label")
         return value
 
 
@@ -338,6 +360,8 @@ class E2ERows(_Model):
         both = sorted(assigned & set(unassigned))
         if both:
             raise ValueError(f"labels both assigned and unassigned: {both}")
+        # The vision vocabulary must be fully assigned or listed; the structure labels are
+        # optional (a label file written before the structure model is still complete).
         missing = sorted(set(COMPONENT_LABELS) - assigned - set(unassigned))
         if missing:
             raise ValueError(f"vocabulary labels neither assigned nor unassigned: {missing}")
@@ -579,8 +603,14 @@ class RowScore:
 
     @property
     def scored(self) -> bool:
-        """Scored for its bucket: a photo-derivable row with assigned assets."""
-        return self.outcome == "evidenced"
+        """Scored for its bucket: a photo-derivable row with assigned assets, or a kind C
+        row the structure model produced."""
+        return self.outcome in ("evidenced", "produced")
+
+    @property
+    def structure_assets(self) -> list[ExportAsset]:
+        """The charged assets the structure model wrote (concealed rows)."""
+        return [a for a in self.assets if a.concealed]
 
     @property
     def priced(self) -> int:
@@ -692,7 +722,7 @@ def score(export: StudyExport, rows: E2ERows, report: EngineerReport) -> E2EScor
         row = rows.row(engineer_row.id)
         assets = assignment.by_row[row.id]
         if not row.photo_derivable:
-            outcome: Outcome = "not_produced"
+            outcome: Outcome = "produced" if any(a.concealed for a in assets) else "not_produced"
         elif row.vocabulary_gap:
             outcome = "vocabulary_gap"
         elif assets:
@@ -823,7 +853,10 @@ def summarize(
     evidenced = [r for r in rows if r.outcome == "evidenced"]
     missed = [r for r in rows if r.outcome == "missed"]
     gaps = [r for r in rows if r.outcome == "vocabulary_gap"]
+    kind_c = [r for r in rows if not r.row.photo_derivable]
     concealed = [r for r in rows if r.outcome == "not_produced"]
+    produced = [r for r in rows if r.outcome == "produced"]
+    produced_right = [r for r in produced if r.bucket_right_by_count]
     right_count = [r for r in evidenced if r.bucket_right_by_count]
     scored_dollars = [r for r in evidenced if r.bucket_right_by_dollars is not None]
     right_dollars = [r for r in scored_dollars if r.bucket_right_by_dollars]
@@ -834,7 +867,7 @@ def summarize(
 
     low, high = wilson_interval(len(right_count), len(evidenced))
     ev_low, ev_high = wilson_interval(len(evidenced), len(visible))
-    kind_c_assets = [a for r in concealed for a in r.assets]
+    kind_c_assets = [a for r in kind_c for a in r.assets]
     unassigned = assignment.unassigned
     priced_rows = [r for r in evidenced if r.priced]
     ratios = sorted(r.cost_ratio for r in priced_rows if r.cost_ratio is not None)
@@ -867,8 +900,29 @@ def summarize(
         "classification": {
             "rows": len(rows),
             "photo_visible_rows": len(visible),
-            "kind_c_rows": len(concealed),
-            "kind_c_engineer_share": share(concealed),
+            "kind_c_rows": len(kind_c),
+            "kind_c_engineer_share": share(kind_c),
+            # The structure model (EVAL_REPORT 44): kind C rows a concealed asset answers,
+            # scored for their bucket like any other row.
+            "kind_c_produced": len(produced),
+            "kind_c_produced_rows": [r.engineer.system for r in produced],
+            "kind_c_not_produced_rows": [r.engineer.system for r in concealed],
+            "kind_c_produced_engineer_share": share(produced),
+            "kind_c_bucket_right": len(produced_right),
+            "kind_c_wrong_bucket_rows": [
+                f"{r.engineer.system} ({r.engineer.bucket} vs {r.bucket_by_count})"
+                for r in produced
+                if not r.bucket_right_by_count
+            ],
+            "concealed_assets": sum(a.concealed for a in export.assets),
+            "concealed_priced_dollars": str(
+                cents(
+                    sum(
+                        (a.total for a in export.assets if a.concealed and a.total is not None),
+                        ZERO,
+                    )
+                )
+            ),
             "evidenced": len(evidenced),
             "missed": len(missed),
             "missed_rows": [r.engineer.system for r in missed],
@@ -985,7 +1039,20 @@ def _summary_lines(result: E2EScore, data_free: bool) -> list[str]:
         ),
         _kv(
             "concealed rows' share of the engineer's total",
-            f"{c['kind_c_engineer_share'] * 100:.1f}% (not produced; never a wrong bucket)",
+            f"{c['kind_c_engineer_share'] * 100:.1f}%; produced by the structure model: "
+            f"{c['kind_c_produced']} of {c['kind_c_rows']} rows "
+            f"({c['kind_c_produced_engineer_share'] * 100:.1f}% of the engineer's total), "
+            f"bucket right {c['kind_c_bucket_right']}"
+            + (
+                f"; wrong: {'; '.join(c['kind_c_wrong_bucket_rows'])}"
+                if c["kind_c_wrong_bucket_rows"]
+                else ""
+            )
+            + (
+                f"; not produced: {', '.join(c['kind_c_not_produced_rows'])}"
+                if c["kind_c_not_produced_rows"]
+                else ""
+            ),
         ),
         _kv(
             "evidenced (an asset charged)",

@@ -155,7 +155,8 @@ async def test_the_production_defaults_run_end_to_end(harness: Harness) -> None:
     ]
     assets = await rows(run, Asset, sid, 1)
     by_id = {c.id: c for c in components}
-    assert len(assets) == 4 and all(is_inventory(by_id[a.component_id]) for a in assets)
+    itemized = [a for a in assets if a.component_id is not None]  # not the structure rows
+    assert len(itemized) == 4 and all(is_inventory(by_id[a.component_id]) for a in itemized)
 
 
 @pytest.mark.parametrize("components_gate", [True, False], ids=["components_gate", "single_gate"])
@@ -206,7 +207,9 @@ async def test_a_rooms_rejection_rebuilds_the_changed_room(
     assert len(kitchen[0].raw["photos"]) == 2
     bathroom = [c for c in inventory if c.label == "toilet"]
     assert len(bathroom) == 1 and "carried_from" in bathroom[0].raw
-    assert len(await rows(run, Asset, sid, 2)) == 4
+    assert (
+        len(await rows(run, Asset, sid, 2)) == 4 + 13
+    )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)
 
 
 @activity.defn(name="reconcile_rooms")
@@ -236,4 +239,6 @@ async def test_a_failed_room_step_flags_the_review_and_the_study_completes(
         await run.cleanup()
     assert result.outcome == "completed"
     # No inventory: the assets are the per-photo rows, as before the room step.
-    assert len(await rows(run, Asset, sid, 1)) == 6
+    assert (
+        len(await rows(run, Asset, sid, 1)) == 6 + 13
+    )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)

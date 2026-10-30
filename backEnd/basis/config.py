@@ -365,6 +365,20 @@ class Settings(BaseSettings):
     # The engineer's unit-cost table (basis.domain.cost_table: JSON, licensed data, never
     # in the repository); unset: only the six legacy rows price (EVAL_REPORT 27, item 6).
     cost_table_path: str | None = None
+    # The structure model (docs/review_2026-10-15/STRUCTURE_MODEL.md): on writes one
+    # concealed row per building system from the appraisal's cost approach (or the RSMeans
+    # square-foot model) carved against the itemized assets, depreciates the schedule and
+    # reconciles it to the basis; off leaves the schedule to the photographs (the behaviour
+    # before 2026-10-30) and the result allocates by the uniform factor, flagged.
+    structure_step: Literal["on", "off"] = "on"
+    # Where the building's replacement cost new comes from (STRUCTURE_MODEL.md section 7,
+    # EVAL_REPORT 44.3): square_foot (the RSMeans Residential 2020 model sized by the facing
+    # page's matrix; the sweep's pick), appraisal_total (the appraisal's printed total cost
+    # new; the runner-up) or appraisal_parts (the sum of its parts). Without a living area
+    # the appraisal's figure is used whatever the setting; without either there is no RCN.
+    structure_rcn_source: Literal["square_foot", "appraisal_total", "appraisal_parts"] = (
+        "square_foot"
+    )
 
     # Object localization (basis.vision.localize): SAM 3 on Replicate, for trials only
     # (production self-hosts it; VISION_DETECTION_RESEARCH.md section 4). The community

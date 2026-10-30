@@ -78,10 +78,18 @@ async def test_writes_the_revision_as_canonical_json(
         3,
         6,
     )
-    assert len(document["assets"]) == 6
+    # Six assets from the components and thirteen concealed rows the structure model wrote
+    # from the synthetic appraisal's cost approach (STRUCTURE_MODEL.md; no component).
+    itemized = [a for a in document["assets"] if a["component_id"] is not None]
+    concealed = [a for a in document["assets"] if a["component_id"] is None]
+    assert (len(itemized), len(concealed)) == (6, 13)
+    assert all(a["takeoff_inputs"]["concealed"] is True and a["label"] for a in concealed)
     for asset in document["assets"]:
         assert {"bucket", "recovery_period", "quantity", "unit", "total", "citations"} <= set(asset)
-    assert document["summary"]["assets"] == 6
+    assert document["summary"]["assets"] == 19
+    assert document["summary"]["basis"]["structure"]["building_rcn"]["source"] == (
+        "square_foot_model"  # the sweep's pick (STRUCTURE_RCN_SOURCE)
+    )
     assert set(document["evidence"]) == {"by_stage", "by_component", "by_document"}
     # The spend (EVAL_REPORT section 40): the rollup in the summary, the transcript beside.
     spend = document["summary"]["spend"]
@@ -104,7 +112,7 @@ async def test_writes_the_revision_as_canonical_json(
     assert csv_file["uri"] == output.export_uri.replace(".json", ".assets.csv")
     csv_bytes = await deps.storage.read(csv_file["uri"])
     assert hashlib.sha256(csv_bytes).hexdigest() == csv_file["sha256"]
-    assert csv_bytes.count(b"\n") == 7  # header + one row per asset
+    assert csv_bytes.count(b"\n") == 20  # header + one row per asset (6 + 13 concealed)
     assert set(document["checksums"]) == {
         "extraction",
         "rooms",

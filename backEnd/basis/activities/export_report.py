@@ -44,6 +44,7 @@ from temporalio import activity
 from basis.activities._support import heartbeat, parse_uuid, run_once, validation_error
 from basis.activities.deps import Deps
 from basis.audit.timeline import timeline_document
+from basis.config import Settings
 from basis.db.enums import Stage
 from basis.db.models import LlmCall
 from basis.db.repositories.asset import AssetRepository
@@ -212,6 +213,7 @@ async def build_export(
     *,
     storage: Storage | None = None,
     calls_location: str = "",
+    settings: Settings | None = None,
 ) -> ExportFiles:
     study = await StudyRepository(session).get(study_id)
     if study is None:
@@ -280,7 +282,7 @@ async def build_export(
         for c in component_rows
     ]
     heartbeat("rooms")
-    pack = await load_pack(session, study_id, revision)
+    pack = await load_pack(session, study_id, revision, settings)
     evidence = pack_document(pack)
     asset_rows = await AssetRepository(session).list_for_revision(study_id, revision)
     asset_provenance = await resolver.assets(asset_rows, {c.id: c for c in component_rows})
@@ -343,6 +345,7 @@ class ExportReport:
                 table_uri,
                 storage=self._deps.storage,
                 calls_location=transcript_uri,
+                settings=self._deps.settings,
             )
             uri = export_uri(self._deps.bucket, study_id, input.revision)
             # Written before the completion commits: if the commit fails the retry

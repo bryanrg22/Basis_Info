@@ -71,7 +71,17 @@ nothing is written, and the workflow fails the stage with the reason until a ret
 new revision's component carried from it (``carried_from``, written by
 ``apply_corrections``) takes the old asset's values overlaid with the correction's
 ``after``, ``method="manual"``, without a model call. The applied correction is recorded
-in the takeoff's ``inputs`` (``asset_correction``).
+in the takeoff's ``inputs`` (``asset_correction``). A correction of a concealed row (a row
+the structure model wrote, no component) is matched by the row's label: the new revision's
+row of that label takes the correction's values the same way, its quantity and cost
+recomputed.
+
+The structure model (docs/review_2026-10-15/STRUCTURE_MODEL.md, ``STRUCTURE_STEP=on``):
+after the components, one concealed row per building system from the appraisal's cost
+approach (or the RSMeans square-foot model) carved against the itemized assets, and the
+four small systems with code-derived quantities, each an asset without a component whose
+takeoff carries ``concealed``, the label, the system, the formula and the assumptions
+(:func:`_write_structure`).
 """
 
 from __future__ import annotations
@@ -79,7 +89,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final
@@ -111,7 +121,7 @@ from basis.classify.schemas import ComponentView
 from basis.classify.verify import VerifiedCitation
 from basis.config import Settings
 from basis.db.enums import ClassificationMethod, Corpus
-from basis.db.models import Asset, Component, CorpusVersion, Correction, Room
+from basis.db.models import Asset, Component, CorpusVersion, Correction, ExtractionField, Room
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
@@ -136,9 +146,22 @@ from basis.domain.measurements import (
 )
 from basis.domain.rooms import guidance_for, typical_area_sf
 from basis.domain.rules import RECOVERY_YEARS, PropertyClass, check_property_class, lookup
+from basis.domain.structure import (
+    STRUCTURE_LABELS,
+    CostApproach,
+    ItemizedRow,
+    StructureInputs,
+    building_rcn,
+    carve_out,
+    concealed_rows,
+    cost_approach_from_fields,
+    small_system_inputs,
+    split_components,
+)
 from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
 from basis.errors.codes import E
+from basis.evidence.result import concealed_label
 from basis.llm.cost import cost_usd
 from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import Budget
@@ -146,6 +169,14 @@ from basis.vision.rooms import is_room_inventory, is_room_manual
 from basis.workflow.contracts import CorrectionInput, ProcessAssetsInput, ProcessAssetsOutput
 
 ACTIVITY: Final = "process_assets"
+# The concealed rows' synthetic component ids (they have no component row): one per label.
+STRUCTURE_NAMESPACE: Final = uuid.UUID("5a1f0d6e-7c3b-4b2e-9c1d-2f6e8a9b0c11")
+
+
+def structure_id(label: str) -> uuid.UUID:
+    return uuid.uuid5(STRUCTURE_NAMESPACE, label)
+
+
 METHODS: Final = {
     "rule": ClassificationMethod.RULE,
     "cache": ClassificationMethod.CACHE,
@@ -187,7 +218,7 @@ class ProcessAssets:
         if prepared is not None:
             try:
                 results = await _classify_all(
-                    list(prepared.views.values()),
+                    [*prepared.views.values(), *prepared.structure_views.values()],
                     prepared.ctx,
                     self._deps.settings.classify_concurrency,
                 )
@@ -200,7 +231,9 @@ class ProcessAssets:
                 # Written by an earlier execution for the same revision (a replay, a reset,
                 # or a concurrent attempt that won the key's lock): nothing is recomputed.
                 return ProcessAssetsOutput(
-                    assets=len(existing), needs_review=sum(a.needs_review for a in existing)
+                    assets=sum(a.component_id is not None for a in existing),
+                    needs_review=sum(a.needs_review for a in existing),
+                    concealed=sum(a.component_id is None for a in existing),
                 )
             return await _write(self._deps, session, study_id, input, prepared, results)
 
@@ -231,6 +264,13 @@ class _Prepared:
     intake: StudyIntake | None = None
     # The property class the classification ran with (the intake's use, else the setting).
     property_class: PropertyClass = "residential_rental"
+    # The appraisal's cost approach and related fields for the structure model (None when
+    # STRUCTURE_STEP=off or no extraction has fields).
+    cost_approach: CostApproach | None = None
+    # The concealed rows' classification views, keyed by ``structure_id(label)``.
+    structure_views: dict[uuid.UUID, ComponentView] = field(default_factory=dict)
+    # An engineer's corrections of the rejected revision's concealed rows, by label.
+    structure_overrides: dict[str, Override] = field(default_factory=dict)
 
 
 async def _prepare(
@@ -248,17 +288,37 @@ async def _prepare(
     components = asset_components(await rooms_repo.components(study_id, input.revision))
     rooms = {r.id: r for r in await rooms_repo.list_for_revision(study_id, input.revision)}
     measurements = None
-    if settings.takeoff_areas == "appraisal" or settings.cost_index == "study":
-        measurements = await study_measurements(session, study_id, input.revision)
+    cost_approach = None
+    fields = await study_fields(session, study_id, input.revision)
+    if fields and (settings.takeoff_areas == "appraisal" or settings.cost_index == "study"):
+        read = measurements_from_fields(fields)
+        measurements = None if read.is_empty else read
+    if fields and settings.structure_step == "on":
+        cost_approach = cost_approach_from_fields(fields)
     study = await StudyRepository(session).get(study_id)
     intake = None if study is None else study.intake
-    overrides = await _overrides(assets, study_id, components, input.corrections)
+    overrides, structure_overrides = await _overrides(
+        assets, study_id, components, input.corrections
+    )
     property_class, _ = property_class_for(intake, settings)
     views = {
         c.id: component_view(c, rooms.get(c.room_id) if c.room_id else None, property_class)
         for c in components
         if c.id not in overrides
     }
+    # The structure model's concealed rows, classified like any component (a rule hit, or a
+    # firm convention): one view per label when the appraisal gives the model its inputs.
+    structure_views: dict[uuid.UUID, ComponentView] = {}
+    if settings.structure_step == "on" and (measurements is not None or cost_approach is not None):
+        structure_views = {
+            structure_id(label): ComponentView(
+                component_id=str(structure_id(label)),
+                label=label,
+                attachment="permanent",
+                property_class=property_class,
+            )
+            for label in STRUCTURE_LABELS
+        }
     # Every component's context key, not only the rules table's misses: a convention beats
     # a rule row (docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 2).
     keys = {context_key(v, property_class) for v in views.values()}
@@ -289,7 +349,9 @@ async def _prepare(
             else deps.retrieval_deps().classifier_search(deps.chunk_store)
         ),
     )
-    residual = [v for v in views.values() if route(v, ctx)[0] == "llm"]
+    residual = [
+        v for v in (*views.values(), *structure_views.values()) if route(v, ctx)[0] == "llm"
+    ]
     if residual and deps.chat_provider is not None:
         worst = round(len(residual) * ctx.limits.worst_case_usd(ctx.reserve_usd_per_call), 6)
         if worst > input.budget_remaining_usd:
@@ -299,7 +361,18 @@ async def _prepare(
                 E.BUDGET_CLASSIFY,
             )
     return _Prepared(
-        components, rooms, overrides, views, ctx, budget, measurements, intake, property_class
+        components,
+        rooms,
+        overrides,
+        views,
+        ctx,
+        budget,
+        measurements,
+        intake,
+        property_class,
+        cost_approach,
+        structure_views,
+        structure_overrides,
     )
 
 
@@ -310,6 +383,17 @@ def property_class_for(intake: StudyIntake | None, settings: Settings) -> tuple[
     if intake is not None:
         return check_property_class(intake.property_use.value), "intake property_use"
     return settings.property_class, "PROPERTY_CLASS setting"
+
+
+async def study_fields(
+    session: AsyncSession, study_id: uuid.UUID, revision: int
+) -> list[ExtractionField]:
+    """The revision's extraction fields, several extractions in document order."""
+    repo = ExtractionRepository(session)
+    rows: list[ExtractionField] = []
+    for extraction in await repo.list_for_revision(study_id, revision):
+        rows.extend(await repo.fields(extraction.id))
+    return rows
 
 
 async def study_measurements(
@@ -352,6 +436,7 @@ async def _write(
     measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
     needs_review = 0
+    itemized: list[ItemizedRow] = []
     for component in components:
         heartbeat(str(component.id))
         room = rooms.get(component.room_id) if component.room_id else None
@@ -422,12 +507,209 @@ async def _write(
             )
             row.verified_at = datetime.now(UTC)
         needs_review += asset.needs_review
+        itemized.append(
+            ItemizedRow(component.label, None if cost is None else cost.total, _count(component))
+        )
+    concealed = 0
+    if prepared.structure_views:
+        concealed, flagged = await _write_structure(
+            session,
+            assets,
+            study_id,
+            input.revision,
+            prepared,
+            results,
+            plan,
+            table,
+            itemized,
+            settings,
+        )
+        needs_review += flagged
     await session.flush()
     if prepared.ctx.org_id is not None:
         await ClassificationCacheRepository(session).record_hits(prepared.ctx.org_id, cache_hits)
     return ProcessAssetsOutput(
-        assets=len(components), needs_review=needs_review, cost_usd=round(budget.spent_usd, 6)
+        assets=len(components),
+        needs_review=needs_review,
+        cost_usd=round(budget.spent_usd, 6),
+        concealed=concealed,
     )
+
+
+async def _write_structure(
+    session: AsyncSession,
+    assets: AssetRepository,
+    study_id: uuid.UUID,
+    revision: int,
+    prepared: _Prepared,
+    results: dict[uuid.UUID, ClassificationResult],
+    plan: TakeoffPlan,
+    table: CostTable | None,
+    itemized: list[ItemizedRow],
+    settings: Settings,
+) -> tuple[int, int]:
+    """The structure model's concealed rows (docs/review_2026-10-15/STRUCTURE_MODEL.md
+    sections 3.5-3.6): the building's RCN from the appraisal, split into the RSMeans
+    components and carved against the itemized rows just written; one asset per residual
+    (classified by the rules table through the same router as a component), its takeoff
+    carrying the formula, inputs and assumptions, its cost the residual (or the cost
+    table's row for a small system). Returns ``(rows written, rows needing review)``."""
+    inputs = StructureInputs(
+        measurements=prepared.measurements,
+        cost_approach=prepared.cost_approach,
+        cost_year=plan.index.cost_year,
+        year_source=plan.index.year_source,
+        location_factor=plan.index.location_factor,
+        location_source=plan.index.location_source,
+        rcn_source=settings.structure_rcn_source,
+    )
+    building = building_rcn(
+        inputs.measurements,
+        inputs.cost_approach,
+        cost_year=inputs.cost_year,
+        year_source=inputs.year_source,
+        location_factor=inputs.location_factor,
+        location_source=inputs.location_source,
+        rcn_source=inputs.rcn_source,
+    )
+    carve = None
+    if building is not None:
+        carve = carve_out(split_components(building.amount, building.model), itemized)
+    small = small_system_inputs(inputs.measurements, inputs.cost_approach, itemized)
+    written = flagged = 0
+    for row in concealed_rows(building, carve, inputs.living_area, small, inputs.split):
+        result = results.get(structure_id(row.label))
+        override = prepared.structure_overrides.get(row.label)
+        if result is None and override is None:
+            continue
+        heartbeat(f"structure:{row.label}")
+        reasons = (
+            []
+            if result is None or override is not None
+            else [r for r in (result.review_reason or "").split("; ") if r]
+        )
+        reasons += list(row.review_reasons)
+        takeoff = Takeoff(
+            component=row.label,
+            quantity=row.quantity,
+            unit=row.unit,
+            formula=row.formula,
+            method=row.method,
+        )
+        if row.rcn is not None:
+            unit_cost: Decimal | None = (
+                (row.rcn / row.quantity).quantize(Decimal("0.01")) if row.quantity > 0 else row.rcn
+            )
+            total: Decimal | None = row.rcn
+            source_row = row.source
+            # The appraiser's cost new is a local figure (no location factor); the
+            # square-foot model's took the study's factor (recorded on the row).
+            location_factor: Decimal | None = (
+                None
+                if building is None or building.source == "appraisal_cost_approach"
+                else inputs.location_factor
+            )
+        else:
+            # A small system: priced from the cost table's row for the label, like any
+            # other label; without a row it stays unpriced with the reason.
+            cost, priced_per = _cost(takeoff, plan.index, table, row.label)
+            unit_cost = None if cost is None else cost.unit_cost
+            total = None if cost is None else cost.total
+            source_row = _source_row(takeoff, cost)
+            location_factor = plan.index.location_factor
+            if cost is None:
+                reasons.append(
+                    "cross:COST_NEEDS_QUANTITY" if priced_per else "cross:COST_ROW_MISSING"
+                )
+        extra_inputs: dict[str, Any] = {}
+        if override is not None:
+            # The engineer's correction of the rejected revision's row: their classification,
+            # the model's quantity and cost (``_write_manual`` for a component's asset).
+            old, after = override.old, override.after
+            bucket = parse_bucket(after.get("bucket", old.bucket.value))
+            if "recovery_period" in after:
+                recovery = parse_recovery_period(after["recovery_period"])
+            elif bucket is old.bucket:
+                recovery = old.recovery_period
+            elif bucket in RECOVERY_YEARS:
+                recovery = RECOVERY_YEARS[bucket]
+            else:
+                raise validation_error(
+                    f"asset {old.id}: a {bucket.value} correction needs recovery_period",
+                    E.ASSETS_BUCKET_NEEDS_PERIOD,
+                )
+            section = after.get("irs_section", old.irs_section)
+            asset = await assets.create(
+                study_id=study_id,
+                revision=revision,
+                component_id=None,
+                category=str(after.get("category", row.category)),
+                bucket=bucket,
+                recovery_period=recovery,
+                irs_section=None if section is None else str(section),
+                method=ClassificationMethod.MANUAL,
+                confidence=1.0,
+                needs_review=bool(reasons),
+                review_reason="; ".join(dict.fromkeys(reasons)) or None,
+            )
+            extra_inputs = {"asset_correction": {"from_asset_id": str(old.id), "after": after}}
+            await _record_override(session, study_id, asset, override, revision)
+            needs_review = bool(reasons)
+        else:
+            assert result is not None
+            needs_review = result.needs_review or row.needs_review or bool(reasons)
+            asset = await assets.create(
+                study_id=study_id,
+                revision=revision,
+                component_id=None,
+                category=row.category,
+                bucket=result.bucket,
+                recovery_period=result.recovery_period,
+                irs_section=result.irs_section,
+                method=METHODS[result.method],
+                confidence=result.confidence,
+                needs_review=needs_review,
+                review_reason="; ".join(dict.fromkeys(reasons)) or None,
+                convention=None if result.convention is None else dict(result.convention),
+            )
+        await assets.add_takeoff(
+            asset=asset,
+            quantity=row.quantity,
+            unit=row.unit,
+            formula=row.formula,
+            inputs={
+                **row.inputs,
+                **extra_inputs,
+                "concealed": True,
+                "label": row.label,
+                "system": row.system,
+                "component": row.component,
+                "method": row.method,
+                "assumptions": list(row.assumptions),
+                "quantity_source": "structure_model",
+                "structure_source": row.source,
+                **plan.study_inputs,
+            },
+        )
+        await assets.add_cost_estimate(
+            asset=asset,
+            unit_cost=unit_cost,
+            total=total,
+            source_row=source_row,
+            location_factor=location_factor,
+            cost_year=plan.index.cost_year,
+        )
+        for citation in () if result is None or override is not None else result.citations:
+            cited = await assets.add_citation(
+                asset=asset,
+                chunk_id=citation.chunk_id,
+                excerpt=citation.excerpt,
+                verification_method=citation.method,
+            )
+            cited.verified_at = datetime.now(UTC)
+        written += 1
+        flagged += needs_review
+    return written, flagged
 
 
 def asset_components(components: list[Component]) -> list[Component]:
@@ -827,13 +1109,17 @@ async def _overrides(
     study_id: uuid.UUID,
     components: list[Component],
     corrections: tuple[CorrectionInput, ...],
-) -> dict[uuid.UUID, Override]:
+) -> tuple[dict[uuid.UUID, Override], dict[str, Override]]:
+    """``(by component id, by concealed-row label)``: the corrections of the rejected
+    revision's assets, each checked and matched to this revision's component (carried from
+    the corrected asset's) or, for a concealed row, to its label."""
     by_origin = {
         str(c.raw[CARRIED_FROM]): c.id
         for c in components
         if isinstance(c.raw, dict) and CARRIED_FROM in c.raw
     }
     overrides: dict[uuid.UUID, Override] = {}
+    structure_overrides: dict[str, Override] = {}
     for correction in corrections:
         if correction.entity_type != "asset":
             raise validation_error(
@@ -841,11 +1127,25 @@ async def _overrides(
             )
         check_asset(correction.after)
         old = await assets.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
-        if old is None or old.component_id is None:
+        if old is None:
             raise validation_error(
                 f"asset {correction.entity_id} not found in study {study_id}",
                 E.ASSETS_ASSET_NOT_FOUND,
             )
+        if old.component_id is None:
+            # A concealed row of the structure model: matched by its label.
+            takeoff = (await assets.takeoffs([old.id])).get(old.id)
+            label, concealed = concealed_label(takeoff.inputs if takeoff else None)
+            if not concealed or label is None:
+                raise validation_error(
+                    f"asset {correction.entity_id} has no component and is not a concealed row",
+                    E.ASSETS_NO_COMPONENT,
+                )
+            previous = structure_overrides.get(label)
+            structure_overrides[label] = Override(
+                old=old, after={**(previous.after if previous else {}), **correction.after}
+            )
+            continue
         component_id = by_origin.get(str(old.component_id))
         if component_id is None:
             raise validation_error(
@@ -854,7 +1154,7 @@ async def _overrides(
         previous = overrides.get(component_id)
         merged = {**(previous.after if previous else {}), **correction.after}
         overrides[component_id] = Override(old=old, after=merged)
-    return overrides
+    return overrides, structure_overrides
 
 
 __all__ = [

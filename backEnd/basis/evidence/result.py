@@ -1,13 +1,23 @@
-"""The study result: the basis worksheet and the RCN schedule allocated to it
-(docs/api/STUDY_RESULT.md). One representation for the export summary (``summary.basis`` in
-``basis.evidence.pack``) and ``GET /v1/studies/{id}/result``.
+"""The study result: the basis worksheet, the structure model, the depreciated schedule, the
+reconciliation and the allocation (docs/api/STUDY_RESULT.md). One representation for the
+export summary (``summary.basis`` in ``basis.evidence.pack``) and
+``GET /v1/studies/{id}/result``.
 
-:func:`compute_result` is pure: the revision's priced assets (category, bucket, replacement
-cost new) and the study's intake (or none) give :class:`StudyResultOut`. Without an intake
-the schedule is still returned and ``missing`` says what is absent; nothing is fabricated.
-``not_produced`` names what the pipeline cannot cost today (the concealed building systems,
-STUDY_REPORT_SPEC 5.3) so the gap between the schedule and the basis is explicit: with a
-schedule far below the basis the ``uniform_factor`` check is an error (a step-up).
+:func:`compute_result` is pure: the revision's assets (category, label, bucket, replacement
+cost new, whether the row is a concealed row the structure model wrote), the study's intake
+(or none) and the structure inputs (the appraisal's readings and the cost index, or none)
+give :class:`StudyResultOut`. Without an intake the schedule is still returned and
+``missing`` says what is absent; nothing is fabricated.
+
+With structure inputs (docs/review_2026-10-15/STRUCTURE_MODEL.md): the building's RCN is
+recomputed from the appraisal, split into the model's components and carved against the
+itemized rows, so the result shows top-down, itemized and concealed per component; every row
+is depreciated at the appraiser's rate; the RCNLD total is reconciled to the purchase price
+less land, and the basis is allocated pro rata on RCNLD only when the two agree within the
+square-foot method's tolerance. Otherwise ``allocation`` is null, ``missing`` says
+``allocation`` and the reconciliation's diagnosis says why. Without structure inputs (a
+caller that has none) the allocation is the uniform factor on RCN as before, with the
+``uniform_factor`` check.
 """
 
 from __future__ import annotations
@@ -17,16 +27,20 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from basis.config import Settings
 from basis.db.enums import Bucket
 from basis.db.repositories.asset import AssetRepository
+from basis.db.repositories.extraction import ExtractionRepository
+from basis.db.repositories.room import RoomRepository
 from basis.domain.basis import (
     BUCKET_ORDER,
     CAPITALIZED,
+    ONE,
     REPORT_ROW_SYSTEMS,
     Allocation,
     BasisError,
@@ -37,37 +51,57 @@ from basis.domain.basis import (
     worksheet,
 )
 from basis.domain.intake import StudyIntake
-
-# What photographs cannot establish and no cost model prices yet (COMPONENT_TAXONOMY kind C).
-NOT_PRODUCED: Final[tuple[tuple[str, str], ...]] = (
-    ("Foundations", "concealed building system; priced from areas and a systems cost model"),
-    ("Structural Framing", "concealed building system; priced from areas and a systems cost model"),
-    (
-        "Interior Framing / Partitions",
-        "concealed building system; priced from areas and a systems cost model",
-    ),
-    ("Site Utilities", "concealed; priced from a site plan and a systems cost model"),
-    (
-        "Fire Protection & Alarm",
-        "a detector in a photo is not the system; priced from a systems cost model",
-    ),
-    ("Communication / Data", "concealed cabling; priced from a systems cost model"),
-    ("Access Control", "not photo-derivable; from the walk-through"),
+from basis.domain.measurements import (
+    BuildingMeasurements,
+    CostIndex,
+    measurements_from_fields,
+    resolve_cost_index,
 )
+from basis.domain.structure import (
+    CATEGORIES,
+    COMPONENT_NAMES,
+    DEFAULT_SPLIT,
+    ENGINEER_ROWS,
+    STRUCTURE_LABELS,
+    BuildingRcn,
+    CarveOut,
+    Depreciation,
+    ItemizedRow,
+    Reconciliation,
+    SplitMethod,
+    StructureInputs,
+    building_rcn,
+    carve_out,
+    cost_approach_from_fields,
+    depreciate,
+    depreciation,
+    mapping_for,
+    reconcile,
+    split_components,
+    split_shares,
+)
+from basis.domain.structure import Check as StructureCheck
+
 NOT_PRODUCED_REASON: Final = (
-    "no building-systems cost model yet (STUDY_REPORT_SPEC 5.3); the schedule holds only "
-    "what the photographs show and price"
+    "no concealed row of the structure model priced this system (STRUCTURE_MODEL.md 3.5-3.6)"
+)
+# The concealed systems in the order the result lists them when absent.
+NOT_PRODUCED: Final[tuple[tuple[str, str], ...]] = tuple(
+    (ENGINEER_ROWS[label], CATEGORIES[label]) for label in STRUCTURE_LABELS
 )
 
 
 @dataclass(frozen=True, slots=True)
 class ScheduleRow:
-    """One priced asset of the revision as the allocation sees it."""
+    """One asset of the revision as the result sees it."""
 
     asset_id: str
     category: str
     bucket: str
     rcn: Decimal | None  # None: not priced
+    label: str | None = None
+    # A row the structure model wrote (``takeoffs.inputs.concealed``); never carved.
+    concealed: bool = False
 
 
 # --------------------------------------------------------------------------- response models
@@ -113,6 +147,9 @@ class ScheduleBucketOut(BaseModel):
     bucket: Bucket
     assets: int
     rcn: Decimal
+    rcnld: Decimal | None = Field(
+        default=None, description="RCN less depreciation; null undepreciated."
+    )
 
 
 class ScheduleOut(BaseModel):
@@ -121,6 +158,11 @@ class ScheduleOut(BaseModel):
     assets: int
     priced: int
     rcn_total: Decimal
+    rcnld_total: Decimal | None = Field(
+        default=None, description="The priced rows' RCN less depreciation; null undepreciated."
+    )
+    concealed: int = Field(default=0, description="Rows the structure model wrote.")
+    concealed_rcn: Decimal = Field(default=Decimal("0.00"), description="Their RCN.")
     by_bucket: list[ScheduleBucketOut]
     unpriced: list[uuid.UUID] = Field(description="Assets with no cost (no quantity or no row).")
     land: list[uuid.UUID] = Field(
@@ -133,17 +175,23 @@ class AllocatedAssetOut(BaseModel):
     category: str
     bucket: Bucket
     rcn: Decimal
+    rcnld: Decimal | None = Field(
+        default=None, description="RCN less depreciation (when depreciated)."
+    )
     allocated: Decimal
     rounding_cents: int = Field(
         description="Cents this row gained (+) or lost (−) against plain half-up rounding so "
         "the rows sum to the total."
     )
+    label: str | None = None
+    concealed: bool = False
 
 
 class BucketAllocationOut(BaseModel):
     bucket: Bucket
     rows: int
     rcn: Decimal
+    rcnld: Decimal | None = None
     allocated: Decimal
     percent: Decimal = Field(description="Of the total, to 0.1.")
     share: Decimal = Field(description="Of the total, to 6 places.")
@@ -154,6 +202,7 @@ class BucketAllocationOut(BaseModel):
 class SystemAllocationOut(BaseModel):
     system: str
     rcn: Decimal
+    rcnld: Decimal | None = None
     allocated: Decimal
 
 
@@ -162,14 +211,23 @@ class AllocationOut(BaseModel):
     closing_costs: Decimal
     total: Decimal
     rcn_total: Decimal
-    factor: Decimal = Field(description="T / ΣRCN to 9 places (applied at full precision).")
+    rcnld_total: Decimal | None = Field(
+        default=None, description="ΣRCNLD when the factor scaled RCNLD (`depreciated`)."
+    )
+    depreciated: bool = Field(
+        default=False,
+        description="True: the factor is T / ΣRCNLD (the structure model's method); false: "
+        "T / ΣRCN (the uniform factor the ATG objects to).",
+    )
+    factor: Decimal = Field(description="To 9 places (applied at full precision).")
     rows_sum: Decimal = Field(
         description="The allocated rows' sum; equals `total` by construction."
     )
     residual_cents: int = Field(description="Cents moved by the largest-remainder rule in all.")
     by_bucket: list[BucketAllocationOut]
     by_system: list[SystemAllocationOut] | None = Field(
-        description="The twelve building systems when every row maps to one; else null."
+        description="The twelve building systems (every row is mapped by its label; a row "
+        "with no label is Miscellaneous Building Components)."
     )
     by_system_reason: str | None
     assets: list[AllocatedAssetOut] = Field(description="Every row, in asset id order.")
@@ -181,29 +239,138 @@ class NotProducedOut(BaseModel):
     reason: str
 
 
+class ModelOut(BaseModel):
+    name: str
+    cls: str = Field(description="economy, average, custom or luxury")
+    type: str = Field(description="1 story ... 3 story")
+    source: str
+    class_source: str
+    type_source: str
+
+
+class BuildingRcnOut(BaseModel):
+    amount: Decimal
+    source: Literal["appraisal_cost_approach", "square_foot_model"]
+    formula: str
+    inputs: dict[str, str]
+    assumptions: list[str]
+    checks: list[CheckOut]
+    needs_review: bool
+    model: ModelOut
+
+
+class ComponentOut(BaseModel):
+    component: str
+    name: str
+    share: Decimal = Field(description="Of the building RCN after Overhead is spread, to 6 places.")
+    top_down: Decimal
+    itemized: Decimal
+    itemized_assets: int
+    unpriced_assets: int
+    residual: Decimal = Field(description="top_down − itemized, clamped at zero.")
+    clamped: Decimal = Field(description="The excess when the itemized rows exceed the model.")
+    concealed: Decimal = Field(description="The concealed rows written against this component.")
+
+
+class ConcealedOut(BaseModel):
+    asset_id: uuid.UUID
+    label: str
+    system: str = Field(description="The engineer's row.")
+    category: str
+    bucket: Bucket
+    component: str | None
+    rcn: Decimal | None
+
+
+class StructureOut(BaseModel):
+    """The structure model as recomputed from the appraisal for this result."""
+
+    building_rcn: BuildingRcnOut | None
+    components: list[ComponentOut]
+    concealed: list[ConcealedOut] = Field(description="The concealed rows of the schedule.")
+    outside_model: Decimal = Field(description="Priced itemized rows the model does not include.")
+
+
+class DepreciationOut(BaseModel):
+    rate: Decimal = Field(description="0..1, applied to every row.")
+    method: Literal["appraisal_physical_depreciation", "age_life"]
+    source: str
+    checks: list[CheckOut]
+
+
+class CauseOut(BaseModel):
+    code: str
+    cause: str = Field(description="The guide's words (ATG ch. 3 D(6)).")
+    finding: str = Field(description="What this study's data says about it.")
+
+
+class ComponentLineOut(BaseModel):
+    component: str
+    top_down: Decimal
+    itemized: Decimal
+    concealed: Decimal
+    clamped: Decimal
+
+
+class ReconciliationOut(BaseModel):
+    status: Literal["reconciled", "unreconciled", "not_checked"]
+    building_basis: Decimal = Field(description="B: the purchase price less land.")
+    rcn_total: Decimal
+    rcnld_total: Decimal | None
+    gap: Decimal | None = Field(description="B − RCNLD.")
+    gap_share: Decimal | None = Field(description="Of B, to 6 places.")
+    tolerance: Decimal
+    implied_uniform_factor: Decimal | None = Field(
+        description="T / ΣRCN: what the uniform step-up would have been; a diagnostic only."
+    )
+    by_component: list[ComponentLineOut]
+    unassigned_remainders: list[ComponentLineOut] = Field(
+        description="Components whose residual has no concealed row (Specialties)."
+    )
+    outside_model: Decimal
+    unpriced_assets: int
+    appraisal_check: CheckOut
+    causes: list[CauseOut]
+    checks: list[CheckOut]
+
+
 class StudyResultOut(BaseModel):
     """``GET /v1/studies/{id}/result`` and the export's ``summary.basis``."""
 
     revision: int
     intake: bool = Field(description="Whether the study has an intake.")
     missing: list[str] = Field(
-        description="What the result lacks: `intake` (no basis without it), `allocation` "
-        "(an intake but no priced asset to allocate to), or nothing."
+        description="What the result lacks: `intake` (no basis without it), `building_rcn` "
+        "(no appraisal cost approach and no living area), `depreciation` (no rate), "
+        "`allocation` (nothing priced, or the reconciliation is not within tolerance), or "
+        "nothing."
     )
     worksheet: WorksheetOut | None
     schedule: ScheduleOut
+    structure: StructureOut | None = None
+    depreciation: DepreciationOut | None = None
+    reconciliation: ReconciliationOut | None = None
     allocation: AllocationOut | None
     not_produced: list[NotProducedOut] = Field(
-        description="Systems the pipeline cannot cost today, so the schedule's gap to the basis "
-        "is explicit."
+        description="Concealed systems with no priced row in this schedule, so the gap to the "
+        "basis is explicit."
     )
 
 
 # --------------------------------------------------------------------------- compute
 
 
-def _checks(checks: Iterable[Check]) -> list[CheckOut]:
-    return [CheckOut(code=c.code, severity=c.severity.value, message=c.message) for c in checks]
+def _checks(checks: Iterable[Check | StructureCheck]) -> list[CheckOut]:
+    return [
+        CheckOut.model_validate(
+            {
+                "code": c.code,
+                "severity": getattr(c.severity, "value", c.severity),
+                "message": c.message,
+            }
+        )
+        for c in checks
+    ]
 
 
 def worksheet_out(ws: BasisWorksheet, intake: StudyIntake) -> WorksheetOut:
@@ -235,12 +402,14 @@ def worksheet_out(ws: BasisWorksheet, intake: StudyIntake) -> WorksheetOut:
     )
 
 
-def allocation_out(allocation: Allocation, categories: dict[str, str]) -> AllocationOut:
+def allocation_out(allocation: Allocation, rows: dict[str, ScheduleRow]) -> AllocationOut:
     return AllocationOut(
         building_basis=allocation.building_basis,
         closing_costs=allocation.closing_costs,
         total=allocation.total,
         rcn_total=allocation.rcn_total,
+        rcnld_total=allocation.rcnld_total,
+        depreciated=allocation.depreciated,
         factor=allocation.factor,
         rows_sum=allocation.rows_sum,
         residual_cents=allocation.residual_cents,
@@ -249,6 +418,7 @@ def allocation_out(allocation: Allocation, categories: dict[str, str]) -> Alloca
                 bucket=Bucket(t.bucket),
                 rows=t.rows,
                 rcn=t.rcn,
+                rcnld=t.rcnld,
                 allocated=t.allocated,
                 percent=t.percent,
                 share=t.share,
@@ -261,7 +431,9 @@ def allocation_out(allocation: Allocation, categories: dict[str, str]) -> Alloca
             None
             if allocation.by_system is None
             else [
-                SystemAllocationOut(system=s.system, rcn=s.rcn, allocated=s.allocated)
+                SystemAllocationOut(
+                    system=s.system, rcn=s.rcn, rcnld=s.rcnld, allocated=s.allocated
+                )
                 for s in allocation.by_system
             ]
         ),
@@ -269,11 +441,14 @@ def allocation_out(allocation: Allocation, categories: dict[str, str]) -> Alloca
         assets=[
             AllocatedAssetOut(
                 asset_id=uuid.UUID(r.id),
-                category=categories[r.id],
+                category=rows[r.id].category,
                 bucket=Bucket(r.bucket),
                 rcn=r.rcn,
+                rcnld=r.rcnld,
                 allocated=r.allocated,
                 rounding_cents=r.rounding_cents,
+                label=rows[r.id].label,
+                concealed=rows[r.id].concealed,
             )
             for r in allocation.rows
         ],
@@ -281,39 +456,209 @@ def allocation_out(allocation: Allocation, categories: dict[str, str]) -> Alloca
     )
 
 
+def _structure_out(
+    building: BuildingRcn | None,
+    carve: CarveOut | None,
+    concealed: list[ScheduleRow],
+    concealed_by_component: dict[str, Decimal],
+    split: SplitMethod = DEFAULT_SPLIT,
+) -> StructureOut:
+    components: list[ComponentOut] = []
+    if building is not None and carve is not None:
+        shares = split_shares(building.model, split)
+        for c in carve.components:
+            components.append(
+                ComponentOut(
+                    component=c.component,
+                    name=COMPONENT_NAMES[c.component],
+                    share=shares[c.component],
+                    top_down=c.top_down,
+                    itemized=c.itemized,
+                    itemized_assets=c.itemized_assets,
+                    unpriced_assets=c.unpriced_assets,
+                    residual=c.residual,
+                    clamped=c.clamped,
+                    concealed=concealed_by_component.get(c.component, Decimal("0.00")),
+                )
+            )
+    return StructureOut(
+        building_rcn=(
+            None
+            if building is None
+            else BuildingRcnOut(
+                amount=building.amount,
+                source=building.source,
+                formula=building.formula,
+                inputs=building.inputs,
+                assumptions=list(building.assumptions),
+                checks=_checks(building.checks),
+                needs_review=building.needs_review,
+                model=ModelOut(
+                    name=building.model.name,
+                    cls=building.model.cls,
+                    type=building.model.type,
+                    source=building.model.cite(),
+                    class_source=building.model_choice.class_source,
+                    type_source=building.model_choice.type_source,
+                ),
+            )
+        ),
+        components=components,
+        concealed=[
+            ConcealedOut(
+                asset_id=uuid.UUID(r.asset_id),
+                label=r.label or "",
+                system=ENGINEER_ROWS.get(r.label or "", r.category),
+                category=r.category,
+                bucket=Bucket(r.bucket),
+                component=mapping_for(r.label).component,
+                rcn=r.rcn,
+            )
+            for r in concealed
+        ],
+        outside_model=Decimal("0.00") if carve is None else carve.outside_model,
+    )
+
+
+def _reconciliation_out(r: Reconciliation) -> ReconciliationOut:
+    def line(
+        component: str, top: Decimal, item: Decimal, conc: Decimal, clamp: Decimal
+    ) -> ComponentLineOut:
+        return ComponentLineOut(
+            component=component, top_down=top, itemized=item, concealed=conc, clamped=clamp
+        )
+
+    by_component = {c.component: c for c in r.by_component}
+    return ReconciliationOut(
+        status=r.status,
+        building_basis=r.building_basis,
+        rcn_total=r.rcn_total,
+        rcnld_total=r.rcnld_total,
+        gap=r.gap,
+        gap_share=r.gap_share,
+        tolerance=r.tolerance,
+        implied_uniform_factor=r.implied_uniform_factor,
+        by_component=[
+            line(c.component, c.top_down, c.itemized, c.concealed, c.clamped)
+            for c in r.by_component
+        ],
+        unassigned_remainders=[
+            line(
+                component,
+                by_component[component].top_down,
+                by_component[component].itemized,
+                Decimal("0.00"),
+                by_component[component].clamped,
+            )
+            for component, _ in r.unassigned_remainders
+            if component in by_component
+        ],
+        outside_model=r.outside_model,
+        unpriced_assets=r.unpriced_assets,
+        appraisal_check=_checks([r.appraisal_check])[0],
+        causes=[
+            CauseOut(code=code, cause=cause, finding=finding) for code, cause, finding in r.causes
+        ],
+        checks=_checks(r.checks),
+    )
+
+
 def compute_result(
-    rows: Iterable[ScheduleRow], intake: StudyIntake | None, revision: int
+    rows: Iterable[ScheduleRow],
+    intake: StudyIntake | None,
+    revision: int,
+    structure: StructureInputs | None = None,
 ) -> StudyResultOut:
     """The result of one revision (pure). Rows are taken in asset id order."""
     ordered = sorted(rows, key=lambda r: r.asset_id)
+    by_id = {r.asset_id: r for r in ordered}
     land = [uuid.UUID(r.asset_id) for r in ordered if r.bucket == Bucket.LAND.value]
     schedule_rows = [r for r in ordered if r.bucket != Bucket.LAND.value]
     priced = [r for r in schedule_rows if r.rcn is not None]
     unpriced = [uuid.UUID(r.asset_id) for r in schedule_rows if r.rcn is None]
     rcn_of = {r.asset_id: r.rcn for r in priced if r.rcn is not None}
+    concealed = [r for r in schedule_rows if r.concealed]
+    itemized = [r for r in schedule_rows if not r.concealed]
+    zero = Decimal("0.00")
+
+    # The structure model, recomputed from the appraisal (the pure pieces of
+    # basis.domain.structure); the concealed rows themselves are in the schedule.
+    building: BuildingRcn | None = None
+    carve: CarveOut | None = None
+    depr: Depreciation | None = None
+    if structure is not None:
+        building = building_rcn(
+            structure.measurements,
+            structure.cost_approach,
+            cost_year=structure.cost_year,
+            year_source=structure.year_source,
+            location_factor=structure.location_factor,
+            location_source=structure.location_source,
+            rcn_source=structure.rcn_source,
+        )
+        depr = depreciation(structure.cost_approach, structure.depreciation_method)
+        if building is not None:
+            carve = carve_out(
+                split_components(building.amount, building.model, structure.split),
+                [ItemizedRow(r.label, r.rcn) for r in itemized],
+                carve=structure.carve,
+            )
+    concealed_by_component: dict[str, Decimal] = {}
+    for r in concealed:
+        component = mapping_for(r.label).component
+        if component is not None and r.rcn is not None:
+            concealed_by_component[component] = concealed_by_component.get(component, zero) + r.rcn
+
+    # Depreciation on every priced row.
+    rcnld_of: dict[str, Decimal] = {}
+    if depr is not None and priced:
+        values = depreciate([rcn_of[r.asset_id] for r in priced], depr.rate)
+        rcnld_of = {r.asset_id: v for r, v in zip(priced, values, strict=True)}
+
     by_bucket = [
         ScheduleBucketOut(
             bucket=Bucket(bucket),
             assets=sum(r.bucket == bucket for r in schedule_rows),
-            rcn=sum((rcn_of[r.asset_id] for r in priced if r.bucket == bucket), Decimal("0.00")),
+            rcn=sum((rcn_of[r.asset_id] for r in priced if r.bucket == bucket), zero),
+            rcnld=(
+                sum((rcnld_of[r.asset_id] for r in priced if r.bucket == bucket), zero)
+                if rcnld_of
+                else None
+            ),
         )
         for bucket in BUCKET_ORDER
         if any(r.bucket == bucket for r in schedule_rows)
     ]
+    rcn_total = sum(rcn_of.values(), zero)
+    rcnld_total = sum(rcnld_of.values(), zero) if rcnld_of else None
     schedule = ScheduleOut(
         assets=len(schedule_rows),
         priced=len(priced),
-        rcn_total=sum(rcn_of.values(), Decimal("0.00")),
+        rcn_total=rcn_total,
+        rcnld_total=rcnld_total,
+        concealed=len(concealed),
+        concealed_rcn=sum((r.rcn for r in concealed if r.rcn is not None), zero),
         by_bucket=by_bucket,
         unpriced=unpriced,
         land=land,
     )
+    produced = {r.label for r in concealed if r.rcn is not None and r.label}
     not_produced = [
-        NotProducedOut(system=s, reason=f"{why}; {NOT_PRODUCED_REASON}") for s, why in NOT_PRODUCED
+        NotProducedOut(
+            system=ENGINEER_ROWS[label], reason=f"{CATEGORIES[label]}; {NOT_PRODUCED_REASON}"
+        )
+        for label in STRUCTURE_LABELS
+        if label not in produced
     ]
+
     missing: list[str] = []
     ws_out: WorksheetOut | None = None
     alloc_out: AllocationOut | None = None
+    reconciliation_out: ReconciliationOut | None = None
+    if structure is not None and building is None:
+        missing.append("building_rcn")
+    if structure is not None and depr is None:
+        missing.append("depreciation")
     if intake is None:
         missing.append("intake")
     else:
@@ -325,55 +670,176 @@ def compute_result(
                 bucket=r.bucket,
                 rcn=rcn_of[r.asset_id],
                 label=r.category,
-                systems=REPORT_ROW_SYSTEMS.get(r.category, ()),
+                systems=REPORT_ROW_SYSTEMS.get(r.category) or ((mapping_for(r.label).system, ONE),),
+                rcnld=rcnld_of.get(r.asset_id),
             )
             for r in priced
         ]
-        try:
-            allocation = allocate(rcn_rows, ws.building_basis, ws.capitalized_costs)
-        except BasisError:
-            # No rows, or a schedule whose RCN is zero: nothing to allocate to.
-            missing.append("allocation")
+        if structure is not None:
+            reconciliation = reconcile(
+                building_basis=ws.building_basis,
+                total_basis=ws.total_basis,
+                rcn_total=rcn_total,
+                rcnld_total=rcnld_total,
+                building=building,
+                carve=carve,
+                concealed_by_component=concealed_by_component,
+                unpriced_assets=len(unpriced),
+                land_checks=[
+                    StructureCheck(c.code, c.severity.value, c.message)
+                    for c in ws.checks
+                    if c.code.startswith("land_")
+                ],
+                depreciation_=depr,
+                purchase_price=ws.purchase_price,
+            )
+            reconciliation_out = _reconciliation_out(reconciliation)
+            allocate_rows = reconciliation.status == "reconciled"
+            depreciated = True
         else:
-            alloc_out = allocation_out(allocation, {r.asset_id: r.category for r in priced})
+            allocate_rows = True
+            depreciated = False
+        if allocate_rows:
+            try:
+                allocation = allocate(
+                    rcn_rows, ws.building_basis, ws.capitalized_costs, depreciated=depreciated
+                )
+            except BasisError:
+                # No rows, or a schedule whose RCN is zero: nothing to allocate to.
+                missing.append("allocation")
+            else:
+                alloc_out = allocation_out(allocation, by_id)
+        else:
+            missing.append("allocation")
+    structure_out = (
+        None
+        if structure is None
+        else _structure_out(building, carve, concealed, concealed_by_component, structure.split)
+    )
     return StudyResultOut(
         revision=revision,
         intake=intake is not None,
         missing=missing,
         worksheet=ws_out,
         schedule=schedule,
+        structure=structure_out,
+        depreciation=(
+            None
+            if depr is None
+            else DepreciationOut(
+                rate=depr.rate, method=depr.method, source=depr.source, checks=_checks(depr.checks)
+            )
+        ),
+        reconciliation=reconciliation_out,
         allocation=alloc_out,
         not_produced=not_produced,
     )
 
 
+# --------------------------------------------------------------------------- loading
+
+
+def concealed_label(inputs: Any) -> tuple[str | None, bool]:
+    """``(label, concealed)`` from a takeoff's inputs: the structure model writes
+    ``concealed: true`` and the row's ``label``."""
+    if not isinstance(inputs, dict):
+        return None, False
+    concealed = inputs.get("concealed") is True
+    label = inputs.get("label")
+    return (label if isinstance(label, str) else None), concealed
+
+
 async def load_schedule(
     session: AsyncSession, study_id: uuid.UUID, revision: int
 ) -> list[ScheduleRow]:
-    """The revision's assets with their cost estimates' totals."""
+    """The revision's assets with their cost estimates' totals, labels and concealed flags."""
     repo = AssetRepository(session)
     assets = await repo.list_for_revision(study_id, revision)
-    costs = await repo.cost_estimates([a.id for a in assets])
+    ids = [a.id for a in assets]
+    costs = await repo.cost_estimates(ids)
+    takeoffs = await repo.takeoffs(ids)
+    components = {c.id: c for c in await RoomRepository(session).components(study_id, revision)}
     rows: list[ScheduleRow] = []
     for asset in assets:
         cost = costs.get(asset.id)
+        takeoff = takeoffs.get(asset.id)
+        component = components.get(asset.component_id) if asset.component_id else None
+        label, concealed = concealed_label(takeoff.inputs if takeoff else None)
         rows.append(
             ScheduleRow(
                 asset_id=str(asset.id),
                 category=asset.category,
                 bucket=asset.bucket.value,
                 rcn=None if cost is None or cost.total is None else cost.total,
+                label=component.label if component is not None else label,
+                concealed=concealed,
             )
         )
     return rows
 
 
+async def load_structure_inputs(
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    revision: int,
+    intake: StudyIntake | None,
+    settings: Settings,
+) -> StructureInputs | None:
+    """The structure inputs of a revision: the appraisal's readings from its extraction
+    fields and the study's cost index; None when no extraction has fields."""
+    repo = ExtractionRepository(session)
+    fields = []
+    for extraction in await repo.list_for_revision(study_id, revision):
+        fields.extend(await repo.fields(extraction.id))
+    if not fields:
+        return None
+    measurements: BuildingMeasurements | None = measurements_from_fields(fields)
+    if measurements is not None and measurements.is_empty:
+        measurements = None
+    cost_approach = cost_approach_from_fields(fields)
+    return structure_inputs(measurements, cost_approach, intake, settings)
+
+
+def structure_inputs(
+    measurements: BuildingMeasurements | None,
+    cost_approach: Any,
+    intake: StudyIntake | None,
+    settings: Settings,
+) -> StructureInputs:
+    """The inputs with the cost index resolved as ``process_assets`` resolves it."""
+    setting_factor = Decimal(str(settings.cost_location_factor))
+    if settings.cost_index == "study" and (measurements is not None or intake is not None):
+        index: CostIndex = resolve_cost_index(
+            measurements,
+            cost_year=settings.cost_year,
+            location_factor=setting_factor,
+            placed_in_service=None if intake is None else intake.placed_in_service_date,
+            state=None if intake is None else intake.state,
+        )
+    else:
+        index = CostIndex(settings.cost_year, None, setting_factor, None)
+    return StructureInputs(
+        measurements=measurements,
+        cost_approach=cost_approach,
+        cost_year=index.cost_year,
+        year_source=index.year_source,
+        location_factor=index.location_factor,
+        location_source=index.location_source,
+        rcn_source=settings.structure_rcn_source,
+    )
+
+
 __all__ = [
     "NOT_PRODUCED",
     "AllocationOut",
+    "ReconciliationOut",
     "ScheduleRow",
+    "StructureOut",
     "StudyResultOut",
     "WorksheetOut",
     "compute_result",
+    "concealed_label",
     "load_schedule",
+    "load_structure_inputs",
+    "structure_inputs",
 ]

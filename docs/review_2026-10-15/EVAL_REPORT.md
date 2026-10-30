@@ -6326,6 +6326,7 @@ Two things the guide says that we do not yet do:
   the legacy code, not RSMeans' historical and city cost indexes or Marshall & Swift's
   equivalents. The mechanics (unit cost x quantity x year x location, every factor and its
   source on the asset) are the standard's; the numbers are not yet.
+
 ## 43. Every evaluation run leaves the study's record: ledger, payloads, log, manifest; a registry answers "was this tested?" from files (2026-10-29)
 
 Sections 40 and 41 gave a study a complete ledger of its paid calls and a legible history. The
@@ -6608,3 +6609,200 @@ derived counts, the run's own `test_error` carried to the item, per-dataset case
   for one data directory.
 * The registry reads one data directory. The private bucket mirror (`gs://basis-eval-private`)
   is not scanned; `gsutil rsync` of the run directories keeps it the same set of files.
+
+## 44. The structure model: a complete replacement cost that reconciles to the price (2026-10-30)
+
+Question (section 42.6; WORKFLOW_REVIEW 2026-10-29 section 6, step 5): the basis step scaled
+the photo-visible schedule to the depreciable basis by one factor (2.39 on run 3A, 2.50 on
+run 3B), which the IRS guide calls "not an appropriate cost estimation methodology" (ATG ch. 3
+D(3)), and the eight concealed systems (39.7 % of the engineer's dollars) were "not produced".
+What does the guide ask for, which of the candidate ways of producing the building's
+replacement cost new, splitting it into systems, carving the itemized assets out and
+depreciating it scores closest to the engineer's report, and what does the chosen one do to
+the 39-year share and the reconciliation? Research and design: `STRUCTURE_MODEL.md`. Code:
+`basis/domain/structure.py` (pure), the concealed rows in `process_assets`, the result in
+`basis/evidence/result.py`, thirteen rules rows (`RULES_VERSION` 2026-10-30.1), the scorer,
+the offline replay `evals/structure_replay.py` and the sweep `evals/structure_sweep.py`. No
+paid run: both live exports of section 42.5 were replayed through every variant offline. No
+client dollar amount appears here; the shares and ratios are from `evals.e2e_report` on the
+replayed exports (private, `work/e2e_artifacts/structure_2026-10-30/`).
+
+### 44.1 What the standard says, in one paragraph
+
+ATG ch. 3 A(6): for an acquisition the costs are estimated "using the construction cost data,
+methods, and techniques normally employed for a property appraisal", as replacement cost new
+including indirect costs, adjusted for age and condition, and "the total replacement cost new
+less depreciation (RCNLD) of the acquired items of property, along with the fair market value
+(FMV) of the land, should reasonably approximate the total purchase price". D(3)-(6): a
+pro-rata step-up "merely to reconcile to the total purchase price" is not acceptable; a gap
+"is indicative of inaccuracies" and its source must be found among five causes (land FMV,
+assets or quantities missed, cost estimates and factors, depreciation factors, indirect
+costs). Ch. 4 C.11: indirect costs pro rata. C.2(2) names "R. S. Means or Marshall Valuation
+Service" as the reliable published sources. The appraisal's cost approach is a replacement
+cost from a cost service with the appraiser's own depreciation (age-life: on the client
+appraisal the printed physical depreciation over the printed cost new equals effective age
+over effective age plus remaining economic life, 15 / 70). RSMeans Residential Costs 2020 (in
+the corpus) prices a dwelling per square foot of living area by class, type and size (the
+facing page's matrix), lists the ten components of every model with their dollars and
+percentage, and states the method's accuracy: "a variation of +/- 10% should be expected"
+(printed p.15). The guide's residential matrix names every concealed system: foundations
+(p.299), exterior walls and framing (p.321), roof (p.317), interior partitions (p.321), paint
+(p.320), plumbing (p.315), HVAC (p.310), electrical (pp.301, 303), fire alarm (p.305), site
+utilities (p.319) as building components; data cabling (p.300) as 57.0 five-year; door locks
+and keyless entry under Doors and Security Systems - Building (pp.300, 318), where the
+engineer's report has Access Control as 5-year.
+
+### 44.2 What was built
+
+1. **Building RCN**, three ways: the appraisal's printed total cost new (cross-checked against
+   the sum of its parts; on the client appraisal the parts exceed the total by 1.4 %, a
+   warning); the sum of those parts; the RSMeans square-foot model for the class (UAD
+   quality Q1-Q6, else the cost service's words) and type (stories), sized by the facing
+   page's matrix (the wood-siding row of all 18 models transcribed, interpolated between
+   columns) with the basement and garage additions. Each brought to the cost year by the same
+   year factors as every RSMeans row.
+2. **Split** into the model's nine components, two ways: the model page's dollars per square
+   foot (all 18 models transcribed from the page images; each foots to its bottom line,
+   pinned by a test), the Overhead component spread pro rata (ATG C.11); or the NAHB 2024
+   stage shares (Cost of Constructing a Home, Eye on Housing 2025-01: foundations 10.5,
+   framing 16.6, exterior finishes 13.4, major systems 19.2, interior finishes 24.1 of the
+   construction cost; site work and other spread pro rata, final steps outside the building;
+   the model's proportions within a stage). Marshall & Swift's segregated-cost percentages are
+   the third candidate: the handbook is licensed and not in the corpus, so the variant is
+   reported as not sourced, never defaulted.
+3. **Every label mapped** to one of the twelve building systems and to the model component
+   it belongs to, or to none (appliances, fireplaces, furnishings, treatments, site): the
+   `by_system` page is always built.
+4. **Carve-out**, on or off: each component's top-down figure less the itemized assets mapped
+   to it (the hybrid); or the top-down figures left whole (the itemized rows then counted
+   twice). The residual is written as a concealed asset with its label, quantity (the living
+   area), formula, inputs and assumptions; a residual below zero clamps and is reported. The
+   Interiors residual splits into partitions and painting by the RSMeans drywall wall
+   assembly (1.47 against 0.75 per SF of wall, printed p.214); Mechanical into plumbing and
+   HVAC by the three-fixture bathroom and the gas heating system (printed pp.250, 268).
+   Specialties (cabinets, sink, water heater) has no concealed content, so its residual is
+   reported as an unassigned remainder, never written (ATG C.4(3)).
+5. **Four small systems** with code-derived quantities priced from the cost table's row for
+   the label: fire alarm (IRC R314.3: bedrooms + stories + basement, less detectors the
+   photographs found), data cabling (TIA-570: one outlet per room), access control (one
+   keyed lockset and deadbolt per exterior door), site utilities (a 50 LF lateral per public
+   service, an assumption sent to review). The eval cost table gained four rows cited to the
+   RSMeans pages (STRUCTURE_MODEL.md 3.6).
+6. **Depreciation**, three ways: the appraiser's physical depreciation over the cost new;
+   the age-life ratio of the effective age and remaining economic life; none (a baseline).
+   One rate on every row, recorded per row (`rcnld`), with the `depreciation_uniform`
+   warning (the guide expects it to differ by class).
+7. **Reconciliation**: RCNLD against the purchase price less land; within 10 % the basis is
+   allocated pro rata on RCNLD (the factor is then near 1), outside it the allocation is
+   withheld and the result carries the gap, the by-component picture (top-down, itemized,
+   concealed, clamped), the unassigned remainders, the dollars outside the model, the
+   unpriced count, the appraisal's own reconciliation, and the guide's five causes each with
+   what the data says. The old uniform factor is reported as `implied_uniform_factor` only.
+
+The concealed rows are ordinary assets (no component; `takeoffs.inputs.concealed`), classified
+by the rules table through the same router as a component, so a firm convention can override
+them (Access Control is the case in point: the row follows the guide, building, contested; the
+engineer's 5-year ruling becomes the firm's convention after one review), and an engineer's
+correction of one at the assets gate is matched by its label in the next revision (the
+classification is the engineer's, the quantity and cost are recomputed). Every assumption is
+on the asset (`assumptions`, `source`, the split and whether the row was carved).
+`STRUCTURE_STEP=off` restores the previous behaviour; `STRUCTURE_RCN_SOURCE` selects the RCN
+source.
+
+### 44.3 The sweep: every variant, scored the same way on both live exports
+
+`python -m evals.structure_sweep <export A> <export B> --cost-table <table>` runs the 54
+variants (3 RCN sources x 3 splits x carve on/off x 3 depreciations) through
+`evals.structure_replay` and `evals.e2e_report` on each export and ranks the ones that are
+sourced and reconcile on both by the mean absolute bucket-share error against the engineer's
+shares (14.4 / 0.4 / 5.1 / 80.2 %), then the row-share distance, then the gap. Every variant is
+deterministic: no model call, cost $0, 7-11 ms each. The 18 Marshall & Swift variants are
+reported as not sourced. The photo-visible rows' scores (35 of 35 and 34 of 35 right, section
+42.5) are unchanged under every variant (the regression check). The 36 sourced variants on
+each export, abridged (the full table is the sweep's `sweep.md`):
+
+| Variant (RCN + split + carve + depreciation) | Run 3A: status, gap % of B | 39-year share | bucket error, mean / max (points) | TVD | Run 3B: status, gap | 39-year share | bucket error, mean / max | TVD |
+|---|---|---|---|---|---|---|---|---|
+| square_foot + rsmeans + carve + physical **(pick)** | reconciled, +8.0 | 83.9 % | 2.06 / 3.6 | 21.1 | reconciled, +7.2 | 86.7 % | 3.50 / 6.5 | 21.8 |
+| square_foot + rsmeans + carve + age-life | identical to the row above: the two rates coincide (21.4 %) on this appraisal | | | | | | | |
+| square_foot + nahb + carve + physical | reconciled, +6.0 | 84.2 % | 2.23 / 4.0 | 24.8 | reconciled, +5.2 | 87.0 % | 3.64 / 6.8 | 24.7 |
+| appraisal_total + rsmeans + carve + physical **(runner-up)** | reconciled, +3.4 | 84.6 % | 2.43 / 4.4 | 21.1 | reconciled, +2.6 | 87.4 % | 3.79 / 7.1 | 22.2 |
+| appraisal_parts + rsmeans + carve + physical | reconciled, +2.3 | 84.8 % | 2.52 / 4.6 | 21.1 | reconciled, +1.5 | 87.5 % | 3.86 / 7.3 | 22.3 |
+| appraisal_total + nahb + carve + physical | reconciled, +1.3 | 85.0 % | 2.59 / 4.7 | 24.6 | reconciled, +0.5 | 87.7 % | 3.92 / 7.4 | 24.6 |
+| appraisal_total + rsmeans + top-down + physical | unreconciled, -19.8 | 87.6 % | 3.84 / 7.4 | 23.2 | unreconciled, -18.5 | 89.6 % | 4.84 / 9.4 | 24.6 |
+| square_foot + rsmeans + top-down + physical | unreconciled, -15.2 | 87.1 % | 3.60 / 6.9 | 22.8 | unreconciled, -13.9 | 89.2 % | 4.65 / 9.0 | 24.3 |
+| any + any + any + none | not checked (no rate: RCN against the basis) | as its depreciated twin | | | not checked | | | |
+| any + marshall_swift + any + any | not sourced | | | | not sourced | | | |
+| before (section 42.5: no structure rows, uniform step-up) | step-up 2.39 (error) | 55.1 % | 12.5 / 25.1 | 47.8 | step-up 2.50 (error) | 61.1 % | 9.6 / 19.2 | 48.9 |
+
+Kind C rows: every reconciled variant produces all eight, priced, with seven in the
+engineer's bucket (Access Control: engineer 5-year, rules building, contested). The ranking
+over both exports: square_foot + rsmeans + carve (mean bucket error 2.78 points, TVD 21.4,
+gap 7.6 %) ahead of square_foot + nahb (2.94, 24.7, 5.6), appraisal_total + rsmeans (3.11,
+21.6, 3.0), appraisal_parts + rsmeans (3.19), appraisal_total + nahb (3.25) and
+appraisal_parts + nahb (3.33). The depreciation axis cannot be separated on this property:
+the appraiser's physical depreciation and the age-life ratio are the same rate, so each pair
+ties; `none` never reconciles (RCN undepreciated is a quarter above the basis). The
+top-down-only variants never reconcile (the itemized rows counted twice put RCNLD 14-20 %
+over the basis), which is the carve-out's justification in numbers.
+
+**Pick:** the RSMeans square-foot model sized by the matrix, the RSMeans split, the
+carve-out, the appraiser's physical depreciation (with age-life as its check): the smallest
+bucket-share error on both exports, and the one that rests on the published source the
+guide names (C.2(2)), with the volume, page and matrix cell on the asset. **Runner-up:** the
+appraisal's printed total with the same split, carve and depreciation: 0.3 points worse on
+the shares, 2.5 times tighter on the reconciliation (3 % against 8 % of B, both inside the
+10 % the square-foot method claims for itself); it is one setting away
+(`STRUCTURE_RCN_SOURCE=appraisal_total`) and the appraiser's figures remain on the result as
+the independent check (`appraisal_reconciles`). One property decides this ranking; the gap
+between the two is smaller than what a second property could move, and the sweep reruns on
+any export in seconds.
+
+### 44.4 Reading
+
+1. **The 39-year share is now the engineer's, within 4 to 7 points, from the other side.**
+   The missing mass was the concealed systems, as section 34 predicted; adding them from a
+   sourced building RCN moves the building share from 55-61 % to 84-87 %, and the remaining
+   difference is the 5-year side being light (11.3 and 8.4 % against 14.4 %): the engineer's
+   5-year rows the pipeline under-prices or does not price (cabinets and millwork, moldings,
+   FF&E, window treatments; the Specialties remainder the model reports is about 4.7 % of the
+   building RCN and is exactly the cabinet, sink and water-heater content the itemized rows
+   leave unpriced), not the structure.
+2. **The allocation is one the guide accepts.** RCNLD reconciles to the price less land
+   within the square-foot method's own accuracy under every carved, sourced, depreciated
+   variant; the basis is apportioned pro rata on RCNLD (factor 1.01-1.09, not 2.4), and the
+   diagnosis is on the result for the gap that remains.
+3. **The axes that matter are the carve-out and depreciation; the RCN source and the split
+   move the shares by tenths of a point.** Not carving, or not depreciating, fails the
+   reconciliation outright; between the two sourced RCNs and the two sourced splits the
+   bucket shares differ by under half a point, so the choice is made on the guide's
+   preference for a cited published source and reported with its runner-up.
+4. **Seven of the eight concealed rows take the engineer's bucket.** Access Control is the
+   one disagreement, by design: the guide names door locks and keyless entry on the building
+   side; the row is contested and goes to the engineer, whose ruling the conventions layer
+   carries forward.
+5. **What this does not settle.** One rate of depreciation for every row (A(6) asks for
+   differences by class; the data to do it is not in the appraisal, and this property cannot
+   even separate the two rates); the Interiors and Mechanical splits are national assemblies
+   rather than the house's wall area and bathroom count; the square-foot model's basement
+   and garage additions are at the model's representative size and its exterior wall is wood
+   siding; the small systems' quantities rest on code rules and two assumptions (lateral
+   length, door count without a photograph); the Marshall & Swift split needs the licensed
+   handbook. STRUCTURE_MODEL.md section 6.
+
+### 44.5 Tests and gates
+
+`tests/unit/domain/test_structure.py` (the 18 models foot and their matrix cells meet the
+page, class and type, the three RCN sources, the matrix interpolation and clamps, the two
+sourced splits and the unsourced one, every label mapped, the carve-out, its clamp and the
+top-down-only variant, the small systems' quantities, the three depreciation methods, the
+three reconciliation verdicts); `tests/unit/domain/test_basis.py` (the depreciated
+allocation); `tests/unit/evidence/test_result.py` (the structure path: reconciled, withheld,
+missing inputs, the default source); `tests/unit/domain/test_rules_table.py` (the thirteen
+rows, the contested and building sets, the version); `tests/unit/evals/test_e2e_report.py`
+(structure labels, the `produced` outcome); `tests/unit/activities/test_process_assets.py`
+(the concealed rows written, a correction of one applied by label);
+`tests/lifecycle/test_intake_takeoff.py` (the export carries the thirteen rows, the
+depreciation and a reconciled allocation on the synthetic appraisal); the API, export,
+lifecycle and failure counts updated (the components' assets plus thirteen concealed).
+`tests/LEDGER.md` has each.
