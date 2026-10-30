@@ -57,8 +57,9 @@ SPEC_TABLES = {
     "photo_rooms": "study_id document_id room_id revision",
     "components": "id study_id revision document_id room_id label material attachment "
     "confidence bbox raw",
+    # Firm conventions: convention (migration 0014_firm_conventions).
     "assets": "id study_id revision component_id category bucket recovery_period irs_section "
-    "method confidence needs_review review_reason verified",
+    "method confidence needs_review review_reason verified convention",
     "takeoffs": "id study_id asset_id quantity unit formula inputs",
     "cost_estimates": "id study_id asset_id unit_cost total source_row location_factor cost_year",
     "corpus_versions": "id corpus study_id version embedding_model published_at",
@@ -83,11 +84,14 @@ SPEC_TABLES = {
     "cache_creation_input_tokens reasoning_output_tokens quantity unit unit_price_usd "
     "price_row pricing_version elapsed_ms request_uri request_sha256 response_uri "
     "response_sha256",
-    "classification_cache": "key result hits source rules_version created_at updated_at",
+    # Firm conventions (migration 0014_firm_conventions): scoped by org_id, with the approval
+    # that seeded the row and its agreement with the rules table.
+    "classification_cache": "org_id key result hits source rules_version study_id reviewer_id "
+    "approved_at rule_key agrees_with_rules approvals created_at updated_at",
     "idempotency_keys": "key user_id route request_hash status_code response created_at expires_at",
     # S2: ``status`` added by migration 0002_outbox_status (tests/unit/db/test_outbox_status.py).
     "outbox": "id kind payload status attempts next_attempt_at delivered_at last_error created_at",
-    # Migration 0014_eval_run_manifest: the run-record columns (evals.record).
+    # Migration 0015_eval_run_manifest: the run-record columns (evals.record).
     "eval_runs": "id dataset split git_sha model prompt_version created_at git_dirty release "
     "run_dir label_sha256 label_version component component_version manifest",
     "eval_results": "id eval_run_id metric value n stderr details",
@@ -211,6 +215,9 @@ SPEC_SIMPLE_FKS = {
     ("invitations", "revoked_by", "users"),
     ("study_events", "study_id", "studies"),
     ("study_events", "actor_id", "users"),
+    ("classification_cache", "org_id", "orgs"),
+    ("classification_cache", "study_id", "studies"),
+    ("classification_cache", "reviewer_id", "users"),
 }
 
 SPEC_UNIQUES = {
@@ -239,7 +246,7 @@ SPEC_PRIMARY_KEYS = {
     "document_pages": ("document_id", "page_no"),
     "photo_rooms": ("document_id", "revision"),
     "photo_localizations": ("document_id", "revision"),
-    "classification_cache": ("key",),
+    "classification_cache": ("org_id", "key"),
     "idempotency_keys": ("key",),
 }
 
@@ -272,6 +279,9 @@ SPEC_CHECKS = {
     "ck_invitations_one_outcome",
     "ck_study_events_actor_valid",
     "ck_study_events_duration_nonnegative",
+    "ck_classification_cache_approvals_positive",
+    "ck_classification_cache_rule_agreement",
+    "ck_assets_convention_from_cache",
 }
 
 SPEC_NOT_NULL = {
@@ -293,7 +303,8 @@ SPEC_NOT_NULL = {
     "activity_results": "activity idempotency_key status",
     "llm_calls": "provider model input_tokens output_tokens cost_usd kind status "
     "cache_read_input_tokens cache_creation_input_tokens reasoning_output_tokens",
-    "classification_cache": "result hits source rules_version",
+    "classification_cache": "org_id result hits source rules_version study_id reviewer_id "
+    "approved_at approvals",
     "idempotency_keys": "route request_hash expires_at",
     "outbox": "kind payload status attempts next_attempt_at",
     "photo_localizations": "status instances",
@@ -548,8 +559,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # v0.6: photo_localizations.params, photo_objects.mask; v0.9: studies.room_aliases;
     # manual add: object_prompts.params; v0.13: extraction_fields.regions; the ledger
     # (0012): llm_calls.request_params; the timeline (0013): study_events.before/after/detail;
-    # the run record (0014): eval_runs.manifest
-    assert len(jsonb) == 23
+    # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest
+    assert len(jsonb) == 24
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 
@@ -601,6 +612,7 @@ def test_server_defaults() -> None:
     assert default("extractions", "needs_review") == "false"
     assert default("assets", "verified") == "false"
     assert default("classification_cache", "hits") == "0"
+    assert default("classification_cache", "approvals") == "1"
     assert default("outbox", "status") == "'pending'"
     assert default("outbox", "attempts") == "0"
     assert default("outbox", "next_attempt_at") == "now()"

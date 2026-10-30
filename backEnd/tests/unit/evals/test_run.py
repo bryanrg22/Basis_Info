@@ -509,8 +509,10 @@ def test_field_cases_are_the_normalized_match_per_document_field() -> None:
     assert score_fields(data, "dev", 1, None).cases == []  # the printed_text baseline
 
 
-def test_rules_table_baseline_shows_the_contested_rows() -> None:
-    """The synthetic corpus treats bathtubs and toilets as 1250; the legacy rows say 1245."""
+def test_rules_table_baseline_agrees_on_bathtubs_and_toilets() -> None:
+    """The synthetic corpus treats bathtubs and toilets as 1250, and so do the rows since
+    RULES_VERSION 2026-10-29.1 (they were 1245 before); the two labels without a row
+    abstain."""
     [assets] = [
         r
         for r in evaluate(
@@ -519,8 +521,8 @@ def test_rules_table_baseline_shows_the_contested_rows() -> None:
         if r.dataset == "assets"
     ]
     rows = {r.metric: r for r in assets.rows}
-    assert rows["section_accuracy"].value == pytest.approx(2 / 6)
-    assert rows["section_accuracy"].details["confusion"]["1250"] == {"1245": 2, "abstain": 2}
+    assert rows["section_accuracy"].value == pytest.approx(4 / 6)
+    assert rows["section_accuracy"].details["confusion"]["1250"] == {"1250": 2, "abstain": 2}
     assert rows["section_coverage"].value == pytest.approx(4 / 6)
 
 
@@ -1106,7 +1108,7 @@ async def test_write_results_fills_the_manifest_columns(tmp_path: Path) -> None:
     assert assets.run_dir == str(tmp_path / "run")
     # The manifest is what the row stores: it must survive JSON (JSONB) as it is.
     json.dumps(components.manifest)
-    # Without a manifest (the pre-0014 call) every new column stays NULL.
+    # Without a manifest (the pre-0015 call) every new column stays NULL.
     legacy = _FakeSession()
     await write_results(_fake_sessionmaker(legacy), results, split="dev", git_sha="abc1234")
     for run in (r for r in legacy.added if isinstance(r, EvalRun)):

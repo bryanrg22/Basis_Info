@@ -630,7 +630,7 @@ BASIS_ENV=dev uv run python -m evals.appraisal.run --set client --mode replay --
 ## Run records, the verification tree and the registry
 
 Every runner leaves, in its output directory, the record a study leaves in production
-(EVAL_REPORT section 42; `evals/record.py`), and files the run in one tree a person can
+(EVAL_REPORT section 43; `evals/record.py`), and files the run in one tree a person can
 browse with Finder, so a result can be reused instead of re-run and a question like "has
 `photo_countables/v3` on gpt-6.1-sol been tested against `photo_components_v1`" is answered
 from files:
@@ -696,7 +696,7 @@ exception still gets its manifest (`status: stopped` / `error`), results and log
 `evals.account_stop.stops_on_account_error` finishes the record on every exit. When
 `DATABASE_URL` is set, `evals.run` writes the same manifest fields on its `eval_runs` rows
 (`git_dirty`, `release`, `run_dir`, `label_version`, `label_sha256`, `component`,
-`component_version`, `manifest`; migration `0014`), so the database and the files agree.
+`component_version`, `manifest`; migration `0015`), so the database and the files agree.
 
 Runs made before this record (the directories under `$BASIS_EVAL_DATA_DIR/predictions/`
 and `appraisal/runs/` up to 2026-10-29) carry a backfilled manifest written by

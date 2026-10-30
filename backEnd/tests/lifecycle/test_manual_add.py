@@ -174,17 +174,18 @@ async def test_a_count_correction_and_an_added_component_reach_the_assets(
             [cabinet_takeoff] = await rows(run, Takeoff, sid, asset_id=cabinet_asset.id)
             assert (cabinet_takeoff.quantity, cabinet_takeoff.unit) == (8, "EA")
             assert cabinet_takeoff.inputs["count"] == 8
-            # The added component gets its rule: section 1245, 5-year, with its citation.
+            # The added component gets its rule, with its citation: a light fixture is a
+            # building component (section 1250, 27.5 years) since RULES_VERSION 2026-10-29.1.
             assert (light_asset.bucket, light_asset.method, light_asset.irs_section) == (
-                Bucket.Y5,
+                Bucket.Y27_5,
                 ClassificationMethod.RULE,
-                "1245",
+                "1250",
             )
             [light_takeoff] = await rows(run, Takeoff, sid, asset_id=light_asset.id)
             assert (light_takeoff.quantity, light_takeoff.unit) == (3, "EA")
             citations = await rows(run, Citation, sid, asset_id=light_asset.id)
             assert citations and all(c.verified_at is not None for c in citations)
-            assert any("Light fixtures" in c.excerpt for c in citations)
+            assert any("artificial illumination" in c.excerpt for c in citations)
 
             await run.approve(handle, "assets_review", 2)
             result = await run.result(handle)

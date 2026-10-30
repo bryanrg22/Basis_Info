@@ -9,7 +9,7 @@ timestamps. This tool writes, for each such directory, a manifest of the same sh
 files do not establish is ``"unknown"``, never a guess. Nothing is moved or deleted; an
 existing manifest is left alone unless ``--force`` is given and it is itself a backfill.
 
-What can be recovered, and from where (EVAL_REPORT section 42 and
+What can be recovered, and from where (EVAL_REPORT section 43 and
 ``docs/review_2026-10-15/EVAL_RUN_BACKFILL.md``):
 
 * the harness: from the key set of ``run.json`` (each runner has its own), else from the
@@ -711,7 +711,7 @@ def render_note(lines: Sequence[Mapping[str, Any]], *, root: Path) -> str:
         f"Written by `python -m evals.backfill_manifests` over `{root}` on "
         f"{datetime.now(UTC).strftime('%Y-%m-%d')}: one `manifest.json` with `backfilled: true` "
         "in every run directory that had none, each field with its source, `unknown` where "
-        "the files do not say (EVAL_REPORT section 42). Nothing was moved or deleted.",
+        "the files do not say (EVAL_REPORT section 43). Nothing was moved or deleted.",
         "",
         "## Counts",
         "",

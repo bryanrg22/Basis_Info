@@ -1,8 +1,8 @@
 """``eval_runs`` records the run manifest: release, dirty flag, predictions directory, label
 file identity and the whole ``scores.jsonl`` entry.
 
-Revision ID: 0014
-Revises: 0013
+Revision ID: 0015
+Revises: 0014
 Create Date: 2026-10-29
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it). ``evals.run`` writes
@@ -30,8 +30,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0014"
-down_revision: str | Sequence[str] | None = "0013"
+revision: str = "0015"
+down_revision: str | Sequence[str] | None = "0014"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1130" viewBox="0 0 1600 1130" role="img"><title>1 / Basis — system design</title><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10" fill="#2563eb"/></marker></defs><rect width="1600" height="1130" fill="white"/><style>text{font-family:Arial,Helvetica,sans-serif;fill:#152332} .secondary{fill:#566779} .accent{fill:#2563eb}</style>
+<text x="45" y="52" font-size="29" class="" text-anchor="start">1 / Basis — system design</text>
+<text x="45" y="84" font-size="17" class="secondary" text-anchor="start">Current application structure · main / fcf60ac · October 27, 2026 · arrows show service and data connections</text>
+<rect x="45" y="410" width="190" height="115" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="140.0" y="444" font-size="21" class="" text-anchor="middle">Engineer</text>
+<text x="140.0" y="469" font-size="17" class="secondary" text-anchor="middle">Upload files</text>
+<text x="140.0" y="490" font-size="17" class="secondary" text-anchor="middle">Review + approve</text>
+<text x="140.0" y="511" font-size="17" class="secondary" text-anchor="middle">Download outputs</text>
+<rect x="315" y="390" width="290" height="155" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="460.0" y="424" font-size="21" class="" text-anchor="middle">Web application</text>
+<text x="460.0" y="449" font-size="17" class="secondary" text-anchor="middle">web/ · HTML, CSS, JavaScript</text>
+<text x="460.0" y="470" font-size="17" class="secondary" text-anchor="middle">Live mode uses the /v1 API</text>
+<text x="460.0" y="491" font-size="17" class="secondary" text-anchor="middle">Upload and review screens</text>
+<text x="460.0" y="512" font-size="17" class="secondary" text-anchor="middle">Mock mode uses local fixtures</text>
+<rect x="720" y="390" width="310" height="155" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="875.0" y="424" font-size="21" class="" text-anchor="middle">Backend API</text>
+<text x="875.0" y="449" font-size="17" class="secondary" text-anchor="middle">FastAPI · Python · Pydantic</text>
+<text x="875.0" y="470" font-size="17" class="secondary" text-anchor="middle">Verify Firebase ID tokens</text>
+<text x="875.0" y="491" font-size="17" class="secondary" text-anchor="middle">Study / file / review endpoints</text>
+<text x="875.0" y="512" font-size="17" class="secondary" text-anchor="middle">Start, query, retry, cancel</text>
+<rect x="1150" y="390" width="400" height="155" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="1350.0" y="424" font-size="21" class="" text-anchor="middle">Study workflow</text>
+<text x="1350.0" y="449" font-size="17" class="secondary" text-anchor="middle">Temporal + Python activity worker</text>
+<text x="1350.0" y="470" font-size="17" class="secondary" text-anchor="middle">Extraction, photos, room inventory</text>
+<text x="1350.0" y="491" font-size="17" class="secondary" text-anchor="middle">Engineer checkpoints → asset processing</text>
+<text x="1350.0" y="512" font-size="17" class="secondary" text-anchor="middle">Export the approved study</text>
+<path d="M235 466 H315" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M605 466 H720" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="662" y="448" font-size="16" class="accent" text-anchor="middle">HTTPS + ID token</text>
+<path d="M1030 466 H1150" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1090" y="448" font-size="16" class="accent" text-anchor="middle">start / status</text>
+<rect x="315" y="175" width="290" height="105" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="460.0" y="209" font-size="21" class="" text-anchor="middle">Firebase Authentication</text>
+<text x="460.0" y="234" font-size="17" class="secondary" text-anchor="middle">Sign-in and ID tokens</text>
+<text x="460.0" y="255" font-size="17" class="secondary" text-anchor="middle">Auth emulator for local development</text>
+<path d="M460 390 V280" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="509" y="336" font-size="16" class="accent" text-anchor="middle">sign in</text>
+<rect x="1150" y="150" width="400" height="145" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="1350.0" y="184" font-size="21" class="" text-anchor="middle">External AI services</text>
+<text x="1350.0" y="209" font-size="17" class="secondary" text-anchor="middle">OpenAI / Azure OpenAI / Anthropic</text>
+<text x="1350.0" y="230" font-size="17" class="secondary" text-anchor="middle">Azure Document Intelligence</text>
+<text x="1350.0" y="251" font-size="17" class="secondary" text-anchor="middle">Optional SAM 3: self-hosted or Replicate</text>
+<text x="1350.0" y="272" font-size="17" class="secondary" text-anchor="middle">Used by the worker when configured</text>
+<path d="M1350 390 V295" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1450" y="343" font-size="16" class="accent" text-anchor="middle">model / extraction calls</text>
+<rect x="315" y="730" width="290" height="145" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="460.0" y="764" font-size="21" class="" text-anchor="middle">File storage</text>
+<text x="460.0" y="789" font-size="17" class="secondary" text-anchor="middle">Appraisal PDF + property photos</text>
+<text x="460.0" y="810" font-size="17" class="secondary" text-anchor="middle">Photo analysis + localization results</text>
+<text x="460.0" y="831" font-size="17" class="secondary" text-anchor="middle">JSON study + assets CSV</text>
+<text x="460.0" y="852" font-size="17" class="secondary" text-anchor="middle">Local storage or GCS</text>
+<rect x="720" y="730" width="310" height="145" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="875.0" y="764" font-size="21" class="" text-anchor="middle">PostgreSQL + pgvector</text>
+<text x="875.0" y="789" font-size="17" class="secondary" text-anchor="middle">Studies, fields, rooms, components</text>
+<text x="875.0" y="810" font-size="17" class="secondary" text-anchor="middle">Assets, costs, citations, reviews</text>
+<text x="875.0" y="831" font-size="17" class="secondary" text-anchor="middle">Corpus chunks + embeddings</text>
+<text x="875.0" y="852" font-size="17" class="secondary" text-anchor="middle">Activity results + decision outbox</text>
+<path d="M460 545 V730" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="574" y="700" font-size="16" class="accent" text-anchor="middle">signed uploads / downloads</text>
+<path d="M875 545 V730" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="935" y="692" font-size="16" class="accent" text-anchor="middle">read / write</text>
+<path d="M1245 545 V610 H990 V730" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1115" y="597" font-size="16" class="accent" text-anchor="middle">read / write</text>
+<path d="M1420 545 V650 H550 V730" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1160" y="638" font-size="16" class="accent" text-anchor="middle">read files / save results</text>
+<rect x="1150" y="935" width="400" height="105" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="1350.0" y="969" font-size="21" class="" text-anchor="middle">Decision outbox relay</text>
+<text x="1350.0" y="994" font-size="17" class="secondary" text-anchor="middle">Reads committed engineer decisions</text>
+<text x="1350.0" y="1015" font-size="17" class="secondary" text-anchor="middle">Delivers idempotent updates to Temporal</text>
+<path d="M875 875 V988 H1150" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1005" y="973" font-size="16" class="accent" text-anchor="middle">review + outbox</text>
+<path d="M1550 988 H1580 V505 H1550" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="45" y="966" font-size="20" class="" text-anchor="start">How approvals reach the workflow</text>
+<text x="45" y="1001" font-size="19" class="accent" text-anchor="start">Web → API → PostgreSQL outbox → relay → Temporal</text>
+<text x="45" y="1053" font-size="18" class="secondary" text-anchor="start">The “Study workflow” box is expanded in diagrams 2 and 3. It is a coordinated workflow, not a separate AI model.</text>
+<text x="45" y="1090" font-size="16" class="secondary" text-anchor="start">Scope: connected code and configuration. frontend/ is the retained legacy Next.js app; live cloud deployment was not checked.</text>
+</svg>

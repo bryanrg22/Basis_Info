@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1300" viewBox="0 0 1600 1300" role="img"><title>Basis — inside the study workflow</title><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10" fill="#2563eb"/></marker></defs><rect width="1600" height="1300" fill="white"/><style>text{font-family:Arial,Helvetica,sans-serif;fill:#152332} .secondary{fill:#566779} .accent{fill:#2563eb}</style>
+<text x="45" y="52" font-size="29" class="" text-anchor="start">Basis — inside the study workflow</text>
+<text x="45" y="84" font-size="17" class="secondary" text-anchor="start">Default path for a new study in current main · blue boxes are engineer approval checkpoints</text>
+<rect x="585" y="118" width="430" height="100" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="800.0" y="152" font-size="21" class="" text-anchor="middle">1. Upload + start study</text>
+<text x="800.0" y="180" font-size="17" class="secondary" text-anchor="middle">Appraisal PDF + all property photos</text>
+<path d="M695 218 V242 H310 V270" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="443" y="233" font-size="16" class="accent" text-anchor="middle">appraisal report</text>
+<path d="M905 218 V242 H1280 V270" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1146" y="233" font-size="16" class="accent" text-anchor="middle">photos — e.g. 5</text>
+<text x="800" y="253" font-size="17" class="accent" text-anchor="middle">RUN IN PARALLEL</text>
+<rect x="95" y="270" width="430" height="122" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="310.0" y="304" font-size="21" class="" text-anchor="middle">2A. Appraisal extraction engine</text>
+<text x="310.0" y="332" font-size="17" class="secondary" text-anchor="middle">Read PDF text + tables; Azure DI if configured</text>
+<text x="310.0" y="355" font-size="17" class="secondary" text-anchor="middle">Merge, validate, fill missing fields with AI</text>
+<text x="310.0" y="378" font-size="17" class="secondary" text-anchor="middle">Result: structured appraisal fields</text>
+<rect x="1065" y="270" width="430" height="122" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="1280.0" y="304" font-size="21" class="" text-anchor="middle">2B. Analyze each photo</text>
+<text x="1280.0" y="332" font-size="17" class="secondary" text-anchor="middle">Vision AI: room identity, objects, surfaces</text>
+<text x="1280.0" y="355" font-size="17" class="secondary" text-anchor="middle">Initial component counts + materials per photo</text>
+<text x="1280.0" y="378" font-size="17" class="secondary" text-anchor="middle">Optional SAM 3 object outlines in background</text>
+<path d="M310 392 V430" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1280 392 V430" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<rect x="95" y="430" width="430" height="102" rx="12" fill="#eff5ff" stroke="#2563eb" stroke-width="2"/>
+<text x="310.0" y="464" font-size="21" class="accent" text-anchor="middle">3. Engineer reviews appraisal</text>
+<text x="310.0" y="492" font-size="17" class="secondary" text-anchor="middle">Check extracted values; approve or correct</text>
+<rect x="1065" y="430" width="430" height="102" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="1280.0" y="464" font-size="21" class="" text-anchor="middle">Photo results + proposed rooms</text>
+<text x="1280.0" y="492" font-size="17" class="secondary" text-anchor="middle">Group the photos by room; initial components</text>
+<path d="M310 532 V564 H650 V600" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="451" y="554" font-size="16" class="accent" text-anchor="middle">appraisal approved</text>
+<path d="M1280 532 V564 H950 V600" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1140" y="554" font-size="16" class="accent" text-anchor="middle">photo analysis ready</text>
+<rect x="585" y="600" width="430" height="102" rx="12" fill="#eff5ff" stroke="#2563eb" stroke-width="2"/>
+<text x="800.0" y="634" font-size="21" class="accent" text-anchor="middle">4. Engineer reviews room grouping</text>
+<text x="800.0" y="662" font-size="17" class="secondary" text-anchor="middle">Which photos belong to which room?</text>
+<text x="800" y="743" font-size="20" class="accent" text-anchor="middle">Room grouping approved → build the room-level inventory</text>
+<path d="M800 702 V720 H240 V790" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<rect x="60" y="790" width="350" height="145" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="235.0" y="824" font-size="21" class="" text-anchor="middle">5. Build component inventory</text>
+<text x="235.0" y="852" font-size="17" class="secondary" text-anchor="middle">Reconcile photos of each room</text>
+<text x="235.0" y="875" font-size="17" class="secondary" text-anchor="middle">Reduce duplicate counts across photos</text>
+<text x="235.0" y="898" font-size="17" class="secondary" text-anchor="middle">Check materials; await object outlines</text>
+<rect x="445" y="790" width="350" height="145" rx="12" fill="#eff5ff" stroke="#2563eb" stroke-width="2"/>
+<text x="620.0" y="824" font-size="21" class="accent" text-anchor="middle">6. Engineer reviews components</text>
+<text x="620.0" y="852" font-size="17" class="secondary" text-anchor="middle">Verify objects, counts and materials</text>
+<text x="620.0" y="875" font-size="17" class="secondary" text-anchor="middle">Inspect photo evidence / outlines</text>
+<text x="620.0" y="898" font-size="17" class="secondary" text-anchor="middle">Approve the room-level inventory</text>
+<rect x="830" y="790" width="330" height="145" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="995.0" y="824" font-size="21" class="" text-anchor="middle">7. Process approved inventory</text>
+<text x="995.0" y="852" font-size="17" class="secondary" text-anchor="middle">IRS asset classification + evidence</text>
+<text x="995.0" y="875" font-size="17" class="secondary" text-anchor="middle">Estimate quantities / takeoffs</text>
+<text x="995.0" y="898" font-size="17" class="secondary" text-anchor="middle">Estimate costs; flag uncertainties</text>
+<rect x="1195" y="790" width="345" height="145" rx="12" fill="#eff5ff" stroke="#2563eb" stroke-width="2"/>
+<text x="1367.5" y="824" font-size="21" class="accent" text-anchor="middle">8. Engineer reviews assets</text>
+<text x="1367.5" y="852" font-size="17" class="secondary" text-anchor="middle">Check classification, quantities, costs</text>
+<text x="1367.5" y="875" font-size="17" class="secondary" text-anchor="middle">Review citations and flagged items</text>
+<text x="1367.5" y="898" font-size="17" class="secondary" text-anchor="middle">Approve the final study revision</text>
+<path d="M410 862 H445" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M795 862 H830" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1160 862 H1195" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1367 935 V994" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1420" y="971" font-size="16" class="accent" text-anchor="middle">approved</text>
+<rect x="1150" y="994" width="390" height="145" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="1345.0" y="1028" font-size="21" class="" text-anchor="middle">9. Generate output files</text>
+<text x="1345.0" y="1056" font-size="17" class="secondary" text-anchor="middle">Read the approved revision from the database</text>
+<text x="1345.0" y="1079" font-size="17" class="secondary" text-anchor="middle">Assets CSV + JSON study / evidence pack</text>
+<text x="1345.0" y="1102" font-size="17" class="secondary" text-anchor="middle">Save files to object storage</text>
+<text x="60" y="1030" font-size="21" class="" text-anchor="start">When are components extracted?</text>
+<text x="60" y="1065" font-size="19" class="" text-anchor="start">First during per-photo analysis (2B), before engineer approval.</text>
+<text x="60" y="1095" font-size="19" class="" text-anchor="start">Then consolidated into a room inventory (5), after room grouping approval.</text>
+<text x="60" y="1154" font-size="18" class="accent" text-anchor="start">If the engineer rejects a checkpoint: save corrections → create a new revision → reprocess the relevant step → review again.</text>
+<text x="60" y="1200" font-size="18" class="secondary" text-anchor="start">Five photos means five per-photo analyses, not five rooms. Multiple views of one room are reconciled together.</text>
+<text x="60" y="1231" font-size="16" class="secondary" text-anchor="start">Current limits: optional outlines depend on configuration; takeoffs can use typical room areas; costs depend on the configured table.</text>
+<text x="60" y="1262" font-size="15" class="secondary" text-anchor="start">Backend code inspected at fcf60ac. Existing runs may use older workflow versions. These diagrams do not establish frontend or deployment readiness.</text>
+</svg>

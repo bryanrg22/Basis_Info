@@ -283,7 +283,7 @@ def resolve_rules(index: ChunkIndex, embedder: Embedder, fusion: Fusion) -> list
     """Every rules-table citation through ``resolve_rule_citations`` over ``index``, once
     with the classifier's default search (the store's BM25) and once with the hybrid."""
     from basis.classify.router import ClassifyContext, resolve_rule_citations
-    from basis.domain.rules import RULES, lookup
+    from basis.domain.rules import hit_name, table_hits
     from basis.llm.provider import Budget
     from basis.retrieval import Retrieval
     from basis.retrieval.bm25 import Bm25Registry
@@ -301,14 +301,11 @@ def resolve_rules(index: ChunkIndex, embedder: Embedder, fusion: Fusion) -> list
         )
         claimed = resolved = 0
         unresolved: list[str] = []
-        for key in RULES:
-            hit = lookup(key)
-            if hit is None:  # pragma: no cover - every key looks itself up
-                continue
+        for hit in table_hits():  # every row and every variant
             verified, dropped = await resolve_rule_citations(hit, ctx)
             claimed += len(hit.citations)
             resolved += len(verified)
-            unresolved += [f"{key} {d.chunk_id}" for d in dropped]
+            unresolved += [f"{hit_name(hit)} {d.chunk_id}" for d in dropped]
         return RuleResolution(search, claimed, resolved, unresolved)
 
     async def both() -> list[RuleResolution]:

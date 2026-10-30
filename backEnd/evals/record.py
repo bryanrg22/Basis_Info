@@ -6,7 +6,7 @@ used to keep only a summary (``run.json``); the per-call records of its
 :class:`~basis.llm.recorder.MemoryRecorder` were discarded, the terminal output was kept
 only when someone redirected it, and nothing said which release, prompts, label files or
 settings a run exercised. This module gives a run directory the same record a study has
-(EVAL_REPORT section 42):
+(EVAL_REPORT section 43):
 
 ``llm_calls.jsonl``
     One line per paid call with every column of the ``llm_calls`` table
@@ -811,7 +811,7 @@ A run directory here is a symbolic link to where the runner wrote (`predictions/
 manifest (`tree.target`). Runs made before manifests existed carry a backfilled manifest
 (`backfilled: true`, each field with its source, `unknown` where the files do not say) and
 no results.json. `python -m evals.registry` lists and filters the tree; `backEnd/evals/README.md`
-("Run records and the registry") and EVAL_REPORT section 42 describe the format.
+("Run records and the registry") and EVAL_REPORT section 43 describe the format.
 """
 
 

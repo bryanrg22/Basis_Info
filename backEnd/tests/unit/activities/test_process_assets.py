@@ -174,8 +174,10 @@ async def test_rule_and_model_values_and_takeoffs(
         "1245",
         Decimal("5.0"),
     )
+    # tile is an uncontested building row since RULES_VERSION 2026-10-29.1 (ATG p.306)
     tile = next(a for label, a in rows if label == "tile_flooring")
-    assert tile.review_reason and "rule_contested:tile" in tile.review_reason
+    assert (tile.bucket, tile.irs_section) == (Bucket.Y27_5, "1250")
+    assert tile.review_reason and "rule_contested" not in tile.review_reason
     floor = next(a for label, a in rows if label == "flooring")
     assert (floor.bucket, floor.confidence) == (Bucket.Y27_5, pytest.approx(0.3))
     assert floor.review_reason and floor.review_reason.startswith("missing_evidence")
