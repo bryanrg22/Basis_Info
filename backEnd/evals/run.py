@@ -80,6 +80,7 @@ from basis.classify.store_protocol import InMemoryChunkStore, StoredChunk
 from basis.domain.rules import lookup, normalize_label
 from basis.retrieval.embed import Embedder
 from evals import datasets as ds
+from evals import record
 from evals.metrics import (
     DetectionImage,
     FieldScore,
@@ -1573,8 +1574,20 @@ def _fmt(value: float) -> str:
 
 
 def render_report(
-    results: Sequence[TaskResult], *, split: str, repeats: int, source: str, git_sha: str
+    results: Sequence[TaskResult],
+    *,
+    split: str,
+    repeats: int,
+    source: str,
+    git_sha: str,
+    git: Mapping[str, Any] | None = None,
 ) -> str:
+    """The Markdown report. ``git`` is :func:`evals.record.git_state`: its ``release`` (the
+    nearest release tag, ``none`` when no tag is reachable) and ``dirty`` flag are printed
+    under the sha; without it both read ``unknown``."""
+    state = git or {}
+    release = state.get("release")
+    dirty = state.get("dirty")
     lines = [
         "# Basis evaluation report",
         "",
@@ -1582,6 +1595,8 @@ def render_report(
         f"- repeats: {repeats}",
         f"- data: {source}",
         f"- git sha: `{git_sha}`",
+        f"- release: `{release}`" if release else f"- release: {'none' if git else 'unknown'}",
+        f"- dirty: {'unknown' if dirty is None else 'yes' if dirty else 'no'}",
         f"- generated: {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}",
         "",
         "Intervals are 95% Wilson intervals for proportions; SE is the standard error of the "
@@ -1622,22 +1637,39 @@ async def write_results(
     git_sha: str,
     model: str | None = None,
     prompt_version: str | None = None,
+    manifest: Mapping[str, Any] | None = None,
+    run_dir: str | Path | None = None,
 ) -> list[uuid.UUID]:
-    """One ``eval_runs`` row per scored dataset, one ``eval_results`` row per metric."""
+    """One ``eval_runs`` row per scored dataset, one ``eval_results`` row per metric.
+
+    ``manifest`` is the ``scores.jsonl`` entry (:func:`evals.record.score_entry`): its git
+    ``dirty`` flag and ``release``, and the dataset's label file sha256 and version from
+    ``data.labels``, fill the row's columns, and the whole entry is stored in ``manifest``.
+    ``run_dir`` is the predictions directory scored (``--predictions``), NULL for a baseline.
+    Without a manifest those columns stay NULL."""
     from basis.db.models import EvalResult, EvalRun
     from basis.db.session import session_scope
 
+    git = (manifest or {}).get("git") or {}
+    labels = ((manifest or {}).get("data") or {}).get("labels") or {}
     run_ids: list[uuid.UUID] = []
     async with session_scope(sessionmaker) as session:
         for task in results:
             if task.skipped:
                 continue
+            label = labels.get(task.dataset) or {}
             run = EvalRun(
                 dataset=task.dataset,
                 split=split,
                 git_sha=git_sha,
                 model=model or task.system,
                 prompt_version=prompt_version,
+                git_dirty=git.get("dirty"),
+                release=git.get("release"),
+                run_dir=None if run_dir is None else str(run_dir),
+                label_sha256=label.get("sha256"),
+                label_version=label.get("version"),
+                manifest=None if manifest is None else dict(manifest),
             )
             session.add(run)
             await session.flush()
@@ -1660,7 +1692,14 @@ async def write_results(
     return run_ids
 
 
-async def _write_to_configured_db(results: Sequence[TaskResult], split: str, git_sha: str) -> int:
+async def _write_to_configured_db(
+    results: Sequence[TaskResult],
+    split: str,
+    git_sha: str,
+    *,
+    manifest: Mapping[str, Any] | None = None,
+    run_dir: Path | None = None,
+) -> int:
     from basis.config import load_settings
     from basis.db.engine import create_engine
     from basis.db.session import create_sessionmaker
@@ -1668,7 +1707,12 @@ async def _write_to_configured_db(results: Sequence[TaskResult], split: str, git
     engine = create_engine(load_settings())
     try:
         ids = await write_results(
-            create_sessionmaker(engine), results, split=split, git_sha=git_sha
+            create_sessionmaker(engine),
+            results,
+            split=split,
+            git_sha=git_sha,
+            manifest=manifest,
+            run_dir=run_dir,
         )
     finally:
         await engine.dispose()
@@ -1679,6 +1723,9 @@ async def _write_to_configured_db(results: Sequence[TaskResult], split: str, git
 
 
 def git_sha() -> str:
+    """The short sha the report and the ``eval_runs.git_sha`` column name (``GIT_SHA`` from the
+    environment where there is no checkout). :func:`evals.record.git_state` gives the full
+    state (dirty flag, release tag) for the manifest."""
     if os.environ.get("GIT_SHA"):
         return os.environ["GIT_SHA"]
     try:
@@ -1874,6 +1921,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         corpus_dir: Path | None = ds.SYNTHETIC_DIR / "corpus"
         source = "synthetic smoke dataset (tests/fixtures/synthetic)"
         report_dir = Path(tempfile.gettempdir())
+        data_dir = ds.SYNTHETIC_DIR
     else:
         root = ds.data_dir(args.data_dir)
         data = ds.load_available(root)
@@ -1881,7 +1929,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         files = sum(1 for name in data if name in ds.DATASET_FILES)
         source = f"{ds.ENV_VAR} ({files} dataset files; derived: {', '.join(ds.DERIVED_DATASETS)})"
         report_dir = root / "reports"
+        data_dir = root
     sha = git_sha()
+    state = record.git_state()
     results = evaluate(
         data,
         split=args.split,
@@ -1894,15 +1944,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         retrieval_systems=args.retrieval_systems,
         fusion_sweep=args.fusion_sweep,
     )
+    # The run record (evals.record): which label files, at which version and content, these
+    # scores refer to, on which code. Appended to the predictions directory's scores.jsonl
+    # when one was scored; a baseline has no run directory, so the entry only reaches the
+    # database row.
+    entry = record.score_entry(
+        results,
+        harness=__name__,
+        data_dir=data_dir,
+        label_files=ds.DATASET_FILES,
+        split=args.split,
+        repeats=args.repeats,
+        options={k: v for k, v in vars(args).items() if not k.startswith("_")},
+    )
+    entry["git"] = state  # one git state per run: the report and the rows agree
     report = render_report(
-        results, split=args.split, repeats=args.repeats, source=source, git_sha=sha
+        results, split=args.split, repeats=args.repeats, source=source, git_sha=sha, git=state
     )
     path = args.report or report_dir / f"basis-eval-{args.split}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report, encoding="utf-8")
     print(f"report written to {path}")
+    if args.predictions is not None:
+        scores = record.append_scores(args.predictions, entry)
+        print(f"scores appended to {scores}")
     if os.environ.get("DATABASE_URL") and not args.no_db:
-        written = asyncio.run(_write_to_configured_db(results, args.split, sha))
+        written = asyncio.run(
+            _write_to_configured_db(
+                results, args.split, sha, manifest=entry, run_dir=args.predictions
+            )
+        )
         print(f"{written} eval_runs rows written")
     for task in results:
         headline = ", ".join(f"{r.metric}={_fmt(r.value)}" for r in task.rows[:3])

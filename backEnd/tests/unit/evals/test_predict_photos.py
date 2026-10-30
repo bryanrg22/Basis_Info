@@ -73,6 +73,19 @@ async def test_run_writes_predictions_in_the_harness_format(
     assert (run["photos"], run["repeats"], run["prompt"]) == (2, 2, "photo_analysis/v1")
     assert run["spent_usd"] == pytest.approx(4 * 0.01)  # the fixture prices a photo at $0.01
     assert len(provider.requests) == 4
+    # The run record (evals.record): the manifest names the harness, the prompt and the
+    # inputs; the ledger has one line per call; the log has the terminal output.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_photos"
+    assert manifest["status"] == "ok" and manifest["calls"]["count"] == 4
+    released = prompts.load("photo_analysis", "v1")
+    assert manifest["components"]["prompts"] == [
+        {"name": "photo_analysis", "version": "v1", "sha256": released.sha256, "calls": 4}
+    ]
+    [photos_input] = manifest["data"]["inputs"]
+    assert (photos_input["name"], photos_input["files"]) == ("photos", 3)  # notes.txt too
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 4
+    assert "wrote" in (out / "run.log").read_text()
 
 
 async def test_single_repeat_writes_plain_values(

@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import json
+import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from basis.vision.reconcile import heuristic_merge
 from basis.vision.schemas import Component, PhotoAnalysis, RoomType
 from evals import datasets as ds
+from evals import record
 from evals.run import (
     CORPUS_TEXT,
+    MetricRow,
+    TaskResult,
     evaluate,
     main,
     max_merge,
@@ -46,7 +52,86 @@ def test_dry_run_writes_a_report_for_every_dataset(
     n = len(ds.rule_citations().citations)
     assert f"| resolved_fraction | 0.0000 | {n} |" in text
     assert f"status counts: document_missing {n}" in text
-    assert "eval_runs" not in capsys.readouterr().out  # no database configured
+    out = capsys.readouterr().out
+    assert "eval_runs" not in out  # no database configured
+    assert "scores appended" not in out  # a baseline has no predictions directory
+    assert not list(tmp_path.glob("**/scores.jsonl"))
+
+
+def test_scoring_a_predictions_directory_appends_the_scores_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--predictions DIR`` leaves one ``scores.jsonl`` line in DIR naming the label file of
+    every scored dataset with its version and sha256 (``None`` when the file does not exist:
+    the synthetic dry run has no label files, only fixtures), the git state and the options."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    predictions = tmp_path / "pred"
+    predictions.mkdir()
+    (predictions / "photo_rooms.json").write_text(
+        json.dumps({"photos/01_kitchen.jpg": "kitchen", "photos/02_bathroom.jpg": "bathroom"})
+    )
+    report = tmp_path / "eval.md"
+    argv = ["--dry-run", "--repeats", "2", "--predictions", str(predictions), "--report"]
+    assert main([*argv, str(report)]) == 0
+    assert f"scores appended to {predictions / record.SCORES_FILE}" in capsys.readouterr().out
+    [entry] = record.read_scores(predictions)
+    assert entry["kind"] == "scores" and entry["format"] == record.FORMAT
+    assert entry["harness"]["module"] == "evals.run"
+    assert entry["data"]["data_dir"] == str(ds.SYNTHETIC_DIR)
+    assert (entry["data"]["split"], entry["data"]["repeats"]) == ("dev", 2)
+    assert entry["options"]["predictions"] == str(predictions)
+    assert entry["options"]["repeats"] == 2 and entry["options"]["dry_run"] is True
+    assert set(entry["results"]) == set(ds.DATASETS)
+    assert entry["results"]["photo_rooms"]["system"] == "predictions"
+    assert "accuracy" in entry["results"]["photo_rooms"]["metrics"]
+    # Every file dataset names its label file; the synthetic directory holds none of them,
+    # so the sha256 is None (asserted against the file system, not assumed).
+    for name, filename in ds.DATASET_FILES.items():
+        path = ds.SYNTHETIC_DIR / filename
+        assert entry["data"]["labels"][name] == {
+            "file": filename,
+            "version": "v1",
+            "sha256": record.sha256_file(path) if path.is_file() else None,
+        }
+    assert not path.is_file()
+    assert entry["data"]["labels"]["rule_citations"] == {
+        "file": None,
+        "version": None,
+        "sha256": None,
+    }
+    state = record.git_state()
+    assert entry["git"]["sha"] == state["sha"] and entry["git"]["release"] == state["release"]
+    assert isinstance(entry["git"]["dirty"], bool)
+    # The report carries the same release and dirty flag.
+    text = report.read_text()
+    assert f"- release: `{state['release']}`" in text if state["release"] else "- release:" in text
+    assert f"- dirty: {'yes' if state['dirty'] else 'no'}" in text
+    # A second scoring appends a second line.
+    assert main([*argv, str(report)]) == 0
+    assert len(record.read_scores(predictions)) == 2
+
+
+def test_the_scores_record_hashes_a_label_file_that_exists(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    label_file = data_dir / "detection_boxes_v1.json"
+    label_file.write_text(detection_dataset().model_dump_json())
+    predictions = tmp_path / "pred"
+    predictions.mkdir()
+    (predictions / "detection_boxes.json").write_text(
+        json.dumps({"a.jpg": [box("window", 0.9, 0.0, 0.0, 0.2, 0.2)]})
+    )
+    args = ["--data-dir", str(data_dir), "--predictions", str(predictions), "--no-db"]
+    assert main([*args, "--report", str(tmp_path / "r.md")]) == 0
+    [entry] = record.read_scores(predictions)
+    assert entry["data"]["data_dir"] == str(data_dir)
+    assert entry["data"]["labels"]["detection_boxes"] == {
+        "file": "detection_boxes_v1.json",
+        "version": "v1",
+        "sha256": record.sha256_file(label_file),
+    }
+    assert entry["results"]["detection_boxes"]["skipped"] is False
+    assert entry["results"]["assets"]["skipped"] is True  # no assets_v1.json in data_dir
 
 
 def test_rules_table_baseline_shows_the_contested_rows() -> None:
@@ -307,6 +392,27 @@ def test_missing_dataset_and_empty_split_are_reported_as_skipped() -> None:
     assert "dataset file not found" in text and "no held_out items" in text
 
 
+def test_report_header_names_the_release_and_the_dirty_flag() -> None:
+    results = evaluate(
+        ds.synthetic_smoke(), split="dev", repeats=1, predictions=None, corpus_dir=None
+    )
+    git = {"sha": "abc" * 13 + "d", "short": "abcabca", "dirty": True, "release": "v0.9.0"}
+    text = render_report(results, split="dev", repeats=1, source="x", git_sha="abcabca", git=git)
+    head = text.split("\n\n")[1].splitlines()
+    assert head[3:6] == ["- git sha: `abcabca`", "- release: `v0.9.0`", "- dirty: yes"]
+    clean = render_report(
+        results, split="dev", repeats=1, source="x", git_sha="abcabca", git=git | {"dirty": False}
+    )
+    assert "- dirty: no" in clean
+    # No tag reachable from HEAD: the release is none; without a git state both are unknown.
+    untagged = render_report(
+        results, split="dev", repeats=1, source="x", git_sha="x", git=git | {"release": None}
+    )
+    assert "- release: none" in untagged
+    legacy = render_report(results, split="dev", repeats=1, source="x", git_sha="x")
+    assert "- release: unknown" in legacy and "- dirty: unknown" in legacy
+
+
 def detection_dataset() -> ds.DetectionBoxes:
     window = {"label": "window", "x1": 0.0, "y1": 0.0, "x2": 0.2, "y2": 0.2}
     return ds.DetectionBoxes.model_validate(
@@ -541,6 +647,94 @@ def test_corpus_text_selects_the_page_text_and_names_the_system() -> None:
             assert not result.skipped and {r.metric for r in result.rows} >= {"ndcg_10", "mrr"}
 
 
+class _FakeSession:
+    """Collects what ``write_results`` adds; ``flush`` assigns the ids the database would."""
+
+    def __init__(self) -> None:
+        self.added: list[Any] = []
+
+    def add(self, obj: Any) -> None:
+        self.added.append(obj)
+
+    async def flush(self) -> None:
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
+
+    @asynccontextmanager
+    async def begin(self) -> Any:
+        yield self
+
+
+def _fake_sessionmaker(session: _FakeSession) -> Any:
+    @asynccontextmanager
+    async def make() -> Any:
+        yield session
+
+    return make
+
+
+def _manifest(results: list[TaskResult], data: Path) -> dict[str, Any]:
+    return record.score_entry(
+        results,
+        harness="evals.run",
+        data_dir=data,
+        label_files={"photo_components": "photo_components_v1.json", "assets": "assets_v1.json"},
+        split="dev",
+        repeats=2,
+        options={"predictions": "out/run"},
+    )
+
+
+async def test_write_results_fills_the_manifest_columns(tmp_path: Path) -> None:
+    from basis.db.models import EvalResult, EvalRun
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "photo_components_v1.json").write_text("{}")  # assets_v1.json does not exist
+    results = [
+        TaskResult(
+            "photo_components", "predictions", rows=[MetricRow("f1", 0.5, 10, 0.1, (0.2, 0.8))]
+        ),
+        TaskResult("assets", "rules_table", rows=[MetricRow("section_accuracy", 1.0, 6)]),
+        TaskResult("photo_counts", "predictions", skipped=True, notes=["no file"]),
+    ]
+    manifest = _manifest(results, data)
+    session = _FakeSession()
+    ids = await write_results(
+        _fake_sessionmaker(session),
+        results,
+        split="dev",
+        git_sha="abc1234",
+        manifest=manifest,
+        run_dir=tmp_path / "run",
+    )
+    runs = {r.dataset: r for r in session.added if isinstance(r, EvalRun)}
+    rows = [r for r in session.added if isinstance(r, EvalResult)]
+    assert set(runs) == {"photo_components", "assets"} and len(ids) == 2  # skipped: no row
+    assert len(rows) == 2 and {r.eval_run_id for r in rows} == set(ids)
+    components, assets = runs["photo_components"], runs["assets"]
+    assert components.git_sha == "abc1234" and components.model == "predictions"
+    assert components.git_dirty == manifest["git"]["dirty"]
+    assert components.release == manifest["git"]["release"]
+    assert components.run_dir == str(tmp_path / "run")
+    assert components.label_sha256 == record.sha256_file(data / "photo_components_v1.json")
+    assert components.label_version == "v1"
+    assert components.manifest == manifest  # the whole scores.jsonl entry, on every row
+    assert assets.manifest == manifest
+    # The label file the manifest could not hash leaves the sha NULL, the version stands.
+    assert (assets.label_sha256, assets.label_version) == (None, "v1")
+    assert assets.run_dir == str(tmp_path / "run")
+    # The manifest is what the row stores: it must survive JSON (JSONB) as it is.
+    json.dumps(components.manifest)
+    # Without a manifest (the pre-0014 call) every new column stays NULL.
+    legacy = _FakeSession()
+    await write_results(_fake_sessionmaker(legacy), results, split="dev", git_sha="abc1234")
+    for run in (r for r in legacy.added if isinstance(r, EvalRun)):
+        assert (run.git_dirty, run.release, run.run_dir) == (None, None, None)
+        assert (run.label_sha256, run.label_version, run.manifest) == (None, None, None)
+
+
 @pytest.mark.integration
 async def test_results_are_written_to_eval_tables(database_url: str) -> None:
     from dbtest_support import db_settings, truncate_all
@@ -561,7 +755,15 @@ async def test_results_are_written_to_eval_tables(database_url: str) -> None:
             predictions=None,
             corpus_dir=ds.SYNTHETIC_DIR / "corpus",
         )
-        ids = await write_results(sm, results, split="dev", git_sha="abc123")
+        manifest = record.score_entry(
+            results,
+            harness="evals.run",
+            data_dir=ds.SYNTHETIC_DIR,
+            label_files=ds.DATASET_FILES,
+            split="dev",
+            repeats=2,
+        )
+        ids = await write_results(sm, results, split="dev", git_sha="abc123", manifest=manifest)
         # The six file datasets the dry run builds plus the derived rule_citations;
         # detection_boxes has no synthetic file (so no derived photo_counts either): both
         # are reported missing, not written; the other seven files plus rule_citations are.
@@ -571,6 +773,17 @@ async def test_results_are_written_to_eval_tables(database_url: str) -> None:
             rows = (await session.scalars(select(EvalResult))).all()
         assert {r.dataset for r in runs} == set(ds.DATASETS) - {"detection_boxes", "photo_counts"}
         assert {(r.split, r.git_sha) for r in runs} == {("dev", "abc123")}
+        # The manifest columns, read back from Postgres: the baseline has no run directory,
+        # the synthetic directory has no label files (sha NULL, version from the name), and
+        # the whole entry round-trips through JSONB.
+        assert {r.run_dir for r in runs} == {None}
+        assert {r.git_dirty for r in runs} == {manifest["git"]["dirty"]}
+        assert {r.release for r in runs} == {manifest["git"]["release"]}
+        assets = next(r for r in runs if r.dataset == "assets")
+        assert (assets.label_sha256, assets.label_version) == (None, "v1")
+        citations = next(r for r in runs if r.dataset == "rule_citations")
+        assert (citations.label_sha256, citations.label_version) == (None, None)
+        assert assets.manifest == manifest
         ndcg = next(r for r in rows if r.metric == "ndcg_10")
         assert ndcg.n == 20 and ndcg.value is not None and ndcg.stderr is not None
         accuracy = next(r for r in rows if r.metric == "section_accuracy")

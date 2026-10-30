@@ -37,6 +37,7 @@ Output, in what ``evals.run --predictions`` scores (``room_inventory``)::
     <out>/photo_raw.jsonl                the per-photo records (only when computed here;
                                          reusable with --per-photo)
     <out>/run.json                       summary: counts, models, prompts, spend, rejects
+    <out>/llm_calls.jsonl, llm/, run.log, manifest.json      the run record (evals.record)
 
 Usage (from ``backEnd/``, ``BASIS_ENV=dev`` and provider credentials in the environment)::
 
@@ -64,7 +65,6 @@ from basis.llm.call import CallContext
 from basis.llm.errors import ProviderRateLimited, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
-from basis.llm.recorder import MemoryRecorder
 from basis.vision import overlap as overlap_step
 from basis.vision import surface_material
 from basis.vision.analyze import VisionContext, analyze_photo_detailed, released_prompt
@@ -82,6 +82,7 @@ from basis.vision.rooms import AliasCycleError, PhotoInput, RoomGroup, group_pho
 from basis.vision.schemas import PhotoAnalysis
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, photo_files
+from evals.record import EvalRun
 
 
 class InputError(ValueError):
@@ -301,10 +302,15 @@ async def run(args: argparse.Namespace) -> int:
     if not files:
         print(f"no photos in {args.photos}", file=sys.stderr)
         return 2
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.input("photos", args.photos)
+    if args.aliases is not None:
+        eval_run.input("aliases", args.aliases)
+    if args.per_photo:
+        eval_run.input("per_photo", args.per_photo)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = eval_run.recorder
 
     def call_context(activity: str) -> CallContext:
         return CallContext(
@@ -333,6 +339,7 @@ async def run(args: argparse.Namespace) -> int:
             prompt=released_prompt(),
             model=settings.vision_model,
         )
+        eval_run.prompt(vision.prompt)
 
         async def analyze(file: Path) -> dict[str, Any]:
             async with semaphore:
@@ -386,6 +393,7 @@ async def run(args: argparse.Namespace) -> int:
 
     model = args.model or settings.vision_model
     rooms_prompt = prompts.load("room_inventory", args.room_prompt)
+    eval_run.prompt(rooms_prompt)
     reconcile_ctx = ReconcileContext(
         call=call_context("evals.predict_rooms.room"),
         provider=pool,
@@ -399,6 +407,7 @@ async def run(args: argparse.Namespace) -> int:
         if args.overlap != "none"
         else None
     )
+    eval_run.prompt(overlap_prompt)
     overlap_ctx = (
         overlap_step.OverlapContext(
             call=call_context("evals.predict_rooms.overlap"),
@@ -416,6 +425,7 @@ async def run(args: argparse.Namespace) -> int:
         if args.materials != "none"
         else None
     )
+    eval_run.prompt(materials_prompt)
     materials_ctx = (
         surface_material.MaterialContext(
             call=call_context("evals.predict_rooms.material"),
@@ -512,42 +522,38 @@ async def run(args: argparse.Namespace) -> int:
 
     _write_json(args.out / "room_inventory.json", {r: fold(v) for r, v in inventories.items()})
     models = sorted({r.model for r in recorder.records})
-    _write_json(
-        args.out / "run.json",
-        {
-            "photos": len(files),
-            "rejected": rejected,
-            "rooms": len(groups),
-            "repeats": args.repeats,
-            "aliases": aliases,
-            "per_photo_source": (
-                f"{args.per_photo}/photo_raw.jsonl repeat {args.per_photo_repeat}"
-                if args.per_photo
-                else "computed"
-            ),
-            "per_photo_missing": missing_per_photo,
-            "room_results_needing_review": review,
-            "vision_model_setting": settings.vision_model,
-            "room_model": model,
-            "overlap_model": None if overlap_ctx is None else overlap_ctx.model,
-            "materials_model": None if materials_ctx is None else materials_ctx.model,
-            "reasoning_effort": args.reasoning_effort,
-            "overlap": args.overlap,
-            "single_photo_rooms": args.single_photo_rooms,
-            "materials": args.materials,
-            "models_reported": models,
-            "spent_usd": round(budget.spent_usd, 6),
-            "prompts": {
-                "photo_analysis": None if args.per_photo else released_prompt().version_id,
-                "room_inventory": None if args.overlap == "merge" else rooms_prompt.version_id,
-                "photo_overlap": None if overlap_prompt is None else overlap_prompt.version_id,
-                "surface_material": (
-                    None if materials_prompt is None else materials_prompt.version_id
-                ),
-            },
+    report = {
+        "photos": len(files),
+        "rejected": rejected,
+        "rooms": len(groups),
+        "repeats": args.repeats,
+        "aliases": aliases,
+        "per_photo_source": (
+            f"{args.per_photo}/photo_raw.jsonl repeat {args.per_photo_repeat}"
+            if args.per_photo
+            else "computed"
+        ),
+        "per_photo_missing": missing_per_photo,
+        "room_results_needing_review": review,
+        "vision_model_setting": settings.vision_model,
+        "room_model": model,
+        "overlap_model": None if overlap_ctx is None else overlap_ctx.model,
+        "materials_model": None if materials_ctx is None else materials_ctx.model,
+        "reasoning_effort": args.reasoning_effort,
+        "overlap": args.overlap,
+        "single_photo_rooms": args.single_photo_rooms,
+        "materials": args.materials,
+        "models_reported": models,
+        "spent_usd": round(budget.spent_usd, 6),
+        "prompts": {
+            "photo_analysis": None if args.per_photo else released_prompt().version_id,
+            "room_inventory": None if args.overlap == "merge" else rooms_prompt.version_id,
+            "photo_overlap": None if overlap_prompt is None else overlap_prompt.version_id,
+            "surface_material": (None if materials_prompt is None else materials_prompt.version_id),
         },
-    )
+    }
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 

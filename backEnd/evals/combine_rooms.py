@@ -8,6 +8,10 @@ Both ``room_inventory.json`` (repeats included) and the ``room_raw.jsonl`` lines
 which ``report_rows`` reads) are taken from the run that supplies the room, repeat by repeat
 (a run with fewer repeats is cycled, as ``evals.run`` cycles saved predictions). The rule is
 fixed by the caller before scoring; nothing here looks at the labels.
+
+Output in ``--out``: ``room_inventory.json``, ``room_raw.jsonl``, ``run.json`` (base,
+override, the rooms taken), and ``run.log`` / ``manifest.json``, the run record
+(:mod:`evals.record`).
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+from evals import record
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -45,12 +51,25 @@ def _raw(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
 
 
 def combine(args: argparse.Namespace) -> int:
+    run = record.EvalRun.begin(args.out, harness=__name__, args=args)
+    try:
+        return _combine(args, run)
+    except BaseException as exc:
+        record.finish_pending(args, exit_code=1, error=exc)
+        raise
+
+
+def _combine(args: argparse.Namespace, run: record.EvalRun) -> int:
+    run.input("base", args.base)
+    run.input("override", args.override)
+    run.note(exterior=args.exterior)
     base = json.loads((args.base / "room_inventory.json").read_text(encoding="utf-8"))
     other = json.loads((args.override / "room_inventory.json").read_text(encoding="utf-8"))
     chosen = set(args.rooms) | ({r for r in base if r.startswith("x_")} if args.exterior else set())
     missing = sorted(chosen - set(other))
     if missing:
         print(f"rooms not in {args.override}: {missing}", file=sys.stderr)
+        run.finish(None, exit_code=2)
         return 2
     repeats = max(len(_repeats(v)) for v in [*base.values(), *other.values()])
     base_raw, other_raw = _raw(args.base), _raw(args.override)
@@ -68,18 +87,12 @@ def combine(args: argparse.Namespace) -> int:
                 record["repeat"] = r
                 record["combined_from"] = str(args.override if room in chosen else args.base)
                 lines.append(record)
-    args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "room_inventory.json").write_text(json.dumps(inventory, indent=1, sort_keys=True))
     (args.out / "room_raw.jsonl").write_text(
         "".join(json.dumps(line, sort_keys=True) + "\n" for line in lines)
     )
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {"base": str(args.base), "override": str(args.override), "rooms": sorted(chosen)},
-            indent=1,
-        )
-    )
     print(f"wrote {args.out}: {len(chosen)} rooms from {args.override}", file=sys.stderr)
+    run.finish({"base": str(args.base), "override": str(args.override), "rooms": sorted(chosen)})
     return 0
 
 

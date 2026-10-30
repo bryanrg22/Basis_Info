@@ -316,6 +316,23 @@ def test_llm_all_live_records_and_replay_reproduces(tmp_path: Path) -> None:
     assert live.score["usage"]["tokens_input_per_document"] == 100  # ScriptedTurn's usage
     assert live.score["usage"]["azure_pages"] == {"prebuilt-layout": 1}
     assert live.run["system"]["label"] == "llm_all-gpt-6-luna-low"
+    # The run record (evals.record): the one call under the grounded prompt it used, the
+    # fallback prompt declared without a call, the PDF as an input.
+    manifest = json.loads((tmp_path / "live" / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.appraisal.run"
+    assert manifest["summary"] == json.loads((tmp_path / "live" / "run.json").read_text())
+    assert manifest["calls"]["count"] == 1 and manifest["calls"]["by_kind"] == {"chat": 1}
+    used = {(p["name"], p["calls"]) for p in manifest["components"]["prompts"]}
+    assert used == {("appraisal_field_fallback", 0), ("appraisal_fields_grounded", 1)}
+    assert all(p["version"] and p["sha256"] for p in manifest["components"]["prompts"])
+    assert manifest["components"]["models"]["requested"] == ["gpt-6-luna"]
+    assert manifest["notes"] == {"mode": "live", "system": "llm_all-gpt-6-luna-low"}
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["synthetic_1004/doc_a"]
+    [row] = [
+        json.loads(x) for x in (tmp_path / "live" / "llm_calls.jsonl").read_text().splitlines()
+    ]
+    assert row["prompt_version"] == provider.requests[0].prompt_version
+    assert "synthetic_1004/doc_a: ok" in (tmp_path / "live" / "run.log").read_text()
     replay = asyncio.run(run_eval(options(tmp_path, "replay", spec, "replay"), settings=Settings()))
     assert replay is not None
     live_doc = json.loads((tmp_path / "live/predictions.json").read_text())["documents"][0]

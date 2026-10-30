@@ -118,6 +118,19 @@ def test_runner_writes_pool_records_surfaces_and_label_sets_for_a_segmenter(
     assert json.loads((out / "photo_components.json").read_text())["01_a.jpg"] == ["exterior_door"]
     run = json.loads((out / "run.json").read_text())
     assert run["detector"] == "mask2former" and run["cost_usd"] == 0.0
+    # The run record (evals.record): a manifest and a log, no paid call and so no ledger.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_detector"
+    assert manifest["summary"] == run and manifest["status"] == "ok"
+    assert manifest["calls"]["count"] == 0 and manifest["components"]["prompts"] == []
+    assert manifest["notes"] == {
+        "detector": "mask2former",
+        "checkpoint": pd.SEGMENTERS["mask2former"],
+        "device": "fake",
+    }
+    assert [(i["name"], i["files"]) for i in manifest["data"]["inputs"]] == [("photos", 2)]
+    assert manifest["files"]["ledger"] is None and not (out / "llm_calls.jsonl").exists()
+    assert f"wrote {out}" in (out / "run.log").read_text()
     # the pool loader of sam3_select reads the output as it reads a SAM 3 pool run
     pool = sel.load_pool(out / "instances_raw.jsonl")
     assert pool["02_b.jpg"][0].phrase == "door"

@@ -20,8 +20,8 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 
 from basis.config import Settings
-from basis.extraction.fallback import FallbackAnswer, FallbackValue
-from basis.llm import ScriptedProvider, ScriptedTurn
+from basis.extraction.fallback import PROMPT_NAME, FallbackAnswer, FallbackValue
+from basis.llm import ScriptedProvider, ScriptedTurn, prompts
 from evals.appraisal import baseline, recordings
 from evals.appraisal.run import LiveDeps, Options, main, run_eval
 from evals.appraisal.truth import dump_truth
@@ -138,6 +138,26 @@ def test_replay_from_a_hand_written_recording_via_the_cli(
     assert run["systems"] == {"azure_di": True, "llm": False, "azure_1004": False}
     assert run["sets"] == ["synthetic_1004"] and run["git_sha"]
     assert "85,000" not in (out / "report.md").read_text()
+    # The run record (evals.record): no model call (--azure-only), the replayed Azure DI
+    # analysis is still a ledger row, the truth file is the dataset, the log has the run.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.appraisal.run"
+    assert manifest["summary"] == run and manifest["status"] == "ok"
+    assert manifest["calls"]["by_kind"] == {"document_analysis": 1}
+    assert manifest["components"]["prompts"] == [
+        {
+            "name": PROMPT_NAME,
+            "version": prompts.latest(PROMPT_NAME).version,
+            "sha256": prompts.latest(PROMPT_NAME).sha256,
+            "calls": 0,
+        }
+    ]
+    [dataset] = manifest["data"]["datasets"]
+    assert (dataset["name"], dataset["file"]) == ("synthetic_1004", "synthetic_1004.json")
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["synthetic_1004/doc_a"]
+    assert manifest["notes"] == {"mode": "replay", "system": "production"}
+    assert manifest["harness"]["options"]["azure_only"] is True
+    assert "synthetic_1004/doc_a: ok" in (out / "run.log").read_text()
 
 
 async def test_live_records_and_replay_reproduces(tmp_path: Path, settings: Settings) -> None:
@@ -162,6 +182,23 @@ async def test_live_records_and_replay_reproduces(tmp_path: Path, settings: Sett
     assert live.run["llm_calls"] == 2 and live.run["cost_usd"] > 0
     assert live.run["models"] == ["gpt-4o-mini"]
     assert live.run["azure_di_calls"] == 1
+    # The run record: both model calls in the ledger with the fallback prompt, plus the
+    # Azure DI rows (one per repeat: the second repeat re-reads the recorded analysis).
+    manifest = json.loads((tmp_path / "live" / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.appraisal.run"
+    assert manifest["summary"] == json.loads((tmp_path / "live" / "run.json").read_text())
+    assert manifest["calls"]["by_kind"] == {"chat": 2, "document_analysis": 2}
+    assert manifest["calls"]["count"] == 4
+    latest = prompts.latest(PROMPT_NAME)
+    assert manifest["components"]["prompts"] == [
+        {"name": PROMPT_NAME, "version": latest.version, "sha256": latest.sha256, "calls": 2}
+    ]
+    assert manifest["components"]["models"]["requested"] == sorted(
+        [settings.text_model, "prebuilt-layout"]  # the Azure DI analysis names its model id
+    )
+    rows = [json.loads(x) for x in (tmp_path / "live" / "llm_calls.jsonl").read_text().splitlines()]
+    assert len(rows) == 4 and sum(1 for r in rows if r["kind"] == "chat") == 2
+    assert "synthetic_1004/doc_a: ok" in (tmp_path / "live" / "run.log").read_text()
 
     replay = await run_eval(
         opts(tmp_path, out=tmp_path / "replay"),
@@ -287,6 +324,11 @@ def test_cli_reports_a_refused_baseline(tmp_path: Path, capsys: pytest.CaptureFi
     assert code == 1
     assert "error: not accepting a baseline with failed documents" in capsys.readouterr().out
     assert not (tmp_path / "appraisal" / baseline.FILE).exists()
+    # The refused run still has its run.json and a manifest that says it failed.
+    manifest = json.loads((tmp_path / "r" / "manifest.json").read_text())
+    assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
+    assert "not accepting a baseline with failed documents" in manifest["error"]
+    assert manifest["summary"] == json.loads((tmp_path / "r" / "run.json").read_text())
 
 
 def test_cli_refuses_bad_flags() -> None:

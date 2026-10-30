@@ -20,7 +20,7 @@ import pytest
 from fixtures import fixture_path
 from llm_fakes import PHOTO_MODEL, PHOTO_USAGE, FixtureVisionProvider, photo_labels
 
-from basis.llm import ScriptedProvider, ScriptedTurn, Usage
+from basis.llm import ScriptedProvider, ScriptedTurn, Usage, prompts
 from basis.llm.errors import ProviderAccountError, ProviderBadResponse, ProviderUnavailable
 from basis.llm.provider import ChatProvider, ChatRequest, ChatResponse
 from basis.vision.overlap import ModelPairOverlap
@@ -226,6 +226,19 @@ async def test_run_writes_the_heuristic_the_reconciled_inventory_and_raw_records
     }
     assert summary["spent_usd"] == pytest.approx(5 * 0.01)  # 3 photos + 2 rooms
     assert summary["per_photo_source"] == "computed" and summary["rejected"] == {}
+    # The run record (evals.record): both steps' prompts, one ledger line per call.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_rooms"
+    assert manifest["calls"]["count"] == 5
+    declared = manifest["components"]["prompts"]
+    assert [(p["name"], p["version"], p["calls"]) for p in declared] == [
+        ("photo_analysis", "v1", 3),
+        ("room_inventory", "v1", 2),
+    ]
+    assert all(p["sha256"] == prompts.load(p["name"], p["version"]).sha256 for p in declared)
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 5
+    assert "wrote" in (out / "run.log").read_text()
 
 
 async def test_repeats_aliases_and_rejected_images(

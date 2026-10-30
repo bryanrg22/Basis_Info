@@ -34,7 +34,8 @@ Gates (:func:`gates`): on the misses, the exact box outlines the right object at
 counted objects, at most :data:`MAX_DUPLICATES` of all box selections create a duplicate.
 
 Only indices, labels, boxes and rates are written or printed (no file names or pixels):
-``--out`` gets ``records.json`` (one row per object and selection) and ``summary.json``.
+``--out`` gets ``records.json`` (one row per object and selection) and ``summary.json``,
+plus ``run.log`` and ``manifest.json``, the run record (:mod:`evals.record`).
 
 Usage (from ``backEnd/``)::
 
@@ -81,6 +82,7 @@ from basis.vision.selection import (
     plan_box,
     plan_point,
 )
+from evals import record as eval_record
 from evals.metrics import wilson_interval
 
 ENV_VAR: Final = "BASIS_EVAL_DATA_DIR"
@@ -675,16 +677,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.data is None:
         raise SystemExit(f"--data or {ENV_VAR} is required")
+    eval_run = eval_record.EvalRun.begin(args.out, harness=__name__, args=args)
+    try:
+        code = _main(args, eval_run)
+    except BaseException as exc:
+        eval_record.finish_pending(args, exit_code=1, error=exc)
+        raise
+    eval_run.finish(None, exit_code=code)
+    return code
+
+
+def _main(args: argparse.Namespace, eval_run: eval_record.EvalRun) -> int:
     prompts_path = args.prompts or args.data / PROMPTS_FILE
     if args.live:
         spent = asyncio.run(
             prompt_live(load(args.data), args.data, prompts_path, max_usd=args.max_usd)
         )
         print(f"SAM 3 spend this run: ${spent:.4f}", file=sys.stderr)
+    eval_run.dataset(args.data / LABELS_FILE)
+    for name in SAM3_RUNS:
+        eval_run.input(name, args.data / name / "instances_raw.jsonl")
+    eval_run.input("prompts", prompts_path)
     records, summary = run(args.data, prompts_path, args.phrases)
     failures = gates(summary)
     summary["gates"] = {"passed": not failures, "failures": failures, "phrases": args.phrases}
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run.note(phrases=args.phrases, live=args.live, gates=summary["gates"])
     (args.out / "records.json").write_text(json.dumps(records, indent=1), encoding="utf-8")
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(table(summary))

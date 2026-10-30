@@ -6129,3 +6129,194 @@ all green; `docs/api/openapi.json` regenerated (three new operations, the new me
   yet; the review workbench is where the catalogue's "how to fix" should surface.
 * `inventory.rebuilt` lists the ids of the rows the room step replaced, not their contents; a
   before-image would double the rows for little: the replaced rows were the model's.
+
+## 42. Every evaluation run leaves the study's record: ledger, payloads, log, manifest; a registry answers "was this tested?" from files (2026-10-29)
+
+Sections 40 and 41 gave a study a complete ledger of its paid calls and a legible history. The
+evaluation side had neither: the 187 run directories under `predictions/` (plus 83 sibling
+`.log` files, the "272" of the brief, and 164 nested appraisal runs) kept only a hand-named
+directory and a `run.json` summary (model, effort, prompt id, spend). The per-call records of
+the `MemoryRecorder` every runner used were thrown away at exit; the terminal output was kept
+only when someone redirected it; nothing said which commit, release, label file, price table
+or settings a run exercised, so "has `photo_countables/v3` on gpt-6.1-sol been tested against
+`photo_components_v1`?" meant grepping this report or running it again. This section makes
+every eval and agent test leave the record a study leaves, labels runs by release and
+component version, backfills what the old directories can still say, and adds the registry
+that answers the question from files. No model was called for it (`--dry-run`, the fixture
+providers and the existing run directories); no client figure appears here.
+
+### 42.1 The standard
+
+MLflow records a run's code as the `mlflow.source.git.commit` tag beside its params and
+metrics; Weights & Biases writes `wandb-metadata.json` (git commit and remote, program, host,
+arguments) and a `diff.patch` of uncommitted changes; Neptune the same two files. None
+records a dirty flag as such (users log it), and none knows what a "component version" is: a
+prompt's hash, a price table's date, an embedder's pinned revision are ours to name. The
+ledger's columns already follow the OpenTelemetry GenAI conventions (section 40); the
+conventions represent an evaluation result as a `gen_ai.evaluation.result` event
+(`gen_ai.evaluation.name`, `score.value`, `score.label`, `explanation`, the `gen_ai.response.id`
+it judges) and define no dataset attribute. What was taken: one manifest per run with the
+commit, a dirty flag (tracked changes; the untracked count beside it), the nearest release
+tag, the program and its arguments, the host; the component versions as Basis already
+defines them (prompt `name/vN` + manifest sha256, `PRICING_VERSION`, `RULES_VERSION`, the
+embedder model + `ModelSpec.revision`, the configured cost table's name, year and sha256);
+the label files by name, `_vN` version and sha256; and the metrics as `evals.run` already
+computes them, written next to the run they score.
+
+### 42.2 Before and after
+
+| | Before | After (`evals/record.py`, EVAL_REPORT 42) |
+|---|---|---|
+| per call | a `MemoryRecorder` row in memory, discarded at exit; the runner's own raw file (`photo_raw.jsonl`, `room_raw.jsonl`, `fields_raw.jsonl`) with the parsed answer | `llm_calls.jsonl`: one line per paid call with every `llm_calls` column (`basis.llm.recorder.ledger_columns`, the dict `LlmCallRepository.add_record` writes; a unit test holds the key set equal to the table's) plus `created_at`; `llm/<call id>.request.json` / `.response.json` built and redacted by the production archive's functions; metered steps too (SAM 3 predictions in `predict_boxes`, Molmo in `predict_points`, Azure DI in the appraisal runner) |
+| terminal output | kept when redirected by hand (83 of 187 directories) | `run.log`: stdout, stderr and logging, API-key-shaped strings redacted, from `begin` to `finish` |
+| what ran, on what | `run.json`: model, effort, prompt id, spend; the directory name | `manifest.json`: harness module + its file sha256 + command + options; git sha, dirty, untracked, branch, release (nearest reachable tag), commits since it; Basis version, price table version, rules table version, embedder model + revision, cost table identity; every prompt `name/vN/sha256` with its call count (declared prompts that made no call included); models requested and answered, providers; the request parameters in effect; the model settings (no secret, no address); the inputs (file or directory, file count, sha256 over sorted names + hashes) and dataset files (name, `_vN` version, sha256); split, repeats; calls, errors, tokens of every kind, dollars; status (`ok`/`stopped`/`error`), exit code, error; the `run.json` summary |
+| a run that failed or was stopped | the decorator's `run.json` with `complete: false`; the log, if any, cut off | the same, plus the manifest (`status: stopped` or `error`, the exception) and the log: `stops_on_account_error` finishes a pending record on every exit; the undecorated runners wrap their body |
+| which labels a score refers to | the report (`eval.md`) when it was kept; label files editable in place (`room_inventory_v1.json` was, on 2026-10-16) | `scores.jsonl` appended by `evals.run --predictions DIR`: per dataset the label file, version and sha256, the scorer's git state and options, every metric; the latest scoring per dataset is what the registry reports |
+| the database | `eval_runs(dataset, split, git_sha, model, prompt_version)` | plus `git_dirty`, `release`, `run_dir`, `label_version`, `label_sha256`, `manifest` (JSONB, the whole scores entry); migration `0014_eval_run_manifest`, nullable, no backfill: rows written before carry NULL because the information was not recorded |
+| derived runs (merge, aggregate, fuse, combine, select, manual add) | `run.json` with the sources' paths and summed spend | the same, plus manifest and log naming each source directory (hashed) and the source's own manifest id |
+| answering "was X tested on Z against W" | grep this report; re-run | `python -m evals.registry --component photo_countables/v3 --model gpt-6.1-sol --labels photo_components_v1` (Markdown or JSON); `--matrix` for prompt version x model with the label versions seen in each cell |
+
+### 42.3 How it is wired
+
+One helper, `evals.record.EvalRun`: `begin(out, harness=__name__, args=args, settings=settings)`
+creates the directory, reads the git state of the harness's own checkout (not the process
+cwd), snapshots the environment and settings, tees stdout, stderr and the root logger into
+`run.log` through a redacting writer, and attaches itself to the argparse namespace. Its
+`recorder` is a `FileLedgerRecorder`: the same `Recorder` protocol as `MemoryRecorder`, so
+`CallContext` and every production call path (`call_model`, the classifier's residual loop,
+`analyze_photo_detailed`, the room step, the extraction pipeline) record into it unchanged;
+it prices each entry with `price_entry`, archives the two payloads with `payload_bytes` /
+`priced_payload` (the production functions: same bytes, same redaction, images as ref + size +
+sha256), writes the row as `ledger_columns(record) + created_at`, and keeps the records in
+memory as before (the runners' `recorder.records` reads still work). `input()` / `dataset()` /
+`prompt()` / `note()` declare what the run read; `finish(summary)` writes `run.json`
+(the runner's dict, unchanged keys) and `manifest.json`, stops the tee. The manifest's calls
+and components are computed from the ledger file as it stands, not from memory, because
+`predict_marks --from-raw` and `predict_points --from-raw` redo a step over their own output
+directory: the file then holds an earlier run's rows too, the manifest describes the file and
+adds `calls.this_run` and `notes.previous_manifest`.
+
+Wired into every runner that writes a run directory: `predict_photos`, `predict_rooms`,
+`predict_fields`, `predict_assets` (which had no recorder at all: its classifier loop now
+records through the production `ClassifyContext`, 4 rows for the test's 4 calls, prompt
+`classify/v1` with its sha256), `predict_tiles`, `verify_boxes`, `predict_surface_crops`
+(`predict` and `apply`), `predict_marks`, `predict_points`, `predict_multiview` (its own
+per-room `calls.jsonl` stays), `replay_rooms`, `predict_boxes` (one `localization` row per
+SAM 3 prediction, as `localize_photo` records them; the production function was replicated,
+not imported, because its module imports temporalio and pins the production phrase set),
+`predict_detector` (no paid call: manifest, log, inputs, detector + checkpoint + device),
+`appraisal/run.py` (truth files as datasets, each PDF as an input, the recorded `git_sha` kept
+in `run.json`), and the derive-a-run tools `merge_photo_runs`, `aggregate_runs`,
+`fuse_counts`, `combine_rooms`, `sam3_select`, `manual_add`. `evals.run --predictions DIR`
+appends `scores.jsonl` and, with `DATABASE_URL`, writes the manifest columns on `eval_runs`;
+its report header names the release and the dirty flag.
+
+Two choices a reviewer may ask about. `ledger_columns` lives in `basis.llm.recorder` and the
+repository calls it (a lazy import: the recorder imports the repository), so the production
+row and the evaluation line cannot drift apart; the test holds `set(keys) == table columns -
+{created_at}`. The dirty flag counts tracked modifications only, with the untracked count
+beside it: this checkout carries unrelated untracked notes, and W&B's `diff.patch` is likewise
+`git diff` of tracked files.
+
+### 42.4 The registry
+
+`python -m evals.registry` scans `predictions/*` and `appraisal/runs/**` (the appraisal sweeps
+nest their cells), reads `manifest.json`, `run.json`, `scores.jsonl`, `eval.md` and
+`score.json`, and filters by component (a prompt name or `name/vN`, `detector:x`,
+`embedder:<model>`), model (requested or answered, `claude-*` for a prefix), label file stem,
+dataset, release, harness, status and start date; Markdown to stdout, `--json` and
+`--markdown` to files. A scoring report's baseline systems (`printed_text`, `rules_table`,
+`filename`, ...) describe the baseline, not the run, so only datasets scored with system
+`predictions` count as a run's scores and labels. On the backfilled directories (42.5) the
+motivating question has an answer, and it is "no":
+
+```
+$ python -m evals.registry --component photo_countables/v3 --model gpt-6.1-sol --labels photo_components_v1
+0 runs
+$ python -m evals.registry --component photo_countables --matrix
+| component             | claude-fable-5-1 | claude-opus-5-5 | gpt-4.1 | gpt-6.1-sol |
+| `photo_countables/v1` | -                | -               | 1 (unscored) | -       |
+| `photo_countables/v2` | 1 (photo_components_v1,photo_rooms_v1) | 4 (photo_components_v1,photo_rooms_v1) | 1 (photo_components_v1,photo_rooms_v1) | 3 (unscored) |
+| `photo_countables/v3` | -                | 1 (unscored)    | -       | -           |
+```
+
+`photo_countables/v3` was run once, on claude-opus-5-5 (`vision_countables_v3_opus55`,
+section 29), and no `eval.md` was kept for it; the three gpt-6.1-sol runs of `v2` were scored
+through merged directories (`vision_decomposed_v2*`), which the matrix attributes to the merge
+tool, not to the prompt (a merged run's `run.json` names no prompt). Both are facts about the
+record, now visible; the next v3 run on sol will show in the cell with its label version.
+
+### 42.5 Backfill of the existing runs
+
+`python -m evals.backfill_manifests --write --note docs/review_2026-10-15/EVAL_RUN_BACKFILL.md`
+wrote a manifest with `backfilled: true` into the 351 run directories that had none (187 under
+`predictions/`, 164 under `appraisal/runs/`), each field with its source (`sources`) and
+`unknown` where the files do not say; nothing was moved or deleted, a runner-written
+manifest is never touched, and a second pass keeps every one (`--force` rewrites backfills
+only). Recovered: the harness for 350 of 351 (from each runner's `run.json` key set, else
+from the files present; the one unknown is an empty directory left by a killed run), prompts
+for 263 with an exact sha256 (released prompt versions are immutable, so the manifest's hash
+is the hash at run time), models for 269, effort and output budget where `run.json` had them,
+spend and call counts, directory birth and modification times, the sibling log for 125, the
+EVAL_REPORT sections citing 112 by name or by a prefix that encodes the section
+(`cost28_`, `rooms16_`, `arch26_`, `s29_`), and for the 164 appraisal runs the commit the
+runner recorded from the start and its release (`v0.10.0`). Not recoverable, and marked so:
+the commit of every non-appraisal run (made from feature branches; the manifest gives the
+`main` commit at the directory's last write as a lower bound and the release tags before and
+after), the dirty flag of every run, the label files' content at scoring time (names and
+versions from `eval.md` for 40 runs; `room_inventory_v1.json` was edited on 2026-10-16, a
+`.bak` exists), the per-call records and payloads, the price and rules table versions, and the
+terminal output of 226 runs. The note lists the counts, the harness per run and the runs
+without a `run.json`; the registry reads a backfilled manifest like any other and shows
+`backfilled` in its record column.
+
+### 42.6 Tests and gates
+
+`tests/LEDGER.md`: `ledger_columns` key set equals the table's, every column carries the entry
+and the pricing, a metered step fills quantity and unit (3); `evals.record`: the ledger line
+has every column and the payloads exist under the referenced paths with matching sha256 and
+no image bytes, API keys redacted in ledger, payloads and log, metered steps, the tee and its
+restoration, `git_state` on a tiny tagged repository (release, dirty, untracked, describe,
+`GIT_SHA` fallback, harness checkout not cwd), the manifest's every section without secrets,
+`sha256_tree` order-independence, `label_version`, the decorator finishing a pending run as
+stopped / error / ok, a leaked log released, `score_entry` and `append_scores`, a rerun into
+the same directory (20); `evals.registry` on synthetic directories: scan order and nesting,
+manifest and `run.json`-only runs, `eval.md` with baselines left out, stopped and appraisal
+runs, every filter, Markdown and JSON, the matrix, the CLI (10); `evals.backfill_manifests`:
+harness from keys then files, report mentions by section, a full backfill with sources and
+unknowns, an unknown sha, idempotence and `--force`, the note, the CLI (8); every runner's
+end-to-end test asserts its manifest (harness, call count, prompts with sha256, inputs), one
+ledger line per call and the log; `evals.run`: `scores.jsonl` from a dry run with the label
+sha256 or None, the manifest columns through a fake session and through Postgres, the report
+header (3); migration `0014` round trip and downgrade (1). Client data never enters the repo:
+every fixture is synthetic, and the client-data guard is unchanged.
+
+Gates (`backEnd/`): `ruff check`, `ruff format --check`, `mypy` (289 files) and
+`env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY pytest -q` (the full suite, Docker up), plus
+`pre-commit run --all-files` from the repository root. On 2026-10-29: ruff, format and
+mypy clean; the full suite 5,067 passed, 23 skipped (the private-data and emulator tests), 39
+subtests, 12 min 00 s; the affected suites re-run after the last edit, 1,443 passed. Every
+pre-commit hook passes on this branch's files; `detect-secrets` also reports 17 lines that
+are not in `.secrets.baseline` and are the same on `main` (test fixtures, the embedder's
+pinned revision, the vendored pdf.js), none touched here: the baseline is stale and is left
+for its own change. The three placeholder keys the redaction tests use carry
+`pragma: allowlist secret`.
+
+### 42.7 Open
+
+* The log ends at `finish()`: a runner's last `wrote ...` line now prints just before the
+  record is finished, so the files land a moment after the message; a line printed by
+  `main()` after the run function returns (the derive-a-run tools, the appraisal runner) is not
+  in `run.log`. The manifest's `status` and `exit_code` say how the run ended.
+* The appraisal replay re-records a priced `document_analysis` row from the recording
+  (pre-existing ledger semantics), so a replay's manifest shows a non-zero `calls.cost_usd`
+  while `run.json` keeps `azure_di_cost_usd: 0.0`; and its CLI logs a warning twice (the
+  `basicConfig` handler and the record's).
+* Backfilled runs carry what the files say and no more; the exact commits of the pre-appraisal
+  runs are gone. A run made from now on records its own.
+* `eval_runs` rows are written only by `evals.run`; the predict runners write files alone. A
+  registry over the database (the same question, SQL) would need the predict runners to
+  write `eval_runs` rows too, or a loader from `manifest.json`; the file registry is enough
+  for one data directory.
+* The registry reads one data directory. The private bucket mirror (`gs://basis-eval-private`)
+  is not scanned; `gsutil rsync` of the run directories keeps it the same set of files.

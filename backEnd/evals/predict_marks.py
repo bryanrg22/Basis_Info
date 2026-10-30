@@ -26,7 +26,9 @@ Output in ``--out``:
 * with ``--loop``: ``loop_masked/`` (only objects with a mask) and ``loop_all/`` (masked plus
   added points no mask was found for), each a predictions directory of the same three files;
 * ``marks_raw.jsonl`` (per photo and repeat: the marks, the answer, the tally, timings),
-  ``run.json`` (models reported, spend, seconds, mask coverage).
+  ``run.json`` (models reported, spend, seconds, mask coverage);
+* ``llm_calls.jsonl``, ``llm/``, ``run.log``, ``manifest.json``: the run record
+  (:mod:`evals.record`).
 
 Usage (from ``backEnd/``)::
 
@@ -57,11 +59,11 @@ from basis.llm.cost import is_anthropic_model
 from basis.llm.errors import ProviderAccountError
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, ImagePart, Message
-from basis.llm.recorder import MemoryRecorder
 from basis.vision import marks as mk
 from basis.vision.localize import Instance, Point
 from basis.vision.prep import PreparedImage, prepare_image
 from basis.vision.schemas import ComponentLabel
+from evals import record
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import photo_files
 from evals.predict_tiles import ask_structured
@@ -343,9 +345,18 @@ async def run(args: argparse.Namespace) -> int:
         for f in photos
     }
     args.out.mkdir(parents=True, exist_ok=True)
+    rec = record.EvalRun.begin(args.out, harness=__name__, args=args, settings=load_settings())
+    rec.input("photos", args.photos)
+    for directory in args.sam3:
+        rec.input("sam3", directory / "instances_raw.jsonl")
+    for directory in args.pool or ():
+        rec.input("pool", directory / "instances_raw.jsonl")
+    if args.base is not None:
+        rec.input("base", args.base)
     records: list[dict[str, Any]]
     run_info: dict[str, Any]
     if args.from_raw is not None:
+        rec.input("from_raw", args.from_raw)
         records = [
             json.loads(line)
             for line in args.from_raw.read_text(encoding="utf-8").splitlines()
@@ -354,7 +365,7 @@ async def run(args: argparse.Namespace) -> int:
         records = [r for r in records if r["file"] in photos]
         run_info = {"from_raw": str(args.from_raw)}
     else:
-        asked = await ask_all(args, photos, marks)
+        asked = await ask_all(args, photos, marks, rec)
         if asked is None:
             return 2
         records, run_info = asked
@@ -393,16 +404,19 @@ async def run(args: argparse.Namespace) -> int:
     previous = args.out / "run.json"
     if args.from_raw is not None and previous.exists():
         run_info = {**json.loads(previous.read_text()), **run_info}
-    previous.write_text(json.dumps(run_info, indent=1, sort_keys=True))
+    print(f"wrote {args.out}", file=sys.stderr)
+    rec.finish(run_info)  # run.json and the manifest
     if args.loop:
         for sub in ("loop_masked", "loop_all"):
             shutil.copy(previous, args.out / sub / "run.json")
-    print(f"wrote {args.out}", file=sys.stderr)
     return 0
 
 
 async def ask_all(
-    args: argparse.Namespace, photos: Mapping[str, Path], marks: Mapping[str, list[mk.Mark]]
+    args: argparse.Namespace,
+    photos: Mapping[str, Path],
+    marks: Mapping[str, list[mk.Mark]],
+    rec: record.EvalRun,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
     settings = load_settings()
     pool = guard(ProviderPool.from_settings(settings))
@@ -410,9 +424,10 @@ async def ask_all(
         print("no model provider configured", file=sys.stderr)
         return None
     prompt = prompts.load(PROMPT, args.prompt)
+    rec.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = rec.recorder
     call = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,

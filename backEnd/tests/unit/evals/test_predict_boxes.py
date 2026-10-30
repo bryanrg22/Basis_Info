@@ -18,6 +18,7 @@ from PIL import Image
 
 from basis.vision.localize import (
     COUNTABLE,
+    L40S_USD_PER_SECOND,
     PHRASES,
     Box,
     FakeLocalizer,
@@ -145,6 +146,33 @@ async def test_dataset_run_writes_predictions_the_harness_scores(
     assert (summary["calls"], summary["phrases_from"], summary["tiling"]) == (2, "dataset", False)
     assert summary["model"] == "vufinder/sam3" and summary["errors"] == []
     assert (summary["phrase_set"], summary["count_threshold"]) == ("v1", "per_class")
+    # The run record (evals.record): one localization row per SAM 3 prediction, metered in
+    # predict seconds as production records them; the dataset named with its version.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_boxes"
+    assert manifest["summary"] == summary
+    assert manifest["calls"]["count"] == 2 and manifest["calls"]["by_kind"] == {"localization": 2}
+    assert manifest["calls"]["cost_usd"] == pytest.approx(2 * 1.0 * L40S_USD_PER_SECOND, abs=1e-6)
+    assert manifest["components"]["prompts"] == []  # no released prompt: phrases
+    assert manifest["components"]["models"]["answered"] == ["fake-sam3@fake"]
+    [dataset] = manifest["data"]["datasets"]
+    assert (dataset["name"], dataset["version"], dataset["file"]) == (
+        "detection_boxes",
+        "v1",
+        "detection_boxes_v1.json",
+    )
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["images"]
+    assert manifest["notes"] == {"phrase_set": "v1", "phrases_from": "dataset"}
+    rows = [json.loads(line) for line in (out / "llm_calls.jsonl").read_text().splitlines()]
+    assert len(rows) == 2
+    assert (rows[0]["kind"], rows[0]["quantity"], rows[0]["unit"]) == (
+        "localization",
+        "1.0",
+        "second",
+    )
+    assert set(rows[0]["request_params"]["prompts"]) == expected
+    assert rows[0]["request_params"]["phrase_set"] == "v1"
+    assert f"wrote {out}" in (out / "run.log").read_text()
 
     data = DetectionBoxes.model_validate_json((dataset_dir / "detection_boxes_v1.json").read_text())
     rows = {r.metric: r for r in score_detection_boxes(data, "dev", 1, predictions).rows}
@@ -200,6 +228,12 @@ async def test_photo_directory_with_vlm_labels(tmp_path: Path, fake: FakeLocaliz
     assert json.loads((out / "run.json").read_text())["notes"] == [
         "1 photos have no VLM labels: countable set only"
     ]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert [(i["name"], i["files"]) for i in manifest["data"]["inputs"]] == [
+        ("photos", 3),
+        ("photo_raw", 1),
+    ]
+    assert manifest["data"]["datasets"] == []
 
 
 async def test_failures_are_recorded_not_fatal(
@@ -220,6 +254,10 @@ async def test_failures_are_recorded_not_fatal(
         and "not a readable image" in errors[1]["error"]
     )
     assert json.loads((out / "detection_boxes.json").read_text()) == {}
+    # No prediction answered: a manifest with no calls and no ledger, still status ok.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["status"], manifest["calls"]["count"]) == ("ok", 0)
+    assert not (out / "llm_calls.jsonl").exists()
 
 
 async def test_no_token_no_photos_and_bad_options(

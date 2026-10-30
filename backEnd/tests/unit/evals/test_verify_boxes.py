@@ -13,6 +13,7 @@ import pytest
 from llm_fakes import PHOTO_MODEL, PHOTO_USAGE
 from PIL import Image
 
+from basis.llm import prompts
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import ChatRequest, ChatResponse
 from basis.vision.prep import prepare_image
@@ -141,3 +142,19 @@ async def test_run_counts_the_confirmed_detections(
     assert [v["confirmed"] for v in verdicts[:3]] == [True, False, True]
     run = json.loads((out / "run.json").read_text())
     assert (run["detections"], run["calls"], run["unanswered"]) == (3, 6, 0)
+    # The run record (evals.record): the SAM 3 run and the photos read, one ledger
+    # line per call, the prompt declared.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.verify_boxes"
+    assert manifest["calls"]["count"] == 6
+    assert manifest["components"]["prompts"] == [
+        {
+            "name": "photo_verify_box",
+            "version": "v1",
+            "sha256": prompts.load("photo_verify_box", "v1").sha256,
+            "calls": 6,
+        }
+    ]
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos", "sam3"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 6
+    assert "wrote" in (out / "run.log").read_text()

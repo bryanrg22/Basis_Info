@@ -20,6 +20,7 @@ Output (what ``evals.run --predictions`` scores)::
     <out>/room_raw.jsonl        per (room, repeat): path, step, fallback, objects with
                                 materials and files, calls, second looks, crops, cost
     <out>/run.json              the configuration in effect, paths taken, spend, models
+    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
 
 Transient provider errors are retried per room (``evals.predict_rooms.with_retries``); an
 account error stops the run (``evals.account_stop``).
@@ -42,7 +43,6 @@ from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider
-from basis.llm.recorder import MemoryRecorder
 from basis.vision import room_step
 from basis.vision import surface_crops as crops
 from basis.vision.prep import prepare_image
@@ -53,6 +53,7 @@ from basis.vision.surface_segmenter import SurfaceSegmenter
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import photo_files
 from evals.predict_rooms import InputError, load_aliases, load_per_photo, with_retries
+from evals.record import EvalRun
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -171,9 +172,21 @@ async def run(
     analyses = {f.name: per_photo[f.name] for f in files}
     groups = group_photos([PhotoInput(f.name, analyses[f.name]) for f in files], aliases)
     args.out.mkdir(parents=True, exist_ok=True)
+    rec = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    rec.input("photos", args.photos)
+    rec.input("per_photo", args.per_photo / "photo_raw.jsonl")
+    if args.aliases is not None:
+        rec.input("aliases", args.aliases)
+    for prompt in (
+        config.room_prompt,
+        config.materials_prompt,
+        None if config.room_call is None else config.room_call.prompt,
+        crop_prompt,
+    ):
+        rec.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = rec.recorder
     call = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,
@@ -255,46 +268,42 @@ async def run(
     for record in records:
         key = record["path"] + (":fallback" if record["room_call_fallback"] else "")
         paths[key] = paths.get(key, 0) + 1
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "per_photo_source": f"{args.per_photo}/photo_raw.jsonl repeat "
-                f"{args.per_photo_repeat}",
-                "photos": len(files),
-                "rooms": len(groups),
-                "repeats": args.repeats,
-                "aliases": aliases,
-                "room_step_mode": config.mode,
-                "room_call": None
-                if config.room_call is None
-                else {
-                    "prompt": config.room_call.prompt.version_id,
-                    "model": config.room_call.model,
-                    "reasoning_effort": config.room_call.reasoning_effort,
-                },
-                "reconcile_room_types": sorted(room_step.RECONCILE_ROOM_TYPES),
-                "reconcile": {
-                    "prompt": config.room_prompt.version_id,
-                    "model": config.model,
-                    "reasoning_effort": config.reasoning_effort,
-                    "single_photo": config.single_photo,
-                    "materials": config.materials,
-                    "materials_model": config.look_model,
-                    "materials_reasoning_effort": config.look_reasoning_effort,
-                },
-                "materials_second_look": settings.materials_second_look,
-                "surface_crop_model": settings.surface_crop_model if surface_crops_on else None,
-                "segmenter": None if segmenter is None else segmenter.name,
-                "paths": paths,
-                "rooms_by_path": {r["room_id"]: r["path"] for r in records if r["repeat"] == 1},
-                "models_reported": sorted({r.model for r in recorder.records}),
-                "spent_usd": round(budget.spent_usd, 6),
-                "wall_seconds": round(wall, 1),
-            },
-            indent=1,
-        )
-    )
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    rec.finish(  # run.json and the manifest
+        {
+            "per_photo_source": f"{args.per_photo}/photo_raw.jsonl repeat {args.per_photo_repeat}",
+            "photos": len(files),
+            "rooms": len(groups),
+            "repeats": args.repeats,
+            "aliases": aliases,
+            "room_step_mode": config.mode,
+            "room_call": None
+            if config.room_call is None
+            else {
+                "prompt": config.room_call.prompt.version_id,
+                "model": config.room_call.model,
+                "reasoning_effort": config.room_call.reasoning_effort,
+            },
+            "reconcile_room_types": sorted(room_step.RECONCILE_ROOM_TYPES),
+            "reconcile": {
+                "prompt": config.room_prompt.version_id,
+                "model": config.model,
+                "reasoning_effort": config.reasoning_effort,
+                "single_photo": config.single_photo,
+                "materials": config.materials,
+                "materials_model": config.look_model,
+                "materials_reasoning_effort": config.look_reasoning_effort,
+            },
+            "materials_second_look": settings.materials_second_look,
+            "surface_crop_model": settings.surface_crop_model if surface_crops_on else None,
+            "segmenter": None if segmenter is None else segmenter.name,
+            "paths": paths,
+            "rooms_by_path": {r["room_id"]: r["path"] for r in records if r["repeat"] == 1},
+            "models_reported": sorted({r.model for r in recorder.records}),
+            "spent_usd": round(budget.spent_usd, 6),
+            "wall_seconds": round(wall, 1),
+        }
+    )
     return 0
 
 

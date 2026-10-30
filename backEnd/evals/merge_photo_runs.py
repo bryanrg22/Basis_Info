@@ -17,6 +17,7 @@ scores a single run:
   decomposed step runs); ``model`` and ``prompt`` name every source; ``seconds`` and the
   cost add up.
 * ``run.json``: the sources, their prompts and the summed spend.
+* ``run.log``, ``manifest.json``: the run record (:mod:`evals.record`).
 
 Usage (from ``backEnd/``)::
 
@@ -33,9 +34,30 @@ from pathlib import Path
 from typing import Any
 
 from basis.vision.merge import merge_components
+from evals import record
 from evals.predict_photos import label_counts
 
-__all__ = ["main", "merge_components", "merge_records", "merge_runs", "parse_args", "read_raw"]
+__all__ = [
+    "main",
+    "merge_components",
+    "merge_records",
+    "merge_runs",
+    "parse_args",
+    "read_raw",
+    "source_manifest_id",
+]
+
+
+def source_manifest_id(run: Path) -> str | None:
+    """The ``id`` of a source run's ``manifest.json`` (``None`` when it has none)."""
+    path = run / record.MANIFEST_FILE
+    if not path.is_file():
+        return None
+    try:
+        found = json.loads(path.read_text(encoding="utf-8")).get("id")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return str(found) if found is not None else None
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -89,9 +111,25 @@ def merge_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str, Any]:
     """``room_from`` is the 1-based index of the run whose room type the merge keeps."""
-    raws = [read_raw(run) for run in runs]
+    run = record.EvalRun.begin(out, harness=__name__)
+    try:
+        summary = _merge(runs, out, room_from, run)
+    except BaseException as exc:
+        run.finish(None, status="error", exit_code=1, error=repr(exc))
+        raise
+    run.finish(summary)
+    return summary
+
+
+def _merge(runs: Sequence[Path], out: Path, room_from: int, run: record.EvalRun) -> dict[str, Any]:
+    for i, source in enumerate(runs, 1):
+        run.input(f"run{i}", source)
+    run.note(
+        room_from=room_from,
+        sources=[{"run": str(p), "manifest_id": source_manifest_id(p)} for p in runs],
+    )
+    raws = [read_raw(source) for source in runs]
     keys = sorted(set(raws[0]))
-    out.mkdir(parents=True, exist_ok=True)
     rooms: dict[str, list[str]] = {}
     components: dict[str, list[list[str]]] = {}
     counts: dict[str, list[dict[str, int]]] = {}
@@ -124,12 +162,12 @@ def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str,
     )
     sources = []
     spent = 0.0
-    for run in runs:
-        summary_path = run / "run.json"
+    for source in runs:
+        summary_path = source / "run.json"
         summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
         sources.append(
             {
-                "run": str(run),
+                "run": str(source),
                 "prompt": summary.get("prompt"),
                 "spent_usd": summary.get("spent_usd"),
             }
@@ -145,7 +183,6 @@ def merge_runs(runs: Sequence[Path], out: Path, room_from: int = 1) -> dict[str,
             {f"{k[0]}#{k[1]}" for raw in raws[1:] for k in keys if k not in raw}
         ),
     }
-    (out / "run.json").write_text(json.dumps(summary, indent=1))
     return summary
 
 

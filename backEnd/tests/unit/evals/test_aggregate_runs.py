@@ -85,6 +85,16 @@ def test_median_over_three_repeats(tmp_path: Path) -> None:
     assert summary["samples_per_photo"] == [1, 3]
     assert summary["spent_usd"] == 2.5
     assert summary["rule"] == "median"
+    assert json.loads((out / "run.json").read_text()) == summary
+    # The run record: a manifest naming the source run, no model call, and the log.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.aggregate_runs"
+    assert manifest["calls"]["count"] == 0
+    assert [(i["name"], i["path"]) for i in manifest["data"]["inputs"]] == [("run1", str(run))]
+    assert manifest["notes"]["rule"] == "median" and manifest["notes"]["by_repeat"] is False
+    assert manifest["notes"]["sources"] == [{"run": str(run), "manifest_id": None}]
+    assert manifest["summary"] == summary
+    assert (out / "run.log").exists()
 
 
 def test_max_is_the_union_and_the_largest_count(tmp_path: Path) -> None:
@@ -170,3 +180,6 @@ def test_by_repeat_aggregates_repeat_i_of_every_run(tmp_path: Path) -> None:
     assert read(out, "photo_components") == {"a.jpg": {"repeats": [["window"], ["window"]]}}
     assert summary["samples_per_photo"] == [3]
     assert summary["by_repeat"] is True
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["notes"]["by_repeat"] is True
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["run1", "run2", "run3"]

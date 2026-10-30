@@ -627,6 +627,59 @@ run --system vote --voters llm_pages@gpt-6-luna@low,llm_pages@claude-haiku-5-5@l
 BASIS_ENV=dev uv run python -m evals.appraisal.run --set client --mode replay --system llm_all --model gpt-6-luna --effort low
 ```
 
+## Run records and the registry
+
+Every runner leaves, in its output directory, the record a study leaves in production
+(EVAL_REPORT section 42; `evals/record.py`), so a result can be reused instead of re-run
+and a question like "has `photo_countables/v3` on gpt-6.1-sol been tested against
+`photo_components_v1`" is answered from files:
+
+| file | what it holds |
+|---|---|
+| `llm_calls.jsonl` | one line per paid call with every column of the `llm_calls` table (`basis.llm.recorder.ledger_columns`, the dict the production repository writes) plus `created_at`: component, prompt name/version/sha256, build sha, requested and answering model, request parameters, tokens of every kind, cost with price row and pricing version, latency, finish reason, status |
+| `llm/<call id>.request.json`, `.response.json` | the request as sent (system prompt, messages, images as ref + size + sha256, tools, schema) and the raw response, built and redacted by the production archive's functions |
+| `run.log` | everything printed and logged during the run, API-key-shaped strings redacted (the log ends when the runner finishes its record; a line printed after that is not in it) |
+| `manifest.json` | the run manifest: harness module and its file's sha256, command line and options; git sha, dirty flag, branch and nearest release tag; every prompt name + version + sha256 (declared or called), the price table version, the rules table version, the embedder and its pinned revision, the cost table if configured, the models requested and answered, the request parameters in effect, the model settings; the inputs and dataset files read (sha256, label version), split and repeats; calls, tokens and dollars; status, exit code and error; the `run.json` summary |
+| `run.json` | the runner's own summary, unchanged |
+| `scores.jsonl` | appended by `evals.run --predictions DIR`: the label file, version and sha256 of every dataset scored, the scorer's git state and options, every metric. The latest scoring per dataset is what the registry reports |
+
+The derive-a-run tools (`merge_photo_runs`, `aggregate_runs`, `fuse_counts`,
+`combine_rooms`, `sam3_select`, `manual_add`) write a manifest and log too, naming their
+source runs (and the sources' manifest ids) under `notes.sources` / `data.inputs`. A run
+stopped by an account error or an exception still gets its manifest (`status: stopped` /
+`error`) and its log: `evals.account_stop.stops_on_account_error` finishes the record on
+every exit. When `DATABASE_URL` is set, `evals.run` writes the same manifest fields on its
+`eval_runs` rows (`git_dirty`, `release`, `run_dir`, `label_version`, `label_sha256`,
+`manifest`; migration `0014`), so the database and the files agree.
+
+Runs made before this record (the directories under `$BASIS_EVAL_DATA_DIR/predictions/`
+and `appraisal/runs/` up to 2026-10-29) carry a backfilled manifest written by
+`python -m evals.backfill_manifests --write` (`backfilled: true`, each field with its source,
+`unknown` where the files do not say; the note on what could and could not be recovered is
+`docs/review_2026-10-15/EVAL_RUN_BACKFILL.md`). The tool is a dry run without `--write`,
+never touches a manifest a runner wrote, and rewrites its own only with `--force`.
+
+```bash
+cd backEnd
+# every run, newest first (Markdown to stdout)
+uv run python -m evals.registry
+# the question above: component at a version, on a model, against a label version
+uv run python -m evals.registry --component photo_countables/v3 --model gpt-6.1-sol --labels photo_components_v1
+# "fully tested?": prompt version x model, with the label versions seen in each cell
+uv run python -m evals.registry --component room_inventory --matrix
+# every filter, both outputs
+uv run python -m evals.registry --release v0.9.0 --harness evals.predict_rooms --since 2026-10-16 \
+    --status ok --json runs.json --markdown runs.md
+```
+
+`--component` takes a prompt name or `name/vN` (also `detector:gdino`, `embedder:<model>`),
+`--model` a requested or answered model (`claude-*` for a prefix), `--labels` a label file
+stem, `--dataset` a scored dataset. The table shows each run's start, release, git sha
+(`*` when the tree was dirty), harness, prompts, model, effort, labels, the headline metric
+per dataset (`registry.HEADLINE_METRICS`; every metric is in the JSON), cost, calls and
+where the record came from (`manifest`, `backfilled`, or `run.json` alone) with the
+EVAL_REPORT sections that cite it.
+
 ## Metrics
 
 `evals/metrics.py`, unit-tested against hand-computed values in

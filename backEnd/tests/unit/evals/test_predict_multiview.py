@@ -11,12 +11,13 @@ from typing import Any
 
 import pytest
 from PIL import Image
+from tests.llm_fakes import PromptKeyedProvider
 
+from basis.llm import prompts
 from basis.llm.provider import ScriptedTurn
 from basis.vision import multiview as mv
 from basis.vision.reconcile import ModelRoomInventory
 from evals import predict_multiview as pm
-from tests.llm_fakes import PromptKeyedProvider
 
 FILES = [
     "21_1st Floor Kitchen photo 1.JPG",
@@ -105,6 +106,19 @@ def test_room_scope_calls_once_per_room_and_writes_inventories_with_materials(
     assert run["rooms"] == 2 and run["prompt"] == "room_photos_inventory/v2"
     assert run["models_reported"] == ["claude-opus-5-5"]
     assert len(provider.requests) == 2
+    # The run record (evals.record) beside the runner's own calls.jsonl.
+    manifest = json.loads((a.out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_multiview"
+    assert manifest["summary"] == run
+    assert manifest["calls"]["count"] == 2 and manifest["calls"]["by_kind"] == {"chat": 2}
+    prompt = prompts.load("room_photos_inventory", "v2")
+    assert manifest["components"]["prompts"] == [
+        {"name": "room_photos_inventory", "version": "v2", "sha256": prompt.sha256, "calls": 2}
+    ]
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos", "aliases"]
+    assert len((a.out / "llm_calls.jsonl").read_text().splitlines()) == 2
+    assert len((a.out / "calls.jsonl").read_text().splitlines()) == 2
+    assert f"wrote {a.out}" in (a.out / "run.log").read_text()
 
 
 def test_house_scope_is_one_call_and_an_unusable_answer_is_retried_once(

@@ -116,7 +116,40 @@ def test_merge_runs_writes_the_harness_files(tmp_path: Path) -> None:
         "photo_countables/v1",
         "photo_surfaces/v1",
     ]
+    assert json.loads((out / "run.json").read_text()) == summary
+    # The run record: a manifest naming the source runs, no model call, and the log.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.merge_photo_runs"
+    assert manifest["calls"]["count"] == 0
+    assert [(i["name"], i["path"]) for i in manifest["data"]["inputs"]] == [
+        ("run1", str(a)),
+        ("run2", str(b)),
+    ]
+    assert manifest["notes"]["sources"] == [
+        {"run": str(a), "manifest_id": None},
+        {"run": str(b), "manifest_id": None},
+    ]
+    assert manifest["summary"] == summary
+    assert (out / "run.log").exists()
     assert merge_photo_runs.main(["--runs", str(a), str(b), "--out", str(tmp_path / "m2")]) == 0
+    # A source run that has its own manifest is named by its id.
+    second = merge_photo_runs.merge_runs([tmp_path / "m2", b], tmp_path / "m3")
+    assert second["photos"] == 2
+    m3 = json.loads((tmp_path / "m3" / "manifest.json").read_text())
+    m2_id = json.loads((tmp_path / "m2" / "manifest.json").read_text())["id"]
+    assert m3["notes"]["sources"][0] == {"run": str(tmp_path / "m2"), "manifest_id": m2_id}
+
+
+def test_a_failed_merge_still_leaves_a_manifest(tmp_path: Path) -> None:
+    a = write_run(tmp_path, "a", "p/a", [record("1.jpg", 1, "kitchen", [component("sink")])], 0.1)
+    out = tmp_path / "merged"
+    with pytest.raises(FileNotFoundError):
+        merge_photo_runs.merge_runs([a, tmp_path / "missing"], out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
+    assert "FileNotFoundError" in manifest["error"]
+    assert manifest["data"]["inputs"][1]["error"] == "not found"
+    assert not (out / "run.json").exists()
 
 
 def test_room_type_can_come_from_another_run(tmp_path: Path) -> None:
@@ -129,5 +162,6 @@ def test_room_type_can_come_from_another_run(tmp_path: Path) -> None:
     assert raw["analysis"]["room_type"] == "other"
     assert {c["label"] for c in raw["analysis"]["components"]} == {"sink", "tile"}
     assert summary["room_from"] == str(b)
+    assert json.loads((out / "manifest.json").read_text())["notes"]["room_from"] == 2
     with pytest.raises(SystemExit):
         merge_photo_runs.parse_args(["--runs", str(a), "--out", "x", "--room-from", "2"])

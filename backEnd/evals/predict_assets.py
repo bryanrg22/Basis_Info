@@ -23,6 +23,7 @@ production ``RETRIEVAL_SEARCH=hybrid`` path (EVAL_REPORT section 25). Writes wha
     <out>/assets_raw.jsonl   one line per (id, repeat): the result, review reasons, tool
                               calls, dropped citations, model calls with tokens and cost
     <out>/run.json           models reported, effort, spend, latency, errors
+    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
 
 A row whose loop failed gets the pipeline's fallback (section 1250, the building bucket,
 ``needs_review``), exactly what production would write, and is scored as such.
@@ -53,12 +54,14 @@ from basis.classify.schemas import ComponentView
 from basis.classify.store_protocol import ChunkStore, InMemoryChunkStore, StoredChunk
 from basis.classify.tools import SearchFn
 from basis.config import load_settings
+from basis.llm.call import CallContext
 from basis.llm.cost import cost_usd, is_anthropic_model
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider, ChatRequest, ChatResponse
 from basis.retrieval.chunk import split_text
 from evals import datasets as ds
 from evals.account_stop import guard, stops_on_account_error, track
+from evals.record import EvalRun
 
 if TYPE_CHECKING:
     from basis.config import Settings
@@ -258,9 +261,20 @@ async def run(args: argparse.Namespace) -> int:
     if not store.chunks:
         print(f"no corpus PDFs match {args.corpus_glob} in {data_dir / 'corpus'}", file=sys.stderr)
         return 2
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.dataset(data_dir / "assets_v1.json")
+    eval_run.input("corpus", data_dir / "corpus")
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
+    # The classifier records every call it makes through this context (the
+    # production path); the run's ledger is the study's.
+    ledger = CallContext(
+        study_id=uuid.uuid4(),
+        run_id=None,
+        activity="evals.predict_assets",
+        budget=budget,
+        recorder=eval_run.recorder,
+    )
     limits = replace(DEFAULT_LIMITS, max_tokens=args.max_tokens, timeout_s=args.timeout_s)
     search = classifier_search(settings, args.search, store)
 
@@ -277,6 +291,7 @@ async def run(args: argparse.Namespace) -> int:
             price=cost_usd,
             reasoning_effort=args.reasoning_effort,
             search=search,
+            call=ledger,
         )
 
     semaphore = asyncio.Semaphore(args.concurrency)
@@ -303,10 +318,9 @@ async def run(args: argparse.Namespace) -> int:
     (args.out / "assets.json").write_text(
         json.dumps({k: fold(v) for k, v in predictions.items()}, indent=1, sort_keys=True)
     )
-    (args.out / "run.json").write_text(
-        json.dumps({**summary(args, settings, records), "provider_errors": pool.errors}, indent=1)
-    )
+    report = {**summary(args, settings, records), "provider_errors": pool.errors}
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 

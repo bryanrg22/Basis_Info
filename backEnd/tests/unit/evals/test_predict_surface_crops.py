@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 import io
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pytest
+from llm_fakes import PHOTO_MODEL, PHOTO_USAGE
 from PIL import Image
 
+from basis.llm import prompts
+from basis.llm.provider import ChatRequest, ChatResponse
 from basis.vision import surface_crops as sc
 from basis.vision.localize import Rle
 from evals import predict_surface_crops as ps
@@ -125,6 +129,85 @@ def test_build_request_sends_the_photo_then_the_crop_and_asks_about_the_lower_ba
     assert "lower part" not in str(floor.messages[2].content)
 
 
+@dataclass
+class CropProvider:
+    """Answers every crop with painted drywall."""
+
+    name: str = "fake"
+    requests: list[ChatRequest] = field(default_factory=list)
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        parsed = sc.CropAnswer(
+            material="painted_drywall", lower_finish="none", confidence=0.9, evidence="e"
+        )
+        return ChatResponse(
+            parsed=parsed,
+            text=parsed.model_dump_json(),
+            usage=PHOTO_USAGE,
+            model=PHOTO_MODEL,
+            provider=self.name,
+        )
+
+
+async def test_predict_writes_the_crop_answers_and_the_run_record(tmp_path: Path) -> None:
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    buffer = io.BytesIO()
+    Image.new("RGB", (96, 72), (200, 200, 200)).save(buffer, format="JPEG")
+    (photos / "a.jpg").write_bytes(buffer.getvalue())
+    surfaces = tmp_path / "surfaces"
+    surfaces.mkdir()
+    wall = np.zeros((72, 96), dtype=bool)
+    wall[:36] = True  # the upper half of the photo
+    (surfaces / "surfaces_raw.jsonl").write_text(
+        json.dumps(
+            {"file": "a.jpg", "surfaces": {"wall": Rle.encode(wall).model_dump(mode="json")}}
+        )
+        + "\n"
+    )
+    provider = CropProvider()
+    out = tmp_path / "out"
+    args = ps.parse_args(
+        [
+            "predict",
+            "--surfaces",
+            str(surfaces),
+            "--photos",
+            str(photos),
+            "--out",
+            str(out),
+            "--model",
+            "m",
+            "--repeats",
+            "2",
+        ]
+    )
+    assert await ps.predict(args, provider) == 0
+    assert len(provider.requests) == 2  # one wall crop, two repeats
+    saved = json.loads((out / "surface_crops.json").read_text())
+    assert [a["material"] for a in saved["a.jpg"]["wall"]["repeats"]] == ["painted_drywall"] * 2
+    run = json.loads((out / "run.json").read_text())
+    assert (run["photos"], run["crops"], run["repeats"], run["unusable"]) == (1, 1, 2, 0)
+    assert run["prompt"] == "surface_crop_material/v1"
+    # The run record (evals.record): the segmenter run and the photos read, one ledger
+    # line per call, the prompt declared.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_surface_crops"
+    assert manifest["calls"]["count"] == 2
+    assert manifest["components"]["prompts"] == [
+        {
+            "name": "surface_crop_material",
+            "version": "v1",
+            "sha256": prompts.load("surface_crop_material", "v1").sha256,
+            "calls": 2,
+        }
+    ]
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["surfaces", "photos"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 2
+    assert "wrote" in (out / "run.log").read_text()
+
+
 def test_majority_breaks_ties_by_first_seen_and_respects_allowed() -> None:
     assert ps.majority(["wood", "wallpaper", "wallpaper", "wood"]) == "wood"
     assert ps.majority(["hardwood", "carpet", "ceramic_tile"], {"ceramic_tile", "stone"}) == (
@@ -173,6 +256,14 @@ def test_apply_replaces_surface_materials_by_the_crops_majority_over_the_rooms_p
     assert written["objects"][0]["material_before_crops"] == "wood"
     assert json.loads((out / "room_inventory.json").read_text()) == {"1_hall": {"wainscoting": 1}}
     assert json.loads((out / "run.json").read_text())["materials_changed"] == 1
+    # apply makes no call but leaves a manifest naming the two runs it combined.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_surface_crops"
+    assert manifest["calls"]["count"] == 0 and manifest["components"]["prompts"] == []
+    assert manifest["notes"] == {"rooms": str(rooms), "crops": str(crops)}
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["rooms", "crops"]
+    assert not (out / "llm_calls.jsonl").exists()
+    assert "wrote" in (out / "run.log").read_text()
 
 
 def test_with_fallback_fills_only_the_kinds_the_crops_left_empty() -> None:

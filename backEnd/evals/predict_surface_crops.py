@@ -10,6 +10,7 @@ and the enlarged, greyed-around crop (prompt ``surface_crop_material``)::
     <out>/crops_raw.jsonl      one line per (file, surface, repeat): answer, model, cost,
                                seconds, crop box, attempts, errors
     <out>/run.json
+    <out>/llm_calls.jsonl, llm/, run.log, manifest.json    the run record (evals.record)
 
 ``score``: material accuracy per surface kind (floor, wall, wainscot band, ceiling)
 against the per-photo labels (``photo_components_v1``), for crop runs (``--crops NAME=DIR``)
@@ -49,11 +50,11 @@ from basis.llm.call import CallContext
 from basis.llm.cost import is_anthropic_model
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider, ChatRequest
-from basis.llm.recorder import MemoryRecorder
 from basis.vision import surface_crops as sc
 from basis.vision.localize import Rle
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_multiview import call_with_retries
+from evals.record import EvalRun
 
 KINDS: tuple[sc.Kind, ...] = ("floor", "wall", "wall_lower", "ceiling")
 
@@ -110,9 +111,13 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
         if line.strip()
     ]
     prompt = prompts.load(sc.PROMPT_NAME, args.prompt)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.input("surfaces", args.surfaces)
+    eval_run.input("photos", args.photos)
+    eval_run.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = eval_run.recorder
     ctx = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,
@@ -121,7 +126,6 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
         recorder=recorder,
     )
     semaphore = asyncio.Semaphore(args.concurrency)
-    args.out.mkdir(parents=True, exist_ok=True)
     jobs: list[tuple[str, sc.Surface, bytes, bytes, list[int]]] = []
     for record in records:
         path = args.photos / record["file"]
@@ -178,26 +182,22 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
         for line in sorted(raw_lines, key=lambda r: (r["repeat"], r["file"], r["surface"])):
             raw.write(json.dumps(line, sort_keys=True) + "\n")
     models = sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""})
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "surfaces": str(args.surfaces),
-                "photos": len(records),
-                "crops": len(jobs),
-                "repeats": args.repeats,
-                "model_requested": args.model,
-                "reasoning_effort": args.reasoning_effort
-                or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
-                "prompt": prompt.version_id,
-                "models_reported": models,
-                "spent_usd": round(budget.spent_usd, 6),
-                "wall_seconds": round(wall, 1),
-                "unusable": sum(1 for r in raw_lines if r["answer"] is None),
-            },
-            indent=1,
-        )
-    )
+    report = {
+        "surfaces": str(args.surfaces),
+        "photos": len(records),
+        "crops": len(jobs),
+        "repeats": args.repeats,
+        "model_requested": args.model,
+        "reasoning_effort": args.reasoning_effort
+        or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
+        "prompt": prompt.version_id,
+        "models_reported": models,
+        "spent_usd": round(budget.spent_usd, 6),
+        "wall_seconds": round(wall, 1),
+        "unusable": sum(1 for r in raw_lines if r["answer"] is None),
+    }
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 
@@ -375,7 +375,10 @@ majority = sc.majority
 
 def apply(args: argparse.Namespace) -> int:
     crops = crop_predictions(args.crops)
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args)
+    eval_run.input("rooms", args.rooms)
+    eval_run.input("crops", args.crops)
+    eval_run.note(rooms=str(args.rooms), crops=str(args.crops))
     for name in ("room_inventory.json", "rooms.json", "room_inventory.heuristic.json"):
         if (args.rooms / name).is_file():
             shutil.copy(args.rooms / name, args.out / name)
@@ -404,13 +407,10 @@ def apply(args: argparse.Namespace) -> int:
                 changed += 1
         lines.append(json.dumps(record, sort_keys=True))
     (args.out / "room_raw.jsonl").write_text("\n".join(lines) + "\n")
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {"rooms": str(args.rooms), "crops": str(args.crops), "materials_changed": changed},
-            indent=1,
-        )
-    )
     print(f"wrote {args.out}: {changed} materials changed", file=sys.stderr)
+    eval_run.finish(
+        {"rooms": str(args.rooms), "crops": str(args.crops), "materials_changed": changed}
+    )
     return 0
 
 

@@ -10,6 +10,7 @@ environment, and writes what ``evals.run --predictions`` scores::
     <out>/photo_counts.json       {"<file>": {"label": count} | {"repeats": [...]}}
     <out>/photo_raw.jsonl         one line per (file, repeat): the full analysis, model,
                                   provider, attempts, errors, estimated cost
+    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
 
 Usage (from ``backEnd/``, with ``BASIS_ENV=dev`` and the provider credentials in the
 environment)::
@@ -40,7 +41,6 @@ from basis.llm.cost import is_anthropic_model
 from basis.llm.errors import ProviderRateLimited, ProviderRequestRejected, ProviderUnavailable
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget
-from basis.llm.recorder import MemoryRecorder
 from basis.vision.analyze import (
     PhotoResult,
     VisionContext,
@@ -49,6 +49,7 @@ from basis.vision.analyze import (
 )
 from basis.vision.prep import ImageRejected
 from evals.account_stop import guard, stops_on_account_error, track
+from evals.record import EvalRun
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -149,10 +150,11 @@ async def run(args: argparse.Namespace) -> int:
     if not files:
         print(f"no photos in {args.photos}", file=sys.stderr)
         return 2
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.input("photos", args.photos)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = eval_run.recorder
     model = args.model or settings.vision_model
     ctx = VisionContext(
         call=CallContext(
@@ -172,6 +174,7 @@ async def run(args: argparse.Namespace) -> int:
         reasoning_effort=args.reasoning_effort,
         **({"max_tokens": args.max_tokens} if args.max_tokens else {}),
     )
+    eval_run.prompt(ctx.prompt)
     semaphore = asyncio.Semaphore(args.concurrency)
     raw_path = args.out / "photo_raw.jsonl"
     errors_seen: list[dict[str, Any]] = []
@@ -230,27 +233,23 @@ async def run(args: argparse.Namespace) -> int:
         json.dumps({f: fold(v) for f, v in counts.items() if v}, indent=1, sort_keys=True)
     )
     models = sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""})
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "photos": len(files),
-                "repeats": args.repeats,
-                "vision_model_setting": settings.vision_model,
-                "model_requested": model,
-                # The effort in effect: the flag, else the Anthropic default for a Claude
-                # model (ANTHROPIC_EFFORT), else the model's own default (null).
-                "reasoning_effort": args.reasoning_effort
-                or (settings.anthropic_effort if is_anthropic_model(model) else None),
-                "max_tokens": ctx.max_tokens,
-                "models_reported": models,
-                "spent_usd": round(budget.spent_usd, 6),
-                "errors": errors_seen,
-                "prompt": ctx.prompt.version_id,
-            },
-            indent=1,
-        )
-    )
+    report = {
+        "photos": len(files),
+        "repeats": args.repeats,
+        "vision_model_setting": settings.vision_model,
+        "model_requested": model,
+        # The effort in effect: the flag, else the Anthropic default for a Claude
+        # model (ANTHROPIC_EFFORT), else the model's own default (null).
+        "reasoning_effort": args.reasoning_effort
+        or (settings.anthropic_effort if is_anthropic_model(model) else None),
+        "max_tokens": ctx.max_tokens,
+        "models_reported": models,
+        "spent_usd": round(budget.spent_usd, 6),
+        "errors": errors_seen,
+        "prompt": ctx.prompt.version_id,
+    }
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 

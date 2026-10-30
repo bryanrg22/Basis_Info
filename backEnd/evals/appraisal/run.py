@@ -2,7 +2,8 @@
 
 ``python -m evals.appraisal.run --set client|gse_d1|synthetic_1004|all --mode live|replay``
 (``SPEC.md`` §7). Writes ``BASIS_EVAL_DATA_DIR/appraisal/runs/<id>/`` (or ``--out``):
-``predictions.json``, ``score.json``, ``report.md``, ``run.json``.
+``predictions.json``, ``score.json``, ``report.md``, ``run.json``, and the run record
+(:mod:`evals.record`): ``llm_calls.jsonl``, ``llm/``, ``run.log``, ``manifest.json``.
 
 * **live**: the system with the configured clients. For ``production`` and ``pipeline``,
   :func:`basis.extraction.pipeline.extract_appraisal` with the context the ``extract_fields``
@@ -12,8 +13,8 @@
   ``_FALLBACK_SCOPE``/``_FALLBACK_CONTEXT_CHARS``, the latest prompts), the configured Azure DI
   client and the provider pool. Differences from the activity: the
   budget is ``--budget-usd`` per document (default $1) instead of the study's, calls are
-  recorded in memory (:class:`~basis.llm.recorder.MemoryRecorder`) instead of
-  ``llm_calls``, and there is no earlier revision to reuse. The Azure DI analyses and
+  recorded in the run directory's ``llm_calls.jsonl`` (:mod:`evals.record`) instead of
+  the ``llm_calls`` table, and there is no earlier revision to reuse. The Azure DI analyses and
   every model call are recorded under ``recordings/<pdf sha256>/``; with ``--repeats N``
   the document is analyzed by Azure DI once and the model is called N times. Prints the
   model cost.
@@ -52,6 +53,7 @@ import logging
 import subprocess
 import sys
 import time
+import traceback
 import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
@@ -96,6 +98,7 @@ from evals.appraisal.systems.base import (
 )
 from evals.appraisal.systems.mortgage import AzureModelClient
 from evals.appraisal.truth import SETS, DocumentTruth, TruthSet, appraisal_dir, load_truth
+from evals.record import STATUS_FAILED, EvalRun, FileLedgerRecorder
 
 logger = logging.getLogger("evals.appraisal.run")
 
@@ -134,7 +137,8 @@ class LiveDeps:
 
 @dataclass
 class RunState:
-    recorder: MemoryRecorder = field(default_factory=MemoryRecorder)
+    recorder: MemoryRecorder | FileLedgerRecorder = field(default_factory=MemoryRecorder)
+    record: EvalRun | None = None  # the run record the PDFs read are declared to
     # One recording provider per document, so each request hash is written once per run.
     providers: dict[Path, recordings.RecordingProvider] = field(default_factory=dict)
     azure_calls: int = 0
@@ -326,6 +330,8 @@ async def predict_document(
         entry["repeats"] = [_failed(1, "missing_pdf", None)]
         return entry
     pdf = pdf_path.read_bytes()
+    if state.record is not None:
+        state.record.input(f"{set_name}/{doc.document}", pdf_path)
     if hashlib.sha256(pdf).hexdigest() != doc.sha256:
         entry["status"] = "sha256_mismatch"
         entry["repeats"] = [_failed(1, "sha256_mismatch", None)]
@@ -497,83 +503,103 @@ async def run_eval(
     run_id = f"{started.strftime('%Y%m%dT%H%M%SZ')}-{options.mode}-{options.system.label()}"
     directory = options.out or appraisal / "runs" / run_id
     directory.mkdir(parents=True, exist_ok=True)
-    state = RunState()
-    documents: list[dict[str, Any]] = []
-    attempted: set[tuple[str, str]] = set()
-    for set_name, truth in truths.items():
-        for doc in truth.documents:
-            if options.documents and doc.document not in options.documents:
-                continue
-            attempted.add((set_name, doc.document))
-            print(f"{set_name}/{doc.document} ...", flush=True)
-            entry = await predict_document(
-                set_name,
-                doc,
-                appraisal=appraisal,
-                options=options,
-                settings=settings,
-                live=live,
-                state=state,
-            )
-            print(f"{set_name}/{doc.document}: {entry['status']}", flush=True)
-            documents.append(entry)
-    predictions = {
-        "run": run_id,
-        "mode": options.mode,
-        "system": _system_json(options.system),
-        "documents": documents,
-    }
-    score = score_run(
-        truths,
-        predictions,
-        page_texts=page_texts_for(appraisal),
-        page_words=page_words_for(appraisal),
+    rec = EvalRun.begin(
+        directory, harness="evals.appraisal.run", args=asdict(options), settings=settings
     )
-    sha = git_sha()
-    calls = _model_calls(state.recorder.records)
-    cost = float(sum(r.cost_usd for r in calls))
-    azure_cost = float(sum(r.cost_usd for r in state.recorder.records if r.kind != "chat"))
-    run: dict[str, Any] = {
-        "run": run_id,
-        "mode": options.mode,
-        "system": _system_json(options.system),
-        "sets": sorted(truths),
-        "documents": sorted(f"{s}/{d}" for s, d in attempted),
-        "repeats": options.repeats,
-        "systems": {
-            "azure_di": not options.no_azure,
-            "llm": _needs_model(options),
-            "azure_1004": needs_mortgage(options.system),
-        },
-        "git_sha": sha,
-        "settings": asdict(ExtractionSettings.from_settings(settings)),
-        "prompt_version": prompts.latest(PROMPT_NAME).version_id,
-        "prompt_versions": sorted({r.prompt_version or "" for r in calls} - {""}),
-        "budget_usd_per_document": options.budget_usd,
-        "baseline": options.baseline,
-        "models": sorted({r.model for r in calls}),
-        "llm_calls": len(calls),
-        "cost_usd": cost if options.mode == "live" else 0.0,
-        "replayed_cost_usd": cost if options.mode == "replay" else None,
-        "azure_di_calls": state.azure_calls,
-        "azure_di_pages": state.azure_pages,
-        # The analyses as the ledger prices them (AZURE_DI_USD_PER_PAGE); a replay re-reads
-        # the recorded analysis and pays nothing.
-        "azure_di_cost_usd": azure_cost if options.mode == "live" else 0.0,
-        "timings_seconds": state.timings,
-        "started": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "finished": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    _write(directory / "predictions.json", predictions)
-    _write(directory / "score.json", score)
-    _write(directory / "run.json", run)
-    (directory / "report.md").write_text(render_report(score, run))
-    baseline_path = appraisal / options.baseline
-    previous = baseline.load(baseline_path)
-    found = baseline.regressions(previous, score, attempted) if previous is not None else []
-    if options.accept_baseline:
-        baseline.write(baseline_path, score, attempted, run=run_id, git_sha=sha)
-        print(f"baseline written: {baseline_path}")
+    for name in truths:
+        rec.dataset(appraisal / "truth" / f"{name}.json", name=name)
+    fallback_prompt = prompts.latest(PROMPT_NAME)
+    rec.prompt(fallback_prompt)
+    rec.note(mode=options.mode, system=options.system.label())
+    run: dict[str, Any] | None = None
+    try:
+        state = RunState(recorder=rec.recorder, record=rec)
+        documents: list[dict[str, Any]] = []
+        attempted: set[tuple[str, str]] = set()
+        for set_name, truth in truths.items():
+            for doc in truth.documents:
+                if options.documents and doc.document not in options.documents:
+                    continue
+                attempted.add((set_name, doc.document))
+                print(f"{set_name}/{doc.document} ...", flush=True)
+                entry = await predict_document(
+                    set_name,
+                    doc,
+                    appraisal=appraisal,
+                    options=options,
+                    settings=settings,
+                    live=live,
+                    state=state,
+                )
+                print(f"{set_name}/{doc.document}: {entry['status']}", flush=True)
+                documents.append(entry)
+        predictions = {
+            "run": run_id,
+            "mode": options.mode,
+            "system": _system_json(options.system),
+            "documents": documents,
+        }
+        score = score_run(
+            truths,
+            predictions,
+            page_texts=page_texts_for(appraisal),
+            page_words=page_words_for(appraisal),
+        )
+        sha = git_sha()
+        calls = _model_calls(state.recorder.records)
+        cost = float(sum(r.cost_usd for r in calls))
+        azure_cost = float(sum(r.cost_usd for r in state.recorder.records if r.kind != "chat"))
+        run = {
+            "run": run_id,
+            "mode": options.mode,
+            "system": _system_json(options.system),
+            "sets": sorted(truths),
+            "documents": sorted(f"{s}/{d}" for s, d in attempted),
+            "repeats": options.repeats,
+            "systems": {
+                "azure_di": not options.no_azure,
+                "llm": _needs_model(options),
+                "azure_1004": needs_mortgage(options.system),
+            },
+            "git_sha": sha,
+            "settings": asdict(ExtractionSettings.from_settings(settings)),
+            "prompt_version": fallback_prompt.version_id,
+            "prompt_versions": sorted({r.prompt_version or "" for r in calls} - {""}),
+            "budget_usd_per_document": options.budget_usd,
+            "baseline": options.baseline,
+            "models": sorted({r.model for r in calls}),
+            "llm_calls": len(calls),
+            "cost_usd": cost if options.mode == "live" else 0.0,
+            "replayed_cost_usd": cost if options.mode == "replay" else None,
+            "azure_di_calls": state.azure_calls,
+            "azure_di_pages": state.azure_pages,
+            # The analyses as the ledger prices them (AZURE_DI_USD_PER_PAGE); a replay re-reads
+            # the recorded analysis and pays nothing.
+            "azure_di_cost_usd": azure_cost if options.mode == "live" else 0.0,
+            "timings_seconds": state.timings,
+            "started": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "finished": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        _write(directory / "predictions.json", predictions)
+        _write(directory / "score.json", score)
+        (directory / "report.md").write_text(render_report(score, run))
+        baseline_path = appraisal / options.baseline
+        previous = baseline.load(baseline_path)
+        found = baseline.regressions(previous, score, attempted) if previous is not None else []
+        if options.accept_baseline:
+            baseline.write(baseline_path, score, attempted, run=run_id, git_sha=sha)
+            print(f"baseline written: {baseline_path}")
+        rec.finish(run)  # run.json and the manifest
+    except BaseException as exc:
+        # A failed run still leaves run.json (when it got that far), the manifest and the log.
+        if not rec.finished:
+            rec.finish(
+                run,
+                status=STATUS_FAILED,
+                exit_code=1,
+                error="".join(traceback.format_exception(exc)),
+            )
+        raise
     return RunOutput(directory=directory, score=score, run=run, regressions=found)
 
 

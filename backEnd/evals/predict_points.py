@@ -23,7 +23,8 @@ Output in ``--out`` (each a predictions directory, with ``--base`` merged as in
 ``evals.predict_marks``): the top level counts the points; ``stated/`` the model's stated counts
 (chat only); ``masked/`` the distinct masks; ``masked_all/`` the distinct masks plus points no
 mask was found for. ``points_raw.jsonl`` and ``run.json`` (models reported, spend, seconds,
-mask coverage).
+mask coverage); ``llm_calls.jsonl``, ``llm/``, ``run.log``, ``manifest.json``: the run record
+(:mod:`evals.record`; a Molmo prediction is a ``localization`` row, billed in seconds).
 
 Usage (from ``backEnd/``)::
 
@@ -47,12 +48,12 @@ from typing import Any, Final
 
 from basis.config import load_settings
 from basis.llm import prompts
-from basis.llm.call import CallContext
+from basis.llm.call import CallContext, step_entry
 from basis.llm.cost import is_anthropic_model
 from basis.llm.errors import ProviderAccountError
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, Message
-from basis.llm.recorder import MemoryRecorder
+from basis.llm.recorder import KIND_LOCALIZATION
 from basis.vision import marks as mk
 from basis.vision.localize import (
     L40S_USD_PER_SECOND,
@@ -62,6 +63,7 @@ from basis.vision.localize import (
     build_replicate_localizer,
 )
 from basis.vision.prep import prepare_image
+from evals import record
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_marks import (
     image_part,
@@ -135,7 +137,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 async def ask_chat(
-    args: argparse.Namespace, photos: Mapping[str, Path]
+    args: argparse.Namespace, photos: Mapping[str, Path], rec: record.EvalRun
 ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
     settings = load_settings()
     pool = guard(ProviderPool.from_settings(settings))
@@ -143,9 +145,10 @@ async def ask_chat(
         print("no model provider configured", file=sys.stderr)
         return None
     prompt = prompts.load(PROMPT, args.prompt)
+    rec.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = rec.recorder
     call = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,
@@ -221,7 +224,7 @@ async def ask_chat(
 
 
 async def ask_molmo(
-    args: argparse.Namespace, photos: Mapping[str, Path]
+    args: argparse.Namespace, photos: Mapping[str, Path], rec: record.EvalRun
 ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
     token = os.environ.get("REPLICATE_API_TOKEN", "")
     if not token:
@@ -230,6 +233,15 @@ async def ask_molmo(
     budget = Budget(remaining_usd=args.budget_usd)
     replicate = build_replicate_localizer(
         token, args.molmo_version, concurrency=args.concurrency, budget=budget
+    )
+    # Each Molmo prediction is a ledger row (kind localization, metered in predict seconds),
+    # as production records a SAM 3 prediction (basis.activities.localize_photo).
+    ledger = CallContext(
+        study_id=uuid.uuid4(),
+        run_id=None,
+        activity="evals.predict_points",
+        budget=budget,
+        recorder=rec.recorder,
     )
     rooms = base_rooms(args.base)
     # Replicate throttles low-credit accounts to 6 prediction creates a minute; pacing the
@@ -268,6 +280,21 @@ async def ask_molmo(
             except LocalizerError as exc:
                 errors.append(f"{query}: {exc}")
                 continue
+            await ledger.recorder.record(
+                step_entry(
+                    ledger,
+                    kind=KIND_LOCALIZATION,
+                    provider="replicate",
+                    model=f"zsxkib/molmo-7b@{args.molmo_version}",
+                    quantity=call.predict_seconds,
+                    unit="second",
+                    unit_price_usd=L40S_USD_PER_SECOND,
+                    cost_usd=call.cost_usd,
+                    response_id=call.prediction_id,
+                    params={"text": query, "temperature": args.molmo_temperature, "top_k": 1},
+                    response={"status": call.status, "predict_seconds": call.predict_seconds},
+                )
+            )
             seconds += call.predict_seconds
             output = prediction.get("output")
             text = "".join(output) if isinstance(output, list) else str(output or "")
@@ -316,7 +343,14 @@ async def run(args: argparse.Namespace) -> int:
     if args.only:
         photos = {k: v for k, v in photos.items() if k in set(args.only)}
     args.out.mkdir(parents=True, exist_ok=True)
+    rec = record.EvalRun.begin(args.out, harness=__name__, args=args, settings=load_settings())
+    rec.input("photos", args.photos)
+    for directory in args.pool:
+        rec.input("pool", directory / "instances_raw.jsonl")
+    if args.base is not None:
+        rec.input("base", args.base)
     if args.from_raw is not None:
+        rec.input("from_raw", args.from_raw)
         records = [
             json.loads(line)
             for line in args.from_raw.read_text(encoding="utf-8").splitlines()
@@ -327,7 +361,7 @@ async def run(args: argparse.Namespace) -> int:
         info: dict[str, Any] = json.loads(previous.read_text()) if previous.exists() else {}
         info["from_raw"] = str(args.from_raw)
     else:
-        asked = await (ask_molmo if args.pointer == "molmo" else ask_chat)(args, photos)
+        asked = await (ask_molmo if args.pointer == "molmo" else ask_chat)(args, photos, rec)
         if asked is None:
             return 2
         records, info = asked
@@ -402,10 +436,11 @@ async def run(args: argparse.Namespace) -> int:
         }
     )
     text = json.dumps(info, indent=1, sort_keys=True)
-    for sub in ("", "stated", "masked", "masked_all"):
+    for sub in ("stated", "masked", "masked_all"):
         if (args.out / sub).is_dir():
             (args.out / sub / "run.json").write_text(text)
     print(f"wrote {args.out}", file=sys.stderr)
+    rec.finish(info)  # the top-level run.json and the manifest
     return 0
 
 

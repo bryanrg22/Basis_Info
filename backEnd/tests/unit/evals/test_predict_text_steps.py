@@ -18,6 +18,7 @@ import pytest
 
 from basis.classify.schemas import CitationClaim, Classification
 from basis.extraction.fallback import FallbackAnswer, FallbackValue
+from basis.llm import prompts
 from basis.llm.errors import ProviderAccountError, ProviderBadResponse
 from basis.llm.provider import ScriptedProvider, ScriptedTurn, ToolCall
 from evals import account_stop, predict_assets, predict_fields
@@ -163,6 +164,24 @@ async def test_fields_run_writes_guarded_predictions_with_repeats(
     assert rows["normalized_accuracy"] == pytest.approx(2 / 4)
     assert rows["critical_accuracy"] == 1.0 and rows["critical_pass^2"] == 1.0
     assert rows["pass^2"] == pytest.approx(1 / 4)
+    # The run record (evals.record): the prompt, the label file, the PDF read, the ledger.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_fields"
+    assert manifest["calls"]["count"] == 2
+    assert manifest["components"]["prompts"] == [
+        {
+            "name": "appraisal_field_fallback",
+            "version": "v1",
+            "sha256": prompts.load("appraisal_field_fallback", "v1").sha256,
+            "calls": 2,
+        }
+    ]
+    [dataset] = manifest["data"]["datasets"]
+    assert (dataset["name"], dataset["version"]) == ("appraisal_fields", "v1")
+    assert dataset["sha256"]
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["inputs/appraisal.pdf"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 2
+    assert "wrote" in (out / "run.log").read_text()
 
 
 def saved_doc(out: Path) -> dict[str, Any]:
@@ -333,6 +352,20 @@ async def test_assets_run_scores_bucket_and_citations(
     rows = {r.metric: r.value for r in score_assets(data, "dev", 2, saved).rows}
     assert rows["bucket_accuracy"] == 1.0 and rows["bucket_pass^2"] == 0.0
     assert rows["citation_validity"] == pytest.approx(1 / 2)
+    # The run record (evals.record): the classifier's calls are in the ledger, with
+    # the label file and the corpus read.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_assets"
+    assert manifest["calls"]["count"] == 4
+    [prompt] = manifest["components"]["prompts"]
+    assert (prompt["name"], prompt["version"], prompt["calls"]) == ("classify", "v1", 4)
+    assert prompt["sha256"]
+    [dataset] = manifest["data"]["datasets"]
+    assert (dataset["file"], dataset["version"]) == ("assets_v1.json", "v1")
+    [corpus] = manifest["data"]["inputs"]
+    assert (corpus["name"], corpus["files"]) == ("corpus", 2)
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 4
+    assert "wrote" in (out / "run.log").read_text()
 
 
 async def test_assets_loop_failure_is_the_production_fallback_with_the_error_kept(

@@ -19,6 +19,7 @@ Output (what ``evals.run --predictions`` and ``evals.score_schedule`` read)::
     <out>/calls.jsonl           every call: scope, room, files, attempts, model, cost,
                                 seconds, dropped entries, errors, the raw response
     <out>/run.json              summary: model, effort, prompt, spend, seconds, models
+    <out>/llm_calls.jsonl, llm/, run.log, manifest.json   the run record (evals.record)
 
 An unusable answer is retried once (as the reconciliation call does); a room or repeat
 whose answer stays unusable is recorded with an empty inventory and an error, never
@@ -51,7 +52,6 @@ from basis.llm.errors import (
 )
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider, ChatRequest
-from basis.llm.recorder import MemoryRecorder
 from basis.vision import multiview
 from basis.vision.multiview import CallSettings, Checked, Photo, Scope
 from basis.vision.prep import prepare_image
@@ -59,6 +59,7 @@ from basis.vision.reconcile import ModelRoomInventory
 from basis.vision.rooms import name_hint, resolve_aliases
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, photo_files
+from evals.record import EvalRun
 
 MAX_ATTEMPTS = 2
 
@@ -185,9 +186,17 @@ async def run(args: argparse.Namespace, provider: ChatProvider | None = None) ->
     files = photo_files(args.photos)
     photos = [Photo(f.name, room_of(f.name, aliases), prepare_image(f.read_bytes())) for f in files]
     prompt = prompts.load(multiview.PROMPTS[scope], args.prompt)
+    args.out.mkdir(parents=True, exist_ok=True)
+    rec = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    rec.input("photos", args.photos)
+    if args.aliases:
+        rec.input("aliases", args.aliases)
+    if args.template:
+        rec.input("template", args.template)
+    rec.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = rec.recorder
     ctx = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,
@@ -203,7 +212,6 @@ async def run(args: argparse.Namespace, provider: ChatProvider | None = None) ->
         max_tokens=args.max_tokens or multiview.MAX_TOKENS[scope],
         reasoning_effort=args.reasoning_effort,
     )
-    args.out.mkdir(parents=True, exist_ok=True)
     rooms = group(photos)
     semaphore = asyncio.Semaphore(args.concurrency)
     per_room: dict[str, list[dict[str, int]]] = {room: [] for room in rooms}
@@ -298,31 +306,28 @@ async def run(args: argparse.Namespace, provider: ChatProvider | None = None) ->
         for call in calls:
             out.write(json.dumps(call, sort_keys=True, default=str) + "\n")
     models = sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""})
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "scope": scope,
-                "photos": len(photos),
-                "rooms": len(rooms),
-                "repeats": args.repeats,
-                "model_requested": args.model,
-                "reasoning_effort": args.reasoning_effort
-                or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
-                "max_tokens": call_settings.max_tokens,
-                "prompt": prompt.version_id,
-                "aliases": aliases,
-                "template_rows": len(template) or None,
-                "models_reported": models,
-                "spent_usd": round(budget.spent_usd, 6),
-                "wall_seconds": round(wall, 1),
-                "seconds_per_repeat": round(wall / args.repeats, 1),
-                "calls": len(calls),
-                "errors": errors,
-            },
-            indent=1,
-        )
-    )
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    rec.finish(  # run.json and the manifest
+        {
+            "scope": scope,
+            "photos": len(photos),
+            "rooms": len(rooms),
+            "repeats": args.repeats,
+            "model_requested": args.model,
+            "reasoning_effort": args.reasoning_effort
+            or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
+            "max_tokens": call_settings.max_tokens,
+            "prompt": prompt.version_id,
+            "aliases": aliases,
+            "template_rows": len(template) or None,
+            "models_reported": models,
+            "spent_usd": round(budget.spent_usd, 6),
+            "wall_seconds": round(wall, 1),
+            "seconds_per_repeat": round(wall / args.repeats, 1),
+            "calls": len(calls),
+            "errors": errors,
+        }
+    )
     return 0
 
 

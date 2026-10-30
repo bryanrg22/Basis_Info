@@ -27,9 +27,10 @@ detections, counts and precision/recall at the held-out thresholds. That estimat
 selection procedure, selection optimism included. The table the product ships is the same
 rule applied to all photos (``final``), reported in sample next to it.
 
-Writes ``<out>/selection.json`` (choices, per-fold choices, every metric) and
+Writes ``<out>/selection.json`` (choices, per-fold choices, every metric),
 ``<out>/detection_boxes.json`` / ``photo_counts.json`` (the out-of-sample predictions, so
-``evals.run --predictions <out>`` reproduces the out-of-sample AP). ``score`` mode scores
+``evals.run --predictions <out>`` reproduces the out-of-sample AP) and ``<out>/run.log`` /
+``manifest.json``, the run record (:mod:`evals.record`). ``score`` mode scores
 a normal ``predict_boxes`` run at the localizer's per-class thresholds (the confirmation
 run of the shipped phrase set)::
 
@@ -63,6 +64,7 @@ from basis.vision.localize import (
     suppress,
 )
 from basis.vision.schemas import ComponentLabel
+from evals import record
 from evals.datasets import DATASET_FILES, DetectionBoxes
 from evals.metrics import (
     DetectionImage,
@@ -548,11 +550,24 @@ def labelled_classes(images: Sequence[DetectionImage]) -> list[ComponentLabel]:
 
 
 def run_select(args: argparse.Namespace) -> int:
+    run = record.EvalRun.begin(args.out, harness=__name__, args=args)
+    try:
+        return _select(args, run)
+    except BaseException as exc:
+        record.finish_pending(args, exit_code=1, error=exc)
+        raise
+
+
+def _select(args: argparse.Namespace, run: record.EvalRun) -> int:
+    run.input("pool", args.pool)
+    run.dataset(args.dataset / DATASET_FILES["detection_boxes"])
+    run.note(candidates=args.candidates, max_phrases=args.max_phrases, grid_min=args.grid_min)
     images = gold_images(load_dataset(args.dataset), args.split)
     pool = load_pool(args.pool / "instances_raw.jsonl")
     missing = sorted(i.file for i in images if i.file not in pool)
     if missing:
         print(f"{len(missing)} photos have no pool instances: {missing}", file=sys.stderr)
+        run.finish(None, exit_code=2)
         return 2
     files = [i.file for i in images]
     labels = labelled_classes(images)
@@ -668,6 +683,7 @@ def run_select(args: argparse.Namespace) -> int:
         print(f"{name}:\n" + table(result))
     for label, c in final.items():
         print(f"final {label}: {list(c.phrases)} @ {c.threshold}")
+    run.finish(None)
     return 0
 
 

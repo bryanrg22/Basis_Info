@@ -28,6 +28,7 @@ Output::
                                  "areas": {ade class: share}}
     <out>/photo_components.json segmenters only: the labels of segments scoring >= 0.5
     <out>/run.json              detector, checkpoint, device, phrases, timing
+    <out>/run.log, manifest.json   the run record (evals.record; no paid calls)
 
 The detectors are deterministic, so one pass is the three repeats of the other systems.
 Then (from ``backEnd/``)::
@@ -54,6 +55,7 @@ from basis.vision import ade20k
 from basis.vision.localize import PHRASE_SETS, Box, Instance, Rle
 from basis.vision.schemas import ComponentLabel
 from evals.predict_photos import photo_files
+from evals.record import EvalRun, finish_pending
 
 SEGMENTERS: Final[dict[str, str]] = {
     "mask2former": "facebook/mask2former-swin-large-ade-panoptic",
@@ -369,63 +371,68 @@ def run(
     device = str(getattr(segmenter if is_segmenter else detector, "device", device))
     phrases = pool_phrases()
     args.out.mkdir(parents=True, exist_ok=True)
-    components: dict[str, list[str]] = {}
-    seconds: list[float] = []
-    with (
-        (args.out / "instances_raw.jsonl").open("w", encoding="utf-8") as raw,
-        (args.out / "surfaces_raw.jsonl").open("w", encoding="utf-8") as surfaces,
-    ):
-        for number, file in enumerate(files, start=1):
-            image = PILImage.open(file).convert("RGB")
-            t0 = time.monotonic()
-            record: dict[str, Any] = {
-                "file": file.name,
-                "repeat": 1,
-                "width": image.width,
-                "height": image.height,
-            }
-            if is_segmenter:
-                assert segmenter is not None
-                segments = segmenter(image)
-                areas = class_areas(segments)
-                exterior = ade20k.is_exterior(areas)
-                instances = segment_instances(segments, exterior)
-                record["exterior"] = exterior
-                surfaces.write(
-                    json.dumps(
-                        {
-                            "file": file.name,
-                            "exterior": exterior,
-                            "areas": areas,
-                            "surfaces": {
-                                k: v.model_dump(mode="json")
-                                for k, v in surface_masks(segments).items()
-                            },
-                        }
+    rec = EvalRun.begin(args.out, harness=__name__, args=args)
+    rec.input("photos", args.photos)
+    rec.note(detector=args.detector, checkpoint=checkpoint, device=device)
+    try:
+        components: dict[str, list[str]] = {}
+        seconds: list[float] = []
+        with (
+            (args.out / "instances_raw.jsonl").open("w", encoding="utf-8") as raw,
+            (args.out / "surfaces_raw.jsonl").open("w", encoding="utf-8") as surfaces,
+        ):
+            for number, file in enumerate(files, start=1):
+                image = PILImage.open(file).convert("RGB")
+                t0 = time.monotonic()
+                record: dict[str, Any] = {
+                    "file": file.name,
+                    "repeat": 1,
+                    "width": image.width,
+                    "height": image.height,
+                }
+                if is_segmenter:
+                    assert segmenter is not None
+                    segments = segmenter(image)
+                    areas = class_areas(segments)
+                    exterior = ade20k.is_exterior(areas)
+                    instances = segment_instances(segments, exterior)
+                    record["exterior"] = exterior
+                    surfaces.write(
+                        json.dumps(
+                            {
+                                "file": file.name,
+                                "exterior": exterior,
+                                "areas": areas,
+                                "surfaces": {
+                                    k: v.model_dump(mode="json")
+                                    for k, v in surface_masks(segments).items()
+                                },
+                            }
+                        )
+                        + "\n"
                     )
-                    + "\n"
+                    components[file.name] = label_set(instances)
+                else:
+                    assert detector is not None
+                    instances = detector(image, phrases)
+                elapsed = time.monotonic() - t0
+                seconds.append(elapsed)
+                record["seconds"] = round(elapsed, 3)
+                record["instances"] = [i.model_dump(mode="json") for i in instances]
+                raw.write(json.dumps(record) + "\n")
+                print(
+                    f"{number}/{len(files)} {file.name}: {len(instances)} instances, "
+                    f"{elapsed:.1f}s",
+                    file=sys.stderr,
                 )
-                components[file.name] = label_set(instances)
-            else:
-                assert detector is not None
-                instances = detector(image, phrases)
-            elapsed = time.monotonic() - t0
-            seconds.append(elapsed)
-            record["seconds"] = round(elapsed, 3)
-            record["instances"] = [i.model_dump(mode="json") for i in instances]
-            raw.write(json.dumps(record) + "\n")
-            print(
-                f"{number}/{len(files)} {file.name}: {len(instances)} instances, {elapsed:.1f}s",
-                file=sys.stderr,
+        if not is_segmenter:
+            (args.out / "surfaces_raw.jsonl").unlink()
+        else:
+            (args.out / "photo_components.json").write_text(
+                json.dumps(components, indent=1, sort_keys=True)
             )
-    if not is_segmenter:
-        (args.out / "surfaces_raw.jsonl").unlink()
-    else:
-        (args.out / "photo_components.json").write_text(
-            json.dumps(components, indent=1, sort_keys=True)
-        )
-    (args.out / "run.json").write_text(
-        json.dumps(
+        print(f"wrote {args.out}", file=sys.stderr)
+        rec.finish(  # run.json and the manifest
             {
                 "detector": args.detector,
                 "checkpoint": checkpoint,
@@ -444,12 +451,12 @@ def run(
                 if is_segmenter
                 else None,
                 "cost_usd": 0.0,
-            },
-            indent=1,
+            }
         )
-    )
-    print(f"wrote {args.out}", file=sys.stderr)
-    return 0
+        return 0
+    except BaseException as exc:  # a failed run still leaves its manifest and log
+        finish_pending(args, exit_code=1, error=exc)
+        raise
 
 
 def main(argv: Sequence[str] | None = None) -> int:

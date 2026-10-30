@@ -11,6 +11,7 @@ import pytest
 from llm_fakes import PHOTO_MODEL, PHOTO_USAGE, analysis_for
 from PIL import Image
 
+from basis.llm import prompts
 from basis.llm.errors import ProviderBadResponse
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import ChatRequest, ChatResponse
@@ -130,6 +131,21 @@ async def test_separate_mode_sums_the_parts(
     run = json.loads((out / "run.json").read_text())
     assert (run["calls"], run["missing"], run["models_reported"]) == (16, [], [PHOTO_MODEL])
     assert run["spent_usd"] == pytest.approx(16 * 0.01)
+    # The run record (evals.record): one ledger line per call, the prompt declared.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_tiles"
+    assert manifest["calls"]["count"] == 16
+    assert manifest["components"]["prompts"] == [
+        {
+            "name": "photo_countables_tile",
+            "version": "v1",
+            "sha256": prompts.load("photo_countables_tile", "v1").sha256,
+            "calls": 16,
+        }
+    ]
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 16
+    assert "wrote" in (out / "run.log").read_text()
 
 
 @pytest.mark.asyncio
