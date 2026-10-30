@@ -374,7 +374,7 @@ async def assert_recovered(
         # (kitchen: cabinets and countertop, counted once over its two photos; bathroom:
         # bathtub and toilet), and the assets are built from the four inventory rows.
         "components": 2 * len(PHOTOS) + 4,
-        "assets": 4,
+        "assets": 4 + 13,  # + the structure model's concealed rows (STRUCTURE_MODEL.md)
         "asset_components": 4,
     }
     return attempts

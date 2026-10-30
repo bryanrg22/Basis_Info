@@ -168,7 +168,11 @@ async def test_a_count_correction_and_an_added_component_reach_the_assets(
 
             await run.approve(handle, gate, 2)  # type: ignore[arg-type]
             await run.wait_awaiting(handle, "assets_review", 2)
-            assets = {a.component_id: a for a in await rows(run, Asset, sid, revision=2)}
+            assets = {
+                a.component_id: a
+                for a in await rows(run, Asset, sid, revision=2)
+                if a.component_id is not None  # the structure model's rows have none
+            }
             assert len(assets) == 5  # the four inventory objects and the added fixtures
             cabinet_asset, light_asset = assets[cabinets_2.id], assets[lights.id]
             [cabinet_takeoff] = await rows(run, Takeoff, sid, asset_id=cabinet_asset.id)

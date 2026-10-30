@@ -11,10 +11,14 @@ Pure: ``Decimal`` end to end, no I/O, no floats, deterministic. Two steps:
    capitalized (loan costs, prepaid interest, escrows: Pub. 551) are refused. The use decides
    27.5 or 39 years (§168(e)(2): 80 % of gross rental income from dwelling units, none of it
    transient lodging).
-2. :func:`allocate`: the design partner's method, which the report must reproduce. One factor
-   ``f = T / ΣRCN`` on every row (``T = B + CC``), bucket totals and percentages, and ``B``
-   and ``CC`` split pro rata per bucket. The ATG's objection to a uniform factor (ch. 3 A(6),
-   D(3)–(5)) is recorded as the ``uniform_factor`` check on every result.
+2. :func:`allocate`: one factor on every row (``T = B + CC``), bucket totals and
+   percentages, and ``B`` and ``CC`` split pro rata per bucket. With ``depreciated=True``
+   (the structure model, docs/review_2026-10-15/STRUCTURE_MODEL.md section 3.8) every row
+   carries its replacement cost new less depreciation and the factor is ``T / ΣRCNLD``, by
+   construction within the reconciliation's tolerance of 1 (the ``rcnld_factor`` check);
+   without it the factor is ``T / ΣRCN``, the design partner's method, and the ATG's
+   objection to that uniform factor (ch. 3 A(6), D(3)–(5)) is recorded as the
+   ``uniform_factor`` check.
 
 Rounding, stated once:
 
@@ -689,6 +693,9 @@ class RcnRow:
     rcn: Decimal
     label: str | None = None
     systems: SystemWeights = ()
+    # Replacement cost new less depreciation (the structure model); required when the
+    # allocation is depreciated, ignored otherwise.
+    rcnld: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -700,6 +707,7 @@ class AllocatedRow:
     allocated: Decimal
     # Cents added (+) or removed (−) against plain half-up rounding so the rows sum to T.
     rounding_cents: int
+    rcnld: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -712,6 +720,7 @@ class BucketTotal:
     share: Decimal  # of T, to 6 places
     building: Decimal  # B × allocated / T (largest remainder across buckets)
     closing_costs: Decimal  # allocated − building
+    rcnld: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -719,6 +728,7 @@ class SystemTotal:
     system: str
     rcn: Decimal
     allocated: Decimal
+    rcnld: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -735,6 +745,9 @@ class Allocation:
     checks: tuple[Check, ...]
     rows_sum: Decimal  # == total, asserted
     residual_cents: int = field(default=0)
+    # The depreciated schedule's total and whether the factor scaled RCNLD (else RCN).
+    rcnld_total: Decimal | None = None
+    depreciated: bool = False
 
 
 def _largest_remainder(exact: Sequence[Decimal], total: Decimal) -> tuple[list[Decimal], list[int]]:
@@ -771,9 +784,16 @@ def _split(amount: Decimal, weights: SystemWeights) -> list[tuple[str, Decimal]]
     return parts
 
 
-def allocate(rows: Iterable[RcnRow], building_basis: Decimal, closing_costs: Decimal) -> Allocation:
-    """Scale an RCN schedule to ``T = B + CC`` with one factor; totals, percentages, the
-    pro-rata block, the regrouping by system when every row is mapped; exact reconciliation."""
+def allocate(
+    rows: Iterable[RcnRow],
+    building_basis: Decimal,
+    closing_costs: Decimal,
+    *,
+    depreciated: bool = False,
+) -> Allocation:
+    """Scale a schedule to ``T = B + CC`` with one factor (on each row's RCNLD when
+    ``depreciated``, else on its RCN); totals, percentages, the pro-rata block, the
+    regrouping by system when every row is mapped; exact reconciliation."""
     b = _require_money("building_basis", building_basis, positive=True)
     cc = _require_money("closing_costs", closing_costs, positive=False)
     total = b + cc
@@ -791,19 +811,27 @@ def allocate(rows: Iterable[RcnRow], building_basis: Decimal, closing_costs: Dec
                 "a schedule line (expected one of y5, y7, y15, y27_5, y39)"
             )
         _require_amount(f"row {row.id!r} rcn", row.rcn)
+        if depreciated:
+            if row.rcnld is None:
+                raise BasisError(f"row {row.id!r} has no rcnld; a depreciated allocation needs one")
+            _require_amount(f"row {row.id!r} rcnld", row.rcnld)
         if row.systems and sum((w for _, w in row.systems), ZERO) != ONE:
             raise BasisError(f"row {row.id!r} system weights do not sum to 1")
     rcn_total = sum((r.rcn for r in rows), ZERO)
     if rcn_total <= 0:
         raise BasisError("the schedule's replacement cost new is zero")
+    bases = [(r.rcnld if depreciated and r.rcnld is not None else r.rcn) for r in rows]
+    base_total = sum(bases, ZERO)
+    if base_total <= 0:
+        raise BasisError("the schedule's replacement cost new less depreciation is zero")
 
     with localcontext() as ctx:
         ctx.prec = PRECISION
-        factor = total / rcn_total
-        exact = [r.rcn * factor for r in rows]
+        factor = total / base_total
+        exact = [base * factor for base in bases]
     values, cents = _largest_remainder(exact, total)
     allocated = tuple(
-        AllocatedRow(r.id, r.bucket, r.label, r.rcn, v, c)
+        AllocatedRow(r.id, r.bucket, r.label, r.rcn, v, c, r.rcnld if depreciated else None)
         for r, v, c in zip(rows, values, cents, strict=True)
     )
     rows_sum = sum((r.allocated for r in allocated), ZERO)
@@ -829,6 +857,11 @@ def allocate(rows: Iterable[RcnRow], building_basis: Decimal, closing_costs: Dec
             share=shares[bk].quantize(SHARE_PLACES, rounding=ROUND_HALF_UP),
             building=part,
             closing_costs=bucket_allocated[bk] - part,
+            rcnld=(
+                sum((r.rcnld or ZERO for r in rows if r.bucket == bk), ZERO)
+                if depreciated
+                else None
+            ),
         )
         for bk, part in zip(buckets, building_parts, strict=True)
     )
@@ -847,19 +880,33 @@ def allocate(rows: Iterable[RcnRow], building_basis: Decimal, closing_costs: Dec
         )
     else:
         rcn_by: dict[str, Decimal] = {}
+        rcnld_by: dict[str, Decimal] = {}
         allocated_by: dict[str, Decimal] = {}
         for r, a in zip(rows, allocated, strict=True):
             for system, part in _split(r.rcn, r.systems):
                 rcn_by[system] = rcn_by.get(system, ZERO) + part
+            if depreciated and r.rcnld is not None:
+                for system, part in _split(r.rcnld, r.systems):
+                    rcnld_by[system] = rcnld_by.get(system, ZERO) + part
             for system, part in _split(a.allocated, r.systems):
                 allocated_by[system] = allocated_by.get(system, ZERO) + part
         by_system = tuple(
-            SystemTotal(system, rcn_by[system], allocated_by[system]) for system in sorted(rcn_by)
+            SystemTotal(
+                system,
+                rcn_by[system],
+                allocated_by[system],
+                rcnld_by.get(system, ZERO) if depreciated else None,
+            )
+            for system in sorted(rcn_by)
         )
         if sum((s.allocated for s in by_system), ZERO) != total:
             raise BasisError("reconciliation failed: the systems do not sum to T")
 
-    checks = [_uniform_factor_check(factor, rcn_total, total)]
+    checks = [
+        _rcnld_factor_check(factor, base_total, total)
+        if depreciated
+        else _uniform_factor_check(factor, rcn_total, total)
+    ]
     return Allocation(
         building_basis=b,
         closing_costs=cc,
@@ -873,6 +920,26 @@ def allocate(rows: Iterable[RcnRow], building_basis: Decimal, closing_costs: Dec
         checks=tuple(checks),
         rows_sum=rows_sum,
         residual_cents=sum(abs(c) for c in cents),
+        rcnld_total=base_total if depreciated else None,
+        depreciated=depreciated,
+    )
+
+
+# The reconciliation's tolerance (docs/review_2026-10-15/STRUCTURE_MODEL.md section 3.8):
+# a depreciated schedule is allocated only when its total is within this of the basis.
+RCNLD_FACTOR_TOLERANCE: Final = Decimal("0.10")
+
+
+def _rcnld_factor_check(factor: Decimal, rcnld_total: Decimal, total: Decimal) -> Check:
+    shown = factor.quantize(FACTOR_PLACES, rounding=ROUND_HALF_UP)
+    within = abs(factor - ONE) <= RCNLD_FACTOR_TOLERANCE
+    return _check(
+        "rcnld_factor",
+        Severity.OK if within else Severity.WARNING,
+        f"the schedule's replacement cost new less depreciation {rcnld_total} is allocated to "
+        f"the basis {total} pro rata (factor {shown}; "
+        f"{'within' if within else 'outside'} {RCNLD_FACTOR_TOLERANCE * HUNDRED} % of 1, the "
+        "square-foot method's accuracy, STRUCTURE_MODEL.md 3.8)",
     )
 
 
@@ -908,6 +975,7 @@ __all__ = [
     "LAND_TOLERANCE",
     "MISCELLANEOUS",
     "NOT_CAPITALIZED",
+    "RCNLD_FACTOR_TOLERANCE",
     "RECOVERY_PERIOD",
     "REPORT_ROW_SYSTEMS",
     "AcquisitionCost",

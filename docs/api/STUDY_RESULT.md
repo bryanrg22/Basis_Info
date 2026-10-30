@@ -136,9 +136,15 @@ route follows a later intake change.
     "by_bucket": [{"bucket": "y5", "assets": 2, "rcn": "16477.00"}, {"bucket": "y27_5", "assets": 1, "rcn": "0.00"}],
     "unpriced": ["…asset id…"], "land": []
   },
+  "structure": {"building_rcn": {"amount": "…", "source": "appraisal_cost_approach", "…": "…"},
+                "components": ["…"], "concealed": ["…"], "outside_model": "…"},
+  "depreciation": {"rate": "0.214300", "method": "appraisal_physical_depreciation", "source": "…", "checks": ["…"]},
+  "reconciliation": {"status": "reconciled", "building_basis": "560000.00", "rcnld_total": "…", "gap": "…",
+                     "gap_share": "…", "tolerance": "0.10", "implied_uniform_factor": "…", "causes": ["…"], "checks": ["…"]},
   "allocation": {
     "building_basis": "560000.00", "closing_costs": "180.00", "total": "560180.00",
-    "rcn_total": "16477.00", "factor": "33.997693755", "rows_sum": "560180.00", "residual_cents": 0,
+    "rcn_total": "16477.00", "rcnld_total": "…", "depreciated": true,
+    "factor": "1.037161514", "rows_sum": "560180.00", "residual_cents": 0,
     "by_bucket": [{"bucket": "y5", "rows": 2, "rcn": "16477.00", "allocated": "560180.00", "percent": "100.0",
                    "share": "1.000000", "building": "560000.00", "closing_costs": "180.00"}],
     "by_system": null,
@@ -158,22 +164,47 @@ route follows a later intake change.
 * `schedule`: the revision's replacement cost new by bucket, whatever the intake; `unpriced`
   assets have no cost (no quantity or no cost row); `land` assets are not depreciable and
   stay out of the allocation.
-* `allocation`: one factor on every priced row; `by_bucket` with `percent` (to 0.1) and the
-  pro-rata block (`building` + `closing_costs` = `allocated`; the columns sum to B and CC);
-  `by_system` (the twelve building systems) only when every row's category is a report row
-  of the taxonomy, else `by_system_reason`; `assets` in asset-id order with the cents the
-  largest-remainder rule moved; `rows_sum` equals `total` by construction. The
-  `uniform_factor` check is a warning for a write-down (f < 1: one factor instead of per-item
-  depreciation, ATG ch. 3 A(6)) and an error for a step-up (f > 1: the schedule is incomplete,
-  ATG ch. 3 D(3)–(5)).
-* `not_produced`: the systems the pipeline cannot cost today (the concealed building systems
-  and what needs a site plan), so the gap between `schedule.rcn_total` and `total` is explicit.
-* `missing`: `["intake"]` (no worksheet, no allocation; the schedule is still returned) or
-  `["allocation"]` (an intake but nothing priced). Nothing is fabricated.
+* `structure` (the structure model, docs/review_2026-10-15/STRUCTURE_MODEL.md; present when
+  the study has an appraisal extraction and `STRUCTURE_STEP=on`): `building_rcn` (the
+  building's replacement cost new: `source` `square_foot_model` (the RSMeans model sized by
+  the matrix, the default) or `appraisal_cost_approach` (`STRUCTURE_RCN_SOURCE`, or whenever
+  no living area sizes a model), with `formula`, `inputs`, `assumptions`, `checks`,
+  `needs_review` and the model chosen), `components` (the nine RSMeans components: `share`, `top_down`, `itemized`,
+  `residual`, `clamped`, `concealed`), `concealed` (the schedule's concealed rows: label, the
+  engineer's row as `system`, bucket, component, RCN) and `outside_model` (priced itemized
+  rows the model does not include).
+* `depreciation`: the rate on every row (`appraisal_physical_depreciation`, else `age_life`),
+  its source and checks (`depreciation_age_life`, `depreciation_uniform`); each priced row's
+  `rcnld` is in `allocation.assets` and `schedule.by_bucket`.
+* `reconciliation`: `status` `reconciled` (|gap| within `tolerance`, 10 %), `unreconciled`
+  or `not_checked`; `building_basis` (B), `rcn_total`, `rcnld_total`, `gap` (B − RCNLD),
+  `gap_share`; `implied_uniform_factor` (T / ΣRCN: what the old step-up would have been, a
+  diagnostic only); `by_component`, `unassigned_remainders` (Specialties), `outside_model`,
+  `unpriced_assets`, `appraisal_check` (the appraiser's own depreciated cost against the price
+  less the appraisal's site value); `causes`: the guide's five (ATG ch. 3 D(6)) each with what
+  this study's data says; `checks`.
+* `allocation`: one factor on every priced row: with `depreciated: true` (the structure path,
+  only when the reconciliation is `reconciled`) the factor is `T / ΣRCNLD` and the
+  `rcnld_factor` check says so; without structure inputs it is `T / ΣRCN` and the
+  `uniform_factor` check is a warning for a write-down (f < 1, ATG ch. 3 A(6)) and an error
+  for a step-up (f > 1, ATG ch. 3 D(3)–(5)). `by_bucket` with `percent` (to 0.1), `rcnld` and
+  the pro-rata block (`building` + `closing_costs` = `allocated`; the columns sum to B and
+  CC); `by_system` (the twelve building systems; every row is mapped by its label, a row with
+  no label is Miscellaneous Building Components); `assets` in asset-id order with `rcnld`,
+  `label`, `concealed` and the cents the largest-remainder rule moved; `rows_sum` equals
+  `total` by construction.
+* `not_produced`: the concealed systems no priced structure row answers in this schedule (all
+  thirteen when the structure model did not run), so the gap is explicit.
+* `missing`: `["intake"]` (no worksheet, no allocation; the schedule is still returned),
+  `building_rcn` (no cost approach and no living area), `depreciation` (no rate), or
+  `allocation` (nothing priced, or the reconciliation is `unreconciled` or `not_checked`: the
+  allocation is withheld rather than scaled, and the diagnosis says what to fix). Nothing is
+  fabricated.
 
 All money is a string with two decimals; the factor has nine places and is applied at full
 precision; rows round half up and the residual cents go to the largest remainders (the rule is
-stated in `basis/domain/basis.py`).
+stated in `basis/domain/basis.py`). The example's allocation block mixes two states for
+brevity: a reconciled structure path carries `rcnld` on every row and a factor near 1.
 
 ## What the takeoff drew on: `summary.takeoff` in the export
 

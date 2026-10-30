@@ -32,6 +32,14 @@ Changes from the legacy table, each deliberate:
   ``decorative_lighting`` and ``track_lighting`` resolve to ``accent_lighting`` and
   ``lamp`` to ``furniture`` since 2026-10-29.
 
+Rows added 2026-10-30 (``RULES_VERSION`` ``2026-10-30.1``, STRUCTURE_MODEL.md): the thirteen
+labels of the structure model's concealed rows (``foundation``, ``structural_framing``,
+``exterior_wall_assembly``, ``roofing_assembly``, ``interior_partition``, ``painting``,
+``plumbing_rough_in``, ``hvac_distribution``, ``electrical_wiring``, ``fire_alarm_system``,
+``site_utilities``: building; ``data_cabling``: 57.0, 5 years; ``access_control``: building,
+contested because studies treat it as 5-year), each cited to the ATG residential matrix row
+that names it.
+
 ``property_class`` (``residential_rental`` or ``nonresidential``) is part of the lookup and
 of the cache key because the building buckets differ (27.5 vs 39 years): only the building
 rows (``Rule.building``, section 1250 components such as bathroom accessories or a concrete
@@ -72,7 +80,7 @@ from basis.db.enums import Bucket
 
 # Bump when any row, alias or matching rule changes: it is part of the cache key, so a
 # cached classification made under older rules is never served.
-RULES_VERSION: Final = "2026-10-29.1"
+RULES_VERSION: Final = "2026-10-30.1"
 
 PropertyClass = Literal["residential_rental", "nonresidential"]
 PROPERTY_CLASSES: Final[tuple[str, ...]] = get_args(PropertyClass)
@@ -158,6 +166,13 @@ _CONCRETE_PAD: Final = (
     "15 years, but equipment foundations within the "
     "building footprint in section 1250 (p.299), and a pad under building HVAC equipment is "
     "not addressed; needs engineer confirmation"
+)
+_ACCESS_CONTROL: Final = (
+    "The documents' position is adopted: ATG Exhibit A puts door locks and the hardware of "
+    "computerized lock systems under Doors (p.300) and window and door locks, card key and "
+    "keyless entry systems under Security Systems - Building (p.318), section 1250, 27.5 years "
+    "(39 nonresidential); studies (the design partner's report among them) treat access "
+    "control as 5-year property, so the bucket needs engineer confirmation"
 )
 _ATTACHED_DECK: Final = (
     "ATG Exhibit A (p.300) lists only freestanding decks as asset class 00.3, 15 years; a "
@@ -399,6 +414,18 @@ _RESIDENTIAL_FURNISHINGS_EXAMPLES: Final = _c(
 )
 
 # Variants shared by several rows.
+_EXTERIOR_WALL_ELEMENTS: Final = _c(
+    ATG,
+    321,
+    "posts, beams, girders, curtain walls, tilt up panels, studs, framing, sheetrock, "
+    "insulation, windows, doors, exterior façade, brick, masonry, etc.",
+)
+_ROOF_ELEMENTS: Final = _c(
+    ATG,
+    317,
+    "including but not limited to joists, rafters, deck, shingles, vapor barrier, skylights, "
+    "trusses, girders, and gutters.",
+)
 _IN_BATHROOM: Final = _when(rooms=("bathroom",))
 _IN_OFFICE: Final = _when(rooms=("office",))
 
@@ -1006,6 +1033,173 @@ _RULES: Final[tuple[Rule, ...]] = (
                     _RRP_57_0,
                 ),
             ),
+        ),
+    ),
+    # ------------------------------------------- the structure model's concealed rows
+    # (RULES_VERSION 2026-10-30.1, docs/review_2026-10-15/STRUCTURE_MODEL.md sections 3.5
+    # and 3.6): the building systems photographs cannot show, each where ATG Exhibit A
+    # names it. Every excerpt is verbatim on its page as pdfplumber reads it.
+    _bldg(
+        "foundation",
+        "Foundations",
+        "Footings and foundations necessary for the construction of the building, with their "
+        "excavation and backfill, are Section 1250 building components (ATG Exhibit A, Concrete "
+        "Footings and Foundations - Building)",
+        _c(
+            ATG,
+            299,
+            "Includes excavation and backfill for building footings and foundations, but does "
+            "not include site grading costs.",
+        ),
+        _c(
+            ATG, 299, "formwork, reinforcement, concrete block, and pre-cast or cast-in-place work."
+        ),
+    ),
+    _bldg(
+        "structural_framing",
+        "Structural framing",
+        "The exterior wall, floor and roof framing (studs, posts, beams, girders, joists, "
+        "rafters, trusses) is Section 1250 building structure (ATG Exhibit A, Walls - Exterior "
+        "and Roof)",
+        _EXTERIOR_WALL_ELEMENTS,
+        _ROOF_ELEMENTS,
+    ),
+    _bldg(
+        "exterior_wall_assembly",
+        "Exterior wall assembly",
+        "Sheathing, housewrap and insulation of the exterior walls are Section 1250 building "
+        "components (ATG Exhibit A, Walls - Exterior)",
+        _EXTERIOR_WALL_ELEMENTS,
+    ),
+    _bldg(
+        "roofing_assembly",
+        "Roofing assembly",
+        "Roof deck, underlayment, vapor barrier and flashings are Section 1250 building "
+        "components (ATG Exhibit A, Roof)",
+        _ROOF_ELEMENTS,
+    ),
+    _bldg(
+        "interior_partition",
+        "Interior framing and partitions",
+        "Load bearing and non-load bearing interior partitions with their rough carpentry and "
+        "gypsum board are Section 1250 building components (ATG Exhibit A, Walls - Interior)",
+        _c(
+            ATG,
+            321,
+            "load bearing partitions regardless of height (typically constructed of studs and "
+            "sheetrock or other materials) that divide or create rooms or provide traffic "
+            "control.",
+        ),
+        _c(
+            ATG,
+            321,
+            "Includes rough carpentry and plaster, dry wall or gypsum board, and other finishes.",
+        ),
+    ),
+    _bldg(
+        "painting",
+        "Painting",
+        "Interior and exterior paint is a permanent wall covering, Section 1250 (ATG Exhibit A, "
+        "Wall Coverings - Permanent)",
+        _c(ATG, 320, "paint; ceramic or quarry tile, marble, stone, brick, and other"),
+    ),
+    _bldg(
+        "plumbing_rough_in",
+        "Plumbing rough-in",
+        "Supply, drain, waste and vent piping are components of the building plumbing system, "
+        "Section 1250 (ATG Exhibit A, Plumbing - Building)",
+        _c(
+            ATG,
+            315,
+            "all other components of a building plumbing system (water or gas) not "
+            "specifically identified elsewhere",
+        ),
+    ),
+    _bldg(
+        "hvac_distribution",
+        "HVAC distribution",
+        "The heating plant and its ductwork or piping are components of the central HVAC "
+        "system, Section 1250 (ATG Exhibit A, HVAC - Residence)",
+        _c(
+            ATG,
+            310,
+            "air conditioning system. HVAC systems that are primarily installed for the "
+            "temperature, humidity, and ventilation of the residence and its occupants are "
+            "building components.",
+        ),
+    ),
+    _bldg(
+        "electrical_wiring",
+        "Electrical wiring and service",
+        "The service entrance, panels, feeder and branch circuit wiring of general "
+        "applicability are Section 1250 (ATG Exhibit A, Electrical Branch Circuits - Building; "
+        "Electrical - Primary and Secondary EDS - Building)",
+        _c(
+            ATG,
+            301,
+            "Branch circuits are the electrical connections between a distribution or subpanel "
+            "and the end-use equipment. This includes wire and conduit, junction boxes, wall "
+            "switches, and outlets.",
+        ),
+        _c(
+            ATG,
+            303,
+            "May include feeder circuits, power service entrance equipment, transformers, and "
+            "conduit.",
+        ),
+    ),
+    _bldg(
+        "fire_alarm_system",
+        "Fire protection and alarm system",
+        "Smoke and heat detection devices, alarms and their control panels are Section 1250 "
+        "(ATG Exhibit A, Fire Protection and Alarm Systems)",
+        _c(
+            ATG,
+            305,
+            "computer controls, sprinkler heads, piping or plumbing, pumps, visual and audible "
+            "alarms, alarm control panels, heat and smoke detection devices, fire escapes, "
+            "fire doors",
+        ),
+    ),
+    _p5(
+        "data_cabling",
+        "Communication and data cabling",
+        "Telephone, internet, cable and Wi-Fi cabling that serves equipment rather than the "
+        "building is Section 1245 personal property, Asset Class 57.0, 5-year (ATG Exhibit A, "
+        "Data Cable and Wiring)",
+        _c(ATG, 300, "internet, cable TV, satellite TV,"),
+        _RRP_57_0,
+    ),
+    _bldg(
+        "access_control",
+        "Access control (door locks)",
+        "Door locks and keyed or keyless entry hardware are door hardware and building security "
+        "equipment, Section 1250 (ATG Exhibit A, Doors; Security Systems - Building); studies "
+        "commonly treat access control as 5-year",
+        _c(
+            ATG,
+            300,
+            "Includes computerized door locks, encoders, computers, and other associated "
+            "hardware of the computerized lock system.",
+        ),
+        _c(
+            ATG,
+            318,
+            "Examples include window and door locks; card key access systems; keyless entry "
+            "systems;",
+        ),
+        contested=_ACCESS_CONTROL,
+    ),
+    _bldg(
+        "site_utilities",
+        "Site utilities",
+        "Water, sanitary sewer, gas and electrical services from the property line to the "
+        "building are Section 1250 (ATG Exhibit A, Site Utilities)",
+        _c(
+            ATG,
+            319,
+            "are used to distribute utility services from the property line to the building. "
+            "Includes water, sanitary sewer, gas, and electrical services.",
         ),
     ),
 )

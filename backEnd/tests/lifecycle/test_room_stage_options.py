@@ -95,7 +95,8 @@ async def test_room_call_mode_runs_end_to_end(harness: Harness) -> None:
     assert {(c.raw["step"], c.raw["path"]) for c in inventory} == {("room_call", "room_call")}
     assets = await rows(run, Asset, sid, 1)
     by_id = {c.id: c for c in components}
-    assert len(assets) == 4 and all(is_inventory(by_id[a.component_id]) for a in assets)
+    itemized = [a for a in assets if a.component_id is not None]  # not the structure rows
+    assert len(itemized) == 4 and all(is_inventory(by_id[a.component_id]) for a in itemized)
 
 
 async def test_room_call_and_surface_crops_run_end_to_end(harness: Harness) -> None:
@@ -120,4 +121,6 @@ async def test_room_call_and_surface_crops_run_end_to_end(harness: Harness) -> N
     inventory = [c for c in await rows(run, Component, sid, 1) if is_inventory(c)]
     assert {c.raw["materials_second_look"] for c in inventory} == {"surface_crops"}
     assert {tuple(c.raw["surface_crops_flags"]) for c in inventory} == {()}
-    assert len(await rows(run, Asset, sid, 1)) == 4
+    assert (
+        len(await rows(run, Asset, sid, 1)) == 4 + 13
+    )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)

@@ -16,7 +16,7 @@ from lifecycle_support import Harness
 from lifecycletest_support import make_deps
 from sqlalchemy import select
 
-from basis.db.enums import Stage, StudyStatus
+from basis.db.enums import ClassificationMethod, Stage, StudyStatus
 from basis.db.models import Asset, Citation, Component, Extraction, LlmCall, PhotoRoom, Room
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.session import session_scope
@@ -113,7 +113,9 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         ).all()
         assert len(components) == 6
         assets = (await session.scalars(select(Asset).where(Asset.study_id == sid))).all()
-        assert len(assets) == 6
+        # Six from the components, thirteen concealed rows of the structure model (the
+        # synthetic appraisal has a cost approach; STRUCTURE_MODEL.md).
+        assert len(assets) == 19
         citations = (await session.scalars(select(Citation).where(Citation.study_id == sid))).all()
         # Every asset here is a rules-table hit whose citations resolved against the
         # seeded reference corpus (none unverified). Every one goes to review: the kitchen
@@ -123,11 +125,17 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         # uncontested building rows, ATG p.315). Cross-validation adds its own reasons to
         # the contested rows too.
         labels = {c.id: c.label for c in components}
+        itemized = [a for a in assets if a.component_id is not None]
+        concealed = [a for a in assets if a.component_id is None]
+        assert (len(itemized), len(concealed)) == (6, 13)
+        # The concealed rows (STRUCTURE_MODEL.md) cite the ATG's residential matrix like
+        # any rule hit and resolve against the seeded reference corpus the same way.
         assert {c.asset_id for c in citations} == {a.id for a in assets}
         assert all(c.verified_at is not None for c in citations)
         assert not any("citation_unverified" in (a.review_reason or "") for a in assets)
+        assert all(a.method is ClassificationMethod.RULE for a in concealed)
         flagged = sorted(
-            (labels[a.component_id], a.review_reason or "") for a in assets if a.needs_review
+            (labels[a.component_id], a.review_reason or "") for a in itemized if a.needs_review
         )
         assert [label for label, _ in flagged] == [
             "bathtub",
@@ -150,7 +158,7 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         assert all("cross:" in reason for label, reason in flagged if label == "countertop")
 
     exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))
-    assert exported["revision"] == 1 and len(exported["assets"]) == 6
+    assert exported["revision"] == 1 and len(exported["assets"]) == 19
     assert set(exported["checksums"]) == {
         "extraction",
         "rooms",

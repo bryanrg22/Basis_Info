@@ -414,6 +414,34 @@ leaves the engineer's dollars, shares and ratios out of the Markdown. The dollar
 comparison is replacement cost (pipeline) against allocated basis (engineer) until a basis
 step exists; the share comparison is like-for-like.
 
+### `structure_replay` (the structure model over a stored export)
+
+`python -m evals.structure_replay export/rev-5.json --out export/rev-5.structure.json
+--cost-table costs/unit_costs_rsmeans_2020.json [--intake intake.json] [--changes run.json]`
+(EVAL_REPORT section 44). From the export's extraction fields it reads the appraisal's cost
+approach and measurements, from its assets the itemized rows, and does what `process_assets`
+does after the component loop and what the result does after it (`basis.domain.structure`,
+docs/review_2026-10-15/STRUCTURE_MODEL.md): the building RCN, the split, the carve-out, one
+concealed asset per system (classified by the rules table, priced from the residual or from
+the cost table's row for its label), depreciation, reconciliation and the allocation on RCNLD.
+The output is the export with the concealed rows appended and `summary.basis` replaced, so
+`evals.e2e_report` scores it like any export and the kind C rows become `produced` rows. The
+intake is rebuilt from the export's worksheet unless `--intake` gives the study's own. The
+cost year, location factor and property class are the export's `summary.takeoff`. The eval
+cost table carries rows for the four small systems (`fire_alarm_system`, `data_cabling`,
+`access_control`, `site_utilities`), each cited to its RSMeans page.
+
+### `structure_sweep` (every variant of the structure model, scored)
+
+`python -m evals.structure_sweep export_a.json export_b.json --cost-table ... --out sweep.md
+--json sweep.json` (EVAL_REPORT section 44.3, STRUCTURE_MODEL.md section 7): the 54 variants
+(RCN source x split x carve on/off x depreciation) each replayed and scored on every export;
+per cell the reconciliation's status and gap, the implied uniform factor, the kind C rows
+produced and bucket right, the bucket shares and their errors against the engineer's, the
+row-share distance, the photo-visible rows' scores (the regression check) and the runtime;
+the ranking of the sourced, reconciling variants (mean bucket error, then TVD, then gap), the
+pick and the runner-up; unsourced variants (Marshall & Swift) reported as such.
+
 ### `photo_counts` (derived from `detection_boxes`, no file)
 
 Per photo, the true count of every verified class: the non-group boxes of that label,

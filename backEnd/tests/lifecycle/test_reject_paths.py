@@ -97,7 +97,7 @@ async def test_appraisal_reject_reextracts_with_corrections(harness: Harness) ->
         await harness.approve_all(handle, revision=2)
         result = await harness.result(handle)
     assert (result.outcome, result.revision) == ("completed", 2)
-    assert len(await rows(harness, Asset, sid, revision=2)) == 6
+    assert len(await rows(harness, Asset, sid, revision=2)) == 6 + 13  # + the structure rows
     assert await rows(harness, Asset, sid, revision=1) == []
 
 
@@ -181,7 +181,9 @@ async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harn
         assert "process_assets:r2" in ids
 
         assets_r2 = await rows(harness, Asset, sid, revision=2)
-        assert len(assets_r2) == len(assets_r1) == 7
+        assert (
+            len(assets_r2) == len(assets_r1) == 7 + 13
+        )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)
         manual = [a for a in assets_r2 if a.method is ClassificationMethod.MANUAL]
         assert len(manual) == 1
         assert (manual[0].bucket, str(manual[0].recovery_period)) == (Bucket.Y5, "5.0")

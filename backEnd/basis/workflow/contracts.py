@@ -324,9 +324,11 @@ class ProcessAssetsInput(_Frozen):
 
 
 class ProcessAssetsOutput(_Frozen):
-    assets: int = 0
-    needs_review: int = 0
+    assets: int = 0  # one per component
+    needs_review: int = 0  # components' and concealed rows' together
     cost_usd: float = 0.0
+    # Rows the structure model wrote (STRUCTURE_MODEL.md section 3.5-3.6), no component.
+    concealed: int = 0
 
 
 class PromoteConventionsInput(_Frozen):

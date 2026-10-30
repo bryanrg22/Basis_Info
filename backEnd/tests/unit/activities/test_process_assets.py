@@ -38,11 +38,13 @@ from basis.db.models import (
     Component,
     CostEstimate,
     LlmCall,
+    StudyEvent,
     Takeoff,
 )
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
+from basis.domain.structure import STRUCTURE_LABELS
 from basis.llm.cost import cost_usd
 from basis.llm.errors import ProviderAccountError
 from basis.llm.provider import ChatRequest, ChatResponse, ScriptedProvider, ScriptedTurn, Usage
@@ -353,6 +355,71 @@ async def test_asset_correction_applies_to_the_carried_component(
     }
 
 
+async def test_asset_correction_applies_to_a_concealed_row(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """STRUCTURE_MODEL.md: a concealed row has no component; a correction of it is matched
+    by its label and the new revision's row takes the engineer's classification."""
+    sid = analyzed.study_id
+    # The structure model reads the appraisal's cost approach from the extraction fields,
+    # which the workflow's extract_fields writes (and an assets-gate rejection carries to
+    # the next revision); this harness seeds them.
+    await seed_extraction(deps, analyzed, STRUCTURE_FIELDS)
+    output = await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    assert (output.assets, output.concealed) == (6, 13)
+    async with session_scope(deps.sessionmaker) as session:
+        rows = (
+            await session.execute(
+                select(Asset, Takeoff)
+                .join(Takeoff, Takeoff.asset_id == Asset.id)
+                .where(Asset.study_id == sid, Asset.revision == 1, Asset.component_id.is_(None))
+            )
+        ).all()
+    by_label = {takeoff.inputs["label"]: asset for asset, takeoff in rows}
+    assert set(by_label) == set(STRUCTURE_LABELS)
+    target = by_label["access_control"]
+    assert target.bucket is Bucket.Y27_5 and target.needs_review  # contested
+    await start_revision_two(deps, analyzed, activity_env)
+    correction = CorrectionInput(
+        entity_type="asset",
+        entity_id=str(target.id),
+        after={"bucket": "y5", "irs_section": "1245", "category": "Access control"},
+    )
+    output = await activity_env.run(
+        ProcessAssets(deps).run, process(analyzed, revision=2, corrections=(correction,))
+    )
+    assert (output.assets, output.concealed) == (6, 13)
+    [manual] = [a for a in await assets(deps, sid, 2) if a.method is ClassificationMethod.MANUAL]
+    assert (manual.bucket, manual.recovery_period, manual.irs_section, manual.category) == (
+        Bucket.Y5,
+        Decimal("5.0"),
+        "1245",
+        "Access control",
+    )
+    assert manual.component_id is None
+    # The engineer settled the classification (no contested note); the assumed door count
+    # and the missing cost row still ask for a number.
+    reason = manual.review_reason or ""
+    assert "contested" not in reason and "structure:assumed_quantity" in reason
+    async with session_scope(deps.sessionmaker) as session:
+        takeoff = (
+            await session.scalars(select(Takeoff).where(Takeoff.asset_id == manual.id))
+        ).one()
+        event = (
+            await session.scalars(
+                select(StudyEvent).where(
+                    StudyEvent.study_id == sid, StudyEvent.event_type == "entity.corrected"
+                )
+            )
+        ).one()
+    assert takeoff.inputs["concealed"] is True and takeoff.inputs["label"] == "access_control"
+    assert takeoff.inputs["asset_correction"] == {
+        "from_asset_id": str(target.id),
+        "after": correction.after,
+    }
+    assert event.detail["carried_from"] == str(target.id)
+
+
 async def test_bucket_only_correction_derives_the_recovery_period(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
@@ -581,6 +648,24 @@ MEASURED_FIELDS: dict[str, Any] = {
     "improvements.total_rooms": 8,
     "improvements.bedrooms": 4,
     "improvements.bathrooms": 2.5,
+    "subject.state": "IL",
+}
+
+
+# A two-story Q4 house with a developed cost approach (STRUCTURE_MODEL.md section 3.1).
+STRUCTURE_FIELDS: dict[str, Any] = {
+    "improvements.gla_sqft": 2400,
+    "improvements.stories": 2,
+    "improvements.quality": "Q4",
+    "improvements.total_rooms": 8,
+    "improvements.bedrooms": 4,
+    "improvements.effective_age_years": 12,
+    "cost_approach.total_cost_new": 300000,
+    "cost_approach.dwelling_cost": 300000,
+    "cost_approach.depreciation_physical": 60000,
+    "cost_approach.remaining_economic_life": 48,
+    "site.utilities_water": "Public",
+    "site.utilities_sewer": "Public",
     "subject.state": "IL",
 }
 

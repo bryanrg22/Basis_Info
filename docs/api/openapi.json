@@ -5129,6 +5129,18 @@
             "type": "string",
             "title": "Rcn"
           },
+          "rcnld": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld",
+            "description": "RCN less depreciation (when depreciated)."
+          },
           "allocated": {
             "type": "string",
             "title": "Allocated"
@@ -5137,6 +5149,22 @@
             "type": "integer",
             "title": "Rounding Cents",
             "description": "Cents this row gained (+) or lost (−) against plain half-up rounding so the rows sum to the total."
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "concealed": {
+            "type": "boolean",
+            "title": "Concealed",
+            "default": false
           }
         },
         "type": "object",
@@ -5168,10 +5196,28 @@
             "type": "string",
             "title": "Rcn Total"
           },
+          "rcnld_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld Total",
+            "description": "ΣRCNLD when the factor scaled RCNLD (`depreciated`)."
+          },
+          "depreciated": {
+            "type": "boolean",
+            "title": "Depreciated",
+            "description": "True: the factor is T / ΣRCNLD (the structure model's method); false: T / ΣRCN (the uniform factor the ATG objects to).",
+            "default": false
+          },
           "factor": {
             "type": "string",
             "title": "Factor",
-            "description": "T / ΣRCN to 9 places (applied at full precision)."
+            "description": "To 9 places (applied at full precision)."
           },
           "rows_sum": {
             "type": "string",
@@ -5203,7 +5249,7 @@
               }
             ],
             "title": "By System",
-            "description": "The twelve building systems when every row maps to one; else null."
+            "description": "The twelve building systems (every row is mapped by its label; a row with no label is Miscellaneous Building Components)."
           },
           "by_system_reason": {
             "anyOf": [
@@ -6020,6 +6066,17 @@
             "type": "string",
             "title": "Rcn"
           },
+          "rcnld": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld"
+          },
           "allocated": {
             "type": "string",
             "title": "Allocated"
@@ -6057,6 +6114,66 @@
           "closing_costs"
         ],
         "title": "BucketAllocationOut"
+      },
+      "BuildingRcnOut": {
+        "properties": {
+          "amount": {
+            "type": "string",
+            "title": "Amount"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "appraisal_cost_approach",
+              "square_foot_model"
+            ],
+            "title": "Source"
+          },
+          "formula": {
+            "type": "string",
+            "title": "Formula"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Inputs"
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "title": "Needs Review"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount",
+          "source",
+          "formula",
+          "inputs",
+          "assumptions",
+          "checks",
+          "needs_review",
+          "model"
+        ],
+        "title": "BuildingRcnOut"
       },
       "CallOut": {
         "properties": {
@@ -6663,6 +6780,31 @@
         ],
         "title": "CandidateSelection"
       },
+      "CauseOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "cause": {
+            "type": "string",
+            "title": "Cause",
+            "description": "The guide's words (ATG ch. 3 D(6))."
+          },
+          "finding": {
+            "type": "string",
+            "title": "Finding",
+            "description": "What this study's data says about it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "cause",
+          "finding"
+        ],
+        "title": "CauseOut"
+      },
       "CheckOut": {
         "properties": {
           "code": {
@@ -6915,6 +7057,159 @@
           "other"
         ],
         "title": "ComponentLabel"
+      },
+      "ComponentLineOut": {
+        "properties": {
+          "component": {
+            "type": "string",
+            "title": "Component"
+          },
+          "top_down": {
+            "type": "string",
+            "title": "Top Down"
+          },
+          "itemized": {
+            "type": "string",
+            "title": "Itemized"
+          },
+          "concealed": {
+            "type": "string",
+            "title": "Concealed"
+          },
+          "clamped": {
+            "type": "string",
+            "title": "Clamped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "component",
+          "top_down",
+          "itemized",
+          "concealed",
+          "clamped"
+        ],
+        "title": "ComponentLineOut"
+      },
+      "ComponentOut": {
+        "properties": {
+          "component": {
+            "type": "string",
+            "title": "Component"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "share": {
+            "type": "string",
+            "title": "Share",
+            "description": "Of the building RCN after Overhead is spread, to 6 places."
+          },
+          "top_down": {
+            "type": "string",
+            "title": "Top Down"
+          },
+          "itemized": {
+            "type": "string",
+            "title": "Itemized"
+          },
+          "itemized_assets": {
+            "type": "integer",
+            "title": "Itemized Assets"
+          },
+          "unpriced_assets": {
+            "type": "integer",
+            "title": "Unpriced Assets"
+          },
+          "residual": {
+            "type": "string",
+            "title": "Residual",
+            "description": "top_down − itemized, clamped at zero."
+          },
+          "clamped": {
+            "type": "string",
+            "title": "Clamped",
+            "description": "The excess when the itemized rows exceed the model."
+          },
+          "concealed": {
+            "type": "string",
+            "title": "Concealed",
+            "description": "The concealed rows written against this component."
+          }
+        },
+        "type": "object",
+        "required": [
+          "component",
+          "name",
+          "share",
+          "top_down",
+          "itemized",
+          "itemized_assets",
+          "unpriced_assets",
+          "residual",
+          "clamped",
+          "concealed"
+        ],
+        "title": "ComponentOut"
+      },
+      "ConcealedOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "system": {
+            "type": "string",
+            "title": "System",
+            "description": "The engineer's row."
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "rcn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcn"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id",
+          "label",
+          "system",
+          "category",
+          "bucket",
+          "component",
+          "rcn"
+        ],
+        "title": "ConcealedOut"
       },
       "ConventionOut": {
         "properties": {
@@ -7372,6 +7667,42 @@
             "stage": "appraisal_review"
           }
         ]
+      },
+      "DepreciationOut": {
+        "properties": {
+          "rate": {
+            "type": "string",
+            "title": "Rate",
+            "description": "0..1, applied to every row."
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "appraisal_physical_depreciation",
+              "age_life"
+            ],
+            "title": "Method"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rate",
+          "method",
+          "source",
+          "checks"
+        ],
+        "title": "DepreciationOut"
       },
       "DocumentKind": {
         "type": "string",
@@ -8992,6 +9323,46 @@
         ],
         "title": "MembershipOut"
       },
+      "ModelOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "cls": {
+            "type": "string",
+            "title": "Cls",
+            "description": "economy, average, custom or luxury"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "1 story ... 3 story"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "class_source": {
+            "type": "string",
+            "title": "Class Source"
+          },
+          "type_source": {
+            "type": "string",
+            "title": "Type Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "cls",
+          "type",
+          "source",
+          "class_source",
+          "type_source"
+        ],
+        "title": "ModelOut"
+      },
       "NotProducedOut": {
         "properties": {
           "system": {
@@ -9576,6 +9947,138 @@
         "title": "ProvenanceOut",
         "description": "Who produced a row and from what (``basis.db.repositories.provenance``)."
       },
+      "ReconciliationOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "reconciled",
+              "unreconciled",
+              "not_checked"
+            ],
+            "title": "Status"
+          },
+          "building_basis": {
+            "type": "string",
+            "title": "Building Basis",
+            "description": "B: the purchase price less land."
+          },
+          "rcn_total": {
+            "type": "string",
+            "title": "Rcn Total"
+          },
+          "rcnld_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld Total"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap",
+            "description": "B − RCNLD."
+          },
+          "gap_share": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Share",
+            "description": "Of B, to 6 places."
+          },
+          "tolerance": {
+            "type": "string",
+            "title": "Tolerance"
+          },
+          "implied_uniform_factor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implied Uniform Factor",
+            "description": "T / ΣRCN: what the uniform step-up would have been; a diagnostic only."
+          },
+          "by_component": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentLineOut"
+            },
+            "type": "array",
+            "title": "By Component"
+          },
+          "unassigned_remainders": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentLineOut"
+            },
+            "type": "array",
+            "title": "Unassigned Remainders",
+            "description": "Components whose residual has no concealed row (Specialties)."
+          },
+          "outside_model": {
+            "type": "string",
+            "title": "Outside Model"
+          },
+          "unpriced_assets": {
+            "type": "integer",
+            "title": "Unpriced Assets"
+          },
+          "appraisal_check": {
+            "$ref": "#/components/schemas/CheckOut"
+          },
+          "causes": {
+            "items": {
+              "$ref": "#/components/schemas/CauseOut"
+            },
+            "type": "array",
+            "title": "Causes"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "building_basis",
+          "rcn_total",
+          "rcnld_total",
+          "gap",
+          "gap_share",
+          "tolerance",
+          "implied_uniform_factor",
+          "by_component",
+          "unassigned_remainders",
+          "outside_model",
+          "unpriced_assets",
+          "appraisal_check",
+          "causes",
+          "checks"
+        ],
+        "title": "ReconciliationOut"
+      },
       "RetryRequested": {
         "properties": {
           "workflow_id": {
@@ -9897,6 +10400,18 @@
           "rcn": {
             "type": "string",
             "title": "Rcn"
+          },
+          "rcnld": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld",
+            "description": "RCN less depreciation; null undepreciated."
           }
         },
         "type": "object",
@@ -9920,6 +10435,30 @@
           "rcn_total": {
             "type": "string",
             "title": "Rcn Total"
+          },
+          "rcnld_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld Total",
+            "description": "The priced rows' RCN less depreciation; null undepreciated."
+          },
+          "concealed": {
+            "type": "integer",
+            "title": "Concealed",
+            "description": "Rows the structure model wrote.",
+            "default": 0
+          },
+          "concealed_rcn": {
+            "type": "string",
+            "title": "Concealed Rcn",
+            "description": "Their RCN.",
+            "default": "0.00"
           },
           "by_bucket": {
             "items": {
@@ -10310,6 +10849,49 @@
           "code"
         ],
         "title": "StepOut"
+      },
+      "StructureOut": {
+        "properties": {
+          "building_rcn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuildingRcnOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentOut"
+            },
+            "type": "array",
+            "title": "Components"
+          },
+          "concealed": {
+            "items": {
+              "$ref": "#/components/schemas/ConcealedOut"
+            },
+            "type": "array",
+            "title": "Concealed",
+            "description": "The concealed rows of the schedule."
+          },
+          "outside_model": {
+            "type": "string",
+            "title": "Outside Model",
+            "description": "Priced itemized rows the model does not include."
+          }
+        },
+        "type": "object",
+        "required": [
+          "building_rcn",
+          "components",
+          "concealed",
+          "outside_model"
+        ],
+        "title": "StructureOut",
+        "description": "The structure model as recomputed from the appraisal for this result."
       },
       "StudyCorpusOut": {
         "properties": {
@@ -11229,7 +11811,7 @@
             },
             "type": "array",
             "title": "Missing",
-            "description": "What the result lacks: `intake` (no basis without it), `allocation` (an intake but no priced asset to allocate to), or nothing."
+            "description": "What the result lacks: `intake` (no basis without it), `building_rcn` (no appraisal cost approach and no living area), `depreciation` (no rate), `allocation` (nothing priced, or the reconciliation is not within tolerance), or nothing."
           },
           "worksheet": {
             "anyOf": [
@@ -11243,6 +11825,36 @@
           },
           "schedule": {
             "$ref": "#/components/schemas/ScheduleOut"
+          },
+          "structure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructureOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "depreciation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DepreciationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconciliation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReconciliationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "allocation": {
             "anyOf": [
@@ -11260,7 +11872,7 @@
             },
             "type": "array",
             "title": "Not Produced",
-            "description": "Systems the pipeline cannot cost today, so the schedule's gap to the basis is explicit."
+            "description": "Concealed systems with no priced row in this schedule, so the gap to the basis is explicit."
           }
         },
         "type": "object",
@@ -11451,6 +12063,17 @@
           "rcn": {
             "type": "string",
             "title": "Rcn"
+          },
+          "rcnld": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld"
           },
           "allocated": {
             "type": "string",

@@ -82,8 +82,8 @@ async def test_result_without_intake_is_the_schedule_alone(
     assert body["schedule"]["rcn_total"] == "100.00"
     assert body["schedule"]["unpriced"] == [str(ids[1])]
     assert body["schedule"]["by_bucket"] == [
-        {"bucket": "y5", "assets": 1, "rcn": "100.00"},
-        {"bucket": "y39", "assets": 1, "rcn": "0.00"},
+        {"bucket": "y5", "assets": 1, "rcn": "100.00", "rcnld": None},
+        {"bucket": "y39", "assets": 1, "rcn": "0.00", "rcnld": None},
     ]
     assert [n["system"] for n in body["not_produced"]][:2] == ["Foundations", "Structural Framing"]
 
@@ -146,7 +146,8 @@ async def test_result_allocates_the_revision_to_the_intake_basis(
         "56000.00",
         "105.00",
     )
-    assert a["by_system"] is None
+    # Rows with no label are Miscellaneous Building Components: the page is always built.
+    assert [s["system"] for s in a["by_system"]] == ["Miscellaneous Building Components"]
     assert {c["code"]: c["severity"] for c in a["checks"]} == {"uniform_factor": "error"}
     assert body["schedule"]["land"] == [str(ids[3])]
     assert body["schedule"]["unpriced"] == [str(ids[4])]
