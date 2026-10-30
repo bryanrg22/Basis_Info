@@ -54,7 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from basis.classify.router import ClassifyContext, resolve_rule_citations
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
-from basis.domain.rules import RULES, lookup
+from basis.domain.rules import hit_name, table_hits
 from basis.llm.provider import Budget
 from basis.retrieval.bm25 import Bm25Registry
 from basis.retrieval.chunk import CHUNKER_VERSION
@@ -368,15 +368,13 @@ async def test_every_rules_table_citation_resolves_in_the_ingested_chunks(
     )
     claimed = verified = 0
     unresolved: list[str] = []
-    for key in RULES:
-        hit = lookup(key)
-        assert hit is not None and hit.key == key
+    for hit in table_hits():  # every row and every variant (RULES_VERSION 2026-10-29.1)
         ok, dropped = await resolve_rule_citations(hit, ctx)
         claimed += len(hit.citations)
         verified += len(ok)
-        unresolved += [f"{key} {d.chunk_id}" for d in dropped]
+        unresolved += [f"{hit_name(hit)} {d.chunk_id}" for d in dropped]
     _report(record_property, citations=claimed, resolved=verified)
-    assert claimed == 77
+    assert claimed == 104  # 89 on the 54 rows, 15 on their 7 variants
     assert unresolved == []
 
 

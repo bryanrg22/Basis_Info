@@ -155,3 +155,66 @@ Aliases added with the rows: `towel_bar`, `towel_ring`, `toilet_paper_holder`, `
 `half_wall`; `window_bars`, `security_bars`, `security_grille`, `door_guard` ->
 `window_guard`; and a generic floor label with material `concrete` or `sealed_concrete`
 resolves to `concrete_floor`.
+
+## Re-citation of 2026-10-29: the context dimension (`RULES_VERSION` `2026-10-29.1`)
+
+`CLASSIFICATION_CONVENTIONS.md` section 4. Decision rule for every row below: **an item the
+guide names takes the guide's bucket; an item no document names keeps its bucket and its
+contested note.** So the rows ATG Exhibit A names as building components lose the legacy
+5-year bucket and their contested note, and become building rows (`Rule.building`: 27.5
+years residential rental, 39 nonresidential). A row can now carry **variants**: a `When`
+(rooms, attachments, property classes) and the rule that applies there; the first variant
+matching the component's normalized room type (`normalize_room_type`, so `restroom` and
+`bath` are `bathroom`), attachment and property class is the effective rule, and the hit
+names it in `RuleHit.context` (`room=bathroom`, `attachment=removable`). A variant's rule
+keeps the row's key.
+
+Method: as above. Every excerpt was checked (1) verbatim on the cited page, pymupdf
+`page.get_text()` compared after `basis.retrieval.verify.normalize_text`, (2) inside one
+production chunk of that page (`parse_pdf` + `chunk_document` of the ATG), and (3) through
+`resolve_rule_citations` against the ingested real corpus in Postgres
+(`tests/integration/retrieval/test_real_corpus.py`, which since this change walks every row
+and every variant through `basis.domain.rules.table_hits`). The `rule_citations` eval
+dataset now includes the variants' citations too (a variant's `rule` is
+`key[context]`). 8 excerpts are new (marked **(new)** below); checks (1) and (2) pass for
+all 104 claims of the table (58 distinct excerpts, every row and every variant), and check (3)
+resolves 104 of 104 (the integration test against the six ingested reference PDFs, Postgres
+BM25 as production searches). Totals: 54 rows
+(53 + `accent_lighting`), 7 variants, 104 citation claims (89 on rows, 15 on variants; 58
+distinct excerpts), 10 contested rows (26 before).
+
+| Rule | Section, bucket (before -> after) | Citation | Status | Why |
+|---|---|---|---|---|
+| `toilet`, `bathtub`, `shower` | 1245 y5 -> 1250 building | ATG p.315: "bathroom plumbing fixtures (e.g. sinks, bath tubs, showers, toilets)"<br>ATG p.317: "Cabinet, counter, sink, faucet, mirror attached with permanent adhesive, toilet, towel rack, toilet paper holder, flush mounted medicine cabinet, tub, shower, vent fan, etc." | supported (was contested) | Exhibit A, Plumbing - Building (p.315) and Restroom Components (p.317) name each fixture: section 1250, RRP 27.5. The regulation lists "plumbing fixtures, such as sinks and bathtubs" (p.19). |
+| `sink` | 1245 y5 -> 1250 building | ATG p.315: "bathroom plumbing fixtures (e.g. sinks, bath tubs, showers, toilets)"<br>ATG p.311: "Kitchen cabinets, counters, sink, includes plumbing costs." | supported (was contested) | Bathroom sinks (p.315) and kitchen sinks (Kitchen Components, p.311; p.315 also names "kitchen sinks") are section 1250. |
+| `water_heater` | 1245 y5 -> 1250 building | ATG p.315: "all other components of a building plumbing system (water or gas) not specifically identified elsewhere" | supported (was contested) | Exhibit A does not name water heaters; the residual Plumbing - Building row covers every other component of the building's water or gas system, section 1250. The section 1245 hot water heater passages (restaurant, retail) serve equipment, not a dwelling unit. Judgment: a dwelling's water heater is a building plumbing component. |
+| `garbage_disposal` | 1245 y5 -> 1250 building | ATG p.311: "All piping, drains, faucets, garbage disposal and waste piping, sinks and other components of a kitchen plumbing system"<br>ATG p.311: "All general wiring/outlets/switches in kitchen including garbage disposal." **(new)** | supported (was contested) | Exhibit A names the garbage disposal under Kitchen - Plumbing and Kitchen - Electrical, both section 1250. |
+| `light_fixture` | 1245 y5 -> 1250 building | ATG p.313: "Includes lighting such as recessed and lay-in lighting, night lighting, as well as decorative lighting fixtures that provide substantially all the artificial illumination in the building." **(new)** | supported (was contested) | Light Fixtures - Interior - Building: section 1250, decorative or not, when it provides the illumination. The old excerpt (accent fixtures) moves to `accent_lighting`. |
+| `accent_lighting` (new row; aliases `track_lighting`, `decorative_lighting` (was `light_fixture`), `neon_lighting`, `landscape_lighting`) | (none) -> 1245 y5 (57.0) | ATG p.313: "Light fixtures, such as neon, track lighting, or grow lights which are decorative in nature and not necessary for the operation or maintenance of the building."<br>ATG p.313: "Lighting that highlights only the landscaping or building exterior" **(new)**<br>ATG p.297: the Asset Class 57.0 sentence | supported (new) | Light Fixtures - Interior and Exterior - Accent/Decorative/Special Fixture: section 1245, 57.0, 5 years. The same row says decorative lighting that is the primary light source is section 1250; the row's note says so, and a generic light label stays on `light_fixture`. |
+| `ceiling_fan` | 1245 y5 -> 1250 building | ATG p.298: "Ceiling fan typically with attached lights."<br>ATG p.298: "Lighting typically is the primary light source (artificial illumination) in the room." **(new)** | supported (was contested) | Exhibit A, Ceiling Fans: section 1250. The restaurant chapter citation (p.191, ceiling fans as props) is dropped: Exhibit A says other industries' guidance may not apply to residential rental property (p.296). |
+| `smoke_detector` | 1245 y5 -> 1250 building | ATG p.305: "Battery powered or hard-wired fire alarms and CO2 detectors, generally mounted to ceilings or walls by screws." | supported (was contested) | Exhibit A, Fire Alarm and CO2 Detectors: section 1250. |
+| `thermostat` | 1245 y5 -> 1250 building | ATG p.304: "demand controllers, thermostats, computer controls, outside air economizers"<br>ATG p.310: "Includes all components of a central heating, ventilating and air conditioning system." **(new)** | supported (was contested) | Exhibit A, Energy Management Systems (p.304, names thermostats) and HVAC - Residence (p.310, all components of the central system): section 1250. |
+| `tile` | 1245 y5 -> 1250 building | ATG p.306: "ceramic or quarry tile, marble, paving brick, and other coverings cemented, mudded, or grouted to the floor" | supported (was contested) | Exhibit A, Floor Coverings - Permanent: section 1250; the regulation names tiling as a permanent covering. |
+| `hardwood_floor` | 1245 y5 -> 1250 building | ATG p.306: "Includes floor covering that is affixed with permanent adhesive or nailed or screwed in place."<br>ATG p.306: "epoxy or sealers; and wood flooring." **(new)** | contested (kept, reworded) | Floor Coverings - Permanent names wood flooring: the documents' position is adopted (section 1250). Studies commonly treat glued wood flooring as 5-year, so the note stays and a hit goes to the engineer. |
+| `bathroom_vanity` | 1245 y5 -> 1250 building | ATG p.298: "Restroom cabinetry, counters, sinks."<br>ATG p.317: the Restroom Components sentence (as `toilet`) | supported (was contested) | Exhibit A, Cabinetry - Restroom and Restroom Components: section 1250. |
+| `closet_shelving` | 1245 y5 -> 1250 building | ATG p.305: "Built-in bookshelves, shelving and rods in bedroom, hallway, and linen closets, pantries, etc." | supported (was contested) | Exhibit A, Finish Carpentry: built-in shelving and rods in closets are section 1250. |
+| `kitchen_cabinet`, `countertop` | 1245 y5, contested (unchanged) | unchanged | contested (kept) | The kitchen row stays: the ATG's case table (Metro National, p.100) gives practitioners a section 1245 path for cabinetry, and the engineer's report uses it. |
+| `kitchen_cabinet` / `countertop` `[room=bathroom]` (variant) | -> 1250 building | ATG p.298: "Restroom cabinetry, counters, sinks."<br>ATG p.317: the Restroom Components sentence | supported (new variant) | Cabinetry - Restroom (p.298) and Restroom Components (p.317) name restroom cabinets and counters, section 1250; no passage gives restroom cabinetry a section 1245 path. |
+| `mirror` | 1245 y5, contested -> 1250 building | ATG p.317: "mirror attached with permanent adhesive" | supported (was contested) | Restroom Components names the mirror attached with permanent adhesive: section 1250. Without an attachment (or `permanent`, `unknown`) the mirror is that one. |
+| `mirror` `[attachment=removable]`, `[attachment=freestanding]` (variant) | -> 1245 y5 (57.0) | ATG p.191: "Decorative mobile props such as playground equipment, potted plants, hanging mirrors"<br>ATG p.322: "Window treatments such as drapes, curtains, louver, blinds, post construction tinting and interior decorative theme décor which are readily removable."<br>ATG p.297: the Asset Class 57.0 sentence | supported (new variant) | The p.191 passage is verbatim on page 191 (restaurant chapter, Décor and Accessories, section 1245, 57.0) and names hanging mirrors. Because Exhibit A warns that other industries' guidance may not apply to residential rental property (p.296), the residential matrix's own passage is cited too: readily removable interior décor is section 1245, 57.0, 5 years (p.322). Judgment: a hanging or freestanding mirror is readily removable décor; not contested. |
+| `furniture` | 1245 y7 (00.11), contested -> 1245 y5 (57.0) | ATG p.308: "Includes all furniture and furnishings typically found in a furnished house, condo, apartment, etc." **(new)**<br>ATG p.308: "For example, beds, chairs, sofas, and tables." **(new)**<br>ATG p.297: the Asset Class 57.0 sentence | supported (was contested) | Exhibit A, Furnishings - Residential: section 1245, 57.0, 5 years. The asset class follows the activity the furniture serves, not the item. |
+| `chair` | 1245 y7 (00.11), contested -> 1245 y5 (57.0) | ATG p.308: "For example, beds, chairs, sofas, and tables."<br>ATG p.297: the 57.0 sentence | supported (was contested) | As furniture (p.308 names chairs). |
+| `desk`, `filing_cabinet` | 1245 y7 (00.11) -> 1245 y5 (57.0) | ATG p.308: "Includes all furniture and furnishings typically found in a furnished house, condo, apartment, etc."<br>ATG p.297: the 57.0 sentence | supported | A desk or file cabinet furnishing a dwelling is a residential furnishing (p.308). |
+| `furniture`, `chair`, `desk`, `filing_cabinet` `[room=office]` (variants) | -> 1245 y7 (00.11) | ATG p.307: "Includes desk, chair, credenza, file cabinet, table, or other furniture such as workstations."<br>RP 87-56 p.4: "Includes such assets as desks, files, safes, and communications equipment" | supported (new variants) | Exhibit A, Furnishings - Rental Office Furniture (p.307) and Rev. Proc. 87-56 class 00.11 (p.4): 7 years. |
+
+Unchanged (no document names the item, or the guide gives both sides): `doorbell`,
+`laminate_flooring`, `half_wall`, `window_guard`, `shed`, `concrete_pad`, `deck`,
+`outdoor_lighting`, and every row not named above.
+
+Alias changes besides `accent_lighting`'s: `lamp` now resolves to `furniture` (it resolved
+to `light_fixture`; a lamp is a furnishing, ATG p.308, and as a building light fixture it
+would have become 27.5 years). Not changed, for the engineer: `shelf`, `shelves` and
+`storage_shelf` still resolve to `closet_shelving`, now a building row, so a freestanding
+shelf with one of those labels is classified as built-in shelving; `office_furniture`,
+`office_chair` and `conference_table` resolve to the 57.0 rows and take 00.11 only in an
+office room.

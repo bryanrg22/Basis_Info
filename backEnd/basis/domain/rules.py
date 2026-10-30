@@ -10,19 +10,27 @@ Changes from the legacy table, each deliberate:
 * ``flooring`` and ``floor`` no longer alias to ``carpet``. A generic floor label is
   resolved by its ``material`` (carpet, vinyl, laminate, tile, hardwood); without a
   material it is a miss, so the residual classifier (or the engineer) decides.
-* Rows whose legacy treatment no reference document supports keep their legacy bucket
-  but carry a ``contested`` note (what the documents say instead, with pages); a hit on
-  them is returned with that note so the asset goes to the engineer (``needs_review``)
-  instead of the tax position changing silently. Most are rows the ATG's residential
-  rental matrix (Pub 5653 chapter 7.H, Exhibit A) or Treas. Reg. section 1.48-1(e)(2)
-  ("plumbing and plumbing fixtures, such as sinks and bathtubs", "electric wiring and
-  lighting fixtures", floors "and any permanent coverings therefor") puts in section
-  1250; ``furniture``, ``chair`` and ``deck`` are supported only for office furniture and
-  freestanding decks.
+* The decision rule for a row's bucket (``RULES_VERSION`` ``2026-10-29.1``,
+  ``CLASSIFICATION_CONVENTIONS.md`` section 4): an item the IRS guide names takes the
+  guide's bucket, so the plumbing and lighting fixtures, ceiling fans, detectors,
+  thermostats, cemented tile, restroom cabinetry and closet shelving that the ATG's
+  residential rental matrix (Pub 5653 chapter 7.H, Exhibit A) puts in section 1250 are
+  building rows, and furniture is a residential furnishing (57.0, 5 years). An item no
+  document names, or where practitioners commonly differ, keeps its bucket and a
+  ``contested`` note (what the documents say instead, with pages); a hit on it is
+  returned with that note so the asset goes to the engineer (``needs_review``).
+* The context dimension: a row can have ``variants``, each a ``When`` (rooms,
+  attachments, property classes) and the rule that applies there; the first variant that
+  matches the component's normalized room type, attachment and property class is the
+  effective rule, else the row itself. Cabinets and counters in a bathroom are restroom
+  cabinetry (building), furniture in an office is 00.11 (7 years), and a removable or
+  freestanding mirror is 57.0 decor; the hit names the variant in ``RuleHit.context``.
 * An ``attachment`` of ``structural`` contradicts every section 1245 row and makes the
   lookup a miss (conflicting evidence goes to review).
 * A few aliases for labels the Stage 2 vision stub and the synthetic fixtures emit
-  (``cabinetry``, ``tile_flooring``, ``decorative_lighting``, ``ceiling_fans``).
+  (``cabinetry``, ``tile_flooring``, ``decorative_lighting``, ``ceiling_fans``);
+  ``decorative_lighting`` and ``track_lighting`` resolve to ``accent_lighting`` and
+  ``lamp`` to ``furniture`` since 2026-10-29.
 
 ``property_class`` (``residential_rental`` or ``nonresidential``) is part of the lookup and
 of the cache key because the building buckets differ (27.5 vs 39 years): only the building
@@ -64,7 +72,7 @@ from basis.db.enums import Bucket
 
 # Bump when any row, alias or matching rule changes: it is part of the cache key, so a
 # cached classification made under older rules is never served.
-RULES_VERSION: Final = "2026-10-16.1"
+RULES_VERSION: Final = "2026-10-29.1"
 
 PropertyClass = Literal["residential_rental", "nonresidential"]
 PROPERTY_CLASSES: Final[tuple[str, ...]] = get_args(PropertyClass)
@@ -91,26 +99,6 @@ MATERIAL_CONFIDENCE: Final = 0.9
 # Contested-row notes. "Exhibit A" is the ATG's residential rental property matrix
 # (Pub 5653 chapter 7.H, PDF pages 297-322), the IRS guidance for the table's default
 # property class. Page numbers are PDF pages of the corpus documents.
-_PLUMBING_FIXTURE: Final = (
-    "Treas. Reg. 1.48-1(e)(2) lists 'plumbing and plumbing fixtures, such as sinks and "
-    "bathtubs' as structural components (section 1250), and ATG Exhibit A (p.315) puts "
-    "bathroom plumbing fixtures under Plumbing - Building, section 1250, 27.5 years; no "
-    "supporting text was found for the legacy 5-year treatment, which needs engineer "
-    "confirmation"
-)
-_LIGHTING_FIXTURE: Final = (
-    "Treas. Reg. 1.48-1(e)(2) lists 'electric wiring and lighting fixtures' as structural "
-    "components; ATG Exhibit A (p.313) treats only accent/decorative fixtures that do not "
-    "provide general illumination as section 1245, 5 years, so a generic light needs "
-    "engineer confirmation"
-)
-_PERMANENT_COVERING: Final = (
-    "Treas. Reg. 1.48-1(e)(2) treats floors and 'any permanent coverings therefor such as "
-    "paneling or tiling' as structural components, and ATG Exhibit A (p.306) lists "
-    "permanent floor coverings (tile, wood flooring) as section 1250, 27.5 years; no "
-    "supporting text was found for the legacy 5-year treatment, which needs engineer "
-    "confirmation"
-)
 
 
 def _unsupported(finding: str) -> str:
@@ -125,30 +113,6 @@ _KITCHEN_COMPONENT: Final = _unsupported(
     "section 1250, 27.5 years (the only section 1245 cabinet passage is a non-residential "
     "case, Metro National, ATG p.100, with no recovery period)"
 )
-_RESTROOM_COMPONENT: Final = _unsupported(
-    "ATG Exhibit A (pp.298, 317) lists restroom cabinetry, counters and sinks as section "
-    "1250, 27.5 years"
-)
-_GARBAGE_DISPOSAL: Final = _unsupported(
-    "ATG Exhibit A (p.311) lists the garbage disposal under Kitchen - Plumbing and Kitchen "
-    "- Electrical, section 1250, 27.5 years"
-)
-_CEILING_FAN: Final = _unsupported(
-    "ATG Exhibit A (p.298) lists ceiling fans as section 1250, 27.5 years; only the "
-    "restaurant chapter (p.191) treats ceiling fans as decorative section 1245 props"
-)
-_MIRROR: Final = _unsupported(
-    "ATG Exhibit A (p.317) lists a mirror attached with permanent adhesive as a restroom "
-    "component, section 1250, 27.5 years; only the restaurant chapter (p.191) treats "
-    "hanging mirrors as section 1245 decor"
-)
-_SMOKE_DETECTOR: Final = _unsupported(
-    "ATG Exhibit A (p.305) lists fire alarms and CO2 detectors as section 1250, 27.5 years"
-)
-_THERMOSTAT: Final = _unsupported(
-    "ATG Exhibit A lists thermostats under Energy Management Systems (p.304) and HVAC "
-    "(p.310), section 1250, 27.5 years"
-)
 _DOORBELL: Final = _unsupported(
     "no document mentions doorbells; ATG Exhibit A (p.301) puts building electrical branch "
     "circuits that provide general building services under section 1250, 27.5 years"
@@ -158,21 +122,11 @@ _LAMINATE: Final = _unsupported(
     "as section 1245 only when it is readily removable (strippable adhesive), and lists "
     "permanently affixed floor coverings as section 1250 (p.306)"
 )
-_CLOSET_SHELVING: Final = _unsupported(
-    "ATG Exhibit A (p.305) lists built-in shelving and rods in closets as Finish "
-    "Carpentry, section 1250, 27.5 years"
-)
-_WATER_HEATER: Final = _unsupported(
-    "ATG Exhibit A does not name water heaters and puts all other components of a "
-    "building plumbing system under Plumbing - Building, section 1250, 27.5 years (p.315); "
-    "the section 1245 kitchen hot water heater passages are restaurant and retail "
-    "guidance for equipment hook-ups"
-)
-_RESIDENTIAL_FURNITURE: Final = (
-    "The 7-year asset class 00.11 treatment is supported for office furniture (Rev. Proc. "
-    "87-56 p.4, ATG Exhibit A p.307), but residential furnishings (beds, chairs, sofas, "
-    "tables) are asset class 57.0, 5 years (ATG Exhibit A p.308; Pub 527 p.13), so a "
-    "residential piece needs engineer confirmation"
+_GLUED_WOOD_FLOOR: Final = (
+    "The documents' position is adopted: ATG Exhibit A (p.306) lists wood flooring affixed "
+    "with permanent adhesive or nailed or screwed in place under Floor Coverings - "
+    "Permanent, section 1250, 27.5 years (39 nonresidential); studies commonly treat glued "
+    "wood flooring as 5-year property, so the bucket needs engineer confirmation"
 )
 # Rows added 2026-10-16 for report rows that had no label (EVAL_REPORT sections 13 and 19).
 # Where a cost segregation study's treatment (the report rows of section 13) and the documents
@@ -233,6 +187,9 @@ class Rule:
     # ``bucket`` is the residential one and :func:`lookup` returns 39 years for a
     # nonresidential property (ATG Exhibit A gives both: "RRP - 27.5 Years NRRP - 39 Years").
     building: bool = False
+    # The context dimension: the first variant whose ``When`` matches the component's room,
+    # attachment and property class is the effective rule; otherwise this row is.
+    variants: tuple[Variant, ...] = ()
 
     @property
     def recovery_period(self) -> Decimal:
@@ -243,6 +200,55 @@ class Rule:
         if self.building and property_class == "nonresidential":
             return Bucket.Y39
         return self.bucket
+
+    def effective(
+        self, *, room: str, attachment: str, property_class: PropertyClass
+    ) -> tuple[Rule, str | None]:
+        """``(rule, context)``: the first matching variant's rule and its context name, or
+        this row and ``None``. ``room`` and ``attachment`` are normalized already."""
+        for variant in self.variants:
+            if variant.when.matches(room, attachment, property_class):
+                return variant.rule, variant.when.describe(room, attachment, property_class)
+        return self, None
+
+
+@dataclass(frozen=True, slots=True)
+class When:
+    """The context a variant applies in. Every non-empty set must contain the component's
+    value: its normalized room type, its normalized attachment, its property class. An
+    unknown value (``""``) never matches a non-empty set, so it falls to the base row."""
+
+    rooms: frozenset[str] = frozenset()
+    attachments: frozenset[str] = frozenset()
+    property_classes: frozenset[str] = frozenset()
+
+    def matches(self, room: str, attachment: str, property_class: str) -> bool:
+        return (
+            (not self.rooms or room in self.rooms)
+            and (not self.attachments or attachment in self.attachments)
+            and (not self.property_classes or property_class in self.property_classes)
+        )
+
+    def describe(self, room: str, attachment: str, property_class: str) -> str:
+        """The context that fired, e.g. ``"room=bathroom"`` or ``"attachment=removable"``."""
+        parts = []
+        if self.rooms:
+            parts.append(f"room={room}")
+        if self.attachments:
+            parts.append(f"attachment={attachment}")
+        if self.property_classes:
+            parts.append(f"property_class={property_class}")
+        return ",".join(parts)
+
+
+@dataclass(frozen=True, slots=True)
+class Variant:
+    """A row's treatment in a context (``when``): ``rule`` replaces the base row there.
+    ``rule.key`` is the base row's key, so the hit, the cache key and the provenance keep
+    naming the row."""
+
+    when: When
+    rule: Rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +268,9 @@ class RuleHit:
     via: MatchKind
     property_class: PropertyClass
     contested: str | None = None
+    # The variant that fired (``"room=bathroom"``, ``"attachment=removable"``), ``None`` for
+    # the base row; ``key`` is the base row's key either way.
+    context: str | None = None
 
     @property
     def irs_section(self) -> str:
@@ -274,9 +283,14 @@ def _c(doc_id: str, page: int, excerpt: str) -> RuleCitation:
 
 
 def _p5(
-    key: str, category: str, note: str, *cites: RuleCitation, contested: str | None = None
+    key: str,
+    category: str,
+    note: str,
+    *cites: RuleCitation,
+    contested: str | None = None,
+    variants: tuple[Variant, ...] = (),
 ) -> Rule:
-    return Rule(key, category, "1245", Bucket.Y5, "57.0", note, cites, contested)
+    return Rule(key, category, "1245", Bucket.Y5, "57.0", note, cites, contested, False, variants)
 
 
 def _p7(
@@ -292,9 +306,23 @@ def _l15(
 
 
 def _bldg(
-    key: str, category: str, note: str, *cites: RuleCitation, contested: str | None = None
+    key: str,
+    category: str,
+    note: str,
+    *cites: RuleCitation,
+    contested: str | None = None,
+    variants: tuple[Variant, ...] = (),
 ) -> Rule:
-    return Rule(key, category, "1250", Bucket.Y27_5, None, note, cites, contested, building=True)
+    return Rule(key, category, "1250", Bucket.Y27_5, None, note, cites, contested, True, variants)
+
+
+def _when(
+    *,
+    rooms: tuple[str, ...] = (),
+    attachments: tuple[str, ...] = (),
+    property_classes: tuple[str, ...] = (),
+) -> When:
+    return When(frozenset(rooms), frozenset(attachments), frozenset(property_classes))
 
 
 # Citations shared by several rows (each verified verbatim on its page).
@@ -340,6 +368,55 @@ _RENTAL_OFFICE_FURNITURE: Final = _c(
     "Includes desk, chair, credenza, file cabinet, table, or other furniture such as workstations.",
 )
 _LAND_IMPROVEMENTS_00_3: Final = _c(REV_PROC, 7, "bridges, fences, landscaping, shubbery")
+# Cited for the context dimension (re-citation of 2026-10-29, RULES_RECITATION.md).
+_RESTROOM_CABINETRY: Final = _c(ATG, 298, "Restroom cabinetry, counters, sinks.")
+_RESTROOM_COMPONENTS: Final = _c(
+    ATG,
+    317,
+    "Cabinet, counter, sink, faucet, mirror attached with permanent adhesive, toilet, towel "
+    "rack, toilet paper holder, flush mounted medicine cabinet, tub, shower, vent fan, etc.",
+)
+_KITCHEN_PLUMBING: Final = _c(
+    ATG,
+    311,
+    "All piping, drains, faucets, garbage disposal and waste piping, sinks and other "
+    "components of a kitchen plumbing system",
+)
+_ACCENT_LIGHTING: Final = _c(
+    ATG,
+    313,
+    "Light fixtures, such as neon, track lighting, or grow lights which are decorative in "
+    "nature and not necessary for the operation or maintenance of the building.",
+)
+_RESIDENTIAL_FURNISHINGS: Final = _c(
+    ATG,
+    308,
+    "Includes all furniture and furnishings typically found in a furnished house, condo, "
+    "apartment, etc.",
+)
+_RESIDENTIAL_FURNISHINGS_EXAMPLES: Final = _c(
+    ATG, 308, "For example, beds, chairs, sofas, and tables."
+)
+
+# Variants shared by several rows.
+_IN_BATHROOM: Final = _when(rooms=("bathroom",))
+_IN_OFFICE: Final = _when(rooms=("office",))
+
+
+def _office_furniture(key: str, category: str, note: str) -> Variant:
+    """Furniture serving a rental office: asset class 00.11, 7 years (ATG p.307)."""
+    return Variant(
+        _IN_OFFICE,
+        _p7(key, category, note, _RENTAL_OFFICE_FURNITURE, _OFFICE_FURNITURE_00_11),
+    )
+
+
+def _restroom_cabinetry(key: str, category: str, note: str) -> Variant:
+    """Cabinetry and counters in a bathroom: a restroom component (ATG pp.298, 317)."""
+    return Variant(
+        _IN_BATHROOM, _bldg(key, category, note, _RESTROOM_CABINETRY, _RESTROOM_COMPONENTS)
+    )
+
 
 _RULES: Final[tuple[Rule, ...]] = (
     # ---------------------------------------------------- section 1245, 5-year (57.0)
@@ -352,16 +429,14 @@ _RULES: Final[tuple[Rule, ...]] = (
         _RRP_57_0,
     ),
     _p5(
-        "light_fixture",
-        "Light fixtures",
-        "Decorative light fixtures are Section 1245 personal property, 5-year recovery",
-        _c(
-            ATG,
-            313,
-            "Light fixtures, such as neon, track lighting, or grow lights which are decorative "
-            "in nature and not necessary for the operation or maintenance of the building.",
-        ),
-        contested=_LIGHTING_FIXTURE,
+        "accent_lighting",
+        "Accent lighting",
+        "Accent, decorative or special light fixtures not needed to light the building (track, "
+        "neon, landscape lighting) are Section 1245, Asset Class 57.0, 5-year; decorative "
+        "lighting that is the primary light source is a building component (light_fixture)",
+        _ACCENT_LIGHTING,
+        _c(ATG, 313, "Lighting that highlights only the landscaping or building exterior"),
+        _RRP_57_0,
     ),
     _p5(
         "kitchen_cabinet",
@@ -370,6 +445,14 @@ _RULES: Final[tuple[Rule, ...]] = (
         _KITCHEN_COMPONENTS,
         _c(ATG, 100, "Cabinets and hardware (§ 1245)"),
         contested=_KITCHEN_COMPONENT,
+        variants=(
+            _restroom_cabinetry(
+                "kitchen_cabinet",
+                "Restroom cabinetry",
+                "Cabinets in a bathroom are restroom cabinetry, Section 1250 building "
+                "components (ATG Exhibit A, Cabinetry - Restroom and Restroom Components)",
+            ),
+        ),
     ),
     _p5(
         "countertop",
@@ -377,6 +460,14 @@ _RULES: Final[tuple[Rule, ...]] = (
         "Countertops (non-structural) are Section 1245 personal property",
         _KITCHEN_COMPONENTS,
         contested=_KITCHEN_COMPONENT,
+        variants=(
+            _restroom_cabinetry(
+                "countertop",
+                "Restroom counters",
+                "Counters in a bathroom are restroom components, Section 1250 building "
+                "components (ATG Exhibit A, Cabinetry - Restroom and Restroom Components)",
+            ),
+        ),
     ),
     _p5(
         "appliance",
@@ -435,26 +526,6 @@ _RULES: Final[tuple[Rule, ...]] = (
         _RRP_57_0,
     ),
     _p5(
-        "garbage_disposal",
-        "Garbage disposal",
-        "Garbage disposals are Section 1245 personal property with 5-year recovery",
-        _c(
-            ATG,
-            311,
-            "All piping, drains, faucets, garbage disposal and waste piping, sinks and other "
-            "components of a kitchen plumbing system",
-        ),
-        contested=_GARBAGE_DISPOSAL,
-    ),
-    _p5(
-        "ceiling_fan",
-        "Ceiling fan",
-        "Ceiling fans are Section 1245 personal property with 5-year recovery",
-        _c(ATG, 298, "Ceiling fan typically with attached lights."),
-        _c(ATG, 191, "potted plants, hanging mirrors, ceiling fans, and theme related props"),
-        contested=_CEILING_FAN,
-    ),
-    _p5(
         "blinds",
         "Window blinds",
         "Window blinds are Section 1245 personal property with 5-year recovery",
@@ -465,68 +536,6 @@ _RULES: Final[tuple[Rule, ...]] = (
         "Window treatments",
         "Window treatments are Section 1245 personal property with 5-year recovery",
         _WINDOW_TREATMENTS,
-    ),
-    _p5(
-        "bathroom_vanity",
-        "Bathroom vanity",
-        "Bathroom vanities are Section 1245 personal property with 5-year recovery",
-        _c(ATG, 298, "Restroom cabinetry, counters, sinks."),
-        contested=_RESTROOM_COMPONENT,
-    ),
-    _p5(
-        "toilet",
-        "Toilet",
-        "Toilets are Section 1245 personal property with 5-year recovery",
-        _BATHROOM_PLUMBING,
-        contested=_PLUMBING_FIXTURE,
-    ),
-    _p5(
-        "sink",
-        "Sink",
-        "Sinks are Section 1245 personal property with 5-year recovery",
-        _BATHROOM_PLUMBING,
-        contested=_PLUMBING_FIXTURE,
-    ),
-    _p5(
-        "bathtub",
-        "Bathtub",
-        "Bathtubs are Section 1245 personal property with 5-year recovery",
-        _BATHROOM_PLUMBING,
-        contested=_PLUMBING_FIXTURE,
-    ),
-    _p5(
-        "shower",
-        "Shower",
-        "Shower units are Section 1245 personal property with 5-year recovery",
-        _BATHROOM_PLUMBING,
-        contested=_PLUMBING_FIXTURE,
-    ),
-    _p5(
-        "mirror",
-        "Mirror",
-        "Mirrors (decorative) are Section 1245 personal property with 5-year recovery",
-        _c(ATG, 317, "mirror attached with permanent adhesive"),
-        _RESTAURANT_DECOR,
-        contested=_MIRROR,
-    ),
-    _p5(
-        "smoke_detector",
-        "Smoke detector",
-        "Smoke detectors are Section 1245 personal property with 5-year recovery",
-        _c(
-            ATG,
-            305,
-            "Battery powered or hard-wired fire alarms and CO2 detectors, generally mounted to "
-            "ceilings or walls by screws.",
-        ),
-        contested=_SMOKE_DETECTOR,
-    ),
-    _p5(
-        "thermostat",
-        "Thermostat",
-        "Thermostats are Section 1245 personal property with 5-year recovery",
-        _c(ATG, 304, "demand controllers, thermostats, computer controls, outside air economizers"),
-        contested=_THERMOSTAT,
     ),
     _p5(
         "doorbell",
@@ -541,30 +550,6 @@ _RULES: Final[tuple[Rule, ...]] = (
         contested=_DOORBELL,
     ),
     _p5(
-        "tile",
-        "Tile",
-        "Floor/wall tile in residential is Section 1245 with 5-year recovery",
-        _c(
-            ATG,
-            306,
-            "ceramic or quarry tile, marble, paving brick, and other coverings cemented, "
-            "mudded, or grouted to the floor",
-        ),
-        contested=_PERMANENT_COVERING,
-    ),
-    _p5(
-        "hardwood_floor",
-        "Hardwood flooring",
-        "Hardwood flooring in residential is Section 1245 with 5-year recovery",
-        _c(
-            ATG,
-            306,
-            "Includes floor covering that is affixed with permanent adhesive or nailed or "
-            "screwed in place.",
-        ),
-        contested=_PERMANENT_COVERING,
-    ),
-    _p5(
         "vinyl_flooring",
         "Vinyl flooring",
         "Vinyl flooring in residential is Section 1245 with 5-year recovery",
@@ -577,59 +562,66 @@ _RULES: Final[tuple[Rule, ...]] = (
         _c(ATG, 307, "Floor covering that is installed by means of strippable adhesives"),
         contested=_LAMINATE,
     ),
+    # ------------------ section 1245, 5-year (57.0); 7-year (00.11) in a rental office
     _p5(
-        "closet_shelving",
-        "Closet shelving",
-        "Closet shelving/organizers are Section 1245 personal property",
-        _c(
-            ATG,
-            305,
-            "Built-in bookshelves, shelving and rods in bedroom, hallway, and linen closets, "
-            "pantries, etc.",
-        ),
-        contested=_CLOSET_SHELVING,
-    ),
-    _p5(
-        "water_heater",
-        "Water heater",
-        "Water heaters serving single units are Section 1245 with 5-year recovery",
-        _c(
-            ATG,
-            315,
-            "all other components of a building plumbing system (water or gas) not "
-            "specifically identified elsewhere",
-        ),
-        contested=_WATER_HEATER,
-    ),
-    # ---------------------------------------------------- section 1245, 7-year (00.11)
-    _p7(
         "furniture",
         "Furniture",
-        "Office furniture and fixtures are 7-year property under Asset Class 00.11",
-        _OFFICE_FURNITURE_00_11,
-        _RENTAL_OFFICE_FURNITURE,
-        contested=_RESIDENTIAL_FURNITURE,
+        "Residential furnishings (beds, chairs, sofas, tables) are Section 1245 personal "
+        "property, Asset Class 57.0, 5-year; furniture serving a rental office is Asset Class "
+        "00.11, 7-year",
+        _RESIDENTIAL_FURNISHINGS,
+        _RESIDENTIAL_FURNISHINGS_EXAMPLES,
+        _RRP_57_0,
+        variants=(
+            _office_furniture(
+                "furniture",
+                "Office furniture",
+                "Office furniture and fixtures are 7-year property under Asset Class 00.11",
+            ),
+        ),
     ),
-    _p7(
+    _p5(
         "desk",
         "Desk",
-        "Desks are 7-year property under Asset Class 00.11",
-        _OFFICE_FURNITURE_00_11,
-        _RENTAL_OFFICE_FURNITURE,
+        "A desk furnishing a dwelling is a residential furnishing, Section 1245, Asset Class "
+        "57.0, 5-year; an office desk is Asset Class 00.11, 7-year",
+        _RESIDENTIAL_FURNISHINGS,
+        _RRP_57_0,
+        variants=(
+            _office_furniture(
+                "desk", "Office desk", "Desks are 7-year property under Asset Class 00.11"
+            ),
+        ),
     ),
-    _p7(
+    _p5(
         "chair",
         "Chair",
-        "Chairs (office) are 7-year property under Asset Class 00.11",
-        _RENTAL_OFFICE_FURNITURE,
-        contested=_RESIDENTIAL_FURNITURE,
+        "Chairs are residential furnishings, Section 1245, Asset Class 57.0, 5-year; an "
+        "office chair is Asset Class 00.11, 7-year",
+        _RESIDENTIAL_FURNISHINGS_EXAMPLES,
+        _RRP_57_0,
+        variants=(
+            _office_furniture(
+                "chair",
+                "Office chair",
+                "Chairs (office) are 7-year property under Asset Class 00.11",
+            ),
+        ),
     ),
-    _p7(
+    _p5(
         "filing_cabinet",
         "Filing cabinet",
-        "Filing cabinets are 7-year property under Asset Class 00.11",
-        _OFFICE_FURNITURE_00_11,
-        _RENTAL_OFFICE_FURNITURE,
+        "A filing cabinet furnishing a dwelling is a residential furnishing, Section 1245, "
+        "Asset Class 57.0, 5-year; an office one is Asset Class 00.11, 7-year",
+        _RESIDENTIAL_FURNISHINGS,
+        _RRP_57_0,
+        variants=(
+            _office_furniture(
+                "filing_cabinet",
+                "Office filing cabinet",
+                "Filing cabinets are 7-year property under Asset Class 00.11",
+            ),
+        ),
     ),
     # ---------------------------------------------------- land improvements, 15-year (00.3)
     _l15(
@@ -782,13 +774,7 @@ _RULES: Final[tuple[Rule, ...]] = (
             "Also, includes paper towel dispensers, electric hand dryers, towel racks or "
             "holders, cup dispensers, purse shelves, toilet paper holders",
         ),
-        _c(
-            ATG,
-            317,
-            "Cabinet, counter, sink, faucet, mirror attached with permanent adhesive, toilet, "
-            "towel rack, toilet paper holder, flush mounted medicine cabinet, tub, shower, vent "
-            "fan, etc.",
-        ),
+        _RESTROOM_COMPONENTS,
     ),
     _bldg(
         "concrete_floor",
@@ -834,6 +820,180 @@ _RULES: Final[tuple[Rule, ...]] = (
         ),
         contested=_WINDOW_GUARD,
     ),
+    # ------------------------------------------- named by ATG Exhibit A (2026-10-29)
+    _bldg(
+        "toilet",
+        "Toilet",
+        "Toilets are bathroom plumbing fixtures, Section 1250 building components (ATG Exhibit "
+        "A, Plumbing - Building and Restroom Components)",
+        _BATHROOM_PLUMBING,
+        _RESTROOM_COMPONENTS,
+    ),
+    _bldg(
+        "bathtub",
+        "Bathtub",
+        "Bathtubs are bathroom plumbing fixtures, Section 1250 building components (ATG "
+        "Exhibit A, Plumbing - Building and Restroom Components)",
+        _BATHROOM_PLUMBING,
+        _RESTROOM_COMPONENTS,
+    ),
+    _bldg(
+        "shower",
+        "Shower",
+        "Showers are bathroom plumbing fixtures, Section 1250 building components (ATG "
+        "Exhibit A, Plumbing - Building and Restroom Components)",
+        _BATHROOM_PLUMBING,
+        _RESTROOM_COMPONENTS,
+    ),
+    _bldg(
+        "sink",
+        "Sink",
+        "Bathroom and kitchen sinks are plumbing fixtures, Section 1250 building components "
+        "(ATG Exhibit A, Plumbing - Building and Kitchen Components)",
+        _BATHROOM_PLUMBING,
+        _KITCHEN_COMPONENTS,
+    ),
+    _bldg(
+        "water_heater",
+        "Water heater",
+        "Water heaters are components of the building plumbing system, Section 1250 building "
+        "components (ATG Exhibit A, Plumbing - Building)",
+        _c(
+            ATG,
+            315,
+            "all other components of a building plumbing system (water or gas) not "
+            "specifically identified elsewhere",
+        ),
+    ),
+    _bldg(
+        "garbage_disposal",
+        "Garbage disposal",
+        "Garbage disposals are part of the kitchen plumbing and general kitchen wiring, "
+        "Section 1250 building components (ATG Exhibit A, Kitchen - Plumbing and Kitchen - "
+        "Electrical)",
+        _KITCHEN_PLUMBING,
+        _c(ATG, 311, "All general wiring/outlets/switches in kitchen including garbage disposal."),
+    ),
+    _bldg(
+        "light_fixture",
+        "Light fixtures",
+        "Light fixtures that provide the building's artificial illumination, decorative or "
+        "not, are Section 1250 building components (ATG Exhibit A, Light Fixtures - Interior - "
+        "Building); accent fixtures are accent_lighting",
+        _c(
+            ATG,
+            313,
+            "Includes lighting such as recessed and lay-in lighting, night lighting, as well as "
+            "decorative lighting fixtures that provide substantially all the artificial "
+            "illumination in the building.",
+        ),
+    ),
+    _bldg(
+        "ceiling_fan",
+        "Ceiling fan",
+        "Ceiling fans, typically with the room's primary light, are Section 1250 building "
+        "components (ATG Exhibit A, Ceiling Fans)",
+        _c(ATG, 298, "Ceiling fan typically with attached lights."),
+        _c(
+            ATG,
+            298,
+            "Lighting typically is the primary light source (artificial illumination) in the room.",
+        ),
+    ),
+    _bldg(
+        "smoke_detector",
+        "Smoke detector",
+        "Fire alarms and CO2 detectors are Section 1250 building components (ATG Exhibit A, "
+        "Fire Alarm and CO2 Detectors)",
+        _c(
+            ATG,
+            305,
+            "Battery powered or hard-wired fire alarms and CO2 detectors, generally mounted to "
+            "ceilings or walls by screws.",
+        ),
+    ),
+    _bldg(
+        "thermostat",
+        "Thermostat",
+        "Thermostats are part of the energy management and HVAC systems, Section 1250 "
+        "building components (ATG Exhibit A, Energy Management Systems and HVAC - Residence)",
+        _c(ATG, 304, "demand controllers, thermostats, computer controls, outside air economizers"),
+        _c(
+            ATG,
+            310,
+            "Includes all components of a central heating, ventilating and air conditioning "
+            "system.",
+        ),
+    ),
+    _bldg(
+        "tile",
+        "Tile",
+        "Tile cemented, mudded or grouted in place is a permanent floor covering, Section 1250 "
+        "building component (ATG Exhibit A, Floor Coverings - Permanent)",
+        _c(
+            ATG,
+            306,
+            "ceramic or quarry tile, marble, paving brick, and other coverings cemented, "
+            "mudded, or grouted to the floor",
+        ),
+    ),
+    _bldg(
+        "hardwood_floor",
+        "Hardwood flooring",
+        "Wood flooring affixed with permanent adhesive or nailed or screwed in place is a "
+        "permanent floor covering, Section 1250 building component (ATG Exhibit A, Floor "
+        "Coverings - Permanent)",
+        _c(
+            ATG,
+            306,
+            "Includes floor covering that is affixed with permanent adhesive or nailed or "
+            "screwed in place.",
+        ),
+        _c(ATG, 306, "epoxy or sealers; and wood flooring."),
+        contested=_GLUED_WOOD_FLOOR,
+    ),
+    _bldg(
+        "bathroom_vanity",
+        "Bathroom vanity",
+        "Bathroom vanities are restroom cabinetry, counters and sinks, Section 1250 building "
+        "components (ATG Exhibit A, Cabinetry - Restroom and Restroom Components)",
+        _RESTROOM_CABINETRY,
+        _RESTROOM_COMPONENTS,
+    ),
+    _bldg(
+        "closet_shelving",
+        "Closet shelving",
+        "Built-in shelving and rods in closets are finish carpentry, Section 1250 building "
+        "components (ATG Exhibit A, Finish Carpentry)",
+        _c(
+            ATG,
+            305,
+            "Built-in bookshelves, shelving and rods in bedroom, hallway, and linen closets, "
+            "pantries, etc.",
+        ),
+    ),
+    _bldg(
+        "mirror",
+        "Mirror",
+        "A mirror attached with permanent adhesive is a restroom component, Section 1250 "
+        "building component (ATG Exhibit A, Restroom Components); a removable or "
+        "freestanding mirror is decor, Asset Class 57.0, 5-year",
+        _c(ATG, 317, "mirror attached with permanent adhesive"),
+        variants=(
+            Variant(
+                _when(attachments=("removable", "freestanding")),
+                _p5(
+                    "mirror",
+                    "Mirror (removable decor)",
+                    "A hanging or freestanding mirror is readily removable decor, Section 1245 "
+                    "personal property, Asset Class 57.0, 5-year",
+                    _RESTAURANT_DECOR,
+                    _WINDOW_TREATMENTS,
+                    _RRP_57_0,
+                ),
+            ),
+        ),
+    ),
 )
 
 RULES: Final[dict[str, Rule]] = {rule.key: rule for rule in _RULES}
@@ -852,9 +1012,11 @@ ALIASES: Final[dict[str, str]] = {
     "recessed_light": "light_fixture",
     "chandelier": "light_fixture",
     "sconce": "light_fixture",
-    "track_lighting": "light_fixture",
-    "lamp": "light_fixture",
-    "decorative_lighting": "light_fixture",
+    # accent lighting (ATG p.313 Light Fixtures - Accent/Decorative/Special)
+    "track_lighting": "accent_lighting",
+    "decorative_lighting": "accent_lighting",
+    "neon_lighting": "accent_lighting",
+    "landscape_lighting": "accent_lighting",
     # cabinets
     "cabinet": "kitchen_cabinet",
     "kitchen_cabinets": "kitchen_cabinet",
@@ -952,6 +1114,7 @@ ALIASES: Final[dict[str, str]] = {
     "couch": "furniture",
     "bed": "furniture",
     "office_chair": "chair",
+    "lamp": "furniture",  # a lamp is a furnishing (ATG p.308), not a light fixture
     "conference_table": "furniture",
     "bookcase": "furniture",
     "shelf": "closet_shelving",
@@ -1037,6 +1200,30 @@ def canonical_key(label: str) -> tuple[str, MatchKind] | None:
     return None
 
 
+# Room type aliases (``basis.domain.rooms`` re-exports these; they live here because
+# ``rooms`` imports ``normalize_label`` from this module and the lookup needs the room).
+ROOM_ALIASES: Final[dict[str, str]] = {
+    "bath": "bathroom",
+    "restroom": "bathroom",
+    "powder_room": "bathroom",
+    "hall": "hallway",
+    "corridor": "hallway",
+    "mechanical": "mechanical_room",
+    "utility_room": "mechanical_room",
+    "closet": "storage",
+    "outdoor": "exterior",
+    "exterior_front": "exterior",
+    "exterior_rear": "exterior",
+    "parking_lot": "parking",
+}
+
+
+def normalize_room_type(room_type: str | None) -> str:
+    """``"Restroom"`` -> ``"bathroom"``: :func:`normalize_label`, then ``ROOM_ALIASES``."""
+    name = normalize_label(room_type)
+    return ROOM_ALIASES.get(name, name)
+
+
 def check_property_class(property_class: str) -> PropertyClass:
     if property_class not in PROPERTY_CLASSES:
         raise ValueError(
@@ -1050,11 +1237,15 @@ def lookup(
     material: str | None = None,
     attachment: str | None = None,
     property_class: str = "residential_rental",
+    room_type: str | None = None,
 ) -> RuleHit | None:
     """The rules-table classification of a component, or ``None`` (fall through).
 
     ``None`` for an empty or unknown label, a generic floor label without a known
-    material, or a ``structural`` attachment on a section 1245 row.
+    material, or a ``structural`` attachment on a section 1245 row. The row's first
+    variant whose context matches (``room_type`` normalized by :func:`normalize_room_type`,
+    the normalized ``attachment``, the property class) is the effective rule; the hit keeps
+    the row's ``key`` and names the variant in ``context``.
     """
     pclass = check_property_class(property_class)
     name = normalize_label(label)
@@ -1069,8 +1260,11 @@ def lookup(
     if resolved is None:
         return None
     key, via = resolved
-    rule = RULES[key]
-    if normalize_label(attachment) in STRUCTURAL_ATTACHMENTS and rule.section == "1245":
+    attached = normalize_label(attachment)
+    rule, context = RULES[key].effective(
+        room=normalize_room_type(room_type), attachment=attached, property_class=pclass
+    )
+    if attached in STRUCTURAL_ATTACHMENTS and rule.section == "1245":
         return None
     confidence = {
         "direct": DIRECT_CONFIDENCE,
@@ -1078,7 +1272,7 @@ def lookup(
         "material": MATERIAL_CONFIDENCE,
     }[via]
     return RuleHit(
-        key=rule.key,
+        key=key,
         category=rule.category,
         section=rule.section,
         bucket=rule.bucket_for(pclass),
@@ -1091,4 +1285,37 @@ def lookup(
         via=via,
         property_class=pclass,
         contested=rule.contested,
+        context=context,
     )
+
+
+def table_hits(property_class: str = "residential_rental") -> list[RuleHit]:
+    """A hit for every row and every variant, in table order: each row looked up by its key,
+    then each of its variants in a context the variant matches (the smallest value of each
+    of its sets). For checks over every citation (the ``rule_citations`` eval, the
+    real-corpus test). ``ValueError`` when a variant is unreachable (an earlier one shadows
+    it)."""
+    hits: list[RuleHit] = []
+    for key, rule in RULES.items():
+        for variant in (None, *rule.variants):
+            when = variant.when if variant is not None else When()
+            room = min(when.rooms, default="")
+            attachment = min(when.attachments, default="")
+            pclass = check_property_class(min(when.property_classes, default=property_class))
+            effective, _ = rule.effective(room=room, attachment=attachment, property_class=pclass)
+            hit = lookup(
+                key,
+                attachment=attachment or None,
+                property_class=pclass,
+                room_type=room or None,
+            )
+            if hit is None or (variant is not None and effective is not variant.rule):
+                raise ValueError(f"rule {key!r}: variant {when} is not reachable by lookup")
+            hits.append(hit)
+    return hits
+
+
+def hit_name(hit: RuleHit) -> str:
+    """``"kitchen_cabinet"`` for a row's hit, ``"kitchen_cabinet[room=bathroom]"`` for a
+    variant's."""
+    return hit.key if hit.context is None else f"{hit.key}[{hit.context}]"
