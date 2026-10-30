@@ -7,12 +7,17 @@ docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 5:
   between the approval and the export), and the firm's next study is classified from it:
   the same component gets the engineer's bucket from the convention, with its provenance,
   and that study's approval adds an approval to the convention;
+* the hierarchy of section 9: in the firm's next study the engineer reads the component's
+  material differently at the components gate, so its context key is new; the ruling still
+  serves it (``matched_tier`` ``label_room`` on the asset and in the export), and the
+  approval counts on the ruling that served;
 * a ``promote_conventions`` that fails does not fail the study: the workflow logs it with
   BASIS-ASSETS-012 and exports.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -36,6 +41,7 @@ from basis.workflow.contracts import (
     Decision,
     PromoteConventionsInput,
     PromoteConventionsOutput,
+    ReviewStage,
 )
 from basis.workflow.study_workflow import StudyWorkflow
 
@@ -51,14 +57,15 @@ async def decide_assets_like_the_api(
     revision: int,
     decision: str,
     corrections: tuple[RepoCorrection, ...] = (),
+    stage: ReviewStage = "assets_review",
 ) -> None:
-    """Record the assets decision as ``POST .../decisions`` does (the review row the
-    promotion requires, the corrections), then deliver it as the relay does."""
-    await harness.wait_awaiting(handle, "assets_review", revision)
+    """Record the decision as ``POST .../decisions`` does (the review row the promotion
+    requires, the corrections), then deliver it as the relay does."""
+    await harness.wait_awaiting(handle, stage, revision)
     async with session_scope(harness.sessionmaker) as session:
         record = await ReviewRepository(session).record_decision(
             study_id=study.study_id,
-            stage=Stage.ASSETS_REVIEW,
+            stage=Stage(stage),
             revision=revision,
             decision=DecisionKind(decision),
             reviewer_id=study.owner_id,
@@ -69,7 +76,7 @@ async def decide_assets_like_the_api(
         review_id, submitted = record.review.id, record.review.created_at
     delivered = Decision(
         review_id=str(review_id),
-        stage="assets_review",
+        stage=stage,
         revision=revision,
         decision=decision,  # type: ignore[arg-type]
         reviewer_id=str(study.owner_id),
@@ -165,19 +172,66 @@ async def test_an_assets_correction_classifies_the_firms_next_study(harness: Har
         )
     async with harness.worker():
         started = await harness.start(second)
-        for stage in ("appraisal_review", "rooms_review", "components_review"):
+        for stage in ("appraisal_review", "rooms_review"):
             await harness.approve(started.handle, stage)  # type: ignore[arg-type]
-        await decide_assets_like_the_api(harness, started.handle, second, 1, "approve")
-        assert (await harness.result(started.handle)).outcome == "completed"
-    matches = [
-        a for c, r, a in await labelled_assets(harness, second.study_id, 1) if key_of(c, r) == key
+        # At the components gate the engineer reads one of the matching components'
+        # material differently, so its context key is one the firm never ruled on
+        # (CLASSIFICATION_CONVENTIONS.md section 9); the others keep the exact key.
+        await harness.wait_awaiting(started.handle, "components_review", 1)
+        async with session_scope(harness.sessionmaker) as session:
+            pairs = await session.execute(
+                select(Component, Room)
+                .outerjoin(Room, Room.id == Component.room_id)
+                .where(Component.study_id == second.study_id, Component.revision == 1)
+            )
+            reread = next(c for c, r in pairs.all() if key_of(c, r) == key)
+        new_material = "metal" if reread.material == "laminate" else "laminate"
+        await decide_assets_like_the_api(
+            harness,
+            started.handle,
+            second,
+            1,
+            "reject",
+            (
+                RepoCorrection(
+                    "component",
+                    reread.id,
+                    {"material": new_material},
+                    before={"material": reread.material},
+                ),
+            ),
+            stage="components_review",
+        )
+        await decide_assets_like_the_api(
+            harness, started.handle, second, 2, "approve", stage="components_review"
+        )
+        await decide_assets_like_the_api(harness, started.handle, second, 2, "approve")
+        second_result = await harness.result(started.handle)
+        assert (second_result.outcome, second_result.revision) == ("completed", 2)
+    labelled = await labelled_assets(harness, second.study_id, 2)
+    exact = [a for c, r, a in labelled if key_of(c, r) == key]
+    [reread_asset] = [
+        a for c, r, a in labelled if c.material == new_material and c.label == component.label
     ]
-    assert matches and all(
-        (a.method, a.bucket) == (ClassificationMethod.CACHE, Bucket.Y27_5) for a in matches
+    assert exact and all(
+        (a.method, a.bucket) == (ClassificationMethod.CACHE, Bucket.Y27_5) for a in exact
     )
-    assert all(a.convention is not None and a.convention["key"] == key for a in matches)
-    assert all(a.convention["study_id"] == str(first.study_id) for a in matches)  # type: ignore[index]
-    # The second study's approval let the convention stand: one more approval of it.
+    assert all(a.convention is not None and a.convention["key"] == key for a in exact)
+    assert all(a.convention["matched_tier"] == "exact" for a in exact)  # type: ignore[index]
+    assert all(a.convention["study_id"] == str(first.study_id) for a in exact)  # type: ignore[index]
+    # The re-read component: served by the same ruling at the label-and-room tier.
+    assert (reread_asset.method, reread_asset.bucket) == (ClassificationMethod.CACHE, Bucket.Y27_5)
+    assert reread_asset.convention is not None
+    assert (reread_asset.convention["key"], reread_asset.convention["matched_tier"]) == (
+        key,
+        "label_room",
+    )
+    exported = json.loads(await harness.deps.storage.read(second_result.export_uri or ""))
+    by_id = {a["id"]: a for a in exported["assets"]}
+    assert by_id[str(reread_asset.id)]["convention"]["matched_tier"] == "label_room"
+    assert by_id[str(exact[0].id)]["convention"]["matched_tier"] == "exact"
+    # The second study's approval let the convention stand (at both tiers, one approval
+    # per study): one more approval of it, and still one row.
     async with session_scope(harness.sessionmaker) as session:
         [row] = (await session.scalars(select(ClassificationCacheEntry))).all()
     assert (row.approvals, row.study_id) == (2, first.study_id)

@@ -165,7 +165,16 @@ async def test_assets_reject_reprocesses_with_the_corrected_bucket(harness: Harn
         await harness.wait_awaiting(handle, "assets_review", 1)
 
         assets_r1 = await rows(harness, Asset, sid, revision=1)
-        target = next(a for a in assets_r1 if a.bucket is Bucket.Y27_5)  # a building guess
+        # The model's building guess for a component. The structure model's concealed rows
+        # (no component, STRUCTURE_MODEL.md) are building-bucket assets too, and the query
+        # has no order, so "the first y27_5 asset" could be one of them.
+        target = next(
+            a
+            for a in assets_r1
+            if a.bucket is Bucket.Y27_5
+            and a.component_id is not None
+            and a.method is ClassificationMethod.LLM
+        )
         correction = CorrectionInput(
             entity_type="asset",
             entity_id=str(target.id),

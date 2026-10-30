@@ -1,12 +1,18 @@
 """``classify(component, ctx)``: the firm's conventions, then the rules table, then the model.
 
-1. **Convention** (``ctx.cache``, the study's firm's rows of ``classification_cache``,
-   prefetched by context key; docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section
-   5): no model call. An engineer's approved ruling beats the rules table, so it is not sent
-   to review for disagreeing with it; the rationale says who approved it, on which study,
-   when, how many approvals it has and whether the rules table agrees. Its citations, when
-   it has any, are re-verified against the reference corpus version in use; an uncited
-   ruling is served as such (``citation: firm convention, uncited`` in its provenance).
+1. **Convention** (``ctx.cache``, the study's firm's rows of ``classification_cache``
+   prefetched by label and indexed by tier; docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md
+   sections 5 and 9): no model call. The most specific tier with a ruling serves: the exact
+   context key, then the same label and room whatever material and attachment the photo
+   step read, then the label alone. An engineer's approved ruling beats the rules table, so
+   it is not sent to review for disagreeing with it, except that a ruling matched on the
+   label alone (another room) does not outrank an uncontested rule row (section 9.2). The
+   rationale says who approved it, on which study, when, how many approvals it has, whether
+   the rules table agrees and which tier matched. Its citations, when it has any, are
+   re-verified against the reference corpus version in use; an uncited ruling is served as
+   such (``citation: firm convention, uncited`` in its provenance). Rulings that disagree
+   with equal weight inside a tier serve nothing and flag the asset
+   (``convention_conflict:<tier>``, section 9.3).
 2. **Rule** (:func:`basis.domain.rules.lookup`, with the component's room so the context
    variants fire): no model call. The rule's citation claims are resolved against the
    reference corpus (search for the excerpt, keep a hit from the cited document and page
@@ -31,13 +37,17 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NamedTuple
 
 from basis.classify.cache import (
     CachedClassification,
     ClassificationCacheRepository,
+    ConventionConflict,
+    ConventionIndex,
+    ConventionMatch,
+    Tier,
     cache_key,
 )
 from basis.classify.prompt import PROMPT_VERSION, load_prompt
@@ -78,6 +88,7 @@ RULE_RESOLVE_K: Final = 10
 
 CITATION_UNVERIFIED: Final = "citation_unverified"
 MISSING_EVIDENCE: Final = "missing_evidence"
+CONVENTION_CONFLICT: Final = "convention_conflict"
 
 
 @dataclass(frozen=True)
@@ -89,7 +100,8 @@ class ClassifyContext:
     reference_version_id: uuid.UUID | None = None
     study_version_id: uuid.UUID | None = None
     provider: ChatProvider | None = None
-    cache: Mapping[str, CachedClassification] = field(default_factory=dict)
+    # The firm's conventions by tier (a mapping of exact key to row is accepted and indexed).
+    cache: ConventionIndex = field(default_factory=ConventionIndex)
     model: str = "gpt-4o-mini"
     limits: LoopLimits = DEFAULT_LIMITS
     price: PriceFn = default_price
@@ -104,6 +116,10 @@ class ClassifyContext:
     call: CallContext | None = None
     # The study's firm: a convention of another firm in ``cache`` is never served.
     org_id: uuid.UUID | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.cache, ConventionIndex):
+            object.__setattr__(self, "cache", ConventionIndex(self.cache))
 
 
 @dataclass(frozen=True)
@@ -236,10 +252,19 @@ async def _from_rule(
     )
 
 
-def convention_rationale(cached: CachedClassification) -> str:
+TIER_WORDS: Final[dict[Tier, str]] = {
+    "exact": "exact",
+    "label_room": "label and room",
+    "label": "label only",
+}
+
+
+def convention_rationale(cached: CachedClassification, tier: Tier = "exact") -> str:
     """``firm convention (approved by <reviewer> on study <id>, <date>; <n> approvals);
-    agrees with the rules table: yes|no (<rule key> says <bucket>)``, then ``uncited`` for a
-    ruling without citations and the engineer's reason when there is one."""
+    agrees with the rules table: yes|no (<rule key> says <bucket>); matched: exact``, the
+    match naming the ruling's key when a coarser tier served (``matched: label and room
+    (ruling keyed <key>)``), then ``uncited`` for a ruling without citations and the
+    engineer's reason when there is one."""
     when = cached.approved_at.date().isoformat() if cached.approved_at else "unknown date"
     plural = "approval" if cached.approvals == 1 else "approvals"
     head = (
@@ -252,7 +277,10 @@ def convention_rationale(cached: CachedClassification) -> str:
         says = cached.rule_bucket.value if cached.rule_bucket is not None else "?"
         verdict = "yes" if cached.agrees_with_rules else "no"
         rules = f"agrees with the rules table: {verdict} ({cached.rule_key} says {says})"
-    parts = [f"{head}; {rules}"]
+    matched = f"matched: {TIER_WORDS[tier]}"
+    if tier != "exact":
+        matched += f" (ruling keyed {cached.key})"
+    parts = [f"{head}; {rules}; {matched}"]
     if not cached.citations:
         parts.append("uncited")
     if cached.rationale:
@@ -261,8 +289,9 @@ def convention_rationale(cached: CachedClassification) -> str:
 
 
 async def _from_cache(
-    component: ComponentView, cached: CachedClassification, ctx: ClassifyContext
+    component: ComponentView, match: ConventionMatch, ctx: ClassifyContext
 ) -> ClassificationResult:
+    cached = match.cached
     verified: list[VerifiedCitation] = []
     dropped: list[DroppedCitation] = []
     reasons: list[str] = []
@@ -296,8 +325,8 @@ async def _from_cache(
         dropped=tuple(dropped),
         rule_key=cached.rule_key,
         cache_key=cached.key,
-        rationale=convention_rationale(cached),
-        convention=cached.provenance(),
+        rationale=convention_rationale(cached, match.tier),
+        convention=cached.provenance(match.tier),
     )
 
 
@@ -410,14 +439,22 @@ def context_key(component: ComponentView, property_class: str) -> str:
     )
 
 
-def route(
-    component: ComponentView, ctx: ClassifyContext
-) -> tuple[Method, RuleHit | CachedClassification | None]:
+class Route(NamedTuple):
+    """What :func:`route` decided: the path, what serves it (a convention match, a rule
+    hit, or nothing for the model), and the firm's conflicting rulings when a tier
+    disagreed with itself and the rules table or the model decides instead."""
+
+    method: Method
+    found: ConventionMatch | RuleHit | None
+    conflict: ConventionConflict | None = None
+
+
+def route(component: ComponentView, ctx: ClassifyContext) -> Route:
     """Which path ``classify`` takes, without running it (used to reserve budget): the
-    firm's convention for the context key, else the rules table, else the model."""
-    cached = ctx.cache.get(context_key(component, ctx.property_class))
-    if cached is not None and cached.org_id == ctx.org_id:
-        return "cache", cached
+    firm's convention at the most specific tier (section 9), else the rules table, else
+    the model. A convention matched on the label alone does not outrank an uncontested
+    rule row (9.2); a conflict inside a tier serves nothing (9.3)."""
+    match = ctx.cache.match(context_key(component, ctx.property_class), org_id=ctx.org_id)
     hit = lookup(
         component.label,
         component.material,
@@ -425,25 +462,43 @@ def route(
         ctx.property_class,
         room_type=component.room_type,
     )
+    conflict = match if isinstance(match, ConventionConflict) else None
+    if isinstance(match, ConventionMatch) and (
+        match.tier != "label" or hit is None or hit.contested
+    ):
+        return Route("cache", match)
     if hit is not None:
-        return "rule", hit
-    return "llm", None
+        return Route("rule", hit, conflict)
+    return Route("llm", None, conflict)
+
+
+def _flag_conflict(
+    result: ClassificationResult, conflict: ConventionConflict
+) -> ClassificationResult:
+    reason = f"{CONVENTION_CONFLICT}:{conflict.tier}"
+    return replace(
+        result, needs_review=True, review_reasons=_unique([*result.review_reasons, reason])
+    )
 
 
 async def classify(component: ComponentView, ctx: ClassifyContext) -> ClassificationResult:
-    method, found = route(component, ctx)
-    if method == "rule" and isinstance(found, RuleHit):
-        return await _from_rule(component, found, ctx)
-    if method == "cache" and isinstance(found, CachedClassification):
+    method, found, conflict = route(component, ctx)
+    if method == "cache" and isinstance(found, ConventionMatch):
         return await _from_cache(component, found, ctx)
-    return await _from_model(component, ctx)
+    if method == "rule" and isinstance(found, RuleHit):
+        result = await _from_rule(component, found, ctx)
+    else:
+        result = await _from_model(component, ctx)
+    return result if conflict is None else _flag_conflict(result, conflict)
 
 
 __all__ = [
+    "CONVENTION_CONFLICT",
     "CitationClaim",
     "ClassificationCacheRepository",
     "ClassificationResult",
     "ClassifyContext",
+    "Route",
     "classify",
     "classify_with_model",
     "context_key",

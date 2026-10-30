@@ -390,8 +390,10 @@ async def test_assets_with_takeoff_cost_and_citations(
     assert orphan["label"] is None and orphan["room"] is None and orphan["count"] is None
     # docs/api/TIMELINE_AND_AUDIT.md "Firm conventions": only a cache asset has one.
     assert by_id[str(seeded.assets["extra1"])]["method"] == "cache"
+    # A convention stored before the tiers existed has no `matched_tier`: read as exact.
     assert by_id[str(seeded.assets["extra1"])]["convention"] == {
         **CONVENTION,
+        "matched_tier": "exact",
         "approved_at": "2026-10-29T18:40:02.117000Z",
     }
     assert all(by_id[str(seeded.assets[k])]["convention"] is None for k in ("a1", "a2", "extra0"))

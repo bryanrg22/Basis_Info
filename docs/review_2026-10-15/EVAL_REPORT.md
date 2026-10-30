@@ -6952,3 +6952,139 @@ resolved year factor and priced at the book's alone while the result used the su
 integration set with Docker: see the PR for the tally. Client data: none in the repository
 (the data file holds published index numbers and place names; `tooling/check_no_client_data.py`
 clean).
+## 46. The key hierarchy: a firm's ruling serves the next study's component however the photo step read it (2026-10-30)
+
+Design: `CLASSIFICATION_CONVENTIONS.md` section 9. Branch `claude/conventions-tiers`.
+Private artifacts: `work/e2e_artifacts/conventions_tiers_2026-10-30/` (the firm's
+`classification_cache` dump, `replay.md`, `replay.json`, the tiered export, both exports
+through the structure replay, and their `E2E_SCORE_*.md`).
+
+### 46.1 Why
+
+Section 42.5, finding 1. On the live pair of studies the first study's approval wrote 113
+conventions and the second study, with no engineer, was served 151 of 381 assets from them
+and scored 34 of 35 visible engineer rows. The one wrong row (Fireplaces) and nine assets
+on the firm's ruling labels that no convention reached came from the exact context key
+not matching: study B's fireplaces came out of the photo step with no material where study
+A's rulings were keyed on `wood` and `other`; a hardwood floor in the living room was read
+without a material; a baseboard sat in a lobby the first study never showed. The material
+and attachment the vision step reads vary between runs, so a ruling keyed on all six parts
+did not generalize as far as the engineer meant it.
+
+### 46.2 What changed
+
+The table still holds one row per exact key and the writer still writes exact keys only.
+The reader derives three tiers from them and serves the most specific one with a
+candidate: the exact key; the same label and room whatever material and attachment the
+photo step read (`label_room`); the label alone (`label`). Property class and rules version
+are never relaxed. Four decisions, each measured on the live pair before it was written
+down (46.3):
+
+1. **Labels whose material is the item keep it at every tier**: the generic floors the
+   rules table resolves by material, and the surface finishes `wall_finish` and
+   `ceiling_finish` (wallpaper and wood paneling are coverings, drywall and painted
+   masonry are the wall). Every other label carries the item.
+2. **The catch-all `other` never generalizes.** A ruling on a bench says nothing about an
+   awning.
+3. **A label-only match does not outrank an uncontested rule row.** A ruling from another
+   room is weaker than the guide's answer for this room; it beats the model and a
+   contested row. The same label in the same room (tier 2) beats every rule row: it is the
+   engineer's ruling on this item here, read with another material.
+4. **Rulings that disagree inside a tier**: the answer whose strongest ruling has the most
+   approvals wins; equally approved disagreeing rulings serve nothing, no coarser tier is
+   consulted, and the rules table or the model classifies the asset with
+   `convention_conflict:<tier>` (`BASIS-ASSETS-014`) so the engineer settles it; the
+   engineer's ruling becomes the exact row, which wins next time.
+
+Approvals and hits are counted on the row that served: `process_assets` records the hit on
+the served key and a `cache` asset let stand at the next approval confirms the row named in
+its `convention.key`, not a row for its own key (there is none). The asset's `convention`
+gains `matched_tier` (`GET /assets`, the export; an asset classified before this change
+reads as `exact`) and the rationale says `matched: label and room (ruling keyed ...)`. The
+prefetch is by label (`get_for_labels`), which also reaches the concealed rows' labels
+(the structure model's views were not prefetched before, so a ruling on a concealed row
+could never be served). No migration.
+
+### 46.3 Measured on the live pair, without a paid run
+
+`evals.conventions_replay`: study B's stored export (run 3B, 381 assets) and the firm's
+113 rows as of study A's approval (the local stack's `classification_cache`, filtered to
+the rows study A seeded, one approval each; re-keyed from `2026-10-29.1` to the running
+`2026-10-30.1`, which only added the concealed-row labels). Every asset goes through the
+production router with the rows indexed as `process_assets` indexes them; a convention
+that serves replaces the classification, dollars are untouched, `evals.e2e_report` scores
+the result against the engineer's rows. The exact-tier replay reproduces the stored
+export's 151 `cache` assets exactly (the regression check).
+
+| | stored (exact key) | **tiered** (section 9) | plain (three tiers, no guards) |
+|---|---|---|---|
+| served from a convention: exact / label_room / label | 151 / 0 / 0 | 151 / **21 / 19** | 151 / 32 / 26 |
+| newly served (were model or rule) | | 40 (36 model, 4 rule) | 58 |
+| buckets moved | | 9 | 23 |
+| label-tier matches an uncontested rule row outranked | | 7 (bathroom sinks) | 0 |
+| conflicts flagged | | 0 | 15 (`other`) |
+| bucket right by count (of 35 evidenced rows) | 34 | **35** | 35 |
+| wrong rows | Fireplaces | none | none |
+| classification: model / rule / convention | 65 / 165 / 151 | **29 / 161 / 191** | 23 / 149 / 209 |
+
+What moved under the tiered policy, every one to the engineer's bucket: the two
+fireplaces (tier 2: the living-room and bedroom rulings keyed on `wood` and `other`), the
+living-room hardwood floor read without a material (tier 2), the kitchen sink read as
+porcelain where the ruling said ceramic (tier 2), the exterior light read without a
+material (tier 2), the lobby and mechanical-room baseboards, the lobby hardwood floor and
+the living-room wainscoting (tier 3: rooms the first study never showed; baseboard and
+wainscoting have no rule row, hardwood's is contested). Fireplaces goes to 3 of 3 assets
+5-year and the row flips to right; Wood Flooring goes from 5 of 7 to 7 of 7; the other 31
+newly served assets had the bucket the model had already given them, so what changed for
+them is 36 model calls that are not made (65 to 29).
+
+The guards, measured:
+
+- **The rule-row gate (decision 3)**: with the plain label tier, the firm's two sink
+  rulings (the kitchen sink and the garage utility sink, 5-year, against the guide) serve
+  the seven bathroom sinks, which the guide puts with the building (ATG p.315) and the
+  engineer's Plumbing row agrees (18 of 18 assets 39-year in the stored export). The gate
+  blocks exactly those seven and nothing else.
+- **The catch-all exception (decision 2)**: without it, 16 `other` assets are served from
+  unrelated rulings (a bench's 15-year to an awning, a removable item's 39-year to a towel)
+  and 15 conflict.
+- **Surface finishes keep their material (decision 1)**: with the material relaxed for
+  `wall_finish`, the firm's wallpaper and wood rulings (5-year) and its drywall, painted
+  masonry and fiberglass rulings (building) disagreed on six of study B's walls and all six
+  went to the model flagged; keeping the material serves four of them from the matching
+  material's ruling (the bucket the model had given) and leaves the two unruled materials
+  (ceramic, vinyl) to the model, unflagged. Conflicts under the tiered policy: zero.
+- **Assets on the firm's ruling labels still without a ruling**: the seven bathroom sinks
+  (right: the engineer agrees with the rule) and the two wall finishes above. The nine of
+  section 42.5 are all served.
+
+Bucket shares: on the export alone the 39-year share drops from 61.1 % to 55.5 % (the
+engineer's is 80.2 %) because the newly served items are priced heavy on the pipeline's
+side and the export predates the structure model; through `evals.structure_replay` (section
+44) the stored export scores 34 of 35 with a 39-year share of 86.7 % (error 6.5 points) and
+the tiered one **35 of 35 with 84.8 % (error 4.6 points; 5-year 10.3 % against 14.4 %,
+error 4.0)**. Every number above is one property and one firm's 113 rulings.
+
+### 46.4 What this does not change
+
+The writer (exact keys only); the rules table; the classifier prompt. A ruling of another
+firm never matches at any tier. The unattended approval of study B counted as an approval
+of every convention it let stand (section 42.5: 233 approvals over the firm's rows); the
+replay sets the rows back to one approval each, which is the state at study A's approval,
+and whether an approval with no engineer in the loop should count is a product question
+this change leaves open. One asset per label and room is the measure here; the tier that
+serves a component is on the asset, so a later study can be audited the same way.
+
+### 46.5 Tests and gates
+
+`tests/unit/classify/test_router.py` (the tier keys, each tier, precedence, the rule-row
+gate, the conflict and its flag, the most approved answer, the generic floor and the
+surface finish, the catch-all, another firm; 24 tests), `tests/node/test_process_assets.py`
+(the next study's wool carpet, cellar garage door and vinyl floor; hits, the export's
+`matched_tier`, the approval confirming the served rows), `tests/lifecycle/test_conventions.py`
+(the engineer re-reads a material at the components gate of the second study; the ruling
+still serves it on the real workflow), `tests/unit/evals/test_conventions_replay.py` (the
+three policies, the regression check, the conflict, the rebuilt conventions, the CLI),
+`tests/api/test_outputs.py` and `tests/unit/errors/test_catalogue.py` updated.
+`tests/LEDGER.md` has each. Gates: `ruff check`, `ruff format --check`, `mypy basis`, the
+unit set and the integration set (see the PR for the tallies).
