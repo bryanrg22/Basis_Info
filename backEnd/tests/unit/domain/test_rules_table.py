@@ -747,8 +747,30 @@ def test_every_variant_is_well_formed() -> None:
         "kitchen_cabinet",
         "countertop",
         "mirror",
+        "closet_shelving",
         "furniture",
         "chair",
         "desk",
         "filing_cabinet",
     }
+
+
+# ------------------------------------------------- freestanding shelving (the context dimension)
+
+
+def test_a_freestanding_shelf_is_a_furnishing_and_a_built_in_one_finish_carpentry() -> None:
+    built_in = lookup("shelf", attachment="permanent", property_class="nonresidential")
+    assert built_in is not None and (built_in.section, built_in.bucket, built_in.context) == (
+        "1250",
+        Bucket.Y39,
+        None,
+    )
+    loose = lookup("storage shelf", attachment="freestanding", property_class="nonresidential")
+    assert loose is not None and (loose.section, loose.bucket, loose.asset_class) == (
+        "1245",
+        Bucket.Y5,
+        "57.0",
+    )
+    assert (loose.key, loose.context) == ("closet_shelving", "attachment=freestanding")
+    assert lookup("shelves", attachment="unknown") is not None
+    assert lookup("shelves", attachment="unknown").context is None  # type: ignore[union-attr]

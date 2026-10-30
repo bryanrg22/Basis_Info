@@ -964,12 +964,26 @@ _RULES: Final[tuple[Rule, ...]] = (
         "closet_shelving",
         "Closet shelving",
         "Built-in shelving and rods in closets are finish carpentry, Section 1250 building "
-        "components (ATG Exhibit A, Finish Carpentry)",
+        "components (ATG Exhibit A, Finish Carpentry); a freestanding shelf unit is a "
+        "furnishing, Asset Class 57.0, 5-year",
         _c(
             ATG,
             305,
             "Built-in bookshelves, shelving and rods in bedroom, hallway, and linen closets, "
             "pantries, etc.",
+        ),
+        variants=(
+            Variant(
+                _when(attachments=("freestanding",)),
+                _p5(
+                    "closet_shelving",
+                    "Shelving (freestanding)",
+                    "A freestanding shelf unit is a residential furnishing, Section 1245 "
+                    "personal property, Asset Class 57.0, 5-year",
+                    _RESIDENTIAL_FURNISHINGS,
+                    _RRP_57_0,
+                ),
+            ),
         ),
     ),
     _bldg(

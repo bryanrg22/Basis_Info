@@ -213,8 +213,10 @@ Unchanged (no document names the item, or the guide gives both sides): `doorbell
 
 Alias changes besides `accent_lighting`'s: `lamp` now resolves to `furniture` (it resolved
 to `light_fixture`; a lamp is a furnishing, ATG p.308, and as a building light fixture it
-would have become 27.5 years). Not changed, for the engineer: `shelf`, `shelves` and
-`storage_shelf` still resolve to `closet_shelving`, now a building row, so a freestanding
-shelf with one of those labels is classified as built-in shelving; `office_furniture`,
-`office_chair` and `conference_table` resolve to the 57.0 rows and take 00.11 only in an
-office room.
+would have become 27.5 years). `shelf`, `shelves` and `storage_shelf` still resolve to
+`closet_shelving`, now a building row, so the row gained a variant: `[attachment=freestanding]`
+-> 1245 y5 (57.0), cited to ATG p.308 ("Includes all furniture and furnishings typically
+found in a furnished house, condo, apartment, etc.") and the 57.0 sentence (p.297); a
+freestanding shelf unit is a furnishing, a built-in one is finish carpentry (p.305).
+Not changed, for the engineer: `office_furniture`, `office_chair` and `conference_table`
+resolve to the 57.0 rows and take 00.11 only in an office room.
