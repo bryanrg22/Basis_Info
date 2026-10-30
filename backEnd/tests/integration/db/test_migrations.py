@@ -42,6 +42,10 @@
   ``release``, ``run_dir``, ``label_sha256``, ``label_version``, ``component``,
   ``component_version``, ``manifest``; NULL for rows written before, nothing backfilled) and
   downgrades back to ``0014``;
+* ``0016_cost_indices`` creates the cost index store (``cost_indices``: one row per obtained
+  value, keyed by source, series, year and region, versioned, append-only) and its ledger
+  (``cost_index_runs``, append-only), both under ``forbid_mutation()``; nothing is seeded;
+  it downgrades back to ``0015`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -74,8 +78,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0015"
-HISTORY = [f"{n:04d}" for n in range(15, 0, -1)]  # "0015" .. "0001"
+HEAD = "0016"
+HISTORY = [f"{n:04d}" for n in range(16, 0, -1)]  # "0016" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1092,3 +1096,77 @@ async def test_0011_study_intake_column_and_downgrade(empty_database_url: str) -
     finally:
         await connection.close()
     await upgrade(empty_database_url)
+
+
+async def test_0016_cost_indices_store_append_only_and_downgrade(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0015")
+    at_0015 = await snapshot(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        _, _, user = await _photo(connection)
+    finally:
+        await connection.close()
+    await upgrade(url)
+    triggers = (await snapshot(url))["triggers"]
+    assert ("cost_indices_append_only", "cost_indices") in triggers  # type: ignore[operator]
+    assert ("cost_index_runs_append_only", "cost_index_runs") in triggers  # type: ignore[operator]
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        assert await connection.fetchval("SELECT count(*) FROM cost_indices") == 0  # not seeded
+        run = await connection.fetchrow(
+            "INSERT INTO cost_index_runs (source, trigger, actor_type, actor_id, actor_name, "
+            "status, started_at, finished_at, rows_added, years_added) VALUES ('manual', "
+            "'manual', 'engineer', $1, 'ann', 'ok', now(), now(), 1, '[2024]'::jsonb) "
+            "RETURNING id, created_at",
+            user,
+        )
+        assert run is not None and run["created_at"] is not None
+        insert = (
+            "INSERT INTO cost_indices (source, series, year, region, value, as_of, citation, "
+            "version, obtained_by, obtained_by_name, run_id) VALUES ('manual', 'historical', "
+            "2024, 'US', $1, '2024-07-01', 'the page', $2, $3, 'ann', $4) RETURNING id, obtained_at"
+        )
+        first = await connection.fetchrow(insert, 294.8, 1, user, run["id"])
+        assert first is not None and first["obtained_at"] is not None
+        second = await connection.fetchrow(insert, 295.0, 2, user, run["id"])
+        assert second is not None
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await connection.fetchrow(insert, 296.0, 2, user, run["id"])  # one row per version
+        for statement in (
+            "UPDATE cost_indices SET value = 1 WHERE id = $1",
+            "DELETE FROM cost_indices WHERE id = $1",
+        ):
+            with pytest.raises(asyncpg.RestrictViolationError):
+                await connection.execute(statement, first["id"])
+        for statement in (
+            "UPDATE cost_index_runs SET status = 'failed' WHERE id = $1",
+            "DELETE FROM cost_index_runs WHERE id = $1",
+        ):
+            with pytest.raises(asyncpg.RestrictViolationError):
+                await connection.execute(statement, run["id"])
+        for bad in (
+            ("'manual', 'quarterly', 2024, 'US', 1, '2024-07-01', 'c', 1", "series_valid"),
+            ("'manual', 'historical', 2024, 'US', 0, '2024-07-01', 'c', 1", "value_positive"),
+            ("'manual', 'historical', 2024, 'US', 1, '2024-07-01', 'c', 0", "version_positive"),
+            ("'manual', 'historical', 1800, 'US', 1, '1800-07-01', 'c', 1", "year_range"),
+        ):
+            with pytest.raises(asyncpg.CheckViolationError, match=bad[1]):
+                await connection.execute(
+                    "INSERT INTO cost_indices (source, series, year, region, value, as_of, "
+                    f"citation, version, obtained_by_name) VALUES ({bad[0]}, 'ann')"
+                )
+        with pytest.raises(asyncpg.CheckViolationError, match="status_valid"):
+            await connection.execute(
+                "INSERT INTO cost_index_runs (source, trigger, actor_type, status, started_at, "
+                "finished_at) VALUES ('x', 'refresh', 'system', 'done', now(), now())"
+            )
+        with pytest.raises(asyncpg.CheckViolationError, match="actor_valid"):
+            await connection.execute(
+                "INSERT INTO cost_index_runs (source, trigger, actor_type, status, started_at, "
+                "finished_at) VALUES ('x', 'refresh', 'model', 'ok', now(), now())"
+            )
+    finally:
+        await connection.close()
+    await downgrade(url, "0015")
+    assert await snapshot(url) == at_0015

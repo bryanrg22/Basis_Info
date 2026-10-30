@@ -49,7 +49,7 @@ from basis.domain.takeoffs import Takeoff
 from evals.structure_replay import EXPORT_FORMATS, ReplayError, takeoff_block
 
 CENT = Decimal("0.01")
-EXTRAPOLATED = "cost:YEAR_INDEX_EXTRAPOLATED"
+EXTRAPOLATED = "cost:YEAR_INDEX_MISSING"
 BUCKET_KEYS = {"y5": "y5", "y7": "y7", "y15": "y15", "y27_5": "y27_5", "y39": "y39"}
 
 

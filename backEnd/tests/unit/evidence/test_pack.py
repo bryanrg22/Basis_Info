@@ -141,6 +141,7 @@ def test_summary_takeoff_reads_the_rows_and_is_null_before_section_37() -> None:
         "cost_year_source": None,
         "location_source": None,
         "cost_year_assumption": None,
+        "cost_year_conversion": None,
         "property_class": None,
         "property_class_source": None,
         "area_sources": {"none": 3},  # the fixture's takeoffs have no inputs
@@ -173,6 +174,7 @@ def test_summary_takeoff_reads_the_rows_and_is_null_before_section_37() -> None:
         "location_factor": "1.20",
         **inputs,
         "cost_year_assumption": None,  # the fixture's rows carry none (EVAL_REPORT 45)
+        "cost_year_conversion": None,
         "area_sources": {"appraisal_derived": 1, "gla_share": 1, "typical_for_room_type": 1},
         "needs_measurement": 1,
     }

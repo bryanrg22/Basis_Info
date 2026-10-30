@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.config import Settings
+from basis.costs.indices.select import IndexValues, book_values, load_index_values
 from basis.db.enums import Bucket
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
@@ -50,7 +51,6 @@ from basis.domain.basis import (
     allocate,
     worksheet,
 )
-from basis.domain.cost_indices import supplement_for
 from basis.domain.costs import year_factor_index
 from basis.domain.intake import StudyIntake
 from basis.domain.measurements import (
@@ -336,6 +336,26 @@ class ReconciliationOut(BaseModel):
     checks: list[CheckOut]
 
 
+class CostIndexStatusOut(BaseModel):
+    """The time index the revision's dollars rest on (COST_INDICES.md section 10): what the
+    engineer must enter, when the cost year has no loaded index."""
+
+    cost_year: int
+    status: Literal["published", "missing", "converted"] = Field(
+        description="`published`: the cost year's index is loaded (RSMeans' value, cited); "
+        "`missing`: no index for the year, the latest loaded one is applied and every priced "
+        "row is flagged `cost:YEAR_INDEX_MISSING`; `converted`: the year's value was converted "
+        "from another series (flagged `cost:YEAR_INDEX_CONVERTED`)."
+    )
+    factor: Decimal = Field(description="The year factor applied (index / Jan. 1, 2020 index).")
+    applied: str = Field(description="The index value and citation the factor rests on.")
+    needed: str | None = Field(
+        description="When not `published`: the value the engineer must enter, in words."
+    )
+    how: str | None = Field(description="When not `published`: where to enter it.")
+    assumption: str | None = Field(description="The assumption written on every priced row.")
+
+
 class StudyResultOut(BaseModel):
     """``GET /v1/studies/{id}/result`` and the export's ``summary.basis``."""
 
@@ -344,8 +364,13 @@ class StudyResultOut(BaseModel):
     missing: list[str] = Field(
         description="What the result lacks: `intake` (no basis without it), `building_rcn` "
         "(no appraisal cost approach and no living area), `depreciation` (no rate), "
-        "`allocation` (nothing priced, or the reconciliation is not within tolerance), or "
-        "nothing."
+        "`allocation` (nothing priced, or the reconciliation is not within tolerance), "
+        "`cost_index` (no loaded index for the cost year: `cost_index` says which value to "
+        "enter), or nothing."
+    )
+    cost_index: CostIndexStatusOut | None = Field(
+        default=None,
+        description="The time index the dollars rest on; null without structure inputs.",
     )
     worksheet: WorksheetOut | None
     schedule: ScheduleOut
@@ -565,6 +590,41 @@ def _reconciliation_out(r: Reconciliation) -> ReconciliationOut:
     )
 
 
+def cost_index_status(structure: StructureInputs) -> CostIndexStatusOut:
+    """What the cost year's time factor rests on, and what to enter when it is missing."""
+    year = structure.year or year_factor_index(structure.cost_year)
+    cost_year = structure.cost_year
+    if year.assumption is not None:
+        status: Literal["published", "missing", "converted"] = "missing"
+        needed: str | None = (
+            f"the {cost_year} RSMeans Historical Cost Index (Jan. 1, 1993 = 100; the July "
+            f"{cost_year} value, as the books' table lists past years) with its citation"
+        )
+        how: str | None = (
+            "POST /v1/cost-indices (series historical, the year, the value, as_of, citation), "
+            "python -m basis.costs.refresh enter, or the refresh job with COST_INDEX_FETCH=on "
+            "(Gordian publishes the quarterly value free); then rerun the assets step"
+        )
+    elif year.conversion is not None:
+        status, needed, how = (
+            "converted",
+            f"the published {cost_year} RSMeans Historical Cost Index (the stored value is a "
+            "conversion from another series; a published value outranks it)",
+            "POST /v1/cost-indices or python -m basis.costs.refresh enter",
+        )
+    else:
+        status, needed, how = "published", None, None
+    return CostIndexStatusOut(
+        cost_year=cost_year,
+        status=status,
+        factor=year.factor,
+        applied=year.citation(),
+        needed=needed,
+        how=how,
+        assumption=year.assumption or year.conversion,
+    )
+
+
 def compute_result(
     rows: Iterable[ScheduleRow],
     intake: StudyIntake | None,
@@ -658,6 +718,9 @@ def compute_result(
     ws_out: WorksheetOut | None = None
     alloc_out: AllocationOut | None = None
     reconciliation_out: ReconciliationOut | None = None
+    index_out = None if structure is None else cost_index_status(structure)
+    if index_out is not None and index_out.status == "missing":
+        missing.append("cost_index")
     if structure is not None and building is None:
         missing.append("building_rcn")
     if structure is not None and depr is None:
@@ -723,6 +786,7 @@ def compute_result(
         revision=revision,
         intake=intake is not None,
         missing=missing,
+        cost_index=index_out,
         worksheet=ws_out,
         schedule=schedule,
         structure=structure_out,
@@ -800,7 +864,8 @@ async def load_structure_inputs(
     if measurements is not None and measurements.is_empty:
         measurements = None
     cost_approach = cost_approach_from_fields(fields)
-    return structure_inputs(measurements, cost_approach, intake, settings)
+    values = await load_index_values(session, settings)
+    return structure_inputs(measurements, cost_approach, intake, settings, values)
 
 
 def structure_inputs(
@@ -808,10 +873,12 @@ def structure_inputs(
     cost_approach: Any,
     intake: StudyIntake | None,
     settings: Settings,
+    values: IndexValues | None = None,
 ) -> StructureInputs:
-    """The inputs with the cost index resolved as ``process_assets`` resolves it."""
+    """The inputs with the cost index resolved as ``process_assets`` resolves it, from
+    the store's ``values`` (the released book's alone when None)."""
     setting_factor = Decimal(str(settings.cost_location_factor))
-    supplement = supplement_for(settings.cost_index_supplement_path)
+    values = values or book_values()
     if settings.cost_index == "study" and (measurements is not None or intake is not None):
         index: CostIndex = resolve_cost_index(
             measurements,
@@ -820,7 +887,8 @@ def structure_inputs(
             placed_in_service=None if intake is None else intake.placed_in_service_date,
             state=None if intake is None else intake.state,
             zip_code=None if intake is None else intake.zip,
-            supplement=supplement,
+            supplement=values.years,
+            location_tables=values.location_tables,
         )
     else:
         index = CostIndex(
@@ -828,7 +896,7 @@ def structure_inputs(
             None,
             setting_factor,
             None,
-            year_factor_index(settings.cost_year, supplement),
+            year_factor_index(settings.cost_year, values.years),
         )
     return StructureInputs(
         measurements=measurements,

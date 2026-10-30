@@ -368,11 +368,23 @@ class Settings(BaseSettings):
     # The engineer's unit-cost table (basis.domain.cost_table: JSON, licensed data, never
     # in the repository); unset: only the six legacy rows price (EVAL_REPORT 27, item 6).
     cost_table_path: str | None = None
-    # The firm's later Historical Cost Index values (basis.domain.cost_indices
-    # parse_supplement: JSON, one entry per year after the released 2020 book, each with its
-    # source); unset: a cost year after 2020 is priced at the Jan. 1, 2020 index and every
-    # row is flagged cost:YEAR_INDEX_EXTRAPOLATED (COST_INDICES.md section 4).
-    cost_index_supplement_path: str | None = None
+    # The cost index store (COST_INDICES.md sections 9-12; basis.costs). Every study
+    # prices with the store's current values (the released 2020 books seeded, the firm's
+    # manual entries, fetched values), a cost year nobody has loaded is priced at the
+    # latest loaded index and flagged (cost:YEAR_INDEX_MISSING). COST_INDEX_FETCH off (the default):
+    # the refresh job asks only the offline sources (the released book; an import file);
+    # on: the enabled network fetchers too. COST_INDEX_SOURCES: the fetchers the refresh
+    # job asks, in order, and the order a year's value is preferred in when several
+    # sources hold it (a manual entry always comes first; a value converted from another
+    # series never outranks a published one). Known: rsmeans_2020_book (the released
+    # file, offline), rsmeans_public (Gordian's free quarterly pages of the same index:
+    # the public source, network), rsmeans_api (a stub without a subscription).
+    cost_index_fetch: Literal["off", "on"] = "off"
+    cost_index_sources: str = "rsmeans_2020_book,rsmeans_public"
+    cost_index_fetch_timeout_s: float = Field(default=30.0, gt=0, le=300)
+    # RSMeans Data Online (a subscription): the fetcher is unavailable without both.
+    rsmeans_api_url: str | None = None
+    rsmeans_api_key: SecretStr | None = None
     # The structure model (docs/review_2026-10-15/STRUCTURE_MODEL.md): on writes one
     # concealed row per building system from the appraisal's cost approach (or the RSMeans
     # square-foot model) carved against the itemized assets, depreciates the schedule and

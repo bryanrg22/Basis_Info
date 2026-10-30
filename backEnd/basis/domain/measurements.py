@@ -36,6 +36,7 @@ from typing import Final, Literal, Protocol
 
 from basis.domain.cost_indices import (
     LocationFactor,
+    LocationTable,
     YearFactor,
     YearIndex,
     indices,
@@ -223,6 +224,10 @@ class CostIndex:
     @property
     def year_assumption(self) -> str | None:
         return None if self.year is None else self.year.assumption
+
+    @property
+    def year_conversion(self) -> str | None:
+        return None if self.year is None else self.year.conversion
 
 
 # ------------------------------------------------------------------ reading the fields
@@ -736,6 +741,18 @@ def room_areas(
 # ------------------------------------------------------------------ cost index
 
 
+def location_table_for(
+    cost_year: int, tables: Mapping[int, LocationTable] | None
+) -> LocationTable | None:
+    """The table of the latest year at or before ``cost_year``, else the earliest later
+    one; None (the released book's) when no tables are given."""
+    if not tables:
+        return None
+    years = sorted(tables)
+    before = [y for y in years if y <= cost_year]
+    return tables[before[-1] if before else years[0]]
+
+
 def resolve_cost_index(
     m: BuildingMeasurements | None,
     *,
@@ -745,17 +762,20 @@ def resolve_cost_index(
     state: str | None = None,
     zip_code: str | None = None,
     supplement: Mapping[int, YearIndex] | None = None,
+    location_tables: Mapping[int, LocationTable] | None = None,
 ) -> CostIndex:
     """The cost year and location factor for the study (TAKEOFF_RESEARCH section 3.9,
-    COST_INDICES.md section 5).
+    COST_INDICES.md sections 5 and 10).
 
     Year: ``placed_in_service`` (the intake's date) when the index table reaches it (1970
     or later: a year after the latest published index is allowed and carries the
     assumption), else the appraisal's effective date when it does, else the setting. The
-    factor is the Historical Cost Index ratio (``year``), from the released book or the
-    firm's ``supplement``. Location: the city factor of ``zip_code`` (the intake's) when
-    the table lists its three-digit prefix, else the mean of ``state``'s cities (the
-    intake's), else the appraisal's ZIP, then state, else the setting. Each carries the
+    factor is the Historical Cost Index ratio (``year``), from the store's values
+    (``supplement``) or the released book. Location: from the table of the latest year at
+    or before the cost year among ``location_tables`` (the store's; the released book's
+    alone when None), the city factor of ``zip_code`` (the intake's) when the table lists
+    its three-digit prefix, else the mean of ``state``'s cities (the intake's), else the
+    appraisal's ZIP, then state, else the setting. Each carries the
     source it came from, with the index values, book and page; a candidate that was given
     but could not be used is named in the source so the reviewer sees why the next one
     applied.
@@ -788,6 +808,7 @@ def resolve_cost_index(
     elif skipped:
         year_source = f"{year_source}; {'; '.join(skipped)}"
     year_factor = year_factor_index(year, supplement)
+    table = location_table_for(year, location_tables)
 
     factor, location_source = location_factor, "COST_LOCATION_FACTOR setting"
     location: LocationFactor | None = None
@@ -803,9 +824,9 @@ def resolve_cost_index(
         candidates.append(("state", m.state.value.strip().upper(), m.state.describe()))
     for kind, value, origin in candidates:
         found = (
-            location_factor_for_zip(value)
+            location_factor_for_zip(value, table)
             if kind == "zip"
-            else location_factor_for_state_code(value)
+            else location_factor_for_state_code(value, table)
         )
         if found is None:
             unused.append(f"no location factor for {kind} {value!r} ({origin})")
@@ -841,6 +862,7 @@ __all__ = [
     "perimeter_ft",
     "program_weight",
     "property_quantities",
+    "location_table_for",
     "resolve_cost_index",
     "roof_area",
     "room_areas",

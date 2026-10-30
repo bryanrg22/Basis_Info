@@ -163,6 +163,10 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "DELETE /v1/orgs/{org_id}/invitations/{invitation_id}",
         "POST /v1/invitations/{invitation_id}/accept",
         "POST /v1/invitations/{invitation_id}/decline",
+        # the cost index store (tests/api/test_cost_indices.py)
+        "GET /v1/cost-indices",
+        "POST /v1/cost-indices",
+        "GET /v1/cost-indices/runs",
     }
 
 

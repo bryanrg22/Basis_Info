@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-217 codes in 18 areas.
+221 codes in 19 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -295,7 +295,6 @@ stale).
 | `BASIS-CHECK-013` | flag | process_assets; `basis.domain.cross_validation` | The unit cost is below the row's plausible range. | `cross:COST_BELOW_RANGE`. (reason `cross:COST_BELOW_RANGE`) | Check the row and the quantity. | no |
 | `BASIS-CHECK-014` | flag | process_assets; `basis.domain.cross_validation` | The unit cost is above the row's plausible range. | `cross:COST_ABOVE_RANGE`. (reason `cross:COST_ABOVE_RANGE`) | Check the row and the quantity. | no |
 | `BASIS-CHECK-015` | flag | process_assets; `basis.domain.cross_validation` | The total is not quantity times unit cost. | `cross:COST_TOTAL_MISMATCH`. (reason `cross:COST_TOTAL_MISMATCH`) | Report it: a pricing defect. | no |
-| `BASIS-CHECK-016` | flag | process_assets; `basis.domain.cost_indices` | The cost year is after the latest published RSMeans Historical Cost Index loaded; the row is priced at that index (COST_INDICES.md section 4). | `cost:YEAR_INDEX_EXTRAPOLATED`; the takeoff inputs' `cost_year_assumption`. (reason `cost:YEAR_INDEX_EXTRAPOLATED`) | Load the year's published index through `COST_INDEX_SUPPLEMENT_PATH` and rerun the assets step. | no |
 | `BASIS-CHECK-020` | flag | extract_fields; `basis.extraction.confidence` | A critical field is empty. | `review_reasons` `missing:<key>`. (reason `missing:`) | Fill it at the appraisal review (an `extraction_field` correction). | no |
 | `BASIS-CHECK-021` | flag | extract_fields; `basis.extraction.confidence` | A critical field is below the review threshold. | `low_confidence:<key>=<c><<t>`. (reason `low_confidence:`) | Confirm or correct the value. | no |
 | `BASIS-CHECK-022` | flag | extract_fields; `basis.extraction.validation` | The validator found a critical field missing. | issue `missing_critical`. (reason `missing_critical`) | Fill it. | no |
@@ -322,6 +321,16 @@ stale).
 | `BASIS-CHECK-064` | flag | process_assets; `basis.classify.residual` | The classifier's reservation ran out mid-component. | `budget_exceeded`. (reason `budget_exceeded`) | Raise the budget. | no |
 | `BASIS-CHECK-065` | flag | process_assets; `basis.classify.residual` | A provider error on the classifier's call (not an account error, which stops the stage). | `provider_error:<Type>`. (reason `provider_error:`) | Classify by hand or retry. | no |
 | `BASIS-CHECK-066` | flag | process_assets; `basis.classify.router` | The classifier produced no classification and no reason. | `no_answer`. (reason `no_answer`) | Classify by hand. | no |
+
+## COST: The cost index store: the missing-year rule, conversions, acquisition
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-COST-001` | flag | process_assets; `basis.domain.cost_indices` | No cost index is loaded for the study's cost year (the store holds none and no fetcher supplied one); every priced row takes the latest loaded index with the assumption recorded (COST_INDICES.md section 4), and `summary.basis.cost_index` names the value to enter. | `cost:YEAR_INDEX_MISSING` on every priced row; the takeoff inputs' `cost_year_assumption`; `summary.basis.cost_index.status` `missing`. (reason `cost:YEAR_INDEX_MISSING`) | Enter the year's RSMeans Historical Cost Index (`POST /v1/cost-indices`, or `python -m basis.costs.refresh enter`) or run the refresh job, then rerun the assets step. | no |
+| `BASIS-COST-002` | flag | process_assets; `basis.costs.indices` | The cost year's index is not a published RSMeans value but one converted from a public series (the BLS Producer Price Index) with the error band recorded (COST_INDICES.md section 11). | `cost:YEAR_INDEX_CONVERTED` on every priced row; the takeoff inputs' `cost_year_conversion`; `summary.basis.cost_index.status` `converted`. (reason `cost:YEAR_INDEX_CONVERTED`) | Enter the year's published RSMeans Historical Cost Index; a manual entry outranks the converted value. | no |
+| `BASIS-COST-003` | refusal | POST /v1/cost-indices; `basis.api.routes.cost_indices` | The store's latest version of this source, series, year and region already carries the same value and citation; nothing is written twice. | a problem response (type `duplicate-value`) | Nothing to do; to revise a value, send the new value or citation (it becomes the next version). | no |
+| `BASIS-COST-004` | outcome | python -m basis.costs.refresh; `basis.costs.refresh` | A configured source was not asked: fetching is off (`COST_INDEX_FETCH`) or the source lacks its credentials (the RSMeans API without a subscription). | A `cost_index_runs` row with status `skipped` and the reason in `detail.reason`. | Turn fetching on or configure the source; or enter the value manually. | no |
+| `BASIS-COST-005` | outcome | python -m basis.costs.refresh; `basis.costs.refresh` | A fetcher raised or returned no value for a wanted year (network, timeout, an unexpected document); the store is unchanged for that source. | A `cost_index_runs` row with status `failed` and the errors in `failures`; the job's exit status 1. | Retry (the next scheduled run does); the failures name the year and the cause. | yes |
 
 ## INF: Infrastructure: worker start-up and the outbox relay
 

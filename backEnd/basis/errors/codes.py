@@ -3,7 +3,8 @@
 Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure belongs to
 (``API``, ``FIRM``, ``UPLOAD``, ``STUDY``, ``OBJECT``, ``WF`` for the workflow and Temporal,
 ``PROVIDER``, ``BUDGET``, ``INGEST``, ``EXTRACT``, ``PHOTO``, ``LOCALIZE``, ``ROOMS``,
-``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags) and the number is
+``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
+the cost index store) and the number is
 stable once published: a code is never renumbered or reused, a retired one is marked retired
 in the catalogue.
 
@@ -253,7 +254,6 @@ class E:
     CHECK_CROSS_COST_BELOW_RANGE = "BASIS-CHECK-013"
     CHECK_CROSS_COST_ABOVE_RANGE = "BASIS-CHECK-014"
     CHECK_CROSS_COST_TOTAL_MISMATCH = "BASIS-CHECK-015"
-    CHECK_COST_YEAR_INDEX_EXTRAPOLATED = "BASIS-CHECK-016"
     CHECK_EXTRACTION_MISSING = "BASIS-CHECK-020"
     CHECK_EXTRACTION_LOW_CONFIDENCE = "BASIS-CHECK-021"
     CHECK_EXTRACTION_MISSING_CRITICAL = "BASIS-CHECK-022"
@@ -280,6 +280,13 @@ class E:
     CHECK_CLASSIFY_BUDGET = "BASIS-CHECK-064"
     CHECK_CLASSIFY_PROVIDER_ERROR = "BASIS-CHECK-065"
     CHECK_CLASSIFY_NO_ANSWER = "BASIS-CHECK-066"
+
+    # ---------------------------------------------------------------- cost indices
+    COST_YEAR_INDEX_MISSING = "BASIS-COST-001"
+    COST_YEAR_INDEX_CONVERTED = "BASIS-COST-002"
+    COST_INDEX_DUPLICATE = "BASIS-COST-003"
+    COST_INDEX_SOURCE_UNAVAILABLE = "BASIS-COST-004"
+    COST_INDEX_FETCH_FAILED = "BASIS-COST-005"
 
     # ---------------------------------------------------------------- infrastructure
     INF_WORKER_CONFIG = "BASIS-INF-001"

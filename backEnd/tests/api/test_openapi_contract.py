@@ -203,6 +203,15 @@ def contract_schema(contract_app: FastAPI) -> Any:
     return schema
 
 
+VALID_COST_INDEX: Final[dict[str, Any]] = {
+    "series": "historical",
+    "year": 2024,
+    "region": "US",
+    "value": "294.8",
+    "as_of": "2024-07-01",
+    "citation": "RSMeans data from Gordian, 2024 cost index page (July 2024 = 294.8)",
+}
+
 VALID_INTAKE: Final[dict[str, Any]] = {
     "purchase_price": "650000.00",
     "acquisition_costs": [{"category": "recording_fees", "amount": "180.00"}],
@@ -236,6 +245,11 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         case.body["intake"] = None
     if case.path.endswith("/intake") and case.method.upper() == "PUT":
         case.body = dict(VALID_INTAKE)
+    if case.path.endswith("/cost-indices") and case.method.upper() == "POST":
+        # Cross-field rules (a historical value is national, as_of in the year, a city row
+        # names its city, the value above zero) are not in the schema; a valid body, like
+        # the intake's.
+        case.body = dict(VALID_COST_INDEX)
 
 
 @pytest.mark.integration

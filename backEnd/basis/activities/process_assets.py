@@ -119,6 +119,7 @@ from basis.classify.router import (
 from basis.classify.schemas import ComponentView
 from basis.classify.verify import VerifiedCitation
 from basis.config import Settings
+from basis.costs.indices.select import IndexValues, book_values, load_index_values
 from basis.db.enums import ClassificationMethod, Corpus
 from basis.db.models import Asset, Component, CorpusVersion, Correction, ExtractionField, Room
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
@@ -128,7 +129,6 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
-from basis.domain.cost_indices import supplement_for
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.costs import (
     CostError,
@@ -179,8 +179,10 @@ ACTIVITY: Final = "process_assets"
 STRUCTURE_NAMESPACE: Final = uuid.UUID("5a1f0d6e-7c3b-4b2e-9c1d-2f6e8a9b0c11")
 
 # The review reason of a cost row priced on an extrapolated year index (the catalogue's
-# CHECK_COST_YEAR_INDEX_EXTRAPOLATED).
-EXTRAPOLATED_REASON: Final = "cost:YEAR_INDEX_EXTRAPOLATED"
+# COST_YEAR_INDEX_MISSING), and when it is a value converted from another public series
+# (COST_YEAR_INDEX_CONVERTED).
+EXTRAPOLATED_REASON: Final = "cost:YEAR_INDEX_MISSING"
+CONVERTED_REASON: Final = "cost:YEAR_INDEX_CONVERTED"
 
 
 def structure_id(label: str) -> uuid.UUID:
@@ -444,7 +446,11 @@ async def _write(
     budget = prepared.budget
     table = cost_table_for(settings.cost_table_path)
     plan = TakeoffPlan.build(
-        settings, prepared.measurements, list(rooms.values()), intake=prepared.intake
+        settings,
+        prepared.measurements,
+        list(rooms.values()),
+        intake=prepared.intake,
+        values=await load_index_values(session, settings),
     )
     measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
@@ -485,6 +491,8 @@ async def _write(
             # The cost year has no published index loaded (COST_INDICES.md section 4): the
             # dollars stand on the latest index until the firm supplies the year's.
             extra_reasons.append(EXTRAPOLATED_REASON)
+        elif cost is not None and plan.index.year_conversion is not None:
+            extra_reasons.append(CONVERTED_REASON)
         if takeoff.inputs.get("quantity_bound") == "upper":
             # A derived quantity that is an upper bound (landscaping = the whole unbuilt
             # lot): priced, but the engineer must confirm or measure it.
@@ -628,12 +636,11 @@ async def _write_structure(
                 if building is None or building.source == "appraisal_cost_approach"
                 else inputs.location_factor
             )
-            if (
-                building is not None
-                and building.source == "square_foot_model"
-                and plan.index.year_assumption is not None
-            ):
-                reasons.append(EXTRAPOLATED_REASON)
+            if building is not None and building.source == "square_foot_model":
+                if plan.index.year_assumption is not None:
+                    reasons.append(EXTRAPOLATED_REASON)
+                elif plan.index.year_conversion is not None:
+                    reasons.append(CONVERTED_REASON)
         else:
             # A small system: priced from the cost table's row for the label, like any
             # other label; without a row it stays unpriced with the reason.
@@ -648,6 +655,8 @@ async def _write_structure(
                 )
             elif cost.year_assumption is not None:
                 reasons.append(EXTRAPOLATED_REASON)
+            elif plan.index.year_conversion is not None:
+                reasons.append(CONVERTED_REASON)
         extra_inputs: dict[str, Any] = {}
         if override is not None:
             # The engineer's correction of the rejected revision's row: their classification,
@@ -965,8 +974,12 @@ class TakeoffPlan:
         measurements: BuildingMeasurements | None,
         rooms: list[Room],
         intake: StudyIntake | None = None,
+        values: IndexValues | None = None,
     ) -> TakeoffPlan:
+        """``values``: the store's index values (:func:`load_index_values`); the released
+        book's alone when None (tests, and a process without a database)."""
         property_class, class_source = property_class_for(intake, settings)
+        values = values or book_values()
         areas: dict[uuid.UUID, RoomArea] = {}
         quantities: dict[str, Derived] = {}
         from_appraisal = measurements is not None and settings.takeoff_areas == "appraisal"
@@ -977,7 +990,6 @@ class TakeoffPlan:
             }
             quantities = property_quantities(measurements)
         setting_factor = Decimal(str(settings.cost_location_factor))
-        supplement = supplement_for(settings.cost_index_supplement_path)
         if settings.cost_index == "study" and (measurements is not None or intake is not None):
             index = resolve_cost_index(
                 measurements,
@@ -986,7 +998,8 @@ class TakeoffPlan:
                 placed_in_service=None if intake is None else intake.placed_in_service_date,
                 state=None if intake is None else intake.state,
                 zip_code=None if intake is None else intake.zip,
-                supplement=supplement,
+                supplement=values.years,
+                location_tables=values.location_tables,
             )
         else:
             index = CostIndex(
@@ -994,7 +1007,7 @@ class TakeoffPlan:
                 None,
                 setting_factor,
                 None,
-                year_factor_index(settings.cost_year, supplement),
+                year_factor_index(settings.cost_year, values.years),
             )
         study_inputs: dict[str, str | int | bool | None] = {}
         if intake is not None or index.year_source is not None:
@@ -1007,6 +1020,8 @@ class TakeoffPlan:
         if index.year_assumption is not None:
             # Every priced row rests on the assumption; it is written where the sources are.
             study_inputs["cost_year_assumption"] = index.year_assumption
+        if index.year_conversion is not None:
+            study_inputs["cost_year_conversion"] = index.year_conversion
         return cls(areas, quantities, index, property_class, from_appraisal, study_inputs)
 
 

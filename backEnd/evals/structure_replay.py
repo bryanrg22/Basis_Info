@@ -43,8 +43,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final
 
+from basis.domain.cost_indices import YearIndex, supplement_for
 from basis.domain.cost_table import CostTable, load_cost_table
-from basis.domain.costs import CostError, NeedsQuantity, estimate_cost
+from basis.domain.costs import CostError, NeedsQuantity, estimate_cost, year_factor_index
 from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
 from basis.domain.measurements import measurements_from_fields
 from basis.domain.rules import RECOVERY_YEARS, lookup
@@ -205,6 +206,7 @@ def replay(
     cost_table: CostTable | None,
     intake: StudyIntake | None,
     variant: Variant = PRODUCTION,
+    supplement: Mapping[int, YearIndex] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """``(the replayed export, a summary of the run)``; ``StructureError`` for a variant
     that has no source (the Marshall & Swift split)."""
@@ -219,6 +221,10 @@ def replay(
     read = measurements_from_fields(fields)
     measurements = None if read.is_empty else read
     cost_approach = cost_approach_from_fields(fields)
+    # The study's resolved time factor: the stored index values (``--supplement``, what
+    # ``python -m basis.costs.refresh export`` writes) over the released book, as the
+    # assets step resolves it; the square-foot RCN and the small systems price on it.
+    year = year_factor_index(cost_year, supplement)
     inputs = StructureInputs(
         measurements=measurements,
         cost_approach=cost_approach,
@@ -226,6 +232,7 @@ def replay(
         year_source=takeoff.get("cost_year_source"),
         location_factor=location_factor,
         location_source=takeoff.get("location_source"),
+        year=year,
         rcn_source=variant.rcn_source,
         split=variant.split,
         carve=variant.carve,
@@ -239,6 +246,8 @@ def replay(
         location_factor=location_factor,
         location_source=inputs.location_source,
         rcn_source=variant.rcn_source,
+        year=year,
+        supplement=supplement,
     )
     itemized = itemized_rows(existing)
     carve = None
@@ -286,6 +295,7 @@ def replay(
                     label=row.label,
                     year_source=inputs.year_source,
                     location_source=inputs.location_source,
+                    year=year,
                 )
             except NeedsQuantity:
                 estimate = None
@@ -434,6 +444,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--intake", type=Path, default=None, help="the intake document (JSON)")
     parser.add_argument("--changes", type=Path, default=None, help="the run summary as JSON")
+    parser.add_argument(
+        "--supplement",
+        type=Path,
+        default=None,
+        help="later index values (python -m basis.costs.refresh export), as reprice_export",
+    )
     parser.add_argument("--rcn-source", choices=RCN_SOURCES, default=DEFAULT_RCN_SOURCE)
     parser.add_argument("--split", choices=SPLIT_METHODS, default=DEFAULT_SPLIT)
     parser.add_argument("--no-carve", action="store_true", help="top-down only: no carve-out")
@@ -455,7 +471,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         intake = rebuild_intake(document, args.intake)
-        out, changes = replay(document, cost_table=table, intake=intake, variant=variant)
+        supplement = supplement_for(None if args.supplement is None else str(args.supplement))
+        out, changes = replay(
+            document, cost_table=table, intake=intake, variant=variant, supplement=supplement
+        )
     except (ReplayError, StructureError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

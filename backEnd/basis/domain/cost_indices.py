@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -39,6 +39,8 @@ from typing import Any, Final
 
 DATA_DIR: Final = Path(__file__).resolve().parent.parent / "data" / "cost_indices"
 RELEASED_FILE: Final = "rsmeans_2020.json"
+# The store's name for the released file's values (basis.costs.indices.book).
+BOOK_SOURCE: Final = "rsmeans_2020_book"
 SCHEMA_VERSION: Final = 1
 SUPPLEMENT_SCHEMA_VERSION: Final = 1
 FACTOR_QUANTUM: Final = Decimal("0.0001")
@@ -61,8 +63,11 @@ class YearIndex:
     year: int
     index: Decimal  # Jan. 1, 1993 = 100
     as_of: date
-    source: str  # book and page (or the supplement's citation)
+    source: str  # book and page (or the stored row's citation)
     estimated: bool = False
+    # Set when the value is not a published RSMeans index but one converted from another
+    # public series (COST_INDICES.md section 11): how, with the error it carries.
+    derived: str | None = None
 
     def describe(self) -> str:
         when = self.as_of.strftime("%b %Y").replace("Jul ", "July ")
@@ -83,6 +88,11 @@ class YearFactor:
     @property
     def extrapolated(self) -> bool:
         return self.assumption is not None
+
+    @property
+    def conversion(self) -> str | None:
+        """How the year's value was converted from another series, when it was."""
+        return self.index.derived
 
     def citation(self) -> str:
         """``HCI 222.9 (July 2018) / 239.1 (Jan 2020, estimated), <book> p.778``."""
@@ -134,6 +144,23 @@ class LocationFactor:
             f"mean of {self.cities} {self.state} cities ({self.low}-{self.high}), "
             f"{self.source} pp.{self.pages}"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class LocationTable:
+    """One year's location factors: the released book's, or rows of the store
+    (COST_INDICES.md section 10) for a later table."""
+
+    year: int
+    origin: str  # rsmeans_2020_book, manual, ...
+    source: str  # book and table name
+    pages: str  # printed page(s), or the citation's locator
+    by_prefix: Mapping[str, CityFactor]
+    by_state: Mapping[str, tuple[CityFactor, ...]]
+
+    @property
+    def cities(self) -> int:
+        return sum(len(rows) for rows in self.by_state.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,8 +380,10 @@ def parse_supplement(data: Any, *, book: CostIndices | None = None) -> dict[int,
             {"year": 2024, "as_of": "2024-01-01", "index": "<Jan. 1, 1993 = 100>",
              "source": "<book or quarterly index, volume, page>"}]}
 
-    Every entry names its source; a year the released book already covers is refused (the
-    book's value is the released one), and so is a year before the book's last index.
+    Every entry names its source. A year the released book covers is allowed: a later
+    book revises the earlier one's July estimate, and the store keeps both versions
+    (COST_INDICES.md section 9); the import is what ``python -m basis.costs.refresh import``
+    appends to the store.
     """
     if not isinstance(data, dict):
         raise CostIndexError("the supplement must hold a JSON object")
@@ -368,15 +397,7 @@ def parse_supplement(data: Any, *, book: CostIndices | None = None) -> dict[int,
             raise CostIndexError("every supplement entry needs its own source")
     if not entries:
         return {}
-    years = _year_entries(entries, "", what="supplement.historical_cost_index")
-    released = book or indices()
-    for year in years:
-        if year <= released.last_year:
-            raise CostIndexError(
-                f"the supplement lists {year}, which the released {released.name} file covers "
-                f"through {released.last_year}"
-            )
-    return years
+    return _year_entries(entries, "", what="supplement.historical_cost_index")
 
 
 @cache
@@ -402,13 +423,15 @@ def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
 
 
 def year_index(cost_year: int, supplement: Mapping[int, YearIndex] | None = None) -> YearIndex:
-    """The published index of ``cost_year``: the book's, else the supplement's;
-    ``UnknownCostYear`` for a year before the table, ``KeyError`` for one after it."""
+    """The index of ``cost_year``: the stored values' (``supplement``: the store's current
+    rows, which hold the released book's years and any later or revised value), else the
+    released book's; ``UnknownCostYear`` for a year before the table, ``KeyError`` for one
+    nobody has loaded."""
     book = indices()
-    if cost_year in book.years:
-        return book.years[cost_year]
     if supplement and cost_year in supplement:
         return supplement[cost_year]
+    if cost_year in book.years:
+        return book.years[cost_year]
     if cost_year < book.first_year:
         raise UnknownCostYear(
             f"no cost index for {cost_year}; the Historical Cost Index covers "
@@ -429,28 +452,43 @@ def year_factor_for(
     try:
         index = year_index(cost_year, supplement)
     except KeyError:
-        latest = book.years[book.last_year]
-        if supplement:
-            later = [y for y in supplement if y > book.last_year and y < cost_year]
-            if later:
-                latest = supplement[max(later)]
+        latest = latest_index_before(cost_year, supplement)
         return YearFactor(
             cost_year=cost_year,
             factor=_ratio(latest.index, book.base.index),
             index=latest,
             base=book.base,
-            assumption=(
-                f"no published cost index for {cost_year} is loaded; the latest, "
-                f"{latest.describe()}, is applied. Load the {cost_year} Historical Cost Index "
-                "(RSMeans quarterly Construction Cost Index or the year's book) through "
-                "COST_INDEX_SUPPLEMENT_PATH before the study is signed"
-            ),
+            assumption=missing_year_assumption(cost_year, latest),
         )
     return YearFactor(
         cost_year=cost_year,
         factor=_ratio(index.index, book.base.index),
         index=index,
         base=book.base,
+    )
+
+
+def latest_index_before(
+    cost_year: int, supplement: Mapping[int, YearIndex] | None = None
+) -> YearIndex:
+    """The latest loaded index of a year before ``cost_year`` (the book's or the store's):
+    what the missing-year rule applies (COST_INDICES.md section 4)."""
+    book = indices()
+    years = {y for y in book.years if y < cost_year}
+    if supplement:
+        years |= {y for y in supplement if y < cost_year}
+    if not years:
+        raise UnknownCostYear(f"no cost index before {cost_year}")
+    return year_index(max(years), supplement)
+
+
+def missing_year_assumption(cost_year: int, latest: YearIndex) -> str:
+    """The assumption written on every row priced under the missing-year rule."""
+    return (
+        f"no published cost index for {cost_year} is loaded; the latest, "
+        f"{latest.describe()}, is applied. Enter the {cost_year} Historical Cost Index "
+        "(RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices "
+        "or python -m basis.costs.refresh enter) before the study is signed"
     )
 
 
@@ -464,19 +502,61 @@ def year_ratio(
     return _ratio(a.index, b.index), f"HCI {a.describe()} / HCI {b.describe()}"
 
 
-def location_factor_for_zip(zip_code: str) -> LocationFactor | None:
-    """The city factor of a ZIP's first three digits, or ``None`` when the table has no
-    row for the prefix."""
+def location_table_from(
+    cities: Iterable[CityFactor], *, year: int, origin: str, source: str, pages: str
+) -> LocationTable:
+    """A location table from city rows (the book's, or the store's for a later year);
+    ``CostIndexError`` when two rows claim one ZIP prefix."""
+    by_prefix: dict[str, CityFactor] = {}
+    by_state: dict[str, list[CityFactor]] = {}
+    for city in cities:
+        for prefix in city.prefixes():
+            if prefix in by_prefix:
+                raise CostIndexError(
+                    f"ZIP prefix {prefix} is listed for {by_prefix[prefix].city} and {city.city}"
+                )
+            by_prefix[prefix] = city
+        by_state.setdefault(city.state, []).append(city)
+    return LocationTable(
+        year=year,
+        origin=origin,
+        source=source,
+        pages=pages,
+        by_prefix=by_prefix,
+        by_state={state: tuple(rows) for state, rows in by_state.items()},
+    )
+
+
+@cache
+def book_location_table() -> LocationTable:
+    """The released book's location factors as a :class:`LocationTable`."""
+    book = indices()
+    return LocationTable(
+        year=book.base.year,
+        origin=BOOK_SOURCE,
+        source=book.location_source,
+        pages=book.location_pages,
+        by_prefix=book.by_prefix,
+        by_state=book.by_state,
+    )
+
+
+def location_factor_for_zip(
+    zip_code: str, table: LocationTable | None = None
+) -> LocationFactor | None:
+    """The city factor of a ZIP's first three digits in ``table`` (the released book's
+    when None), or ``None`` when the table has no row for the prefix."""
+    table = table or book_location_table()
     digits = "".join(ch for ch in zip_code.strip() if ch.isdigit())
     if len(digits) < 3:
         return None
-    city = indices().by_prefix.get(digits[:3])
+    city = table.by_prefix.get(digits[:3])
     if city is None:
         return None
     return LocationFactor(
         factor=city.factor,
         state=city.state,
-        source=indices().location_source,
+        source=table.source,
         city=city,
         cities=1,
         low=city.factor,
@@ -485,11 +565,14 @@ def location_factor_for_zip(zip_code: str) -> LocationFactor | None:
     )
 
 
-def location_factor_for_state_code(state: str) -> LocationFactor | None:
-    """The mean of the state's listed cities (three decimals), or ``None`` for a code the
-    table does not have."""
+def location_factor_for_state_code(
+    state: str, table: LocationTable | None = None
+) -> LocationFactor | None:
+    """The mean of the state's listed cities (three decimals) in ``table`` (the released
+    book's when None), or ``None`` for a code the table does not have."""
+    table = table or book_location_table()
     code = state.strip().upper()
-    rows = indices().by_state.get(code)
+    rows = table.by_state.get(code)
     if not rows:
         return None
     factors = [row.factor for row in rows]
@@ -499,30 +582,36 @@ def location_factor_for_state_code(state: str) -> LocationFactor | None:
     return LocationFactor(
         factor=mean,
         state=code,
-        source=indices().location_source,
+        source=table.source,
         city=None,
         cities=len(rows),
         low=min(factors),
         high=max(factors),
-        pages=indices().location_pages,
+        pages=table.pages,
     )
 
 
 __all__ = [
+    "BOOK_SOURCE",
     "DATA_DIR",
     "RELEASED_FILE",
     "CityFactor",
     "CostIndexError",
     "CostIndices",
     "LocationFactor",
+    "LocationTable",
     "UnknownCostYear",
     "YearFactor",
     "YearIndex",
+    "book_location_table",
     "indices",
+    "latest_index_before",
     "load_indices",
     "load_supplement",
     "location_factor_for_state_code",
     "location_factor_for_zip",
+    "location_table_from",
+    "missing_year_assumption",
     "parse_indices",
     "parse_supplement",
     "supplement_for",

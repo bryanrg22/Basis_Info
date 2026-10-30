@@ -100,7 +100,13 @@ NAMING_CONVENTION: Final[dict[str, str]] = {
 # Tables with an ``updated_at`` column maintained by the set_updated_at() trigger.
 UPDATED_AT_TABLES: Final = ("studies", "activity_results", "classification_cache")
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
-APPEND_ONLY_TABLES: Final = ("reviews", "corrections", "study_events")
+APPEND_ONLY_TABLES: Final = (
+    "reviews",
+    "corrections",
+    "study_events",
+    "cost_indices",
+    "cost_index_runs",
+)
 # Tables whose rows cannot be inserted or updated once their corpus version is published.
 PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
 
@@ -1102,4 +1108,96 @@ class EvalResult(Base):
     n: Mapped[int | None]
     stderr: Mapped[float | None] = mapped_column(Double)
     details: Mapped[Any | None] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
+
+
+# ------------------------------------------------------------------------- cost indices
+
+
+class CostIndexValue(Base):
+    """One obtained cost index value (migration ``0016_cost_indices``; COST_INDICES.md
+    section 9): append-only (``forbid_mutation()``), so a completed study reproduces from
+    the rows it cited and a revised value is a new ``version`` of the same key.
+
+    The key is ``(source, series, year, region)``: ``source`` names where the value came
+    from (``rsmeans_2020_book``, ``manual``, ``rsmeans_api``, a public fallback such as
+    ``bls_ppi``), ``series`` is ``historical`` (the Historical Cost Index, Jan. 1, 1993 =
+    100, one value per year, national) or ``city`` (a location factor, the City Cost
+    Index's weighted average over 100), ``region`` is ``US`` for a national value, a state
+    code for a state value or ``<state>:<zip prefixes>`` for a city row (the city's name in
+    ``detail``). ``value`` is the index as published (or as converted: ``derived`` says
+    how), ``as_of`` the date it is the value for, ``citation`` the publication, table and
+    page or URL as printed. ``obtained_by`` is the user who entered a manual value (their
+    name or email in ``obtained_by_name``) and ``obtained_by_name`` alone the fetcher's name
+    otherwise; ``document_sha256`` is the fetched document's hash; ``run_id`` the
+    ``cost_index_runs`` row that added it.
+    """
+
+    __tablename__ = "cost_indices"
+    __table_args__ = (
+        CheckConstraint("series IN ('historical', 'city')", name="series_valid"),
+        CheckConstraint("value > 0", name="value_positive"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("year BETWEEN 1900 AND 2200", name="year_range"),
+        UniqueConstraint("source", "series", "year", "region", "version"),
+        Index(None, "series", "year"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    source: Mapped[str]
+    series: Mapped[str]
+    year: Mapped[int]
+    region: Mapped[str]
+    value: Mapped[Decimal] = mapped_column(QUANTITY)
+    as_of: Mapped[date]
+    citation: Mapped[str]
+    url: Mapped[str | None]
+    derived: Mapped[str | None]
+    version: Mapped[int]
+    obtained_at: Mapped[datetime] = mapped_column(server_default=NOW)
+    obtained_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    obtained_by_name: Mapped[str]
+    document_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cost_index_runs.id"))
+    detail: Mapped[Any | None] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CostIndexRun(Base):
+    """One attempt to obtain cost index values (migration ``0016_cost_indices``):
+    append-only, one row per source per run of the refresh job, per manual entry and per
+    file import, so the ledger shows when a value arrived and what a scheduled run found.
+
+    ``trigger`` says what ran it (``seed``, ``refresh``, ``manual``, ``import``);
+    ``actor_type``/``actor_id`` who (``engineer`` with the user, or ``system``); ``status``
+    is ``ok`` (the source answered, ``rows_added`` rows appended, possibly zero),
+    ``skipped`` (the source was not asked: fetching is off, or it is unavailable without
+    credentials; ``detail.reason``) or ``failed`` (``failures`` holds the errors);
+    ``years_wanted`` the years the store lacked, ``years_added`` the years appended.
+    """
+
+    __tablename__ = "cost_index_runs"
+    __table_args__ = (
+        CheckConstraint("actor_type IN ('engineer', 'system')", name="actor_valid"),
+        CheckConstraint("status IN ('ok', 'skipped', 'failed')", name="status_valid"),
+        CheckConstraint("rows_added >= 0", name="rows_added_nonnegative"),
+        Index(None, "source", "started_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    source: Mapped[str]
+    trigger: Mapped[str]
+    actor_type: Mapped[str]
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    actor_name: Mapped[str | None]
+    status: Mapped[str]
+    started_at: Mapped[datetime]
+    finished_at: Mapped[datetime]
+    rows_added: Mapped[int] = mapped_column(server_default=ZERO)
+    years_wanted: Mapped[Any | None] = mapped_column(JSON_DOC)
+    years_added: Mapped[Any | None] = mapped_column(JSON_DOC)
+    failures: Mapped[Any | None] = mapped_column(JSON_DOC)
+    document_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    request_id: Mapped[str | None]
+    detail: Mapped[Any | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()

@@ -14,17 +14,19 @@ its depreciation lands within the reconciliation's tolerance of the price less l
 
 from __future__ import annotations
 
-import dataclasses
 import json
-import uuid
 from collections import Counter
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from lifecycle_support import Harness
-from lifecycletest_support import intake_document, make_deps, set_intake
+from lifecycletest_support import intake_document, set_intake
 
+from basis.costs.refresh import manual_entry, record_manual
 from basis.db.enums import Stage, StudyStatus
+from basis.db.session import session_scope
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
@@ -38,38 +40,26 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
     harness: Harness, tmp_path: Path
 ) -> None:
     # The 2024 cost year is after the last index the 2020 books publish; the firm's remedy
-    # (COST_INDICES.md section 4) is the supplement, so the worker gets one here with a
-    # synthetic 2024 value (no published value is in the repository) and the rows carry no
-    # assumption. tests/unit/activities/test_process_assets.py covers the flag without one.
-    supplement = tmp_path / "cost_index_supplement.json"
-    supplement.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "historical_cost_index": [
-                    {
-                        "year": 2024,
-                        "as_of": "2024-01-01",
-                        "index": "326.6",
-                        "source": "synthetic fixture (test_intake_takeoff.py), not published",
-                    }
-                ],
-            }
+    # (COST_INDICES.md section 10) is a value in the store, so one is entered here by the
+    # manual path with a synthetic 2024 value (no published value is in the repository) and
+    # the rows carry no assumption. tests/unit/activities/test_process_assets.py covers the
+    # flag without one.
+    async with session_scope(harness.sessionmaker) as session:
+        rows, run, _ = await record_manual(
+            session,
+            [
+                manual_entry(
+                    series="historical",
+                    year=2024,
+                    value=Decimal("326.6"),
+                    as_of=date(2024, 1, 1),
+                    citation="synthetic fixture (test_intake_takeoff.py), not published",
+                )
+            ],
+            actor_id=None,
+            actor_name="test_intake_takeoff.py",
         )
-    )
-    settings = harness.settings.model_copy(update={"cost_index_supplement_path": str(supplement)})
-    harness = dataclasses.replace(
-        harness,
-        deps=make_deps(
-            harness.sessionmaker,
-            harness.deps.storage,
-            settings,
-            chunk_store=harness.deps.chunk_store,
-        ),
-        settings=settings,
-        task_queue=f"lifecycle-intake-{uuid.uuid4().hex[:12]}",
-        handles=[],
-    )
+        assert len(rows) == 1 and rows[0].version == 1 and run.rows_added == 1
     try:
         study = await harness.seed()
         await set_intake(
@@ -123,7 +113,7 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         assert foundation["takeoff_inputs"]["system"] == "Miscellaneous Building Components"
         assert foundation["unit"] == "SF" and foundation["total"] is not None
         # The building RCN the concealed rows are carved from takes the same resolved year
-        # factor as the itemized rows (the supplement's), not the book's alone.
+        # factor as the itemized rows (the store's), not the book's alone.
         assert "x 1.3660 for 2024 (HCI 326.6 (Jan 2024)" in structure["building_rcn"]["formula"]
         assert foundation["takeoff_inputs"]["building_rcn"] == structure["building_rcn"]["amount"]
         assert "ATG ch. 4 C.11" in foundation["takeoff_inputs"]["overhead_spread"]
@@ -175,7 +165,7 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         # every cost row, and the class came from the intake's use.
         takeoff = exported["summary"]["takeoff"]
         # The intake's ZIP names the city in the book (EVAL_REPORT 45): 100-102 New York 1.01;
-        # the supplement's 2024 index prices the year (326.6 / 239.1 = 1.3660), no assumption.
+        # the store's 2024 index prices the year (326.6 / 239.1 = 1.3660), no assumption.
         assert (takeoff["cost_year"], takeoff["location_factor"]) == (2024, "1.010")
         assert takeoff["cost_year_source"] == "placed in service 2024-03-01 (intake)"
         assert takeoff["location_source"] == NEW_YORK
@@ -198,7 +188,7 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
                 assert asset["cost_source"].endswith(
                     f", from placed in service 2024-03-01 (intake); x1.01 location from {NEW_YORK})"
                 )
-                assert "cost:YEAR_INDEX_EXTRAPOLATED" not in (asset["review_reason"] or "")
+                assert "cost:YEAR_INDEX_MISSING" not in (asset["review_reason"] or "")
         # A concealed building row priced from the square-foot model (national dollars) carries
         # the study's location factor, like the itemized rows (with STRUCTURE_RCN_SOURCE set to
         # the appraisal's local figure it would carry none); a small system is priced from the
