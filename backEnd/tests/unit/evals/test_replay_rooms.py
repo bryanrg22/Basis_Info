@@ -24,6 +24,7 @@ from llm_fakes import (
 )
 
 from basis.config import reset_settings
+from basis.llm import prompts
 from basis.vision import room_step
 from basis.vision.schemas import PhotoAnalysis
 from evals import replay_rooms
@@ -121,6 +122,60 @@ async def test_room_call_mode_replays_the_activitys_paths(
         "kitchen",
     )
     assert kitchen["cost_usd"] == pytest.approx(PHOTO_COST_USD)
+    # The run record (evals.record): every call a ledger line, every configured prompt
+    # declared (the material second look made no call here), the log.
+    out = package["out"]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.replay_rooms"
+    assert manifest["summary"] == run
+    assert manifest["calls"]["count"] == 3 and manifest["calls"]["by_kind"] == {"chat": 3}
+    assert manifest["calls"]["cost_usd"] == pytest.approx(3 * PHOTO_COST_USD)
+    declared = {(p["name"], p["version"], p["calls"]) for p in manifest["components"]["prompts"]}
+    assert declared == {
+        ("room_inventory", "v3", 1),
+        ("room_photos_inventory", "v2", 2),
+        ("surface_material", "v3", 0),
+    }
+    for entry in manifest["components"]["prompts"]:
+        assert entry["sha256"] == prompts.load(entry["name"], entry["version"]).sha256
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos", "per_photo", "aliases"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 3
+    assert f"wrote {out}" in (out / "console.log").read_text()
+    # One case per (room, repeat), every inventory produced: passed, with the path taken.
+    # The run files under the room step at ROOM_PROMPT_VERSION, not under the room call's
+    # prompt (which made more calls).
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert summary["total"] == 3
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (3, 0, 0)
+    by_id = {c["id"]: c for c in results["cases"]}
+    assert set(by_id) == {"1_kitchen#1", "2_bath#1", "x_property_front#1"}
+    assert by_id["1_kitchen#1"]["kind"] == "room"
+    assert by_id["1_kitchen#1"]["detail"]["path"] == "room_call"
+    assert by_id["1_kitchen#1"]["detail"]["room_call_fallback"] is None
+    assert by_id["x_property_front#1"]["detail"]["path"] == "reconcile"
+    assert by_id["x_property_front#1"]["detail"]["source"] == "model"
+    assert (
+        "**results: 3 passed, 0 failed, 0 test errors (3 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {"component": "room_inventory", "version": "v3", "link": None}
+
+
+async def test_the_run_is_filed_under_the_room_prompt_in_the_verification_tree(
+    package: dict[str, Path], settings_env: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    data = tmp_path / "data"
+    settings_env.setenv("BASIS_EVAL_DATA_DIR", str(data))
+    out = data / "predictions" / "replay_v3"
+    a = args(package)
+    a.out = out
+    assert await replay_rooms.run(a, provider=FixtureVisionProvider()) == 0
+    link = data / "verification" / "room_inventory" / "v3" / "replay_v3"
+    assert link.is_symlink() and link.resolve() == out.resolve()
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["tree"]["path"] == "room_inventory/v3/replay_v3"
+    assert (link / "results.json").is_file()
 
 
 async def test_reconcile_mode_replays_todays_room_step(

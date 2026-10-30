@@ -627,6 +627,108 @@ run --system vote --voters llm_pages@gpt-6-luna@low,llm_pages@claude-haiku-5-5@l
 BASIS_ENV=dev uv run python -m evals.appraisal.run --set client --mode replay --system llm_all --model gpt-6-luna --effort low
 ```
 
+## Run records, the verification tree and the registry
+
+Every runner leaves, in its output directory, the record a study leaves in production
+(EVAL_REPORT section 43; `evals/record.py`), and files the run in one tree a person can
+browse with Finder, so a result can be reused instead of re-run and a question like "has
+`photo_countables/v3` on gpt-6.1-sol been tested against `photo_components_v1`" is answered
+from files:
+
+```
+$BASIS_EVAL_DATA_DIR/verification/<component>/<version>/<run id>/
+    manifest.json      what ran, on which code, with which components, on which data, cost,
+                       how it ended, where it is filed
+    results.json       every case: passed | failed | test_error (+ expected/observed error codes)
+    report.md          the same as a page: the summary line with all three counts, one row per case
+    llm_calls.jsonl    one line per paid call, every column of the llm_calls table
+    llm/               <call id>.request.json / .response.json (prompts as sent, raw answers)
+    console.log        everything printed and logged (one tee: terminal and file never disagree)
+    run.json           the runner's own summary (unchanged)
+    scores.jsonl       appended by evals.run --predictions: label file, version, sha256, every metric
+    ...                the runner's prediction files
+```
+
+Components are the system's own names: a released prompt (`photo_countables`,
+`photo_surfaces`, `room_inventory`, `surface_material`, `house_inventory`, `classify`,
+`appraisal_fields_grounded`, ...), `detection` (SAM 3 and the detectors), `photo_analysis`
+(merged per-photo runs), `photo_counts` (count fusion), `appraisal_fields` (the appraisal
+harness as configured), `provider_errors` (the expected-error runs), `scoring`. The version
+is the prompt, rule or table version the run exercised (`v3`), a detector's name, SAM 3's
+phrase set (`sam3-v3`), the sources' prompt versions joined for a derived run
+(`photo_countables-v2+photo_surfaces-v1`), the release for `provider_errors`, the pointer
+model for a Molmo points run; a run without one files under `unversioned`. A runner declares its component and version when the default (the prompt with
+the most calls) would be wrong (`predict_rooms` files under `room_inventory`, not the
+`surface_material` second look). The run directory itself is wherever `--out` says
+(`predictions/<run id>` by convention); the tree holds a relative symbolic link to it, made
+when the run finishes, and `verification/README.md` (written by the helper) explains the
+layout. Runs made before 2026-10-29 are linked in by the backfill.
+
+| file | what it holds |
+|---|---|
+| `llm_calls.jsonl` | one line per paid call with every column of the `llm_calls` table (`basis.llm.recorder.ledger_columns`, the dict the production repository writes) plus `created_at`: component, prompt name/version/sha256, build sha, requested and answering model, request parameters, tokens of every kind, cost with price row and pricing version, latency, finish reason, status |
+| `llm/<call id>.request.json`, `.response.json` | the request as sent (system prompt, messages, images as ref + size + sha256, tools, schema) and the raw response, built and redacted by the production archive's functions |
+| `console.log` | everything printed and logged during the run through one tee, API-key-shaped strings redacted; the summary line of the results is printed the same way (the log ends when the runner finishes its record) |
+| `results.json` | every case the run recorded with an outcome of exactly one of `passed` (the system under test did what the case asked), `failed` (it did not) or `test_error` (the harness or an API failed, so the case says nothing about the system); the summary carries all three counts, never folded into each other, the counts per case kind, and the expected-error tally (`matched`, `mismatched`: another code occurred, `not_observed`: no catalogued error occurred). Each runner records one case per unit of work (photo x repeat, room x repeat, document, asset row, crop, SAM 3 image); `evals.run --predictions` adds one `score` case per labelled item (passed = the metric's per-item criterion, failed otherwise, test_error when the run itself recorded a test error for that item) |
+| `report.md` | the results as a page: the run's identity, `**results: N passed, M failed, K test errors (T cases)**`, one row per case (with expected error, observed error and matched yes/no when any case expected one). The appraisal runner appends its own scoring tables (SPEC §8) to the same page after a `---` |
+| `manifest.json` | the run manifest: harness module and its file's sha256, command line and options; git sha, dirty flag, branch and nearest release tag; every prompt name + version + sha256 (declared or called), the price table version, the rules table version, the embedder and its pinned revision, the cost table if configured, the models requested and answered, the request parameters in effect, the model settings; the inputs and dataset files read (sha256, label version), split and repeats; calls, tokens and dollars; status, exit code and error; the results summary; `tree` (component, version, the link made); the `run.json` summary |
+| `run.json` | the runner's own summary, unchanged |
+| `scores.jsonl` | appended by `evals.run --predictions DIR`: the label file, version and sha256 of every dataset scored, the scorer's git state and options, every metric and the per-dataset case counts. The latest scoring per dataset is what the registry reports |
+
+Expected errors (`python -m evals.provoke_errors --out DIR [--dry-run] [--only id ...]`): the
+provider failures the product maps to error codes (`docs/ERROR_CODES.md`), provoked on
+purpose and at no cost: a key the provider did not issue (`BASIS-PROVIDER-001`), a model that
+does not exist and a parameter the model rejects (`BASIS-PROVIDER-002`), a request that cannot
+finish in time (`BASIS-PROVIDER-007`), a budget that cannot cover one call (`BASIS-BUDGET-001`),
+on OpenAI and Anthropic. Each scenario is a case of kind `expected_error` recording the
+expected code, the observed code and `matched` yes/no: `passed` when they match, `failed`
+when another code (or no error) occurred, `test_error` when the provider is not configured
+or the harness itself raised. `--dry-run` runs the same scenarios against scripted providers
+(plus one deliberate mismatch and one unconfigured provider) to exercise the record without a
+network; an account without credit cannot be provoked on demand and is covered by the unit
+tests of `evals.account_stop` only. The run files under `provider_errors/<release>/`.
+
+The derive-a-run tools (`merge_photo_runs`, `aggregate_runs`, `fuse_counts`,
+`combine_rooms`, `sam3_select`, `manual_add`) write a manifest, results and log too, naming
+their source runs (and the sources' manifest ids) under `notes.sources` / `data.inputs` and
+taking their version from the sources' manifests. A run stopped by an account error or an
+exception still gets its manifest (`status: stopped` / `error`), results and log:
+`evals.account_stop.stops_on_account_error` finishes the record on every exit. When
+`DATABASE_URL` is set, `evals.run` writes the same manifest fields on its `eval_runs` rows
+(`git_dirty`, `release`, `run_dir`, `label_version`, `label_sha256`, `component`,
+`component_version`, `manifest`; migration `0015`), so the database and the files agree.
+
+Runs made before this record (the directories under `$BASIS_EVAL_DATA_DIR/predictions/`
+and `appraisal/runs/` up to 2026-10-29) carry a backfilled manifest written by
+`python -m evals.backfill_manifests --write` (`backfilled: true`, each field with its source,
+`unknown` where the files do not say; no `results.json`, since per-case outcomes were not
+recorded) and are linked into the tree under the first prompt their `run.json` names (the
+note on what could and could not be recovered is `docs/review_2026-10-15/EVAL_RUN_BACKFILL.md`).
+The tool is a dry run without `--write`, never touches a manifest a runner wrote, and
+rewrites its own only with `--force`.
+
+```bash
+cd backEnd
+# every run, newest first (Markdown to stdout)
+uv run python -m evals.registry
+# the question above: component at a version, on a model, against a label version
+uv run python -m evals.registry --component photo_countables/v3 --model gpt-6.1-sol --labels photo_components_v1
+# "fully tested?": prompt version x model, with the label versions seen in each cell
+uv run python -m evals.registry --component room_inventory --matrix
+# every filter, both outputs
+uv run python -m evals.registry --release v0.9.0 --harness evals.predict_rooms --since 2026-10-16 \
+    --status ok --json runs.json --markdown runs.md
+```
+
+`--component` takes a prompt name or `name/vN` (also the tree component, `detector:gdino`,
+`embedder:<model>`), `--model` a requested or answered model (`claude-*` for a prefix),
+`--labels` a label file stem, `--dataset` a scored dataset. The table shows each run's tree
+component and version, start, release, git sha (`*` when the tree was dirty), harness,
+prompts, model, effort, labels, `passed / failed / test_error`, the headline metric per
+dataset (`registry.HEADLINE_METRICS`; every metric is in the JSON), cost, calls and where the
+record came from (`manifest`, `backfilled`, or `run.json` alone) with the EVAL_REPORT
+sections that cite it.
+
 ## Metrics
 
 `evals/metrics.py`, unit-tested against hand-computed values in

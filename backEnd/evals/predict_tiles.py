@@ -22,9 +22,12 @@ stripped, at most 1024 px) and parts are cut from the prepared photo. Output in 
 ``photo_counts.json`` and ``photo_components.json`` (per photo, per repeat; ``separate``:
 summed counts and the union of the labels), ``photo_rooms.json`` (``joint`` only),
 ``tile_counts.json`` (``separate``: each part's counts, for other merge rules),
-``photo_raw.jsonl`` (one line per photo and repeat with every call) and ``run.json``
-(models reported, spent). An unusable answer is retried once; a part still unusable after
-that makes the photo missing for that repeat (not zero).
+``photo_raw.jsonl`` (one line per photo and repeat with every call), ``run.json``
+(models reported, spent) and the run record (``llm_calls.jsonl``, ``llm/``, ``console.log``,
+``manifest.json``, ``results.json`` and ``report.md`` with one case per photo and repeat;
+:mod:`evals.record`). An unusable answer is retried once; a part still unusable after that
+makes the photo missing for that repeat (not zero) and its case ``failed``; a provider
+outage after every retry fails the run and leaves the photo's case a ``test_error``.
 
 Usage (from ``backEnd/``)::
 
@@ -61,11 +64,11 @@ from basis.llm.errors import (
 from basis.llm.pool import ProviderPool
 from basis.llm.prompts import Prompt
 from basis.llm.provider import Budget, ChatProvider, ChatRequest, ImagePart, Message
-from basis.llm.recorder import MemoryRecorder
 from basis.vision.prep import JPEG_QUALITY, PreparedImage, prepare_image
 from basis.vision.schemas import ModelPhotoAnalysis
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_photos import RETRY_DELAYS_S, label_counts, photo_files
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 MODES: Final = ("separate", "joint")
 PROMPTS: Final = {"separate": "photo_countables_tile", "joint": "photo_countables_joint"}
@@ -252,10 +255,11 @@ async def run(args: argparse.Namespace) -> int:
     if not files:
         print(f"no photos in {args.photos}", file=sys.stderr)
         return 2
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.input("photos", args.photos)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = eval_run.recorder
     s = Settings(
         provider=pool,
         call=CallContext(
@@ -270,6 +274,7 @@ async def run(args: argparse.Namespace) -> int:
         max_tokens=args.max_tokens,
         reasoning_effort=args.reasoning_effort,
     )
+    eval_run.prompt(s.prompt)
     semaphore = asyncio.Semaphore(args.concurrency)
     prepared = {f.name: prepare_image(f.read_bytes()) for f in files}
     parts = {name: tiles(image, args.grid, args.upscale) for name, image in prepared.items()}
@@ -283,15 +288,21 @@ async def run(args: argparse.Namespace) -> int:
             return answer
 
     async def one(name: str, repeat: int) -> dict[str, Any]:
-        if args.mode == "separate":
-            calls = await asyncio.gather(
-                *(call(_request(s, tile_text(t, args.upscale), [t.image])) for t in parts[name])
-            )
-        else:
-            positions = ", ".join(t.position for t in parts[name])
-            text = JOINT_TEXT.format(upscale=args.upscale, positions=positions)
-            images = [prepared[name], *(t.image for t in parts[name])]
-            calls = [await call(_request(s, text, images))]
+        try:
+            if args.mode == "separate":
+                calls = await asyncio.gather(
+                    *(call(_request(s, tile_text(t, args.upscale), [t.image])) for t in parts[name])
+                )
+            else:
+                positions = ", ".join(t.position for t in parts[name])
+                text = JOINT_TEXT.format(upscale=args.upscale, positions=positions)
+                images = [prepared[name], *(t.image for t in parts[name])]
+                calls = [await call(_request(s, text, images))]
+        except Exception as exc:
+            # A provider outage after every retry, an account error or a harness fault:
+            # propagates as before; the case says nothing about the model.
+            eval_run.case(f"{name}#{repeat}", TEST_ERROR, kind="photo", observed_error=exc)
+            raise
         return {
             "file": name,
             "repeat": repeat,
@@ -313,9 +324,31 @@ async def run(args: argparse.Namespace) -> int:
             for record in records:
                 raw.write(json.dumps(record, sort_keys=True) + "\n")
                 analyses = [c["analysis"] for c in record["calls"]]
+                case_id = f"{record['file']}#{repeat}"
                 if any(a is None for a in analyses):
-                    missing.append(f"{record['file']}#{repeat}")
+                    missing.append(case_id)
+                    eval_run.case(
+                        case_id,
+                        FAILED,
+                        kind="photo",
+                        detail={
+                            "unusable_parts": sum(1 for a in analyses if a is None),
+                            "parts": len(analyses),
+                            "errors": [e for c in record["calls"] for e in c["errors"]],
+                        },
+                        seconds=record["seconds"],
+                    )
                     continue
+                eval_run.case(
+                    case_id,
+                    PASSED,
+                    kind="photo",
+                    detail={
+                        "parts": len(analyses),
+                        "attempts": sum(c["attempts"] for c in record["calls"]),
+                    },
+                    seconds=record["seconds"],
+                )
                 per_call = [label_counts(a["components"]) for a in analyses]
                 total: dict[str, int] = {}
                 for part_counts in per_call:
@@ -347,29 +380,23 @@ async def run(args: argparse.Namespace) -> int:
         (args.out / f"{name}.json").write_text(
             json.dumps({f: fold(v) for f, v in data.items() if v}, indent=1, sort_keys=True)
         )
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "photos": len(files),
-                "repeats": args.repeats,
-                "mode": args.mode,
-                "grid": args.grid,
-                "upscale": args.upscale,
-                "prompt": s.prompt.version_id,
-                "model_requested": s.model,
-                "models_reported": sorted(
-                    {str(getattr(r, "model", "")) for r in recorder.records} - {""}
-                ),
-                "reasoning_effort": args.reasoning_effort,
-                "max_tokens": args.max_tokens,
-                "calls": len(recorder.records),
-                "spent_usd": round(budget.spent_usd, 6),
-                "missing": missing,
-            },
-            indent=1,
-        )
-    )
+    report = {
+        "photos": len(files),
+        "repeats": args.repeats,
+        "mode": args.mode,
+        "grid": args.grid,
+        "upscale": args.upscale,
+        "prompt": s.prompt.version_id,
+        "model_requested": s.model,
+        "models_reported": sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""}),
+        "reasoning_effort": args.reasoning_effort,
+        "max_tokens": args.max_tokens,
+        "calls": len(recorder.records),
+        "spent_usd": round(budget.spent_usd, 6),
+        "missing": missing,
+    }
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 

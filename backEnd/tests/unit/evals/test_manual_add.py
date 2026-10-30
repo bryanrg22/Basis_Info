@@ -117,6 +117,15 @@ def test_summary_guard_measure_and_gates() -> None:
     assert (exact["correct"]["k"], exact["correct"]["n"], exact["wrong"]["k"]) == (2, 2, 0)
     assert summary["counted"]["boxes_all"]["duplicates_created"]["k"] == 0
     assert M.gates(summary) == []
+    checks = M.gate_checks(summary)
+    assert [g.id for g in checks] == [
+        "exact_box_outlines_misses",
+        "box_exact_never_wrong",
+        "box_big_never_wrong",
+        "box_small_never_wrong",
+        "counted_boxes_no_duplicates",
+    ]
+    assert all(g.passed for g in checks)
     # A counted object's box never reaches the guard (it is the counted instance).
     assert all(
         r["guard_overlap"] is None
@@ -128,6 +137,9 @@ def test_summary_guard_measure_and_gates() -> None:
     assert by_box["box_exact"]["outcome"] == "correct"
     failing = M.summarize(M.evaluate([p], {}))
     assert any("exact box outlines 1/2" in f for f in M.gates(failing))
+    verdicts = {g.id: g.passed for g in M.gate_checks(failing)}
+    assert verdicts["exact_box_outlines_misses"] is False
+    assert M.gates(failing) == [g.detail for g in M.gate_checks(failing) if not g.passed]
     assert "| box_exact |" in M.table(summary)
 
 
@@ -157,3 +169,102 @@ def test_saved_answers_round_trip(tmp_path: Path) -> None:
         update={"source": "manual"}
     )
     assert M.prompted_instance(None, box, "all") == "missing"
+
+
+def test_main_replays_a_data_directory_and_leaves_the_run_record(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The photo of :func:`photo` as a data directory: the labels, the stored run, and the
+    saved SAM 3 answer for the one miss. The gates pass, and ``--out`` holds the report
+    plus the run record (manifest naming the labels and the stored runs, and the log)."""
+    data = tmp_path / "data"
+    stored = [
+        inst("window", 0.9, 10, 10, 30, 30).model_dump(mode="json"),
+        inst("window", 0.5, 60, 10, 80, 30).model_dump(mode="json"),
+    ]
+    (data / M.LABELS_FILE).parent.mkdir(parents=True)
+    (data / M.LABELS_FILE).write_text(
+        json.dumps(
+            {
+                "images": [
+                    {
+                        "file": "x.jpg",
+                        "boxes": [
+                            gold("window", 0.1, 0.1, 0.3, 0.3),
+                            gold("window", 0.6, 0.1, 0.8, 0.3),
+                            gold("window", 0.1, 0.6, 0.3, 0.8),
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    first, second = (data / run / "instances_raw.jsonl" for run in M.SAM3_RUNS)
+    first.parent.mkdir(parents=True)
+    first.write_text(
+        json.dumps({"file": "x.jpg", "instances": stored, "image": {"sha256": "s"}}) + "\n"
+    )
+    second.parent.mkdir(parents=True)
+    second.write_text("")
+    prompts = data / M.PROMPTS_FILE
+    prompts.parent.mkdir(parents=True)
+    right = inst("window", 0.8, 10, 60, 30, 80).model_dump(mode="json")
+    miss = M.Target(0, "window", Box(x1=0.1, y1=0.6, x2=0.3, y2=0.8), counted=False)
+    prompts.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {"key": M.prompt_key(miss, v), "phrase": "house window", "instances": [right]}
+                    for v in M.VARIANTS
+                ]
+            }
+        )
+    )
+    out = tmp_path / "out"
+    assert M.main(["--data", str(data), "--out", str(out)]) == 0
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["gates"] == {"passed": True, "failures": [], "phrases": "all"}
+    assert len(json.loads((out / "records.json").read_text())) > 0
+    assert "gates: passed" in capsys.readouterr().out
+    # The run record: no run.json (summary.json is the report), a manifest, the log.
+    assert not (out / "run.json").exists()
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.manual_add"
+    assert manifest["harness"]["options"]["phrases"] == "all"
+    assert manifest["calls"]["count"] == 0
+    assert [(i["name"], i["path"]) for i in manifest["data"]["inputs"]] == [
+        (M.SAM3_RUNS[0], str(first)),
+        (M.SAM3_RUNS[1], str(second)),
+        ("prompts", str(prompts)),
+    ]
+    [labels] = manifest["data"]["datasets"]
+    assert (labels["name"], labels["version"], labels["path"]) == (
+        "detection_boxes",
+        "v1",
+        str(data / M.LABELS_FILE),
+    )
+    assert manifest["notes"] == {"phrases": "all", "live": False, "gates": summary["gates"]}
+    assert (manifest["status"], manifest["exit_code"]) == ("ok", 0)
+    assert "gates: passed" in (out / "console.log").read_text()
+    # One case per gate, passed as the gates decided; filed under detection / manual_add.
+    results = json.loads((out / "results.json").read_text())
+    counts = results["summary"]
+    assert (counts["passed"], counts["failed"], counts["test_error"]) == (5, 0, 0)
+    assert all(c["kind"] == "gate" for c in results["cases"])
+    assert results["cases"][0]["id"] == "exact_box_outlines_misses"
+    assert results["cases"][0]["detail"].startswith("exact box outlines ")
+    assert "results: 5 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "detection",
+        "manual_add",
+    )
+
+
+def test_a_failed_replay_still_leaves_a_manifest(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    with pytest.raises(FileNotFoundError):
+        M.main(["--data", str(tmp_path / "nope"), "--out", str(out)])
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
+    assert "FileNotFoundError" in manifest["error"]
+    assert (out / "console.log").exists()

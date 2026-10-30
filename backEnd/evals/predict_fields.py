@@ -22,6 +22,11 @@ dropped, as production drops it, and scores as a miss. Writes::
     <out>/fields_raw.jsonl                  one line per (document, repeat): the answer, the
                                             drops, tokens, cost, latency
     <out>/run.json                          models reported, effort, spend, latency, errors
+    <out>/results.json, report.md           one case per (document, repeat): passed (a value
+                                            survived the guard), failed (unusable or refused
+                                            answer, or nothing survived the guard), test_error
+                                            (the provider or the account failed)
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json         the run record (evals.record)
 
 Usage (from ``backEnd/``, ``BASIS_ENV=dev``, provider keys in the environment)::
 
@@ -55,12 +60,17 @@ from basis.extraction.pdf_text import read_pdf
 from basis.llm import prompts
 from basis.llm.call import CallContext, call_model
 from basis.llm.cost import is_anthropic_model
-from basis.llm.errors import ProviderAccountError, ProviderError
+from basis.llm.errors import (
+    ProviderAccountError,
+    ProviderBadResponse,
+    ProviderError,
+    ProviderRequestRejected,
+)
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatRequest, Message
-from basis.llm.recorder import MemoryRecorder
 from evals import datasets as ds
 from evals.account_stop import guard, stops_on_account_error, track
+from evals.record import FAILED, PASSED, TEST_ERROR, EvalRun
 
 DEFAULT_MAX_CONTEXT_CHARS = 60_000
 DEFAULT_MAX_TOKENS = 8_000
@@ -155,6 +165,13 @@ def fold(values: list[Any]) -> Any:
     return values[0] if len(values) == 1 else {"repeats": values}
 
 
+def error_outcome(exc: ProviderError) -> str:
+    """The case outcome of a call that raised: ``failed`` when the answer was unusable or
+    the provider refused this input (the system's output for the document), ``test_error``
+    for an outage, a rate limit or the account (which say nothing about the system)."""
+    return FAILED if isinstance(exc, ProviderBadResponse | ProviderRequestRejected) else TEST_ERROR
+
+
 @stops_on_account_error
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
@@ -171,10 +188,12 @@ async def run(args: argparse.Namespace) -> int:
         print(f"no {args.split} documents", file=sys.stderr)
         return 2
     prompt = prompts.load(PROMPT_NAME, args.prompt or prompts.versions(PROMPT_NAME)[-1])
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.dataset(data_dir / "appraisal_fields_v1.json")
+    eval_run.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = eval_run.recorder
     ctx = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,
@@ -188,6 +207,7 @@ async def run(args: argparse.Namespace) -> int:
     seconds: list[float] = []
     with (args.out / "fields_raw.jsonl").open("w", encoding="utf-8") as raw:
         for doc in documents:
+            eval_run.input(doc.document, data_dir / doc.document)
             pdf = read_pdf((data_dir / doc.document).read_bytes())
             context, used = page_context(
                 pdf.pages, range(1, len(pdf.pages) + 1), args.max_context_chars
@@ -204,15 +224,24 @@ async def run(args: argparse.Namespace) -> int:
             guarded[doc.document] = {k: [] for k in keys}
             raw_values[doc.document] = {k: [] for k in keys}
             for repeat in range(1, args.repeats + 1):
+                case_id = f"{doc.document}#{repeat}"
                 started = time.monotonic()
                 calls_before = len(recorder.records)
                 try:
                     response = await call_model(pool, request, ctx)
-                except ProviderAccountError:
+                except ProviderAccountError as exc:
+                    eval_run.case(case_id, TEST_ERROR, kind="document", observed_error=exc)
                     raise  # stops the run (evals.account_stop)
                 except ProviderError as exc:
                     errors.append({"document": doc.document, "repeat": repeat, "error": str(exc)})
                     print(f"repeat {repeat}: {type(exc).__name__}: {exc}", file=sys.stderr)
+                    eval_run.case(
+                        case_id,
+                        error_outcome(exc),
+                        kind="document",
+                        observed_error=exc,
+                        seconds=time.monotonic() - started,
+                    )
                     for k in keys:
                         guarded[doc.document][k].append(None)
                         raw_values[doc.document][k].append(None)
@@ -222,6 +251,18 @@ async def run(args: argparse.Namespace) -> int:
                 answer = response.parsed
                 assert isinstance(answer, FallbackAnswer)
                 accepted, unguarded, dropped = accept(answer, keys, context)
+                eval_run.case(
+                    case_id,
+                    PASSED if accepted else FAILED,  # failed: nothing survived the guard
+                    kind="document",
+                    detail={
+                        "fields": len(keys),
+                        "accepted": len(accepted),
+                        "unguarded": len(unguarded),
+                        "dropped": len(dropped),
+                    },
+                    seconds=elapsed,
+                )
                 for k in keys:
                     guarded[doc.document][k].append(accepted.get(k))
                     raw_values[doc.document][k].append(unguarded.get(k))
@@ -262,30 +303,26 @@ async def run(args: argparse.Namespace) -> int:
             )
         )
     records = recorder.records
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "documents": len(documents),
-                "fields": sum(len(d.fields) for d in documents),
-                "repeats": args.repeats,
-                "model_requested": args.model,
-                "reasoning_effort": args.reasoning_effort
-                or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
-                "max_tokens": args.max_tokens,
-                "prompt": prompt.version_id,
-                "models_reported": sorted({r.model for r in records}),
-                "providers_reported": sorted({r.provider for r in records}),
-                "model_calls": len(records),
-                "input_tokens": sum(r.usage.input_tokens for r in records),
-                "output_tokens": sum(r.usage.output_tokens for r in records),
-                "spent_usd": round(float(sum(r.cost_usd for r in records)), 6),
-                "seconds_per_call": round(sum(seconds) / len(seconds), 2) if seconds else None,
-                "errors": errors,
-            },
-            indent=1,
-        )
-    )
+    report = {
+        "documents": len(documents),
+        "fields": sum(len(d.fields) for d in documents),
+        "repeats": args.repeats,
+        "model_requested": args.model,
+        "reasoning_effort": args.reasoning_effort
+        or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
+        "max_tokens": args.max_tokens,
+        "prompt": prompt.version_id,
+        "models_reported": sorted({r.model for r in records}),
+        "providers_reported": sorted({r.provider for r in records}),
+        "model_calls": len(records),
+        "input_tokens": sum(r.usage.input_tokens for r in records),
+        "output_tokens": sum(r.usage.output_tokens for r in records),
+        "spent_usd": round(float(sum(r.cost_usd for r in records)), 6),
+        "seconds_per_call": round(sum(seconds) / len(seconds), 2) if seconds else None,
+        "errors": errors,
+    }
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 

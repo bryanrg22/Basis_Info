@@ -13,6 +13,7 @@ import pytest
 from llm_fakes import PHOTO_MODEL, PHOTO_USAGE
 from PIL import Image
 
+from basis.llm import prompts
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import ChatRequest, ChatResponse
 from basis.vision.prep import prepare_image
@@ -141,3 +142,37 @@ async def test_run_counts_the_confirmed_detections(
     assert [v["confirmed"] for v in verdicts[:3]] == [True, False, True]
     run = json.loads((out / "run.json").read_text())
     assert (run["detections"], run["calls"], run["unanswered"]) == (3, 6, 0)
+    # The run record (evals.record): the SAM 3 run and the photos read, one ledger
+    # line per call, the prompt declared.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.verify_boxes"
+    assert manifest["calls"]["count"] == 6
+    assert manifest["components"]["prompts"] == [
+        {
+            "name": "photo_verify_box",
+            "version": "v1",
+            "sha256": prompts.load("photo_verify_box", "v1").sha256,
+            "calls": 6,
+        }
+    ]
+    assert [i["name"] for i in manifest["data"]["inputs"]] == ["photos", "sam3"]
+    assert len((out / "llm_calls.jsonl").read_text().splitlines()) == 6
+    assert "wrote" in (out / "console.log").read_text()
+    # One case per (detection, repeat): every verdict was usable, so all passed, whether or
+    # not it confirmed the detection (a rejection is an answer, not a failure).
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert summary["total"] == 6
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (6, 0, 0)
+    assert [c["id"] for c in results["cases"][:3]] == ["a.jpg:0#1", "a.jpg:1#1", "a.jpg:2#1"]
+    assert all(c["kind"] == "detection" and c["seconds"] >= 0 for c in results["cases"])
+    assert [(c["detail"]["verdict"], c["detail"]["confirmed"]) for c in results["cases"][:3]] == [
+        ("exterior_door", True),
+        ("part_or_several", False),
+        ("kitchen_cabinet", True),
+    ]
+    assert (
+        "**results: 6 passed, 0 failed, 0 test errors (6 cases)**"
+        in (out / "report.md").read_text()
+    )
+    assert manifest["tree"] == {"component": "photo_verify_box", "version": "v1", "link": None}

@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from basis.vision.localize import Box, Instance, Rle
@@ -118,6 +119,32 @@ def test_runner_writes_pool_records_surfaces_and_label_sets_for_a_segmenter(
     assert json.loads((out / "photo_components.json").read_text())["01_a.jpg"] == ["exterior_door"]
     run = json.loads((out / "run.json").read_text())
     assert run["detector"] == "mask2former" and run["cost_usd"] == 0.0
+    # The run record (evals.record): a manifest and a log, no paid call and so no ledger.
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["harness"]["module"] == "evals.predict_detector"
+    assert manifest["summary"] == run and manifest["status"] == "ok"
+    assert manifest["calls"]["count"] == 0 and manifest["components"]["prompts"] == []
+    assert manifest["notes"] == {
+        "detector": "mask2former",
+        "checkpoint": pd.SEGMENTERS["mask2former"],
+        "device": "fake",
+    }
+    assert [(i["name"], i["files"]) for i in manifest["data"]["inputs"]] == [("photos", 2)]
+    assert manifest["files"]["ledger"] is None and not (out / "llm_calls.jsonl").exists()
+    assert f"wrote {out}" in (out / "console.log").read_text()
+    # One passed case per photo; the run files under detection / <detector>.
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (2, 0, 0)
+    assert [(c["id"], c["detail"]) for c in results["cases"]] == [
+        ("01_a.jpg#1", {"instances": 1}),
+        ("02_b.jpg#1", {"instances": 1}),
+    ]
+    assert "results: 2 passed, 0 failed, 0 test errors" in (out / "report.md").read_text()
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "detection",
+        "mask2former",
+    )
     # the pool loader of sam3_select reads the output as it reads a SAM 3 pool run
     pool = sel.load_pool(out / "instances_raw.jsonl")
     assert pool["02_b.jpg"][0].phrase == "door"
@@ -139,6 +166,48 @@ def test_runner_writes_no_surfaces_for_an_open_vocabulary_detector(tmp_path: Pat
     assert not (out / "surfaces_raw.jsonl").exists()
     assert seen[0] == [p for p, _ in pd.pool_phrases()]
     assert json.loads((out / "run.json").read_text())["phrases"] == seen[0]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == ("detection", "owlv2")
+    assert json.loads((out / "results.json").read_text())["summary"]["passed"] == 1
+
+
+def test_a_detector_that_raises_leaves_its_case_and_files_under_the_checkpoint(
+    tmp_path: Path,
+) -> None:
+    """The second photo makes the detector raise: the run stops as before (the exception
+    propagates, the manifest says error), with the first photo passed and the second a test
+    error on record; an overridden checkpoint is part of the version."""
+    photos = _photos(tmp_path, ["01_a.jpg", "02_b.jpg"])
+    calls: list[str] = []
+
+    def fake(image: Image.Image, phrases: Sequence[tuple[str, ComponentLabel]]) -> list[Instance]:
+        calls.append("x")
+        if len(calls) > 1:
+            raise RuntimeError("MPS backend out of memory")
+        return []
+
+    out = tmp_path / "out"
+    args = argparse.Namespace(
+        photos=photos, out=out, detector="gdino", checkpoint="org/ckpt", device="auto", limit=None
+    )
+    with pytest.raises(RuntimeError, match="out of memory"):
+        pd.run(args, detector=fake)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["status"], manifest["exit_code"]) == ("error", 1)
+    assert (manifest["tree"]["component"], manifest["tree"]["version"]) == (
+        "detection",
+        "gdino@org_ckpt",
+    )
+    results = json.loads((out / "results.json").read_text())
+    summary = results["summary"]
+    assert (summary["passed"], summary["failed"], summary["test_error"]) == (1, 0, 1)
+    by_id = {c["id"]: c for c in results["cases"]}
+    assert by_id["01_a.jpg#1"]["outcome"] == "passed"
+    assert by_id["02_b.jpg#1"]["outcome"] == "test_error"
+    assert "out of memory" in by_id["02_b.jpg#1"]["observed_message"]
+    assert "results: 1 passed, 0 failed, 1 test errors" in (out / "report.md").read_text()
+    assert pd.detector_version("owlv2", None) == "owlv2"
+    assert pd.detector_version("owlv2", "google/owlv2-base") == "owlv2@google_owlv2-base"
 
 
 def _inst(label: ComponentLabel, phrase: str, score: float, x: float) -> Instance:

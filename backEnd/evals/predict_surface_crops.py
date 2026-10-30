@@ -10,6 +10,10 @@ and the enlarged, greyed-around crop (prompt ``surface_crop_material``)::
     <out>/crops_raw.jsonl      one line per (file, surface, repeat): answer, model, cost,
                                seconds, crop box, attempts, errors
     <out>/run.json
+    <out>/results.json, report.md   one case per (file, surface, repeat): passed (an answer),
+                               failed (unusable after the retry, or the input refused),
+                               test_error (the provider or the harness failed)
+    <out>/llm_calls.jsonl, llm/, console.log, manifest.json    the run record (evals.record)
 
 ``score``: material accuracy per surface kind (floor, wall, wainscot band, ceiling)
 against the per-photo labels (``photo_components_v1``), for crop runs (``--crops NAME=DIR``)
@@ -24,6 +28,9 @@ classes are the labelled ones; *answered* = something was predicted.
 wainscoting, tile and ceiling_finish objects replaced by the crops' majority answer over
 the room's photos (repeat r of the crops for repeat r of the rooms), written to a new
 directory that ``evals.run`` scores for ``report_rows``. Objects are not added or removed.
+The new directory's record files under ``room_inventory`` at the version the rooms run was
+filed under (its ``manifest.json``, ``tree.version``; ``unversioned`` without one), with one
+passed case per (room, repeat) saying how many materials changed.
 """
 
 from __future__ import annotations
@@ -49,11 +56,12 @@ from basis.llm.call import CallContext
 from basis.llm.cost import is_anthropic_model
 from basis.llm.pool import ProviderPool
 from basis.llm.provider import Budget, ChatProvider, ChatRequest
-from basis.llm.recorder import MemoryRecorder
 from basis.vision import surface_crops as sc
 from basis.vision.localize import Rle
 from evals.account_stop import guard, stops_on_account_error, track
 from evals.predict_multiview import call_with_retries
+from evals.predict_rooms import COMPONENT as ROOMS_COMPONENT
+from evals.record import FAILED, MANIFEST_FILE, PASSED, TEST_ERROR, UNVERSIONED, EvalRun
 
 KINDS: tuple[sc.Kind, ...] = ("floor", "wall", "wall_lower", "ceiling")
 
@@ -110,9 +118,13 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
         if line.strip()
     ]
     prompt = prompts.load(sc.PROMPT_NAME, args.prompt)
+    eval_run = EvalRun.begin(args.out, harness=__name__, args=args, settings=settings)
+    eval_run.input("surfaces", args.surfaces)
+    eval_run.input("photos", args.photos)
+    eval_run.prompt(prompt)
     budget = Budget(remaining_usd=args.budget_usd)
     track(args, budget)
-    recorder = MemoryRecorder()
+    recorder = eval_run.recorder
     ctx = CallContext(
         study_id=uuid.uuid4(),
         run_id=None,
@@ -121,7 +133,6 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
         recorder=recorder,
     )
     semaphore = asyncio.Semaphore(args.concurrency)
-    args.out.mkdir(parents=True, exist_ok=True)
     jobs: list[tuple[str, sc.Surface, bytes, bytes, list[int]]] = []
     for record in records:
         path = args.photos / record["file"]
@@ -143,7 +154,15 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
         )
         async with semaphore:
             started = time.monotonic()
-            parsed, record = await call_with_retries(provider, request, ctx)
+            try:
+                parsed, record = await call_with_retries(provider, request, ctx)
+            except Exception as exc:
+                # Propagates as before (an outage after every retry, an account error, a
+                # harness fault); the case says nothing about the model.
+                eval_run.case(
+                    f"{file}:{surface}#{repeat}", TEST_ERROR, kind="crop", observed_error=exc
+                )
+                raise
         answer = parsed.model_dump(mode="json") if isinstance(parsed, sc.CropAnswer) else None
         answers.setdefault(file, {}).setdefault(surface, []).append((repeat, answer))
         raw_lines.append(
@@ -177,27 +196,34 @@ async def predict(args: argparse.Namespace, provider: ChatProvider | None = None
     with (args.out / "crops_raw.jsonl").open("w", encoding="utf-8") as raw:
         for line in sorted(raw_lines, key=lambda r: (r["repeat"], r["file"], r["surface"])):
             raw.write(json.dumps(line, sort_keys=True) + "\n")
+            eval_run.case(
+                f"{line['file']}:{line['surface']}#{line['repeat']}",
+                PASSED if line["answer"] is not None else FAILED,
+                kind="crop",
+                detail={
+                    "material": None if line["answer"] is None else line["answer"]["material"],
+                    "attempts": line.get("attempts"),
+                    "errors": list(line.get("errors") or []),
+                },
+                seconds=line["seconds"],
+            )
     models = sorted({str(getattr(r, "model", "")) for r in recorder.records} - {""})
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {
-                "surfaces": str(args.surfaces),
-                "photos": len(records),
-                "crops": len(jobs),
-                "repeats": args.repeats,
-                "model_requested": args.model,
-                "reasoning_effort": args.reasoning_effort
-                or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
-                "prompt": prompt.version_id,
-                "models_reported": models,
-                "spent_usd": round(budget.spent_usd, 6),
-                "wall_seconds": round(wall, 1),
-                "unusable": sum(1 for r in raw_lines if r["answer"] is None),
-            },
-            indent=1,
-        )
-    )
+    report = {
+        "surfaces": str(args.surfaces),
+        "photos": len(records),
+        "crops": len(jobs),
+        "repeats": args.repeats,
+        "model_requested": args.model,
+        "reasoning_effort": args.reasoning_effort
+        or (settings.anthropic_effort if is_anthropic_model(args.model) else None),
+        "prompt": prompt.version_id,
+        "models_reported": models,
+        "spent_usd": round(budget.spent_usd, 6),
+        "wall_seconds": round(wall, 1),
+        "unusable": sum(1 for r in raw_lines if r["answer"] is None),
+    }
     print(f"wrote {args.out} (spent ${budget.spent_usd:.4f})", file=sys.stderr)
+    eval_run.finish(report)
     return 0
 
 
@@ -373,9 +399,34 @@ LABEL_KIND = sc.LABEL_KIND
 majority = sc.majority
 
 
+def rooms_version(rooms: Path) -> str:
+    """The room-inventory version a rooms run was filed under (``tree.version`` of its
+    manifest), ``unversioned`` when it has no manifest or the manifest does not say."""
+    path = rooms / MANIFEST_FILE
+    if not path.is_file():
+        return UNVERSIONED
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return UNVERSIONED
+    tree = manifest.get("tree") if isinstance(manifest, dict) else None
+    version = tree.get("version") if isinstance(tree, dict) else None
+    return str(version) if version else UNVERSIONED
+
+
 def apply(args: argparse.Namespace) -> int:
     crops = crop_predictions(args.crops)
-    args.out.mkdir(parents=True, exist_ok=True)
+    eval_run = EvalRun.begin(
+        args.out,
+        harness=__name__,
+        args=args,
+        # A room inventory still: filed with the rooms run's version, not as a crop run.
+        component=ROOMS_COMPONENT,
+        version=rooms_version(args.rooms),
+    )
+    eval_run.input("rooms", args.rooms)
+    eval_run.input("crops", args.crops)
+    eval_run.note(rooms=str(args.rooms), crops=str(args.crops))
     for name in ("room_inventory.json", "rooms.json", "room_inventory.heuristic.json"):
         if (args.rooms / name).is_file():
             shutil.copy(args.rooms / name, args.out / name)
@@ -386,6 +437,7 @@ def apply(args: argparse.Namespace) -> int:
             continue
         record = json.loads(line)
         repeat = int(record.get("repeat", 1))
+        before = changed
         predicted = crops[(repeat - 1) % len(crops)]
         files = record.get("files") or record.get("images") or []
         files = [f if isinstance(f, str) else f.get("file", "") for f in files]
@@ -403,14 +455,20 @@ def apply(args: argparse.Namespace) -> int:
                 obj["material"] = TO_MATERIAL[choice]
                 changed += 1
         lines.append(json.dumps(record, sort_keys=True))
-    (args.out / "room_raw.jsonl").write_text("\n".join(lines) + "\n")
-    (args.out / "run.json").write_text(
-        json.dumps(
-            {"rooms": str(args.rooms), "crops": str(args.crops), "materials_changed": changed},
-            indent=1,
+        eval_run.case(
+            f"{record.get('room_id', '?')}#{repeat}",
+            PASSED,  # no call is made: the room's inventory is rewritten, never dropped
+            kind="room",
+            detail={
+                "materials_changed": changed - before,
+                "objects": len(record.get("objects", [])),
+            },
         )
-    )
+    (args.out / "room_raw.jsonl").write_text("\n".join(lines) + "\n")
     print(f"wrote {args.out}: {changed} materials changed", file=sys.stderr)
+    eval_run.finish(
+        {"rooms": str(args.rooms), "crops": str(args.crops), "materials_changed": changed}
+    )
     return 0
 
 

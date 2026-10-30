@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="520" viewBox="0 0 1450 520" role="img"><title>Basis — the simple view</title><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10" fill="#2563eb"/></marker></defs><rect width="1450" height="520" fill="white"/><style>text{font-family:Arial,Helvetica,sans-serif;fill:#152332} .secondary{fill:#566779} .accent{fill:#2563eb}</style>
+<text x="45" y="52" font-size="29" class="" text-anchor="start">Basis — the simple view</text>
+<text x="45" y="84" font-size="17" class="secondary" text-anchor="start">Current backend workflow in main · October 27, 2026 · fcf60ac · code view, not deployment verification</text>
+<rect x="60" y="190" width="310" height="130" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="215.0" y="224" font-size="21" class="" text-anchor="middle">Upload study files</text>
+<text x="215.0" y="252" font-size="17" class="secondary" text-anchor="middle">Appraisal report (PDF)</text>
+<text x="215.0" y="275" font-size="17" class="secondary" text-anchor="middle">Property photos — e.g. 5 photos</text>
+<rect x="530" y="175" width="385" height="160" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="722.5" y="209" font-size="21" class="" text-anchor="middle">Study workflow</text>
+<text x="722.5" y="237" font-size="17" class="secondary" text-anchor="middle">Extract appraisal + analyze photos</text>
+<text x="722.5" y="260" font-size="17" class="secondary" text-anchor="middle">Engineer reviews at each checkpoint</text>
+<text x="722.5" y="283" font-size="17" class="secondary" text-anchor="middle">Build assets, quantities and costs</text>
+<rect x="1075" y="190" width="310" height="130" rx="12" fill="white" stroke="#243242" stroke-width="2"/>
+<text x="1230.0" y="224" font-size="21" class="" text-anchor="middle">Study output files</text>
+<text x="1230.0" y="252" font-size="17" class="secondary" text-anchor="middle">Assets CSV</text>
+<text x="1230.0" y="275" font-size="17" class="secondary" text-anchor="middle">JSON study + evidence pack</text>
+<path d="M370 255 H530" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M915 255 H1075" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="995" y="237" font-size="16" class="accent" text-anchor="middle">final approval</text>
+<text x="725" y="390" font-size="20" class="" text-anchor="middle">The appraisal and photo paths start together. Photo analysis does not wait for appraisal approval.</text>
+<text x="725" y="431" font-size="17" class="secondary" text-anchor="middle">Temporal coordinates the workflow; PostgreSQL stores results; object storage holds inputs and exports.</text>
+<text x="725" y="476" font-size="18" class="accent" text-anchor="middle">Expanded in the second diagram ↓</text>
+</svg>

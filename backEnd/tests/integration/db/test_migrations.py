@@ -38,6 +38,10 @@
   ``(org_id, key)``, the seeding approval, the rules-table agreement, ``approvals >= 1``,
   its ``updated_at`` trigger) and adds ``assets.convention`` (only on ``cache`` assets);
   rows of the old table are dropped, and it downgrades back to ``0013`` exactly;
+* ``0015_eval_run_manifest`` adds the run-record columns of ``eval_runs`` (``git_dirty``,
+  ``release``, ``run_dir``, ``label_sha256``, ``label_version``, ``component``,
+  ``component_version``, ``manifest``; NULL for rows written before, nothing backfilled) and
+  downgrades back to ``0014``;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -70,8 +74,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0014"
-HISTORY = [f"{n:04d}" for n in range(14, 0, -1)]  # "0014" .. "0001"
+HEAD = "0015"
+HISTORY = [f"{n:04d}" for n in range(15, 0, -1)]  # "0015" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -970,6 +974,83 @@ async def test_0014_firm_conventions_scoped_by_firm_and_downgrade(
     assert await _table_columns(url, "classification_cache") == cache_0013
     assert await _table_columns(url, "assets") == assets_0013
     await upgrade(url)
+
+
+# --------------------------------------------------------------------------- 0015
+
+EVAL_RUN_COLUMNS_0015 = (
+    "git_dirty",
+    "release",
+    "run_dir",
+    "label_sha256",
+    "label_version",
+    "component",
+    "component_version",
+    "manifest",
+)
+
+
+async def test_0015_eval_run_manifest_columns_and_downgrade(empty_database_url: str) -> None:
+    await upgrade(empty_database_url, "0014")
+    at_0014 = await snapshot(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        existing = await connection.fetchval(
+            "INSERT INTO eval_runs (dataset, split, git_sha, model) "
+            "VALUES ('assets', 'dev', 'abc1234', 'rules_table') RETURNING id"
+        )
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        # Rows written before carry NULL in every new column: nothing is backfilled.
+        row = await connection.fetchrow(
+            f"SELECT {', '.join(EVAL_RUN_COLUMNS_0015)} FROM eval_runs WHERE id = $1", existing
+        )
+        assert row is not None and all(row[c] is None for c in EVAL_RUN_COLUMNS_0015)
+        await connection.execute(
+            "UPDATE eval_runs SET git_dirty = true, release = 'v0.9.0', run_dir = 'out/run', "
+            "label_sha256 = $2, label_version = 'v1', component = 'photo_countables', "
+            "component_version = 'v3', manifest = '{\"kind\": \"scores\"}'::jsonb "
+            "WHERE id = $1",
+            existing,
+            "a" * 64,
+        )
+        row = await connection.fetchrow(
+            "SELECT manifest->>'kind' AS kind, component, component_version FROM eval_runs "
+            "WHERE id = $1",
+            existing,
+        )
+        assert row is not None
+        assert (row["kind"], row["component"], row["component_version"]) == (
+            "scores",
+            "photo_countables",
+            "v3",
+        )
+        with pytest.raises(asyncpg.StringDataRightTruncationError):
+            await connection.execute(
+                "UPDATE eval_runs SET label_sha256 = $2 WHERE id = $1", existing, "a" * 65
+            )
+    finally:
+        await connection.close()
+    await downgrade(empty_database_url, "0014")
+    assert await snapshot(empty_database_url) == at_0014
+    connection = await asyncpg.connect(plain_dsn(empty_database_url))
+    try:
+        assert not await connection.fetch(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'eval_runs' "
+            "AND column_name = ANY($1::text[])",
+            list(EVAL_RUN_COLUMNS_0015),
+        )
+        # The pre-0015 row is still there, untouched by the round trip.
+        assert (
+            await connection.fetchval("SELECT git_sha FROM eval_runs WHERE id = $1", existing)
+            == "abc1234"
+        )
+    finally:
+        await connection.close()
+    await upgrade(empty_database_url)
 
 
 # --------------------------------------------------------------------------- 0011
