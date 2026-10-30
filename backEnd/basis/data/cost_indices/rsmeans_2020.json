@@ -1,0 +1,4899 @@
+{
+ "schema_version": 1,
+ "name": "rsmeans_2020",
+ "note": "Published RSMeans index numbers transcribed from the reference sections of the two 2020 books in the reference corpus (docs/review_2026-10-15/COST_INDICES.md). Reference data only: no client data. Released files are immutable (basis/data/cost_indices/manifest.json): to change a value, add the next file and its manifest entry.",
+ "historical_cost_index": {
+  "book": "Building Construction Costs with RSMeans data, 2020 (Gordian)",
+  "short_title": "RSMeans Building Construction Costs 2020",
+  "table": "Historical Cost Indexes",
+  "printed_page": 778,
+  "pdf_page": 794,
+  "base": "Jan. 1, 1993 = 100",
+  "definition": "The table lists the RSMeans historical cost index (Jan. 1, 1993 = 100) and, for each year, the computed index based on Jan. 1, 2020 = 100. Time adjustment: Index for Year A / Index for Year B x Cost in Year B = Cost in Year A (p.778). One value per year: July 1 of the year, and Jan. 1 for 2020, the book's estimate for its own cost basis (space is left to write in the actual quarterly figures).",
+  "cost_basis": {
+   "as_of": "2020-01-01",
+   "index": "239.1",
+   "estimated": true,
+   "note": "the 2020 books' unit costs are U.S. national averages as of Jan. 1, 2020 (Residential p.11, 'All costs represent U.S. national averages'); the Jan. 1, 2020 index is the book's estimate"
+  },
+  "annual": [
+   {
+    "year": 2020,
+    "as_of": "2020-01-01",
+    "index": "239.1",
+    "index_2020_base": "100.0",
+    "estimated": true
+   },
+   {
+    "year": 2019,
+    "as_of": "2019-07-01",
+    "index": "232.2",
+    "index_2020_base": "97.1"
+   },
+   {
+    "year": 2018,
+    "as_of": "2018-07-01",
+    "index": "222.9",
+    "index_2020_base": "93.2"
+   },
+   {
+    "year": 2017,
+    "as_of": "2017-07-01",
+    "index": "213.6",
+    "index_2020_base": "89.3"
+   },
+   {
+    "year": 2016,
+    "as_of": "2016-07-01",
+    "index": "207.3",
+    "index_2020_base": "86.7"
+   },
+   {
+    "year": 2015,
+    "as_of": "2015-07-01",
+    "index": "206.2",
+    "index_2020_base": "86.2"
+   },
+   {
+    "year": 2014,
+    "as_of": "2014-07-01",
+    "index": "204.9",
+    "index_2020_base": "85.7"
+   },
+   {
+    "year": 2013,
+    "as_of": "2013-07-01",
+    "index": "201.2",
+    "index_2020_base": "84.1"
+   },
+   {
+    "year": 2012,
+    "as_of": "2012-07-01",
+    "index": "194.6",
+    "index_2020_base": "81.4"
+   },
+   {
+    "year": 2011,
+    "as_of": "2011-07-01",
+    "index": "191.2",
+    "index_2020_base": "80.0"
+   },
+   {
+    "year": 2010,
+    "as_of": "2010-07-01",
+    "index": "183.5",
+    "index_2020_base": "76.7"
+   },
+   {
+    "year": 2009,
+    "as_of": "2009-07-01",
+    "index": "180.1",
+    "index_2020_base": "75.3"
+   },
+   {
+    "year": 2008,
+    "as_of": "2008-07-01",
+    "index": "180.4",
+    "index_2020_base": "75.4"
+   },
+   {
+    "year": 2007,
+    "as_of": "2007-07-01",
+    "index": "169.4",
+    "index_2020_base": "70.8"
+   },
+   {
+    "year": 2006,
+    "as_of": "2006-07-01",
+    "index": "162.0",
+    "index_2020_base": "67.8"
+   },
+   {
+    "year": 2005,
+    "as_of": "2005-07-01",
+    "index": "151.6",
+    "index_2020_base": "63.4"
+   },
+   {
+    "year": 2004,
+    "as_of": "2004-07-01",
+    "index": "143.7",
+    "index_2020_base": "60.1"
+   },
+   {
+    "year": 2003,
+    "as_of": "2003-07-01",
+    "index": "132.0",
+    "index_2020_base": "55.2"
+   },
+   {
+    "year": 2002,
+    "as_of": "2002-07-01",
+    "index": "128.7",
+    "index_2020_base": "53.8"
+   },
+   {
+    "year": 2001,
+    "as_of": "2001-07-01",
+    "index": "125.1",
+    "index_2020_base": "52.3"
+   },
+   {
+    "year": 2000,
+    "as_of": "2000-07-01",
+    "index": "120.9",
+    "index_2020_base": "50.6"
+   },
+   {
+    "year": 1999,
+    "as_of": "1999-07-01",
+    "index": "117.6",
+    "index_2020_base": "49.2"
+   },
+   {
+    "year": 1998,
+    "as_of": "1998-07-01",
+    "index": "115.1",
+    "index_2020_base": "48.1"
+   },
+   {
+    "year": 1997,
+    "as_of": "1997-07-01",
+    "index": "112.8",
+    "index_2020_base": "47.2"
+   },
+   {
+    "year": 1996,
+    "as_of": "1996-07-01",
+    "index": "110.2",
+    "index_2020_base": "46.1"
+   },
+   {
+    "year": 1995,
+    "as_of": "1995-07-01",
+    "index": "107.6",
+    "index_2020_base": "45.0"
+   },
+   {
+    "year": 1994,
+    "as_of": "1994-07-01",
+    "index": "104.4",
+    "index_2020_base": "43.7"
+   },
+   {
+    "year": 1993,
+    "as_of": "1993-07-01",
+    "index": "101.7",
+    "index_2020_base": "42.5"
+   },
+   {
+    "year": 1992,
+    "as_of": "1992-07-01",
+    "index": "99.4",
+    "index_2020_base": "41.6"
+   },
+   {
+    "year": 1991,
+    "as_of": "1991-07-01",
+    "index": "96.8",
+    "index_2020_base": "40.5"
+   },
+   {
+    "year": 1990,
+    "as_of": "1990-07-01",
+    "index": "94.3",
+    "index_2020_base": "39.4"
+   },
+   {
+    "year": 1989,
+    "as_of": "1989-07-01",
+    "index": "92.1",
+    "index_2020_base": "38.5"
+   },
+   {
+    "year": 1988,
+    "as_of": "1988-07-01",
+    "index": "89.9",
+    "index_2020_base": "37.6"
+   },
+   {
+    "year": 1987,
+    "as_of": "1987-07-01",
+    "index": "87.7",
+    "index_2020_base": "36.7"
+   },
+   {
+    "year": 1986,
+    "as_of": "1986-07-01",
+    "index": "84.2",
+    "index_2020_base": "35.2"
+   },
+   {
+    "year": 1985,
+    "as_of": "1985-07-01",
+    "index": "82.6",
+    "index_2020_base": "34.6"
+   },
+   {
+    "year": 1984,
+    "as_of": "1984-07-01",
+    "index": "82.0",
+    "index_2020_base": "34.3"
+   },
+   {
+    "year": 1983,
+    "as_of": "1983-07-01",
+    "index": "80.2",
+    "index_2020_base": "33.5"
+   },
+   {
+    "year": 1982,
+    "as_of": "1982-07-01",
+    "index": "76.1",
+    "index_2020_base": "31.8"
+   },
+   {
+    "year": 1981,
+    "as_of": "1981-07-01",
+    "index": "70.0",
+    "index_2020_base": "29.3"
+   },
+   {
+    "year": 1980,
+    "as_of": "1980-07-01",
+    "index": "62.9",
+    "index_2020_base": "26.3"
+   },
+   {
+    "year": 1979,
+    "as_of": "1979-07-01",
+    "index": "57.8",
+    "index_2020_base": "24.2"
+   },
+   {
+    "year": 1978,
+    "as_of": "1978-07-01",
+    "index": "53.5",
+    "index_2020_base": "22.4"
+   },
+   {
+    "year": 1977,
+    "as_of": "1977-07-01",
+    "index": "49.5",
+    "index_2020_base": "20.7"
+   },
+   {
+    "year": 1976,
+    "as_of": "1976-07-01",
+    "index": "46.9",
+    "index_2020_base": "19.6"
+   },
+   {
+    "year": 1975,
+    "as_of": "1975-07-01",
+    "index": "44.8",
+    "index_2020_base": "18.7"
+   },
+   {
+    "year": 1974,
+    "as_of": "1974-07-01",
+    "index": "41.4",
+    "index_2020_base": "17.3"
+   },
+   {
+    "year": 1973,
+    "as_of": "1973-07-01",
+    "index": "37.7",
+    "index_2020_base": "15.8"
+   },
+   {
+    "year": 1972,
+    "as_of": "1972-07-01",
+    "index": "34.8",
+    "index_2020_base": "14.6"
+   },
+   {
+    "year": 1971,
+    "as_of": "1971-07-01",
+    "index": "32.1",
+    "index_2020_base": "13.4"
+   },
+   {
+    "year": 1970,
+    "as_of": "1970-07-01",
+    "index": "28.7",
+    "index_2020_base": "12.0"
+   }
+  ]
+ },
+ "location_factors": {
+  "book": "Residential Costs with RSMeans data, 2020 (Gordian, 60170)",
+  "short_title": "RSMeans Residential 2020",
+  "table": "Location Factors - Residential",
+  "column": "Residential",
+  "printed_pages": "718-722",
+  "pdf_pages": "732-736",
+  "basis": "The costs in the book are national averages; 'to adjust these costs to a specific location, simply multiply the base cost by the factor for that city. The data is arranged alphabetically by state and postal zip code numbers' (p.718). The factor is the City Cost Index's weighted-average row for the city divided by 100 (p.287: 'The last row of data in the CCI, the weighted average, is the same as the numbers reported for each location in the location factor table'; the CCI is a ratio to the 30 major city average = 100 as of July 1, 2019, Building p.779).",
+  "rule_for_unlisted": "For a city not listed, use the factor for a nearby city with similar economic characteristics (p.718). The product's state-level factor is the arithmetic mean of the state's listed cities, rounded to three decimals, recorded as such on every cost row.",
+  "excluded": "Guam (969, 1.34), Puerto Rico (009, .68) and the Canadian factors (in Canadian dollars) are in the book and not transcribed: no state code in the intake selects them.",
+  "cities": [
+   {
+    "state": "AL",
+    "zip_prefixes": "350-352",
+    "city": "Birmingham",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "354",
+    "city": "Tuscaloosa",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "355",
+    "city": "Jasper",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "356",
+    "city": "Decatur",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "357-358",
+    "city": "Huntsville",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "359",
+    "city": "Gadsden",
+    "factor": "0.92",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "360-361",
+    "city": "Montgomery",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "362",
+    "city": "Anniston",
+    "factor": "0.91",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "363",
+    "city": "Dothan",
+    "factor": "0.94",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "364",
+    "city": "Evergreen",
+    "factor": "0.88",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "365-366",
+    "city": "Mobile",
+    "factor": "0.94",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "367",
+    "city": "Selma",
+    "factor": "0.90",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "368",
+    "city": "Phenix City",
+    "factor": "0.91",
+    "printed_page": 718
+   },
+   {
+    "state": "AL",
+    "zip_prefixes": "369",
+    "city": "Butler",
+    "factor": "0.89",
+    "printed_page": 718
+   },
+   {
+    "state": "AK",
+    "zip_prefixes": "995-996",
+    "city": "Anchorage",
+    "factor": "1.22",
+    "printed_page": 718
+   },
+   {
+    "state": "AK",
+    "zip_prefixes": "997",
+    "city": "Fairbanks",
+    "factor": "1.29",
+    "printed_page": 718
+   },
+   {
+    "state": "AK",
+    "zip_prefixes": "998",
+    "city": "Juneau",
+    "factor": "1.26",
+    "printed_page": 718
+   },
+   {
+    "state": "AK",
+    "zip_prefixes": "999",
+    "city": "Ketchikan",
+    "factor": "1.30",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "850,853",
+    "city": "Phoenix",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "851,852",
+    "city": "Mesa/Tempe",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "855",
+    "city": "Globe",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "856-857",
+    "city": "Tucson",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "859",
+    "city": "Show Low",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "860",
+    "city": "Flagstaff",
+    "factor": "1.03",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "863",
+    "city": "Prescott",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "864",
+    "city": "Kingman",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "AZ",
+    "zip_prefixes": "865",
+    "city": "Chambers",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "716",
+    "city": "Pine Bluff",
+    "factor": "0.90",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "717",
+    "city": "Camden",
+    "factor": "0.90",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "718",
+    "city": "Texarkana",
+    "factor": "0.93",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "719",
+    "city": "Hot Springs",
+    "factor": "0.88",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "720-722",
+    "city": "Little Rock",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "723",
+    "city": "West Memphis",
+    "factor": "0.94",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "724",
+    "city": "Jonesboro",
+    "factor": "0.94",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "725",
+    "city": "Batesville",
+    "factor": "0.89",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "726",
+    "city": "Harrison",
+    "factor": "0.92",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "727",
+    "city": "Fayetteville",
+    "factor": "0.87",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "728",
+    "city": "Russellville",
+    "factor": "0.90",
+    "printed_page": 718
+   },
+   {
+    "state": "AR",
+    "zip_prefixes": "729",
+    "city": "Fort Smith",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "900-902",
+    "city": "Los Angeles",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "903-905",
+    "city": "Inglewood",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "906-908",
+    "city": "Long Beach",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "910-912",
+    "city": "Pasadena",
+    "factor": "0.94",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "913-916",
+    "city": "Van Nuys",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "917-918",
+    "city": "Alhambra",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "919-921",
+    "city": "San Diego",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "922",
+    "city": "Palm Springs",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "923-924",
+    "city": "San Bernardino",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "925",
+    "city": "Riverside",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "926-927",
+    "city": "Santa Ana",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "928",
+    "city": "Anaheim",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "930",
+    "city": "Oxnard",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "931",
+    "city": "Santa Barbara",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "932-933",
+    "city": "Bakersfield",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "934",
+    "city": "San Luis Obispo",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "935",
+    "city": "Mojave",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "936-938",
+    "city": "Fresno",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "939",
+    "city": "Salinas",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "940-941",
+    "city": "San Francisco",
+    "factor": "1.03",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "942,956-958",
+    "city": "Sacramento",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "943",
+    "city": "Palo Alto",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "944",
+    "city": "San Mateo",
+    "factor": "1.03",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "945",
+    "city": "Vallejo",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "946",
+    "city": "Oakland",
+    "factor": "1.02",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "947",
+    "city": "Berkeley",
+    "factor": "1.06",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "948",
+    "city": "Richmond",
+    "factor": "1.07",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "949",
+    "city": "San Rafael",
+    "factor": "1.03",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "950",
+    "city": "Santa Cruz",
+    "factor": "1.05",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "951",
+    "city": "San Jose",
+    "factor": "1.04",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "952",
+    "city": "Stockton",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "953",
+    "city": "Modesto",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "954",
+    "city": "Santa Rosa",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "955",
+    "city": "Eureka",
+    "factor": "1.06",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "959",
+    "city": "Marysville",
+    "factor": "1.02",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "960",
+    "city": "Redding",
+    "factor": "1.07",
+    "printed_page": 718
+   },
+   {
+    "state": "CA",
+    "zip_prefixes": "961",
+    "city": "Susanville",
+    "factor": "1.07",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "800-802",
+    "city": "Denver",
+    "factor": "1.05",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "803",
+    "city": "Boulder",
+    "factor": "1.04",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "804",
+    "city": "Golden",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "805",
+    "city": "Fort Collins",
+    "factor": "1.03",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "806",
+    "city": "Greeley",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "807",
+    "city": "Fort Morgan",
+    "factor": "1.05",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "808-809",
+    "city": "Colorado Springs",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "810",
+    "city": "Pueblo",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "811",
+    "city": "Alamosa",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "812",
+    "city": "Salida",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "813",
+    "city": "Durango",
+    "factor": "1.05",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "814",
+    "city": "Montrose",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "815",
+    "city": "Grand Junction",
+    "factor": "1.08",
+    "printed_page": 718
+   },
+   {
+    "state": "CO",
+    "zip_prefixes": "816",
+    "city": "Glenwood Springs",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "060",
+    "city": "New Britain",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "061",
+    "city": "Hartford",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "062",
+    "city": "Willimantic",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "063",
+    "city": "New London",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "064",
+    "city": "Meriden",
+    "factor": "1.00",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "065",
+    "city": "New Haven",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "066",
+    "city": "Bridgeport",
+    "factor": "1.02",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "067",
+    "city": "Waterbury",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "068",
+    "city": "Norwalk",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "CT",
+    "zip_prefixes": "069",
+    "city": "Stamford",
+    "factor": "1.01",
+    "printed_page": 718
+   },
+   {
+    "state": "DC",
+    "zip_prefixes": "200-205",
+    "city": "Washington",
+    "factor": "0.99",
+    "printed_page": 718
+   },
+   {
+    "state": "DE",
+    "zip_prefixes": "197",
+    "city": "Newark",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "DE",
+    "zip_prefixes": "198",
+    "city": "Wilmington",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "DE",
+    "zip_prefixes": "199",
+    "city": "Dover",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "320,322",
+    "city": "Jacksonville",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "321",
+    "city": "Daytona Beach",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "323",
+    "city": "Tallahassee",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "324",
+    "city": "Panama City",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "325",
+    "city": "Pensacola",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "326,344",
+    "city": "Gainesville",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "327-328,347",
+    "city": "Orlando",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "329",
+    "city": "Melbourne",
+    "factor": "0.94",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "330-332,340",
+    "city": "Miami",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "333",
+    "city": "Fort Lauderdale",
+    "factor": "0.93",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "334,349",
+    "city": "West Palm Beach",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "335-336,346",
+    "city": "Tampa",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "337",
+    "city": "St. Petersburg",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "338",
+    "city": "Lakeland",
+    "factor": "0.91",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "339,341",
+    "city": "Fort Myers",
+    "factor": "0.92",
+    "printed_page": 718
+   },
+   {
+    "state": "FL",
+    "zip_prefixes": "342",
+    "city": "Sarasota",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "300-303,399",
+    "city": "Atlanta",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "304",
+    "city": "Statesboro",
+    "factor": "0.91",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "305",
+    "city": "Gainesville",
+    "factor": "0.98",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "306",
+    "city": "Athens",
+    "factor": "0.95",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "307",
+    "city": "Dalton",
+    "factor": "0.94",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "308-309",
+    "city": "Augusta",
+    "factor": "0.97",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "310-312",
+    "city": "Macon",
+    "factor": "0.93",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "313-314",
+    "city": "Savannah",
+    "factor": "0.96",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "315",
+    "city": "Waycross",
+    "factor": "0.90",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "316",
+    "city": "Valdosta",
+    "factor": "0.89",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "317,398",
+    "city": "Albany",
+    "factor": "0.93",
+    "printed_page": 718
+   },
+   {
+    "state": "GA",
+    "zip_prefixes": "318-319",
+    "city": "Columbus",
+    "factor": "0.93",
+    "printed_page": 718
+   },
+   {
+    "state": "HI",
+    "zip_prefixes": "967",
+    "city": "Hilo",
+    "factor": "1.14",
+    "printed_page": 718
+   },
+   {
+    "state": "HI",
+    "zip_prefixes": "968",
+    "city": "Honolulu",
+    "factor": "1.19",
+    "printed_page": 718
+   },
+   {
+    "state": "ID",
+    "zip_prefixes": "832",
+    "city": "Pocatello",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "ID",
+    "zip_prefixes": "833",
+    "city": "Twin Falls",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "ID",
+    "zip_prefixes": "834",
+    "city": "Idaho Falls",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "ID",
+    "zip_prefixes": "835",
+    "city": "Lewiston",
+    "factor": "1.09",
+    "printed_page": 719
+   },
+   {
+    "state": "ID",
+    "zip_prefixes": "836-837",
+    "city": "Boise",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "ID",
+    "zip_prefixes": "838",
+    "city": "Coeur d'Alene",
+    "factor": "1.11",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "600-603",
+    "city": "North Suburban",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "604",
+    "city": "Joliet",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "605",
+    "city": "South Suburban",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "606-608",
+    "city": "Chicago",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "609",
+    "city": "Kankakee",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "610-611",
+    "city": "Rockford",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "612",
+    "city": "Rock Island",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "613",
+    "city": "La Salle",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "614",
+    "city": "Galesburg",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "615-616",
+    "city": "Peoria",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "617",
+    "city": "Bloomington",
+    "factor": "0.92",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "618-619",
+    "city": "Champaign",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "620-622",
+    "city": "East St. Louis",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "623",
+    "city": "Quincy",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "624",
+    "city": "Effingham",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "625",
+    "city": "Decatur",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "626-627",
+    "city": "Springfield",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "628",
+    "city": "Centralia",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "IL",
+    "zip_prefixes": "629",
+    "city": "Carbondale",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "460",
+    "city": "Anderson",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "461-462",
+    "city": "Indianapolis",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "463-464",
+    "city": "Gary",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "465-466",
+    "city": "South Bend",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "467-468",
+    "city": "Fort Wayne",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "469",
+    "city": "Kokomo",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "470",
+    "city": "Lawrenceburg",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "471",
+    "city": "New Albany",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "472",
+    "city": "Columbus",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "473",
+    "city": "Muncie",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "474",
+    "city": "Bloomington",
+    "factor": "1.01",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "475",
+    "city": "Washington",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "476-477",
+    "city": "Evansville",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "478",
+    "city": "Terre Haute",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IN",
+    "zip_prefixes": "479",
+    "city": "Lafayette",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "500-503,509",
+    "city": "Des Moines",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "504",
+    "city": "Mason City",
+    "factor": "0.92",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "505",
+    "city": "Fort Dodge",
+    "factor": "0.91",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "506-507",
+    "city": "Waterloo",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "508",
+    "city": "Creston",
+    "factor": "0.92",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "510-511",
+    "city": "Sioux City",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "512",
+    "city": "Sibley",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "513",
+    "city": "Spencer",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "514",
+    "city": "Carroll",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "515",
+    "city": "Council Bluffs",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "516",
+    "city": "Shenandoah",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "520",
+    "city": "Dubuque",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "521",
+    "city": "Decorah",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "522-524",
+    "city": "Cedar Rapids",
+    "factor": "1.01",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "525",
+    "city": "Ottumwa",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "526",
+    "city": "Burlington",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "IA",
+    "zip_prefixes": "527-528",
+    "city": "Davenport",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "660-662",
+    "city": "Kansas City",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "664-666",
+    "city": "Topeka",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "667",
+    "city": "Fort Scott",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "668",
+    "city": "Emporia",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "669",
+    "city": "Belleville",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "670-672",
+    "city": "Wichita",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "673",
+    "city": "Independence",
+    "factor": "1.03",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "674",
+    "city": "Salina",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "675",
+    "city": "Hutchinson",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "676",
+    "city": "Hays",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "677",
+    "city": "Colby",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "678",
+    "city": "Dodge City",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "KS",
+    "zip_prefixes": "679",
+    "city": "Liberal",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "400-402",
+    "city": "Louisville",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "403-405",
+    "city": "Lexington",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "406",
+    "city": "Frankfort",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "407-409",
+    "city": "Corbin",
+    "factor": "0.88",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "410",
+    "city": "Covington",
+    "factor": "0.92",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "411-412",
+    "city": "Ashland",
+    "factor": "0.86",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "413-414",
+    "city": "Campton",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "415-416",
+    "city": "Pikeville",
+    "factor": "0.91",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "417-418",
+    "city": "Hazard",
+    "factor": "0.91",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "420",
+    "city": "Paducah",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "421-422",
+    "city": "Bowling Green",
+    "factor": "0.92",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "423",
+    "city": "Owensboro",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "424",
+    "city": "Henderson",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "425-426",
+    "city": "Somerset",
+    "factor": "0.90",
+    "printed_page": 719
+   },
+   {
+    "state": "KY",
+    "zip_prefixes": "427",
+    "city": "Elizabethtown",
+    "factor": "0.89",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "700-701",
+    "city": "New Orleans",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "703",
+    "city": "Thibodaux",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "704",
+    "city": "Hammond",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "705",
+    "city": "Lafayette",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "706",
+    "city": "Lake Charles",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "707-708",
+    "city": "Baton Rouge",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "710-711",
+    "city": "Shreveport",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "712",
+    "city": "Monroe",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "LA",
+    "zip_prefixes": "713-714",
+    "city": "Alexandria",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "039",
+    "city": "Kittery",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "040-041",
+    "city": "Portland",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "042",
+    "city": "Lewiston",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "043",
+    "city": "Augusta",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "044",
+    "city": "Bangor",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "045",
+    "city": "Bath",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "046",
+    "city": "Machias",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "047",
+    "city": "Houlton",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "048",
+    "city": "Rockland",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "ME",
+    "zip_prefixes": "049",
+    "city": "Waterville",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "206",
+    "city": "Waldorf",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "207-208",
+    "city": "College Park",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "209",
+    "city": "Silver Spring",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "210-212",
+    "city": "Baltimore",
+    "factor": "1.02",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "214",
+    "city": "Annapolis",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "215",
+    "city": "Cumberland",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "216",
+    "city": "Easton",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "217",
+    "city": "Hagerstown",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "218",
+    "city": "Salisbury",
+    "factor": "1.02",
+    "printed_page": 719
+   },
+   {
+    "state": "MD",
+    "zip_prefixes": "219",
+    "city": "Elkton",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "010-011",
+    "city": "Springfield",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "012",
+    "city": "Pittsfield",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "013",
+    "city": "Greenfield",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "014",
+    "city": "Fitchburg",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "015-016",
+    "city": "Worcester",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "017",
+    "city": "Framingham",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "018",
+    "city": "Lowell",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "019",
+    "city": "Lawrence",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "020-022,024",
+    "city": "Boston",
+    "factor": "1.02",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "023",
+    "city": "Brockton",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "025",
+    "city": "Buzzards Bay",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "026",
+    "city": "Hyannis",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "MA",
+    "zip_prefixes": "027",
+    "city": "New Bedford",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "480,483",
+    "city": "Royal Oak",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "481",
+    "city": "Ann Arbor",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "482",
+    "city": "Detroit",
+    "factor": "0.99",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "484-485",
+    "city": "Flint",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "486",
+    "city": "Saginaw",
+    "factor": "0.94",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "487",
+    "city": "Bay City",
+    "factor": "0.95",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "488-489",
+    "city": "Lansing",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "490",
+    "city": "Battle Creek",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "491",
+    "city": "Kalamazoo",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "492",
+    "city": "Jackson",
+    "factor": "0.92",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "493,495",
+    "city": "Grand Rapids",
+    "factor": "0.96",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "494",
+    "city": "Muskegon",
+    "factor": "0.91",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "496",
+    "city": "Traverse City",
+    "factor": "0.88",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "497",
+    "city": "Gaylord",
+    "factor": "0.93",
+    "printed_page": 719
+   },
+   {
+    "state": "MI",
+    "zip_prefixes": "498-499",
+    "city": "Iron Mountain",
+    "factor": "0.90",
+    "printed_page": 719
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "550-551",
+    "city": "Saint Paul",
+    "factor": "0.98",
+    "printed_page": 719
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "553-555",
+    "city": "Minneapolis",
+    "factor": "1.00",
+    "printed_page": 719
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "556-558",
+    "city": "Duluth",
+    "factor": "0.97",
+    "printed_page": 719
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "559",
+    "city": "Rochester",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "560",
+    "city": "Mankato",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "561",
+    "city": "Windom",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "562",
+    "city": "Willmar",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "563",
+    "city": "St. Cloud",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "564",
+    "city": "Brainerd",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "565",
+    "city": "Detroit Lakes",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "566",
+    "city": "Bemidji",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MN",
+    "zip_prefixes": "567",
+    "city": "Thief River Falls",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "386",
+    "city": "Clarksdale",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "387",
+    "city": "Greenville",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "388",
+    "city": "Tupelo",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "389",
+    "city": "Greenwood",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "390-392",
+    "city": "Jackson",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "393",
+    "city": "Meridian",
+    "factor": "0.91",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "394",
+    "city": "Laurel",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "395",
+    "city": "Biloxi",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "396",
+    "city": "McComb",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "MS",
+    "zip_prefixes": "397",
+    "city": "Columbus",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "630-631",
+    "city": "St. Louis",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "633",
+    "city": "Bowling Green",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "634",
+    "city": "Hannibal",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "635",
+    "city": "Kirksville",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "636",
+    "city": "Flat River",
+    "factor": "1.02",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "637",
+    "city": "Cape Girardeau",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "638",
+    "city": "Sikeston",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "639",
+    "city": "Poplar Bluff",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "640-641",
+    "city": "Kansas City",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "644-645",
+    "city": "St. Joseph",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "646",
+    "city": "Chillicothe",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "647",
+    "city": "Harrisonville",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "648",
+    "city": "Joplin",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "650-651",
+    "city": "Jefferson City",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "652",
+    "city": "Columbia",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "653",
+    "city": "Sedalia",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "654-655",
+    "city": "Rolla",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "MO",
+    "zip_prefixes": "656-658",
+    "city": "Springfield",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "590-591",
+    "city": "Billings",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "592",
+    "city": "Wolf Point",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "593",
+    "city": "Miles City",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "594",
+    "city": "Great Falls",
+    "factor": "1.03",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "595",
+    "city": "Havre",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "596",
+    "city": "Helena",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "597",
+    "city": "Butte",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "598",
+    "city": "Missoula",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "MT",
+    "zip_prefixes": "599",
+    "city": "Kalispell",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "680-681",
+    "city": "Omaha",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "683-685",
+    "city": "Lincoln",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "686",
+    "city": "Columbus",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "687",
+    "city": "Norfolk",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "688",
+    "city": "Grand Island",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "689",
+    "city": "Hastings",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "690",
+    "city": "McCook",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "691",
+    "city": "North Platte",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "692",
+    "city": "Valentine",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NE",
+    "zip_prefixes": "693",
+    "city": "Alliance",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NV",
+    "zip_prefixes": "889-891",
+    "city": "Las Vegas",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NV",
+    "zip_prefixes": "893",
+    "city": "Ely",
+    "factor": "1.04",
+    "printed_page": 720
+   },
+   {
+    "state": "NV",
+    "zip_prefixes": "894-895",
+    "city": "Reno",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NV",
+    "zip_prefixes": "897",
+    "city": "Carson City",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NV",
+    "zip_prefixes": "898",
+    "city": "Elko",
+    "factor": "1.07",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "030",
+    "city": "Nashua",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "031",
+    "city": "Manchester",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "032-033",
+    "city": "Concord",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "034",
+    "city": "Keene",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "035",
+    "city": "Littleton",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "036",
+    "city": "Charleston",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "037",
+    "city": "Claremont",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "NH",
+    "zip_prefixes": "038",
+    "city": "Portsmouth",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "070-071",
+    "city": "Newark",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "072",
+    "city": "Elizabeth",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "073",
+    "city": "Jersey City",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "074-075",
+    "city": "Paterson",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "076",
+    "city": "Hackensack",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "077",
+    "city": "Long Branch",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "078",
+    "city": "Dover",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "079",
+    "city": "Summit",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "080,083",
+    "city": "Vineland",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "081",
+    "city": "Camden",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "082,084",
+    "city": "Atlantic City",
+    "factor": "1.05",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "085-086",
+    "city": "Trenton",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "087",
+    "city": "Point Pleasant",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NJ",
+    "zip_prefixes": "088-089",
+    "city": "New Brunswick",
+    "factor": "1.03",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "870-872",
+    "city": "Albuquerque",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "873",
+    "city": "Gallup",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "874",
+    "city": "Farmington",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "875",
+    "city": "Santa Fe",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "877",
+    "city": "Las Vegas",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "878",
+    "city": "Socorro",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "879",
+    "city": "Truth/Consequences",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "880",
+    "city": "Las Cruces",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "881",
+    "city": "Clovis",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "882",
+    "city": "Roswell",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "883",
+    "city": "Carrizozo",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NM",
+    "zip_prefixes": "884",
+    "city": "Tucumcari",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "100-102",
+    "city": "New York",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "103",
+    "city": "Staten Island",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "104",
+    "city": "Bronx",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "105",
+    "city": "Mount Vernon",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "106",
+    "city": "White Plains",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "107",
+    "city": "Yonkers",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "108",
+    "city": "New Rochelle",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "109",
+    "city": "Suffern",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "110",
+    "city": "Queens",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "111",
+    "city": "Long Island City",
+    "factor": "1.02",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "112",
+    "city": "Brooklyn",
+    "factor": "1.04",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "113",
+    "city": "Flushing",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "114",
+    "city": "Jamaica",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "115,117,118",
+    "city": "Hicksville",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "116",
+    "city": "Far Rockaway",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "119",
+    "city": "Riverhead",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "120-122",
+    "city": "Albany",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "123",
+    "city": "Schenectady",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "124",
+    "city": "Kingston",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "125-126",
+    "city": "Poughkeepsie",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "127",
+    "city": "Monticello",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "128",
+    "city": "Glens Falls",
+    "factor": "0.91",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "129",
+    "city": "Plattsburgh",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "130-132",
+    "city": "Syracuse",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "133-135",
+    "city": "Utica",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "136",
+    "city": "Watertown",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "137-139",
+    "city": "Binghamton",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "140-142",
+    "city": "Buffalo",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "143",
+    "city": "Niagara Falls",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "144-146",
+    "city": "Rochester",
+    "factor": "1.01",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "147",
+    "city": "Jamestown",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "NY",
+    "zip_prefixes": "148-149",
+    "city": "Elmira",
+    "factor": "0.94",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "270,272-274",
+    "city": "Greensboro",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "271",
+    "city": "Winston-Salem",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "275-276",
+    "city": "Raleigh",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "277",
+    "city": "Durham",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "278",
+    "city": "Rocky Mount",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "279",
+    "city": "Elizabeth City",
+    "factor": "0.91",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "280",
+    "city": "Gastonia",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "281-282",
+    "city": "Charlotte",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "283",
+    "city": "Fayetteville",
+    "factor": "0.96",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "284",
+    "city": "Wilmington",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "285",
+    "city": "Kinston",
+    "factor": "0.92",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "286",
+    "city": "Hickory",
+    "factor": "0.93",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "287-288",
+    "city": "Asheville",
+    "factor": "0.95",
+    "printed_page": 720
+   },
+   {
+    "state": "NC",
+    "zip_prefixes": "289",
+    "city": "Murphy",
+    "factor": "0.97",
+    "printed_page": 720
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "580-581",
+    "city": "Fargo",
+    "factor": "0.99",
+    "printed_page": 720
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "582",
+    "city": "Grand Forks",
+    "factor": "0.98",
+    "printed_page": 720
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "583",
+    "city": "Devils Lake",
+    "factor": "1.03",
+    "printed_page": 720
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "584",
+    "city": "Jamestown",
+    "factor": "1.00",
+    "printed_page": 720
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "585",
+    "city": "Bismarck",
+    "factor": "1.02",
+    "printed_page": 720
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "586",
+    "city": "Dickinson",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "587",
+    "city": "Minot",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "ND",
+    "zip_prefixes": "588",
+    "city": "Williston",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "430-432",
+    "city": "Columbus",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "433",
+    "city": "Marion",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "434-436",
+    "city": "Toledo",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "437-438",
+    "city": "Zanesville",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "439",
+    "city": "Steubenville",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "440",
+    "city": "Lorain",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "441",
+    "city": "Cleveland",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "442-443",
+    "city": "Akron",
+    "factor": "1.02",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "444-445",
+    "city": "Youngstown",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "446-447",
+    "city": "Canton",
+    "factor": "1.02",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "448-449",
+    "city": "Mansfield",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "450",
+    "city": "Hamilton",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "451-452",
+    "city": "Cincinnati",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "453-454",
+    "city": "Dayton",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "455",
+    "city": "Springfield",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "456",
+    "city": "Chillicothe",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "457",
+    "city": "Athens",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "OH",
+    "zip_prefixes": "458",
+    "city": "Lima",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "730-731",
+    "city": "Oklahoma City",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "734",
+    "city": "Ardmore",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "735",
+    "city": "Lawton",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "736",
+    "city": "Clinton",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "737",
+    "city": "Enid",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "738",
+    "city": "Woodward",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "739",
+    "city": "Guymon",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "740-741",
+    "city": "Tulsa",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "743",
+    "city": "Miami",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "744",
+    "city": "Muskogee",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "745",
+    "city": "McAlester",
+    "factor": "0.91",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "746",
+    "city": "Ponca City",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "747",
+    "city": "Durant",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "748",
+    "city": "Shawnee",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "OK",
+    "zip_prefixes": "749",
+    "city": "Poteau",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "970-972",
+    "city": "Portland",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "973",
+    "city": "Salem",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "974",
+    "city": "Eugene",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "975",
+    "city": "Medford",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "976",
+    "city": "Klamath Falls",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "977",
+    "city": "Bend",
+    "factor": "1.03",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "978",
+    "city": "Pendleton",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "OR",
+    "zip_prefixes": "979",
+    "city": "Vale",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "150-152",
+    "city": "Pittsburgh",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "153",
+    "city": "Washington",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "154",
+    "city": "Uniontown",
+    "factor": "0.91",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "155",
+    "city": "Bedford",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "156",
+    "city": "Greensburg",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "157",
+    "city": "Indiana",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "158",
+    "city": "Dubois",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "159",
+    "city": "Johnstown",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "160",
+    "city": "Butler",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "161",
+    "city": "New Castle",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "162",
+    "city": "Kittanning",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "163",
+    "city": "Oil City",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "164-165",
+    "city": "Erie",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "166",
+    "city": "Altoona",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "167",
+    "city": "Bradford",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "168",
+    "city": "State College",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "169",
+    "city": "Wellsboro",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "170-171",
+    "city": "Harrisburg",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "172",
+    "city": "Chambersburg",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "173-174",
+    "city": "York",
+    "factor": "0.91",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "175-176",
+    "city": "Lancaster",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "177",
+    "city": "Williamsport",
+    "factor": "0.91",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "178",
+    "city": "Sunbury",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "179",
+    "city": "Pottsville",
+    "factor": "0.90",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "180",
+    "city": "Lehigh Valley",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "181",
+    "city": "Allentown",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "182",
+    "city": "Hazleton",
+    "factor": "0.90",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "183",
+    "city": "Stroudsburg",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "184-185",
+    "city": "Scranton",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "186-187",
+    "city": "Wilkes-Barre",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "188",
+    "city": "Montrose",
+    "factor": "0.90",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "189",
+    "city": "Doylestown",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "190-191",
+    "city": "Philadelphia",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "193",
+    "city": "Westchester",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "194",
+    "city": "Norristown",
+    "factor": "0.90",
+    "printed_page": 721
+   },
+   {
+    "state": "PA",
+    "zip_prefixes": "195-196",
+    "city": "Reading",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "RI",
+    "zip_prefixes": "028",
+    "city": "Newport",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "RI",
+    "zip_prefixes": "029",
+    "city": "Providence",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "290-292",
+    "city": "Columbia",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "293",
+    "city": "Spartanburg",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "294",
+    "city": "Charleston",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "295",
+    "city": "Florence",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "296",
+    "city": "Greenville",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "297",
+    "city": "Rock Hill",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "298",
+    "city": "Aiken",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "SC",
+    "zip_prefixes": "299",
+    "city": "Beaufort",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "SD",
+    "zip_prefixes": "570-571",
+    "city": "Sioux Falls",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "SD",
+    "zip_prefixes": "572",
+    "city": "Watertown",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "SD",
+    "zip_prefixes": "573",
+    "city": "Mitchell",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "SD",
+    "zip_prefixes": "574",
+    "city": "Aberdeen",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "SD",
+    "zip_prefixes": "575",
+    "city": "Pierre",
+    "factor": "1.03",
+    "printed_page": 721
+   },
+   {
+    "state": "SD",
+    "zip_prefixes": "576",
+    "city": "Mobridge",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "SD",
+    "zip_prefixes": "577",
+    "city": "Rapid City",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "370-372",
+    "city": "Nashville",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "373-374",
+    "city": "Chattanooga",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "375,380-381",
+    "city": "Memphis",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "376",
+    "city": "Johnson City",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "377-379",
+    "city": "Knoxville",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "382",
+    "city": "McKenzie",
+    "factor": "0.92",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "383",
+    "city": "Jackson",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "384",
+    "city": "Columbia",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "TN",
+    "zip_prefixes": "385",
+    "city": "Cookeville",
+    "factor": "0.89",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "750",
+    "city": "McKinney",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "751",
+    "city": "Waxahachie",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "752-753",
+    "city": "Dallas",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "754",
+    "city": "Greenville",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "755",
+    "city": "Texarkana",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "756",
+    "city": "Longview",
+    "factor": "0.93",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "757",
+    "city": "Tyler",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "758",
+    "city": "Palestine",
+    "factor": "0.90",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "759",
+    "city": "Lufkin",
+    "factor": "0.94",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "760-761",
+    "city": "Fort Worth",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "762",
+    "city": "Denton",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "763",
+    "city": "Wichita Falls",
+    "factor": "1.00",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "764",
+    "city": "Eastland",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "765",
+    "city": "Temple",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "766-767",
+    "city": "Waco",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "768",
+    "city": "Brownwood",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "769",
+    "city": "San Angelo",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "770-772",
+    "city": "Houston",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "773",
+    "city": "Huntsville",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "774",
+    "city": "Wharton",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "775",
+    "city": "Galveston",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "776-777",
+    "city": "Beaumont",
+    "factor": "1.03",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "778",
+    "city": "Bryan",
+    "factor": "0.91",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "779",
+    "city": "Victoria",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "780",
+    "city": "Laredo",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "781-782",
+    "city": "San Antonio",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "783-784",
+    "city": "Corpus Christi",
+    "factor": "1.02",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "785",
+    "city": "McAllen",
+    "factor": "1.04",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "786-787",
+    "city": "Austin",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "788",
+    "city": "Del Rio",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "789",
+    "city": "Giddings",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "790-791",
+    "city": "Amarillo",
+    "factor": "0.99",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "792",
+    "city": "Childress",
+    "factor": "0.96",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "793-794",
+    "city": "Lubbock",
+    "factor": "0.97",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "795-796",
+    "city": "Abilene",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "797",
+    "city": "Midland",
+    "factor": "1.01",
+    "printed_page": 721
+   },
+   {
+    "state": "TX",
+    "zip_prefixes": "798-799,885",
+    "city": "El Paso",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "UT",
+    "zip_prefixes": "840-841",
+    "city": "Salt Lake City",
+    "factor": "0.98",
+    "printed_page": 721
+   },
+   {
+    "state": "UT",
+    "zip_prefixes": "842,844",
+    "city": "Ogden",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "UT",
+    "zip_prefixes": "843",
+    "city": "Logan",
+    "factor": "0.95",
+    "printed_page": 721
+   },
+   {
+    "state": "UT",
+    "zip_prefixes": "845",
+    "city": "Price",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "UT",
+    "zip_prefixes": "846-847",
+    "city": "Provo",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "050",
+    "city": "White River Jct.",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "051",
+    "city": "Bellows Falls",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "052",
+    "city": "Bennington",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "053",
+    "city": "Brattleboro",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "054",
+    "city": "Burlington",
+    "factor": "1.01",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "056",
+    "city": "Montpelier",
+    "factor": "1.00",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "057",
+    "city": "Rutland",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "058",
+    "city": "St. Johnsbury",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "VT",
+    "zip_prefixes": "059",
+    "city": "Guildhall",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "220-221",
+    "city": "Fairfax",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "222",
+    "city": "Arlington",
+    "factor": "0.96",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "223",
+    "city": "Alexandria",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "224-225",
+    "city": "Fredericksburg",
+    "factor": "0.95",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "226",
+    "city": "Winchester",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "227",
+    "city": "Culpeper",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "228",
+    "city": "Harrisonburg",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "229",
+    "city": "Charlottesville",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "230-232",
+    "city": "Richmond",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "233-235",
+    "city": "Norfolk",
+    "factor": "1.00",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "236",
+    "city": "Newport News",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "237",
+    "city": "Portsmouth",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "238",
+    "city": "Petersburg",
+    "factor": "0.96",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "239",
+    "city": "Farmville",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "240-241",
+    "city": "Roanoke",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "242",
+    "city": "Bristol",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "243",
+    "city": "Pulaski",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "244",
+    "city": "Staunton",
+    "factor": "0.95",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "245",
+    "city": "Lynchburg",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "VA",
+    "zip_prefixes": "246",
+    "city": "Grundy",
+    "factor": "0.95",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "980-981,987",
+    "city": "Seattle",
+    "factor": "1.04",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "982",
+    "city": "Everett",
+    "factor": "1.07",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "983-984",
+    "city": "Tacoma",
+    "factor": "1.02",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "985",
+    "city": "Olympia",
+    "factor": "1.00",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "986",
+    "city": "Vancouver",
+    "factor": "1.01",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "988",
+    "city": "Wenatchee",
+    "factor": "1.04",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "989",
+    "city": "Yakima",
+    "factor": "1.03",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "990-992",
+    "city": "Spokane",
+    "factor": "1.06",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "993",
+    "city": "Richland",
+    "factor": "1.03",
+    "printed_page": 722
+   },
+   {
+    "state": "WA",
+    "zip_prefixes": "994",
+    "city": "Clarkston",
+    "factor": "1.06",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "247-248",
+    "city": "Bluefield",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "249",
+    "city": "Lewisburg",
+    "factor": "0.92",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "250-253",
+    "city": "Charleston",
+    "factor": "0.96",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "254",
+    "city": "Martinsburg",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "255-257",
+    "city": "Huntington",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "258-259",
+    "city": "Beckley",
+    "factor": "0.92",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "260",
+    "city": "Wheeling",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "261",
+    "city": "Parkersburg",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "262",
+    "city": "Buckhannon",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "263-264",
+    "city": "Clarksburg",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "265",
+    "city": "Morgantown",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "266",
+    "city": "Gassaway",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "267",
+    "city": "Romney",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WV",
+    "zip_prefixes": "268",
+    "city": "Petersburg",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "530,532",
+    "city": "Milwaukee",
+    "factor": "1.00",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "531",
+    "city": "Kenosha",
+    "factor": "1.02",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "534",
+    "city": "Racine",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "535",
+    "city": "Beloit",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "537",
+    "city": "Madison",
+    "factor": "1.00",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "538",
+    "city": "Lancaster",
+    "factor": "0.99",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "539",
+    "city": "Portage",
+    "factor": "0.94",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "540",
+    "city": "New Richmond",
+    "factor": "0.96",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "541-543",
+    "city": "Green Bay",
+    "factor": "1.05",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "544",
+    "city": "Wausau",
+    "factor": "0.95",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "545",
+    "city": "Rhinelander",
+    "factor": "0.95",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "546",
+    "city": "La Crosse",
+    "factor": "0.93",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "547",
+    "city": "Eau Claire",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "548",
+    "city": "Superior",
+    "factor": "0.96",
+    "printed_page": 722
+   },
+   {
+    "state": "WI",
+    "zip_prefixes": "549",
+    "city": "Oshkosh",
+    "factor": "0.95",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "820",
+    "city": "Cheyenne",
+    "factor": "1.00",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "821",
+    "city": "Yellowstone Nat. Pk.",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "822",
+    "city": "Wheatland",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "823",
+    "city": "Rawlins",
+    "factor": "0.98",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "824",
+    "city": "Worland",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "825",
+    "city": "Riverton",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "826",
+    "city": "Casper",
+    "factor": "1.00",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "827",
+    "city": "Newcastle",
+    "factor": "0.97",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "828",
+    "city": "Sheridan",
+    "factor": "1.02",
+    "printed_page": 722
+   },
+   {
+    "state": "WY",
+    "zip_prefixes": "829-831",
+    "city": "Rock Springs",
+    "factor": "1.06",
+    "printed_page": 722
+   }
+  ]
+ }
+}

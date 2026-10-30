@@ -316,9 +316,10 @@ def test_the_default_source_is_the_square_foot_model() -> None:
     st = result.structure
     assert st is not None and st.building_rcn is not None
     assert st.building_rcn.source == "square_foot_model"
-    # Average 2 Story at 2,000 SF: 118.75/SF x 2,000 x 1.15 (2024) = 273,125; the appraisal's
-    # own depreciated cost still checks the price independently.
-    assert st.building_rcn.amount == D("273125.00")
+    # Average 2 Story at 2,000 SF: 118.75/SF x 2,000 x 1.0000 (2024: no published index in
+    # the 2020 book, the Jan 2020 one applies) = 237,500; the appraisal's own depreciated
+    # cost still checks the price independently.
+    assert st.building_rcn.amount == D("237500.00")
     assert result.reconciliation is not None
     assert result.reconciliation.appraisal_check.code == "appraisal_reconciles"
 

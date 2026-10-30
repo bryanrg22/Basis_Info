@@ -194,22 +194,43 @@ def test_type_defaults_to_one_story_with_review() -> None:
 APPRAISAL = "appraisal_total"
 
 
+# The same house with the cost approach's data dated 2015 (inside the index table).
+HOUSE_2015 = [r for r in HOUSE if r.field != "effective_date_of_cost_data"] + rows(
+    cost_approach__effective_date_of_cost_data="2015-01"
+)
+
+
 def test_appraisal_rcn_uses_the_printed_total_and_checks_the_parts() -> None:
-    i = inputs()
+    i = inputs(HOUSE_2015)
     rcn = s.building_rcn(
-        i.measurements, i.cost_approach, cost_year=2024, year_source="intake", rcn_source=APPRAISAL
+        i.measurements, i.cost_approach, cost_year=2018, year_source="intake", rcn_source=APPRAISAL
     )
     assert rcn is not None and rcn.source == "appraisal_cost_approach"
-    # 600,000 printed, parts also 600,000; from 2025 cost data to 2024: 1.15 / 1.18.
-    assert rcn.amount == D("584745.76")
-    assert rcn.inputs["year_factor_formula"] == (
-        "YEAR_ADJUSTMENT_FACTORS[2024] / YEAR_ADJUSTMENT_FACTORS[2025]"
-    )
+    # 600,000 printed, parts also 600,000; from 2015 cost data to 2018 by the Historical
+    # Cost Index: 222.9 / 206.2 = 1.0810.
+    assert rcn.amount == D("648600.00")
+    assert rcn.inputs["year_factor_formula"] == "HCI 222.9 (July 2018) / HCI 206.2 (July 2015)"
     assert {c.code: c.severity for c in rcn.checks} == {"cost_approach_parts": "ok"}
     assert rcn.needs_review is False
     assert rcn.model.name == "Custom 2 Story"
     assert "no location factor applied" in " ".join(rcn.assumptions)
     assert rcn.appraisal_depreciated_cost == D(450000) and rcn.appraisal_site_value == D(100000)
+
+
+def test_appraisal_rcn_without_a_published_index_is_taken_as_of_the_cost_year() -> None:
+    """Cost data dated 2025 and a 2024 cost year: neither year has a published index in
+    the 2020 book, so the appraiser's figure is used as printed and the assumption says
+    why (COST_INDICES.md section 4)."""
+    i = inputs()
+    rcn = s.building_rcn(
+        i.measurements, i.cost_approach, cost_year=2024, year_source="intake", rcn_source=APPRAISAL
+    )
+    assert rcn is not None and rcn.amount == D("600000.00")
+    assert "year_factor" not in rcn.inputs
+    assert (
+        "the appraisal's cost new is taken as of the cost year 2024: no published cost index "
+        "for 2025 or 2024"
+    ) in rcn.assumptions
 
 
 def test_appraisal_rcn_warns_when_the_parts_disagree_and_keeps_the_total() -> None:
@@ -275,11 +296,26 @@ def test_square_foot_model_when_the_cost_approach_is_not_developed() -> None:
     default = s.building_rcn(i2.measurements, i2.cost_approach, cost_year=2024)
     assert default is not None and default.source == "square_foot_model"
     # Average 2 Story: 118.75 x 2000 + basement (21.65 x 0.5 + 7.50 x 0.5) x 2000 x 1.0
-    # + one-car garage 15,712, then x 1.15 (2024) x 1.15 (CA).
+    # + one-car garage 15,712, then x 1.0000 (2024: no published index, the Jan 2020 one
+    # applies, flagged) x 1.15 (the location factor given).
     base = D("118.75") * 2000 + (D("21.65") + D("7.50")) / 2 * 2000 + D(15712)
-    assert rcn.amount == (base * D("1.15") * D("1.15")).quantize(D("0.01"), rounding=ROUND_HALF_UP)
+    assert rcn.amount == (base * D("1.15")).quantize(D("0.01"), rounding=ROUND_HALF_UP)
     assert rcn.needs_review is True
-    assert rcn.checks[0].code == "building_rcn_source"
+    assert [c.code for c in rcn.checks] == ["building_rcn_source", "cost_year_index"]
+    assert any("no published cost index for 2024" in a for a in rcn.assumptions)
+    assert rcn.inputs["year_factor_formula"].startswith("HCI 239.1 (Jan 2020, est.)")
+    # A cost year inside the table: its index ratio, no assumption, one check.
+    dated = s.building_rcn(
+        i.measurements, i.cost_approach, cost_year=2018, location_factor=D("1.15")
+    )
+    assert dated is not None and dated.amount == (base * D("0.9322") * D("1.15")).quantize(
+        D("0.01"), rounding=ROUND_HALF_UP
+    )
+    assert [c.code for c in dated.checks] == ["building_rcn_source"]
+    assert dated.inputs["year_factor_formula"] == (
+        "HCI 222.9 (July 2018) / 239.1 (Jan 2020, est.), "
+        "RSMeans Building Construction Costs 2020 p.778"
+    )
     assert rcn.inputs["base_cost_per_sf"] == "118.75"  # the matrix's 2,000 SF column
     assert "wood siding on wood frame" in " ".join(rcn.assumptions)
 

@@ -41,7 +41,8 @@ from dataclasses import dataclass
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, localcontext
 from typing import Final, Literal
 
-from basis.domain.costs import YEAR_ADJUSTMENT_FACTORS
+from basis.domain.cost_indices import YearFactor, YearIndex, year_ratio
+from basis.domain.costs import year_factor_index
 from basis.domain.measurements import (
     BuildingMeasurements,
     FieldRow,
@@ -872,6 +873,7 @@ def _appraisal_rcn(
     cost_year: int,
     year_source: str | None,
     prefer_parts: bool = False,
+    supplement: Mapping[int, YearIndex] | None = None,
 ) -> tuple[Decimal, str, dict[str, str], list[str], list[Check]]:
     inputs: dict[str, str] = {}
     assumptions: list[str] = []
@@ -988,25 +990,24 @@ def _appraisal_rcn(
                 "the cost approach prints no total; the parts are summed",
             )
         )
-    # From the cost data's year to the cost year, by the same year factors as every RSMeans row.
+    # From the cost data's year to the cost year, by the Historical Cost Index ratio (the
+    # book's time adjustment, p.778), the same index every RSMeans row uses.
     data_year = _year_of(
         None if cost_approach.cost_data_date is None else cost_approach.cost_data_date.value
     )
-    if (
-        data_year is not None
-        and data_year in YEAR_ADJUSTMENT_FACTORS
-        and cost_year in YEAR_ADJUSTMENT_FACTORS
-    ):
-        with localcontext() as ctx:
-            ctx.prec = PRECISION
-            factor = YEAR_ADJUSTMENT_FACTORS[cost_year] / YEAR_ADJUSTMENT_FACTORS[data_year]
-            adjusted = money(amount * factor)
+    ratio: tuple[Decimal, str] | None = None
+    if data_year is not None:
+        try:
+            ratio = year_ratio(cost_year, data_year, supplement)
+        except (KeyError, ValueError):
+            ratio = None
+    if ratio is not None:
+        factor, ratio_formula = ratio
+        adjusted = money(amount * factor)
         inputs["cost_data_year"] = str(data_year)
         inputs["cost_year"] = str(cost_year)
         inputs["year_factor"] = f"{factor:.4f}"
-        inputs["year_factor_formula"] = (
-            f"YEAR_ADJUSTMENT_FACTORS[{cost_year}] / YEAR_ADJUSTMENT_FACTORS[{data_year}]"
-        )
+        inputs["year_factor_formula"] = ratio_formula
         when = f" ({year_source})" if year_source else ""
         formula += f" x {factor:.4f} from the cost data's year {data_year} to {cost_year}{when}"
         amount = adjusted
@@ -1014,7 +1015,7 @@ def _appraisal_rcn(
         why = (
             "the cost approach prints no cost data date"
             if data_year is None
-            else f"no year factor for {data_year} or {cost_year}"
+            else f"no published cost index for {data_year} or {cost_year}"
         )
         assumptions.append(
             f"the appraisal's cost new is taken as of the cost year {cost_year}: {why}"
@@ -1033,6 +1034,7 @@ def _square_foot_rcn(
     year_source: str | None,
     location_factor: Decimal,
     location_source: str | None,
+    year: YearFactor,
 ) -> tuple[Decimal, str, dict[str, str], list[str], list[Check]]:
     model = choice.model
     if measurements.gla_sf is None:
@@ -1098,16 +1100,15 @@ def _square_foot_rcn(
                 f"cars x {_fmt(cars)} cars = {_fmt(money(garage))}"
             )
             inputs["garage_cars"] = _fmt(cars)
-        factor = YEAR_ADJUSTMENT_FACTORS.get(cost_year)
-        if factor is None:
-            raise StructureError(f"no year factor for the cost year {cost_year}")
+        factor = year.factor
         amount = money(base * factor * location_factor)
     inputs["year_factor"] = str(factor)
+    inputs["year_factor_formula"] = year.citation()
     inputs["location_factor"] = str(location_factor)
     when = f" from {year_source}" if year_source else ""
     where = f" from {location_source}" if location_source else ""
     formula = (
-        f"({' + '.join(terms)}) x {factor} for {cost_year}{when} "
+        f"({' + '.join(terms)}) x {factor} for {cost_year} ({year.citation()}){when} "
         f"x {location_factor} location{where}"
     )
     checks = [
@@ -1118,6 +1119,16 @@ def _square_foot_rcn(
             "facing page's matrix; the engineer should confirm the class, type and exterior wall",
         )
     ]
+    if year.assumption is not None:
+        assumptions.append(year.assumption)
+        checks.append(
+            Check(
+                "cost_year_index",
+                "warning",
+                f"no published cost index for {cost_year} is loaded; the square-foot model is "
+                f"priced at the latest, {year.index.describe()}",
+            )
+        )
     return amount, formula, inputs, assumptions, checks
 
 
@@ -1130,11 +1141,17 @@ def building_rcn(
     location_factor: Decimal = ONE,
     location_source: str | None = None,
     rcn_source: RcnSource = DEFAULT_RCN_SOURCE,
+    year: YearFactor | None = None,
+    supplement: Mapping[int, YearIndex] | None = None,
 ) -> BuildingRcn | None:
     """The building's RCN from the appraisal's cost approach (``appraisal_total``: the
     printed total, ``appraisal_parts``: the sum of its parts), else the square-foot model
-    (``square_foot`` asks for it first), else ``None`` (no living area to size a model)."""
+    (``square_foot`` asks for it first), else ``None`` (no living area to size a model).
+    ``year`` is the study's resolved time factor (``CostIndex.year``); without it the cost
+    year's factor comes from the released book and ``supplement``."""
     choice = select_model(measurements, cost_approach)
+    if year is None or year.cost_year != cost_year:
+        year = year_factor_index(cost_year, supplement)
     use_appraisal = (
         cost_approach is not None
         and cost_approach.has_cost_new
@@ -1143,7 +1160,11 @@ def building_rcn(
     if use_appraisal:
         assert cost_approach is not None
         amount, formula, inputs, assumptions, checks = _appraisal_rcn(
-            cost_approach, cost_year, year_source, prefer_parts=rcn_source == "appraisal_parts"
+            cost_approach,
+            cost_year,
+            year_source,
+            prefer_parts=rcn_source == "appraisal_parts",
+            supplement=supplement,
         )
         source: Literal["appraisal_cost_approach", "square_foot_model"] = "appraisal_cost_approach"
         needs_review = any(c.severity == "warning" for c in checks)
@@ -1151,7 +1172,7 @@ def building_rcn(
         needs_review = needs_review or choice.needs_review
     elif measurements is not None and measurements.gla_sf is not None:
         amount, formula, inputs, assumptions, checks = _square_foot_rcn(
-            choice, measurements, cost_year, year_source, location_factor, location_source
+            choice, measurements, cost_year, year_source, location_factor, location_source, year
         )
         source = "square_foot_model"
         needs_review = True
@@ -1585,6 +1606,8 @@ class StructureInputs:
     year_source: str | None = None
     location_factor: Decimal = ONE
     location_source: str | None = None
+    # The resolved time factor (``CostIndex.year``): None prices from the released book.
+    year: YearFactor | None = None
     # The variant (the sweep's axes); the defaults are the production choice.
     rcn_source: RcnSource = DEFAULT_RCN_SOURCE
     split: SplitMethod = DEFAULT_SPLIT

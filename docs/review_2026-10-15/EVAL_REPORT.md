@@ -6807,6 +6807,151 @@ depreciation and a reconciled allocation on the synthetic appraisal); the API, e
 lifecycle and failure counts updated (the components' assets plus thirteen concealed).
 `tests/LEDGER.md` has each.
 
+## 45. Cost indices: every priced dollar rests on a cited RSMeans index (2026-10-30)
+
+Question (section 44.4's open item; the brief of 2026-10-30): every asset's dollars are the
+RSMeans Residential 2020 unit cost times the quantity times a year factor and a location
+factor, and the two factors were hand-typed tables from the legacy code with no source
+(2024 = 1.15, CA = 1.15: 32 % of every total that a reviewer could not trace). What does
+RSMeans publish for time and location, how is it applied, what rule covers a cost year the
+books have no index for, and what does the change do to the two live studies? Research and
+the rules: `COST_INDICES.md`. Code: `basis/domain/cost_indices.py`, the transcribed tables
+`basis/data/cost_indices/rsmeans_2020.json` (sha256 in `manifest.json`), `costs.py`,
+`measurements.py`, `structure.py`, `process_assets`, the offline replay
+`evals/reprice_export.py`. No paid run: both live exports of section 42.5 were repriced and
+replayed offline. No client dollar amount appears here; ratios and shares only (artifacts:
+`work/e2e_artifacts/cost_indices_2026-10-30/`, private).
+
+### 45.1 What the standard says, in one paragraph
+
+The 2020 books' costs are U.S. national averages as of January 1, 2020 (Residential p.11; the
+Historical Cost Index's "Jan 2020 = 239.1, est." line, Building p.778). Time: the Historical
+Cost Index (Building p.778; Jan. 1, 1993 = 100; one value per year, July 1, 1970-2019) moves a
+cost by `Index A / Index B`, so a 2020 cost's year factor is the cost year's index over 239.1.
+Location: the Residential book's Location Factors (pp.718-722), one factor per city by the
+first three digits of the ZIP ("simply multiply the base cost by the factor for that city";
+"for a city not listed, use the factor for a nearby city with similar economic
+characteristics"), which the book says is the City Cost Index's weighted-average row over 100
+(p.287) and the table to use when "the project covers multiple trades". Marshall & Swift
+publishes the same two multipliers monthly (current cost multiplier by district, local
+multiplier by ZIP) rather than a historical table, and never asks the user to extrapolate.
+The IRS guide asks that cost sources be "clearly referenced, including identification of the
+specific volume, page, and item number" (ATG ch. 3 C.2(2)) and says nothing about a missing
+year.
+
+### 45.2 What was built
+
+* **The tables, transcribed and versioned.** The PDFs' text layer dropped every numeric
+  column, so both tables were transcribed from the page images: a two-pass OCR (names as
+  text, the factor column upscaled with a digits-only whitelist, joined by line) and then
+  every row compared with the image in 36 zoomed strips. 651 U.S. city rows (51 states and
+  D.C., 908 ZIP prefixes, each naming one city), 51 index years (1970-2020). The OCR draft was
+  right on about 85 % of rows; 68 unreadable values and nine plausible-but-wrong ones
+  (Davenport .39 for .99, Butte .37 for .97, Norristown .30 for .90, ...) were corrected from
+  the image and nine dropped rows added. Internal checks: the per-state row counts equal the
+  pages', and the index's two printed columns (1993 base, 2020 base) agree with each other
+  for all 51 years. Twenty location rows and thirteen index values read from the images are
+  pinned in the tests. The file is public reference data (published index numbers and place
+  names; the tests check no five-digit number or extra field is in it) and immutable once
+  released (the loader refuses a file whose sha256 is not the manifest's).
+* **The lookups.** Year factor = HCI(cost year) / 239.1 to four decimals (2019 0.9711, 2018
+  0.9322, 2010 0.7675, 1970 0.1200); before 1970 `UnknownCostYear`. Location: the city row by
+  ZIP prefix (the intake's ZIP, else the appraisal's `subject.zip`), else the mean of the
+  state's listed cities to three decimals (CA 1.001 over 37 cities, NY 0.976 over 32, IL 0.959
+  over 19), recorded as such. The legacy state table was not residential RSMeans: NY 1.20
+  against 0.976, HI 1.30 against 1.165, MS 0.80 against 0.942, CA 1.15 against 1.001.
+* **The rule for a year after the last published index** (COST_INDICES.md section 4): the
+  latest index applies (factor 1.0000 on the 2020 books), the assumption is written on every
+  priced row (`takeoff_inputs.cost_year_assumption`, the `cost_source` text, the export's
+  `summary.takeoff`) and the asset is flagged `cost:YEAR_INDEX_EXTRAPOLATED` (BASIS-CHECK-016),
+  on itemized rows, the square-foot building rows and the small systems alike, until the firm
+  loads the year's published index through `COST_INDEX_SUPPLEMENT_PATH` (a JSON of later
+  Historical Cost Index values, each with its own source), which lifts the assumption and the
+  flag. Trending by a rate was rejected: no book prints the number and neither service
+  extrapolates. Refusing the year was rejected: every current study would price nothing.
+* **Every cost row cites both factors**: `(base 2020, x0.9322 for 2018 = HCI 222.9 (July 2018)
+  / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778, from placed in
+  service 2018-05-01 (intake); x0.99 location from zip 90001 (intake): 900-902 Los Angeles
+  0.99, RSMeans Residential 2020 Location Factors - Residential p.718)`. The structure model's
+  square-foot RCN takes the same year factor (with a `cost_year_index` warning when
+  extrapolated) and the appraisal's cost new is trended from its cost-data date by the same
+  index ratio when both years have one.
+* Settings: `COST_YEAR` 1970-2100 (was 2020-2026), `COST_INDEX_SUPPLEMENT_PATH`. The function
+  signatures the callers use are unchanged; `estimate_cost` gained an optional `year` (the
+  study's resolved factor) and `resolve_cost_index` gained `zip_code` and `supplement`.
+
+### 45.3 The two live exports, repriced offline
+
+`evals.reprice_export` prices every itemized asset of a stored export again from its cost
+table row with the new factors (checking that the old unit cost over the old factors is the
+row's base: 245 of 245 and 288 of 288 rows agree to the cent, no row unpriced), drops the
+concealed rows, and `evals.structure_replay` then rebuilds them on the same factors;
+`evals.e2e_report` scores the result as in section 44. Both studies: cost year 2024 (placed in
+service 2024-12-03), California, no ZIP on the intake. Before = section 44's artifacts (the
+same replay with the placeholder factors).
+
+| | Run 3A before | Run 3A after | Run 3B before | Run 3B after |
+|---|---|---|---|---|
+| Year factor (2024) | 1.15 (placeholder) | 1.0000 (Jan 2020 index, assumption, flagged) | 1.15 | 1.0000 |
+| Location factor (CA) | 1.150 (placeholder) | 1.001 (mean of 37 cities, .94-1.07) | 1.150 | 1.001 |
+| Priced itemized total, after / before | | 0.7561 | | 0.7560 |
+| Bucket shares y5 / y7 / y15 / y39 (%) | 11.28 / 0.86 / 3.99 / 83.87 | 11.28 / 0.87 / 3.96 / 83.90 | 8.38 / 0.86 / 4.02 / 86.74 | 8.38 / 0.86 / 3.99 / 86.78 |
+| Bucket share error, mean / max (points) | 2.07 / 3.6 | 2.08 / 3.7 | 3.50 / 6.5 | 3.52 / 6.5 |
+| Row-share distance (TVD, points) | 21.05 | 21.05 | 21.80 | 21.80 |
+| Photo-visible rows evidenced / bucket right | 35 / 35 | 35 / 35 | 35 / 34 | 35 / 34 |
+| Kind C rows produced / bucket right | 8 / 7 | 8 / 7 | 8 / 7 | 8 / 7 |
+| Reconciliation | reconciled, RCNLD 8.0 % below B | unreconciled, 30.4 % below B | reconciled, 7.2 % below | unreconciled, 29.8 % below |
+| Implied uniform factor on RCNLD | 0.856 | 1.131 | 0.848 | 1.121 |
+| Allocation | 1.089 on RCNLD | withheld (`missing: allocation`) | 1.080 | withheld |
+
+The "before" column is the sweep's cell for the production variant (square_foot + rsmeans +
+carve + appraisal_physical, section 44.3, `sweep.json`), the same replay with the placeholder
+factors.
+
+### 45.4 Reading
+
+* **The shares do not move, the dollars do.** The two factors multiply every row alike (the
+  itemized rows, the square-foot model and the small systems), so the bucket shares, the
+  bucket errors and the row-share distance are unchanged to within 0.05 points (the hundredths
+  that differ are the four small systems, priced from the cost table against a residual that
+  scales with the model). Every priced dollar is 24.4 % lower (1.001 / 1.3225), and every
+  priced row now says why, with the book and page.
+* **The reconciliation now tells the truth about the missing year.** With the placeholder
+  factors the RCNLD landed 8 % under the price less land and the ATG check passed; the implied
+  factor of 0.86 says the placeholders overstated the 2024 cost by about a seventh. With the
+  Jan. 1, 2020 index the RCNLD is 30 % under and the check fails; the implied factor of 1.13
+  says the 2020 dollars understate 2024 California by about an eighth once the location is the
+  book's 1.001. Neither number is the 2024 index; the one that is sits in the 2024 book (or the
+  quarterly RSMeans Construction Cost Index), and the pipeline now asks for it on every row
+  instead of inventing it. Until it is loaded the allocation is withheld, as section 44 designed
+  for an unreconciled study, and the gap is the diagnosis the guide asks for (ATG ch. 3 D(5):
+  "incorrect cost estimates and factors").
+* **What the firm does.** Put the 2024 (and 2025, 2026) Historical Cost Index values in the
+  supplement file with their source; the assumption and the flag disappear, the reconciliation
+  reruns on the real index. If the client's intake carries the ZIP, the city factor replaces the
+  state mean (Los Angeles .99, San Francisco 1.03, Sacramento .97: the state's cities span
+  .94-1.07, so the ZIP is worth up to six points on every dollar).
+* **Honesty about precision.** The book's factors are two decimals and its indices one; the
+  product carries four on the ratio and three on a state mean so the arithmetic is
+  reproducible, not because the inputs are that precise.
+
+### 45.5 Tests and gates
+
+`tests/unit/domain/test_cost_indices.py` (67 tests: the manifest, every state and year, the
+ratios, the ZIP lookup, the spot checks read from the images, the supplement, the parser);
+`test_cost_tables.py` rewritten on the indices (17); `test_measurements.py` (+3, 5 rewritten),
+`test_structure.py` (+1, 2 rewritten), `test_result.py`, `test_cost_table.py`,
+`test_cross_validation.py`, `test_pack.py`; the integration set's `test_process_assets.py`,
+`tests/lifecycle/test_intake_takeoff.py` and `tests/node/test_process_assets.py` pin the new
+row text, factors and flags; the lifecycle study runs its worker with a synthetic 2024 index
+in `COST_INDEX_SUPPLEMENT_PATH` (the firm's remedy, end to end: no assumption, the concealed
+rows carved from an RCN priced at the same factor as the itemized rows, reconciled), which is
+how a defect was caught: the structure rows written by `process_assets` had not been handed the
+resolved year factor and priced at the book's alone while the result used the supplement. Gates from `backEnd/`: `ruff check`, `ruff format --check`,
+`mypy basis evals` clean; unit `-m "not integration and not slow"`: 4135 passed; the
+integration set with Docker: see the PR for the tally. Client data: none in the repository
+(the data file holds published index numbers and place names; `tooling/check_no_client_data.py`
+clean).
 ## 46. The key hierarchy: a firm's ruling serves the next study's component however the photo step read it (2026-10-30)
 
 Design: `CLASSIFICATION_CONVENTIONS.md` section 9. Branch `claude/conventions-tiers`.

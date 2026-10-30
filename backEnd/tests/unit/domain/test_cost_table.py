@@ -50,10 +50,10 @@ def test_the_table_loads_with_factors_applied() -> None:
 def test_a_label_is_priced_from_the_table_in_its_unit() -> None:
     table = load_cost_table(PATH)
     cabinets = estimate_quantity("kitchen_cabinet", 150, 18)
-    cost = estimate_cost(cabinets, 2025, "1.0", table=table, label="kitchen_cabinet")
+    cost = estimate_cost(cabinets, 2018, "1.0", table=table, label="kitchen_cabinet")
     assert cost.base_unit_cost == Decimal("425.00")
-    assert cost.unit_cost == Decimal("501.50")  # 425 x 1.18 (2025)
-    assert cost.total == Decimal("9027.00")  # x 18 units
+    assert cost.unit_cost == Decimal("396.19")  # 425 x 0.9322 (2018: HCI 222.9 / 239.1)
+    assert cost.total == Decimal("7131.42")  # x 18 units
     assert cost.source_row.startswith("synthetic_2020[kitchen_cabinet] synthetic 12-0001, p. 2")
     assert "assumes one cabinet unit" in cost.source_row
     walls = estimate_quantity("wall_finish", 100)  # 350 SF of wall

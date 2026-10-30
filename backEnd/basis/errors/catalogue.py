@@ -2289,6 +2289,19 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         signal="cross:COST_TOTAL_MISMATCH",
     ),
     _e(
+        E.CHECK_COST_YEAR_INDEX_EXTRAPOLATED,
+        "flag",
+        "process_assets",
+        "basis.domain.cost_indices",
+        "The cost year is after the latest published RSMeans Historical Cost Index loaded; "
+        "the row is priced at that index (COST_INDICES.md section 4).",
+        "`cost:YEAR_INDEX_EXTRAPOLATED`; the takeoff inputs' `cost_year_assumption`.",
+        "Load the year's published index through `COST_INDEX_SUPPLEMENT_PATH` and rerun the "
+        "assets step.",
+        "no",
+        signal="cost:YEAR_INDEX_EXTRAPOLATED",
+    ),
+    _e(
         E.CHECK_EXTRACTION_MISSING,
         "flag",
         "extract_fields",

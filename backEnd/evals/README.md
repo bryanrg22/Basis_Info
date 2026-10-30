@@ -460,6 +460,19 @@ row-share distance, the photo-visible rows' scores (the regression check) and th
 the ranking of the sourced, reconciling variants (mean bucket error, then TVD, then gap), the
 pick and the runner-up; unsourced variants (Marshall & Swift) reported as such.
 
+### `reprice_export` (a stored export priced again with the cost indices)
+
+`python -m evals.reprice_export export/rev-5.json --out out/rev-5.repriced.json --cost-table
+<table> [--state CA] [--zip 90001] [--supplement later_indices.json] [--changes out/changes.json]`
+prices every itemized asset of a stored export again through `estimate_cost` with the RSMeans
+cost indices (`basis.domain.cost_indices`, EVAL_REPORT 45, COST_INDICES.md): the export's
+cost year and the study's location (the city factor of `--zip`, else the mean of `--state`'s
+cities; the state defaults to the export's `location_source`). The concealed rows are dropped
+and `summary` recomputed, so `structure_replay` then rebuilds them on the same factors and
+`e2e_report` scores the result. The stored dollars are checked against the row (`base_mismatch`
+counts an asset whose old unit cost over the old factors is not the row's base). Deterministic,
+no model call.
+
 ### `photo_counts` (derived from `detection_boxes`, no file)
 
 Per photo, the true count of every verified class: the non-group boxes of that label,

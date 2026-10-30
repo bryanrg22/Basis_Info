@@ -28,17 +28,21 @@ the assumption table of TAKEOFF_RESEARCH section 4. Pure functions: no I/O.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final, Literal, Protocol
 
-from basis.domain.costs import (
-    YEAR_ADJUSTMENT_FACTORS,
-    CostError,
-    location_factor_for_state,
+from basis.domain.cost_indices import (
+    LocationFactor,
+    YearFactor,
+    YearIndex,
+    indices,
+    location_factor_for_state_code,
+    location_factor_for_zip,
 )
+from basis.domain.costs import year_factor_index
 from basis.domain.rooms import normalize_room_type, room_weight_sf, typical_area_sf
 
 QUANTUM: Final = Decimal("0.01")
@@ -211,6 +215,14 @@ class CostIndex:
     year_source: str | None  # None: the settings, with no study input consulted
     location_factor: Decimal
     location_source: str | None
+    # The resolved indices (EVAL_REPORT 45): the time factor with its published index
+    # values and, when the cost year has none, the assumption; the location row(s).
+    year: YearFactor | None = None
+    location: LocationFactor | None = None
+
+    @property
+    def year_assumption(self) -> str | None:
+        return None if self.year is None else self.year.assumption
 
 
 # ------------------------------------------------------------------ reading the fields
@@ -731,63 +743,81 @@ def resolve_cost_index(
     location_factor: Decimal,
     placed_in_service: date | None = None,
     state: str | None = None,
+    zip_code: str | None = None,
+    supplement: Mapping[int, YearIndex] | None = None,
 ) -> CostIndex:
-    """The cost year and location factor for the study (section 3.9).
+    """The cost year and location factor for the study (TAKEOFF_RESEARCH section 3.9,
+    COST_INDICES.md section 5).
 
-    Year: ``placed_in_service`` (the intake's date) when inside the escalation table, else
-    the appraisal's effective date when inside it, else the setting. Location: the factor of
-    ``state`` (the intake's) when the table has it, else of the appraisal's state when the
-    table has that, else the setting. Each carries the source it came from, for the cost
-    row; a candidate that was given but could not be used is named in the source so the
-    reviewer sees why the next one applied.
+    Year: ``placed_in_service`` (the intake's date) when the index table reaches it (1970
+    or later: a year after the latest published index is allowed and carries the
+    assumption), else the appraisal's effective date when it does, else the setting. The
+    factor is the Historical Cost Index ratio (``year``), from the released book or the
+    firm's ``supplement``. Location: the city factor of ``zip_code`` (the intake's) when
+    the table lists its three-digit prefix, else the mean of ``state``'s cities (the
+    intake's), else the appraisal's ZIP, then state, else the setting. Each carries the
+    source it came from, with the index values, book and page; a candidate that was given
+    but could not be used is named in the source so the reviewer sees why the next one
+    applied.
     """
-    table_range = f"{min(YEAR_ADJUSTMENT_FACTORS)}-{max(YEAR_ADJUSTMENT_FACTORS)}"
+    book = indices()
+    table_range = f"{book.first_year}-{book.last_year}"
     year, year_source = cost_year, "COST_YEAR setting"
     skipped: list[str] = []
     if placed_in_service is not None:
-        if placed_in_service.year in YEAR_ADJUSTMENT_FACTORS:
+        if placed_in_service.year >= book.first_year:
             year = placed_in_service.year
             year_source = f"placed in service {placed_in_service} (intake)"
         else:
             skipped.append(
-                f"placed in service {placed_in_service} (intake) is outside the {table_range} "
-                "factor table"
+                f"placed in service {placed_in_service} (intake) is before the {table_range} "
+                "Historical Cost Index"
             )
     if year_source == "COST_YEAR setting" and m is not None and m.effective_date is not None:
         when = m.effective_date
-        if when.value.year in YEAR_ADJUSTMENT_FACTORS:
+        if when.value.year >= book.first_year:
             year = when.value.year
             year_source = f"appraisal effective date {when.value} ({when.describe()})"
         else:
             skipped.append(
-                f"appraisal effective date {when.value} is outside the {table_range} factor table"
+                f"appraisal effective date {when.value} is before the {table_range} "
+                "Historical Cost Index"
             )
     if year_source == "COST_YEAR setting" and skipped:
         year_source = "COST_YEAR setting: " + "; ".join(skipped)
     elif skipped:
         year_source = f"{year_source}; {'; '.join(skipped)}"
+    year_factor = year_factor_index(year, supplement)
 
     factor, location_source = location_factor, "COST_LOCATION_FACTOR setting"
+    location: LocationFactor | None = None
     unused: list[str] = []
-    if state is not None:
-        try:
-            factor = location_factor_for_state(state)
-        except CostError:
-            unused.append(f"no factor for state {state!r} (intake)")
-        else:
-            location_source = f"state {state.strip().upper()} (intake)"
-    if location_source == "COST_LOCATION_FACTOR setting" and m is not None and m.state is not None:
-        try:
-            factor = location_factor_for_state(m.state.value)
-        except CostError:
-            unused.append(f"no factor for state {m.state.value!r}")
-        else:
-            location_source = f"state {m.state.value.strip().upper()} ({m.state.describe()})"
-    if location_source == "COST_LOCATION_FACTOR setting" and unused:
+    candidates: list[tuple[str, str, str]] = []  # (kind, value, origin)
+    if zip_code:
+        candidates.append(("zip", zip_code.strip(), "intake"))
+    if state:
+        candidates.append(("state", state.strip().upper(), "intake"))
+    if m is not None and m.zip is not None:
+        candidates.append(("zip", m.zip.value.strip(), m.zip.describe()))
+    if m is not None and m.state is not None:
+        candidates.append(("state", m.state.value.strip().upper(), m.state.describe()))
+    for kind, value, origin in candidates:
+        found = (
+            location_factor_for_zip(value)
+            if kind == "zip"
+            else location_factor_for_state_code(value)
+        )
+        if found is None:
+            unused.append(f"no location factor for {kind} {value!r} ({origin})")
+            continue
+        factor, location = found.factor, found
+        location_source = f"{kind} {value} ({origin}): {found.citation()}"
+        break
+    if location is None and unused:
         location_source = "COST_LOCATION_FACTOR setting: " + "; ".join(unused)
     elif unused:
         location_source = f"{location_source}; {'; '.join(unused)}"
-    return CostIndex(year, year_source, factor, location_source)
+    return CostIndex(year, year_source, factor, location_source, year_factor, location)
 
 
 __all__ = [
