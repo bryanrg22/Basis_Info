@@ -10,8 +10,10 @@ For the approved revision it promotes, per context key (``basis.classify.cache``
   asset's verified reference citations when it has any (a ruling needs none);
 * every ``llm`` asset with at least one verified reference citation: an engineer-approved
   model answer, so the next identical component costs nothing;
-* every ``cache`` asset (a convention the engineer let stand) adds one approval to its
-  convention, if the convention still gives that answer; it never creates or replaces one;
+* every ``cache`` asset (a convention the engineer let stand) adds one approval to the
+  convention that served it (the row named in its ``convention.key``: at a coarser tier of
+  section 9 that is not the asset's own context key), if it still gives that answer; it
+  never creates or replaces one;
 * never ``rule`` (free and deterministic).
 
 When several approved assets share a key, the engineer's corrections win, then cited model
@@ -296,6 +298,12 @@ async def _candidates(
         key = cache_key(
             component.label, component.material, component.attachment, property_class, room_type
         )
+        if asset.method is ClassificationMethod.CACHE:
+            # The row that served it (section 9.4): its own key at the exact tier, the
+            # coarser ruling's key otherwise.
+            served = asset.convention.get("key") if isinstance(asset.convention, dict) else None
+            if isinstance(served, str) and served:
+                key = served
         hit = lookup(
             component.label,
             component.material,
