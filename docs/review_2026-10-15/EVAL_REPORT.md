@@ -6943,7 +6943,11 @@ ratios, the ZIP lookup, the spot checks read from the images, the supplement, th
 `test_structure.py` (+1, 2 rewritten), `test_result.py`, `test_cost_table.py`,
 `test_cross_validation.py`, `test_pack.py`; the integration set's `test_process_assets.py`,
 `tests/lifecycle/test_intake_takeoff.py` and `tests/node/test_process_assets.py` pin the new
-row text, factors and flags. Gates from `backEnd/`: `ruff check`, `ruff format --check`,
+row text, factors and flags; the lifecycle study runs its worker with a synthetic 2024 index
+in `COST_INDEX_SUPPLEMENT_PATH` (the firm's remedy, end to end: no assumption, the concealed
+rows carved from an RCN priced at the same factor as the itemized rows, reconciled), which is
+how a defect was caught: the structure rows written by `process_assets` had not been handed the
+resolved year factor and priced at the book's alone while the result used the supplement. Gates from `backEnd/`: `ruff check`, `ruff format --check`,
 `mypy basis evals` clean; unit `-m "not integration and not slow"`: 4135 passed; the
 integration set with Docker: see the PR for the tally. Client data: none in the repository
 (the data file holds published index numbers and place names; `tooling/check_no_client_data.py`

@@ -264,7 +264,8 @@ representative area) prorated by the basement's finish percentage and by the bas
 share of the ground-floor area, and the facing page's attached-garage modification per car
 (Economy "One Car Attached Garage" $14,543; Average $15,712; Custom "Two Car Attached
 Garage" $30,463, Luxury $35,170). The base costs are on a 2020 national basis and take the
-year and location factors of every other RSMeans row (EVAL_REPORT 35, 37). The exterior wall
+year and location factors of every other RSMeans row (EVAL_REPORT 35, 37; since 45 the
+Historical Cost Index ratio and the Residential Location Factor, COST_INDICES.md). The exterior wall
 is taken as wood siding (the other rows are not transcribed) and the row is marked
 `needs_review` so the engineer confirms the class, type and wall.
 

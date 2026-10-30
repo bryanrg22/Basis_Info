@@ -245,7 +245,8 @@ async def test_the_cost_table_prices_labels_the_legacy_rows_do_not(
     async with session_scope(deps.sessionmaker) as session:
         costs = {c.asset_id: c for c in (await session.scalars(select(CostEstimate))).all()}
     cabinets = costs[rows["kitchen_cabinet"].id]
-    assert (cabinets.unit_cost, cabinets.total) == (Decimal("501.50"), Decimal("9027.00"))
+    # 425 per unit x 1.0000 (the settings' 2026 is after the last published index) x 18.
+    assert (cabinets.unit_cost, cabinets.total) == (Decimal("425.00"), Decimal("7650.00"))
     assert cabinets.source_row is not None and cabinets.source_row.startswith(
         "synthetic_2020[kitchen_cabinet]"
     )

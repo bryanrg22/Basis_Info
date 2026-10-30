@@ -576,6 +576,7 @@ async def _write_structure(
         year_source=plan.index.year_source,
         location_factor=plan.index.location_factor,
         location_source=plan.index.location_source,
+        year=plan.index.year,
         rcn_source=settings.structure_rcn_source,
     )
     building = building_rcn(

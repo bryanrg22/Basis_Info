@@ -141,11 +141,14 @@ async def test_rule_model_and_fabricated_paths(
     assets = await by_label(sessionmaker, study.study_id)
 
     carpet = assets["carpet"]
+    # Classified by rule with nothing to review; priced at a cost year (the settings' 2026)
+    # after the last published index, which flags every priced row (EVAL_REPORT 45).
     assert (carpet.method, carpet.bucket, carpet.needs_review) == (
         ClassificationMethod.RULE,
         Bucket.Y5,
-        False,
+        True,
     )
+    assert carpet.review_reason == "cost:YEAR_INDEX_EXTRAPOLATED"
     cited = await citations_of(sessionmaker, carpet.id)
     assert {c.chunk_id for c in cited} == {CARPET_CHUNK, ASSET_CLASS_CHUNK}
     assert all(c.verified_at is not None and c.verification_method for c in cited)
@@ -194,7 +197,7 @@ async def test_rule_model_and_fabricated_paths(
         Decimal("1121.80"),
         2026,
     )
-    assert output.needs_review == 3
+    assert output.needs_review == 4  # the three of before plus the carpet's index flag
 
 
 # --------------------------------------------------------------------------- conventions

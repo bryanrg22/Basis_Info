@@ -69,7 +69,7 @@ async def test_same_revision_exports_byte_identical_files_with_resolved_evidence
         "y5",
         "18.3300",
         "SY",
-        "1368.52",
+        "1121.80",  # 61.20/SY x 1.0000: 2026 is after the last published index (EVAL_REPORT 45)
     )
     references = sorted(c["reference"] for c in carpet["citations"])
     assert references == [
@@ -83,8 +83,9 @@ async def test_same_revision_exports_byte_identical_files_with_resolved_evidence
 
     summary = document["summary"]
     # carpet's two citations, the garage door's one, and the refrigerator's 57.0 citation
-    # (ATG p.297, shared with carpet); its kitchen-appliance citation has no test chunk.
-    assert (summary["assets"], summary["needs_review"], summary["total_citations"]) == (4, 3, 4)
+    # (ATG p.297, shared with carpet); its kitchen-appliance citation has no test chunk. Every
+    # priced row is flagged at the settings' 2026 cost year (no published index; EVAL_REPORT 45).
+    assert (summary["assets"], summary["needs_review"], summary["total_citations"]) == (4, 4, 4)
     assert summary["by_method"] == {"llm": 2, "rule": 2}
     assert document["files"]["assets_csv"]["sha256"] == hashlib.sha256(csv_bytes).hexdigest()
     every_entry = {c["id"] for a in document["assets"] for c in a["citations"]}
