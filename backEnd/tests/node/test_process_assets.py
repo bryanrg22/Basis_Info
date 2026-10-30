@@ -38,7 +38,7 @@ from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
 from basis.activities.apply_corrections import ApplyCorrections
-from basis.activities.process_assets import ProcessAssets
+from basis.activities.process_assets import EXTRAPOLATED_REASON, ProcessAssets
 from basis.activities.promote_conventions import PromoteConventions
 from basis.classify.cache import cache_key
 from basis.classify.store_protocol import InMemoryChunkStore
@@ -708,7 +708,9 @@ async def test_a_coarser_tier_serves_the_next_study_and_counts_on_the_served_row
         CARPET_KEY,
         "label_room",
     )
-    assert not carpet.needs_review
+    # The convention leaves nothing to review in the classification; the only flag is the
+    # cost row's year index (the settings' cost year is past the 2020 books: EVAL_REPORT 45).
+    assert (carpet.review_reason or "").split("; ") == [EXTRAPOLATED_REASON]
     # A room the firm never ruled on, no rule row: the label alone serves.
     door = found["garage_door"]
     assert (door.method, door.bucket) == (ClassificationMethod.CACHE, Bucket.Y27_5)
