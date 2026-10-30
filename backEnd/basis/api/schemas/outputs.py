@@ -176,6 +176,37 @@ class CostOut(ResponseModel):
     cost_year: int | None
 
 
+class ConventionOut(ResponseModel):
+    """The firm convention an asset was classified from, as of its classification
+    (docs/api/TIMELINE_AND_AUDIT.md, "Firm conventions")."""
+
+    key: str = Field(
+        description="The context key: `label|material|attachment|room|property_class|rules "
+        "version`."
+    )
+    study_id: uuid.UUID = Field(description="The study whose approval seeded the convention.")
+    reviewer_id: uuid.UUID | None = Field(
+        default=None, description="The engineer who approved that study's assets."
+    )
+    approved_at: datetime = Field(description="When that approval was recorded.")
+    approvals: int = Field(
+        ge=1, description="How many approved studies at the firm gave the same answer."
+    )
+    rule_key: str | None = Field(
+        default=None, description="The rules table's row for the same key; null when none."
+    )
+    agrees_with_rules: bool | None = Field(
+        description="Whether the convention's bucket is the rules table's; null when the "
+        "table has no row for the key. A convention that disagrees is still served: it is "
+        "the firm's ruling."
+    )
+    citation: str | None = Field(
+        default=None,
+        description="`firm convention, uncited` when the convention carries no citation; "
+        "null when it does (its citations are re-verified and counted in `citations`).",
+    )
+
+
 class AssetOut(ResponseModel):
     id: uuid.UUID = Field(description="The `entity_id` of an `asset` correction.")
     component_id: uuid.UUID | None
@@ -202,6 +233,12 @@ class AssetOut(ResponseModel):
         default=None,
         description="Who produced the classification: the model or rules, an engineer's "
         "`asset` correction, or an engineer-added component. The takeoff and cost share it.",
+    )
+    convention: ConventionOut | None = Field(
+        default=None,
+        description="For `method` `cache`: the firm convention it was classified from (who "
+        "approved it, on which study, when, how many approvals, whether the rules table "
+        "agrees); null otherwise.",
     )
 
 

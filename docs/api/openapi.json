@@ -5557,6 +5557,17 @@
               }
             ],
             "description": "Who produced the classification: the model or rules, an engineer's `asset` correction, or an engineer-added component. The takeoff and cost share it."
+          },
+          "convention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConventionOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For `method` `cache`: the firm convention it was classified from (who approved it, on which study, when, how many approvals, whether the rules table agrees); null otherwise."
           }
         },
         "type": "object",
@@ -6904,6 +6915,92 @@
           "other"
         ],
         "title": "ComponentLabel"
+      },
+      "ConventionOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "The context key: `label|material|attachment|room|property_class|rules version`."
+          },
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id",
+            "description": "The study whose approval seeded the convention."
+          },
+          "reviewer_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Id",
+            "description": "The engineer who approved that study's assets."
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Approved At",
+            "description": "When that approval was recorded."
+          },
+          "approvals": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Approvals",
+            "description": "How many approved studies at the firm gave the same answer."
+          },
+          "rule_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Key",
+            "description": "The rules table's row for the same key; null when none."
+          },
+          "agrees_with_rules": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agrees With Rules",
+            "description": "Whether the convention's bucket is the rules table's; null when the table has no row for the key. A convention that disagrees is still served: it is the firm's ruling."
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citation",
+            "description": "`firm convention, uncited` when the convention carries no citation; null when it does (its citations are re-verified and counted in `citations`)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "study_id",
+          "approved_at",
+          "approvals",
+          "agrees_with_rules"
+        ],
+        "title": "ConventionOut",
+        "description": "The firm convention an asset was classified from, as of its classification\n(docs/api/TIMELINE_AND_AUDIT.md, \"Firm conventions\")."
       },
       "CorrectionIn": {
         "properties": {

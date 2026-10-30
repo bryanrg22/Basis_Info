@@ -29,6 +29,7 @@ from basis.api.schemas.evidence import RoomRefOut
 from basis.api.schemas.outputs import (
     AssetOut,
     AssetsPageOut,
+    ConventionOut,
     CostOut,
     ExtractionFieldOut,
     ExtractionFieldsPageOut,
@@ -298,6 +299,11 @@ def asset_out(row: AssetRow, provenance: Provenance | None = None) -> AssetOut:
         ),
         citations=row.citations,
         verified_citations=row.verified_citations,
+        convention=(
+            ConventionOut.model_validate(asset.convention)
+            if isinstance(asset.convention, dict)
+            else None
+        ),
         provenance=provenance_out(provenance),
     )
 
