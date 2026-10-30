@@ -72,15 +72,26 @@ def test_synthetic_smoke_builds_all_six_datasets_from_the_fixtures() -> None:
 def test_rule_citations_are_every_citation_of_the_rules_table() -> None:
     data = ds.rule_citations()
     assert data.rules_version == RULES_VERSION
-    expected = [
-        (rule.key, c.doc_id, c.page, c.excerpt, rule.contested is not None)
-        for rule in RULES.values()
-        for c in rule.citations
-    ]
+    expected = []
+    for rule in RULES.values():
+        expected += [
+            (rule.key, c.doc_id, c.page, c.excerpt, rule.contested is not None)
+            for c in rule.citations
+        ]
+        for variant in rule.variants:  # each variant named by its context
+            context = ",".join(
+                [f"room={r}" for r in sorted(variant.when.rooms)[:1]]
+                + [f"attachment={a}" for a in sorted(variant.when.attachments)[:1]]
+            )
+            expected += [
+                (f"{rule.key}[{context}]", c.doc_id, c.page, c.excerpt, False)
+                for c in variant.rule.citations
+            ]
     assert [(c.rule, c.doc_id, c.page, c.excerpt, c.contested) for c in data.citations] == (
         expected
     )
-    assert {c.rule for c in data.citations} == set(RULES)  # every row has a citation
+    assert {c.rule.split("[")[0] for c in data.citations} == set(RULES)  # every row cited
+    assert "kitchen_cabinet[room=bathroom]" in {c.rule for c in data.citations}
 
 
 def write(directory: Path, name: str, payload: object) -> None:

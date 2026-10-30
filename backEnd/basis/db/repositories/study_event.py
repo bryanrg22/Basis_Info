@@ -40,7 +40,12 @@ Event vocabulary (``event_type``; the actor in brackets):
 * ``stage.failed`` / ``stage.failure_cleared`` [system]: ``record_failure`` (``code``);
 * ``study.stalled`` / ``review.reminded`` [system]; ``study.retry_requested`` /
   ``study.cancel_requested`` [engineer];
-* ``export.written`` [system]: the export (``detail.uri``, ``detail.sha256``).
+* ``export.written`` [system]: the export (``detail.uri``, ``detail.sha256``);
+* ``convention.promoted`` [engineer]: ``promote_conventions`` promoted an approved asset's
+  ruling to the firm's conventions (``entity_id`` the asset; ``detail`` key, bucket,
+  ``agrees_with_rules``, outcome, approvals); ``convention.replaced`` [engineer]: the
+  approved answer replaced a different convention (``code``
+  ``E.ASSETS_CONVENTION_REPLACED``, ``before`` the replaced row).
 
 Durations: an ``activity.*`` end row carries ``started_at`` (the attempt's start on the
 worker's clock) and ``duration_ms`` (monotonic on the worker), so a step's duration never

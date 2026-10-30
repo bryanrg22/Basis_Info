@@ -6129,3 +6129,200 @@ all green; `docs/api/openapi.json` regenerated (three new operations, the new me
   yet; the review workbench is where the catalogue's "how to fix" should surface.
 * `inventory.rebuilt` lists the ids of the rows the room step replaced, not their contents; a
   before-image would double the rows for little: the replaced rows were the model's.
+
+## 42. Classification by context: the rules follow the guide, the firm's rulings follow the engineer (2026-10-29)
+
+Design: `CLASSIFICATION_CONVENTIONS.md`. Branch `claude/classification-conventions`.
+Private artifacts: `work/e2e_artifacts/reclassified_2026-10-29/` (the two rescored exports,
+their change lists, `E2E_SCORE_run1.md`, `E2E_SCORE_run2.md`, `COMPARE_before_after.md`).
+
+### 42.1 Why
+
+Section 38 left 12 of 36 evidenced engineer rows in the wrong bucket after two live runs,
+and the engineer's corrections at the gates did not move them. Reading the rules table
+against the IRS Audit Techniques Guide (ATG) showed why: 26 rows carried a "contested" note
+saying the guide puts the item with the building while the row kept a legacy 5-year
+treatment (plumbing fixtures, light fixtures, ceiling fans, cemented tile, restroom
+cabinetry, and more), and furniture took the office asset class (00.11, 7 years) by its name
+instead of the activity it serves (57.0, 5 years, ATG p.297 and p.308). The model path had
+these right (outlets, baseboards and wall finishes went to the building); the rule rows,
+which fire before the model, did not.
+
+The guide's test is not the item's name. It is "the manner of attachment to the land or the
+structure and how permanently the property is designed to remain in place" (Rev. Rul.
+75-178, ATG p.20) and whether the item "relates to the operation or maintenance of the
+building" (p.19-20), applied item by item in the residential matrix (Exhibit A, pp.296-322)
+by **function and attachment**: outlets of general applicability vs outlets dedicated to an
+appliance (p.301, p.311); fixtures that provide substantially all the illumination vs accent
+lighting (p.313); cemented tile and wood flooring vs strippable VCT and carpet (p.306-307);
+a mirror attached with permanent adhesive vs a hanging one (p.317, p.191); residential
+furnishings (57.0) vs rental-office furniture (00.11) (p.307-308).
+
+### 42.2 What changed
+
+**The rules table has a context dimension.** `lookup` takes the component's room type, and a
+row may carry variants keyed on room, attachment and property class; the first matching
+variant is the effective rule and the hit records which one fired (`context`). The decision
+rule for every row: an item the guide names takes the guide's bucket; an item no document
+names keeps its bucket and its contested note. 15 rows moved to the building row (toilet,
+bathtub, shower, sink, water heater, garbage disposal, light fixture, ceiling fan, smoke
+detector, thermostat, tile, hardwood floor, bathroom vanity, closet shelving, mirror);
+furniture, chair, desk and filing cabinet moved to 57.0 with an office variant at 00.11;
+kitchen cabinets and counters keep their row and take the building row in a bathroom; a
+removable or freestanding mirror and a freestanding shelf are furnishings; a new
+`accent_lighting` row (track, neon, decorative, landscape lighting) is 5-year. The contested
+set went from 26 rows to 10 (kitchen cabinet, countertop, doorbell, laminate, hardwood
+floor, deck, half wall, window guard, shed, concrete pad). Every row and variant is cited:
+106 citation claims, 58 distinct excerpts, each verbatim on its PDF page and inside one
+production chunk (the real-corpus integration test resolves all 106). `RULES_VERSION` is
+`2026-10-29.1`, so no cached classification made under the old table is served.
+`RULES_RECITATION.md` records the judgment for every changed row.
+
+**The firm's rulings are a layer above the rules** (section 42.5).
+
+### 42.3 Measured on the two live runs, without a paid run
+
+`evals.reclassify_export` re-runs `lookup` with the context key over a stored export and
+replaces the classification where a rule now hits (the router takes a rule before the model,
+so this is what the pipeline does today); model-classified assets keep their stored answer;
+quantities and dollars are untouched. The scorer of section 38 then reads the new export.
+
+| metric | run 1 before | run 1 after | run 2 before | run 2 after | engineer |
+|---|---|---|---|---|---|
+| assets whose bucket moved | | 87 of 382 | | 86 of 310 | |
+| bucket right by count (of evidenced rows) | 24 of 35 | **27 of 35** | 24 of 36 | **27 of 36** | |
+| bucket right by dollars | 20 | 21 | 20 | 21 | |
+| bucket share y5 / y7 / y15 / y39 (%) | 37.4 / 2.5 / 11.9 / 48.2 | 17.7 / 2.5 / 11.9 / 67.9 | 38.0 / 2.4 / 11.2 / 48.5 | **16.3 / 2.4 / 11.2 / 70.2** | 14.4 / 0.4 / 5.1 / 80.2 |
+| bucket share error y5 / y39 (points) | 23.0 / 32.0 | 3.3 / 12.3 | 23.7 / 31.8 | **2.0 / 10.1** | |
+| row-share distance (points) | 47.8 | 47.8 | 46.1 | 46.1 | |
+
+What moved (run 2): light fixtures 13, sinks 9, hardwood floors 8, tile 6, toilets 6,
+bathtubs 5, mirrors 5 (the two `removable` ones stayed 5-year through the variant), ceiling
+fans 4, vanities 3, showers 2, closet shelving 1, a kitchen cabinet in a bathroom 1 (the
+room variant), a smoke detector 1, all to the building; furniture 22 from 7-year to 5-year
+(the one in the office stayed 7-year). The row-share distance does not move because rows
+kept their dollars; only their buckets changed.
+
+Rows fixed: Electrical, Plumbing, Ceramic Tile Flooring, Cabinets / Millwork - Restrooms,
+FF&E (five). Rows that flipped the other way, as the design predicted: **Wood Flooring**
+(the engineer's 5-year; the guide lists wood flooring as a permanent covering, p.306) and
+**Specialty Plumbing - Kitchen & Utility Sink / Laundry** (the engineer's 5-year; the guide
+puts kitchen sinks under building plumbing, p.311 and p.315). Those two, and the seven rows
+still wrong from before (moldings, fireplaces, paneling, wall coverings, half walls, window
+guards, exterior lighting), are the firm's conventions: defensible positions the guide does
+not take. They are not rule changes; they are what section 42.5 carries forward once the
+engineer approves them at a gate. The 39-year share is 70 against the engineer's 80; the
+remaining 10 points are the concealed systems section 38 found (nothing produces them) and
+these nine conventions.
+
+### 42.4 What this does not change
+
+The classifier prompt (`classify/v1`) is unchanged; a v2 that states the function and
+attachment tests should be measured with the `assets` eval before it becomes the default.
+`outdoor_lighting` stays a 15-year land improvement (the guide gives building-mounted,
+accent and pole-mounted exterior lighting three different answers, p.313, and the vision
+step does not tell them apart). Every number above is one property.
+
+### 42.5 Live: two studies in sequence on the local stack (2026-10-30)
+
+Stack rebuilt from the branch (`8661710`), migrations through 0014. Driver
+`work/live_e2e/e2e_live3.py` (private). Study A ran with run 2's engineer corrections at
+the appraisal, rooms and components gates, plus the engineer's 5-year rulings at the assets
+gate for the nine convention rows (43 `asset` corrections, each with a reason naming the
+row); approving that gate promoted the revision's rulings. Study B was the same property
+with every gate approved as it opened (run 1's behaviour), at the same firm.
+
+| | run 1 (pipeline alone) | run 2 (corrected gates) | **study A** (corrected + rulings) | **study B** (pipeline + conventions) | engineer |
+|---|---|---|---|---|---|
+| assets | 382 | 310 | 314 | 381 | |
+| evidenced rows (of 38) | 35 | 36 | 35 | 35 | |
+| bucket right by count | 24 of 35 | 24 of 36 | **35 of 35** | **34 of 35** | |
+| wrong-bucket rows | 11 | 12 | 0 | 1 (Fireplaces) | |
+| bucket shares y5 / y7 / y15 / y39 (%) | 37.4 / 2.5 / 11.9 / 48.2 | 38.0 / 2.4 / 11.2 / 48.5 | 31.3 / 2.4 / 11.1 / 55.1 | 24.5 / 2.5 / 11.9 / 61.1 | 14.4 / 0.4 / 5.1 / 80.2 |
+| 39-year share error (points) | 32.0 | 31.8 | 25.1 | 19.2 | |
+| classification: model calls / assets | 486 / 382 | 386 / 310 | 694 / 314 (two passes) | **157 / 381** | |
+| assets classified from a convention | 0 | 0 | 0 | **151** | |
+| classifier spend | $5.41 | $4.29 | $7.68 | **$1.76** | |
+| study spend (ledger, incl. Azure DI and SAM 3) | $7.67 | $6.63 | $10.16 | **$4.01** | |
+| workflow wall clock | 29.6 min (19 min on defect A) | 11.0 min | 9.5 min | 7.7 min | |
+
+What the conventions layer did, verified in the database and the API:
+
+- Study A's approval promoted **113 conventions** for the firm (113 `convention.promoted`
+  events): the 43 manual rulings (13 of them against the rules table: hardwood floors,
+  half walls, exterior lighting, the kitchen and garage sinks; the rest on labels with no
+  rule row, such as baseboards and fireplaces) and 70 engineer-approved model answers with
+  verified citations. Each row carries the reviewer, the study, the approval time and
+  whether it agrees with the rules table.
+- Study B served **151 of 381 assets from those conventions** (`method = cache`, 151 hits
+  recorded), 12 of them rulings against the rules table and 36 of them uncited rulings, all
+  with the provenance on the asset in `/assets` and in the export. The model was called 65
+  times instead of 158 on study A's first pass; the classifier cost 23 % of run 1's for
+  the same inputs, and the study 52 %. Study B's approval added an approval to every
+  convention it let stand and promoted its own cited model answers (120 events; the firm
+  now holds 233 approvals over its rows).
+- Study B's classification, with no engineer in the loop, put 34 of 35 evidenced rows in
+  the engineer's bucket, against 24 in run 1 with the same inputs.
+
+Findings, in order of weight:
+
+1. **The context key is too specific for rulings.** Study B's two fireplaces came out of
+   the photo step with an unknown material where study A's had `wood` and `other`, so the
+   keys differed and no convention matched: the one wrong row. Nine convention-row assets
+   in study B had no ruling for the same reason (a room or material the first study never
+   showed: a baseboard in the lobby, hardwood in the living room read without a material).
+   The material and attachment the vision step reads vary between runs, so a ruling keyed
+   on them does not generalize as far as the engineer meant it to. The fix is a key
+   hierarchy: look for the exact key, then the same label and room without material and
+   attachment, then the label alone, serving the most specific ruling the firm has; a
+   ruling that was meant to depend on the material (carpet vs tile) still can, because the
+   label carries it. Not built here.
+2. **Rejecting the assets gate re-classifies every untouched asset at full price.** Study
+   A's reject with 43 rulings cost a second classification pass: 316 model calls, $3.47,
+   three minutes, for the 271 assets the engineer did not touch. Within one study nothing
+   carries a revision's classifications forward. Carrying the untouched assets'
+   classifications across an assets-gate reject (the way rooms are carried) removes most of
+   that cost; the firm conventions do not help here because they are written only on
+   approval.
+3. **A ruling needs no citation, and the export says so.** 36 of the served conventions are
+   uncited engineer rulings; each export record carries `citation: "firm convention,
+   uncited"` and the reason the engineer gave. Whether an examiner accepts a firm's
+   convention is the firm's risk; the system makes the position visible rather than
+   dressing it as the guide's.
+4. **The ledger now records the non-token paid steps** (Azure Document Intelligence,
+   $0.20 per study; SAM 3, $0.04), so the study totals above are complete where section
+   38's were not.
+5. **The driver, not the product:** the first attempt at study A crashed at the appraisal
+   gate on an import (the eval normalizer needs the backend environment); the study waited
+   at the gate for 30 minutes and was resumed with a `--study` option, so the photo stage
+   was not paid twice. The stale-decision 409 loop of run 2 is fixed in this driver.
+
+### 42.6 What the research says about the method (2026-10-30)
+
+The IRS guide (chapter 3, PDF pp.27-33) names six study methods and ranks the engineering
+ones highest. Ours is the **detailed engineering cost estimate approach**: inventory from
+inspection, quantity takeoffs, unit costs from published estimating guides with the volume
+and page cited, reconciled to the purchase price less land. The self-service products in
+this market (KBKG's Cost Seg Pro, Titan Echo's EchoLite) extrapolate a personal-property
+share from a database of past studies, which the guide calls the sampling or modeling
+approach and rates below the engineering approaches. Outside tax, insurance estimating
+(Xactimate: a regionally priced line-item database; Verisk's and Tractable's photo-to-
+line-item products) has the same shape as our photo step, room step and cost table; and
+customs classification systems use the same three layers this change built: deterministic
+rules first, a model for what the rules miss, an expert who confirms or overrides, and the
+reviewer's outcome fed back so the next case is answered from it.
+
+Two things the guide says that we do not yet do:
+
+- **No pro-rata step-up.** "It is not an appropriate cost estimation methodology to apply a
+  pro-rata step-up factor to the individual costs estimated for the various improvements"
+  (p.32-33): when the estimated replacement cost does not tie to the purchase price less
+  land, the gap is evidence that assets, quantities or factors are missing, and must be
+  analysed, not scaled. Our basis step applies a uniform factor (2.4 on this property) and
+  flags it as an error by design (section 37). The missing mass is known: the concealed
+  systems (39.7 % of the engineer's dollars) and physical depreciation. Producing them is
+  what makes the allocation acceptable, not the factor.
+- **Sourced indices.** The year and location factors are placeholder tables inherited from
+  the legacy code, not RSMeans' historical and city cost indexes or Marshall & Swift's
+  equivalents. The mechanics (unit cost x quantity x year x location, every factor and its
+  source on the asset) are the standard's; the numbers are not yet.

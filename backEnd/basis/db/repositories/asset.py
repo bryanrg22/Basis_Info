@@ -31,6 +31,7 @@ class AssetRepository:
         confidence: float | None,
         needs_review: bool = False,
         review_reason: str | None = None,
+        convention: dict[str, Any] | None = None,
     ) -> Asset:
         asset = Asset(
             study_id=study_id,
@@ -44,6 +45,7 @@ class AssetRepository:
             confidence=confidence,
             needs_review=needs_review,
             review_reason=review_reason,
+            convention=convention,
         )
         self._session.add(asset)
         await self._session.flush()

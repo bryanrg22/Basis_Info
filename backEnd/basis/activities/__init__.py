@@ -28,6 +28,7 @@ from basis.activities.localize_photo import LocalizePhoto
 from basis.activities.mark_stalled import MarkStalled
 from basis.activities.notify_review_pending import NotifyReviewPending
 from basis.activities.process_assets import ProcessAssets
+from basis.activities.promote_conventions import PromoteConventions
 from basis.activities.reconcile_rooms import ReconcileRooms
 from basis.activities.record_failure import RecordFailure
 from basis.activities.record_run_end import RecordRunEnd
@@ -48,6 +49,7 @@ ACTIVITY_CLASSES: Final[dict[str, type[Any]]] = {
     "reconcile_rooms": ReconcileRooms,
     "apply_corrections": ApplyCorrections,
     "process_assets": ProcessAssets,
+    "promote_conventions": PromoteConventions,
     "export_report": ExportReport,
     "notify_review_pending": NotifyReviewPending,
     "mark_stalled": MarkStalled,

@@ -166,7 +166,11 @@ async def test_the_timeline_has_every_step_with_its_duration(harness: Harness) -
         assert visit.gate_opened_at is not None
         assert visit.decided_at is None  # decided through the update here, not the API
     total = (visits[-1].entered_at - visits[0].entered_at).total_seconds() * 1000
-    assert abs(sum(v.duration_ms or 0 for v in visits) - total) <= 1
+    # Each closed visit's duration is rounded to the nearest millisecond (``_ms``), so the
+    # sum can differ from the unrounded total by half a millisecond per visit (a bound of 1
+    # failed in about half the runs once the closed visits' fractions added past it).
+    closed = [v for v in visits if v.duration_ms is not None]
+    assert abs(sum(v.duration_ms or 0 for v in visits) - total) <= 0.5 * len(closed)
 
     # The export carries the same document, as of the export.
     exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))

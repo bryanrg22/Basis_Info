@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from apitest_support import Api, Seed
@@ -44,6 +44,18 @@ class Seeded:
     rooms: dict[str, uuid.UUID]
     assets: dict[str, uuid.UUID]
     fields: dict[str, uuid.UUID]
+
+
+CONVENTION: Final[dict[str, Any]] = {
+    "key": "carpet|||bedroom|residential_rental|2026-10-29.1",
+    "study_id": "5f0c6a52-0000-4000-8000-000000000001",
+    "reviewer_id": "5f0c6a52-0000-4000-8000-000000000002",
+    "approved_at": "2026-10-29T18:40:02.117000+00:00",
+    "approvals": 3,
+    "rule_key": "carpet",
+    "agrees_with_rules": False,
+    "citation": "firm convention, uncited",
+}
 
 
 async def seed_outputs(api: Api, seed: Seed, sm: async_sessionmaker[AsyncSession]) -> Seeded:
@@ -187,6 +199,9 @@ async def seed_outputs(api: Api, seed: Seed, sm: async_sessionmaker[AsyncSession
         )
         a_old = asset(per_photo[0], revision=1)
         extra = [asset(None, category=f"extra-{i}") for i in range(3)]
+        # Classified from a firm convention: it keeps the convention's provenance.
+        extra[1].method = ClassificationMethod.CACHE
+        extra[1].convention = CONVENTION
         session.add_all([a1, a2, a_old, *extra])
         await session.flush()
         session.add_all(
@@ -373,6 +388,13 @@ async def test_assets_with_takeoff_cost_and_citations(
     assert a2["bucket"] == "y39" and a2["room"]["name"] == "Bath"
     orphan = by_id[str(seeded.assets["extra0"])]
     assert orphan["label"] is None and orphan["room"] is None and orphan["count"] is None
+    # docs/api/TIMELINE_AND_AUDIT.md "Firm conventions": only a cache asset has one.
+    assert by_id[str(seeded.assets["extra1"])]["method"] == "cache"
+    assert by_id[str(seeded.assets["extra1"])]["convention"] == {
+        **CONVENTION,
+        "approved_at": "2026-10-29T18:40:02.117000Z",
+    }
+    assert all(by_id[str(seeded.assets[k])]["convention"] is None for k in ("a1", "a2", "extra0"))
 
 
 async def test_assets_filter_and_paginate(

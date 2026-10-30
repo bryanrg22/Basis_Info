@@ -17,7 +17,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final
 
-from basis.domain.rules import normalize_label
+# ROOM_ALIASES and normalize_room_type live in basis.domain.rules, whose lookup needs the
+# room type (importing this module from there would be a cycle); re-exported here so the
+# existing imports keep working.
+from basis.domain.rules import ROOM_ALIASES as ROOM_ALIASES
+from basis.domain.rules import normalize_room_type as normalize_room_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,21 +153,6 @@ ROOM_IRS_GUIDANCE: Final[dict[str, RoomGuidance]] = {
             "Parking lot lighting may be Section 1245",
         ),
     ),
-}
-
-ROOM_ALIASES: Final[dict[str, str]] = {
-    "bath": "bathroom",
-    "restroom": "bathroom",
-    "powder_room": "bathroom",
-    "hall": "hallway",
-    "corridor": "hallway",
-    "mechanical": "mechanical_room",
-    "utility_room": "mechanical_room",
-    "closet": "storage",
-    "outdoor": "exterior",
-    "exterior_front": "exterior",
-    "exterior_rear": "exterior",
-    "parking_lot": "parking",
 }
 
 ROOM_TYPICAL_COMPONENTS: Final[dict[str, tuple[str, ...]]] = {
@@ -309,11 +298,6 @@ ROOM_WEIGHTS_SF: Final[dict[str, int]] = {
     "other": 150,
 }
 DEFAULT_WEIGHT_SF: Final = 150
-
-
-def normalize_room_type(room_type: str | None) -> str:
-    name = normalize_label(room_type)
-    return ROOM_ALIASES.get(name, name)
 
 
 def guidance_for(room_type: str | None) -> RoomGuidance:

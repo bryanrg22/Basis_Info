@@ -7,9 +7,11 @@ count an object once per photo it is in; every other room its per-photo rows; a 
 an engineer added to a room at the rooms review always), with the quantity of each row's
 ``raw["count"]`` (a reviewer's ``count`` correction included):
 
-1. classify it (:func:`basis.classify.router.classify`: rules table, then the approved
-   cache, then the bounded residual model), with ``settings.classify_concurrency``
-   components in flight;
+1. classify it (:func:`basis.classify.router.classify`: the firm's conventions, prefetched
+   for the study's ``org_id`` by the context key of every component, then the rules table
+   with the component's room, then the bounded residual model), with
+   ``settings.classify_concurrency`` components in flight. An asset classified from a
+   convention keeps the convention's provenance (``assets.convention``);
 2. measure it (:func:`basis.domain.takeoffs.estimate_quantity`). The room area comes
    from the appraisal's extraction fields (:mod:`basis.domain.measurements`,
    ``TAKEOFF_AREAS=appraisal``: the GLA shared over the rooms by room-type weight, the
@@ -97,8 +99,14 @@ from basis.activities._support import (
 from basis.activities.apply_corrections import CARRIED_FROM
 from basis.activities.corrections import check_asset, parse_bucket, parse_recovery_period
 from basis.activities.deps import Deps
-from basis.classify.cache import ClassificationCacheRepository, cache_key
-from basis.classify.router import ClassificationResult, ClassifyContext, classify, route
+from basis.classify.cache import ClassificationCacheRepository
+from basis.classify.router import (
+    ClassificationResult,
+    ClassifyContext,
+    classify,
+    context_key,
+    route,
+)
 from basis.classify.schemas import ComponentView
 from basis.classify.verify import VerifiedCitation
 from basis.config import Settings
@@ -251,12 +259,13 @@ async def _prepare(
         for c in components
         if c.id not in overrides
     }
-    misses = {
-        cache_key(v.label, v.material, v.attachment, property_class)
-        for v in views.values()
-        if lookup(v.label, v.material, v.attachment, property_class) is None
-    }
-    cache_repo = ClassificationCacheRepository(session)
+    # Every component's context key, not only the rules table's misses: a convention beats
+    # a rule row (docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 2).
+    keys = {context_key(v, property_class) for v in views.values()}
+    org_id = None if study is None else study.org_id
+    conventions = {}
+    if org_id is not None:
+        conventions = await ClassificationCacheRepository(session).get_many(org_id, keys)
     reference_version, study_version = await corpus_versions(session, study_id)
     budget = Budget(remaining_usd=max(input.budget_remaining_usd, 0.0))
     origin = await call_origin(session, study_id)
@@ -269,7 +278,8 @@ async def _prepare(
         reference_version_id=reference_version,
         study_version_id=study_version,
         provider=deps.chat_provider,
-        cache=await cache_repo.get_many(misses),
+        cache=conventions,
+        org_id=org_id,
         model=settings.classify_model,
         price=cost_usd,
         reasoning_effort=settings.classify_reasoning_effort,
@@ -334,7 +344,6 @@ async def _write(
     property_class = prepared.property_class
     components, rooms, overrides = prepared.components, prepared.rooms, prepared.overrides
     assets = AssetRepository(session)
-    cache_repo = ClassificationCacheRepository(session)
     budget = prepared.budget
     table = cost_table_for(settings.cost_table_path)
     plan = TakeoffPlan.build(
@@ -414,7 +423,8 @@ async def _write(
             row.verified_at = datetime.now(UTC)
         needs_review += asset.needs_review
     await session.flush()
-    await cache_repo.record_hits(cache_hits)
+    if prepared.ctx.org_id is not None:
+        await ClassificationCacheRepository(session).record_hits(prepared.ctx.org_id, cache_hits)
     return ProcessAssetsOutput(
         assets=len(components), needs_review=needs_review, cost_usd=round(budget.spent_usd, 6)
     )
@@ -526,6 +536,7 @@ async def _write_classified(
         confidence=result.confidence,
         needs_review=result.needs_review,
         review_reason=result.review_reason,
+        convention=None if result.convention is None else dict(result.convention),
     )
 
 
@@ -613,7 +624,13 @@ async def _write_manual(
         needs_review=bool(reasons),
         review_reason="; ".join(reasons) or None,
     )
-    hit = lookup(component.label, component.material, component.attachment, property_class)
+    hit = lookup(
+        component.label,
+        component.material,
+        component.attachment,
+        property_class,
+        room_type=room.room_type if room else None,
+    )
     record = {"asset_correction": {"from_asset_id": str(old.id), "after": after}}
     return asset, None if hit is None else hit.key, record
 

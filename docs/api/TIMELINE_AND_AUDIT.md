@@ -81,6 +81,8 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `study.stalled`, `review.reminded` | system | the review deadline and reminders | `detail.waiting_days` |
 | `study.retry_requested`, `study.cancel_requested` | engineer | `POST .../retry`, `POST .../cancel` | |
 | `export.written` | system | the export | `detail.uri`, `sha256`, `assets_csv` |
+| `convention.promoted` | engineer | `promote_conventions` promoted an approved asset's ruling to the firm's conventions | `actor_id` the approving reviewer; `entity_id` the asset; `detail` key, bucket, `agrees_with_rules`, `rule_key`, outcome (`created`, `confirmed`, `replaced`), approvals, method, cited |
+| `convention.replaced` | engineer | the approved answer differed from the firm's convention for the key, which it replaced | `code` `BASIS-ASSETS-013`; `before` the replaced convention, `after` the new one; `detail.key` |
 
 Not recorded per row, on purpose: the model's `photo_objects` (SAM 3 candidates, tens per
 photo) and the rows a model call wrote (components, fields): the activity event carries the
@@ -200,12 +202,46 @@ asset's: an engineer cannot edit them directly), and the same members in the exp
 Rooms copied before `rooms.carried_from` existed have no lineage: a renamed one reports
 `engineer_modified` with no correction named. Everything else resolves for old studies too.
 
+## Firm conventions
+
+An engineer's approved ruling classifies the same component in the firm's later studies
+(docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 5). When the assets review is
+approved, `promote_conventions` writes one convention per context key (`label|material|
+attachment|room|property_class|rules version`) into `classification_cache`, scoped by the
+study's firm: from every `manual` asset (the correction's reason is kept as the rationale)
+and every `llm` asset with a verified reference citation; never from `rule` assets. A later
+approval with the same answer adds to `approvals`, including an approved `cache` asset (the
+engineer let the convention stand); a different answer replaces the convention and is
+recorded as `convention.replaced`. A failure of the step is
+logged with `BASIS-ASSETS-012` and does not stop the export.
+
+The router checks the firm's conventions first, then the rules table, then the model. An
+asset classified from a convention has `method` `cache`, is not sent to review for
+disagreeing with the rules table, and carries where the position came from, as of its
+classification, in `/assets` items and the export's `assets[]`:
+
+```json
+"convention": {
+  "key": "toilet|porcelain|permanent|bathroom|residential_rental|2026-10-29.1",
+  "study_id": "<study whose approval seeded it>", "reviewer_id": "<user>",
+  "approved_at": "2026-10-29T18:40:02.117Z", "approvals": 3,
+  "rule_key": "toilet", "agrees_with_rules": false,
+  "citation": null
+}
+```
+
+`agrees_with_rules` is null when the rules table has no row for the key; `citation` is
+`firm convention, uncited` for a ruling without citations (a cited one has its citations
+re-verified and listed like any other). `convention` is null for every other method. The
+row's `provenance` stays `model` (deterministic code applied an earlier decision); the
+convention member says whose decision.
+
 ## Where the error codes show
 
 | Surface | Member |
 |---|---|
 | a problem response | `code` next to `type` |
 | `GET .../workflow` → `status` | `failure_code` next to `failure`; `GET /v1/studies/{id}` → `failure_code` next to `failure_reason` |
-| a timeline event (`activity.failed`, `stage.failed`, `corrections.refused`) | `code` |
+| a timeline event (`activity.failed`, `stage.failed`, `corrections.refused`, `convention.replaced`) | `code` |
 | `/assets` and `/extraction` | `review_codes`, the codes behind `review_reasons` |
 | `activity_results.error`, the worker log, Temporal | `[BASIS-...]` at the end of the message |

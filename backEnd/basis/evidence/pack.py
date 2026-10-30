@@ -119,6 +119,8 @@ class AssetEvidence:
     location_factor: str | None
     cost_source: str | None
     citations: tuple[str, ...]  # entry ids
+    # The firm convention it was classified from (``assets.convention``), else None.
+    convention: Any = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +235,7 @@ def assemble_pack(
             location_factor=_s(cost.location_factor) if cost else None,
             cost_source=cost.source_row if cost else None,
             citations=tuple(e.id for e in ordered),
+            convention=asset.convention,
         )
         rows.append((row, ordered))
 

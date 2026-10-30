@@ -13,6 +13,7 @@ Shape of a run::
                              photos only, reconcile_rooms)
     transition -> assets_processing ; process_assets
     gate assets_review      (reject: apply_corrections, process_assets again)
+    promote_conventions     (patch firm-conventions-v1; a failure is logged, not fatal)
     (every localize_photo done) ; transition -> exporting ; export_report ;
     transition -> completed ; record_run_end
 
@@ -117,6 +118,13 @@ Patches in this file:
   ``components_gate=False`` keeps the single rooms review (tests run that flow afresh);
   executions recorded before the patch replay with it, and the API keeps their manual edits
   at ``rooms_review``.
+* ``firm-conventions-v1`` (docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 5):
+  right after the assets review is approved, ``promote_conventions`` turns the approved
+  revision's engineer corrections and cited model answers into the firm's conventions, which
+  classify the same component in the firm's next studies. A failure of it is logged with
+  ``E.ASSETS_CONVENTION_PROMOTION_FAILED`` and the study goes on to the export: its result
+  does not depend on the conventions. Executions recorded before the patch replay without
+  it.
 """
 
 from __future__ import annotations
@@ -165,6 +173,8 @@ with workflow.unsafe.imports_passed_through():
         NotifyInput,
         ProcessAssetsInput,
         ProcessAssetsOutput,
+        PromoteConventionsInput,
+        PromoteConventionsOutput,
         ReconcileRoomsInput,
         ReconcileRoomsOutput,
         RecordFailureInput,
@@ -202,6 +212,7 @@ EARLY_GATE_PATCH: Final = "appraisal-gate-early-v1"
 ACCOUNT_STOP_PATCH: Final = "provider-account-stop-v1"
 LOCALIZE_BACKGROUND_PATCH: Final = "localize-background-v1"
 COMPONENTS_GATE_PATCH: Final = "components-gate-v1"
+CONVENTIONS_PATCH: Final = "firm-conventions-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
@@ -497,6 +508,8 @@ class StudyWorkflow:
                 break
             _, corrections = await self._reject(decision, "assets_processing")
             await self._process_assets(corrections)
+        if workflow.patched(CONVENTIONS_PATCH):
+            await self._promote_conventions()
 
         await self._localized()  # the study ends with every localization recorded
         await self._transition("exporting")
@@ -903,6 +916,32 @@ class StudyWorkflow:
         self._budget -= output.cost_usd
         if output.needs_review:
             self._mark_needs_review("assets_review")
+
+    async def _promote_conventions(self) -> None:
+        """Patch ``firm-conventions-v1``: promote the approved revision's rulings; a failure
+        is logged with its code and the study continues (module doc)."""
+        revision = self._revision
+        activity_id = f"promote_conventions:r{revision}"
+        try:
+            await self._activity(
+                "promote_conventions",
+                PromoteConventionsInput(
+                    study_id=self._input.study_id,
+                    revision=revision,
+                    idempotency_key=self._key(activity_id),
+                ),
+                PromoteConventionsOutput,
+                activity_id,
+            )
+        except ActivityError as error:
+            if isinstance(error.cause, CancelledError) or self._stopping:
+                raise  # the study is being cancelled
+            workflow.logger.warning(
+                "conventions of revision %s not promoted: %s",
+                revision,
+                error.cause or error,
+                extra={"error_code": E.ASSETS_CONVENTION_PROMOTION_FAILED},
+            )
 
     async def _assets_once(
         self, revision: int, corrections: tuple[CorrectionInput, ...], suffix: str

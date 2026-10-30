@@ -29,7 +29,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from basis.domain.rules import RULES, RULES_VERSION
+from basis.domain.rules import RULES_VERSION, hit_name, table_hits
 from basis.vision.rooms import display_name, name_hint
 from basis.vision.schemas import COMPONENT_LABELS, ROOM_TYPES, Material
 from evals.metrics import FieldType
@@ -175,19 +175,20 @@ class RuleCitations(_Model):
 
 
 def rule_citations() -> RuleCitations:
-    """Every citation of every rules-table row, in table order."""
+    """Every citation of every rules-table row and of every row's variants, in table order
+    (a variant's ``rule`` is ``key[context]``, e.g. ``kitchen_cabinet[room=bathroom]``)."""
     return RuleCitations(
         rules_version=RULES_VERSION,
         citations=[
             RuleCitationItem(
-                rule=rule.key,
+                rule=hit_name(hit),
                 doc_id=claim.doc_id,
                 page=claim.page,
                 excerpt=claim.excerpt,
-                contested=rule.contested is not None,
+                contested=hit.contested is not None,
             )
-            for rule in RULES.values()
-            for claim in rule.citations
+            for hit in table_hits()
+            for claim in hit.citations
         ],
     )
 

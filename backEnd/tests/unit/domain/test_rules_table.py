@@ -3,28 +3,45 @@
 Migrated from ``agentic/tests/test_static_rules.py`` (BUILD_PLAN 6.1): normalization,
 direct and alias hits with the legacy confidences, unknown and empty labels, row
 integrity and coverage. Added: material resolution of generic floor labels, the
-structural-attachment conflict, contested rows, property class handling, and the
-deliberate changes from legacy.
+structural-attachment conflict, contested rows, property class handling, the deliberate
+changes from legacy, and (RULES_VERSION 2026-10-29.1, CLASSIFICATION_CONVENTIONS.md
+section 4) the context dimension: the rows the IRS guide names in their guide bucket and
+the variants by room and attachment.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from decimal import Decimal
 
 import pytest
 
 from basis.classify.verify import MIN_EXCERPT_CHARS, normalize_text
 from basis.db.enums import Bucket
+from basis.domain.rooms import normalize_room_type as rooms_normalize_room_type
 from basis.domain.rules import (
     ALIASES,
     PROPERTY_CLASSES,
     RECOVERY_YEARS,
     RULES,
     RULES_VERSION,
+    Rule,
+    hit_name,
     lookup,
     normalize_label,
+    normalize_room_type,
+    table_hits,
 )
 from basis.domain.validators import VALID_SECTION_BUCKETS
+
+
+def all_rules() -> Iterator[tuple[str, Rule]]:
+    """Every base row and every variant's rule, with the row key it belongs to."""
+    for key, rule in RULES.items():
+        yield key, rule
+        for variant in rule.variants:
+            yield key, variant.rule
+
 
 # ----------------------------------------------------------------- normalization
 
@@ -65,9 +82,9 @@ def test_parking_lot_is_15_year_land_improvement() -> None:
     assert hit is not None and (hit.section, hit.bucket) == ("1250", Bucket.Y15)
 
 
-def test_furniture_is_7_year_00_11() -> None:
+def test_furniture_is_a_residential_furnishing_5_year_57_0() -> None:
     hit = lookup("furniture")
-    assert hit is not None and (hit.bucket, hit.asset_class) == (Bucket.Y7, "00.11")
+    assert hit is not None and (hit.bucket, hit.asset_class) == (Bucket.Y5, "57.0")
 
 
 def test_case_and_spacing_do_not_matter() -> None:
@@ -87,7 +104,7 @@ def test_alias_hit_has_lower_confidence_and_names_the_canonical_row() -> None:
         ("swimming_pool", "pool"),
         ("cabinetry", "kitchen_cabinet"),
         ("tile_flooring", "tile"),
-        ("decorative_lighting", "light_fixture"),
+        ("decorative_lighting", "accent_lighting"),
         ("washing machine", "washer"),
     ],
 )
@@ -141,43 +158,20 @@ def test_structural_attachment_contradicts_a_1245_row() -> None:
 # ----------------------------------------------------------------- contested rows
 
 
-@pytest.mark.parametrize(
-    "key", ["toilet", "sink", "bathtub", "shower", "light_fixture", "tile", "hardwood_floor"]
-)
-def test_rows_that_conflict_with_the_regulation_are_contested(key: str) -> None:
-    hit = lookup(key)
-    assert hit is not None and hit.contested is not None
-    assert "1.48-1(e)(2)" in hit.contested
-    assert hit.bucket is Bucket.Y5  # legacy bucket kept; the engineer decides
-
-
-def test_uncontested_rows_have_no_note() -> None:
+def test_the_contested_set_is_what_section_4_leaves_contested() -> None:
+    """An item the guide names takes the guide's bucket and loses its note; an item no
+    document names, or where practitioners commonly differ, keeps its note."""
     contested = {k for k, r in RULES.items() if r.contested}
     assert contested == {
-        # Treas. Reg. 1.48-1(e)(2) rows (contested since the migration)
-        "toilet",
-        "sink",
-        "bathtub",
-        "shower",
-        "light_fixture",
-        "tile",
-        "hardwood_floor",
-        # no supporting text in the reference documents (re-citation, 2026-10-15)
+        # no supporting text in the reference documents (re-citation, 2026-10-15); the
+        # kitchen row stays (Metro National, ATG p.100), its bathroom variant is a building row
         "kitchen_cabinet",
         "countertop",
-        "garbage_disposal",
-        "ceiling_fan",
-        "bathroom_vanity",
-        "mirror",
-        "smoke_detector",
-        "thermostat",
         "doorbell",
         "laminate_flooring",
-        "closet_shelving",
-        "water_heater",
-        # supported only for office furniture / freestanding decks
-        "furniture",
-        "chair",
+        # the documents' position adopted, studies commonly differ (2026-10-29)
+        "hardwood_floor",
+        # supported only for freestanding decks
         "deck",
         # rows added 2026-10-16 where the documents and the engineer's report disagree, or
         # no passage names the item (EVAL_REPORT section 19)
@@ -188,28 +182,26 @@ def test_uncontested_rows_have_no_note() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        "kitchen_cabinet",
-        "countertop",
-        "garbage_disposal",
-        "ceiling_fan",
-        "bathroom_vanity",
-        "mirror",
-        "smoke_detector",
-        "thermostat",
-        "doorbell",
-        "laminate_flooring",
-        "closet_shelving",
-        "water_heater",
-    ],
-)
+def test_no_variant_is_contested() -> None:
+    for key, rule in RULES.items():
+        for variant in rule.variants:
+            assert variant.rule.contested is None, key
+
+
+@pytest.mark.parametrize("key", ["kitchen_cabinet", "countertop", "doorbell", "laminate_flooring"])
 def test_rows_without_supporting_text_say_so_and_keep_their_legacy_bucket(key: str) -> None:
     hit = lookup(key)
     assert hit is not None and hit.contested is not None
     assert hit.contested.startswith("No supporting text was found")
     assert (hit.section, hit.bucket) == ("1245", Bucket.Y5)
+
+
+def test_hardwood_floor_is_a_building_row_and_stays_contested() -> None:
+    hit = lookup("hardwood_floor")
+    assert hit is not None and (hit.section, hit.bucket) == ("1250", Bucket.Y27_5)
+    assert hit.contested is not None
+    assert "glued wood flooring as 5-year" in hit.contested
+    assert "p.306" in hit.contested
 
 
 def test_contested_rows_still_carry_a_citation() -> None:
@@ -227,7 +219,7 @@ def test_citations_name_real_pages() -> None:
         "IRS_REV_PROC_87_56": 42,
         "IRS_IRS_PUB_946__2024": 112,
     }
-    for key, rule in RULES.items():
+    for key, rule in all_rules():
         for citation in rule.citations:
             assert citation.doc_id in pages, (key, citation.doc_id)
             assert 1 <= citation.page <= pages[citation.doc_id], (key, citation.page)
@@ -263,7 +255,22 @@ def test_only_building_rows_differ_by_property_class() -> None:
         "concrete_floor",
         "half_wall",
         "window_guard",
+        # named by ATG Exhibit A, building since 2026-10-29
+        *GUIDE_NAMED_BUILDING_ROWS,
+        "hardwood_floor",
+        "mirror",
     }
+
+
+def test_variant_rules_differ_by_property_class_only_when_they_are_building_rows() -> None:
+    for key, rule in RULES.items():
+        for variant in rule.variants:
+            assert variant.rule.section == "1250" or not variant.rule.building, key
+            buckets = {variant.rule.bucket_for(c) for c in ("residential_rental", "nonresidential")}
+            if variant.rule.building:
+                assert buckets == {Bucket.Y27_5, Bucket.Y39}, key
+            else:
+                assert buckets == {variant.rule.bucket}, key
 
 
 # ------------------------------------------------- rows added 2026-10-16 (EVAL_REPORT 19)
@@ -353,12 +360,318 @@ def test_property_classes() -> None:
     assert PROPERTY_CLASSES == ("residential_rental", "nonresidential")
 
 
+# --------------------------------- the context dimension (RULES_VERSION 2026-10-29.1)
+
+# Rows the ATG's residential rental matrix (Exhibit A) names as building components: they
+# take the guide's bucket and lose their contested note (CLASSIFICATION_CONVENTIONS.md 4).
+GUIDE_NAMED_BUILDING_ROWS = (
+    "toilet",
+    "bathtub",
+    "shower",
+    "sink",
+    "water_heater",
+    "garbage_disposal",
+    "light_fixture",
+    "ceiling_fan",
+    "smoke_detector",
+    "thermostat",
+    "tile",
+    "bathroom_vanity",
+    "closet_shelving",
+)
+
+
+@pytest.mark.parametrize("key", GUIDE_NAMED_BUILDING_ROWS)
+def test_rows_the_guide_names_are_building_rows_without_a_note(key: str) -> None:
+    residential = lookup(key)
+    nonresidential = lookup(key, property_class="nonresidential")
+    assert residential is not None and nonresidential is not None
+    assert (residential.section, residential.bucket, residential.asset_class) == (
+        "1250",
+        Bucket.Y27_5,
+        None,
+    )
+    assert (nonresidential.section, nonresidential.bucket) == ("1250", Bucket.Y39)
+    assert residential.contested is None and nonresidential.contested is None
+    assert residential.context is None
+    assert all(c.doc_id == "IRS_IRS_COST_SEG_ATG__2024" for c in residential.citations)
+
+
+@pytest.mark.parametrize(
+    ("key", "section", "residential", "nonresidential", "asset_class"),
+    [
+        ("hardwood_floor", "1250", Bucket.Y27_5, Bucket.Y39, None),
+        ("mirror", "1250", Bucket.Y27_5, Bucket.Y39, None),
+        ("accent_lighting", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("furniture", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("chair", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("desk", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("filing_cabinet", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        # base rows unchanged
+        ("kitchen_cabinet", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("countertop", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("doorbell", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("laminate_flooring", "1245", Bucket.Y5, Bucket.Y5, "57.0"),
+        ("outdoor_lighting", "1250", Bucket.Y15, Bucket.Y15, "00.3"),
+        ("deck", "1250", Bucket.Y15, Bucket.Y15, "00.3"),
+        ("half_wall", "1250", Bucket.Y27_5, Bucket.Y39, None),
+        ("window_guard", "1250", Bucket.Y27_5, Bucket.Y39, None),
+        ("shed", "1245", Bucket.Y7, Bucket.Y7, None),
+        ("concrete_pad", "1250", Bucket.Y15, Bucket.Y15, "00.3"),
+    ],
+)
+def test_the_base_row_of_every_row_section_4_names(
+    key: str,
+    section: str,
+    residential: Bucket,
+    nonresidential: Bucket,
+    asset_class: str | None,
+) -> None:
+    for property_class, bucket in (
+        ("residential_rental", residential),
+        ("nonresidential", nonresidential),
+    ):
+        hit = lookup(key, property_class=property_class)
+        assert hit is not None and hit.context is None
+        assert (hit.section, hit.bucket, hit.asset_class) == (section, bucket, asset_class)
+
+
+@pytest.mark.parametrize(
+    ("label", "room", "property_class", "section", "bucket", "asset_class", "context"),
+    [
+        # restroom cabinetry (ATG pp.298, 317)
+        (
+            "kitchen_cabinet",
+            "bathroom",
+            "residential_rental",
+            "1250",
+            Bucket.Y27_5,
+            None,
+            "room=bathroom",
+        ),
+        (
+            "kitchen_cabinet",
+            "bathroom",
+            "nonresidential",
+            "1250",
+            Bucket.Y39,
+            None,
+            "room=bathroom",
+        ),
+        (
+            "countertop",
+            "bathroom",
+            "residential_rental",
+            "1250",
+            Bucket.Y27_5,
+            None,
+            "room=bathroom",
+        ),
+        ("countertop", "Bathroom", "nonresidential", "1250", Bucket.Y39, None, "room=bathroom"),
+        ("kitchen_cabinet", "kitchen", "residential_rental", "1245", Bucket.Y5, "57.0", None),
+        # furniture by the business it serves (ATG pp.307, 308)
+        ("furniture", "office", "residential_rental", "1245", Bucket.Y7, "00.11", "room=office"),
+        ("furniture", "office", "nonresidential", "1245", Bucket.Y7, "00.11", "room=office"),
+        ("chair", "office", "residential_rental", "1245", Bucket.Y7, "00.11", "room=office"),
+        ("desk", "office", "residential_rental", "1245", Bucket.Y7, "00.11", "room=office"),
+        (
+            "filing_cabinet",
+            "office",
+            "residential_rental",
+            "1245",
+            Bucket.Y7,
+            "00.11",
+            "room=office",
+        ),
+        ("furniture", "bedroom", "residential_rental", "1245", Bucket.Y5, "57.0", None),
+        ("furniture", "bedroom", "nonresidential", "1245", Bucket.Y5, "57.0", None),
+        ("desk", "living_room", "residential_rental", "1245", Bucket.Y5, "57.0", None),
+        # a room no variant names is the base row
+        ("toilet", "bathroom", "residential_rental", "1250", Bucket.Y27_5, None, None),
+        ("mirror", "bathroom", "residential_rental", "1250", Bucket.Y27_5, None, None),
+    ],
+)
+def test_room_variants(
+    label: str,
+    room: str,
+    property_class: str,
+    section: str,
+    bucket: Bucket,
+    asset_class: str | None,
+    context: str | None,
+) -> None:
+    hit = lookup(label, property_class=property_class, room_type=room)
+    assert hit is not None
+    assert (hit.section, hit.bucket, hit.asset_class, hit.context) == (
+        section,
+        bucket,
+        asset_class,
+        context,
+    )
+    assert hit.key == label  # the hit names the row, not the variant
+    assert hit.recovery_period == RECOVERY_YEARS[bucket]
+    assert hit.property_class == property_class
+
+
+@pytest.mark.parametrize(
+    ("attachment", "section", "bucket", "asset_class", "context"),
+    [
+        ("removable", "1245", Bucket.Y5, "57.0", "attachment=removable"),
+        ("Freestanding", "1245", Bucket.Y5, "57.0", "attachment=freestanding"),
+        ("permanent", "1250", Bucket.Y27_5, None, None),
+        ("unknown", "1250", Bucket.Y27_5, None, None),
+        (None, "1250", Bucket.Y27_5, None, None),
+        ("structural", "1250", Bucket.Y27_5, None, None),
+    ],
+)
+def test_a_removable_mirror_is_decor_and_a_permanent_one_a_building_component(
+    attachment: str | None,
+    section: str,
+    bucket: Bucket,
+    asset_class: str | None,
+    context: str | None,
+) -> None:
+    hit = lookup("mirror", attachment=attachment)
+    assert hit is not None
+    assert (hit.section, hit.bucket, hit.asset_class, hit.context) == (
+        section,
+        bucket,
+        asset_class,
+        context,
+    )
+    assert hit.contested is None
+
+
+def test_a_removable_mirror_is_five_years_for_both_property_classes() -> None:
+    for property_class in PROPERTY_CLASSES:
+        hit = lookup("bathroom mirror", attachment="removable", property_class=property_class)
+        assert hit is not None and hit.key == "mirror" and hit.via == "alias"
+        assert (hit.bucket, hit.context) == (Bucket.Y5, "attachment=removable")
+    permanent = lookup("mirror", attachment="permanent", property_class="nonresidential")
+    assert permanent is not None and permanent.bucket is Bucket.Y39
+
+
+@pytest.mark.parametrize("room", ["restroom", "Restroom", "bath", "powder room", "bathroom"])
+def test_room_aliases_resolve_to_the_bathroom_variant(room: str) -> None:
+    hit = lookup("cabinet", room_type=room)
+    assert hit is not None
+    assert (hit.key, hit.via, hit.bucket, hit.context) == (
+        "kitchen_cabinet",
+        "alias",
+        Bucket.Y27_5,
+        "room=bathroom",
+    )
+
+
+@pytest.mark.parametrize("room", ["ballroom", "", "   ", "other", "ambiguous", "kitchen"])
+def test_an_unknown_or_unnamed_room_falls_to_the_base_row(room: str) -> None:
+    for label in ("kitchen_cabinet", "furniture", "mirror"):
+        assert lookup(label, room_type=room) == lookup(label)
+
+
+def test_no_room_type_is_the_base_row_and_existing_calls_are_unchanged() -> None:
+    for key in RULES:
+        positional = lookup(key, None, None, "residential_rental")
+        assert positional == lookup(key, room_type=None)
+        assert positional is not None and positional.context is None
+
+
+def test_a_structural_attachment_is_judged_on_the_effective_rule() -> None:
+    # the bathroom variant is a building row, so "structural" does not contradict it
+    hit = lookup("kitchen_cabinet", attachment="structural", room_type="bathroom")
+    assert hit is not None and hit.section == "1250" and hit.context == "room=bathroom"
+    assert lookup("kitchen_cabinet", attachment="structural") is None
+    assert lookup("furniture", attachment="structural", room_type="office") is None
+
+
+def test_a_room_variant_ignores_the_attachment_and_an_attachment_variant_the_room() -> None:
+    cabinet = lookup("kitchen_cabinet", attachment="freestanding", room_type="bathroom")
+    assert cabinet is not None and cabinet.context == "room=bathroom"
+    mirror = lookup("mirror", attachment="removable", room_type="office")
+    assert mirror is not None and mirror.context == "attachment=removable"
+
+
+def test_a_variant_hit_carries_the_variants_citations_and_category() -> None:
+    office = lookup("furniture", room_type="office")
+    base = lookup("furniture")
+    assert office is not None and base is not None
+    assert {c.page for c in office.citations} == {4, 307}  # Rev. Proc. 87-56 00.11, ATG p.307
+    assert {c.page for c in base.citations} == {297, 308}
+    assert office.category != base.category
+    bathroom = lookup("countertop", room_type="bathroom")
+    assert bathroom is not None and {c.page for c in bathroom.citations} == {298, 317}
+    assert bathroom.contested is None  # the base row's note does not carry to the variant
+
+
+def test_table_hits_reach_every_row_and_every_variant() -> None:
+    """The enumeration the rule_citations eval and the real-corpus test walk: a hit per row
+    and per variant, each variant reached in its own context (none shadowed)."""
+    hits = table_hits()
+    assert len(hits) == len(RULES) + sum(len(r.variants) for r in RULES.values())
+    names = [hit_name(h) for h in hits]
+    assert len(set(names)) == len(names)
+    assert "kitchen_cabinet[room=bathroom]" in names and "mirror[attachment=freestanding]" in names
+    for hit in hits:
+        rule = RULES[hit.key]
+        if hit.context is None:
+            assert hit.citations == rule.citations
+        else:
+            assert hit.citations in {v.rule.citations for v in rule.variants}
+    assert table_hits("nonresidential")[0].property_class == "nonresidential"
+
+
+def test_the_room_normalization_is_shared_with_basis_domain_rooms() -> None:
+    assert rooms_normalize_room_type is normalize_room_type
+    assert normalize_room_type("Restroom") == "bathroom"
+    assert normalize_room_type(None) == ""
+
+
+def test_accent_lighting_is_five_year_57_0() -> None:
+    hit = lookup("accent_lighting")
+    assert hit is not None
+    assert (hit.section, hit.bucket, hit.asset_class, hit.contested) == (
+        "1245",
+        Bucket.Y5,
+        "57.0",
+        None,
+    )
+    assert all(c.page in (297, 313) for c in hit.citations)
+
+
+@pytest.mark.parametrize(
+    "alias", ["track_lighting", "decorative_lighting", "neon_lighting", "landscape_lighting"]
+)
+def test_accent_lighting_aliases(alias: str) -> None:
+    hit = lookup(alias)
+    assert hit is not None and (hit.key, hit.via, hit.bucket) == (
+        "accent_lighting",
+        "alias",
+        Bucket.Y5,
+    )
+    assert ALIASES[alias] == "accent_lighting"
+
+
+@pytest.mark.parametrize(
+    ("label", "key"),
+    [
+        ("chandelier", "light_fixture"),
+        ("sconce", "light_fixture"),
+        ("recessed_light", "light_fixture"),
+        ("lamp", "furniture"),  # a lamp is a furnishing, not a building light fixture
+    ],
+)
+def test_general_lighting_aliases_stay_with_light_fixture(label: str, key: str) -> None:
+    hit = lookup(label)
+    assert hit is not None and hit.key == key
+    assert lookup("decorative_lighting").key != "light_fixture"  # type: ignore[union-attr]
+
+
 # ----------------------------------------------------------------- table integrity
 
 
 def test_every_row_has_section_bucket_life_and_a_citation() -> None:
-    for key, rule in RULES.items():
-        assert rule.key == key
+    for key, rule in all_rules():
+        assert rule.key == key  # a variant's rule keeps the row's key
         assert rule.category and rule.irs_note
         assert rule.section in ("1245", "1250")
         assert rule.bucket in RECOVERY_YEARS
@@ -372,7 +685,7 @@ def test_every_row_has_section_bucket_life_and_a_citation() -> None:
 def test_every_citation_excerpt_is_long_enough_to_verify() -> None:
     # resolve_rule_citations verifies an excerpt as a normalized substring of a chunk and
     # refuses anything shorter than MIN_EXCERPT_CHARS, so a shorter excerpt can never cite.
-    for key, rule in RULES.items():
+    for key, rule in all_rules():
         for citation in rule.citations:
             assert len(normalize_text(citation.excerpt)) >= MIN_EXCERPT_CHARS, (
                 f"{key}: {citation.excerpt!r}"
@@ -380,13 +693,13 @@ def test_every_citation_excerpt_is_long_enough_to_verify() -> None:
 
 
 def test_section_and_bucket_are_consistent_for_every_row() -> None:
-    for key, rule in RULES.items():
+    for key, rule in all_rules():
         assert rule.bucket in VALID_SECTION_BUCKETS[rule.section], key
 
 
 def test_recovery_period_matches_bucket() -> None:
     expected = {Bucket.Y5: 5, Bucket.Y7: 7, Bucket.Y15: 15, Bucket.Y27_5: Decimal("27.5")}
-    for rule in RULES.values():
+    for _, rule in all_rules():
         assert rule.recovery_period == Decimal(expected[rule.bucket])
         assert rule.bucket is not Bucket.Y27_5 or rule.building  # 27.5 only as a building row
 
@@ -412,3 +725,52 @@ def test_coverage_is_at_least_the_legacy_table() -> None:
 
 def test_rules_version_is_set() -> None:
     assert RULES_VERSION and "|" not in RULES_VERSION
+
+
+def test_rules_version_changed_with_the_context_dimension() -> None:
+    # part of the cache key: a classification cached under the 2026-10-16 table is never served
+    assert RULES_VERSION == "2026-10-29.1"
+
+
+def test_every_variant_is_well_formed() -> None:
+    for key, rule in RULES.items():
+        for variant in rule.variants:
+            when = variant.when
+            assert when.rooms or when.attachments or when.property_classes, key  # never always
+            assert not variant.rule.variants, key  # one level only
+            assert when.property_classes <= set(PROPERTY_CLASSES), key
+            for room in when.rooms:
+                assert normalize_room_type(room) == room, (key, room)  # canonical room types
+            for attachment in when.attachments:
+                assert normalize_label(attachment) == attachment, (key, attachment)
+    assert {k for k, r in RULES.items() if r.variants} == {
+        "kitchen_cabinet",
+        "countertop",
+        "mirror",
+        "closet_shelving",
+        "furniture",
+        "chair",
+        "desk",
+        "filing_cabinet",
+    }
+
+
+# ------------------------------------------------- freestanding shelving (the context dimension)
+
+
+def test_a_freestanding_shelf_is_a_furnishing_and_a_built_in_one_finish_carpentry() -> None:
+    built_in = lookup("shelf", attachment="permanent", property_class="nonresidential")
+    assert built_in is not None and (built_in.section, built_in.bucket, built_in.context) == (
+        "1250",
+        Bucket.Y39,
+        None,
+    )
+    loose = lookup("storage shelf", attachment="freestanding", property_class="nonresidential")
+    assert loose is not None and (loose.section, loose.bucket, loose.asset_class) == (
+        "1245",
+        Bucket.Y5,
+        "57.0",
+    )
+    assert (loose.key, loose.context) == ("closet_shelving", "attachment=freestanding")
+    assert lookup("shelves", attachment="unknown") is not None
+    assert lookup("shelves", attachment="unknown").context is None  # type: ignore[union-attr]
