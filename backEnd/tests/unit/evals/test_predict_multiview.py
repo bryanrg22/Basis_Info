@@ -11,13 +11,13 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from tests.llm_fakes import PromptKeyedProvider
 
 from basis.llm import prompts
 from basis.llm.provider import ScriptedTurn
 from basis.vision import multiview as mv
 from basis.vision.reconcile import ModelRoomInventory
 from evals import predict_multiview as pm
+from tests.llm_fakes import PromptKeyedProvider
 
 FILES = [
     "21_1st Floor Kitchen photo 1.JPG",
