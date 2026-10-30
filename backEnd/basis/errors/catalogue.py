@@ -2095,6 +2095,20 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "None if the new ruling is intended; otherwise correct the asset in a later study.",
         "no",
     ),
+    _e(
+        E.ASSETS_CONVENTION_CONFLICT,
+        "flag",
+        "process_assets",
+        "basis.classify.router",
+        "The firm's rulings for the component's label disagree with equal weight at the "
+        "tier that would have served it (CLASSIFICATION_CONVENTIONS.md section 9.3), so "
+        "the rules table or the model classified it instead.",
+        "`review_reasons` `convention_conflict:<tier>` (`label_room` or `label`).",
+        "The engineer rules on the asset at the assets review; the approved ruling becomes "
+        "the exact convention, which wins next time.",
+        "no",
+        signal="convention_conflict:",
+    ),
     # ------------------------------------------------------------------ EXPORT
     _e(
         E.EXPORT_STUDY_NOT_FOUND,

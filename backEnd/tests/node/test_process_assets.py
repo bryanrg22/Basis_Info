@@ -8,6 +8,10 @@ section 6): an approved revision promotes its engineer corrections and cited mod
 (never rule assets), idempotently; the next study at the firm is classified from them with
 no model call and carries their provenance, a study at another firm is not; a repeat
 approval counts, a different answer replaces the convention with an event.
+The hierarchy (section 9): a component whose material the photo step read differently, or
+whose room the first study never showed, is served by the ruling at a coarser tier
+(``matched_tier`` on the asset and in the export), a generic floor keeps its material, and
+the next approval counts on the row that served.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
 from basis.activities.apply_corrections import ApplyCorrections
-from basis.activities.process_assets import ProcessAssets
+from basis.activities.process_assets import EXTRAPOLATED_REASON, ProcessAssets
 from basis.activities.promote_conventions import PromoteConventions
 from basis.classify.cache import cache_key
 from basis.classify.store_protocol import InMemoryChunkStore
@@ -522,6 +526,7 @@ async def test_the_next_study_at_the_firm_is_classified_from_the_conventions(
     seeded = await conventions(sm, study.org_id)
     assert door.convention == {
         "key": GARAGE_KEY,
+        "matched_tier": "exact",
         "study_id": str(study.study_id),
         "reviewer_id": str(study.owner_id),
         "approved_at": seeded[GARAGE_KEY].approved_at.isoformat(),
@@ -660,3 +665,94 @@ async def test_a_repeat_approval_counts_and_a_different_answer_replaces(
     assert event.after["result"]["bucket"] == "y15"
     [promoted] = await events(sm, third.study_id, "convention.promoted")
     assert (promoted.detail["outcome"], promoted.detail["approvals"]) == ("replaced", 1)
+
+
+async def test_a_coarser_tier_serves_the_next_study_and_counts_on_the_served_row(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    db_test_settings: Settings,
+    reference_store: InMemoryChunkStore,
+    study: SeededStudy,
+    activity_env: Env,
+) -> None:
+    """CLASSIFICATION_CONVENTIONS.md section 9: the photo step reads the next study's carpet
+    with a material (the ruling was keyed without one), its garage door is in a room the
+    first study never showed, and its kitchen floor is a generic floor with a material the
+    firm never ruled on."""
+    sm = sessionmaker
+    await seed_firm_conventions(sm, storage, db_test_settings, reference_store, study, activity_env)
+    second = await study_at_firm(sm, study)
+    await add_room_with(sm, second.study_id, "Bedroom 3", "bedroom", [("carpet", "wool")])
+    await add_room_with(sm, second.study_id, "Cellar", "basement", [("garage_door", None)])
+    await add_room_with(sm, second.study_id, "Kitchen", "kitchen", [("flooring", "vinyl")])
+    no_model = node_deps(sm, storage, db_test_settings, reference_store, [])
+    output = await activity_env.run(ProcessAssets(no_model).run, process(second, key="k-tiers"))
+    assert (output.assets, output.cost_usd) == (3, 0.0)  # no model call
+    async with session_scope(sm) as session:
+        rows = await session.execute(
+            select(Component.label, Asset)
+            .join(Asset, Asset.component_id == Component.id)
+            .where(Asset.study_id == second.study_id)
+        )
+        found = {label: asset for label, asset in rows.all()}
+
+    # The same label and room, another material: the bedroom ruling serves (label_room).
+    carpet = found["carpet"]
+    assert (carpet.method, carpet.bucket, carpet.category) == (
+        ClassificationMethod.CACHE,
+        Bucket.Y27_5,
+        "Glued carpet",
+    )
+    assert carpet.convention is not None
+    assert (carpet.convention["key"], carpet.convention["matched_tier"]) == (
+        CARPET_KEY,
+        "label_room",
+    )
+    # The convention leaves nothing to review in the classification; the only flag is the
+    # cost row's year index (the settings' cost year is past the 2020 books: EVAL_REPORT 45).
+    assert (carpet.review_reason or "").split("; ") == [EXTRAPOLATED_REASON]
+    # A room the firm never ruled on, no rule row: the label alone serves.
+    door = found["garage_door"]
+    assert (door.method, door.bucket) == (ClassificationMethod.CACHE, Bucket.Y27_5)
+    assert door.convention is not None
+    assert (door.convention["key"], door.convention["matched_tier"]) == (GARAGE_KEY, "label")
+    # A generic floor keeps its material at every tier: the firm's ruling was on a kitchen
+    # floor with no material, so a vinyl floor takes the vinyl rule row, not the ruling.
+    floor = found["flooring"]
+    assert (floor.method, floor.bucket, floor.category, floor.convention) == (
+        ClassificationMethod.RULE,
+        Bucket.Y5,
+        "Vinyl flooring",
+        None,
+    )
+
+    # Hits are counted on the rows that served; the export carries the tier.
+    assert {k: r.hits for k, r in (await conventions(sm, study.org_id)).items()} == {
+        CARPET_KEY: 1,
+        FLOORING_KEY: 0,
+        GARAGE_KEY: 1,
+    }
+    async with session_scope(sm) as session:
+        pack = await load_pack(session, second.study_id, 1)
+    exported = {a["id"]: a for a in pack_document(pack)["assets"]}
+    assert exported[str(carpet.id)]["convention"]["matched_tier"] == "label_room"
+    assert exported[str(door.id)]["convention"]["matched_tier"] == "label"
+    assert exported[str(floor.id)]["convention"] is None
+
+    # Approving the study adds an approval to the rows that served, not to rows for the
+    # assets' own keys (there are none); the events name the served keys.
+    await approve_assets(sm, second)
+    promoted = await activity_env.run(
+        PromoteConventions(no_model).run, promote_input(second, 1, "k-promote-tiers")
+    )
+    assert promoted == PromoteConventionsOutput(confirmed=2)
+    after = await conventions(sm, study.org_id)
+    assert {k: r.approvals for k, r in after.items()} == {
+        CARPET_KEY: 2,
+        FLOORING_KEY: 1,
+        GARAGE_KEY: 2,
+    }
+    assert set(after) == {CARPET_KEY, FLOORING_KEY, GARAGE_KEY}  # no new row for wool or basement
+    assert sorted(
+        e.detail["key"] for e in await events(sm, second.study_id, "convention.promoted")
+    ) == sorted([CARPET_KEY, GARAGE_KEY])

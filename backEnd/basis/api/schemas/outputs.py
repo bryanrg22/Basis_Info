@@ -181,8 +181,16 @@ class ConventionOut(ResponseModel):
     (docs/api/TIMELINE_AND_AUDIT.md, "Firm conventions")."""
 
     key: str = Field(
-        description="The context key: `label|material|attachment|room|property_class|rules "
-        "version`."
+        description="The served convention's context key: `label|material|attachment|room|"
+        "property_class|rules version`. At a coarser `matched_tier` it is the ruling's key, "
+        "not the asset's own."
+    )
+    matched_tier: Literal["exact", "label_room", "label"] = Field(
+        default="exact",
+        description="How the asset's context met the convention's: `exact` (the same key), "
+        "`label_room` (the same label and room, another material or attachment), `label` "
+        "(the same label in another room). Assets classified before the hierarchy existed "
+        "are `exact`.",
     )
     study_id: uuid.UUID = Field(description="The study whose approval seeded the convention.")
     reviewer_id: uuid.UUID | None = Field(

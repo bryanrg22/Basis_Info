@@ -19,19 +19,27 @@ activity keeps the replaced row in ``study_events``.
 
 A convention without citations (an engineer's ruling needs none) is served; one with
 citations has them re-verified against the reference corpus in use (``basis.classify.router``).
+
+The table holds exact keys only; the reader derives a hierarchy from them (section 9):
+``exact`` (the component's own key), ``label_room`` (the same label and room, whatever
+material and attachment the photo step read), ``label`` (the same label in any room). A
+generic floor or surface finish keeps its material at every tier (the material is the
+item), and the catch-all ``other`` matches at the exact tier only. :class:`ConventionIndex` groups a
+firm's rows by tier; :meth:`ConventionIndex.match` serves the most specific tier that has a
+candidate and settles a disagreement inside a tier by approvals (a tie is a conflict).
 """
 
 from __future__ import annotations
 
 import uuid
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final, Literal
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +47,7 @@ from basis.classify.schemas import CitationClaim
 from basis.db.enums import Bucket
 from basis.db.models import ClassificationCacheEntry
 from basis.domain.rules import (
+    GENERIC_FLOOR_LABELS,
     RECOVERY_YEARS,
     RULES_VERSION,
     check_property_class,
@@ -51,6 +60,16 @@ UNCITED: Final = "firm convention, uncited"
 
 PutOutcome = Literal["created", "confirmed", "replaced"]
 _BUCKETS: Final = frozenset(b.value for b in Bucket)
+
+Tier = Literal["exact", "label_room", "label"]
+TIERS: Final[tuple[Tier, ...]] = ("exact", "label_room", "label")
+# Labels that name nothing: a ruling on one says nothing about the next (section 9.1).
+CATCH_ALL_LABELS: Final = frozenset({"other"})
+# Labels whose material is the item, so every tier keeps it (section 9.1): the generic
+# floors the rules table resolves by material, and the surface finishes (wallpaper and wood
+# paneling are wall coverings; drywall and painted masonry are the wall).
+MATERIAL_LABELS: Final = GENERIC_FLOOR_LABELS | {"wall_finish", "ceiling_finish"}
+KEY_PARTS: Final = 6
 
 
 def cache_key(
@@ -71,6 +90,41 @@ def cache_key(
         rules_version,
     )
     return "|".join(parts)
+
+
+def tier_key(key: str, tier: Tier) -> str:
+    """The exact ``key`` projected onto ``tier`` (section 9.1): ``exact`` is the key itself;
+    ``label_room`` blanks the material and attachment; ``label`` blanks the room too. A
+    label whose material is the item (:data:`MATERIAL_LABELS`) keeps its material."""
+    parts = key.split("|")
+    if len(parts) != KEY_PARTS:
+        raise ValueError(f"not a {KEY_PARTS}-part context key: {key!r}")
+    if tier == "exact":
+        return key
+    label, material, _attachment, room, property_class, version = parts
+    kept = material if label in MATERIAL_LABELS else ""
+    if tier == "label_room":
+        return "|".join((label, kept, "", room, property_class, version))
+    return "|".join((label, kept, "", "", property_class, version))
+
+
+def tier_keys(
+    key: str, *, catch_all: frozenset[str] = CATCH_ALL_LABELS
+) -> tuple[tuple[Tier, str], ...]:
+    """The tiers a component with exact ``key`` is looked up at, most specific first, each
+    with the projected key: ``exact``, then ``label_room`` (skipped when the room is
+    unknown: it would be the ``label`` tier), then ``label``; a catch-all label
+    (``catch_all``, :data:`CATCH_ALL_LABELS` in production) has the exact tier only."""
+    parts = key.split("|")
+    if len(parts) != KEY_PARTS:
+        raise ValueError(f"not a {KEY_PARTS}-part context key: {key!r}")
+    found: list[tuple[Tier, str]] = [("exact", key)]
+    if parts[0] in catch_all:
+        return tuple(found)
+    if parts[3]:
+        found.append(("label_room", tier_key(key, "label_room")))
+    found.append(("label", tier_key(key, "label")))
+    return tuple(found)
 
 
 def answer_of(result: Mapping[str, Any]) -> tuple[str, Decimal | None, str | None]:
@@ -119,11 +173,13 @@ class CachedClassification:
             return self.recovery_period
         return RECOVERY_YEARS.get(self.bucket, Decimal(0))
 
-    def provenance(self) -> dict[str, Any]:
+    def provenance(self, matched_tier: Tier = "exact") -> dict[str, Any]:
         """The ``convention`` member of an asset classified from this row (the asset keeps
-        it as of its classification: a later approval or replacement does not rewrite it)."""
+        it as of its classification: a later approval or replacement does not rewrite it);
+        ``matched_tier`` says how the component's key met the row's (section 9.4)."""
         return {
             "key": self.key,
+            "matched_tier": matched_tier,
             "study_id": None if self.study_id is None else str(self.study_id),
             "reviewer_id": None if self.reviewer_id is None else str(self.reviewer_id),
             "approved_at": None if self.approved_at is None else self.approved_at.isoformat(),
@@ -175,6 +231,97 @@ class CachedClassification:
 
 
 @dataclass(frozen=True, slots=True)
+class ConventionMatch:
+    """The convention that serves a component: the row and the tier it matched at."""
+
+    cached: CachedClassification
+    tier: Tier
+
+
+@dataclass(frozen=True, slots=True)
+class ConventionConflict:
+    """The firm's rulings disagree at ``tier`` with equal weight (section 9.3): no
+    convention serves, and the component carries ``convention_conflict:<tier>``."""
+
+    tier: Tier
+    rows: tuple[CachedClassification, ...]
+
+
+class ConventionIndex:
+    """A firm's conventions grouped by tier (section 9.1), built from the rows
+    :meth:`ClassificationCacheRepository.get_for_labels` returns, or from a mapping of
+    exact key to row (what the router's tests pass)."""
+
+    def __init__(
+        self,
+        rows: Iterable[CachedClassification] | Mapping[str, CachedClassification] = (),
+        *,
+        catch_all: frozenset[str] = CATCH_ALL_LABELS,
+    ) -> None:
+        values = rows.values() if isinstance(rows, Mapping) else rows
+        # Which labels never generalize; the replay evaluation passes an empty set to
+        # measure the plain hierarchy (section 9.5).
+        self.catch_all = catch_all
+        self._rows: dict[str, CachedClassification] = {}
+        self._tiers: dict[Tier, dict[str, list[CachedClassification]]] = {t: {} for t in TIERS}
+        for row in values:
+            self._rows[row.key] = row
+            for tier in TIERS:
+                try:
+                    projected = tier_key(row.key, tier)
+                except ValueError:
+                    break  # a malformed key is never served
+                self._tiers[tier].setdefault(projected, []).append(row)
+
+    def __len__(self) -> int:
+        return len(self._rows)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._rows
+
+    def get(self, key: str) -> CachedClassification | None:
+        """The row with this exact key, if any."""
+        return self._rows.get(key)
+
+    def match(
+        self, key: str, *, org_id: uuid.UUID | None
+    ) -> ConventionMatch | ConventionConflict | None:
+        """The convention for a component with exact ``key``: the most specific tier
+        (:func:`tier_keys`) with a candidate of the firm ``org_id`` (a row of another
+        firm, or any row when the study has no firm, never serves). Inside a tier the
+        candidates are grouped by answer; the answer whose strongest ruling has the most
+        approvals wins, and among its rows the most approved serves (then the smallest
+        key). Equally strong different answers are a :class:`ConventionConflict`: no
+        coarser tier is consulted."""
+        if org_id is None:
+            return None
+        for tier, projected in tier_keys(key, catch_all=self.catch_all):
+            candidates = [r for r in self._tiers[tier].get(projected, ()) if r.org_id == org_id]
+            if not candidates:
+                continue
+            by_answer: dict[tuple[str, Decimal | None, str | None], list[CachedClassification]] = {}
+            for row in candidates:
+                by_answer.setdefault(_answer(row), []).append(row)
+            ranked = sorted(
+                by_answer.values(),
+                key=lambda rows: (-max(r.approvals for r in rows), min(r.key for r in rows)),
+            )
+            if len(ranked) > 1 and max(r.approvals for r in ranked[0]) == max(
+                r.approvals for r in ranked[1]
+            ):
+                return ConventionConflict(
+                    tier, tuple(sorted(candidates, key=lambda r: (-r.approvals, r.key)))
+                )
+            served = min(ranked[0], key=lambda r: (-r.approvals, r.key))
+            return ConventionMatch(served, tier)
+        return None
+
+
+def _answer(row: CachedClassification) -> tuple[str, Decimal | None, str | None]:
+    return row.bucket.value, row.period, row.section
+
+
+@dataclass(frozen=True, slots=True)
 class PutResult:
     """What :meth:`ClassificationCacheRepository.put` did: a new row, one more approval of
     the same answer, or a different answer replacing the row (``previous`` is the replaced
@@ -203,22 +350,29 @@ class ClassificationCacheRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_many(self, org_id: uuid.UUID, keys: set[str]) -> dict[str, CachedClassification]:
-        """The firm's conventions for ``keys`` (keys with no row, or a malformed one, are
-        absent)."""
-        if not keys:
-            return {}
+    async def get_for_labels(
+        self, org_id: uuid.UUID, labels: set[str], rules_version: str = RULES_VERSION
+    ) -> list[CachedClassification]:
+        """The firm's conventions at ``rules_version`` whose label (the key's first part,
+        already normalized) is one of ``labels``: every row a tier of section 9 can serve
+        for components with those labels. Malformed rows are left out."""
+        wanted = {normalize_label(label) for label in labels} - {""}
+        if not wanted:
+            return []
         rows = await self._session.scalars(
-            select(ClassificationCacheEntry).where(
+            select(ClassificationCacheEntry)
+            .where(
                 ClassificationCacheEntry.org_id == org_id,
-                ClassificationCacheEntry.key.in_(sorted(keys)),
+                ClassificationCacheEntry.rules_version == rules_version,
+                func.split_part(ClassificationCacheEntry.key, "|", 1).in_(sorted(wanted)),
             )
+            .order_by(ClassificationCacheEntry.key)
         )
-        found: dict[str, CachedClassification] = {}
+        found: list[CachedClassification] = []
         for row in rows:
             cached = CachedClassification.from_entry(row)
             if cached is not None:
-                found[row.key] = cached
+                found.append(cached)
         return found
 
     async def record_hits(self, org_id: uuid.UUID, hits: Counter[str]) -> None:
@@ -324,10 +478,19 @@ class ClassificationCacheRepository:
 
 
 __all__ = [
+    "CATCH_ALL_LABELS",
+    "MATERIAL_LABELS",
+    "TIERS",
     "UNCITED",
     "CachedClassification",
     "ClassificationCacheRepository",
+    "ConventionConflict",
+    "ConventionIndex",
+    "ConventionMatch",
     "PutResult",
+    "Tier",
     "answer_of",
     "cache_key",
+    "tier_key",
+    "tier_keys",
 ]

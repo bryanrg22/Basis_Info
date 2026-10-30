@@ -215,14 +215,19 @@ engineer let the convention stand); a different answer replaces the convention a
 recorded as `convention.replaced`. A failure of the step is
 logged with `BASIS-ASSETS-012` and does not stop the export.
 
-The router checks the firm's conventions first, then the rules table, then the model. An
-asset classified from a convention has `method` `cache`, is not sent to review for
-disagreeing with the rules table, and carries where the position came from, as of its
-classification, in `/assets` items and the export's `assets[]`:
+The router checks the firm's conventions first, then the rules table, then the model. A
+convention is looked up in three tiers, most specific first (CLASSIFICATION_CONVENTIONS.md
+section 9): the asset's exact context key; the same label and room whatever material and
+attachment the photo step read; the label alone (any room), which beats the model and a
+contested rule row but not a rule row the guide names outright. An asset classified from a
+convention has `method` `cache`, is not sent to review for disagreeing with the rules
+table, and carries where the position came from, as of its classification, in `/assets`
+items and the export's `assets[]`:
 
 ```json
 "convention": {
   "key": "toilet|porcelain|permanent|bathroom|residential_rental|2026-10-29.1",
+  "matched_tier": "label_room",
   "study_id": "<study whose approval seeded it>", "reviewer_id": "<user>",
   "approved_at": "2026-10-29T18:40:02.117Z", "approvals": 3,
   "rule_key": "toilet", "agrees_with_rules": false,
@@ -230,11 +235,23 @@ classification, in `/assets` items and the export's `assets[]`:
 }
 ```
 
+`key` is the served ruling's key: at `matched_tier` `exact` it is the asset's own; at
+`label_room` or `label` it is the ruling the asset's context met (here a toilet read as
+`ceramic`, or with no material, served by the porcelain ruling). An asset classified
+before the hierarchy existed has no `matched_tier` member and reads as `exact`. The
+asset's `rationale` names the tier too (`matched: label and room (ruling keyed ...)`).
 `agrees_with_rules` is null when the rules table has no row for the key; `citation` is
 `firm convention, uncited` for a ruling without citations (a cited one has its citations
 re-verified and listed like any other). `convention` is null for every other method. The
 row's `provenance` stays `model` (deterministic code applied an earlier decision); the
-convention member says whose decision.
+convention member says whose decision. When the study is approved, an asset let stand
+adds an approval to the ruling named in its `convention.key`, whatever the tier.
+
+When the firm's rulings disagree with equal weight at the tier that would have served
+(two bedroom carpet rulings, one glued and one loose-laid), none serves: the rules table
+or the model classifies the asset and `review_reasons` carries
+`convention_conflict:<tier>` (`BASIS-ASSETS-014`) so the engineer settles it; the approved
+ruling becomes the exact convention, which wins next time.
 
 ## Where the error codes show
 

@@ -414,6 +414,24 @@ leaves the engineer's dollars, shares and ratios out of the Markdown. The dollar
 comparison is replacement cost (pipeline) against allocated basis (engineer) until a basis
 step exists; the share comparison is like-for-like.
 
+### `conventions_replay` (the firm's conventions over a stored export, by tier)
+
+`python -m evals.conventions_replay export/rev-1.json --conventions cache_dump.json
+--as-of-study <study id> --out rev-1.tiered.json --report replay.md --json replay.json`
+(EVAL_REPORT section 46, CLASSIFICATION_CONVENTIONS.md section 9.5). The conventions are a
+`psql` dump of `classification_cache` (`row_to_json` rows; `--as-of-study` keeps the rows
+one study seeded, one approval each, the state right after its approval) or, with
+`--conventions-from-export`, are rebuilt from an approved study's export. For every asset
+the production router decides with the rows indexed as `process_assets` indexes them; a
+convention that serves replaces the classification (bucket, section, period, `method`
+`cache`, the provenance with `matched_tier`), a conflict keeps the stored one and adds
+`convention_conflict:<tier>`, dollars are untouched, and `evals.e2e_report` scores the
+result. Three policies: `exact` (the exact key only; must reproduce the stored `cache`
+assets, the regression check), `tiered` (production: the guards of section 9) and `plain`
+(the three tiers with no guards), so the guards are measured. The rows are re-keyed to the
+running `RULES_VERSION` (`--keep-rules-version` keeps theirs); the report says which
+versions it bridged.
+
 ### `structure_replay` (the structure model over a stored export)
 
 `python -m evals.structure_replay export/rev-5.json --out export/rev-5.structure.json
