@@ -6129,3 +6129,96 @@ all green; `docs/api/openapi.json` regenerated (three new operations, the new me
   yet; the review workbench is where the catalogue's "how to fix" should surface.
 * `inventory.rebuilt` lists the ids of the rows the room step replaced, not their contents; a
   before-image would double the rows for little: the replaced rows were the model's.
+
+## 42. Classification by context: the rules follow the guide, the firm's rulings follow the engineer (2026-10-29)
+
+Design: `CLASSIFICATION_CONVENTIONS.md`. Branch `claude/classification-conventions`.
+Private artifacts: `work/e2e_artifacts/reclassified_2026-10-29/` (the two rescored exports,
+their change lists, `E2E_SCORE_run1.md`, `E2E_SCORE_run2.md`, `COMPARE_before_after.md`).
+
+### 42.1 Why
+
+Section 38 left 12 of 36 evidenced engineer rows in the wrong bucket after two live runs,
+and the engineer's corrections at the gates did not move them. Reading the rules table
+against the IRS Audit Techniques Guide (ATG) showed why: 26 rows carried a "contested" note
+saying the guide puts the item with the building while the row kept a legacy 5-year
+treatment (plumbing fixtures, light fixtures, ceiling fans, cemented tile, restroom
+cabinetry, and more), and furniture took the office asset class (00.11, 7 years) by its name
+instead of the activity it serves (57.0, 5 years, ATG p.297 and p.308). The model path had
+these right (outlets, baseboards and wall finishes went to the building); the rule rows,
+which fire before the model, did not.
+
+The guide's test is not the item's name. It is "the manner of attachment to the land or the
+structure and how permanently the property is designed to remain in place" (Rev. Rul.
+75-178, ATG p.20) and whether the item "relates to the operation or maintenance of the
+building" (p.19-20), applied item by item in the residential matrix (Exhibit A, pp.296-322)
+by **function and attachment**: outlets of general applicability vs outlets dedicated to an
+appliance (p.301, p.311); fixtures that provide substantially all the illumination vs accent
+lighting (p.313); cemented tile and wood flooring vs strippable VCT and carpet (p.306-307);
+a mirror attached with permanent adhesive vs a hanging one (p.317, p.191); residential
+furnishings (57.0) vs rental-office furniture (00.11) (p.307-308).
+
+### 42.2 What changed
+
+**The rules table has a context dimension.** `lookup` takes the component's room type, and a
+row may carry variants keyed on room, attachment and property class; the first matching
+variant is the effective rule and the hit records which one fired (`context`). The decision
+rule for every row: an item the guide names takes the guide's bucket; an item no document
+names keeps its bucket and its contested note. 15 rows moved to the building row (toilet,
+bathtub, shower, sink, water heater, garbage disposal, light fixture, ceiling fan, smoke
+detector, thermostat, tile, hardwood floor, bathroom vanity, closet shelving, mirror);
+furniture, chair, desk and filing cabinet moved to 57.0 with an office variant at 00.11;
+kitchen cabinets and counters keep their row and take the building row in a bathroom; a
+removable or freestanding mirror and a freestanding shelf are furnishings; a new
+`accent_lighting` row (track, neon, decorative, landscape lighting) is 5-year. The contested
+set went from 26 rows to 10 (kitchen cabinet, countertop, doorbell, laminate, hardwood
+floor, deck, half wall, window guard, shed, concrete pad). Every row and variant is cited:
+106 citation claims, 58 distinct excerpts, each verbatim on its PDF page and inside one
+production chunk (the real-corpus integration test resolves all 106). `RULES_VERSION` is
+`2026-10-29.1`, so no cached classification made under the old table is served.
+`RULES_RECITATION.md` records the judgment for every changed row.
+
+**The firm's rulings are a layer above the rules** (section 42.5).
+
+### 42.3 Measured on the two live runs, without a paid run
+
+`evals.reclassify_export` re-runs `lookup` with the context key over a stored export and
+replaces the classification where a rule now hits (the router takes a rule before the model,
+so this is what the pipeline does today); model-classified assets keep their stored answer;
+quantities and dollars are untouched. The scorer of section 38 then reads the new export.
+
+| metric | run 1 before | run 1 after | run 2 before | run 2 after | engineer |
+|---|---|---|---|---|---|
+| assets whose bucket moved | | 87 of 382 | | 86 of 310 | |
+| bucket right by count (of evidenced rows) | 24 of 35 | **27 of 35** | 24 of 36 | **27 of 36** | |
+| bucket right by dollars | 20 | 21 | 20 | 21 | |
+| bucket share y5 / y7 / y15 / y39 (%) | 37.4 / 2.5 / 11.9 / 48.2 | 17.7 / 2.5 / 11.9 / 67.9 | 38.0 / 2.4 / 11.2 / 48.5 | **16.3 / 2.4 / 11.2 / 70.2** | 14.4 / 0.4 / 5.1 / 80.2 |
+| bucket share error y5 / y39 (points) | 23.0 / 32.0 | 3.3 / 12.3 | 23.7 / 31.8 | **2.0 / 10.1** | |
+| row-share distance (points) | 47.8 | 47.8 | 46.1 | 46.1 | |
+
+What moved (run 2): light fixtures 13, sinks 9, hardwood floors 8, tile 6, toilets 6,
+bathtubs 5, mirrors 5 (the two `removable` ones stayed 5-year through the variant), ceiling
+fans 4, vanities 3, showers 2, closet shelving 1, a kitchen cabinet in a bathroom 1 (the
+room variant), a smoke detector 1, all to the building; furniture 22 from 7-year to 5-year
+(the one in the office stayed 7-year). The row-share distance does not move because rows
+kept their dollars; only their buckets changed.
+
+Rows fixed: Electrical, Plumbing, Ceramic Tile Flooring, Cabinets / Millwork - Restrooms,
+FF&E (five). Rows that flipped the other way, as the design predicted: **Wood Flooring**
+(the engineer's 5-year; the guide lists wood flooring as a permanent covering, p.306) and
+**Specialty Plumbing - Kitchen & Utility Sink / Laundry** (the engineer's 5-year; the guide
+puts kitchen sinks under building plumbing, p.311 and p.315). Those two, and the seven rows
+still wrong from before (moldings, fireplaces, paneling, wall coverings, half walls, window
+guards, exterior lighting), are the firm's conventions: defensible positions the guide does
+not take. They are not rule changes; they are what section 42.5 carries forward once the
+engineer approves them at a gate. The 39-year share is 70 against the engineer's 80; the
+remaining 10 points are the concealed systems section 38 found (nothing produces them) and
+these nine conventions.
+
+### 42.4 What this does not change
+
+The classifier prompt (`classify/v1`) is unchanged; a v2 that states the function and
+attachment tests should be measured with the `assets` eval before it becomes the default.
+`outdoor_lighting` stays a 15-year land improvement (the guide gives building-mounted,
+accent and pole-mounted exterior lighting three different answers, p.313, and the vision
+step does not tell them apart). Every number above is one property.
