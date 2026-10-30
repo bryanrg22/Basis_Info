@@ -207,7 +207,9 @@ async def test_held_and_page_read_the_current_versions(session: AsyncSession) ->
     )
     assert len(rest.items) == 2 and {r.id for r in rest.items}.isdisjoint({one.items[0].id})
     only_2024 = await repo.page(limit=10, year=2024, current_only=False)
-    assert [r.version for r in only_2024.items] == [2, 1]
+    # Both versions were written in one transaction, so they share obtained_at (now() is
+    # the transaction time) and the id tiebreak is arbitrary: the set is what is pinned.
+    assert sorted(r.version for r in only_2024.items) == [1, 2]
 
 
 # ------------------------------------------------------------------ the refresh job
