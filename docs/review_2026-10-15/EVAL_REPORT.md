@@ -6222,3 +6222,107 @@ attachment tests should be measured with the `assets` eval before it becomes the
 `outdoor_lighting` stays a 15-year land improvement (the guide gives building-mounted,
 accent and pole-mounted exterior lighting three different answers, p.313, and the vision
 step does not tell them apart). Every number above is one property.
+
+### 42.5 Live: two studies in sequence on the local stack (2026-10-30)
+
+Stack rebuilt from the branch (`8661710`), migrations through 0014. Driver
+`work/live_e2e/e2e_live3.py` (private). Study A ran with run 2's engineer corrections at
+the appraisal, rooms and components gates, plus the engineer's 5-year rulings at the assets
+gate for the nine convention rows (43 `asset` corrections, each with a reason naming the
+row); approving that gate promoted the revision's rulings. Study B was the same property
+with every gate approved as it opened (run 1's behaviour), at the same firm.
+
+| | run 1 (pipeline alone) | run 2 (corrected gates) | **study A** (corrected + rulings) | **study B** (pipeline + conventions) | engineer |
+|---|---|---|---|---|---|
+| assets | 382 | 310 | 314 | 381 | |
+| evidenced rows (of 38) | 35 | 36 | 35 | 35 | |
+| bucket right by count | 24 of 35 | 24 of 36 | **35 of 35** | **34 of 35** | |
+| wrong-bucket rows | 11 | 12 | 0 | 1 (Fireplaces) | |
+| bucket shares y5 / y7 / y15 / y39 (%) | 37.4 / 2.5 / 11.9 / 48.2 | 38.0 / 2.4 / 11.2 / 48.5 | 31.3 / 2.4 / 11.1 / 55.1 | 24.5 / 2.5 / 11.9 / 61.1 | 14.4 / 0.4 / 5.1 / 80.2 |
+| 39-year share error (points) | 32.0 | 31.8 | 25.1 | 19.2 | |
+| classification: model calls / assets | 486 / 382 | 386 / 310 | 694 / 314 (two passes) | **157 / 381** | |
+| assets classified from a convention | 0 | 0 | 0 | **151** | |
+| classifier spend | $5.41 | $4.29 | $7.68 | **$1.76** | |
+| study spend (ledger, incl. Azure DI and SAM 3) | $7.67 | $6.63 | $10.16 | **$4.01** | |
+| workflow wall clock | 29.6 min (19 min on defect A) | 11.0 min | 9.5 min | 7.7 min | |
+
+What the conventions layer did, verified in the database and the API:
+
+- Study A's approval promoted **113 conventions** for the firm (113 `convention.promoted`
+  events): the 43 manual rulings (13 of them against the rules table: hardwood floors,
+  half walls, exterior lighting, the kitchen and garage sinks; the rest on labels with no
+  rule row, such as baseboards and fireplaces) and 70 engineer-approved model answers with
+  verified citations. Each row carries the reviewer, the study, the approval time and
+  whether it agrees with the rules table.
+- Study B served **151 of 381 assets from those conventions** (`method = cache`, 151 hits
+  recorded), 12 of them rulings against the rules table and 36 of them uncited rulings, all
+  with the provenance on the asset in `/assets` and in the export. The model was called 65
+  times instead of 158 on study A's first pass; the classifier cost 23 % of run 1's for
+  the same inputs, and the study 52 %. Study B's approval added an approval to every
+  convention it let stand and promoted its own cited model answers (120 events; the firm
+  now holds 233 approvals over its rows).
+- Study B's classification, with no engineer in the loop, put 34 of 35 evidenced rows in
+  the engineer's bucket, against 24 in run 1 with the same inputs.
+
+Findings, in order of weight:
+
+1. **The context key is too specific for rulings.** Study B's two fireplaces came out of
+   the photo step with an unknown material where study A's had `wood` and `other`, so the
+   keys differed and no convention matched: the one wrong row. Nine convention-row assets
+   in study B had no ruling for the same reason (a room or material the first study never
+   showed: a baseboard in the lobby, hardwood in the living room read without a material).
+   The material and attachment the vision step reads vary between runs, so a ruling keyed
+   on them does not generalize as far as the engineer meant it to. The fix is a key
+   hierarchy: look for the exact key, then the same label and room without material and
+   attachment, then the label alone, serving the most specific ruling the firm has; a
+   ruling that was meant to depend on the material (carpet vs tile) still can, because the
+   label carries it. Not built here.
+2. **Rejecting the assets gate re-classifies every untouched asset at full price.** Study
+   A's reject with 43 rulings cost a second classification pass: 316 model calls, $3.47,
+   three minutes, for the 271 assets the engineer did not touch. Within one study nothing
+   carries a revision's classifications forward. Carrying the untouched assets'
+   classifications across an assets-gate reject (the way rooms are carried) removes most of
+   that cost; the firm conventions do not help here because they are written only on
+   approval.
+3. **A ruling needs no citation, and the export says so.** 36 of the served conventions are
+   uncited engineer rulings; each export record carries `citation: "firm convention,
+   uncited"` and the reason the engineer gave. Whether an examiner accepts a firm's
+   convention is the firm's risk; the system makes the position visible rather than
+   dressing it as the guide's.
+4. **The ledger now records the non-token paid steps** (Azure Document Intelligence,
+   $0.20 per study; SAM 3, $0.04), so the study totals above are complete where section
+   38's were not.
+5. **The driver, not the product:** the first attempt at study A crashed at the appraisal
+   gate on an import (the eval normalizer needs the backend environment); the study waited
+   at the gate for 30 minutes and was resumed with a `--study` option, so the photo stage
+   was not paid twice. The stale-decision 409 loop of run 2 is fixed in this driver.
+
+### 42.6 What the research says about the method (2026-10-30)
+
+The IRS guide (chapter 3, PDF pp.27-33) names six study methods and ranks the engineering
+ones highest. Ours is the **detailed engineering cost estimate approach**: inventory from
+inspection, quantity takeoffs, unit costs from published estimating guides with the volume
+and page cited, reconciled to the purchase price less land. The self-service products in
+this market (KBKG's Cost Seg Pro, Titan Echo's EchoLite) extrapolate a personal-property
+share from a database of past studies, which the guide calls the sampling or modeling
+approach and rates below the engineering approaches. Outside tax, insurance estimating
+(Xactimate: a regionally priced line-item database; Verisk's and Tractable's photo-to-
+line-item products) has the same shape as our photo step, room step and cost table; and
+customs classification systems use the same three layers this change built: deterministic
+rules first, a model for what the rules miss, an expert who confirms or overrides, and the
+reviewer's outcome fed back so the next case is answered from it.
+
+Two things the guide says that we do not yet do:
+
+- **No pro-rata step-up.** "It is not an appropriate cost estimation methodology to apply a
+  pro-rata step-up factor to the individual costs estimated for the various improvements"
+  (p.32-33): when the estimated replacement cost does not tie to the purchase price less
+  land, the gap is evidence that assets, quantities or factors are missing, and must be
+  analysed, not scaled. Our basis step applies a uniform factor (2.4 on this property) and
+  flags it as an error by design (section 37). The missing mass is known: the concealed
+  systems (39.7 % of the engineer's dollars) and physical depreciation. Producing them is
+  what makes the allocation acceptable, not the factor.
+- **Sourced indices.** The year and location factors are placeholder tables inherited from
+  the legacy code, not RSMeans' historical and city cost indexes or Marshall & Swift's
+  equivalents. The mechanics (unit cost x quantity x year x location, every factor and its
+  source on the asset) are the standard's; the numbers are not yet.
