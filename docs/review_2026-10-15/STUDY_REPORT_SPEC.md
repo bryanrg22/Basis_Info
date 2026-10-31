@@ -464,3 +464,43 @@ The bake-off also found two things the report model must handle:
    methodology.
 6. **Preparer format (default, not asked):** the generic Form 4562 schedule (11.5) in CSV and XLSX until a CPA
    partner sends a vendor template.
+
+### 11.12 As built (2026-10-31)
+
+| Part | Where | Notes |
+|---|---|---|
+| Report model | `basis/report/model.py` | as 11.3 and 11.4 |
+| Schedule | `basis/report/schedule.py` | as 11.5 |
+| Tax terms | `basis/report/tax.py` | Pub 946 Table 4-1 and B-1; the bonus default keyed on the acquisition date, with the 2017-09-27 and 2025-01-19 boundaries tested on both sides |
+| Exhibit A | `basis/report/exhibit.py` | mask edges drawn with Pillow, a box when there is no mask, numbered badges; captions give the report lines per label run |
+| Render | `basis/report/render.py`, `templates/report.typ` | |
+| Export step | `basis/activities/export_report.py` | |
+| Route | `GET /v1/studies/{id}/report` | `docs/api/REPORT.md` |
+
+Differences from the design:
+
+* **Systems without a priced line** (`not_produced`) are disclosed in the limiting conditions.
+  They do not stop the report: the report stops only when the allocation itself was
+  withheld. Section 11.8's wording read `not_produced` as "withheld"; the result defines it
+  as the unpriced systems.
+* **Quantities measured once for the whole property** fold into one line, "Whole property",
+  with every room the item was seen in: the site-wide landscaping and the roof, gutters and
+  siding. On run 4 this took the schedule from 295 to 263 lines and removed every
+  zero-valued line.
+* **Typical unit costs.** 59 of run 4's priced lines come from the typical unit costs, not
+  an RSMeans line. The schedule prints "typical unit cost" in their MasterFormat column
+  instead of leaving it blank.
+* **The structured `masterformat` field on the cost trail (11.4)** is not added. The line
+  numbers are read from the cost source in one tested function (`masterformat_of`). The
+  recorded trails cannot be rewritten (migration 0018), so a field would cover only new
+  revisions.
+* **Report inputs and signing (11.6, 11.11 items 1-2) are not in this change.** Every
+  report is a DRAFT with marked placeholders until they land. `basis/report/inputs.py`
+  defines the shapes the next change stores.
+
+Measured on run 4's export (private copy; EVAL_REPORT section 51):
+
+* 263 lines and 89 items awaiting a measurement;
+* 67 categories (the export had 186 free-text names); 89 distinct item descriptions;
+* every total ties to the cent;
+* 52 photographs composed in 1.0 s; the PDF rendered in 0.2 s, 45 pages, 3.7 MB.

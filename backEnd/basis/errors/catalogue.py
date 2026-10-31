@@ -2983,12 +2983,12 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "error",
         "export_report",
         "basis.report.model",
-        "The export has no allocation (`summary.basis.not_produced` names why: an "
-        "unreconciled replacement cost, stale pricing, a missing intake): there is nothing to "
-        "report.",
-        "`ReportError: the allocation was not produced: ... [BASIS-REPORT-002]`; no PDF and no "
-        "schedule are written.",
-        "Resolve what `not_produced` names (the intake, a reprice, the reconciliation), approve "
+        "The export's allocation was withheld (`summary.basis.allocation` is null; "
+        "`summary.basis.missing` names why: the intake, the cost index, repricing, an "
+        "unreconciled replacement cost): there is nothing to report.",
+        "`ReportError: the allocation was withheld (missing: ...) [BASIS-REPORT-002]`; no PDF and "
+        "no schedule are written, and `export.written` records the skip.",
+        "Resolve what `missing` names (the intake, a reprice, the reconciliation), approve "
         "again, export again.",
         "after fix",
         temporal_type="ReportError",
@@ -3028,6 +3028,19 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "A template defect: file it with the export JSON and the template version.",
         "no",
         temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_NOT_FOUND,
+        "refusal",
+        "GET /v1/studies/{id}/report",
+        "basis.api.routes.report",
+        "No report for the study and revision: nothing exported yet, or the files are missing "
+        "from storage. (An export that skipped the report answers with the skip's own code, "
+        "usually BASIS-REPORT-002.)",
+        "404 `not-found` with the code.",
+        "Approve the assets review so the export runs; for missing bytes, export again.",
+        "after fix",
+        problem="not-found",
     ),
     # ------------------------------------------------------------------ INF
     _e(

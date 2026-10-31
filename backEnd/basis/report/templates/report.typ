@@ -205,6 +205,9 @@ Related issues (ATG chapter 4 C.13): section 263A reaches property the taxpayer 
   "This study is not tax or legal advice. Elections, conventions and the treatment on the taxpayer's returns are the responsibility of the taxpayer and the preparer.",
 )
 #for c in (if d.limiting != none { d.limiting } else { standard }) [- #c]
+#if d.unpriced_systems.len() > 0 [
+  - These building systems have no priced line in the schedule; their cost is inside the reconciliation gap (Exhibit B), not in any class: #d.unpriced_systems.map(u => u.system).join(", ").
+]
 #if d.flags.len() > 0 [
   == Open review items at approval
   #table(columns: (auto, 1fr), th([Check], [Finding]), ..d.flags.map(f => ([#f.code], [#f.message])).flatten())
@@ -239,7 +242,7 @@ I certify that, to the best of my knowledge and belief:
 ] else [
   #for p in d.photos [
     #block(breakable: false, below: 12pt)[
-      #image("img/" + p.file, width: 100%)
+      #align(center, image("img/" + p.file, width: 100%, height: 3.75in, fit: "contain"))
       #text(8pt, fill: muted)[#p.caption]
     ]
   ]

@@ -7535,3 +7535,69 @@ restore the behaviour before), `tests/lifecycle/test_intake_takeoff.py` (the fab
 reconciles at a re-tuned price, as section 44 tuned it), and the counts of concealed rows (13
 to 14) across the API, export, lifecycle and failure tests. `tests/LEDGER.md` has each. Gates
 from `backEnd/`: see the PR for the tallies.
+
+
+## 51. The study report and the preparer's schedule (2026-10-31)
+
+Question: can Basis hand over the deliverable, a report an engineer signs and a schedule a
+preparer imports, with every figure traceable to the approved export and every total tied?
+Design, decisions and as-built: STUDY_REPORT_SPEC.md section 11. API: docs/api/REPORT.md.
+No paid run.
+
+### 51.1 What the standard asks
+
+The ATG's chapter 4 lists thirteen quality elements (C.1-C.13) and nine report elements
+(D.1-D.9), with no prescribed format. ASCSP's standards are members-only and aligned with
+the ATG.
+
+Three public sample reports were read:
+
+* an engineered study, 34 pages;
+* an automated single-family study, 247 pages;
+* a duplex study, 75 pages, built with ReportLab.
+
+None maps its pages to the ATG elements. The automated sample applies 100 % bonus to a
+property its own settlement statement dates to June 2024. The rate keys on the acquisition
+date (P.L. 119-21), so Basis's schedule carries the acquisition date separately and the
+synthetic test reproduces that case: 40 %.
+
+### 51.2 Renderer
+
+Run 4's real content went through Typst 0.15 and WeasyPrint 70: 384 items, 47 photographs
+with 328 outlined objects. Both were byte-identical across processes on one machine. Only
+Typst was byte-identical between the Mac and the Linux worker image (Pango differs), and it
+was ten times faster. Typst was chosen (STUDY_REPORT_SPEC 11.8.1).
+
+### 51.3 Run 4, through the report (private copy)
+
+* **Lines:** 263. Quantities measured once for the whole property folded into one line
+  each; there were 295 before folding, 32 of them zero-valued copies.
+* **Awaiting a measurement:** 89 items, outside the totals.
+* **Categories:** 67, from 186 free-text names in the export.
+* **Ties:** classes, categories, schedule rows and price plus costs less land all tie to the
+  depreciable basis to the cent.
+* **Bonus default:** acquired and placed in service in 2024, so 60 %.
+* **Speed and size:** 52 photographs composed in 1.0 s; the PDF rendered in 0.2 s, 45
+  pages, 3.7 MB.
+* **Byte-identical:** the PDF, the CSV and the XLSX on a second build.
+* **Flags in the limiting conditions:**
+  * the land method: the appraisal's site value was available but the flat percentage was used;
+  * the uniform depreciation.
+
+### 51.4 Checks
+
+* `tests/unit/report/` (54): the tax terms and the bonus boundaries; ties and refusals
+  (each `BASIS-REPORT` code); folding and nomenclature; the schedule's limits and stability;
+  every figure present in the PDF text; site visits stated only when made; Exhibit A edges at
+  exact pixel positions.
+* `tests/api/test_study_report.py` (3).
+* The lifecycle assertions in `test_intake_takeoff.py`: the PDF and schedule written and tied
+  to the allocation, the unpriced systems disclosed. In `test_happy_path.py`, a study without
+  an intake records the skip, BASIS-REPORT-002.
+
+### 51.5 Not yet
+
+* Storing the report inputs (the firm's profile, the study's answers) and signing in Basis:
+  every report is a DRAFT until then.
+* Vendor import layouts: they wait for a preparer's template.
+* A side-by-side review of the PDF with the design partner.

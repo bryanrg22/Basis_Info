@@ -215,6 +215,9 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
             }
             for r in report.reconciliation
         ],
+        "unpriced_systems": [
+            {"system": u.system, "reason": u.reason} for u in report.unpriced_systems
+        ],
         "reconciliation_status": report.reconciliation_status,
         "gap_share": pct(report.gap_share),
         "tolerance": pct(report.tolerance),

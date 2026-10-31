@@ -163,6 +163,15 @@ class Flag:
 
 
 @dataclass(frozen=True, slots=True)
+class UnpricedSystem:
+    """A building system with no priced line in the schedule (``summary.basis.not_produced``):
+    disclosed, so the remaining gap to the basis is explicit."""
+
+    system: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReconciliationLine:
     component: str
     top_down: Decimal
@@ -196,6 +205,7 @@ class StudyReport:
     schedule: tuple[ScheduleLine, ...]
     methodology: tuple[Fact, ...]
     reconciliation: tuple[ReconciliationLine, ...]
+    unpriced_systems: tuple[UnpricedSystem, ...]
     reconciliation_status: str
     gap_share: Decimal
     tolerance: Decimal
@@ -348,14 +358,11 @@ def build_report(
     inputs = inputs or ReportInputs()
     basis = (document.get("summary") or {}).get("basis") or {}
     allocation = basis.get("allocation")
-    if not allocation or basis.get("not_produced"):
+    if not allocation:
+        why = [str(m) for m in basis.get("missing") or []] or ["no allocation in the export"]
         raise ReportError(
             E.REPORT_NOT_PRODUCED,
-            "the allocation was not produced: "
-            + "; ".join(
-                str(x.get("message", x)) if isinstance(x, Mapping) else str(x)
-                for x in basis.get("not_produced") or ["no allocation in the export"]
-            ),
+            "the allocation was withheld (missing: " + ", ".join(why) + ")",
         )
     worksheet = basis["worksheet"]
     reconciliation = basis.get("reconciliation") or {}
@@ -619,6 +626,11 @@ def build_report(
         schedule=schedule,
         methodology=methodology,
         reconciliation=recon_lines,
+        unpriced_systems=tuple(
+            UnpricedSystem(str(n.get("system")), str(n.get("reason")))
+            for n in basis.get("not_produced") or []
+            if isinstance(n, Mapping)
+        ),
         reconciliation_status=str(reconciliation.get("status") or ""),
         gap_share=Decimal(str(reconciliation.get("gap_share") or 0)),
         tolerance=Decimal(str(reconciliation.get("tolerance") or 0)),
@@ -692,6 +704,7 @@ __all__ = [
     "ReportError",
     "ScheduleLine",
     "StudyReport",
+    "UnpricedSystem",
     "build_report",
     "category_name",
     "check",

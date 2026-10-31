@@ -321,6 +321,7 @@ class E:
     REPORT_TOTALS_DO_NOT_TIE = "BASIS-REPORT-003"
     REPORT_ASSET_UNACCOUNTED = "BASIS-REPORT-004"
     REPORT_RENDER_FAILED = "BASIS-REPORT-005"
+    REPORT_NOT_FOUND = "BASIS-REPORT-006"
 
     # ---------------------------------------------------------------- infrastructure
     INF_WORKER_CONFIG = "BASIS-INF-001"

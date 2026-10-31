@@ -116,17 +116,27 @@ def test_not_an_export_and_no_allocation_are_refused() -> None:
         build_report(export(format="other"))
     assert e.value.code == E.REPORT_NOT_AN_EXPORT
     doc = export()
-    doc["summary"]["basis"]["not_produced"] = [
-        {"message": "the reconciliation is outside tolerance"}
-    ]
-    with pytest.raises(ReportError, match="outside tolerance") as e:
+    doc["summary"]["basis"]["allocation"] = None
+    doc["summary"]["basis"]["missing"] = ["intake", "repricing"]
+    with pytest.raises(ReportError, match=r"missing: intake, repricing") as e:
         build_report(doc)
     assert e.value.code == E.REPORT_NOT_PRODUCED
     doc = export()
     del doc["summary"]["basis"]["allocation"]
-    with pytest.raises(ReportError) as e:
+    with pytest.raises(ReportError, match="no allocation in the export") as e:
         build_report(doc)
     assert e.value.code == E.REPORT_NOT_PRODUCED
+
+
+def test_systems_without_a_priced_line_are_disclosed_not_refused() -> None:
+    doc = export()
+    doc["summary"]["basis"]["not_produced"] = [
+        {"system": "Fire Protection & Alarm", "reason": "no cost row"}
+    ]
+    r = build_report(doc)
+    assert [(u.system, u.reason) for u in r.unpriced_systems] == [
+        ("Fire Protection & Alarm", "no cost row")
+    ]
 
 
 @pytest.mark.parametrize(

@@ -136,3 +136,15 @@ def test_the_view_holds_only_formatted_text() -> None:
         signature=Signature(engineer=ENGINEER, signed_at=datetime(2026, 1, 1, tzinfo=UTC))
     )
     assert view(build_report(export(), unsigned))["engineer"]["name"] == "A. Engineer"
+
+
+def test_unpriced_systems_are_disclosed_in_the_limiting_conditions() -> None:
+    doc = export()
+    doc["summary"]["basis"]["not_produced"] = [
+        {"system": "Fire Protection & Alarm", "reason": "no cost row"},
+        {"system": "Site Utilities", "reason": "no cost row"},
+    ]
+    text = " ".join(text_of(render_pdf(build_report(doc))).split())
+    assert "no priced line in the schedule" in text
+    assert "Fire Protection & Alarm, Site Utilities" in text
+    assert "no priced line" not in " ".join(text_of(render_pdf(build_report(export()))).split())
