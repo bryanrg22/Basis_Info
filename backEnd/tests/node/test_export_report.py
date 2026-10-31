@@ -65,11 +65,12 @@ async def test_same_revision_exports_byte_identical_files_with_resolved_evidence
     assets = {a["label"]: a for a in document["assets"]}
     assert set(assets) == {"carpet", "flooring", "garage_door", "refrigerator"}
     carpet = assets["carpet"]
+    # 18.33 SY x 78.48/SY: the legacy carpet row installed (STRUCTURE_MODEL.md 9.3)
     assert (carpet["bucket"], carpet["quantity"], carpet["unit"], carpet["total"]) == (
         "y5",
         "18.3300",
         "SY",
-        "1121.80",  # 61.20/SY x 1.0000: 2026 is after the last published index (EVAL_REPORT 45)
+        "1438.54",  # 61.20/SY x 1.0000: 2026 is after the last published index (EVAL_REPORT 45)
     )
     references = sorted(c["reference"] for c in carpet["citations"])
     assert references == [

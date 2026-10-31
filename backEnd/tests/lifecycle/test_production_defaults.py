@@ -208,8 +208,8 @@ async def test_a_rooms_rejection_rebuilds_the_changed_room(
     bathroom = [c for c in inventory if c.label == "toilet"]
     assert len(bathroom) == 1 and "carried_from" in bathroom[0].raw
     assert (
-        len(await rows(run, Asset, sid, 2)) == 4 + 13
-    )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)
+        len(await rows(run, Asset, sid, 2)) == 4 + 14
+    )  # + the structure model's 14 concealed rows (STRUCTURE_MODEL.md)
 
 
 @activity.defn(name="reconcile_rooms")
@@ -240,5 +240,5 @@ async def test_a_failed_room_step_flags_the_review_and_the_study_completes(
     assert result.outcome == "completed"
     # No inventory: the assets are the per-photo rows, as before the room step.
     assert (
-        len(await rows(run, Asset, sid, 1)) == 6 + 13
-    )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)
+        len(await rows(run, Asset, sid, 1)) == 6 + 14
+    )  # + the structure model's 14 concealed rows (STRUCTURE_MODEL.md)

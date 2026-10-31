@@ -560,9 +560,9 @@ async def test_database_unreachable_for_one_attempt(outage: Outage, name: str) -
     # Attempt 1 failed before claiming its key: nothing written, no claim row.
     (failure,) = outage.failures
     assert isinstance(failure, DatabaseUnavailableError)
-    # The structure model writes 13 concealed rows beside the components' assets
+    # The structure model writes 14 concealed rows beside the components' assets
     # (STRUCTURE_MODEL.md), each with a takeoff and a cost row.
-    concealed = 13
+    concealed = 14
     expected_assets = (
         0 if name == "process_assets" else await count(sm, Component, study.study_id) + concealed
     )

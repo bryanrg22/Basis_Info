@@ -399,6 +399,26 @@ class Settings(BaseSettings):
     structure_rcn_source: Literal["square_foot", "appraisal_total", "appraisal_parts"] = (
         "square_foot"
     )
+    # The reconciliation-gap fixes (STRUCTURE_MODEL.md sections 8-9, EVAL_REPORT 49), each
+    # measured alone and together by evals.structure_sweep. STRUCTURE_MODIFICATIONS on: the
+    # square-foot model adds its facing page's modifications and alternatives for the baths,
+    # heating and cooling the appraisal reports (RSMeans' step 2: "Add or subtract the
+    # modifications, adjustments, and alternatives"); off: the base model as priced before.
+    structure_modifications: Literal["on", "off"] = "on"
+    # STRUCTURE_SPECIALTIES_RESIDUAL building: the model's Specialties less the itemized
+    # cabinets, counters, sinks and water heaters is written as a building row and counted
+    # in the RCN (ATG ch. 3 C.4(1)-(2)); report: reported only (the behaviour before).
+    structure_specialties_residual: Literal["building", "report"] = "building"
+    # STRUCTURE_OVERHEAD_ALLOCATION pro_rata: a row inside the square-foot model carries the
+    # model's general contractor's overhead and profit pro rata (item 10 over components
+    # 1-9; ATG ch. 4 C.11(2)), so the concealed residuals no longer absorb it; none: no
+    # markup (the behaviour before). Rows outside the model never take it (C.11(3)).
+    structure_overhead_allocation: Literal["pro_rata", "none"] = "pro_rata"
+    # COST_BASIS installed: every row at the cost line's "Total Incl O&P" (the installing
+    # contractor's overhead and profit, the basis of the square-foot components); a row
+    # without that column by RSMeans' conversion (material +10 %, labor +72 %, equipment
+    # +10 %); bare: material + labor + equipment (the behaviour before 2026-10-31).
+    cost_basis: Literal["installed", "bare"] = "installed"
 
     # Object localization (basis.vision.localize): SAM 3 on Replicate, for trials only
     # (production self-hosts it; VISION_DETECTION_RESEARCH.md section 4). The community

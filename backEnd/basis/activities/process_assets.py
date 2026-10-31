@@ -131,8 +131,11 @@ from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.costs import (
+    DEFAULT_COST_BASIS,
+    CostBasis,
     CostError,
     CostEstimate,
+    Markup,
     NeedsQuantity,
     estimate_cost,
     year_factor_index,
@@ -154,15 +157,20 @@ from basis.domain.rooms import guidance_for, typical_area_sf
 from basis.domain.rules import RECOVERY_YEARS, PropertyClass, check_property_class, lookup
 from basis.domain.structure import (
     STRUCTURE_LABELS,
+    BuildingRcn,
     CostApproach,
     ItemizedRow,
     StructureInputs,
     building_rcn,
     carve_out,
+    carved_small_systems,
     concealed_rows,
     cost_approach_from_fields,
+    inside_model,
+    overhead_markup,
     small_system_inputs,
-    split_components,
+    small_system_rows,
+    split_building,
 )
 from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
@@ -456,6 +464,16 @@ async def _write(
     cache_hits: Counter[str] = Counter()
     needs_review = 0
     itemized: list[ItemizedRow] = []
+    # The structure model's inputs and building RCN, before the loop: a row inside the model
+    # carries the model's general contractor's O&P pro rata (STRUCTURE_MODEL.md section 9.3).
+    structure: StructureInputs | None = None
+    building: BuildingRcn | None = None
+    markup: Markup | None = None
+    if prepared.structure_views:
+        structure = _structure_inputs(prepared, plan, settings)
+        building = _building(structure)
+        if building is not None and settings.structure_overhead_allocation == "pro_rata":
+            markup = overhead_markup(building.model)
     for component in components:
         heartbeat(str(component.id))
         room = rooms.get(component.room_id) if component.room_id else None
@@ -474,7 +492,14 @@ async def _write(
             rule_key, extra_inputs = result.rule_key, {}
             citations = result.citations
         takeoff = _takeoff(component, room, rule_key, plan, measured, asset.id)
-        cost, priced_per = _cost(takeoff, plan.index, table, component.label)
+        cost, priced_per = _cost(
+            takeoff,
+            plan.index,
+            table,
+            component.label,
+            settings.cost_basis,
+            markup if inside_model(component.label) else None,
+        )
         issues = [
             i
             for i in cross_validate(
@@ -536,7 +561,7 @@ async def _write(
             ItemizedRow(component.label, None if cost is None else cost.total, _count(component))
         )
     concealed = 0
-    if prepared.structure_views:
+    if structure is not None:
         concealed, flagged = await _write_structure(
             session,
             assets,
@@ -548,6 +573,9 @@ async def _write(
             table,
             itemized,
             settings,
+            structure,
+            building,
+            markup,
         )
         needs_review += flagged
     await session.flush()
@@ -572,39 +600,52 @@ async def _write_structure(
     table: CostTable | None,
     itemized: list[ItemizedRow],
     settings: Settings,
+    inputs: StructureInputs,
+    building: BuildingRcn | None,
+    markup: Markup | None,
 ) -> tuple[int, int]:
     """The structure model's concealed rows (docs/review_2026-10-15/STRUCTURE_MODEL.md
     sections 3.5-3.6): the building's RCN from the appraisal, split into the RSMeans
     components and carved against the itemized rows just written; one asset per residual
     (classified by the rules table through the same router as a component), its takeoff
     carrying the formula, inputs and assumptions, its cost the residual (or the cost
-    table's row for a small system). Returns ``(rows written, rows needing review)``."""
-    inputs = StructureInputs(
-        measurements=prepared.measurements,
-        cost_approach=prepared.cost_approach,
-        cost_year=plan.index.cost_year,
-        year_source=plan.index.year_source,
-        location_factor=plan.index.location_factor,
-        location_source=plan.index.location_source,
-        year=plan.index.year,
-        rcn_source=settings.structure_rcn_source,
-    )
-    building = building_rcn(
-        inputs.measurements,
-        inputs.cost_approach,
-        cost_year=inputs.cost_year,
-        year_source=inputs.year_source,
-        location_factor=inputs.location_factor,
-        location_source=inputs.location_source,
-        rcn_source=inputs.rcn_source,
-        year=inputs.year,
-    )
+    table's row for a small system; the small systems inside the model are carved from
+    their component like the itemized rows). Returns ``(rows written, rows needing review)``."""
+
+    def price(label: str, takeoff: Takeoff) -> tuple[CostEstimate | None, str | None]:
+        return _cost(
+            takeoff,
+            plan.index,
+            table,
+            label,
+            settings.cost_basis,
+            markup if inside_model(label) else None,
+        )
+
+    small = small_system_inputs(inputs.measurements, inputs.cost_approach, itemized)
+    small_priced: dict[str, Decimal | None] = {}
+    for small_row in small_system_rows(small):
+        estimate, _ = price(
+            small_row.label,
+            Takeoff(
+                component=small_row.label,
+                quantity=small_row.quantity,
+                unit=small_row.unit,
+                formula=small_row.formula,
+                method=small_row.method,
+            ),
+        )
+        small_priced[small_row.label] = None if estimate is None else estimate.total
     carve = None
     if building is not None:
-        carve = carve_out(split_components(building.amount, building.model), itemized)
-    small = small_system_inputs(inputs.measurements, inputs.cost_approach, itemized)
+        carve = carve_out(
+            split_building(building, inputs.split),
+            [*itemized, *carved_small_systems(small_system_rows(small), small_priced)],
+        )
     written = flagged = 0
-    for row in concealed_rows(building, carve, inputs.living_area, small, inputs.split):
+    for row in concealed_rows(
+        building, carve, inputs.living_area, small, inputs.split, inputs.specialties_residual
+    ):
         result = results.get(structure_id(row.label))
         override = prepared.structure_overrides.get(row.label)
         if result is None and override is None:
@@ -644,7 +685,7 @@ async def _write_structure(
         else:
             # A small system: priced from the cost table's row for the label, like any
             # other label; without a row it stays unpriced with the reason.
-            cost, priced_per = _cost(takeoff, plan.index, table, row.label)
+            cost, priced_per = price(row.label, takeoff)
             unit_cost = None if cost is None else cost.unit_cost
             total = None if cost is None else cost.total
             source_row = _source_row(takeoff, cost)
@@ -1127,14 +1168,52 @@ def _fields(takeoff: Takeoff) -> dict[str, Any]:
     }
 
 
+def _structure_inputs(
+    prepared: _Prepared, plan: TakeoffPlan, settings: Settings
+) -> StructureInputs:
+    """The structure model's inputs for this revision, with the settings' variant."""
+    return StructureInputs(
+        measurements=prepared.measurements,
+        cost_approach=prepared.cost_approach,
+        cost_year=plan.index.cost_year,
+        year_source=plan.index.year_source,
+        location_factor=plan.index.location_factor,
+        location_source=plan.index.location_source,
+        year=plan.index.year,
+        rcn_source=settings.structure_rcn_source,
+        modifications=settings.structure_modifications == "on",
+        specialties_residual=settings.structure_specialties_residual,
+        cost_basis=settings.cost_basis,
+        overhead_allocation=settings.structure_overhead_allocation,
+    )
+
+
+def _building(inputs: StructureInputs) -> BuildingRcn | None:
+    return building_rcn(
+        inputs.measurements,
+        inputs.cost_approach,
+        cost_year=inputs.cost_year,
+        year_source=inputs.year_source,
+        location_factor=inputs.location_factor,
+        location_source=inputs.location_source,
+        rcn_source=inputs.rcn_source,
+        year=inputs.year,
+        modifications=inputs.modifications,
+    )
+
+
 def _cost(
     takeoff: Takeoff,
     index: CostIndex,
     table: CostTable | None,
     label: str,
+    basis: CostBasis = DEFAULT_COST_BASIS,
+    markup: Markup | None = None,
 ) -> tuple[CostEstimate | None, str | None]:
     """The estimate, or ``None`` and the unit a table row prices the label in when the
-    takeoff is in another unit (``NeedsQuantity``)."""
+    takeoff is in another unit (``NeedsQuantity``). ``basis`` and ``markup`` as
+    :func:`basis.domain.costs.estimate_cost` takes them (the settings' cost basis; the
+    model's general contractor's O&P on a row inside it)."""
     try:
         estimate = estimate_cost(
             takeoff,
@@ -1145,6 +1224,8 @@ def _cost(
             year_source=index.year_source,
             location_source=index.location_source,
             year=index.year,
+            basis=basis,
+            markup=markup,
         )
     except NeedsQuantity as exc:
         return None, exc.unit

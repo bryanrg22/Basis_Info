@@ -438,12 +438,22 @@ result as the independent check. Cost per variant is zero (deterministic); runti
 | `DEFAULT_TYPE` | 1 story | `needs_review` when used |
 | `GARAGE_CARS_IN_MODIFICATION` | 1 for economy and average, 2 for custom and luxury | the facing pages' garage lines |
 | `COST_APPROACH_PARTS_TOLERANCE` | 0.01 | the printed total against the sum of its parts (a warning, not a refusal; the client appraisal's parts differ by 1.4 %) |
+| `MODIFICATIONS` | the 18 facing pages' bath modifications and heating and cooling alternatives | section 9.1 |
+| `BATH_PLUMBING_SHARE` | 5,041.55 / 8,150 = 61.9 % | the three-fixture bathroom assembly (printed p.250) over the Average full-bath modification; the rest of a bath modification is Interiors (section 9.1) |
+| `DEFAULT_MODIFICATIONS`, `DEFAULT_SPECIALTIES_RESIDUAL`, `DEFAULT_OVERHEAD_ALLOCATION`; `DEFAULT_COST_BASIS` (`basis.domain.costs`) | on, building, pro_rata; installed | section 9 (settings `STRUCTURE_MODIFICATIONS`, `STRUCTURE_SPECIALTIES_RESIDUAL`, `STRUCTURE_OVERHEAD_ALLOCATION`, `COST_BASIS`) |
+| `MATERIAL_PROFIT`, `LABOR_MARKUP`, `EQUIPMENT_PROFIT` (`basis.domain.costs`) | 1.10, 1.72, 1.10 | RSMeans Residential 2020 PDF p.21: a cost row without a Total Incl O&P column brought to the installing contractor's price (section 9.3) |
 
 ## 6. What this does not do (open)
 
 * Per-class depreciation (A(6)): one rate for every row; a carpet gets the building's
   rate. The per-class refinement needs the ages of finishes and equipment, which an
-  inspection can give and the appraisal does not.
+  inspection can give and the appraisal does not (section 8.2: applying the building's
+  effective age to shorter class lives would only widen the gap).
+* Section 9's open items: the bath modification's plumbing share is one national ratio; the
+  "Not Heated" alternative is not used (its sign is printed "+" on the custom and luxury
+  pages); a fireplace is priced from its itemized asset, not the "Fireplace & Chimney"
+  modification; permits and fees beyond the model's "design" are in no source in the corpus;
+  the evidenced site assets without a quantity (a driveway, walks, fences) stay unpriced.
 * The split-level models (bi-level, tri-level) and the exterior-wall rows other than wood
   siding of the matrix are not transcribed; the basement and garage additions are at the
   model's representative size; the square-foot rows are marked for review.
@@ -458,3 +468,182 @@ result as the independent check. Cost per variant is zero (deterministic); runti
   contested) and a firm convention can override it.
 * The API's asset list (`GET /v1/studies/{id}/assets`) shows a concealed asset with no
   component and no label; the export and the result carry its label in the takeoff inputs.
+
+## 8. Closing the reconciliation gap (EVAL_REPORT 49, 2026-10-31)
+
+Since the year factor became the published index (EVAL_REPORT 47: July 2024 HCI 294.8, factor
+1.2330), both live exports of the client property replay to RCNLD 14.2 % (run 3A) and 13.4 %
+(run 3B) below the purchase price less land, outside the 10 % tolerance, so the allocation is
+withheld. ATG ch. 3 D(5)-(6) asks for "an analysis of the available data and methodology ...
+to assess and determine the source of the difference" among five causes. This section is that
+analysis, written before any code changed; section 9 is what was built and measured. Every
+figure is a share of the basis B (no client dollar amount).
+
+### 8.1 Against the engineer's report, row by row
+
+The engineer's report reproduces from implied RCNs to the cent (EVAL_REPORT 34): implied RCN =
+printed cost x printed RCN total / T. The engineer's RCN total is 141.0 % of B and every row
+is written down by one factor (T / RCN = 0.710, a uniform 29 % that the report applies to
+land improvements and personal property alike). Ours is 109.2 % (3A) / 110.2 % (3B),
+depreciated at the appraiser's 21.4 %. Grouped (implied RCN as % of B; "ours" is the replayed
+export's priced assets charged to the same rows by the e2e scorer):
+
+| Rows | Engineer | Ours 3A | Ours 3B | Ours / engineer (3A) |
+|---|---|---|---|---|
+| Building shell (foundation, framing, façade, roofing, gutters) | 39.7 | 43.5 | 42.4 | 1.10 |
+| Interior construction (partitions, painting, ceilings, doors, stairs, sealed concrete) | 37.8 | 23.5 | 25.6 | 0.62 |
+| Windows, overhead doors | 4.1 | 3.8 | 4.7 | 0.94 |
+| MEP (electrical, plumbing, HVAC, fire, site utilities) | 28.6 | 17.0 | 16.9 | 0.59 |
+| Restroom (accessories, millwork, ceramic tile) | 3.0 | 2.8 | 2.8 | 0.95 |
+| 5-year finishes (cabinets, moldings, flooring, paneling, coverings, half walls) | 13.3 | 9.6 | 8.4 | 0.73 |
+| 5-year equipment (appliances, specialty plumbing and electrical, data, access, lighting, guards, vents, treatments, FF&E, fireplaces) | 7.0 | 2.7 | 3.4 | 0.38 |
+| Land improvements and shed (driveway, walks, fence, walls, pads, signage, shed) | 7.6 | 1.0 | 1.0 | 0.13 |
+| Assets no engineer row takes (landscaping, mirrors, `other`) | 0 | 5.4 | 5.0 | |
+| Total RCN | 141.0 | 109.2 | 110.2 | 0.775 |
+
+The engineer's RCN is not the target (it is 12 % above the appraiser's own cost new plus site
+improvements, and its uniform write-down is the step the guide rejects in the other
+direction); it says where our RCN is thin: MEP and interior construction (the concealed
+residuals of a model priced as the base house), the 5-year side, and the land improvements
+we cannot measure.
+
+### 8.2 By cause (ATG ch. 3 D(6))
+
+| Cause | What the data says | Effect on RCNLD, points of B (3A / 3B), estimated before coding | Sourced change |
+|---|---|---|---|
+| Incorrect FMV of the land | B uses the engineer's 12 % flat share (B equals the engineer's to the cent); the appraisal's site value would make B 0.6 % smaller | 0.6 / 0.6 (not a cause relative to the engineer) | none; the land checks stay on the worksheet |
+| Assets, components, quantities not identified (a) | The square-foot model is priced as RSMeans' base house: the Custom 2 Story model includes "1 full bath, 1 half bath" and "forced hot air heat/air conditioning" (facing page, printed p.64); the house has 6 full baths and hot-water baseboard heat (`improvements.bathrooms` 6.0, `heating_type` HWBB). RSMeans prices those differences on the same page: "Modifications, add to the total cost: Full Bath - including plumbing, wall and floor finishes +9,780; Half Bath +5,838" and "Alternatives, add to or deduct from the cost per square foot of living area: Heating Systems, Hot Water +1.51". The instructions (PDF p.17): base costs are "with one full bath and one full kitchen for economy and average homes, and an additional half bath for custom and luxury models"; "additional bathrooms ... and air conditioning and heating systems are listed in Modifications, Adjustments, and Alternatives tables"; and the computation is "1. Multiply the base cost by the area. 2. Add or subtract the modifications, adjustments, and alternatives. 3. Apply the location modifier." Our model stopped after step 1 | +7.8 / +7.8 | apply the facing page's modifications and alternatives for the baths, heating and cooling the appraisal reports (all 18 models transcribed) |
+| (b) | The Specialties residual (the model's custom cabinets, countertops, sink and water heater less the itemized ones) is reported but not written, so it is outside the RCN total. ATG ch. 3 C.4(1)-(2): the residual is "assigned to the building and/or other long-lived assets" and "should always be determined and then added back ... to check if the total project cost is reconciled" | +3.7 / +3.5 | write it as a building row (never 5-year: C.4(3)'s skew is toward § 1245) |
+| (c) | The small systems inside the model (fire alarm and data cabling in Electrical, which names "communications cabling"; locksets in Exterior Walls, which names "doors, frames and hardware") are priced from the cost table and added, but not carved from their component as section 3.6 says: counted twice | -0.5 / -0.7 | carve them (a defect against this document) |
+| (d) | Evidenced site and furnishing assets stay unpriced for want of a quantity (driveway, walks, fence, retaining wall, pad, patio, porch, 23-28 furniture items, two appliances, 33-43 `other`). The engineer's rows for them are about 7 % of B in RCN (the driveway alone 6.4 %) | not closable without a measurement | none here (the appraisal's as-is site improvements, 4.2 % of B, is reported as a check) |
+| Incorrect cost estimates and factors | The itemized rows are priced at RSMeans bare cost (material + labor + equipment); the square-foot components are not: "The costs in components 1 through 9 include overhead and profit for the installing contractor. Item 10 is overhead and profit for the general contractor" (How to use the Residential Square Foot Cost Section, PDF p.21). Inside the model the carve-out hides the mismatch (the residual absorbs it); the assets outside the model (appliances, fireplaces, shed, landscaping, mirrors, treatments) lack the installing contractor's O&P | +1.2 / +1.3 | price every row at the line's "Total Incl O&P" (the cost table's `total_incl_op`); a legacy row without one by the book's own conversion (material + 10 %, labor + 72 %, equipment + 10 %; PDF p.21), which reproduces the table's column within 5 % on 64 of its 67 rows |
+| Incorrect depreciation and obsolescence factors | The appraiser's physical depreciation 21.4 % equals the age-life ratio 15 / (15 + 55); no functional or external obsolescence printed. A(6) expects the rate to differ by class, but no class's effective age is in the data; applying the building's 15-year effective age to shorter class lives would only raise depreciation (widen the gap) and is not an appraisal technique without the items' ages | 0 | none; the uniform-rate warning stays |
+| Indirect costs not accounted for | The general contractor's overhead (item 10) is spread pro rata over the nine components, then the itemized rows are subtracted without it, so the concealed 39-year residuals carry the 5-year rows' share of the GC's O&P. ATG ch. 4 C.11(2): "contractor overhead and profit are typically allocated to assets on a pro-rata basis"; C.11(3): generally not to furniture and machinery bought under separate contracts | 0 on the total (dollars move from concealed rows to the itemized rows inside the model) | allocate item 10 pro rata to the itemized rows inside the model (overhead / components 1-9 of the model page); none to assets outside it. Permits and fees beyond the model's "design" are not in any source in the corpus: not added |
+
+Estimated together: 3A -14.2 + 7.8 + 3.7 - 0.5 + 1.2 = -2.0 %; 3B -13.4 + 7.8 + 3.5 - 0.7 + 1.3
+= -1.5 %, inside the 10 % tolerance without touching the depreciation rate or the land.
+Each change is a setting so the sweep (section 9) can measure it alone and in combination.
+
+## 9. What was built, and what it measured (EVAL_REPORT 49)
+
+Four changes, each a setting so it can be measured alone, and one defect fixed. Code:
+`basis/domain/structure.py`, `basis/domain/costs.py`, `basis/activities/process_assets.py`,
+`basis/evidence/result.py`, `basis/domain/rules.py` (one row), the offline tools
+`evals/reprice_export.py`, `evals/structure_replay.py` and the sweep `evals/gap_sweep.py`.
+
+### 9.1 The square-foot model's modifications and alternatives (`STRUCTURE_MODIFICATIONS`)
+
+Each model's facing page was read again as an image for its "Modifications" and
+"Alternatives" blocks; `MODIFICATIONS` holds, per model, the baths the base includes (one full
+for economy and average, one full and one half for custom and luxury), the "Full Bath -
+including plumbing, wall and floor finishes" and "Half Bath" figures (economy 6,520 / 3,892,
+average 8,150 / 4,865, custom 9,780 / 5,838, luxury 11,736 / 7,006), the hot water, heat pump
+and electric heat alternatives per square foot of living area, and, where cooling is not the
+base system (economy and average), "Air Conditioning, in Heating Ductwork" and "In Separate
+Ductwork". The appraisal's `improvements.bathrooms` (UAD "full.half"; a ".5" is read as the
+pre-UAD decimal, one half bath, with the assumption), `improvements.heating_type` and
+`improvements.cooling` choose them: baths are the difference from the model's, priced at the
+page's figures (a bath the model has and the house lacks is deducted: modifications are
+"added to or subtracted from the total cost"); heating takes the page's alternative for hot
+water (HWBB, hydronic, boiler, radiant, steam), a heat pump or electric heat, and forced air
+keeps the model's system; central air on an economy or average model takes the separate-ductwork
+alternative when the heating has no ducts, the heating-ductwork one otherwise. The additions
+enter the building RCN before the year and location factors, exactly as the instructions'
+three steps say, and each is placed in its component (`split_building`): a bath to Mechanical's
+plumbing by `BATH_PLUMBING_SHARE` (the three-fixture bathroom assembly 5,041.55 over the
+Average full bath 8,150: 61.9 %) and the rest to Interiors (its wall and floor finishes);
+heating and cooling to Mechanical's HVAC. The Mechanical residual is then split with each
+addition going to its own row and the model's own part by the assembly ratio of section 3.5.
+The appraisal's cost new takes no modification (it is the whole house). Every figure is on
+the row: the formula names the page and block, the inputs the baths, heating and cooling read.
+
+### 9.2 The Specialties residual written (`STRUCTURE_SPECIALTIES_RESIDUAL`)
+
+`building` (the default) writes the Specialties residual as the row `specialties_residual`:
+building, contested (the rules row cites ATG ch. 3 C.4(1), "remaining or 'residual' cost is
+then simply assigned to the building and/or other long-lived assets"), review reason
+`structure:residual_unidentified`. Section 3.5's reason for not writing it (the C.4(3) skew)
+is a skew toward section 1245; a building row cannot produce it, and C.4(2) asks that the
+residual be "added back ... to check if the total project cost is reconciled". The result's
+`not_produced` never lists it (it is a remainder, not a system: `SYSTEM_LABELS`); with
+`report` the behaviour before is restored.
+
+### 9.3 One cost basis, and the indirect costs where they belong (`COST_BASIS`, `STRUCTURE_OVERHEAD_ALLOCATION`)
+
+`COST_BASIS=installed` (the default) prices every row at the line's "Total Incl O&P" (the cost
+table's `total_incl_op` column, until now kept for reference); a row without the column (the
+six legacy rows) by the square-foot section's own conversion: material + 10 %, labor + 72 %,
+equipment + 10 % (PDF p.21). On the private table the conversion reproduces the printed
+column within 5 % on 64 of 67 rows (median +1.9 %); the three outliers are a row whose
+printed figures already include O&P (the site-utility trench assembly), the data outlet
+(electricians' markup) and the shed. `STRUCTURE_OVERHEAD_ALLOCATION=pro_rata` (the default)
+adds the model's general contractor's O&P to every row inside the model (`inside_model`:
+the label maps to a model component), at the model page's item 10 over components 1-9
+(20.0 % on Custom 2 Story, 17.0 % on Average 2 Story), recorded in the cost row's source;
+rows outside the model (appliances, furnishings, decor, site work) never take it (ATG ch. 4
+C.11(3)). Inside the model this moves dollars from the concealed residuals to the itemized
+rows and leaves the total unchanged; outside it the installed basis adds the installing
+contractor's O&P the bare rows lacked. `reconciliation.causes` says how the rows were priced.
+
+### 9.4 The defect: the small systems are carved
+
+Section 3.6 says fire alarm and data cabling are carved from Electrical (whose description
+names "communications cabling") and the locksets from Exterior Walls ("doors, frames and
+hardware"); the code priced them and added them on top. They are now priced first and carved
+like an itemized row (`carved_small_systems`), in `process_assets`, the result and the replay;
+the site laterals stay outside the model. No setting: it is what this document specified.
+
+### 9.5 Measured (both live exports, replayed offline with the July 2024 index)
+
+`python -m evals.gap_sweep` reprices each export on each pricing (bare; installed; installed
+with the general contractor's O&P) and replays 12 structure variants on each (square-foot
+model with and without the modifications, the appraisal's cost new; the Specialties residual
+reported or written; the small systems added or carved): 36 cells per export, scored by the
+e2e scorer; cost $0, about 10 ms a cell. Shares and points only (artifacts, private:
+`work/e2e_artifacts/reconciliation_gap_2026-10-31/`). Gap is B less RCNLD as a share of B
+(positive: RCNLD below the basis).
+
+| Step (each adds to the row above) | 3A gap | 3A buckets y5 / y7 / y15 / y39 | 3A bucket error mean / max | 3A TVD | 3B gap | 3B buckets | 3B bucket error | 3B TVD |
+|---|---|---|---|---|---|---|---|---|
+| Before (EVAL_REPORT 47) | +14.2, unreconciled | 11.3 / 0.9 / 4.0 / 83.8 | 2.06 / 3.6 | 21.1 | +13.4, unreconciled | 8.4 / 0.9 / 4.0 / 86.7 | 3.49 / 6.5 | 21.8 |
+| + modifications (9.1) | +6.4 | 10.3 / 0.8 / 3.7 / 85.2 | 2.69 / 5.0 | 20.9 | +5.6 | 7.7 / 0.8 / 3.7 / 87.8 | 4.00 / 7.6 | 22.6 |
+| + Specialties residual written (9.2) | +2.7 | 9.9 / 0.8 / 3.5 / 85.8 | 2.96 / 5.5 | 20.6 | +2.2 | 7.4 / 0.8 / 3.6 / 88.3 | 4.21 / 8.0 | 21.8 |
+| + small systems carved (9.4) | +3.2 | 10.0 / 0.8 / 3.6 / 85.7 | 2.92 / 5.5 | 20.7 | +2.8 | 7.5 / 0.8 / 3.6 / 88.2 | 4.17 / 7.9 | 22.0 |
+| + Total Incl O&P (9.3) | +2.0 | 12.1 / 0.9 / 4.2 / 82.8 | 1.56 / 2.5 | 21.4 | +1.6 | 9.0 / 0.9 / 4.3 / 85.8 | 3.08 / 5.6 | 22.0 |
+| + GC O&P pro rata (9.3): **production** | **+2.0, reconciled** | 14.1 / 0.9 / 4.2 / 80.8 | **0.55 / 0.8** | 23.1 | **+1.6, reconciled** | 10.4 / 0.9 / 4.3 / 84.3 | **2.34 / 4.1** | 22.5 |
+| The appraisal's cost new, every other change | -1.7 | 13.6 / 0.9 / 4.1 / 81.5 | 0.88 / 1.2 | 22.9 | -2.1 | 10.1 / 0.9 / 4.1 / 84.9 | 2.61 / 4.7 | 22.5 |
+
+The engineer's shares are 14.4 / 0.4 / 5.1 / 80.2. Each step closed what section 8.2
+estimated before any code (7.8, 3.7 / 3.5, -0.5 / -0.6, 1.2 / 1.2 points; the overhead
+allocation moves no total). Kind C rows: 8 produced, 7 in the engineer's bucket in every cell
+(Access Control, section 44). The regression line holds in every one of the 72 cells: the
+photo-visible rows evidenced and bucket right are 35 / 35 (3A) and 35 / 34 (3B), unchanged.
+
+**The pick, and why it is not the sweep's first row.** Ranked by mean bucket error alone among
+the cells that reconcile on both exports, the first two are the production cell without the
+modifications (1.26 points against 1.44, gap 9.5 % against 1.8 %). Those cells price a house
+with six full baths and hot-water heat as RSMeans' base house (one full and one half bath,
+forced air): the instructions' step 2 skipped, a quantity the appraisal reports left out (ATG
+D(6)'s second cause). That is a defect kept, not a method, and is set aside as section 44 set
+aside the unsourced Marshall & Swift cells. Why it scores better on the shares: the
+modifications are building dollars, and on these exports the 5- and 15-year sides still lack
+what nobody measured (the driveway alone is 6.4 % of the engineer's RCN on the basis), so a
+correct addition to the building raises its share past the engineer's; in dollars it moves
+toward the engineer (our building RCN stays below the engineer's implied one). Among the cells
+that apply every change, the square-foot model leads the appraisal's cost new (1.44 against
+1.74 points mean over the exports; both reconcile, 1.8 % and 1.9 %), so the production default
+stays the square-foot model with the appraiser's figure one setting away
+(`STRUCTURE_RCN_SOURCE=appraisal_total`). On run 3A, the study the engineer corrected at every
+gate, the production cell is the third best by bucket error of the cells that reconcile on
+it (0.55 points; the two ahead of it, 0.36 and 0.39, leave the Specialties residual unwritten,
+which C.4(2) does not allow for the reconciliation); on 3B it is the fifth (2.34 against 1.71),
+behind cells without the modifications.
+
+**What got worse.** The row-share distance rises 2.0 points on 3A (21.1 to 23.1) and 0.7 on
+3B: Interior Framing / Partitions falls from 11.2 % to 7.2 % of the schedule (the general
+contractor's O&P of the itemized interiors now sits on those rows, not in the residual; the
+engineer has 12.7 %) and Plumbing rises from 4.6 % to 7.7 % (the five added baths' plumbing at
+61.9 %; the engineer has 5.2 %), with Exterior Façade (11.7 % to 8.8 %, engineer 5.2 %) and
+Structural Framing (15.1 % to 13.3 %, engineer 10.9 %) moving toward the engineer. The bath
+split is the one national ratio of this section; the partition row is what the guide's
+indirect-cost rule gives. Both are reported, not tuned.

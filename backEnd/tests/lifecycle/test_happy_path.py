@@ -113,9 +113,9 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         ).all()
         assert len(components) == 6
         assets = (await session.scalars(select(Asset).where(Asset.study_id == sid))).all()
-        # Six from the components, thirteen concealed rows of the structure model (the
+        # Six from the components, fourteen concealed rows of the structure model (the
         # synthetic appraisal has a cost approach; STRUCTURE_MODEL.md).
-        assert len(assets) == 19
+        assert len(assets) == 20
         citations = (await session.scalars(select(Citation).where(Citation.study_id == sid))).all()
         # Every asset here is a rules-table hit whose citations resolved against the
         # seeded reference corpus (none unverified). Every one goes to review: the kitchen
@@ -127,7 +127,7 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         labels = {c.id: c.label for c in components}
         itemized = [a for a in assets if a.component_id is not None]
         concealed = [a for a in assets if a.component_id is None]
-        assert (len(itemized), len(concealed)) == (6, 13)
+        assert (len(itemized), len(concealed)) == (6, 14)
         # The concealed rows (STRUCTURE_MODEL.md) cite the ATG's residential matrix like
         # any rule hit and resolve against the seeded reference corpus the same way.
         assert {c.asset_id for c in citations} == {a.id for a in assets}
@@ -158,7 +158,7 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         assert all("cross:" in reason for label, reason in flagged if label == "countertop")
 
     exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))
-    assert exported["revision"] == 1 and len(exported["assets"]) == 19
+    assert exported["revision"] == 1 and len(exported["assets"]) == 20
     assert set(exported["checksums"]) == {
         "extraction",
         "rooms",

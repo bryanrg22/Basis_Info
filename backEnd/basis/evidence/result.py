@@ -64,7 +64,8 @@ from basis.domain.structure import (
     COMPONENT_NAMES,
     DEFAULT_SPLIT,
     ENGINEER_ROWS,
-    STRUCTURE_LABELS,
+    SMALL_SYSTEM_LABELS,
+    SYSTEM_LABELS,
     BuildingRcn,
     CarveOut,
     Depreciation,
@@ -77,9 +78,10 @@ from basis.domain.structure import (
     cost_approach_from_fields,
     depreciate,
     depreciation,
+    inside_model,
     mapping_for,
     reconcile,
-    split_components,
+    split_building,
     split_shares,
 )
 from basis.domain.structure import Check as StructureCheck
@@ -89,7 +91,7 @@ NOT_PRODUCED_REASON: Final = (
 )
 # The concealed systems in the order the result lists them when absent.
 NOT_PRODUCED: Final[tuple[tuple[str, str], ...]] = tuple(
-    (ENGINEER_ROWS[label], CATEGORIES[label]) for label in STRUCTURE_LABELS
+    (ENGINEER_ROWS[label], CATEGORIES[label]) for label in SYSTEM_LABELS
 )
 
 
@@ -658,12 +660,20 @@ def compute_result(
             location_source=structure.location_source,
             rcn_source=structure.rcn_source,
             year=structure.year,
+            modifications=structure.modifications,
         )
         depr = depreciation(structure.cost_approach, structure.depreciation_method)
         if building is not None:
+            # The small systems inside the model are carved from their component like the
+            # itemized rows (STRUCTURE_MODEL.md section 3.6).
             carve = carve_out(
-                split_components(building.amount, building.model, structure.split),
-                [ItemizedRow(r.label, r.rcn) for r in itemized],
+                split_building(building, structure.split),
+                [ItemizedRow(r.label, r.rcn) for r in itemized]
+                + [
+                    ItemizedRow(r.label, r.rcn)
+                    for r in concealed
+                    if r.label in SMALL_SYSTEM_LABELS and inside_model(r.label)
+                ],
                 carve=structure.carve,
             )
     concealed_by_component: dict[str, Decimal] = {}
@@ -710,7 +720,7 @@ def compute_result(
         NotProducedOut(
             system=ENGINEER_ROWS[label], reason=f"{CATEGORIES[label]}; {NOT_PRODUCED_REASON}"
         )
-        for label in STRUCTURE_LABELS
+        for label in SYSTEM_LABELS
         if label not in produced
     ]
 
@@ -758,6 +768,7 @@ def compute_result(
                 ],
                 depreciation_=depr,
                 purchase_price=ws.purchase_price,
+                pricing=structure.pricing(),
             )
             reconciliation_out = _reconciliation_out(reconciliation)
             allocate_rows = reconciliation.status == "reconciled"
@@ -907,6 +918,10 @@ def structure_inputs(
         location_source=index.location_source,
         year=index.year,
         rcn_source=settings.structure_rcn_source,
+        modifications=settings.structure_modifications == "on",
+        specialties_residual=settings.structure_specialties_residual,
+        cost_basis=settings.cost_basis,
+        overhead_allocation=settings.structure_overhead_allocation,
     )
 
 

@@ -247,3 +247,19 @@ of the ATG.
 
 Count after this change: 67 rows (54 + 13), 7 variants, the contested set is 11 (the 10 of
 section 4 plus `access_control`).
+
+### Row added 2026-10-31 (`RULES_VERSION` 2026-10-31.1, STRUCTURE_MODEL.md section 9.2)
+
+The structure model writes the Specialties residual (the square-foot model's kitchen
+cabinets and countertops, kitchen sink and water heater less the itemized ones) as a row of
+its own so the reconciliation counts it. No Exhibit A row names an unidentified residual; the
+guide's residual estimation approach says where one goes. The excerpt was checked on the
+page as pymupdf and the production parser read it, and inside one production chunk of
+page 31 (2026-10-31).
+
+| Label | Section / bucket | Citation | Verdict | Note |
+|---|---|---|---|---|
+| `specialties_residual` | 1250 building, contested | p.31 (ch. 3 C.4(1)): "remaining or "residual" cost is then simply assigned to the building and/or other long-lived assets." | contested | The residual stays with the building until it is identified (never 5-year: C.4(3)'s skew is toward section 1245); a study that measures the cabinets itemizes them as 5-year, so the hit goes to the engineer. |
+
+Count after this change: 68 rows, 7 variants, the contested set is 12 (adds
+`specialties_residual`).

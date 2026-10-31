@@ -17,11 +17,15 @@ Usage (from ``backEnd/``)::
         [--cost-table costs/unit_costs_rsmeans_2020.json] [--intake intake.json] \\
         [--rcn-source appraisal_total|appraisal_parts|square_foot] \\
         [--split rsmeans|nahb|marshall_swift] [--no-carve] \\
-        [--depreciation appraisal_physical|age_life|none]
+        [--depreciation appraisal_physical|age_life|none] [--no-modifications] \\
+        [--specialties-residual building|report] [--cost-basis installed|bare] \\
+        [--overhead pro_rata|none] [--no-carve-small-systems]
     python -m evals.e2e_report --export export/rev-5.structure.json ...
 
 The variant options are the sweep's axes (``evals.structure_sweep``, STRUCTURE_MODEL.md
-section 7); the defaults are the production choice.
+sections 7 and 9); the defaults are the production choice. ``--cost-basis`` and
+``--overhead`` price the small systems here; the itemized rows keep the export's prices, so
+replay an export that ``evals.reprice_export`` priced on the same basis.
 
 The intake is rebuilt from the export's ``summary.basis.worksheet`` (price, land as a flat
 share with the worksheet's source text, the capitalized costs, the use and dates); pass
@@ -45,29 +49,48 @@ from typing import Any, Final
 
 from basis.domain.cost_indices import YearIndex, supplement_for
 from basis.domain.cost_table import CostTable, load_cost_table
-from basis.domain.costs import CostError, NeedsQuantity, estimate_cost, year_factor_index
+from basis.domain.costs import (
+    COST_BASES,
+    DEFAULT_COST_BASIS,
+    CostBasis,
+    CostError,
+    NeedsQuantity,
+    estimate_cost,
+    year_factor_index,
+)
 from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
 from basis.domain.measurements import measurements_from_fields
 from basis.domain.rules import RECOVERY_YEARS, lookup
 from basis.domain.structure import (
     DEFAULT_DEPRECIATION,
+    DEFAULT_MODIFICATIONS,
+    DEFAULT_OVERHEAD_ALLOCATION,
     DEFAULT_RCN_SOURCE,
+    DEFAULT_SPECIALTIES_RESIDUAL,
     DEFAULT_SPLIT,
     DEPRECIATION_METHODS,
+    OVERHEAD_ALLOCATIONS,
     RCN_SOURCES,
+    SPECIALTIES_RESIDUALS,
     SPLIT_METHODS,
     DepreciationMethod,
     ItemizedRow,
+    OverheadAllocation,
     RcnSource,
+    SpecialtiesResidual,
     SplitMethod,
     StructureError,
     StructureInputs,
     building_rcn,
     carve_out,
+    carved_small_systems,
     concealed_rows,
     cost_approach_from_fields,
+    inside_model,
+    overhead_markup,
     small_system_inputs,
-    split_components,
+    small_system_rows,
+    split_building,
 )
 from basis.domain.takeoffs import Takeoff
 from basis.evidence.result import ScheduleRow, compute_result, concealed_label
@@ -89,11 +112,27 @@ class Variant:
     split: SplitMethod = DEFAULT_SPLIT
     carve: bool = True
     depreciation: DepreciationMethod = DEFAULT_DEPRECIATION
+    # Section 9 (EVAL_REPORT 49): the square-foot model's modifications, the Specialties
+    # residual, the small systems carved, and the basis the small systems are priced on.
+    modifications: bool = DEFAULT_MODIFICATIONS
+    specialties: SpecialtiesResidual = DEFAULT_SPECIALTIES_RESIDUAL
+    carve_small: bool = True
+    cost_basis: CostBasis = DEFAULT_COST_BASIS
+    overhead: OverheadAllocation = DEFAULT_OVERHEAD_ALLOCATION
 
     @property
     def name(self) -> str:
         carve = "carve" if self.carve else "top_down"
         return f"{self.rcn_source}+{self.split}+{carve}+{self.depreciation}"
+
+    @property
+    def gap_name(self) -> str:
+        """The section 9 axes, as the gap sweep names a cell."""
+        return (
+            f"mods={'on' if self.modifications else 'off'}+spec={self.specialties}"
+            f"+small={'carved' if self.carve_small else 'added'}+basis={self.cost_basis}"
+            f"+gc={self.overhead}"
+        )
 
 
 PRODUCTION: Final = Variant()
@@ -237,6 +276,10 @@ def replay(
         split=variant.split,
         carve=variant.carve,
         depreciation_method=variant.depreciation,
+        modifications=variant.modifications,
+        specialties_residual=variant.specialties,
+        cost_basis=variant.cost_basis,
+        overhead_allocation=variant.overhead,
     )
     building = building_rcn(
         measurements,
@@ -248,17 +291,54 @@ def replay(
         rcn_source=variant.rcn_source,
         year=year,
         supplement=supplement,
+        modifications=variant.modifications,
     )
+    markup = (
+        overhead_markup(building.model)
+        if building is not None and variant.overhead == "pro_rata"
+        else None
+    )
+
+    def price(label: str, takeoff_obj: Takeoff) -> Any:
+        return estimate_cost(
+            takeoff_obj,
+            cost_year,
+            location_factor,
+            table=cost_table,
+            label=label,
+            year_source=inputs.year_source,
+            location_source=inputs.location_source,
+            year=year,
+            basis=variant.cost_basis,
+            markup=markup if inside_model(label) else None,
+        )
+
     itemized = itemized_rows(existing)
+    small = small_system_inputs(measurements, cost_approach, itemized)
+    small_priced: dict[str, Decimal | None] = {}
+    for small_row in small_system_rows(small):
+        try:
+            small_priced[small_row.label] = price(
+                small_row.label,
+                Takeoff(
+                    component=small_row.label,
+                    quantity=small_row.quantity,
+                    unit=small_row.unit,
+                    formula=small_row.formula,
+                    method=small_row.method,
+                ),
+            ).total
+        except CostError:
+            small_priced[small_row.label] = None
     carve = None
     if building is not None:
-        carve = carve_out(
-            split_components(building.amount, building.model, variant.split),
-            itemized,
-            carve=variant.carve,
-        )
-    small = small_system_inputs(measurements, cost_approach, itemized)
-    rows = concealed_rows(building, carve, inputs.living_area, small, variant.split)
+        carved = itemized
+        if variant.carve_small:
+            carved = [*itemized, *carved_small_systems(small_system_rows(small), small_priced)]
+        carve = carve_out(split_building(building, variant.split), carved, carve=variant.carve)
+    rows = concealed_rows(
+        building, carve, inputs.living_area, small, variant.split, variant.specialties
+    )
 
     appended: list[dict[str, Any]] = []
     for row in rows:
@@ -287,16 +367,7 @@ def replay(
         else:
             factor = location_factor
             try:
-                estimate = estimate_cost(
-                    takeoff_obj,
-                    cost_year,
-                    location_factor,
-                    table=cost_table,
-                    label=row.label,
-                    year_source=inputs.year_source,
-                    location_source=inputs.location_source,
-                    year=year,
-                )
+                estimate = price(row.label, takeoff_obj)
             except NeedsQuantity:
                 estimate = None
                 reasons.append("cross:COST_NEEDS_QUANTITY")
@@ -375,6 +446,7 @@ def replay(
         "cost_table": None if cost_table is None else cost_table.name,
         "intake": "export worksheet" if intake is not None else None,
         "variant": variant.name,
+        "gap_variant": variant.gap_name,
     }
     out["summary"] = summary
     changes = {
@@ -456,6 +528,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--depreciation", choices=DEPRECIATION_METHODS, default=DEFAULT_DEPRECIATION
     )
+    parser.add_argument(
+        "--no-modifications", action="store_true", help="the base square-foot model only"
+    )
+    parser.add_argument(
+        "--specialties-residual",
+        choices=SPECIALTIES_RESIDUALS,
+        default=DEFAULT_SPECIALTIES_RESIDUAL,
+    )
+    parser.add_argument("--cost-basis", choices=COST_BASES, default=DEFAULT_COST_BASIS)
+    parser.add_argument(
+        "--overhead", choices=OVERHEAD_ALLOCATIONS, default=DEFAULT_OVERHEAD_ALLOCATION
+    )
+    parser.add_argument(
+        "--no-carve-small-systems",
+        action="store_true",
+        help="add the small systems without carving them (the behaviour before section 9)",
+    )
     return parser.parse_args(argv)
 
 
@@ -468,6 +557,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         split=args.split,
         carve=not args.no_carve,
         depreciation=args.depreciation,
+        modifications=not args.no_modifications,
+        specialties=args.specialties_residual,
+        carve_small=not args.no_carve_small_systems,
+        cost_basis=args.cost_basis,
+        overhead=args.overhead,
     )
     try:
         intake = rebuild_intake(document, args.intake)

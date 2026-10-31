@@ -231,7 +231,7 @@ async def test_a_later_stage_failure_is_held_and_retried(
     if stage == "assets_processing":
         async with session_scope(harness.sessionmaker) as session:
             assets = (await session.scalars(select(Asset).where(Asset.study_id == sid))).all()
-        assert len(assets) == 6 + 13  # written once, by the retry (6 + the structure rows)
+        assert len(assets) == 6 + 14  # written once, by the retry (6 + the structure rows)
     row = await harness.study_row(sid)
     assert (row.status, row.failure_reason) == (StudyStatus.COMPLETED, None)
 
