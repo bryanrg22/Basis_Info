@@ -36,7 +36,10 @@ rows.
 
 * `reasons`: `intake_changed` (the intake version moved since the pricing),
   `cost_year_changed`, `index_updated` (the cost year's index value, factor or store version
-  differs), `location_changed`, `property_class_changed`, and `not_recorded` (priced before
+  differs), `location_changed`, `property_class_changed`, `method_changed` (a pricing setting
+  of STRUCTURE_MODEL.md section 9 changed since: the cost basis, the overhead allocation, the
+  modifications, the specialties residual or the RCN source; the result keeps applying the
+  recorded method), and `not_recorded` (priced before
   the trail existed; not stale by itself: its factors are unknown and are not reconstructed
   from rounded amounts, so such a revision keeps the old behaviour and says so).
 * `remedy`: `reprice`, or `reject_assets` when the property class changed (a 27.5-year

@@ -200,3 +200,39 @@ def test_setting_priced_revision_round_trips() -> None:
         structure_for(index),
     )
     assert not status.stale
+
+
+def test_a_changed_pricing_method_is_named_and_the_recorded_one_applies() -> None:
+    """STRUCTURE_MODEL.md section 9: the method a revision was priced by (cost basis,
+    overhead allocation, modifications, specialties residual, RCN source) is recorded; the
+    result applies it, and a setting changed since is ``method_changed``."""
+    index = index_for(2024, store_row(2024, "294.8"))
+    priced = {
+        "cost_basis": "bare",
+        "overhead_allocation": "none",
+        "modifications": False,
+        "specialties_residual": "report",
+        "rcn_source": "square_foot",
+    }
+    now = {**priced, "cost_basis": "installed", "overhead_allocation": "pro_rata"}
+    trail = {**trail_for(index), "method": priced}
+    recorded = recorded_pricing([trail])
+    assert recorded is not None and recorded.method == priced
+    current = current_pricing(
+        structure_for(index),
+        intake_version=2,
+        property_class="residential_rental",
+        location_citation=None if index.location is None else index.location.citation(),
+        method=now,
+    )
+    status = pricing_status(recorded, current, structure_for(index))
+    assert status.reasons == ["method_changed"] and status.remedy == "reprice"
+    assert status.priced_with.method == priced and status.current.method == now
+    as_priced = structure_inputs_as_priced(structure_for(index), recorded)
+    assert as_priced is not None
+    assert (
+        as_priced.cost_basis,
+        as_priced.overhead_allocation,
+        as_priced.modifications,
+        as_priced.specialties_residual,
+    ) == ("bare", "none", False, "report")

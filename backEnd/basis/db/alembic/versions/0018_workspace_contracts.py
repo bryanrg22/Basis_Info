@@ -2,12 +2,10 @@
 cost rows that cannot be rewritten.
 
 Revision ID: 0018
-Revises: 0016
+Revises: 0017
 Create Date: 2026-10-31
 
-Hand-written to match ``basis.db.models`` (``alembic check`` proves it). ``0017`` is the
-open room-metadata branch's ``photo_room_answers``: whichever of the two merges second sets
-its ``down_revision`` to the other.
+Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
 
 * ``cost_estimates.trail``: how the row's dollars were reached, recorded when it is priced
   (``basis.domain.cost_trail``): the quantity and its inputs, the base unit cost and its
@@ -31,7 +29,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0018"
-down_revision: str | Sequence[str] | None = "0016"
+down_revision: str | Sequence[str] | None = "0017"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

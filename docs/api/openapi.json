@@ -1563,16 +1563,17 @@
               "anyOf": [
                 {
                   "type": "integer",
+                  "maximum": 2147483646,
                   "minimum": 1
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Default: the current revision.",
+              "description": "A revision up to the current one (default).",
               "title": "Revision"
             },
-            "description": "Default: the current revision."
+            "description": "A revision up to the current one (default)."
           },
           {
             "name": "model_class",
@@ -2839,7 +2840,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "chat|document_analysis|localization|segmentation"
+                  "pattern": "^(chat|document_analysis|localization|segmentation)$"
                 },
                 {
                   "type": "null"
@@ -9201,6 +9202,35 @@
             ],
             "title": "Assumption",
             "description": "The table row's stated assumption."
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis",
+            "description": "The cost basis (STRUCTURE_MODEL.md 9.3): `bare` (material + labor + equipment) or `installed` (with the installing contractor's overhead and profit). Rows priced before the basis was recorded read `bare`.",
+            "default": "bare"
+          },
+          "basis_how": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis How",
+            "description": "How `unit_cost` reached the installed basis: `Total Incl O&P` (the printed column) or the square-foot section's markups; null on the bare basis."
+          },
+          "markup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailMarkupOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The square-foot model's general contractor's overhead and profit spread on the row: `unit_cost x (1 + rate)` is what the year and location factors multiply. Null when none."
           }
         },
         "type": "object",
@@ -9533,6 +9563,34 @@
         "title": "CostTrailLocationOut",
         "description": "The location factor exactly as used, with the row(s) it came from."
       },
+      "CostTrailMarkupOut": {
+        "properties": {
+          "rate": {
+            "type": "string",
+            "title": "Rate",
+            "description": "The rate, e.g. 0.200129 for 20.0129 %."
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Where the rate comes from."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rate",
+          "source"
+        ],
+        "title": "CostTrailMarkupOut",
+        "description": "A pro-rata indirect cost on the row (ATG ch. 4 C.11(2))."
+      },
       "CostTrailOut": {
         "properties": {
           "version": {
@@ -9613,6 +9671,28 @@
             "type": "string",
             "title": "Property Class",
             "description": "The property class priced under."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "The pricing method the revision ran with (STRUCTURE_MODEL.md section 9): `cost_basis`, `overhead_allocation`, `modifications`, `specialties_residual`, `rcn_source`. Null for a row priced before it was recorded."
           },
           "cost_year": {
             "type": "integer",
@@ -12314,6 +12394,28 @@
             ],
             "title": "Living Area Sf",
             "description": "The living area the square-foot model is sized by, when an engineer set it."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "The pricing method (STRUCTURE_MODEL.md section 9): `cost_basis` (bare or installed), `overhead_allocation` (pro_rata or none), `modifications`, `specialties_residual`, `rcn_source`. Null for a revision priced before it was recorded."
           }
         },
         "type": "object",
@@ -12356,12 +12458,13 @@
                 "cost_year_changed",
                 "index_updated",
                 "location_changed",
-                "property_class_changed"
+                "property_class_changed",
+                "method_changed"
               ]
             },
             "type": "array",
             "title": "Reasons",
-            "description": "`not_recorded` (priced before the trail; not stale by itself), `intake_changed` (the intake version moved since the pricing), `cost_year_changed`, `index_updated` (the cost year's index value or its store version differs), `location_changed`, `property_class_changed`."
+            "description": "`not_recorded` (priced before the trail; not stale by itself), `intake_changed` (the intake version moved since the pricing), `cost_year_changed`, `index_updated` (the cost year's index value or its store version differs), `location_changed`, `property_class_changed`, `method_changed` (a pricing setting of STRUCTURE_MODEL.md section 9 changed since)."
           },
           "remedy": {
             "anyOf": [
@@ -13125,11 +13228,13 @@
           },
           "name": {
             "type": "string",
-            "title": "Name"
+            "title": "Name",
+            "description": "What the room is called: the engineer's file name without the floor it starts with (`2nd Floor Bed 2` is `Bed 2` on floor `2`), the model's room identity (`Bedroom 2`), or the engineer's correction. Two rooms on different floors may share a name; `floor` tells them apart. Rooms grouped before 2026-10-30 keep the floor in the name."
           },
           "room_type": {
             "type": "string",
-            "title": "Room Type"
+            "title": "Room Type",
+            "description": "The room type (`kitchen`, `bathroom`, ... `ambiguous`: not known yet): what the name says, else the per-photo model's vote, else the engineer's correction."
           },
           "floor": {
             "anyOf": [
@@ -13140,7 +13245,8 @@
                 "type": "null"
               }
             ],
-            "title": "Floor"
+            "title": "Floor",
+            "description": "The floor: `0` is the basement, `1` the ground floor; null when no file name, photo or engineer says it (never guessed: a room grouped by file name as exterior or parking takes no floor from the photos)."
           },
           "source": {
             "type": "string",
@@ -13258,11 +13364,13 @@
           },
           "name": {
             "type": "string",
-            "title": "Name"
+            "title": "Name",
+            "description": "What the room is called: the engineer's file name without the floor it starts with (`2nd Floor Bed 2` is `Bed 2` on floor `2`), the model's room identity (`Bedroom 2`), or the engineer's correction. Two rooms on different floors may share a name; `floor` tells them apart. Rooms grouped before 2026-10-30 keep the floor in the name."
           },
           "room_type": {
             "type": "string",
-            "title": "Room Type"
+            "title": "Room Type",
+            "description": "The room type (`kitchen`, `bathroom`, ... `ambiguous`: not known yet): what the name says, else the per-photo model's vote, else the engineer's correction."
           },
           "floor": {
             "anyOf": [
@@ -13273,7 +13381,8 @@
                 "type": "null"
               }
             ],
-            "title": "Floor"
+            "title": "Floor",
+            "description": "The floor: `0` is the basement, `1` the ground floor; null when no file name, photo or engineer says it (never guessed: a room grouped by file name as exterior or parking takes no floor from the photos)."
           }
         },
         "type": "object",

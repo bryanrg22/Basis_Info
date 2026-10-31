@@ -42,6 +42,8 @@ Event vocabulary (``event_type``; the actor in brackets):
   (``code``); the revision started without them;
 * ``inventory.rebuilt`` [model]: ``reconcile_rooms`` replaced a room's inventory rows
   (``entity_id`` the room, ``detail.deleted``/``written``);
+* ``room.voted`` [model]: ``reconcile_rooms``' vote changed a file-name room's type or
+  floor (``entity_id`` the room, ``before``/``after``, ``detail.sources`` per field);
 * ``stage.failed`` / ``stage.failure_cleared`` [system]: ``record_failure`` (``code``);
 * ``study.stalled`` / ``review.reminded`` [system]; ``study.retry_requested`` /
   ``study.cancel_requested`` [engineer];

@@ -31,6 +31,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from basis.config import Settings
 from basis.db.repositories.asset import AssetRepository
 from basis.domain.cost_indices import StoreRow, YearFactor, YearIndex
 from basis.domain.structure import ModelOverride, StructureInputs, select_model
@@ -43,7 +44,26 @@ Reason = Literal[
     "index_updated",
     "location_changed",
     "property_class_changed",
+    "method_changed",
 ]
+METHOD_KEYS = (
+    "cost_basis",
+    "overhead_allocation",
+    "modifications",
+    "specialties_residual",
+    "rcn_source",
+)
+
+
+def pricing_method(settings: Settings) -> dict[str, str | bool]:
+    """The pricing method of a revision priced now (recorded on its trails)."""
+    return {
+        "cost_basis": settings.cost_basis,
+        "overhead_allocation": settings.structure_overhead_allocation,
+        "modifications": settings.structure_modifications == "on",
+        "specialties_residual": settings.structure_specialties_residual,
+        "rcn_source": settings.structure_rcn_source,
+    }
 
 
 class PricedWithOut(BaseModel):
@@ -69,6 +89,13 @@ class PricedWithOut(BaseModel):
     living_area_sf: Decimal | None = Field(
         description="The living area the square-foot model is sized by, when an engineer set it."
     )
+    method: dict[str, str | bool] | None = Field(
+        default=None,
+        description="The pricing method (STRUCTURE_MODEL.md section 9): `cost_basis` (bare or "
+        "installed), `overhead_allocation` (pro_rata or none), `modifications`, "
+        "`specialties_residual`, `rcn_source`. Null for a revision priced before it was "
+        "recorded.",
+    )
 
 
 class PricingStatusOut(BaseModel):
@@ -85,7 +112,8 @@ class PricingStatusOut(BaseModel):
         description="`not_recorded` (priced before the trail; not stale by itself), "
         "`intake_changed` (the intake version moved since the pricing), `cost_year_changed`, "
         "`index_updated` (the cost year's index value or its store version differs), "
-        "`location_changed`, `property_class_changed`."
+        "`location_changed`, `property_class_changed`, `method_changed` (a pricing setting "
+        "of STRUCTURE_MODEL.md section 9 changed since)."
     )
     remedy: Literal["reprice", "reject_assets"] | None = Field(
         description="`reprice`: POST /v1/studies/{id}/assets/reprice (classifications carried, "
@@ -108,6 +136,7 @@ class Pricing:
     intake_version: int | None
     property_class: str | None
     model_override: ModelOverride | None = None
+    method: dict[str, str | bool] | None = None
 
 
 def _index(block: Mapping[str, Any]) -> YearIndex:
@@ -183,6 +212,7 @@ def recorded_pricing(trails: Iterable[Any], concealed_inputs: Iterable[Any] = ()
         intake_version=picked.get("intake_version"),
         property_class=picked.get("property_class"),
         model_override=override,
+        method=picked.get("method") if isinstance(picked.get("method"), dict) else None,
     )
 
 
@@ -192,6 +222,7 @@ def current_pricing(
     intake_version: int | None,
     property_class: str,
     location_citation: str | None,
+    method: dict[str, str | bool] | None = None,
 ) -> Pricing:
     return Pricing(
         recorded=True,
@@ -204,6 +235,7 @@ def current_pricing(
         intake_version=intake_version,
         property_class=property_class,
         model_override=None if structure is None else structure.model_override,
+        method=method,
     )
 
 
@@ -225,7 +257,27 @@ def structure_inputs_as_priced(
         else live.location_factor,
         location_source=recorded.location_source,
         model_override=recorded.model_override,
+        **_method_inputs(recorded.method),
     )
+
+
+def _method_inputs(method: dict[str, str | bool] | None) -> dict[str, Any]:
+    """The recorded pricing method as ``StructureInputs`` members (none when not recorded:
+    a revision priced before section 9 keeps the live settings, as before)."""
+    if not method:
+        return {}
+    found: dict[str, Any] = {}
+    if isinstance(method.get("cost_basis"), str):
+        found["cost_basis"] = method["cost_basis"]
+    if isinstance(method.get("overhead_allocation"), str):
+        found["overhead_allocation"] = method["overhead_allocation"]
+    if isinstance(method.get("modifications"), bool):
+        found["modifications"] = method["modifications"]
+    if isinstance(method.get("specialties_residual"), str):
+        found["specialties_residual"] = method["specialties_residual"]
+    if isinstance(method.get("rcn_source"), str):
+        found["rcn_source"] = method["rcn_source"]
+    return found
 
 
 def _store_version(year: YearFactor | None) -> int | None:
@@ -271,6 +323,7 @@ def priced_with_out(pricing: Pricing | None, structure: StructureInputs | None) 
         living_area_sf=None
         if pricing.model_override is None
         else pricing.model_override.living_area_sf,
+        method=pricing.method,
     )
 
 
@@ -309,6 +362,12 @@ def pricing_status(
             and recorded.property_class != current.property_class
         ):
             reasons.append("property_class_changed")
+        if (
+            recorded.method is not None
+            and current.method is not None
+            and recorded.method != current.method
+        ):
+            reasons.append("method_changed")
     stale = any(r != "not_recorded" for r in reasons)
     remedy: Literal["reprice", "reject_assets"] | None = None
     if "property_class_changed" in reasons:
@@ -347,6 +406,7 @@ __all__ = [
     "PricingStatusOut",
     "current_pricing",
     "load_recorded",
+    "pricing_method",
     "pricing_status",
     "recorded_pricing",
     "structure_inputs_as_priced",

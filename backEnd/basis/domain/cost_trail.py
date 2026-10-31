@@ -72,7 +72,8 @@ UNIT_PRICE: Final = "unit_price"
 UNPRICED: Final = "unpriced"
 STRUCTURE_RESIDUAL: Final = "structure_residual"
 UNIT_PRICE_ROUNDING: Final = (
-    "unit_cost = base x year factor x location factor, rounded half up to the cent; "
+    "unit_cost = base x (1 + markup, when recorded) x year factor x location factor, rounded "
+    "half up to the cent; "
     "total = unit_cost x quantity, rounded half up to the cent"
 )
 STRUCTURE_ROUNDING: Final = (
@@ -91,6 +92,11 @@ class TrailContext:
 
     intake_version: int | None
     property_class: str
+    # The pricing method the revision ran with (STRUCTURE_MODEL.md section 9; settings
+    # ``COST_BASIS``, ``STRUCTURE_OVERHEAD_ALLOCATION``, ``STRUCTURE_MODIFICATIONS``,
+    # ``STRUCTURE_SPECIALTIES_RESIDUAL``, ``STRUCTURE_RCN_SOURCE``), so the result reproduces
+    # the revision with the method it was priced by, not today's settings.
+    method: Mapping[str, str | bool] | None = None
 
 
 def json_safe(value: Any) -> Any:
@@ -197,6 +203,15 @@ def base_block(row: PricedRow) -> dict[str, Any]:
         "row_unit": row.row_unit,
         "conversion": row.conversion,
         "assumption": row.assumption,
+        # STRUCTURE_MODEL.md 9.3: ``bare`` or ``installed`` (the installing contractor's
+        # O&P: "Total Incl O&P", or the section's markups on material, labor, equipment).
+        "basis": row.basis,
+        "basis_how": row.basis_how,
+        # The model's general contractor's O&P spread on the row (ATG ch. 4 C.11(2)):
+        # ``unit_cost x (1 + rate)`` is what the year and location factors multiply.
+        "markup": None
+        if row.markup_rate is None
+        else {"rate": _dec(row.markup_rate), "source": row.markup_source},
     }
 
 
@@ -267,6 +282,7 @@ def priced_trail(
         "structure": structure,
         "intake_version": context.intake_version,
         "property_class": context.property_class,
+        "method": None if context.method is None else dict(context.method),
         "cost_year": index.cost_year if estimate is None else estimate.cost_year,
         "location_factor": _dec(factor),
         "unit_cost": None if estimate is None else _dec(estimate.unit_cost),
@@ -306,6 +322,7 @@ def structure_residual_trail(
         "structure": structure,
         "intake_version": context.intake_version,
         "property_class": context.property_class,
+        "method": None if context.method is None else dict(context.method),
         "cost_year": cost_year,
         "location_factor": _dec(location_factor),
         "unit_cost": _dec(unit_cost),
@@ -318,7 +335,8 @@ def structure_residual_trail(
 
 def check(trail: Mapping[str, Any]) -> list[str]:
     """What does not hold in a ``unit_price`` trail's arithmetic (empty when it all holds):
-    ``base x year factor x location factor``, rounded half up to the cent, is ``unit_cost``,
+    ``base x (1 + markup) x year factor x location factor``, rounded half up to the cent, is
+    ``unit_cost``,
     and ``unit_cost x quantity`` so rounded is ``total``; the factors are the ones the
     year and location blocks record. Other kinds are not recomputed (empty)."""
     if trail.get("kind") != UNIT_PRICE:
@@ -331,11 +349,17 @@ def check(trail: Mapping[str, Any]) -> list[str]:
         problems.append("location.factor is not location_factor")
     if year["cost_year"] != trail["cost_year"]:
         problems.append("year.cost_year is not cost_year")
-    unit_cost = (
-        Decimal(base["unit_cost"]) * Decimal(year["factor"]) * Decimal(location["factor"])
-    ).quantize(CENTS, rounding=ROUND_HALF_UP)
+    markup = base.get("markup")
+    with_markup = Decimal(base["unit_cost"]) * (
+        1 + Decimal(markup["rate"]) if markup else Decimal(1)
+    )
+    unit_cost = (with_markup * Decimal(year["factor"]) * Decimal(location["factor"])).quantize(
+        CENTS, rounding=ROUND_HALF_UP
+    )
     if unit_cost != Decimal(trail["unit_cost"]):
-        problems.append(f"base x year x location = {unit_cost}, not {trail['unit_cost']}")
+        problems.append(
+            f"base x (1 + markup) x year x location = {unit_cost}, not {trail['unit_cost']}"
+        )
     total = (Decimal(trail["unit_cost"]) * Decimal(trail["quantity"]["value"])).quantize(
         CENTS, rounding=ROUND_HALF_UP
     )

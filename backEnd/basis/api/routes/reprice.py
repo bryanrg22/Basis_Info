@@ -30,6 +30,7 @@ from basis.api.routes.common import (
     read_router,
     write_router,
 )
+from basis.api.routes.outputs import RevisionQuery, _revision
 from basis.api.schemas.reprice import (
     MAX_LIVING_AREA_SF,
     RepriceAccepted,
@@ -89,9 +90,7 @@ async def preview_reprice(
     access: EngineerStudy,
     session: SessionDep,
     request_: Request,
-    revision: Annotated[
-        int | None, Query(ge=1, description="Default: the current revision.")
-    ] = None,
+    revision: RevisionQuery = None,
     model_class: Annotated[Class | None, Query(description="RSMeans class to preview.")] = None,
     building_type: Annotated[
         BuildingType | None, Query(description="RSMeans building type to preview.")
@@ -109,7 +108,7 @@ async def preview_reprice(
             source=STRUCTURE_MODEL_SOURCE,
         )
     study = access.study
-    return await preview(session, _deps(request_), study, revision or study.revision, override)
+    return await preview(session, _deps(request_), study, _revision(access, revision), override)
 
 
 @writes.post(

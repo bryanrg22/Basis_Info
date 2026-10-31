@@ -111,6 +111,7 @@ class AssetEvidence:
     room_id: str | None
     room_name: str | None
     room_type: str | None
+    room_floor: str | None  # as stored: "0" is the basement, None unknown
     category: str
     bucket: str
     recovery_period: str
@@ -235,6 +236,7 @@ def assemble_pack(
             room_id=_s(room.id) if room else None,
             room_name=room.name if room else None,
             room_type=room.room_type if room else None,
+            room_floor=room.floor if room else None,
             category=asset.category,
             bucket=asset.bucket.value,
             recovery_period=str(asset.recovery_period),

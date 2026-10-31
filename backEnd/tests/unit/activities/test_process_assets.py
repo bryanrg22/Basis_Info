@@ -8,8 +8,10 @@ with a reference corpus and verified citations is ``tests/node/test_process_asse
 
 from __future__ import annotations
 
+import json
 import uuid
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -247,8 +249,9 @@ async def test_the_cost_table_prices_labels_the_legacy_rows_do_not(
     async with session_scope(deps.sessionmaker) as session:
         costs = {c.asset_id: c for c in (await session.scalars(select(CostEstimate))).all()}
     cabinets = costs[rows["kitchen_cabinet"].id]
-    # 425 per unit x 1.0000 (the settings' 2026 is after the last published index) x 18.
-    assert (cabinets.unit_cost, cabinets.total) == (Decimal("425.00"), Decimal("7650.00"))
+    # Total Incl O&P 480 per unit (no appraisal fields: no structure model, so no general
+    # contractor's markup) x 1.0000 (the settings' 2026 is after the last published index) x 18.
+    assert (cabinets.unit_cost, cabinets.total) == (Decimal("480.00"), Decimal("8640.00"))
     assert cabinets.source_row is not None and cabinets.source_row.startswith(
         "synthetic_2020[kitchen_cabinet]"
     )
@@ -369,7 +372,7 @@ async def test_asset_correction_applies_to_a_concealed_row(
     # the next revision); this harness seeds them.
     await seed_extraction(deps, analyzed, STRUCTURE_FIELDS)
     output = await activity_env.run(ProcessAssets(deps).run, process(analyzed))
-    assert (output.assets, output.concealed) == (6, 13)
+    assert (output.assets, output.concealed) == (6, 14)
     async with session_scope(deps.sessionmaker) as session:
         rows = (
             await session.execute(
@@ -391,7 +394,7 @@ async def test_asset_correction_applies_to_a_concealed_row(
     output = await activity_env.run(
         ProcessAssets(deps).run, process(analyzed, revision=2, corrections=(correction,))
     )
-    assert (output.assets, output.concealed) == (6, 13)
+    assert (output.assets, output.concealed) == (6, 14)
     [manual] = [a for a in await assets(deps, sid, 2) if a.method is ClassificationMethod.MANUAL]
     assert (manual.bucket, manual.recovery_period, manual.irs_section, manual.category) == (
         Bucket.Y5,
@@ -421,6 +424,100 @@ async def test_asset_correction_applies_to_a_concealed_row(
         "after": correction.after,
     }
     assert event.detail["carried_from"] == str(target.id)
+
+
+async def test_rows_inside_the_model_carry_its_overhead_and_the_residual_is_written(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env, tmp_path: Any
+) -> None:
+    """STRUCTURE_MODEL.md section 9: every row is priced at Total Incl O&P; a row inside the
+    square-foot model (kitchen cabinets: Specialties) carries the model's general contractor's
+    O&P pro rata, an appliance outside it does not (ATG ch. 4 C.11(2)-(3)); the Specialties
+    residual is written as a building row. The settings' other values restore the behaviour
+    before (bare cost, no markup, the residual reported, thirteen concealed rows)."""
+    doc = json.loads(Path(fixture_path("cost_table.json")).read_text())
+    doc["rows"]["refrigerator"] = {
+        "unit": "EA",
+        "factor": 1,
+        "material": 600,
+        "labor": 50,
+        "equipment": 0,
+        "total_incl_op": 750,
+        "source_unit": "Ea.",
+        "source": "synthetic 11-0001, p. 3",
+        "description": "fabricated",
+        "assumption": None,
+    }
+    table = tmp_path / "cost_table.json"
+    table.write_text(json.dumps(doc))
+    await seed_extraction(deps, analyzed, STRUCTURE_FIELDS)
+    async with session_scope(deps.sessionmaker) as session:
+        repo = RoomRepository(session)
+        for label in ("kitchen_cabinet", "refrigerator"):
+            await repo.add_component(
+                study_id=analyzed.study_id,
+                revision=1,
+                document_id=None,
+                room_id=None,
+                label=label,
+                material=None,
+                attachment=None,
+                confidence=0.9,
+                raw={"source": "vision", "count": 1},
+            )
+    settings = deps.settings.model_copy(update={"cost_table_path": str(table)})
+    output = await activity_env.run(
+        ProcessAssets(make_deps(deps.sessionmaker, deps.storage, settings)).run,
+        process(analyzed),
+    )
+    assert (output.assets, output.concealed) == (8, 14)
+    rows = dict(await labelled(deps, analyzed.study_id, 1))
+    async with session_scope(deps.sessionmaker) as session:
+        costs = {c.asset_id: c for c in (await session.scalars(select(CostEstimate))).all()}
+        concealed = (
+            await session.execute(
+                select(Asset, Takeoff)
+                .join(Takeoff, Takeoff.asset_id == Asset.id)
+                .where(Asset.study_id == analyzed.study_id, Asset.component_id.is_(None))
+            )
+        ).all()
+    cabinet = costs[rows["kitchen_cabinet"].id].source_row or ""
+    fridge = costs[rows["refrigerator"].id].source_row or ""
+    # Average 2 Story (Q4, two stories): item 10 17.24 over components 1-9 101.51
+    assert "; Total Incl O&P" in cabinet and "; Total Incl O&P" in fridge
+    assert "x1.169835 general contractor's overhead and profit pro rata (Average 2 Story" in (
+        cabinet
+    )
+    assert "general contractor" not in fridge
+    # 480 x 1.169835 x 0.959 (IL) = 538.50 per cabinet unit, 750 x 0.959 = 719.25 per
+    # refrigerator (2026: the 2020 index, flagged)
+    assert costs[rows["kitchen_cabinet"].id].unit_cost == Decimal("538.50")
+    assert costs[rows["refrigerator"].id].unit_cost == Decimal("719.25")
+    by_label = {takeoff.inputs["label"]: asset for asset, takeoff in concealed}
+    residual = by_label["specialties_residual"]
+    assert residual.bucket is Bucket.Y27_5 and residual.needs_review  # contested
+    assert "structure:residual_unidentified" in (residual.review_reason or "")
+
+    # The behaviour before, one setting each.
+    await start_revision_two(deps, analyzed, activity_env)
+    before = settings.model_copy(
+        update={
+            "cost_basis": "bare",
+            "structure_overhead_allocation": "none",
+            "structure_specialties_residual": "report",
+            "structure_modifications": "off",
+        }
+    )
+    output = await activity_env.run(
+        ProcessAssets(make_deps(deps.sessionmaker, deps.storage, before)).run,
+        process(analyzed, revision=2),
+    )
+    assert (output.assets, output.concealed) == (8, 13)
+    rows2 = dict(await labelled(deps, analyzed.study_id, 2))
+    async with session_scope(deps.sessionmaker) as session:
+        costs = {c.asset_id: c for c in (await session.scalars(select(CostEstimate))).all()}
+    # bare 400 + 25 = 425 x 0.959 = 407.575
+    assert costs[rows2["kitchen_cabinet"].id].unit_cost == Decimal("407.58")
+    assert "O&P" not in (costs[rows2["kitchen_cabinet"].id].source_row or "")
 
 
 async def test_bucket_only_correction_derives_the_recovery_period(
@@ -774,9 +871,11 @@ async def test_measured_areas_price_the_property_items_and_size_the_rooms(
     assert roofs[0].inputs["pitch_factor"] == "1.118"
     assert roofs[1].formula == f"measured once per property: see asset {roofs[0].asset_id}"
     roof_cost = costs[roofs[0].asset_id]
-    # synthetic_2020 roof: (100 + 50) x 0.01 = 1.50/SF x 1.0000 (2025: after the book's
-    # last index, flagged) x 0.959 (IL: the mean of its 19 cities) = 1.4385.
-    assert (roof_cost.unit_cost, roof_cost.total) == (Decimal("1.44"), Decimal("2906.44"))
+    # synthetic_2020 roof: Total Incl O&P 200 x 0.01 = 2.00/SF x 1.169835 (the Average 2 Story
+    # model's general contractor's O&P: the roof is inside the model, STRUCTURE_MODEL.md 9.3)
+    # x 1.0000 (2025: after the book's last index, flagged) x 0.959 (IL: the mean of its 19
+    # cities) = 2.2437.
+    assert (roof_cost.unit_cost, roof_cost.total) == (Decimal("2.24"), Decimal("4521.13"))
     assert (roof_cost.cost_year, roof_cost.location_factor) == (2025, Decimal("0.959"))
     assert roof_cost.source_row is not None and roof_cost.source_row.endswith(ROOF_IL_2025)
     roof_assets = [a for label, a in rows if label == "roof"]
@@ -1382,3 +1481,70 @@ async def test_reprice_classifies_again_when_the_property_class_changed(
     assert [e.code for e in events] == ["BASIS-ASSETS-020"]
     assert events[0].detail == {"classified_as": "residential_rental", "now": "nonresidential"}
     assert all("carried_classification" not in t.inputs for _, t, _ in await rows_of(deps, sid, 2))
+
+
+async def test_the_result_reproduces_the_pricing_method_the_revision_ran_with(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """STRUCTURE_MODEL.md section 9 recorded on the trail: rows priced on the installed basis
+    with the model's general contractor's O&P give a result whose reconciliation is the one
+    the live settings give at pricing time; after the settings change (bare, no overhead,
+    no modifications) the result still applies the recorded method, reconciles the same,
+    and names ``method_changed``."""
+    from datetime import date
+
+    from basis.evidence.result import compute_result, load_result_inputs, load_schedule
+
+    sid = analyzed.study_id
+    settings = deps.settings.model_copy(
+        update={"cost_table_path": str(fixture_path("cost_table.json")), "cost_year": 2026}
+    )
+    priced = make_deps(deps.sessionmaker, deps.storage, settings)
+    await seed_extraction(
+        deps,
+        analyzed,
+        {
+            **MEASURED_FIELDS,
+            **STRUCTURE_FIELDS,
+            "reconciliation.effective_date_of_appraisal": date(2025, 6, 1),
+        },
+    )
+    await set_intake(deps.sessionmaker, sid, intake_document(state="NY"))
+    await activity_env.run(ProcessAssets(priced).run, process(analyzed))
+    trails = [c.trail for _, _, c in await rows_of(deps, sid, 1)]
+    method = {
+        "cost_basis": "installed",
+        "overhead_allocation": "pro_rata",
+        "modifications": True,
+        "specialties_residual": "building",
+        "rcn_source": settings.structure_rcn_source,
+    }
+    assert all(t is not None and t["method"] == method for t in trails)
+    marked = [t for t in trails if t["kind"] == "unit_price" and t["base"]["markup"]]
+    assert marked and all(check(t) == [] for t in marked)
+
+    changed = settings.model_copy(
+        update={
+            "cost_basis": "bare",
+            "structure_overhead_allocation": "none",
+            "structure_modifications": "off",
+        }
+    )
+
+    async def result_with(s: Any) -> Any:
+        async with session_scope(deps.sessionmaker) as session:
+            study = await session.get(Study, sid)
+            assert study is not None
+            rows = await load_schedule(session, sid, 1)
+            structure, pricing = await load_result_inputs(
+                session, sid, 1, study.intake, study.intake_version, s
+            )
+            return compute_result(rows, study.intake, 1, structure, pricing)
+
+    at_pricing = await result_with(settings)
+    later = await result_with(changed)
+    assert at_pricing.pricing is not None and at_pricing.pricing.reasons == []
+    assert later.pricing is not None and later.pricing.reasons == ["method_changed"]
+    assert at_pricing.reconciliation is not None and later.reconciliation is not None
+    assert later.reconciliation.model_dump() == at_pricing.reconciliation.model_dump()
+    assert later.structure == at_pricing.structure

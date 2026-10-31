@@ -46,6 +46,9 @@ CSV_COLUMNS: Final = (
     "cost_source",
     "citation_count",
     "citations",
+    # Last, so the columns before it keep their positions: a room's name no longer says its
+    # floor (EVAL_REPORT section 48), so "Bath" on floor 1 and in the basement differ here.
+    "room_floor",
 )
 
 
@@ -135,6 +138,7 @@ def _csv_row(asset: AssetEvidence, pack: EvidencePack) -> list[str]:
         asset.cost_source,
         len(asset.citations),
         cited,
+        asset.room_floor,
     ]
     return [_cell(v) for v in values]
 

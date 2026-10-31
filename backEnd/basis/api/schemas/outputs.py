@@ -219,6 +219,13 @@ class CostTrailQuantityOut(ResponseModel):
     assumptions: list[str] = Field(description="The takeoff's assumptions.")
 
 
+class CostTrailMarkupOut(ResponseModel):
+    """A pro-rata indirect cost on the row (ATG ch. 4 C.11(2))."""
+
+    rate: Decimal = Field(description="The rate, e.g. 0.200129 for 20.0129 %.")
+    source: str | None = Field(description="Where the rate comes from.")
+
+
 class CostTrailBaseOut(ResponseModel):
     """The base unit cost exactly as multiplied, and the cost row it came from."""
 
@@ -245,6 +252,23 @@ class CostTrailBaseOut(ResponseModel):
         "per Sq.`); null when none was needed."
     )
     assumption: str | None = Field(description="The table row's stated assumption.")
+    basis: str = Field(
+        default="bare",
+        description="The cost basis (STRUCTURE_MODEL.md 9.3): `bare` (material + labor + "
+        "equipment) or `installed` (with the installing contractor's overhead and profit). "
+        "Rows priced before the basis was recorded read `bare`.",
+    )
+    basis_how: str | None = Field(
+        default=None,
+        description="How `unit_cost` reached the installed basis: `Total Incl O&P` (the "
+        "printed column) or the square-foot section's markups; null on the bare basis.",
+    )
+    markup: CostTrailMarkupOut | None = Field(
+        default=None,
+        description="The square-foot model's general contractor's overhead and profit spread "
+        "on the row: `unit_cost x (1 + rate)` is what the year and location factors multiply. "
+        "Null when none.",
+    )
 
 
 class CostTrailYearOut(ResponseModel):
@@ -356,6 +380,12 @@ class CostTrailOut(ResponseModel):
         description="The study's intake version priced from; null without an intake."
     )
     property_class: str = Field(description="The property class priced under.")
+    method: dict[str, str | bool] | None = Field(
+        default=None,
+        description="The pricing method the revision ran with (STRUCTURE_MODEL.md section 9): "
+        "`cost_basis`, `overhead_allocation`, `modifications`, `specialties_residual`, "
+        "`rcn_source`. Null for a row priced before it was recorded.",
+    )
     cost_year: int = Field(description="Equals the cost row's `cost_year`.")
     location_factor: Decimal | None = Field(description="Equals the cost row's factor.")
     unit_cost: Decimal | None = Field(description="Equals the cost row's `unit_cost`.")

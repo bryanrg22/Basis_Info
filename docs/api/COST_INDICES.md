@@ -149,8 +149,16 @@ The rules for a reader:
 * A row priced before the trail existed has `trail: null` and `trail_recorded: false`; it has
   only its `source_row` sentence. Nothing is back-filled.
 * The trail's `unit_cost`, `total`, `location_factor` and `cost_year` are the row's own; for
-  `kind` `unit_price`, `base.unit_cost x year.factor x location.factor` rounded half up to the
-  cent is `unit_cost`, and `unit_cost x quantity.value` so rounded is `total`.
+  `kind` `unit_price`, `base.unit_cost x (1 + base.markup.rate) x year.factor x
+  location.factor` rounded half up to the cent is `unit_cost` (no markup: factor 1), and
+  `unit_cost x quantity.value` so rounded is `total`.
+* `base.basis` is the cost basis (STRUCTURE_MODEL.md section 9.3): `bare`, or `installed`
+  with `base.basis_how` saying how (`Total Incl O&P`, or the square-foot section's markups on
+  material, labor and equipment); `base.markup` is the square-foot model's general
+  contractor's O&P spread on a row inside the model. `method` records the revision's pricing
+  method (`cost_basis`, `overhead_allocation`, `modifications`, `specialties_residual`,
+  `rcn_source`), which the result applies when it rebuilds the structure model for that
+  revision (docs/api/REPRICE.md).
 
 Every Decimal is a string exactly as used (`"1.2330"`, not `1.233`); dates are ISO 8601.
 

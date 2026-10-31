@@ -27,14 +27,24 @@ from basis.activities.analyze_photo import AnalyzePhoto
 from basis.activities.apply_corrections import ApplyCorrections
 from basis.activities.process_assets import ProcessAssets
 from basis.activities.reconcile_rooms import ReconcileRooms, plan_rooms, room_uri, vote_room
-from basis.db.models import ActivityResult, Asset, Component, Document, LlmCall, PhotoRoom, Room
+from basis.db.models import (
+    ActivityResult,
+    Asset,
+    Component,
+    Document,
+    LlmCall,
+    PhotoRoom,
+    PhotoRoomAnswer,
+    Room,
+    StudyEvent,
+)
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
 from basis.llm import ScriptedTurn, Usage
 from basis.llm.errors import ProviderBadResponse, ProviderUnavailable
 from basis.vision.reconcile import ModelInventoryObject, ModelRoomInventory
-from basis.vision.rooms import ROOM_INVENTORY_SOURCE, assign_room, write_photo
+from basis.vision.rooms import ROOM_INVENTORY_SOURCE, RoomAnswer, assign_room, write_photo
 from basis.vision.schemas import (
     Attachment,
     ComponentLabel,
@@ -599,9 +609,9 @@ async def test_documents_order_the_photos_by_file_name(
 
 
 # --------------------------------------------------------------------------- file-name rooms
-# EVAL_REPORT section 27, item 1: a room grouped by file name gets its type and floor voted
-# from its photos (group_photos's rules) before the plan, and is planned even when every
-# photo answered ambiguous.
+# EVAL_REPORT section 27, item 1, and section 48: a room grouped by file name gets its type and
+# floor resolved from its name and its photos (resolve_room) before the plan, and is planned
+# even when every photo answered ambiguous. "Suite" says no room type, so the photos vote.
 
 
 async def analyze_all(deps: Deps, study: SeededStudy, activity_env: Env) -> None:
@@ -629,7 +639,7 @@ async def put_scene(deps: Deps, document_id: uuid.UUID, scene: str) -> None:
 async def test_a_file_name_room_is_voted_from_its_photos(
     deps: Deps, storage: Any, activity_env: Env
 ) -> None:
-    names = ("Den photo 1.jpg", "Den photo 2.jpg", "Den photo 3.jpg")
+    names = ("Suite photo 1.jpg", "Suite photo 2.jpg", "Suite photo 3.jpg")
     study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
     await seed_run(deps.sessionmaker, study.study_id)
     # Photo 1 is the bedroom scene (floor 2) and creates the room; 2 and 3 the kitchen.
@@ -637,18 +647,18 @@ async def test_a_file_name_room_is_voted_from_its_photos(
         await put_scene(deps, photo, "01_kitchen.jpg")
     await analyze_all(deps, study, activity_env)
     [before] = await rows(deps, Room, study.study_id)
-    assert (before.group_key, before.room_type, before.floor) == ("x_den", "bedroom", "2")
+    assert (before.group_key, before.room_type, before.floor) == ("x_suite", "bedroom", "2")
     async with session_scope(deps.sessionmaker) as session:
         plan = await plan_rooms(session, study.study_id, 1)
     assert plan.rooms == 1 and len(plan.todo) == 1
     [after] = await rows(deps, Room, study.study_id)
-    assert (after.room_type, after.floor, after.name) == ("kitchen", "1", "Den")
+    assert (after.room_type, after.floor, after.name) == ("kitchen", "1", "Suite")
 
 
 async def test_a_floor_from_the_file_name_wins_and_manual_rooms_are_kept(
     deps: Deps, storage: Any, activity_env: Env
 ) -> None:
-    names = ("2nd Floor Den photo 1.jpg", "2nd Floor Den photo 2.jpg", "Office.jpg")
+    names = ("2nd Floor Suite photo 1.jpg", "2nd Floor Suite photo 2.jpg", "Office.jpg")
     study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
     await seed_run(deps.sessionmaker, study.study_id)
     for photo in study.photo_ids[:2]:
@@ -656,25 +666,42 @@ async def test_a_floor_from_the_file_name_wins_and_manual_rooms_are_kept(
     await analyze_all(deps, study, activity_env)
     async with session_scope(deps.sessionmaker) as session:
         office = (await session.scalars(select(Room).where(Room.group_key == "x_office"))).one()
-        office.source, office.room_type = "manual", "office"
+        office.source, office.room_type = "manual", "storage"
     async with session_scope(deps.sessionmaker) as session:
         await plan_rooms(session, study.study_id, 1)
     by_key = {r.group_key: r for r in await rows(deps, Room, study.study_id)}
-    assert (by_key["2_den"].room_type, by_key["2_den"].floor) == ("kitchen", "2")
-    assert by_key["x_office"].room_type == "office"  # the reviewer's answer stands
+    assert (by_key["2_suite"].room_type, by_key["2_suite"].floor) == ("kitchen", "2")
+    assert by_key["2_suite"].name == "Suite"  # the floor is in its own field
+    assert by_key["x_office"].room_type == "storage"  # the reviewer's answer stands
 
 
-def test_vote_room_needs_a_file_name_room_with_answers() -> None:
-    room = Room(name="Kitchen", room_type="kitchen", floor="1", source="vision", group_key=None)
-    rows_ = [[{"raw": {"room_type": "bedroom", "floor": 2}}]]
-    assert not vote_room(room, ["Kitchen.jpg"], rows_)  # keyed by the model's identity
-    room.group_key = "x_kitchen"
-    assert not vote_room(room, ["Kitchen.jpg"], [[]])  # no photo answered
-    assert vote_room(room, ["Kitchen.jpg"], rows_)
-    assert (room.room_type, room.floor) == ("bedroom", "2")
-    assert not vote_room(room, ["Kitchen.jpg"], rows_)  # unchanged the second time
+def test_vote_room_needs_a_file_name_room_and_never_renames() -> None:
+    room = Room(name="Suite", room_type="kitchen", floor="1", source="vision", group_key=None)
+    answers = [RoomAnswer(RoomType.BEDROOM, 2)]
+    assert vote_room(room, ["Suite.jpg"], answers) is None  # keyed by the model's identity
+    room.group_key = "x_suite"
+    assert vote_room(room, ["Suite.jpg"], []) is None  # no answer: the room's own stands
+    change = vote_room(room, ["Suite.jpg"], answers)
+    assert change == {
+        "before": {"room_type": "kitchen", "floor": "1"},
+        "after": {"room_type": "bedroom", "floor": "2"},
+        "sources": {"name": "file_name", "room_type": "model", "floor": "model"},
+    }
+    assert vote_room(room, ["Suite.jpg"], answers) is None  # unchanged the second time
     room.source = "manual"
-    assert not vote_room(room, ["Kitchen.jpg"], [[{"raw": {"room_type": "garage"}}]])
+    assert vote_room(room, ["Suite.jpg"], [RoomAnswer(RoomType.GARAGE)]) is None
+    # A room grouped before the floor left the name keeps its name; the name still types it.
+    legacy = Room(
+        name="2nd Floor Bed 2", room_type="storage", floor="2", source="vision", group_key="2_bed_2"
+    )
+    assert vote_room(legacy, ["29_2nd Floor Bed 2 .JPG"], [RoomAnswer(RoomType.STORAGE)])
+    assert (legacy.name, legacy.room_type, legacy.floor) == ("2nd Floor Bed 2", "bedroom", "2")
+    # Legacy rows with no answer: the name and file names still decide, nothing else moves.
+    mech = Room(
+        name="Mechanicals", room_type="ambiguous", floor="0", source="vision", group_key="x_m"
+    )
+    assert vote_room(mech, ["Mechanicals.jpg"], []) is not None
+    assert (mech.room_type, mech.floor) == ("mechanical", "0")
 
 
 async def test_a_file_name_room_of_ambiguous_photos_is_still_planned(
@@ -683,17 +710,17 @@ async def test_a_file_name_room_of_ambiguous_photos_is_still_planned(
     """Photos answered ``ambiguous`` but listed objects (a close-up): by name they are one
     room, so the room is planned; an ambiguous room keyed by the model's identity (the
     Unassigned room, mixed photos) is not."""
-    names = ("Den photo 1.jpg", "Den photo 2.jpg", "IMG_0001.jpg")
+    names = ("Suite photo 1.jpg", "Suite photo 2.jpg", "IMG_0001.jpg")
     study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
     async with session_scope(deps.sessionmaker) as session:
         repo = RoomRepository(session)
         den = await repo.create(
             study_id=study.study_id,
             revision=1,
-            name="Den",
+            name="Suite",
             room_type="ambiguous",
             source="vision",
-            group_key="x_den",
+            group_key="x_suite",
         )
         unassigned = await repo.create(
             study_id=study.study_id,
@@ -731,7 +758,7 @@ async def test_a_file_name_room_of_ambiguous_photos_is_still_planned(
 async def test_vote_only_votes_the_rooms_and_builds_nothing(
     deps: Deps, storage: Any, activity_env: Env
 ) -> None:
-    names = ("Den photo 1.jpg", "Den photo 2.jpg", "Den photo 3.jpg")
+    names = ("Suite photo 1.jpg", "Suite photo 2.jpg", "Suite photo 3.jpg")
     study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
     await seed_run(deps.sessionmaker, study.study_id)
     for photo in study.photo_ids[1:]:
@@ -747,17 +774,250 @@ async def test_vote_only_votes_the_rooms_and_builds_nothing(
     assert await llm_calls(deps, study.study_id) == 0
 
 
-async def test_vote_only_with_the_room_step_off_does_nothing(
+async def test_vote_only_with_the_room_step_off_still_votes(
     deps: Deps, storage: Any, activity_env: Env
 ) -> None:
-    names = ("Den photo 1.jpg", "Den photo 2.jpg")
+    """The vote is the grouping's: ROOM_RECONCILE=false builds no inventory but the Rooms
+    review still shows the voted rooms (before, the rooms kept the first photo's answer)."""
+    names = ("Suite photo 1.jpg", "Suite photo 2.jpg", "Suite photo 3.jpg")
     study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
     await seed_run(deps.sessionmaker, study.study_id)
-    await put_scene(deps, study.photo_ids[1], "01_kitchen.jpg")
+    for photo in study.photo_ids[1:]:
+        await put_scene(deps, photo, "01_kitchen.jpg")
     await analyze_all(deps, study, activity_env)
-    [before] = await rows(deps, Room, study.study_id)
     vote = reconcile(study).model_copy(update={"vote_only": True})
     output = await activity_env.run(ReconcileRooms(deps).run, vote)  # the suite pins it off
     assert output.enabled is False
     [after] = await rows(deps, Room, study.study_id)
-    assert (after.room_type, after.floor) == (before.room_type, before.floor)
+    assert (after.room_type, after.floor) == ("kitchen", "1")
+    assert await inventory(deps, study.study_id) == []
+
+
+# --------------------------------------------------------------------------- room metadata
+# EVAL_REPORT section 48: every analyzed photo votes (its answer row, components or not), a
+# change is on the timeline, and a reviewer's name, type and floor survive moves, merges,
+# re-analysis and a second vote.
+
+
+async def events(deps: Deps, study_id: uuid.UUID, event_type: str) -> list[StudyEvent]:
+    async with session_scope(deps.sessionmaker) as session:
+        stmt = (
+            select(StudyEvent)
+            .where(StudyEvent.study_id == study_id, StudyEvent.event_type == event_type)
+            .order_by(StudyEvent.seq)
+        )
+        return list((await session.scalars(stmt)).all())
+
+
+async def test_analyze_photo_records_the_answer_and_names_without_the_floor(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    names = ("2nd Floor Bed 2 photo 1.jpg", "Basement Bath.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    await seed_run(deps.sessionmaker, study.study_id)
+    await analyze_all(deps, study, activity_env)
+    answers = await rows(deps, PhotoRoomAnswer, study.study_id)
+    assert {a.document_id for a in answers} == set(study.photo_ids)
+    assert all(a.room_type == "bedroom" and a.floor == 2 for a in answers)  # the bedroom scene
+    by_key = {r.group_key: r for r in await rows(deps, Room, study.study_id)}
+    assert (by_key["2_bed_2"].name, by_key["2_bed_2"].room_type, by_key["2_bed_2"].floor) == (
+        "Bed 2",
+        "bedroom",
+        "2",
+    )
+    # The name says bathroom and the file name the basement: the model's bedroom/2 lose.
+    assert (by_key["b_bath"].name, by_key["b_bath"].room_type, by_key["b_bath"].floor) == (
+        "Bath",
+        "bathroom",
+        "0",
+    )
+
+
+async def test_a_photo_with_no_component_votes_through_its_answer(deps: Deps, storage: Any) -> None:
+    names = ("Suite photo 1.jpg", "Suite photo 2.jpg", "Suite photo 3.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    sid = study.study_id
+    async with session_scope(deps.sessionmaker) as session:
+        repo = RoomRepository(session)
+        suite = await repo.create(
+            study_id=sid,
+            revision=1,
+            name="Suite",
+            room_type="ambiguous",
+            source="vision",
+            group_key="x_suite",
+        )
+        for index, photo in enumerate(study.photo_ids):
+            await repo.assign_photo(study_id=sid, document_id=photo, room_id=suite.id, revision=1)
+            answer = ("ambiguous", None) if index == 0 else ("office", 3)
+            await repo.record_answer(
+                study_id=sid,
+                document_id=photo,
+                revision=1,
+                room_type=answer[0],
+                room_confidence=0.8,
+                floor=answer[1],
+                room_ordinal=1,
+                analysis_uri=None,
+            )
+        # Only the first (ambiguous) photo listed a component; before, it alone voted.
+        await repo.add_component(
+            study_id=sid,
+            revision=1,
+            document_id=study.photo_ids[0],
+            room_id=suite.id,
+            label="electrical_outlet",
+            material=None,
+            attachment=None,
+            confidence=0.9,
+            raw={"source": "vision", "count": 1, "room_type": "ambiguous", "floor": None},
+        )
+    async with session_scope(deps.sessionmaker) as session:
+        await plan_rooms(session, sid, 1)
+    [room] = await rows(deps, Room, sid)
+    assert (room.name, room.room_type, room.floor) == ("Suite", "office", "3")
+    [event] = await events(deps, sid, "room.voted")
+    assert (event.actor_type, event.entity_id, event.revision) == ("model", room.id, 1)
+    assert event.before == {"room_type": "ambiguous", "floor": None}
+    assert event.after == {"room_type": "office", "floor": "3"}
+    assert event.detail["sources"] == {"name": "file_name", "room_type": "model", "floor": "model"}
+    assert event.detail["answers"] == 3
+    # A retry (the same vote again) changes nothing and records nothing.
+    async with session_scope(deps.sessionmaker) as session:
+        await plan_rooms(session, sid, 1)
+    assert len(await events(deps, sid, "room.voted")) == 1
+
+
+async def test_a_carried_photo_answers_from_its_last_analysis(deps: Deps, storage: Any) -> None:
+    names = ("Suite photo 1.jpg",)
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    sid, [photo] = study.study_id, study.photo_ids
+    async with session_scope(deps.sessionmaker) as session:
+        repo = RoomRepository(session)
+        await repo.record_answer(
+            study_id=sid,
+            document_id=photo,
+            revision=1,
+            room_type="laundry",
+            room_confidence=0.9,
+            floor=0,
+            room_ordinal=1,
+            analysis_uri=None,
+        )
+        # Revision 2 carried the photo without re-analyzing it (no row at 2) into a room
+        # whose type the copy still had from somewhere else.
+        room = await repo.create(
+            study_id=sid,
+            revision=2,
+            name="Suite",
+            room_type="kitchen",
+            source="vision",
+            group_key="x_suite",
+        )
+        await repo.assign_photo(study_id=sid, document_id=photo, room_id=room.id, revision=2)
+        assert (await repo.answers(sid, 1))[photo].revision == 1
+        assert await repo.answers(sid, 0) == {}
+    async with session_scope(deps.sessionmaker) as session:
+        await plan_rooms(session, sid, 2)
+    [voted] = await rows(deps, Room, sid, 2)
+    assert (voted.room_type, voted.floor) == ("laundry", "0")  # the basement's 0 is kept
+
+
+async def test_reviewer_edits_survive_moves_reanalysis_and_the_next_vote(
+    deps: Deps, storage: Any, activity_env: Env
+) -> None:
+    """A rooms rejection renames and refloors a room, moves a photo into it and flags
+    another for re-analysis; the next revision's vote leaves the corrected room as the
+    engineer left it (name, type, floor, key) and re-votes only the model's room."""
+    names = ("1st Floor Suite photo 1.jpg", "1st Floor Suite photo 2.jpg", "Bed 2.jpg")
+    study = await seed_study(deps.sessionmaker, photos=names, storage=storage)
+    sid = study.study_id
+    await seed_run(deps.sessionmaker, sid)
+    await analyze_all(deps, study, activity_env)
+    async with session_scope(deps.sessionmaker) as session:
+        await plan_rooms(session, sid, 1)
+    one = {r.group_key: r for r in await rows(deps, Room, sid)}
+    assert (one["1_suite"].name, one["1_suite"].room_type, one["1_suite"].floor) == (
+        "Suite",
+        "bedroom",
+        "1",
+    )
+    assert (one["x_bed_2"].name, one["x_bed_2"].room_type, one["x_bed_2"].floor) == (
+        "Bed 2",
+        "bedroom",
+        "2",
+    )
+    moved, flagged = study.photo_ids[1], study.photo_ids[0]
+    # The rooms review (components gate): a rename and refloor, and a move into that room.
+    await activity_env.run(
+        ApplyCorrections(deps).run,
+        ApplyCorrectionsInput(
+            study_id=str(sid),
+            stage="rooms_review",
+            from_revision=1,
+            to_revision=2,
+            components_gate=True,
+            corrections=(
+                CorrectionInput(
+                    entity_type="room",
+                    entity_id=str(one["x_bed_2"].id),
+                    after={"name": "Guest Bedroom", "floor": "3"},
+                ),
+                CorrectionInput(
+                    entity_type="photo_room",
+                    entity_id=str(moved),
+                    after={"room_id": str(one["x_bed_2"].id)},
+                ),
+            ),
+        ),
+    )
+    async with session_scope(deps.sessionmaker) as session:
+        await plan_rooms(session, sid, 2)  # the rooms rejection's vote
+    # The components review flags the other Suite photo; it is re-analyzed in its room.
+    await activity_env.with_info(activity_id="apply-r2").run(
+        ApplyCorrections(deps).run,
+        ApplyCorrectionsInput(
+            study_id=str(sid),
+            stage="components_review",
+            from_revision=2,
+            to_revision=3,
+            components_gate=True,
+            corrections=(CorrectionInput(entity_type="photo", entity_id=str(flagged), after={}),),
+        ),
+    )
+    await put_scene(deps, flagged, "01_kitchen.jpg")
+    await activity_env.run(
+        AnalyzePhoto(deps).run,
+        AnalyzePhotoInput(
+            study_id=str(sid),
+            document_id=str(flagged),
+            revision=3,
+            idempotency_key="k-again-r3",
+            budget_remaining_usd=1.0,
+            keep_room=True,
+        ),
+    )
+    for _ in range(2):  # the room step's vote, then a retry of it
+        async with session_scope(deps.sessionmaker) as session:
+            await plan_rooms(session, sid, 3)
+    two = {r.group_key: r for r in await rows(deps, Room, sid, 2)}
+    three = {r.group_key: r for r in await rows(deps, Room, sid, 3)}
+    guest = three["x_bed_2"]
+    assert (guest.name, guest.room_type, guest.floor, guest.source) == (
+        "Guest Bedroom",
+        "bedroom",
+        "3",
+        "manual",
+    )
+    assert guest.carried_from == two["x_bed_2"].id
+    assert two["x_bed_2"].carried_from == one["x_bed_2"].id
+    # The re-analyzed photo answered kitchen at revision 3; its room is the model's.
+    suite = three["1_suite"]
+    assert (suite.name, suite.room_type, suite.floor) == ("Suite", "kitchen", "1")
+    assignments = {a.document_id: a.room_id for a in await rows(deps, PhotoRoom, sid, 3)}
+    assert assignments == {flagged: suite.id, moved: guest.id, study.photo_ids[2]: guest.id}
+    corrected = {e.entity_id for e in await events(deps, sid, "room.voted")}
+    assert not corrected & {guest.id, two["x_bed_2"].id}  # a corrected room is never voted
+    assert [e.entity_id for e in await events(deps, sid, "room.voted") if e.revision == 3] == [
+        suite.id
+    ]

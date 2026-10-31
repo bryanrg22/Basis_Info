@@ -727,16 +727,23 @@ async def test_photos_are_grouped_by_file_name_and_aliases(
     rooms = {r.id: r for r in await rows(deps, Room, study_id=study.study_id)}
     by_photo = {NAMED[i]: rooms[uuid.UUID(o.room_id)] for i, o in enumerate(outputs)}
     kitchen = by_photo["21_1st Floor Kitchen photo 1.JPG"]
-    # The nook (aliased) and both kitchen views are one room, named and floored by the file.
+    # The nook (aliased) and both kitchen views are one room, named and floored by the file
+    # (the floor in its own field, not in the name: EVAL_REPORT 48) and typed by its name.
     assert by_photo["15_1st Floor Breakfast Nook.JPG"] is kitchen
     assert by_photo["22_1st Floor Kitchen photo 2.JPG"] is kitchen
-    assert (kitchen.group_key, kitchen.name, kitchen.floor) == (
+    assert (kitchen.group_key, kitchen.name, kitchen.floor, kitchen.room_type) == (
         "1_kitchen",
-        "1st Floor Kitchen",
+        "Kitchen",
         "1",
+        "kitchen",
     )
     bath = by_photo["45_Basement Bath.JPG"]
-    assert (bath.group_key, bath.name, bath.floor) == ("b_bath", "Basement Bath", "0")
+    assert (bath.group_key, bath.name, bath.floor, bath.room_type) == (
+        "b_bath",
+        "Bath",
+        "0",
+        "bathroom",
+    )
     # A camera name says nothing: the model's room identity (the bedroom scene) is used.
     fallback = by_photo["IMG_0001.JPG"]
     assert (fallback.group_key, fallback.name, fallback.room_type) == (None, "Bedroom", "bedroom")

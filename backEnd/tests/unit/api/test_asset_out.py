@@ -77,6 +77,7 @@ def priced() -> tuple[DomainTakeoff, dict[str, Any], dict[str, Any]]:
         year=index.year,
         year_source=index.year_source,
         location_source=index.location_source,
+        basis="bare",
     )
     trail = priced_trail(
         quantity_block(t, inputs),

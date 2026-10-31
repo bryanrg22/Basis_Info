@@ -85,6 +85,7 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.session import SessionDep
 from basis.domain import removals
 from basis.domain.counts import count_problem, room_component_problems
+from basis.domain.rooms import room_field_problems
 from basis.errors.codes import E
 from basis.extraction import added_fields
 from basis.workflow.contracts import correction_types
@@ -185,7 +186,8 @@ def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
     """422 naming every count the rooms review would refuse (:mod:`basis.domain.counts`): a
     ``component`` ``count`` that is not a whole number from 1, or a ``room_component`` that
     is not a known label with a count (and known material and attachment), and a
-    ``photo_room`` that is not exactly a ``room_id`` UUID. Refused here, because
+    ``photo_room`` that is not exactly a ``room_id`` UUID, and a ``room`` whose ``name``,
+    ``room_type`` or ``floor`` it could not store (:mod:`basis.domain.rooms`). Refused here, because
     ``apply_corrections`` refusing one would start the next revision without any of the
     rejection's corrections."""
     errors = []
@@ -198,6 +200,8 @@ def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
             problems = room_component_problems(item.after)
         elif item.entity_type == "photo_room" and not _is_move(item.after):
             problems = ["a photo_room correction takes exactly a room_id (a room id)"]
+        elif item.entity_type == "room":
+            problems = room_field_problems(item.after)
         errors += [
             _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR)
             for problem in problems

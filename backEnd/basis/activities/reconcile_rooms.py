@@ -12,9 +12,13 @@ rebuilt from its ``components`` rows (so a reviewer's corrections carried into t
 are what is reconciled), and the photos' prepared images (read from storage again;
 preparation is deterministic). The Unassigned room (ambiguous photos, which are not one
 room) and rooms whose photos list nothing are skipped: their per-photo rows stand. A room
-grouped by file name (``rooms.group_key``) first gets its type and floor re-voted from its
-photos' answers (:func:`vote_room`, ``group_photos``'s rules), and is reconciled even when
-every photo answered ``ambiguous`` (its photos are one room by name).
+grouped by file name (``rooms.group_key``) first gets its type and floor resolved again
+from its name and its photos (:func:`vote_room`, :func:`basis.vision.rooms.resolve_room`:
+what the name says, a floor a file name gives, else the photos' answers from
+``photo_room_answers``, a photo with no component included); a change is a ``room.voted``
+event (actor ``model``, ``before``/``after``, the source of each field). A room a reviewer
+corrected is never voted, and no room is renamed. Such a room is reconciled even when every
+photo answered ``ambiguous`` (its photos are one room by name).
 
 Output rows: one ``components`` row per inventory object with no document and
 ``raw.source = "room_inventory"`` (:data:`basis.vision.rooms.ROOM_INVENTORY_SOURCE`); its
@@ -37,7 +41,8 @@ activity as "flag the rooms review and continue": rooms without an inventory kee
 per-photo rows, the behaviour before the room step. An unusable reconciliation answer is
 not an error: the room falls back to the heuristic merge and is flagged.
 
-``ROOM_RECONCILE=false`` writes nothing but its completion (``enabled=False``).
+``ROOM_RECONCILE=false`` builds no inventory: it runs the vote and writes its completion
+(``enabled=False``).
 
 ``vote_only`` (patch ``components-gate-v1``): only the re-vote of the file-name rooms'
 type and floor (:func:`plan_rooms`), committed, and no inventory built and no model call:
@@ -113,10 +118,10 @@ from basis.vision.reconcile import RoomInventory, RoomPhoto
 from basis.vision.rooms import (
     ROOM_INVENTORY_SOURCE,
     SOURCE,
+    RoomAnswer,
     is_room_inventory,
-    name_hint,
     optional_value,
-    vote_identity,
+    resolve_room,
 )
 from basis.vision.schemas import RoomType
 from basis.workflow.contracts import ReconcileRoomsInput, ReconcileRoomsOutput
@@ -175,35 +180,59 @@ def _row(component: Component) -> dict[str, Any]:
     }
 
 
-def vote_room(room: Room, files: list[str], rows: list[list[dict[str, Any]]]) -> bool:
-    """Re-vote a file-name room's type and floor from its photos (``group_photos``'s rules:
-    :func:`basis.vision.rooms.vote_identity`; a floor a file name gives wins). ``files`` are
-    the room's photos in file-name order, ``rows`` each photo's per-photo component rows
-    (their ``raw`` keeps the photo's answer). A room a reviewer corrected (``source`` is not
-    ``vision``) or keyed by the model's identity is left alone. True when it changed."""
+def vote_room(room: Room, files: list[str], answers: list[RoomAnswer]) -> dict[str, Any] | None:
+    """Resolve a file-name room's type and floor from its photos
+    (:func:`basis.vision.rooms.resolve_room`: what the room's name says, a floor a file name
+    gives, else the photos' answers). ``files`` are the room's photos in file-name order and
+    ``answers`` their per-photo answers, in the same order. A room a reviewer corrected
+    (``source`` is not ``vision``) or keyed by the model's identity is left alone, and the
+    name is never changed: what a room is called is the file name's or the engineer's.
+
+    Returns the change (``before``, ``after``, ``sources``) when the room changed, else
+    ``None``. With no answer at all (photos analyzed before ``photo_room_answers`` whose
+    component rows say nothing) the room's own type and floor stand in for one, so only
+    what the name and file names say can change them."""
     if room.group_key is None or room.source != SOURCE:
-        return False
-    answered = [a for a in map(_answer, rows) if a is not None]
-    if not answered:
-        return False
-    room_type, model_floor = vote_identity([t for t, _ in answered], [f for _, f in answered])
-    hint_floor = next((h.floor for h in map(name_hint, files) if h.floor is not None), None)
-    floor = hint_floor if hint_floor is not None else model_floor
-    new = (room_type.value, None if floor is None else str(floor))
-    if (room.room_type, room.floor) == new:
-        return False
+        return None
+    if not answers:
+        floor = _int_floor(room.floor)
+        answers = [RoomAnswer(room_type=_room_type(room.room_type), floor=floor)]
+    meta = resolve_room(room.name, files, answers)
+    new = (meta.room_type.value, None if meta.floor is None else str(meta.floor))
+    old = (room.room_type, room.floor)
+    if old == new:
+        return None
     room.room_type, room.floor = new
-    return True
+    return {
+        "before": {"room_type": old[0], "floor": old[1]},
+        "after": {"room_type": new[0], "floor": new[1]},
+        "sources": dict(meta.sources),
+    }
 
 
-def _answer(rows: list[dict[str, Any]]) -> tuple[str, int | None] | None:
-    """The photo's room type and floor as its component rows recorded them."""
+def _room_type(value: str) -> RoomType:
+    try:
+        return RoomType(value)
+    except ValueError:
+        return RoomType.OTHER
+
+
+def _int_floor(value: str | None) -> int | None:
+    try:
+        return None if value is None else int(value)
+    except ValueError:
+        return None
+
+
+def _answer(rows: list[dict[str, Any]]) -> RoomAnswer | None:
+    """The photo's room type and floor as its component rows recorded them (a photo
+    analyzed before ``photo_room_answers``)."""
     for row in rows:
         raw = row["raw"]
         if isinstance(raw.get("room_type"), str):
             floor = raw.get("floor")
             ok = isinstance(floor, int) and not isinstance(floor, bool)
-            return raw["room_type"], floor if ok else None
+            return RoomAnswer(room_type=_room_type(raw["room_type"]), floor=floor if ok else None)
     return None
 
 
@@ -226,13 +255,37 @@ async def plan_rooms(session: AsyncSession, study_id: uuid.UUID, revision: int) 
                 inventory_of.setdefault(component.room_id, []).append(component)
         elif component.document_id is not None:
             rows_of.setdefault(component.document_id, []).append(component)
+    stored = await repo.answers(study_id, revision)
+    events = StudyEventRepository(session)
     for room in rooms:
         members = sorted(photos_of.get(room.id, []), key=lambda d: (documents[d].filename, str(d)))
-        vote_room(
-            room,
-            [documents[d].filename for d in members],
-            [[_row(c) for c in rows_of.get(d, [])] for d in members],
-        )
+        answers = []
+        for d in members:
+            row = stored.get(d)
+            answer = (
+                RoomAnswer(room_type=_room_type(row.room_type), floor=row.floor)
+                if row is not None
+                else _answer([_row(c) for c in rows_of.get(d, [])])
+            )
+            if answer is not None:
+                answers.append(answer)
+        change = vote_room(room, [documents[d].filename for d in members], answers)
+        if change is not None:
+            await events.record(
+                study_id,
+                "room.voted",
+                actor="model",
+                revision=revision,
+                entity_type="room",
+                entity_id=room.id,
+                before=change["before"],
+                after=change["after"],
+                detail={
+                    "sources": change["sources"],
+                    "photos": [str(d) for d in members],
+                    "answers": len(answers),
+                },
+            )
     await session.flush()
     plan = Plan()
     for room in rooms:
@@ -286,6 +339,9 @@ class ReconcileRooms:
         settings = self._deps.settings
         heartbeat("start")
         if not settings.room_reconcile:
+            # The vote is the grouping's, not the room step's: it runs either way.
+            async with session_scope(self._deps.sessionmaker) as session:
+                await plan_rooms(session, study_id, input.revision)
             return await self._complete(input, ReconcileRoomsOutput(enabled=False))
         if input.vote_only:
             async with session_scope(self._deps.sessionmaker) as session:

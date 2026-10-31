@@ -216,6 +216,11 @@ async def test_spend_is_the_owners_by_default(
     bad = await api.get("alice", f"/v1/studies/{study['id']}/calls?cursor=not-a-cursor")
     assert bad.status_code == 422
     assert (await api.get("alice", f"/v1/studies/{study['id']}/calls?kind=foo")).status_code == 422
+    # A kind that only contains a known kind, and a NUL byte in a filter, are refused before
+    # they reach the database (Schemathesis found both as 500s).
+    for query in ("kind=x%00segmentation", "kind=chatty", "activity=a%00b"):
+        response = await api.get("alice", f"/v1/studies/{study['id']}/calls?{query}")
+        assert response.status_code == 422, query
 
 
 @pytest.mark.parametrize(

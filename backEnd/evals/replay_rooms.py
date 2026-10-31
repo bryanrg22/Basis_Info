@@ -10,7 +10,8 @@ in the worker (EVAL_REPORT 26.10: confirm on a second package before making it t
 
 Inputs as the activity sees them: the photos grouped by file name and ``--aliases``
 (:func:`basis.vision.rooms.group_photos`, equal to the production assignment, EVAL_REPORT
-27.1), each room typed by its photos' vote; each photo's analysis is one repeat of a stored
+27.1), each room typed as production types it (:func:`basis.vision.rooms.resolve_room`:
+what its name says, else its photos' vote); each photo's analysis is one repeat of a stored
 per-photo run (``--per-photo DIR``, its ``photo_raw.jsonl``) put through the stored-row
 round trip the activity reads (:func:`basis.vision.room_step.analysis_from_rows`).
 

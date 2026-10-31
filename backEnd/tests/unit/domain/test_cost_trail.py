@@ -35,7 +35,14 @@ from basis.domain.cost_trail import (
     structure_block,
     structure_residual_trail,
 )
-from basis.domain.costs import CENTS, CostEstimate, estimate_cost, year_factor_index
+from basis.domain.costs import (
+    CENTS,
+    CostBasis,
+    CostEstimate,
+    Markup,
+    estimate_cost,
+    year_factor_index,
+)
 from basis.domain.measurements import CostIndex, measurements_from_fields, resolve_cost_index
 from basis.domain.takeoffs import Takeoff
 
@@ -115,8 +122,14 @@ def written(t: Takeoff) -> dict[str, Any]:
 
 
 def trail_of(
-    t: Takeoff, index: CostIndex, label: str | None = None
+    t: Takeoff,
+    index: CostIndex,
+    label: str | None = None,
+    basis: CostBasis = "bare",
+    markup: Markup | None = None,
 ) -> tuple[CostEstimate, dict[str, Any]]:
+    """Priced on the bare basis unless told (the numbers below are the bare rows'); the
+    installed basis and the model's markup have their own tests."""
     estimate = estimate_cost(
         t,
         index.cost_year,
@@ -126,6 +139,8 @@ def trail_of(
         year_source=index.year_source,
         location_source=index.location_source,
         year=index.year,
+        basis=basis,
+        markup=markup,
     )
     trail = priced_trail(quantity_block(t, written(t)), estimate, index, context=CONTEXT)
     return estimate, trail
@@ -168,6 +183,9 @@ def test_a_legacy_row_in_square_yards_records_the_per_sf_row_and_the_conversion(
         "row_unit": "SF",
         "conversion": "x9 from per SF",
         "assumption": None,
+        "basis": "bare",
+        "basis_how": None,
+        "markup": None,
     }
     assert trail["quantity"]["value"] == "18.33" and trail["quantity"]["unit"] == "SY"
     assert trail["rounding"] == UNIT_PRICE_ROUNDING
@@ -518,9 +536,33 @@ def test_check_reports_a_trail_that_does_not_add_up() -> None:
     estimate, trail = trail_of(takeoff("kitchen_cabinet", "18", "EA"), setting_index())
     assert check(trail) == []
     broken = {**trail, "unit_cost": "425.01"}
-    assert any("base x year x location" in p for p in check(broken))
+    assert any("base x (1 + markup) x year x location" in p for p in check(broken))
     assert any("unit_cost x quantity" in p for p in check(broken))
     assert check({**trail, "base": None}) == [
         "a unit_price trail needs its base, year and location"
     ]
     assert estimate.unit_cost == D("425.00")
+
+
+def test_the_installed_basis_and_the_model_markup_are_recorded() -> None:
+    """STRUCTURE_MODEL.md 9.3: a legacy row on the installed basis records how it got there
+    (the section's markups on material, labor, equipment), and a row inside the model the
+    general contractor's O&P spread on it; base x (1 + markup) x year x location is the
+    unit cost."""
+    markup = Markup(Decimal("0.200129"), "model item 10 over components 1-9")
+    estimate, trail = trail_of(
+        takeoff("carpet", "20", "SF"), setting_index(), basis="installed", markup=markup
+    )
+    base = trail["base"]
+    assert (base["basis"], base["markup"]) == (
+        "installed",
+        {"rate": "0.200129", "source": "model item 10 over components 1-9"},
+    )
+    assert base["basis_how"].startswith("installed: material x1.10 + labor x1.72")
+    assert check(trail) == []
+    bare, bare_trail = trail_of(takeoff("carpet", "20", "SF"), setting_index())
+    assert bare_trail["base"]["basis"] == "bare" and bare_trail["base"]["markup"] is None
+    assert Decimal(base["unit_cost"]) > Decimal(bare_trail["base"]["unit_cost"])
+    assert estimate.unit_cost > bare.unit_cost
+    # The table's printed Total Incl O&P column, when it has one, is the installed base.
+    agrees(estimate, trail)

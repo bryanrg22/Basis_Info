@@ -91,6 +91,11 @@ async def test_preview_writes_nothing_and_is_repeatable(
     assert luxury["fingerprint"] != first["fingerprint"]
     bad = await api.get("alice", f"/v1/studies/{sid}/assets/reprice", params={"model_class": "x"})
     assert bad.status_code == 422
+    # A revision after the current one is 404, as for the other output reads; one past the
+    # revision bound is 422 (it used to reach Postgres as an integer overflow).
+    path = f"/v1/studies/{sid}/assets/reprice"
+    assert (await api.get("alice", path, params={"revision": 2})).status_code == 404
+    assert (await api.get("alice", path, params={"revision": 12167255141})).status_code == 422
 
 
 async def test_preview_says_why_a_rebuild_is_blocked(

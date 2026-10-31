@@ -66,7 +66,9 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
             harness.sessionmaker,
             study.study_id,
             intake_document(
-                purchase_price="400000.00",
+                # the fabricated house reconciles at this price since STRUCTURE_MODEL.md
+                # section 9 (its 2.1 baths and central air priced as RSMeans modifications)
+                purchase_price="450000.00",
                 property_use="nonresidential",
                 dwelling_unit_income_share=None,
                 transient_lodging=True,
@@ -95,14 +97,14 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         assert exported["revision"] == 1
         itemized = [a for a in exported["assets"] if a["component_id"] is not None]
         concealed = {a["label"]: a for a in exported["assets"] if a["component_id"] is None}
-        assert len(itemized) == 6 and len(concealed) == 13
+        assert len(itemized) == 6 and len(concealed) == 14
 
         # The structure model (STRUCTURE_MODEL.md): the synthetic appraisal's cost approach gives
         # the building's RCN (Average 2 Story: Q4, two stories), one concealed row per system,
         # the appraiser's physical depreciation on every row, and a schedule that reconciles
         # to the price less land within tolerance, so the basis is allocated pro rata on RCNLD.
         basis = exported["summary"]["basis"]
-        assert basis["intake"] is True and basis["missing"] == []
+        assert basis["intake"] is True and basis["missing"] == [], basis["reconciliation"]
         structure = basis["structure"]
         assert structure["building_rcn"]["source"] == "square_foot_model"  # the sweep's pick
         assert structure["building_rcn"]["model"]["name"] == "Average 2 Story"
@@ -125,7 +127,7 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         assert abs(float(reconciliation["gap_share"])) <= 0.10
         assert [c["code"] for c in reconciliation["causes"]][:2] == ["land_fmv", "assets_missing"]
         allocation = basis["allocation"]
-        assert allocation["depreciated"] is True and allocation["total"] == "310180.00"
+        assert allocation["depreciated"] is True and allocation["total"] == "360180.00"
         assert {c["code"]: c["severity"] for c in allocation["checks"]} == {"rcnld_factor": "ok"}
         assert allocation["by_system"] is not None
         # The harness configures no cost table, so the four small systems (priced from the
@@ -149,7 +151,7 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         )
         assert worksheet["location_source"] == "intake"
         assert (
-            worksheet["building_basis"] == "310000.00" and worksheet["total_basis"] == "310180.00"
+            worksheet["building_basis"] == "360000.00" and worksheet["total_basis"] == "360180.00"
         )
 
         # The use decided the building period (39 years on the worksheet): the fixture's
@@ -174,8 +176,8 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
             "nonresidential",
             "intake property_use",
         )
-        assert takeoff["area_sources"]["structure_model"] == 13
-        assert sum(takeoff["area_sources"].values()) == 19
+        assert takeoff["area_sources"]["structure_model"] == 14
+        assert sum(takeoff["area_sources"].values()) == 20
         for asset in itemized:
             assert (asset["cost_year"], asset["location_factor"]) == (2024, "1.010")
             assert asset["takeoff_inputs"]["property_class_source"] == "intake property_use"

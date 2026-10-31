@@ -70,7 +70,9 @@ ActivityFilter = Annotated[
 ]
 KindFilter = Annotated[
     str | None,
-    Query(description=f"Only this kind: one of {', '.join(KINDS)}.", pattern="|".join(KINDS)),
+    Query(
+        description=f"Only this kind: one of {', '.join(KINDS)}.", pattern=f"^({'|'.join(KINDS)})$"
+    ),
 ]
 EntityFilter = Annotated[
     uuid.UUID | None,
