@@ -410,3 +410,18 @@ result goes to EVAL_REPORT before the template is written.
    eligibility, leaving the rate entirely to the preparer?
 6. **Preparer format.** Which fixed-asset software do the design partner's CPAs use? A template from them
    decides the first vendor mapping.
+
+### 11.11 Decided (Bryan, 2026-10-31)
+
+1. **Site visit:** either. Each study records who took the photographs and when, and the report states it
+   (an engineer's site visit, or photographs supplied by the taxpayer and no visit).
+2. **Signature:** inside Basis. The engineer's final approval stamps name, credentials and time on the final
+   PDF; before it the PDF is a DRAFT.
+3. **Item detail:** the category summary in the body, every item in a landscape appendix, and the schedule
+   files.
+4. **Bonus:** the statutory default rate from the acquisition date, with its source, labeled as the
+   preparer's election.
+5. **Whose report (default, not asked):** the firm's letterhead, and "prepared using Basis" in the
+   methodology.
+6. **Preparer format (default, not asked):** the generic Form 4562 schedule (11.5) in CSV and XLSX until a CPA
+   partner sends a vendor template.
