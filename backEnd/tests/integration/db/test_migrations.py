@@ -70,6 +70,7 @@ from sqlalchemy.engine import make_url
 
 from basis.db.models import (
     APPEND_ONLY_TABLES,
+    NO_UPDATE_TABLES,
     PG_ENUMS,
     PUBLISHED_IMMUTABLE_TABLES,
     UPDATED_AT_TABLES,
@@ -78,11 +79,13 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0016"
-HISTORY = [f"{n:04d}" for n in range(16, 0, -1)]  # "0016" .. "0001"
+HEAD = "0018"
+# "0018" .. "0001": 0017 is the open room-metadata branch's (see 0018's docstring).
+HISTORY = ["0018", *(f"{n:04d}" for n in range(16, 0, -1))]
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
+    | {(f"{table}_no_update", table) for table in NO_UPDATE_TABLES}
     | {("users_firebase_uid_immutable", "users")}
     | {(f"{table}_published_immutable", table) for table in PUBLISHED_IMMUTABLE_TABLES}
     | {("corpus_versions_published_immutable", "corpus_versions")}

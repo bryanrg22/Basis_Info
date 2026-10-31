@@ -107,6 +107,9 @@ APPEND_ONLY_TABLES: Final = (
     "cost_indices",
     "cost_index_runs",
 )
+# Tables whose rows are never updated once written (forbid_mutation() on UPDATE only;
+# migration 0018): a priced row's takeoff and cost, so the recorded trail cannot change.
+NO_UPDATE_TABLES: Final = ("takeoffs", "cost_estimates")
 # Tables whose rows cannot be inserted or updated once their corpus version is published.
 PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
 
@@ -303,6 +306,7 @@ class Study(Base):
         CheckConstraint(
             "intake IS NULL OR jsonb_typeof(intake) = 'object'", name="intake_is_object"
         ),
+        CheckConstraint("intake_version >= 0", name="intake_version_not_negative"),
         Index("ix_studies_org_id_created_at", "org_id", text("created_at DESC")),
     )
 
@@ -333,6 +337,9 @@ class Study(Base):
     # The intake (docs/api/STUDY_RESULT.md): price, acquisition costs, land, use, dates,
     # location. NULL until the engineer sets it; read by the allocation and the takeoff.
     intake: Mapped[StudyIntake | None] = mapped_column(IntakeDocument, nullable=True)
+    # The intake's version (migration ``0018``): incremented by every intake write, 0 while
+    # there is none; the entity tag ``PUT /v1/studies/{id}/intake`` compares (``If-Match``).
+    intake_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -691,6 +698,9 @@ class CostEstimate(Base):
     source_row: Mapped[str | None]
     location_factor: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
     cost_year: Mapped[int | None]
+    # How the dollars were reached, recorded when the row was priced (migration ``0018``,
+    # ``basis.domain.cost_trail``); NULL for a row priced before the trail was recorded.
+    trail: Mapped[Any | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
 
 

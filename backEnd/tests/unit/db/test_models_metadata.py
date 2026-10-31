@@ -43,7 +43,8 @@ SPEC_TABLES = {
     # Basis and land allocation: intake (migration 0011_study_intake).
     # Error codes: failure_code (migration 0013_study_events).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
-    "room_aliases failure_reason failure_code components_gate intake created_at updated_at",
+    "room_aliases failure_reason failure_code components_gate intake intake_version created_at "
+    "updated_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",
@@ -61,7 +62,9 @@ SPEC_TABLES = {
     "assets": "id study_id revision component_id category bucket recovery_period irs_section "
     "method confidence needs_review review_reason verified convention",
     "takeoffs": "id study_id asset_id quantity unit formula inputs",
-    "cost_estimates": "id study_id asset_id unit_cost total source_row location_factor cost_year",
+    # The recorded cost trail (migration 0018_workspace_contracts).
+    "cost_estimates": "id study_id asset_id unit_cost total source_row location_factor cost_year "
+    "trail",
     "corpus_versions": "id corpus study_id version embedding_model published_at",
     "chunks": "id corpus_version_id doc_id chunk_key page_start page_end section_path text "
     "embedding table_id",
@@ -298,6 +301,7 @@ SPEC_CHECKS = {
     "ck_cost_indices_year_range",
     "ck_cost_index_runs_actor_valid",
     "ck_cost_index_runs_status_valid",
+    "ck_studies_intake_version_not_negative",
     "ck_cost_index_runs_rows_added_nonnegative",
 }
 
@@ -588,7 +592,7 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest;
     # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
     # years_added / failures / detail
-    assert len(jsonb) == 29
+    assert len(jsonb) == 30
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 
@@ -644,6 +648,7 @@ def test_server_defaults() -> None:
     assert default("outbox", "status") == "'pending'"
     assert default("outbox", "attempts") == "0"
     assert default("outbox", "next_attempt_at") == "now()"
+    assert default("studies", "intake_version") == "0"
 
 
 def test_constraint_and_index_names_fit_postgres_identifier_limit() -> None:
