@@ -377,6 +377,45 @@ outlines, rendered by Typst and by WeasyPrint. It measures render time, file siz
 two processes and the Docker image, and page-by-page appearance. ReportLab is the fallback. The bake-off
 result goes to EVAL_REPORT before the template is written.
 
+#### 11.8.1 Bake-off result (2026-10-31): Typst
+
+Run 4's real content went through both renderers with the same document, font file and photos:
+
+* the 384-item schedule in landscape with a repeated header;
+* the class summary with "page X of Y";
+* 47 photographs with their 328 counted objects outlined and numbered (the outlines drawn by Pillow
+  beforehand, so both renderers only place images).
+
+Scripts and outputs are private, in the scratchpad.
+
+| | Typst 0.15 (typst-py) | WeasyPrint 70.0 |
+|---|---|---|
+| Pages | 61 | 62 |
+| Render time (Mac, 2 runs) | 0.17 s, 0.10 s | 1.40 s, 1.13 s |
+| Render time (Linux, worker image, Debian 13) | 0.13 s, 0.11 s | 1.18 s, 1.29 s |
+| Size | 3.62 MB | 2.96 MB |
+| Byte-identical, two processes, same machine | yes (Mac and Linux) | yes (Mac and Linux) |
+| **Byte-identical, Mac against Linux** | **yes** | **no** (Pango 1.58.2 on the Mac, 1.56.3 in the image) |
+| Fonts | embedded, subset | embedded, subset |
+| System libraries | none | Pango, HarfBuzz (missing from the Mac's default library path; Homebrew's needed `DYLD_FALLBACK_LIBRARY_PATH`) |
+
+The pages look alike: the template, not the engine, decides the look. Typst is chosen for three reasons:
+
+* It gives the same bytes on a laptop, in CI and in the worker image, so golden files written anywhere
+  hold everywhere.
+* It is ten times faster.
+* It has no system dependencies.
+
+The 22 % size difference is in the images and is closed by the image settings. The font is
+bundled with the code (an OFL font), with `ignore_system_fonts`.
+
+The bake-off also found two things the report model must handle:
+
+* Unmeasured site items print as "0.0000 SF, 0.00". They must read "awaiting measurement" and stay
+  out of the totals' denominators.
+* One landscaping row carries 58,047 SF, the size of a whole site, which needs checking against the
+  takeoff.
+
 ### 11.9 How it is checked
 
 * **Model.** Golden JSON of `StudyReport` for a synthetic study (`tests/fixtures/synthetic/`), plus
