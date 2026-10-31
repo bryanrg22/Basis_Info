@@ -154,6 +154,9 @@ def reprice(
         asset["unit_cost"] = str(estimate.unit_cost)
         asset["total"] = str(estimate.total)
         asset["cost_source"] = estimate.source_row
+        # The stored trail records the run's pricing; a repriced row is not that pricing.
+        if "cost_trail" in asset:
+            asset["cost_trail"] = None
         asset["cost_year"] = cost_year
         asset["location_factor"] = f"{new_location:.3f}"
         inputs = dict(asset.get("takeoff_inputs") or {})

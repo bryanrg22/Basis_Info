@@ -95,6 +95,7 @@ class StudyOut(ResponseModel):
                     "failure_reason": None,
                     "components_gate": None,
                     "intake": None,
+                    "intake_version": 0,
                     "created_at": "2026-10-15T17:02:11.204000Z",
                     "updated_at": "2026-10-15T17:02:11.204000Z",
                 }
@@ -131,6 +132,13 @@ class StudyOut(ResponseModel):
         description="The study's intake as stored (state/zip filled from the appraisal when "
         "they were not given; `location_source` says so), or null until it is set.",
     )
+    intake_version: int = Field(
+        default=0,
+        ge=0,
+        description="The intake's version: 0 while there is none, incremented by every write. "
+        'Its entity tag is the version in quotes (`ETag: "3"`), which `PUT .../intake` takes '
+        "as `If-Match`; the result's pricing is checked against it (docs/api/STUDY_RESULT.md).",
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -139,6 +147,29 @@ class StudyDetail(StudyOut):
     documents: list[DocumentOut] = Field(description="Documents, oldest first.")
     latest_reviews: list[ReviewOut] = Field(
         description="For each review stage decided so far, the decision with the highest revision."
+    )
+
+
+class StudyIntakeOut(ResponseModel):
+    """``GET /v1/studies/{id}/intake``: the intake and its version (also the ``ETag``)."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "study_id": "5f0c6a52-2f53-4c39-9a3e-2b0a8f1f7d10",
+                    "intake": None,
+                    "intake_version": 0,
+                }
+            ]
+        }
+    )
+
+    study_id: uuid.UUID
+    intake: StudyIntake | None = Field(description="The stored intake, or null until it is set.")
+    intake_version: int = Field(
+        ge=0,
+        description='The version (0: no intake yet); the response\'s `ETag` is `"<version>"`.',
     )
 
 

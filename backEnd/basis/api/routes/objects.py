@@ -28,6 +28,10 @@
 * ``DELETE .../objects/{object_id}`` (engineer, ``Idempotency-Key``, at the edit stage
   only): soft-deletes a manual instance (``deleted_at``/``deleted_by``); a model instance
   is 409 (it is evidence of what the model found; an engineer adds, the model's rows stay).
+  This deletes a localized instance on a photo, never a room's component row: removing an
+  erroneous inventory row from the next revision is a ``component_remove`` correction on
+  the decision route (:mod:`basis.domain.removals`), which in turn never touches these
+  objects.
 
 Who and when: ``created_by``/``created_at`` on a manual row, ``deleted_by``/``deleted_at``
 on a deleted one.

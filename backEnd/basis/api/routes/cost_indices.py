@@ -11,6 +11,12 @@
   runs with what they asked for and what arrived).
 
 No route fetches anything: network fetches happen only in ``python -m basis.costs.refresh``.
+
+Scope: the store is deployment-wide. Its rows carry no firm (``cost_indices`` has no
+``org_id``), every firm on the deployment reads the same rows, and the selection that prices a
+study (:mod:`basis.costs.indices.select`) reads them without regard to the study's firm. A
+value one firm's owner enters therefore prices every firm's studies from then on; it is not a
+private per-firm override (hence the owner role and the required citation).
 """
 
 from __future__ import annotations
@@ -83,6 +89,8 @@ def _cursor(cursor: str | None) -> tuple[datetime, uuid.UUID] | None:
 @reads.get(
     "/cost-indices",
     summary="The cost index store: every value obtained, with its citation",
+    description="Any firm member. The store is deployment-wide: every firm on the deployment "
+    "reads (and is priced with) the same rows; there is no per-firm copy.",
     responses=problems(403),
 )
 async def list_cost_indices(
@@ -132,7 +140,9 @@ async def list_cost_index_runs(
     status_code=status.HTTP_201_CREATED,
     summary="Enter a cost index value by hand, with its citation",
     description="A firm owner enters a published value the store lacks (the year's RSMeans "
-    "Historical Cost Index, a location factor). The row is appended with the entering user "
+    "Historical Cost Index, a location factor). The store is deployment-wide: the value prices "
+    "every firm's studies on the deployment, not only the entering firm's (it is not a "
+    "per-firm override). The row is appended with the entering user "
     "and the time; a value for a key the store holds becomes its next version and the old "
     "row stays. The same value and citation as the current version is 409 `duplicate-value`.",
     responses=problems(403, 409),

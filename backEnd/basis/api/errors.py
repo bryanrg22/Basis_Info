@@ -260,6 +260,31 @@ class Unprocessable(ApiError):
         super().__init__(detail=detail, type_suffix=type_suffix, errors=errors, code=code)
 
 
+class PreconditionFailed(ApiError):
+    """412 (RFC 9110 section 15.5.13): a conditional request's condition (``If-Match``) is
+    false; nothing was changed. ``headers`` may carry the current ``ETag``."""
+
+    status = 412
+    title = "Precondition Failed"
+    type_suffix = "precondition-failed"
+
+    def __init__(
+        self, detail: str, *, headers: Mapping[str, str] | None = None, code: str | None = None
+    ) -> None:
+        super().__init__(detail=detail, headers=headers, code=code)
+
+
+class PreconditionRequired(ApiError):
+    """428 (RFC 6585 section 3): the server requires the request to be conditional."""
+
+    status = 428
+    title = "Precondition Required"
+    type_suffix = "precondition-required"
+
+    def __init__(self, detail: str, *, code: str | None = None) -> None:
+        super().__init__(detail=detail, code=code)
+
+
 class ServiceUnavailable(ApiError):
     """503 for a dependency the server needs and cannot reach (RFC 9110 section 15.6.4)."""
 
@@ -457,6 +482,11 @@ VALIDATION_CODES: Final[dict[str, str]] = {
     "correction_target": E.STUDY_CORRECTION_TARGET,
     "correction_value": E.STUDY_CORRECTION_VALUE,
     "approval_with_corrections": E.STUDY_APPROVAL_WITH_CORRECTIONS,
+    "correction_reason": E.STUDY_CORRECTION_REASON,
+    "correction_duplicate": E.STUDY_CORRECTION_DUPLICATE,
+    "correction_rebuilt": E.STUDY_CORRECTION_REBUILT,
+    "correction_last_inventory": E.STUDY_CORRECTION_LAST_INVENTORY,
+    "correction_field_exists": E.STUDY_CORRECTION_FIELD_EXISTS,
 }
 
 

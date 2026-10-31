@@ -1,19 +1,25 @@
 """``GET /v1/studies/{id}/spend`` and ``/calls``: the paid-call ledger through the API
-(EVAL_REPORT section 40; docs/api/SPEND.md). Real Postgres; rows written by the recorder."""
+(EVAL_REPORT section 40; docs/api/SPEND.md). Real Postgres; rows written by the recorder.
+
+Access is the firm role ``SPEND_ACCESS_ROLE`` (owner by default): below it 403, a non-member
+404."""
 
 from __future__ import annotations
 
 import uuid
 from decimal import Decimal
 
+import httpx
 import pytest
-from apitest_support import Api, Seed
+from apitest_support import BASE_URL, Api, FakeVerifier, Seed, api_settings, build_api_app
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.db.enums import OrgRole
+from basis.errors.codes import E
 from basis.llm.call import CallContext, step_entry
 from basis.llm.provider import Budget, Usage
 from basis.llm.recorder import KIND_DOCUMENT_ANALYSIS, LedgerEntry, LlmCallRecorder
+from basis.storage import LocalStorage
 
 pytestmark = pytest.mark.integration
 
@@ -184,19 +190,69 @@ async def test_the_calls_page_filters_and_pages_with_every_field(
     assert [i["kind"] for i in only.json()["items"]] == ["document_analysis"]
 
 
-async def test_access_follows_the_study(
+async def test_spend_is_the_owners_by_default(
     api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    study = await api.create_study("alice")
+    """``SPEND_ACCESS_ROLE`` defaults to owner: an engineer or viewer of the study's firm is
+    403 (the client hiding spend is not access control), a non-member still 404."""
+    study = await api.create_study("alice")  # alice owns her firm
     await seed_calls(sessionmaker, study["id"])
     org_id = uuid.UUID(study["org_id"])
-    await seed.user("vic")
+    await seed.member(org_id, "eve", OrgRole.ENGINEER)
     await seed.member(org_id, "vic", OrgRole.VIEWER)
-    assert (await api.get("vic", f"/v1/studies/{study['id']}/spend")).status_code == 200
-    assert (await api.get("vic", f"/v1/studies/{study['id']}/calls")).status_code == 200
     await seed.user("mallory")
-    assert (await api.get("mallory", f"/v1/studies/{study['id']}/spend")).status_code == 404
-    assert (await api.get("mallory", f"/v1/studies/{study['id']}/calls")).status_code == 404
+    for route in ("spend", "calls"):
+        path = f"/v1/studies/{study['id']}/{route}"
+        assert (await api.get("alice", path)).status_code == 200
+        for uid in ("eve", "vic"):
+            forbidden = await api.get(uid, path)
+            assert forbidden.status_code == 403, (uid, route)
+            assert forbidden.json()["type"].endswith("/forbidden")
+            assert "owner" in forbidden.json()["detail"]
+        missing = await api.get("mallory", path)
+        assert missing.status_code == 404
+        assert missing.json()["code"] == E.STUDY_NOT_FOUND
+        assert (await api.get("alice", f"/v1/studies/{uuid.uuid4()}/{route}")).status_code == 404
     bad = await api.get("alice", f"/v1/studies/{study['id']}/calls?cursor=not-a-cursor")
     assert bad.status_code == 422
     assert (await api.get("alice", f"/v1/studies/{study['id']}/calls?kind=foo")).status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("setting", "allowed"),
+    [
+        ("viewer", {"alice", "eve", "vic"}),
+        ("engineer", {"alice", "eve"}),
+        ("owner", {"alice"}),
+    ],
+)
+async def test_spend_access_role_sets_the_lowest_role(
+    database_url: str,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    verifier: FakeVerifier,
+    setting: str,
+    allowed: set[str],
+) -> None:
+    """``viewer`` restores the behaviour before the setting; a non-member is 404 at every
+    setting."""
+    app = build_api_app(
+        api_settings(database_url, spend_access_role=setting), sessionmaker, storage, verifier
+    )
+    seed = Seed(sessionmaker)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url=BASE_URL
+    ) as client:
+        api = Api(client)
+        study = await api.create_study("alice")
+        await seed_calls(sessionmaker, study["id"])
+        org_id = uuid.UUID(study["org_id"])
+        await seed.member(org_id, "eve", OrgRole.ENGINEER)
+        await seed.member(org_id, "vic", OrgRole.VIEWER)
+        await seed.user("mallory")
+        for route in ("spend", "calls"):
+            path = f"/v1/studies/{study['id']}/{route}"
+            for uid in ("alice", "eve", "vic"):
+                expected = 200 if uid in allowed else 403
+                assert (await api.get(uid, path)).status_code == expected, (setting, uid, route)
+            assert (await api.get("mallory", path)).status_code == 404

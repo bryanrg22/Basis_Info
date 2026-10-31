@@ -65,8 +65,15 @@ class CorrectionIn(RequestModel):
     before: CorrectionFields | None = Field(
         default=None, description="The values before the correction, as the reviewer saw them."
     )
-    after: CorrectionFields = Field(description="The corrected values.")
-    reason: OptionalText = None
+    after: CorrectionFields = Field(
+        description="The corrected values (`{}` for a `component_remove`; for an "
+        "`extraction_field_add` the key, one value, the page and the printed evidence)."
+    )
+    reason: OptionalText = Field(
+        default=None,
+        description="Why. Required (non-blank) for `component_remove` and "
+        "`extraction_field_add`: removing or adding a row is engineer evidence.",
+    )
 
 
 class DecisionIn(RequestModel):

@@ -38,12 +38,14 @@ from basis.db.models import (
     Component,
     CostEstimate,
     LlmCall,
+    Study,
     StudyEvent,
     Takeoff,
 )
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import session_scope
+from basis.domain.cost_trail import TRAIL_VERSION, check
 from basis.domain.structure import STRUCTURE_LABELS
 from basis.llm.cost import cost_usd
 from basis.llm.errors import ProviderAccountError
@@ -1035,3 +1037,348 @@ async def test_without_an_intake_or_fields_no_source_keys_are_written(
         # Except the one fact that is new since EVAL_REPORT 45: the settings' 2026 is after
         # the book's last published index, and every row says so.
         assert "no published cost index for 2026" in takeoff.inputs["cost_year_assumption"]
+
+
+# ------------------------------------------------------------------ the cost trail (0018)
+
+
+def assert_trail_matches(cost: CostEstimate, takeoff: Takeoff) -> dict[str, Any]:
+    """A cost row's trail agrees with its columns and its takeoff; returns the trail."""
+    trail = cost.trail
+    assert isinstance(trail, dict) and trail["version"] == TRAIL_VERSION
+    for key in ("unit_cost", "total", "location_factor"):
+        column = getattr(cost, key)
+        assert (None if trail[key] is None else Decimal(trail[key])) == column, key
+    assert trail["cost_year"] == cost.cost_year
+    assert Decimal(trail["quantity"]["value"]) == takeoff.quantity
+    assert trail["quantity"]["unit"] == takeoff.unit
+    assert trail["quantity"]["formula"] == takeoff.formula
+    assert trail["quantity"]["inputs"] == takeoff.inputs
+    assert check(trail) == []
+    if trail["kind"] == "unpriced":
+        assert cost.total is None and trail["missing"] == cost.source_row
+    return trail
+
+
+async def test_every_cost_row_carries_a_trail_that_matches_its_columns(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """Migration 0018 / docs/api/COST_INDICES.md "Per-asset cost trail": every cost row,
+    itemized, unpriced and concealed, is written with the trail of how it was priced, and
+    the trail's amounts, factors and quantity are the row's own."""
+    from datetime import date
+
+    from basis.db.models import Study
+
+    settings = deps.settings.model_copy(
+        update={"cost_table_path": str(fixture_path("cost_table.json")), "cost_year": 2026}
+    )
+    priced = make_deps(deps.sessionmaker, deps.storage, settings)
+    await seed_extraction(
+        deps,
+        analyzed,
+        {
+            **MEASURED_FIELDS,
+            **STRUCTURE_FIELDS,
+            "reconciliation.effective_date_of_appraisal": date(2025, 6, 1),
+        },
+    )
+    await add_site_components(deps, analyzed)
+    await set_intake(
+        deps.sessionmaker,
+        analyzed.study_id,
+        intake_document(placed_in_service_date="2024-03-01", state="NY"),
+    )
+    output = await activity_env.run(ProcessAssets(priced).run, process(analyzed))
+    assert output.concealed > 0
+    takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    async with session_scope(deps.sessionmaker) as session:
+        study = await session.get(Study, analyzed.study_id)
+    assert study is not None
+    kinds: set[str] = set()
+    for asset_id, cost in costs.items():
+        trail = assert_trail_matches(cost, takeoffs[asset_id])
+        kinds.add(trail["kind"])
+        assert trail["intake_version"] == study.intake_version
+        assert trail["property_class"] == "residential_rental"
+        concealed = bool(takeoffs[asset_id].inputs.get("concealed"))
+        assert (trail["structure"] is not None) == concealed
+        if trail["kind"] != "structure_residual":
+            # Priced from the study's index: the intake's 2024 and ZIP 12345.
+            assert trail["year"]["cost_year"] == 2024
+            assert trail["year"]["from"] == "placed in service 2024-03-01 (intake)"
+            assert trail["location"]["zip"] == "12345"
+            assert trail["location"]["lookup_from"] == "intake"
+    assert {"unit_price", "unpriced", "structure_residual"} <= kinds
+    # A table row: the base the trail names is the table's row for the label.
+    roof = max(
+        (t for t in takeoffs.values() if t.inputs.get("component") == "roof"),
+        key=lambda t: t.quantity,
+    )
+    base = costs[roof.asset_id].trail["base"]
+    assert (base["table"], base["row"], base["unit"]) == ("synthetic_2020", "roof", "SF")
+
+
+async def test_a_corrected_row_and_a_legacy_revision_carry_trails(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """An asset correction's row is priced like any row and its trail's takeoff inputs carry
+    the correction; with no intake the trail's intake version is null, and the row's old
+    columns are what they were."""
+    sid = analyzed.study_id
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    takeoffs, costs = await takeoffs_and_costs(deps, sid)
+    for asset_id, cost in costs.items():
+        trail = assert_trail_matches(cost, takeoffs[asset_id])
+        assert trail["intake_version"] is None
+        assert trail["location"]["from"] == "COST_LOCATION_FACTOR setting"
+        assert cost.source_row is not None and (
+            cost.source_row.endswith(SETTING_2026) or cost.source_row.startswith("missing:")
+        )
+    target = next(a for label, a in await labelled(deps, sid, 1) if label == "plumbing_fixtures")
+    await start_revision_two(deps, analyzed, activity_env)
+    correction = CorrectionInput(
+        entity_type="asset",
+        entity_id=str(target.id),
+        after={"bucket": "y15", "recovery_period": "15"},
+    )
+    await activity_env.run(
+        ProcessAssets(deps).run, process(analyzed, revision=2, corrections=(correction,))
+    )
+    [manual] = [a for a in await assets(deps, sid, 2) if a.method is ClassificationMethod.MANUAL]
+    takeoffs, costs = await takeoffs_and_costs(deps, sid)
+    trail = assert_trail_matches(costs[manual.id], takeoffs[manual.id])
+    assert trail["quantity"]["inputs"]["asset_correction"]["from_asset_id"] == str(target.id)
+
+
+# ------------------------------------------------------------------ the reprice (REPRICE.md)
+
+
+def reprice(study_id: uuid.UUID, fingerprint: str = "f" * 64) -> CorrectionInput:
+    return CorrectionInput(
+        entity_type="reprice", entity_id=str(study_id), after={"fingerprint": fingerprint}
+    )
+
+
+async def start_rebuild(
+    deps: Deps, seeded: SeededStudy, activity_env: Env, *corrections: CorrectionInput
+) -> None:
+    await activity_env.run(
+        ApplyCorrections(deps).run,
+        ApplyCorrectionsInput(
+            study_id=str(seeded.study_id),
+            stage="assets_review",
+            from_revision=1,
+            to_revision=2,
+            corrections=corrections,
+        ),
+    )
+
+
+async def add_2024_index(deps: Deps) -> None:
+    from datetime import date
+
+    from basis.costs.refresh import record_manual
+    from basis.db.repositories.cost_index import IndexEntry
+
+    async with session_scope(deps.sessionmaker) as session:
+        await record_manual(
+            session,
+            [
+                IndexEntry(
+                    source="manual",
+                    series="historical",
+                    year=2024,
+                    region="US",
+                    value=Decimal("294.8"),
+                    as_of=date(2024, 7, 1),
+                    citation="Gordian, the actual July 2024 Historical Index = 294.8",
+                )
+            ],
+            actor_id=None,
+            actor_name="test",
+        )
+
+
+async def rows_of(deps: Deps, study_id: uuid.UUID, revision: int) -> list[tuple[Asset, Any, Any]]:
+    async with session_scope(deps.sessionmaker) as session:
+        return [
+            (asset, takeoff, cost)
+            for asset, takeoff, cost in (
+                await session.execute(
+                    select(Asset, Takeoff, CostEstimate)
+                    .join(Takeoff, Takeoff.asset_id == Asset.id)
+                    .join(CostEstimate, CostEstimate.asset_id == Asset.id)
+                    .where(Asset.study_id == study_id, Asset.revision == revision)
+                )
+            ).all()
+        ]
+
+
+async def test_reprice_carries_every_classification_and_applies_a_new_index(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """REPRICE.md: revision 1 is priced at 2024 with no 2024 index loaded (the latest
+    applied, flagged); the firm then enters July 2024 = 294.8. The reprice carries every
+    classification (no model call, citations kept) and prices with the new value; revision
+    1's rows are untouched, and its result reports the new index as not applied."""
+    from datetime import date
+
+    from basis.evidence.result import load_result_inputs
+
+    settings = deps.settings.model_copy(
+        update={"cost_table_path": str(fixture_path("cost_table.json")), "cost_year": 2026}
+    )
+    priced = make_deps(deps.sessionmaker, deps.storage, settings)
+    sid = analyzed.study_id
+    await seed_extraction(
+        deps,
+        analyzed,
+        {
+            **MEASURED_FIELDS,
+            **STRUCTURE_FIELDS,
+            "reconciliation.effective_date_of_appraisal": date(2025, 6, 1),
+        },
+    )
+    await set_intake(
+        deps.sessionmaker, sid, intake_document(placed_in_service_date="2024-03-01", state="NY")
+    )
+    first = await activity_env.run(ProcessAssets(priced).run, process(analyzed))
+    calls = await count_rows(deps.sessionmaker, LlmCall, study_id=sid)
+    before = {a.id: (a, t, c) for a, t, c in await rows_of(deps, sid, 1)}
+    assert any("cost:YEAR_INDEX_MISSING" in (a.review_reason or "") for a, _, _ in before.values())
+
+    await add_2024_index(deps)
+    async with session_scope(deps.sessionmaker) as session:
+        study = await session.get(Study, sid)
+        assert study is not None
+        _, pricing = await load_result_inputs(
+            session, sid, 1, study.intake, study.intake_version, settings
+        )
+    assert pricing is not None and pricing.stale and pricing.reasons == ["index_updated"]
+    assert pricing.remedy == "reprice"
+
+    await start_rebuild(deps, analyzed, activity_env, reprice(sid))
+    second = await activity_env.run(
+        ProcessAssets(priced).run, process(analyzed, revision=2, corrections=(reprice(sid),))
+    )
+    assert (second.assets, second.concealed) == (first.assets, first.concealed)
+    assert await count_rows(deps.sessionmaker, LlmCall, study_id=sid) == calls  # no model call
+    after = await rows_of(deps, sid, 2)
+    assert len(after) == len(before)
+    async with session_scope(deps.sessionmaker) as session:
+        old_cites = (await session.scalars(select(Citation).where(Citation.study_id == sid))).all()
+    cites: dict[uuid.UUID, int] = {}
+    for c in old_cites:
+        cites[c.asset_id] = cites.get(c.asset_id, 0) + 1
+    changed = 0
+    for asset, takeoff, cost in after:
+        record = takeoff.inputs["carried_classification"]
+        old, old_takeoff, old_cost = before[uuid.UUID(record["from_asset_id"])]
+        assert record["from_revision"] == 1 and record["method"] == old.method.value
+        assert (asset.category, asset.bucket, asset.recovery_period, asset.irs_section) == (
+            old.category,
+            old.bucket,
+            old.recovery_period,
+            old.irs_section,
+        )
+        assert (asset.method, asset.confidence, asset.convention) == (
+            old.method,
+            old.confidence,
+            old.convention,
+        )
+        assert cites.get(asset.id, 0) == cites.get(old.id, 0)
+        assert "cost:YEAR_INDEX_MISSING" not in (asset.review_reason or "")
+        assert takeoff.quantity == old_takeoff.quantity
+        assert cost.trail is not None and check(cost.trail) == []
+        if cost.trail.get("year") is not None:
+            index = cost.trail["year"]["index"]
+            assert (index["value"], index["store"]["version"]) == ("294.8", 1)
+            assert cost.trail["year"]["assumption"] is None
+        changed += cost.total != old_cost.total
+    assert changed > 0
+    # Revision 1 is history: its rows are what they were.
+    assert {a.id: c.total for a, _, c in await rows_of(deps, sid, 1)} == {
+        k: c.total for k, (_, _, c) in before.items()
+    }
+    async with session_scope(deps.sessionmaker) as session:
+        study = await session.get(Study, sid)
+        assert study is not None
+        _, rebuilt = await load_result_inputs(
+            session, sid, 2, study.intake, study.intake_version, settings
+        )
+    assert rebuilt is not None and not rebuilt.stale and rebuilt.reasons == []
+
+
+async def test_structure_model_correction_sets_the_square_foot_model(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """A ``structure_model`` correction carries the classifications like a reprice and
+    sizes the building with the engineer's class; the concealed rows record it and the
+    result reads it back."""
+    from basis.evidence.pricing import load_recorded
+
+    sid = analyzed.study_id
+    settings = deps.settings.model_copy(update={"structure_rcn_source": "square_foot"})
+    priced = make_deps(deps.sessionmaker, deps.storage, settings)
+    await seed_extraction(deps, analyzed, {**MEASURED_FIELDS, **STRUCTURE_FIELDS})
+    await activity_env.run(ProcessAssets(priced).run, process(analyzed))
+    calls = await count_rows(deps.sessionmaker, LlmCall, study_id=sid)
+    model = CorrectionInput(
+        entity_type="structure_model", entity_id=str(sid), after={"model_class": "luxury"}
+    )
+    await start_rebuild(deps, analyzed, activity_env, reprice(sid), model)
+    await activity_env.run(
+        ProcessAssets(priced).run,
+        process(analyzed, revision=2, corrections=(reprice(sid), model)),
+    )
+    assert await count_rows(deps.sessionmaker, LlmCall, study_id=sid) == calls
+    concealed = [(a, t, c) for a, t, c in await rows_of(deps, sid, 2) if a.component_id is None]
+    assert concealed
+    for _, takeoff, _ in concealed:
+        assert takeoff.inputs["structure_model"]["model_class"] == "luxury"
+    residual = [c for _, _, c in concealed if c.trail and c.trail["kind"] == "structure_residual"]
+    assert residual and "Luxury" in residual[0].trail["structure"]["building"]["inputs"]["model"]
+    async with session_scope(deps.sessionmaker) as session:
+        recorded = await load_recorded(session, sid, 2)
+        first = await load_recorded(session, sid, 1)
+    assert recorded is not None and recorded.model_override is not None
+    assert recorded.model_override.model_class == "luxury"
+    assert first is not None and first.model_override is None
+
+
+async def test_reprice_classifies_again_when_the_property_class_changed(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """The API refuses a reprice after a property-use change; if the intake changes between
+    the request and the rebuild, nothing is carried (a 39-year building cannot keep 27.5-year
+    classifications) and the event says so."""
+    sid = analyzed.study_id
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    calls = await count_rows(deps.sessionmaker, LlmCall, study_id=sid)
+    await set_intake(
+        deps.sessionmaker,
+        sid,
+        intake_document(
+            property_use="nonresidential",
+            dwelling_unit_income_share=None,
+            transient_lodging=True,
+        ),
+    )
+    await start_rebuild(deps, analyzed, activity_env, reprice(sid))
+    await activity_env.run(
+        ProcessAssets(deps).run, process(analyzed, revision=2, corrections=(reprice(sid),))
+    )
+    assert await count_rows(deps.sessionmaker, LlmCall, study_id=sid) > calls
+    async with session_scope(deps.sessionmaker) as session:
+        events = (
+            await session.scalars(
+                select(StudyEvent).where(
+                    StudyEvent.study_id == sid,
+                    StudyEvent.event_type == "assets.reprice_reclassified",
+                )
+            )
+        ).all()
+    assert [e.code for e in events] == ["BASIS-ASSETS-020"]
+    assert events[0].detail == {"classified_as": "residential_rental", "now": "nonresidential"}
+    assert all("carried_classification" not in t.inputs for _, t, _ in await rows_of(deps, sid, 2))

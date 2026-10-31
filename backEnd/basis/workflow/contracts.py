@@ -82,19 +82,25 @@ class Decision(_Frozen):
 # is written to history. ``room_component`` (v0.11, manual add) adds a component to the
 # room named by ``entity_id`` (``basis.activities.corrections.check_room_component``);
 # ``photo_room`` (v0.12) moves the photo named by ``entity_id`` to the room ``after.room_id``;
-# ``photo`` flags a photo for re-analysis. With the components gate (patch
-# ``components-gate-v1``) the rooms review takes the grouping only and the components review
-# the rest; an execution without it has the single rooms review
-# (:data:`SINGLE_ROOMS_GATE_TYPES`; :func:`correction_types` picks). Validators do not run
-# when a history replays, so changing a set needs no patch.
+# ``photo`` flags a photo for re-analysis. ``component_remove`` removes an erroneous room
+# inventory component row (``entity_id``; ``after`` is ``{}``, a reason is required) from the
+# next revision, accepted wherever ``component`` is; ``extraction_field_add`` adds a field the
+# extraction named by ``entity_id`` is missing (``basis.extraction.added_fields``). With the
+# components gate (patch ``components-gate-v1``) the rooms review takes the grouping only and
+# the components review the rest; an execution without it has the single rooms review
+# (:data:`SINGLE_ROOMS_GATE_TYPES`; :func:`correction_types` picks). ``reprice`` and
+# ``structure_model`` (``entity_id`` the study; ``basis.activities.reprice_corrections``)
+# rebuild the assets with their classifications carried; only ``POST .../assets/reprice``
+# records them. Validators do not run when a history replays, so changing a set needs no
+# patch.
 CORRECTION_TYPES: dict[str, frozenset[str]] = {
-    "appraisal_review": frozenset({"extraction_field"}),
+    "appraisal_review": frozenset({"extraction_field", "extraction_field_add"}),
     "rooms_review": frozenset({"room", "photo_room"}),
-    "components_review": frozenset({"component", "room_component", "photo"}),
-    "assets_review": frozenset({"asset"}),
+    "components_review": frozenset({"component", "component_remove", "room_component", "photo"}),
+    "assets_review": frozenset({"asset", "reprice", "structure_model"}),
 }
 SINGLE_ROOMS_GATE_TYPES: frozenset[str] = frozenset(
-    {"room", "component", "room_component", "photo"}
+    {"room", "component", "component_remove", "room_component", "photo"}
 )
 
 

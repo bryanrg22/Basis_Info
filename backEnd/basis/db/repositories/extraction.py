@@ -43,6 +43,13 @@ class ExtractionRepository:
         await self._session.refresh(extraction)
         return extraction
 
+    async def get(self, study_id: uuid.UUID, extraction_id: uuid.UUID) -> Extraction | None:
+        """The study's extraction with that id (None for another study's)."""
+        stmt = select(Extraction).where(
+            Extraction.id == extraction_id, Extraction.study_id == study_id
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
     async def get_for_revision(self, document_id: uuid.UUID, revision: int) -> Extraction | None:
         stmt = select(Extraction).where(
             Extraction.document_id == document_id, Extraction.revision == revision

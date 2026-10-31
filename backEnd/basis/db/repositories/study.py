@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
@@ -14,7 +15,12 @@ from sqlalchemy import and_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import OrgRole, Stage, StudyStatus, status_for_stage
-from basis.db.errors import InvalidCursorError, NotVisibleError, StaleStateError
+from basis.db.errors import (
+    InvalidCursorError,
+    NotVisibleError,
+    PreconditionFailedError,
+    StaleStateError,
+)
 from basis.db.models import Extraction, ExtractionField, OrgMember, Run, Study
 from basis.db.repositories.study_event import Actor, StudyEventRepository
 from basis.domain.intake import StudyIntake
@@ -32,6 +38,19 @@ class StudyPage:
 class VisibleStudy:
     study: Study
     role: OrgRole
+
+
+@dataclass(frozen=True, slots=True)
+class IntakeWrite:
+    """An intake write: the study after it, and the intake and version it replaced."""
+
+    study: Study
+    before: StudyIntake | None
+    version_before: int
+
+
+# ``(current version, whether the study has an intake) -> may the write proceed``.
+IntakePrecondition = Callable[[int, bool], bool]
 
 
 def encode_cursor(created_at: datetime, study_id: uuid.UUID) -> str:
@@ -71,6 +90,8 @@ class StudyRepository:
             property_name=property_name,
             room_aliases=dict(room_aliases or {}),
             intake=intake,
+            # The intake's version: 0 while there is none, 1 for the first one (migration 0018).
+            intake_version=0 if intake is None else 1,
         )
         self._session.add(study)
         await self._session.flush()
@@ -255,22 +276,64 @@ class StudyRepository:
         return started
 
     async def set_intake(self, study_id: uuid.UUID, intake: StudyIntake) -> Study:
-        """Set or replace the study's intake (``PUT /v1/studies/{id}/intake``); archived
-        studies are left alone (``StaleStateError``)."""
+        """Set or replace the study's intake unconditionally (:meth:`write_intake`)."""
+        return (await self.write_intake(study_id, intake)).study
+
+    async def write_intake(
+        self,
+        study_id: uuid.UUID,
+        intake: StudyIntake,
+        *,
+        precondition: IntakePrecondition | None = None,
+    ) -> IntakeWrite:
+        """Set or replace the study's intake (``PUT /v1/studies/{id}/intake``) and increment
+        ``intake_version``, the intake's entity tag.
+
+        ``SELECT ... FOR UPDATE`` takes the study's row lock first, so the version and the
+        intake read here are the ones the write replaces (the event's ``before``) and a
+        concurrent write waits for this transaction to end. ``precondition`` (the route's
+        ``If-Match``) is then checked against that locked version: false ->
+        ``PreconditionFailedError`` and nothing is written. The ``UPDATE`` also carries
+        ``WHERE intake_version = :seen``, so the write is a compare-and-set even without the
+        lock. Of two concurrent writes with the same expected version, the second sees the
+        first's committed version once the lock is released and fails. Archived studies are
+        left alone (``StaleStateError``, checked before the precondition); an unknown study
+        is ``NotVisibleError``.
+        """
+        locked = (
+            await self._session.scalars(
+                select(Study)
+                .where(Study.id == study_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one_or_none()
+        if locked is None:
+            raise NotVisibleError(f"study {study_id} not found")
+        if locked.status is StudyStatus.ARCHIVED:
+            raise StaleStateError(f"study {study_id} is archived; its intake cannot change")
+        before, seen = locked.intake, locked.intake_version
+        if precondition is not None and not precondition(seen, before is not None):
+            raise PreconditionFailedError(
+                f"the intake of study {study_id} is at version {seen}", version=seen
+            )
         stmt = (
             update(Study)
-            .where(Study.id == study_id, Study.status != StudyStatus.ARCHIVED)
-            .values(intake=intake)
+            .where(
+                Study.id == study_id,
+                Study.status != StudyStatus.ARCHIVED,
+                Study.intake_version == seen,
+            )
+            .values(intake=intake, intake_version=Study.intake_version + 1)
             .returning(Study)
             .execution_options(synchronize_session=False, populate_existing=True)
         )
         study = (await self._session.scalars(stmt)).one_or_none()
-        if study is not None:
-            return study
-        existing = await self._session.get(Study, study_id, populate_existing=True)
-        if existing is None:
-            raise NotVisibleError(f"study {study_id} not found")
-        raise StaleStateError(f"study {study_id} is archived; its intake cannot change")
+        if study is None:  # pragma: no cover - the row lock makes this unreachable
+            raise PreconditionFailedError(
+                f"the intake of study {study_id} changed while it was written", version=seen
+            )
+        return IntakeWrite(study=study, before=before, version_before=seen)
 
     async def subject_location(self, study_id: uuid.UUID) -> tuple[str | None, str | None]:
         """``(state, zip)`` as the appraisal's subject fields read them, from the newest

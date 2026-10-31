@@ -122,7 +122,8 @@ class AuditItemOut(ResponseModel):
     revision: int | None
     action: str = Field(
         description="`approved`, `rejected`, `modified`, `added`, `moved`, `merged`, "
-        "`reanalyzed`, `deleted`."
+        "`reanalyzed`, `removed` (a component row left out of the next revision), `deleted` "
+        "(a manual photo object)."
     )
     entity_type: str | None
     entity_id: uuid.UUID | None

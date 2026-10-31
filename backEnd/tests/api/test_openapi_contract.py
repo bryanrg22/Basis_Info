@@ -245,6 +245,14 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         case.body["intake"] = None
     if case.path.endswith("/intake") and case.method.upper() == "PUT":
         case.body = dict(VALID_INTAKE)
+        # A generated If-Match is any string: one that is not the current ETag is rightly
+        # 412 (tests/api/test_studies.py covers the precondition).
+        if case.headers:
+            case.headers.pop("If-Match", None)
+    if case.path.endswith("/assets/reprice") and case.method.upper() == "POST":
+        # "At least one member" of the square-foot model is not in the schema.
+        if isinstance(case.body, dict) and case.body.get("structure_model") is not None:
+            case.body["structure_model"] = {"model_class": "average"}
     if case.path.endswith("/cost-indices") and case.method.upper() == "POST":
         # Cross-field rules (a historical value is national, as_of in the year, a city row
         # names its city, the value above zero) are not in the schema; a valid body, like

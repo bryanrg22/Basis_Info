@@ -73,8 +73,11 @@ def workflow_execution() -> tuple[str, str]:
 
 
 def heartbeat(*details: object) -> None:
-    """Heartbeat (the SDK throttles sends to a fraction of the heartbeat timeout)."""
-    activity.heartbeat(*details)
+    """Heartbeat (the SDK throttles sends to a fraction of the heartbeat timeout). Outside
+    an activity (the reprice preview runs the same carry and pricing code in the API, in a
+    transaction it rolls back) there is nothing to heartbeat to."""
+    if activity.in_activity():
+        activity.heartbeat(*details)
 
 
 async def run_once[Out: BaseModel](

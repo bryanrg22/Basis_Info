@@ -144,10 +144,11 @@ def activity_attempt() -> int | None:
 
 
 async def call_origin(session: AsyncSession, study_id: uuid.UUID) -> CallOrigin:
-    """:func:`run_pk`, the study's current stage and the attempt, in one read."""
+    """:func:`run_pk`, the study's current stage and the attempt, in one read. Outside an
+    activity (the reprice preview, which makes no call) there is no run."""
     study = await StudyRepository(session).get(study_id)
     return CallOrigin(
-        run_id=await run_pk(session),
+        run_id=await run_pk(session) if activity.in_activity() else None,
         stage=None if study is None else str(study.current_stage.value),
         attempt=activity_attempt(),
     )

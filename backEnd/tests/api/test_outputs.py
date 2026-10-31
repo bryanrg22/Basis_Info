@@ -33,6 +33,10 @@ from basis.db.models import (
 from basis.db.repositories import DocumentRepository
 from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository
 from basis.db.session import session_scope
+from basis.domain.cost_trail import TrailContext, priced_trail, quantity_block
+from basis.domain.costs import year_factor_index
+from basis.domain.measurements import CostIndex
+from basis.domain.takeoffs import Takeoff as DomainTakeoff
 
 pytestmark = pytest.mark.integration
 
@@ -45,6 +49,17 @@ class Seeded:
     assets: dict[str, uuid.UUID]
     fields: dict[str, uuid.UUID]
 
+
+# The trail ``process_assets`` writes for a row with no cost row (basis.domain.cost_trail).
+UNPRICED_TRAIL: Final[dict[str, Any]] = priced_trail(
+    quantity_block(
+        DomainTakeoff("toilet", Decimal("1"), "EA", "count=1", method="count"), {"count": 1}
+    ),
+    None,
+    CostIndex(2026, None, Decimal("1.0"), None, year_factor_index(2026)),
+    context=TrailContext(intake_version=None, property_class="residential_rental"),
+    missing="missing",
+)
 
 CONVENTION: Final[dict[str, Any]] = {
     "key": "carpet|||bedroom|residential_rental|2026-10-29.1",
@@ -211,7 +226,8 @@ async def seed_outputs(api: Api, seed: Seed, sm: async_sessionmaker[AsyncSession
                 CostEstimate(study_id=sid, asset_id=a1.id, unit_cost=Decimal("543.98"),
                              total=Decimal("3263.88"), source_row="row", cost_year=2025,
                              location_factor=Decimal("1.000")),
-                CostEstimate(study_id=sid, asset_id=a2.id, source_row="missing"),
+                CostEstimate(study_id=sid, asset_id=a2.id, source_row="missing", cost_year=2026,
+                             location_factor=Decimal("1.0"), trail=UNPRICED_TRAIL),
             ]
         )  # fmt: skip
         version = CorpusVersion(corpus="reference", version=1, embedding_model="hash")
@@ -378,13 +394,26 @@ async def test_assets_with_takeoff_cost_and_citations(
         "quantity": "6.0000",  # takeoffs.quantity is NUMERIC(.., 4)
         "unit": "EA",
         "formula": "max(count=6, min_per_room=1)",
+        # Stored without inputs: the members added with the cost trail are empty.
+        "method": None,
+        "inputs": None,
+        "assumptions": [],
     }
     assert a1["cost"]["total"] == "3263.88" and a1["cost"]["cost_year"] == 2025
+    # Priced before the trail existed (migration 0018): no trail, and it says so.
+    assert (a1["cost"]["trail"], a1["cost"]["trail_recorded"]) == (None, False)
     assert (a1["citations"], a1["verified_citations"]) == (2, 1)
     assert a1["review_reasons"] == [] and a1["needs_review"] is False
     a2 = by_id[str(seeded.assets["a2"])]
     assert a2["review_reasons"] == ["cross:COST_ROW_MISSING", "rule_contested:toilet"]
     assert a2["cost"]["unit_cost"] is None and a2["takeoff"] is None
+    # The stored trail, read back from JSONB as recorded (never recomputed by the route).
+    trail = a2["cost"]["trail"]
+    assert a2["cost"]["trail_recorded"] is True
+    assert (trail["kind"], trail["missing"], trail["unit_cost"]) == ("unpriced", "missing", None)
+    assert trail["year"]["factor"] == "1.0000" and trail["year"]["from"] == "COST_YEAR setting"
+    assert trail["year"]["index"]["as_of"] == "2020-01-01"
+    assert trail["location"]["factor"] == "1.0" and trail["quantity"]["inputs"] == {"count": 1}
     assert a2["bucket"] == "y39" and a2["room"]["name"] == "Bath"
     orphan = by_id[str(seeded.assets["extra0"])]
     assert orphan["label"] is None and orphan["room"] is None and orphan["count"] is None

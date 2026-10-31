@@ -147,7 +147,10 @@ def test_rejects_an_unknown_decision_kind() -> None:
         ("rooms_review", "room", "asset"),
         ("rooms_review", "photo", "extraction_field"),
         ("rooms_review", "component", "asset"),
+        ("rooms_review", "component_remove", "extraction_field_add"),
+        ("appraisal_review", "extraction_field_add", "component_remove"),
         ("assets_review", "asset", "component"),
+        ("assets_review", "asset", "component_remove"),
     ],
 )
 def test_correction_types_are_checked_per_stage(stage: str, allowed: str, refused: str) -> None:
@@ -164,9 +167,9 @@ def move(room_id: str | None = None, **extra: Any) -> CorrectionInput:
 
 
 GATED = {
-    "appraisal_review": ["extraction_field"],
+    "appraisal_review": ["extraction_field", "extraction_field_add"],
     "rooms_review": ["room", "photo_room"],
-    "components_review": ["component", "room_component", "photo"],
+    "components_review": ["component", "component_remove", "room_component", "photo"],
     "assets_review": ["asset"],
 }
 EVERY_TYPE = sorted({t for types in GATED.values() for t in types})

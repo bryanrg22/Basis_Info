@@ -29,8 +29,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import cache
@@ -57,6 +58,18 @@ class UnknownCostYear(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class StoreRow:
+    """The ``cost_indices`` store row a value was read from (COST_INDICES.md section 9):
+    its id, source and version, so a priced row names the exact append-only row it used
+    (``basis.domain.cost_trail``). ``id`` is None only for a row built outside the
+    database (tests)."""
+
+    id: uuid.UUID | None
+    source: str
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
 class YearIndex:
     """One published index value: the Historical Cost Index for a year."""
 
@@ -68,6 +81,10 @@ class YearIndex:
     # Set when the value is not a published RSMeans index but one converted from another
     # public series (COST_INDICES.md section 11): how, with the error it carries.
     derived: str | None = None
+    # The store row the value was read from (``select.year_index_of``); None for the
+    # released file's own values. Not part of equality: the same value is the same index
+    # whether it came from the file or from the store's seed of it.
+    store: StoreRow | None = field(default=None, compare=False)
 
     def describe(self) -> str:
         when = self.as_of.strftime("%b %Y").replace("Jul ", "July ")
@@ -112,6 +129,9 @@ class CityFactor:
     city: str
     factor: Decimal
     printed_page: int
+    # The store row it was read from (``select.city_factor_of``); None for the released
+    # file's rows. Not part of equality (see ``YearIndex.store``).
+    store: StoreRow | None = field(default=None, compare=False)
 
     def prefixes(self) -> frozenset[str]:
         return frozenset(_expand_prefixes(self.zip_prefixes))
@@ -129,6 +149,10 @@ class LocationFactor:
     low: Decimal
     high: Decimal
     pages: str  # printed page(s)
+    # The location table it was looked up in: its year and origin (``rsmeans_2020_book``,
+    # ``manual``, ...: ``LocationTable.year`` and ``.origin``). None when built by hand.
+    table_year: int | None = None
+    origin: str | None = None
 
     @property
     def is_state_mean(self) -> bool:
@@ -562,6 +586,8 @@ def location_factor_for_zip(
         low=city.factor,
         high=city.factor,
         pages=str(city.printed_page),
+        table_year=table.year,
+        origin=table.origin,
     )
 
 
@@ -588,6 +614,8 @@ def location_factor_for_state_code(
         low=min(factors),
         high=max(factors),
         pages=table.pages,
+        table_year=table.year,
+        origin=table.origin,
     )
 
 
@@ -600,6 +628,7 @@ __all__ = [
     "CostIndices",
     "LocationFactor",
     "LocationTable",
+    "StoreRow",
     "UnknownCostYear",
     "YearFactor",
     "YearIndex",

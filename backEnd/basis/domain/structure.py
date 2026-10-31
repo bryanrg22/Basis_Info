@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, localcontext
 from typing import Final, Literal
 
@@ -812,11 +812,71 @@ def type_of(measurements: BuildingMeasurements | None) -> tuple[BuildingType, st
     return chosen, f"{_fmt(stories)} stories ({measurements.stories.describe()})", False
 
 
+@dataclass(frozen=True, slots=True)
+class ModelOverride:
+    """The engineer's confirmation or correction of the square-foot model (a
+    ``structure_model`` correction at the assets review): the class of construction is a
+    judgment from the quality rating, not an appraisal field, so it cannot be corrected as
+    one. A member left ``None`` keeps the model's own choice; ``source`` names the
+    correction (its ids) for every citation the choice appears in."""
+
+    model_class: Class | None = None
+    building_type: BuildingType | None = None
+    living_area_sf: Decimal | None = None
+    source: str = "engineer correction"
+
+    def record(self) -> dict[str, str | None]:
+        """As written on the concealed rows' takeoff inputs (and so their cost trail), where
+        the result reads it back (:meth:`from_record`)."""
+        return {
+            "model_class": self.model_class,
+            "building_type": self.building_type,
+            "living_area_sf": None
+            if self.living_area_sf is None
+            else format(self.living_area_sf, "f"),
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_record(cls, record: object) -> ModelOverride | None:
+        if not isinstance(record, dict):
+            return None
+        area = record.get("living_area_sf")
+        model_class = record.get("model_class")
+        building_type = record.get("building_type")
+        return cls(
+            model_class=model_class if model_class in CLASSES else None,
+            building_type=building_type if building_type in TYPES else None,
+            living_area_sf=None if area is None else Decimal(str(area)),
+            source=str(record.get("source") or "engineer correction"),
+        )
+
+    def apply(self, measurements: BuildingMeasurements | None) -> BuildingMeasurements | None:
+        """``measurements`` with the living area the model is sized by replaced (only the
+        structure model reads the result; the room takeoffs keep the appraisal's GLA)."""
+        if self.living_area_sf is None:
+            return measurements
+        reading = Reading(self.living_area_sf, "structure_model.living_area_sf", self.source)
+        if measurements is None:
+            return BuildingMeasurements(gla_sf=reading)
+        return replace(measurements, gla_sf=reading)
+
+
 def select_model(
-    measurements: BuildingMeasurements | None, cost_approach: CostApproach | None
+    measurements: BuildingMeasurements | None,
+    cost_approach: CostApproach | None,
+    override: ModelOverride | None = None,
 ) -> ModelChoice:
     cls, class_source, class_defaulted = class_of(cost_approach)
     type_, type_source, type_defaulted = type_of(measurements)
+    if override is not None and override.model_class is not None:
+        verb = "confirmed" if override.model_class == cls and not class_defaulted else "set"
+        class_source = f"{override.model_class} {verb} by {override.source} (model: {class_source})"
+        cls, class_defaulted = override.model_class, False
+    if override is not None and override.building_type is not None:
+        verb = "confirmed" if override.building_type == type_ and not type_defaulted else "set"
+        type_source = f"{override.building_type} {verb} by {override.source} (model: {type_source})"
+        type_, type_defaulted = override.building_type, False
     assumptions: list[str] = []
     if class_defaulted:
         assumptions.append(class_source)
@@ -1143,13 +1203,17 @@ def building_rcn(
     rcn_source: RcnSource = DEFAULT_RCN_SOURCE,
     year: YearFactor | None = None,
     supplement: Mapping[int, YearIndex] | None = None,
+    model_override: ModelOverride | None = None,
 ) -> BuildingRcn | None:
     """The building's RCN from the appraisal's cost approach (``appraisal_total``: the
     printed total, ``appraisal_parts``: the sum of its parts), else the square-foot model
     (``square_foot`` asks for it first), else ``None`` (no living area to size a model).
     ``year`` is the study's resolved time factor (``CostIndex.year``); without it the cost
-    year's factor comes from the released book and ``supplement``."""
-    choice = select_model(measurements, cost_approach)
+    year's factor comes from the released book and ``supplement``. ``model_override``: the
+    engineer's class, type or living area for the square-foot model (:class:`ModelOverride`)."""
+    if model_override is not None:
+        measurements = model_override.apply(measurements)
+    choice = select_model(measurements, cost_approach, model_override)
     if year is None or year.cost_year != cost_year:
         year = year_factor_index(cost_year, supplement)
     use_appraisal = (
@@ -1613,9 +1677,13 @@ class StructureInputs:
     split: SplitMethod = DEFAULT_SPLIT
     carve: bool = True
     depreciation_method: DepreciationMethod = DEFAULT_DEPRECIATION
+    # The engineer's confirmation or correction of the square-foot model.
+    model_override: ModelOverride | None = None
 
     @property
     def living_area(self) -> Decimal | None:
+        if self.model_override is not None and self.model_override.living_area_sf is not None:
+            return self.model_override.living_area_sf
         if self.measurements is not None and self.measurements.gla_sf is not None:
             return self.measurements.gla_sf.value
         if self.cost_approach is not None and self.cost_approach.dwelling_sqft is not None:

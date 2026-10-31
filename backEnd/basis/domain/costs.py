@@ -150,6 +150,27 @@ MATERIAL_LABOR_SPLIT: Final[dict[str, tuple[Decimal, Decimal, Decimal]]] = {
 }
 
 
+LEGACY_TABLE: Final = "TYPICAL_UNIT_COSTS"
+
+
+@dataclass(frozen=True, slots=True)
+class PricedRow:
+    """The cost row an estimate used, as structured data (``source_row`` is the same in
+    words): which table and row, the base unit cost exactly as multiplied, and how the
+    row's unit became the takeoff's. Read by :mod:`basis.domain.cost_trail`."""
+
+    table: str  # LEGACY_TABLE, or the cost table's name (``COST_TABLE_PATH``)
+    key: str  # the legacy component key, or the table row's label
+    tier: str | None  # the legacy tier; None for a table row
+    unit_cost: Decimal  # per takeoff unit, base year, before adjustments, not rounded
+    unit: str  # the takeoff unit the base is per
+    row_unit: str  # the unit the row is printed per (legacy) or its source unit (table)
+    base_year: int
+    source: str | None  # the table row's printed source; None for the legacy rows
+    conversion: str | None  # e.g. "x9 from per SF"; None when the row is per takeoff unit
+    assumption: str | None  # the table row's assumption
+
+
 @dataclass(frozen=True, slots=True)
 class CostEstimate:
     unit_cost: Decimal  # per takeoff unit, after year and location adjustment
@@ -161,6 +182,9 @@ class CostEstimate:
     cost_year: int
     unit: str
     year_assumption: str | None = None  # set when the cost year has no published index
+    # The row and the time factor the estimate used, as objects (the cost trail).
+    row: PricedRow | None = None
+    year: YearFactor | None = None
 
 
 def location_factor_for_state(state: str) -> Decimal:
@@ -194,12 +218,17 @@ def has_cost_row(component: str) -> bool:
 
 
 def _per_takeoff_unit(row: UnitCost, unit: str, component: str) -> Decimal:
+    return _converted(row, unit, component)[0]
+
+
+def _converted(row: UnitCost, unit: str, component: str) -> tuple[Decimal, str | None]:
+    """``(the row's total per takeoff unit, the conversion applied or None)``."""
     if unit == row.unit:
-        return row.total
+        return row.total, None
     if unit == "SY" and row.unit == "SF":
-        return row.total * SF_PER_SY
+        return row.total * SF_PER_SY, f"x{SF_PER_SY} from per SF"
     if unit == "SF" and row.unit == "SY":
-        return row.total / SF_PER_SY
+        return row.total / SF_PER_SY, f"/{SF_PER_SY} from per SY"
     raise UnitMismatch(f"{component}: takeoff is in {unit} but the cost row is per {row.unit}")
 
 
@@ -233,8 +262,20 @@ def estimate_cost(
     rows = TYPICAL_UNIT_COSTS.get(takeoff.component)
     if rows is not None:
         row = rows[tier]
-        base = _per_takeoff_unit(row, takeoff.unit, takeoff.component)
-        source = f"TYPICAL_UNIT_COSTS[{takeoff.component}][{tier}] per {row.unit}"
+        base, conversion = _converted(row, takeoff.unit, takeoff.component)
+        source = f"{LEGACY_TABLE}[{takeoff.component}][{tier}] per {row.unit}"
+        priced = PricedRow(
+            table=LEGACY_TABLE,
+            key=takeoff.component,
+            tier=tier,
+            unit_cost=base,
+            unit=takeoff.unit,
+            row_unit=row.unit,
+            base_year=BASE_YEAR,
+            source=None,
+            conversion=conversion,
+            assumption=None,
+        )
     else:
         found = None
         if table is not None:
@@ -259,6 +300,20 @@ def estimate_cost(
             source += f" x{found.factor} from per {found.source_unit}"
         if found.assumption:
             source += f"; assumes {found.assumption}"
+        priced = PricedRow(
+            table=table.name,
+            key=found.label,
+            tier=None,
+            unit_cost=base,
+            unit=found.unit,
+            row_unit=found.source_unit or found.unit,
+            base_year=table.base_year,
+            source=found.source,
+            conversion=None
+            if found.factor == 1
+            else f"x{found.factor} from per {found.source_unit}",
+            assumption=found.assumption,
+        )
     if year is None or year.cost_year != cost_year:
         year = year_factor_index(cost_year)
     factor = year.factor
@@ -282,4 +337,6 @@ def estimate_cost(
         cost_year=cost_year,
         unit=takeoff.unit,
         year_assumption=year.assumption,
+        row=priced,
+        year=year,
     )

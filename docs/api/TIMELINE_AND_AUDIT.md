@@ -63,7 +63,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 
 | `event_type` | Actor | When | Carries |
 |---|---|---|---|
-| `study.created`, `study.intake_set`, `study.archived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents |
+| `study.created`, `study.intake_set`, `study.archived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md) |
 | `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256 |
 | `study.started` | engineer | `POST .../start` moved the study to `extracting` | `detail.workflow_id` |
 | `run.started`, `run.ended` | system | the Temporal execution | `detail.outcome` on the end |
@@ -72,7 +72,8 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `activity.completed`, `activity.failed`, `activity.cancelled` | system | one attempt of an activity ended | `attempt`, `started_at`, `duration_ms`; `code` and `detail.error` on a failure |
 | `review.decided` | engineer | a decision was recorded | `entity_id` the review; `detail` decision, comment, corrections, the stage it moved to |
 | `correction.recorded` | engineer | each correction the decision carried | `entity_type`/`entity_id` the row of the decided revision; `before`/`after`; `detail.correction_id` |
-| `entity.corrected`, `entity.added`, `entity.moved`, `entity.merged` | engineer | `apply_corrections`, `extract_fields` or `process_assets` applied a correction | `entity_id` the **new** row (the merged room's old id for `merged`); `before`/`after`; `detail.carried_from`, `detail.correction_ids`, `detail.reasons` |
+| `entity.corrected`, `entity.added`, `entity.moved`, `entity.merged` | engineer | `apply_corrections`, `extract_fields` or `process_assets` applied a correction | `entity_id` the **new** row (the merged room's old id for `merged`); `before`/`after`; `detail.carried_from`, `detail.correction_ids`, `detail.reasons`. An added appraisal field (`extraction_field_add`) is an `entity.added` with `entity_type` `extraction_field`, `entity_id` the new field row, `before` null, `after` the correction's `after` (key, value, page, evidence), `detail.key`, `detail.extraction_id` (the extraction it was added to) |
+| `entity.removed` (`component`) | engineer | `apply_corrections` left a component row out of the next revision (a `component_remove` correction) | `entity_id` the **removed** row of the decided revision (it has no successor); `before` its `label`, `material`, `attachment`, `count`, `room_id`, `document_id`; `after` null; `detail.kind` (`room_inventory`, `room_manual`, `per_photo`), `detail.correction_ids`, `detail.reasons`, `detail.from_revision`. Not a photo object: see below |
 | `entity.added`, `entity.deleted` (`photo_object`) | engineer | a manual instance added or soft-deleted on a photo | `after`/`before` the instance |
 | `revision.carried` | system | `apply_corrections` finished copying a revision | `detail.applied`, `detail.from_revision` |
 | `corrections.refused` | system | `apply_corrections` refused a rejection's corrections; the revision started without them | `code`, `detail.reason` |
@@ -160,14 +161,30 @@ GET /v1/studies/{id}/audit
 | `kind` | `action` | Source |
 |---|---|---|
 | `decision` | `approved`, `rejected` | `reviews` (the comment as `reason`) |
-| `correction` | `modified` (extraction_field, room, component, asset), `added` (room_component), `moved` (photo_room), `merged` (room with `merge_into`), `reanalyzed` (photo) | `corrections`, with the rejection it belonged to and, when recorded, `produced`: the rows of the next revision it produced |
+| `correction` | `modified` (extraction_field, room, component, asset), `added` (room_component, extraction_field_add), `moved` (photo_room), `merged` (room with `merge_into`), `reanalyzed` (photo), `removed` (component_remove) | `corrections`, with the rejection it belonged to and, when recorded, `produced`: the rows of the next revision it produced (none for a removal) |
 | `object_added`, `object_deleted` | `added`, `deleted` | manual `photo_objects` (`created_by`/`created_at`, `deleted_by`/`deleted_at`) |
 | `intake` | `added`, `modified` | the `study.intake_set` events |
 
-Deletion exists in two forms, both listed: a manual photo object soft-deleted (the row keeps
-who and when), and a room merged into another (`merged`: the room is gone from the next
-revision, its photos and rows are in the target). Components and assets are never deleted;
-they are corrected, or a photo is re-analyzed.
+Deletion exists in three forms, all listed, and none deletes a stored row (every revision's
+rows stay as history):
+
+* a manual photo object soft-deleted (`DELETE /v1/studies/{id}/photos/{document_id}/objects/{object_id}`,
+  `object_deleted`; the row keeps who and when). This is a localized instance on a photo, what
+  the room's `suggested_counts` are read from; a model instance cannot be deleted;
+* a room merged into another (`merged`: the room is gone from the next revision, its photos and
+  rows are in the target);
+* a component row removed from the next revision (`removed`, a `component_remove` correction at
+  the components review, or the single rooms review; reason required): an erroneous room
+  inventory row, an engineer's added row or a photo's row is not copied into the next
+  revision, so no later revision has it (`entity.removed` on the timeline). It never touches
+  the photo's objects: after it, the room's `suggested_counts` still show the photo's count for
+  the label while the inventory count drops, so the removal can be checked against the photos.
+  Refused (422 at the decision route, `ValidationError` in `apply_corrections`): no reason, the
+  same row removed twice or also corrected, a row the rejection rebuilds anyway (an inventory
+  row of a room whose photo the same decision flags for re-analysis or of a merged room, a
+  flagged photo's row), and the last inventory row of a reconciled room.
+
+Assets are never deleted; they are corrected, or their component is removed.
 
 ## Provenance
 
@@ -184,7 +201,7 @@ they are corrected, or a photo is re-analyzed.
 | `origin` | Meaning |
 |---|---|
 | `model` | The pipeline wrote the row and no engineer changed it on the way (the rules table and the cache count as the model's: deterministic code, not the engineer). |
-| `engineer_added` | The row exists because an engineer added it: a `room_component` correction (the component, and the asset built from it). |
+| `engineer_added` | The row exists because an engineer added it: a `room_component` correction (the component, and the asset built from it), or an `extraction_field_add` (an appraisal field the extraction lacked: `before` and `carried_from` null, `after` the key, value, page and evidence; carried into later revisions with the same provenance). |
 | `engineer_modified` | An engineer's correction was applied when the row was copied into its revision. `before` is read from the copied row (`carried_from`), `after` is the correction's values, `changed` the fields it set. A row carried unchanged into later revisions keeps this: the value is still the engineer's. |
 
 How it is resolved (`basis.db.repositories.provenance`): the append-only `corrections` table
@@ -198,6 +215,18 @@ the nearest ancestor with one wins. Where it is on the rows: `/fields` items, `/
 and their `photos[]` and `inventory[]`, `/assets` items (the takeoff and cost share the
 asset's: an engineer cannot edit them directly), and the same members in the export's
 `extraction[].fields[]`, `rooms[]`, `photos[]`, `components[]` and `assets[]`.
+
+An added appraisal field resolves through its extraction's lineage: the first ancestor
+extraction that lacks the key and carries an `extraction_field_add` of it names the addition
+(only for a field whose source is `manual`: a value the model read is never attributed to an
+earlier addition). A removed component row has no successor, so no row's provenance names
+the removal; it is on the timeline (`entity.removed`) and in the audit listing.
+
+What survives a second appraisal rejection: each appraisal rejection re-extracts from the
+document and applies only that rejection's corrections, so a correction or added field of an
+earlier appraisal rejection is not re-applied (the reviewer sees the re-extracted value at the
+gate). Every later stage's rejection copies the extraction with its fields, added ones
+included.
 
 Rooms copied before `rooms.carried_from` existed have no lineage: a renamed one reports
 `engineer_modified` with no correction named. Everything else resolves for old studies too.

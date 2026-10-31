@@ -6,18 +6,30 @@ replaced by ``FakeVerifier``.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 from typing import Any
 
+import httpx
 import pytest
-from apitest_support import Api, Seed, bearer
+from apitest_support import (
+    BASE_URL,
+    Api,
+    FakeVerifier,
+    Seed,
+    api_settings,
+    bearer,
+    build_api_app,
+)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.errors import PROBLEM_JSON
 from basis.db.enums import OrgRole, Stage
-from basis.db.models import ExtractionField, Study
+from basis.db.models import ExtractionField, Study, StudyEvent
+from basis.errors.codes import E
+from basis.storage import LocalStorage
 
 pytestmark = pytest.mark.integration
 
@@ -52,12 +64,14 @@ async def test_create_returns_201_with_the_study(api: Api, seed: Seed) -> None:
         "failure_reason",
         "components_gate",  # v0.12: null until the workflow starts (record_run_start)
         "intake",  # null until PUT .../intake (docs/api/STUDY_RESULT.md)
+        "intake_version",  # 0 until the first intake write (migration 0018)
         "created_at",
         "updated_at",
     }
     assert body["failure_reason"] is None
     assert body["components_gate"] is None
     assert body["room_aliases"] == {}
+    assert body["intake_version"] == 0
 
 
 async def test_create_persists_the_row(
@@ -534,3 +548,187 @@ async def test_put_intake_needs_the_engineer_role_and_a_visible_live_study(
     )
     assert archived.status_code == 409
     assert archived.json()["type"].endswith("/stale-state")
+
+
+# --------------------------------------------------------------------------- intake version
+# Optimistic concurrency (RFC 9110 section 13.1.1): GET .../intake answers the version as a
+# strong ETag; PUT .../intake with If-Match writes only while it is current.
+
+
+async def put(
+    api: Api, sid: str, body: dict[str, Any], *, uid: str = "alice", if_match: str | None = None
+) -> httpx.Response:
+    headers = bearer(uid)
+    if if_match is not None:
+        headers["If-Match"] = if_match
+    return await api.client.put(f"/v1/studies/{sid}/intake", json=body, headers=headers)
+
+
+async def intake_events(sm: async_sessionmaker[AsyncSession], sid: str) -> list[StudyEvent]:
+    async with sm() as session:
+        rows = await session.scalars(
+            select(StudyEvent)
+            .where(
+                StudyEvent.study_id == uuid.UUID(sid), StudyEvent.event_type == "study.intake_set"
+            )
+            .order_by(StudyEvent.seq)
+        )
+        return list(rows.all())
+
+
+async def test_get_intake_answers_the_version_as_a_strong_etag(api: Api, seed: Seed) -> None:
+    study = await api.create_study("alice")
+    sid = study["id"]
+    empty = await api.get("alice", f"/v1/studies/{sid}/intake")
+    assert empty.status_code == 200, empty.text
+    assert empty.headers["etag"] == '"0"'
+    assert empty.json() == {"study_id": sid, "intake": None, "intake_version": 0}
+    written = await put(api, sid, INTAKE)
+    assert written.status_code == 200, written.text
+    assert written.headers["etag"] == '"1"'
+    assert written.json()["intake_version"] == 1
+    read = await api.get("alice", f"/v1/studies/{sid}/intake")
+    assert read.headers["etag"] == '"1"'
+    assert read.json()["intake"] == stored(INTAKE, location_source="intake")
+    assert read.json()["intake_version"] == 1
+    assert (await api.get("alice", f"/v1/studies/{sid}")).json()["intake_version"] == 1
+    # A viewer reads it; a non-member does not see the study.
+    await seed.member(uuid.UUID(study["org_id"]), "vera", OrgRole.VIEWER)
+    assert (await api.get("vera", f"/v1/studies/{sid}/intake")).status_code == 200
+    assert (await api.get("bob", f"/v1/studies/{sid}/intake")).status_code == 404
+    assert (await api.get("alice", f"/v1/studies/{uuid.uuid4()}/intake")).status_code == 404
+
+
+async def test_a_study_created_with_an_intake_starts_at_version_1(api: Api) -> None:
+    response = await api.post("alice", "/v1/studies", {"property_name": "Harbor", "intake": INTAKE})
+    assert response.status_code == 201, response.text
+    assert response.json()["intake_version"] == 1
+    read = await api.get("alice", f"/v1/studies/{response.json()['id']}/intake")
+    assert read.headers["etag"] == '"1"'
+
+
+async def test_put_with_the_current_etag_writes_and_answers_the_next_one(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = (await api.create_study("alice"))["id"]
+    first = await put(api, sid, INTAKE, if_match='"0"')  # the first intake, conditionally
+    assert first.status_code == 200, first.text
+    assert first.headers["etag"] == '"1"'
+    replaced = {**INTAKE, "purchase_price": "700000.00"}
+    second = await put(api, sid, replaced, if_match=first.headers["etag"])
+    assert second.status_code == 200, second.text
+    assert second.headers["etag"] == '"2"'
+    assert second.json()["intake"]["purchase_price"] == "700000.00"
+    unconditional = await put(api, sid, replaced)  # accepted without If-Match by default
+    assert unconditional.status_code == 200 and unconditional.headers["etag"] == '"3"'
+    events = await intake_events(sessionmaker, sid)
+    assert [e.detail for e in events] == [
+        {"version_before": 0, "version_after": 1, "if_match": True},
+        {"version_before": 1, "version_after": 2, "if_match": True},
+        {"version_before": 2, "version_after": 3, "if_match": False},
+    ]
+    assert events[0].before is None
+    assert events[1].before is not None and events[1].before["purchase_price"] == "650000.00"
+    assert events[1].after["purchase_price"] == "700000.00"
+
+
+@pytest.mark.parametrize("stale", ['"0"', '"2"', 'W/"1"', "1", '"one"'])
+async def test_a_stale_if_match_is_412_and_writes_nothing(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession], stale: str
+) -> None:
+    sid = (await api.create_study("alice"))["id"]
+    assert (await put(api, sid, INTAKE)).status_code == 200  # version 1
+    before = await api.get("alice", f"/v1/studies/{sid}/intake")
+    response = await put(api, sid, {**INTAKE, "purchase_price": "900000.00"}, if_match=stale)
+    assert response.status_code == 412, response.text
+    assert response.headers["content-type"] == PROBLEM_JSON
+    assert response.headers["etag"] == '"1"'  # the current tag, to re-read against
+    problem = response.json()
+    assert problem["type"].endswith("/precondition-failed")
+    assert problem["code"] == E.STUDY_INTAKE_PRECONDITION_FAILED
+    assert "Read it again" in problem["detail"] and '"1"' in problem["detail"]
+    after = await api.get("alice", f"/v1/studies/{sid}/intake")
+    assert after.json() == before.json()  # intake and version unchanged
+    assert len(await intake_events(sessionmaker, sid)) == 1  # no event for the refusal
+
+
+async def test_the_second_of_two_puts_with_the_same_if_match_is_412(api: Api) -> None:
+    sid = (await api.create_study("alice"))["id"]
+    tag = (await put(api, sid, INTAKE)).headers["etag"]
+    mine = await put(api, sid, {**INTAKE, "purchase_price": "700000.00"}, if_match=tag)
+    theirs = await put(api, sid, {**INTAKE, "purchase_price": "800000.00"}, if_match=tag)
+    assert (mine.status_code, theirs.status_code) == (200, 412)
+    read = (await api.get("alice", f"/v1/studies/{sid}/intake")).json()
+    assert read["intake"]["purchase_price"] == "700000.00" and read["intake_version"] == 2
+
+
+async def test_concurrent_puts_with_the_same_if_match_cannot_both_succeed(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The compare-and-set is under the study's row lock: the second write waits for the
+    first to commit, then sees the new version."""
+    sid = (await api.create_study("alice"))["id"]
+    tag = (await put(api, sid, INTAKE)).headers["etag"]
+    prices = [f"{700000 + i}.00" for i in range(3)]  # within the pool of 5
+    answers = await asyncio.gather(
+        *(put(api, sid, {**INTAKE, "purchase_price": p}, if_match=tag) for p in prices)
+    )
+    assert sorted(r.status_code for r in answers) == [200, 412, 412]
+    winner = next(p for p, r in zip(prices, answers, strict=True) if r.status_code == 200)
+    read = (await api.get("alice", f"/v1/studies/{sid}/intake")).json()
+    assert read["intake"]["purchase_price"] == winner and read["intake_version"] == 2
+    assert len(await intake_events(sessionmaker, sid)) == 2
+
+
+async def test_if_match_star_needs_an_existing_intake(api: Api) -> None:
+    sid = (await api.create_study("alice"))["id"]
+    refused = await put(api, sid, INTAKE, if_match="*")
+    assert refused.status_code == 412, refused.text
+    assert refused.headers["etag"] == '"0"'
+    assert "If-Match: *" in refused.json()["detail"]
+    assert (await api.get("alice", f"/v1/studies/{sid}/intake")).json()["intake"] is None
+    assert (await put(api, sid, INTAKE)).status_code == 200
+    replaced = await put(api, sid, {**INTAKE, "purchase_price": "700000.00"}, if_match="*")
+    assert replaced.status_code == 200 and replaced.headers["etag"] == '"2"'
+
+
+async def test_an_archived_study_is_still_409_with_or_without_if_match(api: Api) -> None:
+    sid = (await api.create_study("alice"))["id"]
+    tag = (await put(api, sid, INTAKE)).headers["etag"]
+    await api.delete("alice", f"/v1/studies/{sid}")
+    for if_match in (None, tag, '"0"'):
+        archived = await put(api, sid, INTAKE, if_match=if_match)
+        assert archived.status_code == 409, (if_match, archived.text)
+        assert archived.json()["type"].endswith("/stale-state")
+
+
+async def test_a_viewer_still_cannot_put_with_a_valid_if_match(api: Api, seed: Seed) -> None:
+    study = await api.create_study("alice")
+    await seed.member(uuid.UUID(study["org_id"]), "vera", OrgRole.VIEWER)
+    assert (await put(api, study["id"], INTAKE, uid="vera", if_match='"0"')).status_code == 403
+    assert (await put(api, study["id"], INTAKE, uid="bob", if_match='"0"')).status_code == 404
+
+
+async def test_the_deployment_can_require_if_match(
+    database_url: str,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    verifier: FakeVerifier,
+) -> None:
+    app = build_api_app(
+        api_settings(database_url, intake_require_if_match=True), sessionmaker, storage, verifier
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url=BASE_URL
+    ) as client:
+        api = Api(client)
+        sid = (await api.create_study("alice"))["id"]
+        missing = await put(api, sid, INTAKE)
+        assert missing.status_code == 428, missing.text
+        assert missing.json()["type"].endswith("/precondition-required")
+        assert missing.json()["code"] == E.STUDY_INTAKE_PRECONDITION_REQUIRED
+        assert (await api.get("alice", f"/v1/studies/{sid}/intake")).json()["intake"] is None
+        tag = (await api.get("alice", f"/v1/studies/{sid}/intake")).headers["etag"]
+        accepted = await put(api, sid, INTAKE, if_match=tag)
+        assert accepted.status_code == 200, accepted.text
+        assert (await put(api, sid, INTAKE, if_match=tag)).status_code == 412

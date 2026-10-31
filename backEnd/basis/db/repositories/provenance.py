@@ -4,7 +4,8 @@ Every revision-scoped output row (an extraction field, a room, a photo's room as
 component, an asset with its takeoff and cost) gets a :class:`Provenance`
 (docs/api/TIMELINE_AND_AUDIT.md): ``model`` (the pipeline wrote it and no engineer changed
 it on the way), ``engineer_added`` (the row exists because an engineer added it: a
-``room_component`` correction) or ``engineer_modified`` (an engineer's correction was applied
+``room_component`` correction, or an ``extraction_field_add`` for an appraisal field the
+extraction lacked) or ``engineer_modified`` (an engineer's correction was applied
 when the row was copied into its revision; ``before``/``after`` say what changed, from the
 copied row's own values and the correction).
 
@@ -22,7 +23,17 @@ correction's application ``wasAssociatedWith`` the reviewer.
 
 The ``study_events`` rows ``entity.corrected`` / ``entity.added`` / ``entity.moved`` record
 the same link forward (new row -> correction) on the timeline; this module does not need
-them, so studies whose rows predate the events get the same answers.
+them, so studies whose rows predate the events get the same answers. A row an engineer
+removed (``component_remove``, the ``entity.removed`` event) has no successor: no later
+revision holds a copy of it, so no row's provenance names it; the removal is on the timeline
+and in the audit listing, keyed by the removed row.
+
+An added appraisal field: the extraction an ``extraction_field_add`` names (revision ``r``)
+lacked the key, and the field was written by the next extraction (``r + 1``) with source
+``manual``. Walking a manual field's extraction ancestors, the first ancestor that lacks the
+key and carries an addition of it gives ``engineer_added`` (no ``before``, no
+``carried_from``); a field the model wrote (another source) is never attributed to an earlier
+addition.
 
 One resolver per request: it loads the study's corrections and reviews once (hundreds at
 most) and the ancestors of the rows it is asked about in batches, one query per generation.
@@ -55,6 +66,7 @@ from basis.vision.rooms import is_room_manual
 Origin = Literal["model", "engineer_added", "engineer_modified"]
 CARRIED_FROM: Final = "carried_from"
 MANUAL: Final = "manual"
+FIELD_ADD: Final = "extraction_field_add"
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +349,14 @@ class ProvenanceResolver:
             if parent is None:
                 break
             parent_field = (await self._fields_of(parent.id, cache)).get(key)
+            if parent_field is None and row.source == MANUAL:
+                added = [
+                    c
+                    for c in corrections.of(FIELD_ADD, parent.id, parent.revision)
+                    if isinstance(c.after, dict) and c.after.get("key") == key
+                ]
+                if added:
+                    return self._from("engineer_added", added, before=None, carried_from=None)
             if parent_field is not None:
                 applied = corrections.of("extraction_field", parent_field.id, parent.revision)
                 if applied:

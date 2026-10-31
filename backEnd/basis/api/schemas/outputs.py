@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -166,6 +166,206 @@ class TakeoffOut(ResponseModel):
     quantity: Decimal
     unit: str
     formula: str | None
+    method: str | None = Field(
+        default=None,
+        description="How the quantity was measured: `count`, `area` or `perimeter` (the "
+        "takeoff inputs' `method`); null for a takeoff stored without it.",
+    )
+    inputs: dict[str, Any] | None = Field(
+        default=None,
+        description="The takeoff inputs exactly as stored when the asset was measured: the "
+        "room area and its source, the appraisal fields, the cost index sources, an "
+        "engineer's `asset_correction`, a concealed row's `label` and `system`. Keys vary by "
+        "takeoff; show them, do not compute from them.",
+    )
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="The takeoff's stated assumptions (the takeoff inputs' `assumptions`).",
+    )
+
+
+class CostTrailStoreRowOut(ResponseModel):
+    """The `cost_indices` store row a value was read from (docs/api/COST_INDICES.md)."""
+
+    id: uuid.UUID | None = Field(description="The store row's id.")
+    source: str = Field(description="The store source: `manual`, `rsmeans_2020_book`, ...")
+    version: int = Field(description="The row's version (a revised value is a new version).")
+
+
+class CostTrailIndexOut(ResponseModel):
+    """One Historical Cost Index value exactly as used."""
+
+    year: int = Field(description="The year the value is for.")
+    value: Decimal = Field(description="The index (Jan. 1, 1993 = 100), as published.")
+    as_of: date = Field(description="The date the value is for (July 1, or Jan. 1, 2020).")
+    citation: str = Field(description="The book and page, or the store row's citation.")
+    estimated: bool = Field(description="The publication marks the value estimated.")
+    derived: str | None = Field(
+        description="How the value was converted from another public series, when it was."
+    )
+    store: CostTrailStoreRowOut | None = Field(
+        description="The store row it was read from; null when it came from the released book file."
+    )
+
+
+class CostTrailQuantityOut(ResponseModel):
+    """The quantity priced, as measured."""
+
+    value: Decimal = Field(description="The quantity priced.")
+    unit: str = Field(description="Its unit (`EA`, `SF`, `LF`, `SY`).")
+    formula: str | None = Field(description="How it was computed, in words.")
+    method: str | None = Field(description="`count`, `area` or `perimeter`.")
+    inputs: dict[str, Any] = Field(description="The takeoff inputs as written at pricing.")
+    assumptions: list[str] = Field(description="The takeoff's assumptions.")
+
+
+class CostTrailBaseOut(ResponseModel):
+    """The base unit cost exactly as multiplied, and the cost row it came from."""
+
+    unit_cost: Decimal = Field(
+        description="Per takeoff unit, at the row's base year, before the year and location "
+        "factors; not rounded (it may carry more than two decimals). This, not a quotient "
+        "of the rounded amounts, is the base price."
+    )
+    unit: str = Field(description="The takeoff unit the base is per.")
+    table: str = Field(
+        description="The cost table: `TYPICAL_UNIT_COSTS` (the legacy placeholder rows) or "
+        "the configured table's name."
+    )
+    row: str = Field(description="The row: the legacy component key or the table's label.")
+    tier: str | None = Field(description="The legacy row's tier; null for a table row.")
+    source: str | None = Field(
+        description="The row's printed source (book, line, page) as the table records it; "
+        "null for a legacy placeholder row, which has none."
+    )
+    base_year: int = Field(description="The year the row's costs are as of.")
+    row_unit: str = Field(description="The unit the row is printed per.")
+    conversion: str | None = Field(
+        description="How the row's unit became the takeoff's (`x9 from per SF`, `x0.01 from "
+        "per Sq.`); null when none was needed."
+    )
+    assumption: str | None = Field(description="The table row's stated assumption.")
+
+
+class CostTrailYearOut(ResponseModel):
+    """The time factor exactly as used."""
+
+    cost_year: int = Field(description="The cost year priced to.")
+    factor: Decimal = Field(description="`index.value / base.value`, to four decimals.")
+    index: CostTrailIndexOut = Field(
+        description="The cost year's index value (or the "
+        "latest loaded one under the missing-year rule)."
+    )
+    base: CostTrailIndexOut = Field(description="The books' cost basis (Jan. 1, 2020).")
+    assumption: str | None = Field(
+        description="Set when no index for the cost year was loaded and the latest applied."
+    )
+    conversion: str | None = Field(description="Set when the index value was converted.")
+    citation: str = Field(description="The factor's citation, in words.")
+    from_: str = Field(
+        alias="from",
+        description="Where the cost year came from (the intake, the appraisal, the setting).",
+    )
+
+
+class CostTrailLocationOut(ResponseModel):
+    """The location factor exactly as used, with the row(s) it came from."""
+
+    factor: Decimal = Field(description="The location factor applied.")
+    from_: str = Field(
+        alias="from",
+        description="Where it came from, in words (the setting when nothing else applied).",
+    )
+    lookup: Literal["zip", "state"] | None = Field(
+        description="Looked up by ZIP (a city row) or by state (the mean of its cities); "
+        "null for the setting."
+    )
+    zip: str | None = Field(description="The ZIP looked up, when the factor came from one.")
+    lookup_from: str | None = Field(
+        description="Where the ZIP or state came from: `intake` or the appraisal field."
+    )
+    state: str | None = Field(description="The state of the row(s).")
+    city: str | None = Field(description="The city row's name; null for a state mean.")
+    zip_prefixes: str | None = Field(description="The city row's ZIP prefixes as printed.")
+    cities: int | None = Field(description="Rows averaged (1 for a city).")
+    low: Decimal | None = Field(description="The lowest factor averaged.")
+    high: Decimal | None = Field(description="The highest factor averaged.")
+    pages: str | None = Field(description="The printed page(s).")
+    table_year: int | None = Field(description="The location table's year.")
+    origin: str | None = Field(
+        description="The location table's source (`rsmeans_2020_book`, `manual`, ...)."
+    )
+    citation: str | None = Field(description="The factor's citation, in words.")
+    store: CostTrailStoreRowOut | None = Field(
+        description="The city row's store row; null for a state mean or the book file's row."
+    )
+
+
+class CostTrailBuildingOut(ResponseModel):
+    """The building replacement cost new a residual was carved from."""
+
+    amount: Decimal = Field(description="The building RCN at the cost year.")
+    source: str = Field(description="`appraisal_cost_approach` or `square_foot_model`.")
+    formula: str = Field(description="How it was computed, in words.")
+    inputs: dict[str, Any] = Field(
+        description="Its inputs, including the appraiser's cost data date and time "
+        "adjustment when the appraisal's cost new was used."
+    )
+    assumptions: list[str] = Field(description="Its assumptions.")
+
+
+class CostTrailStructureOut(ResponseModel):
+    """A concealed row of the structure model."""
+
+    label: str = Field(description="The concealed row's label.")
+    system: str = Field(description="The building system.")
+    component: str | None = Field(description="The RSMeans component it is carved from.")
+    source: str = Field(description="The structure model's source for the row.")
+    rcn: Decimal | None = Field(
+        description="The residual RCN written as the total; null for a small system priced "
+        "from the cost table."
+    )
+    building: CostTrailBuildingOut | None = Field(
+        description="The building RCN of a residual; null for a small system."
+    )
+
+
+class CostTrailOut(ResponseModel):
+    """How the cost row's amounts were reached, recorded once when the row was priced and
+    never recomputed (docs/api/COST_INDICES.md, "Per-asset cost trail")."""
+
+    version: int = Field(description="The trail's shape version (1).")
+    kind: Literal["unit_price", "unpriced", "structure_residual"] = Field(
+        description="`unit_price`: base x year factor x location factor x quantity; "
+        "`unpriced`: no cost row (see `missing`); `structure_residual`: a concealed row whose "
+        "total is the residual of the building RCN."
+    )
+    quantity: CostTrailQuantityOut
+    base: CostTrailBaseOut | None = Field(description="Null when no cost row was used.")
+    year: CostTrailYearOut | None = Field(
+        description="Null for a residual of the appraiser's cost new (its own time "
+        "adjustment is in `structure.building.inputs`)."
+    )
+    location: CostTrailLocationOut | None = Field(
+        description="Null when no location factor applied (the appraiser's cost new)."
+    )
+    structure: CostTrailStructureOut | None = Field(
+        description="Set for a concealed row of the structure model."
+    )
+    intake_version: int | None = Field(
+        description="The study's intake version priced from; null without an intake."
+    )
+    property_class: str = Field(description="The property class priced under.")
+    cost_year: int = Field(description="Equals the cost row's `cost_year`.")
+    location_factor: Decimal | None = Field(description="Equals the cost row's factor.")
+    unit_cost: Decimal | None = Field(description="Equals the cost row's `unit_cost`.")
+    total: Decimal | None = Field(description="Equals the cost row's `total`.")
+    rounding: str | None = Field(description="The rounding rule, in words.")
+    priced_per: str | None = Field(
+        description="For `unpriced`: the unit a cost table row prices the label in when the "
+        "takeoff is in another unit."
+    )
+    missing: str | None = Field(description="For `unpriced`: why, as in `source_row`.")
 
 
 class CostOut(ResponseModel):
@@ -174,6 +374,19 @@ class CostOut(ResponseModel):
     source_row: str | None
     location_factor: Decimal | None
     cost_year: int | None
+    trail: CostTrailOut | None = Field(
+        default=None,
+        description="How `unit_cost` and `total` were reached: the quantity and its takeoff "
+        "inputs, the base unit cost and its cost row, the year and location factors with "
+        "the index values and store rows used, recorded when the row was priced. Show it as "
+        "recorded: never derive a base price from the rounded amounts, and never "
+        "substitute today's index. Null for a row priced before the trail was recorded "
+        "(`trail_recorded` false): such a row has only `source_row`.",
+    )
+    trail_recorded: bool = Field(
+        default=False,
+        description="Whether the row was priced with a trail (false: a legacy row, `trail` null).",
+    )
 
 
 class ConventionOut(ResponseModel):

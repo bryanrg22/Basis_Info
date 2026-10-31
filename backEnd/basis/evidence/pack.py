@@ -22,6 +22,8 @@ revision from Postgres.
   (:func:`takeoff_summary`), read back from the stored rows so it cannot disagree with
   them: the cost year and location factor with their sources, the property class with
   its source, and how many takeoffs took their area or quantity from each source.
+* Every asset carries its cost row's ``cost_trail`` (``basis.domain.cost_trail``) as
+  stored: the JSON export has it per asset; the CSV's columns are unchanged.
 
 Ordering is fixed: assets by room name, label, category and id; entries by asset order,
 document, page, chunk id and excerpt.
@@ -55,11 +57,12 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.domain.intake import StudyIntake
 from basis.domain.structure import StructureInputs
+from basis.evidence.pricing import PricingStatusOut
 from basis.evidence.result import (
     ScheduleRow,
     compute_result,
     concealed_label,
-    load_structure_inputs,
+    load_result_inputs,
 )
 from basis.retrieval.verify import normalize_text
 
@@ -128,6 +131,9 @@ class AssetEvidence:
     citations: tuple[str, ...]  # entry ids
     # The firm convention it was classified from (``assets.convention``), else None.
     convention: Any = None
+    # The cost trail recorded when the row was priced (``cost_estimates.trail``,
+    # ``basis.domain.cost_trail``), as stored; None for a row priced before it existed.
+    cost_trail: Any = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +181,8 @@ def assemble_pack(
     chunks: Mapping[uuid.UUID, ChunkInfo],
     intake: StudyIntake | None = None,
     structure: StructureInputs | None = None,
+    pricing: PricingStatusOut | None = None,
+    intake_version: int | None = None,
 ) -> EvidencePack:
     """The pack for one revision from its rows (pure; no I/O)."""
     by_asset: dict[uuid.UUID, list[Citation]] = {}
@@ -246,6 +254,7 @@ def assemble_pack(
             cost_source=cost.source_row if cost else None,
             citations=tuple(e.id for e in ordered),
             convention=asset.convention,
+            cost_trail=cost.trail if cost else None,
         )
         rows.append((row, ordered))
 
@@ -267,7 +276,9 @@ def assemble_pack(
         by_stage=by_stage,
         by_component=dict(sorted(by_component.items())),
         by_document=dict(sorted(by_document.items())),
-        summary=summarize(asset_rows, all_entries, intake, revision, structure),
+        summary=summarize(
+            asset_rows, all_entries, intake, revision, structure, pricing, intake_version
+        ),
     )
 
 
@@ -277,6 +288,8 @@ def summarize(
     intake: StudyIntake | None = None,
     revision: int = 1,
     structure: StructureInputs | None = None,
+    pricing: PricingStatusOut | None = None,
+    intake_version: int | None = None,
 ) -> dict[str, Any]:
     totals: dict[str, Decimal] = {}
     counts: dict[str, int] = {}
@@ -329,7 +342,11 @@ def summarize(
             intake,
             revision,
             structure,
+            pricing,
         ).model_dump(mode="json"),
+        # The intake version the summary was computed with: an export whose version is not
+        # the study's current ``intake_version`` is out of date (docs/api/STUDY_RESULT.md).
+        "intake_version": intake_version,
         "takeoff": takeoff_summary(assets),
     }
 
@@ -391,10 +408,11 @@ async def load_pack(
     the cost index; the process settings when not given)."""
     study = await StudyRepository(session).get(study_id)
     intake = None if study is None else study.intake
-    structure = None
+    intake_version = None if study is None or intake is None else study.intake_version
+    structure = pricing = None
     if (settings or get_settings()).structure_step == "on":
-        structure = await load_structure_inputs(
-            session, study_id, revision, intake, settings or get_settings()
+        structure, pricing = await load_result_inputs(
+            session, study_id, revision, intake, intake_version, settings or get_settings()
         )
     repo = AssetRepository(session)
     assets = await repo.list_for_revision(study_id, revision)
@@ -425,4 +443,6 @@ async def load_pack(
         chunks=chunks,
         intake=intake,
         structure=structure,
+        pricing=pricing,
+        intake_version=intake_version,
     )

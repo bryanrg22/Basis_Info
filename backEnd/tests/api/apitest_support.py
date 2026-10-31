@@ -263,8 +263,10 @@ class Seed:
         point at nothing), an extraction with one field, a room, a component of the photo
         in that room, and an asset of the component. Returns ``{entity_type: id}`` for
         ``extraction_field``, ``room``, ``component``, ``asset`` and ``photo``,
-        ``room_component`` (the room: a component is added to a room) and ``photo_room``
-        (the photo; the room it moves to is in ``after``).
+        ``room_component`` (the room: a component is added to a room), ``photo_room``
+        (the photo; the room it moves to is in ``after``), ``component_remove`` (the
+        component, a photo's row) and ``extraction_field_add`` (the extraction a field is
+        added to; it has only ``subject.year_built`` and records no page count).
         """
         sid = uuid.UUID(str(study_id))
         async with session_scope(self.sessionmaker) as session:
@@ -333,6 +335,8 @@ class Seed:
                 "asset": str(asset.id),
                 "photo": str(ids["photo"]),
                 "photo_room": str(ids["photo"]),
+                "component_remove": str(component.id),
+                "extraction_field_add": str(extraction.id),
             }
 
     async def stage(

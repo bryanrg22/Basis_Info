@@ -39,9 +39,13 @@ _PROBLEM_DESCRIPTIONS: Final[dict[int, str]] = {
     404: "Not found, or not visible to you (the two are indistinguishable).",
     409: "Conflicts with the current state (stale stage or revision, duplicate, archived, "
     "upload mismatch, or the same `Idempotency-Key` still in flight).",
+    412: "`precondition-failed`: the `If-Match` entity tag is not the current one (the "
+    "resource changed since you read it); nothing was written. Read it again and retry with "
+    "the new `ETag`.",
     413: "The request body is larger than 1 MiB.",
     422: "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused "
     "with a different request.",
+    428: "`precondition-required`: this deployment requires `If-Match` on this write.",
     429: "Rate limit exceeded; see `Retry-After`.",
     503: "A dependency (the database) is unavailable; see `Retry-After`.",
 }

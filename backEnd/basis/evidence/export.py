@@ -3,7 +3,9 @@
 Both are byte-for-byte reproducible for the same pack: JSON with sorted keys and no
 insignificant whitespace, CSV with a fixed header, fixed row order (the pack's), ``\\n``
 line endings and no timestamps. The JSON lists every asset with bucket, recovery period,
-quantity, cost, and its citations with excerpt and page reference.
+quantity, cost, its cost trail (``cost_trail``: how the cost was reached, as recorded when
+it was priced; null for a row priced before the trail existed), and its citations with
+excerpt and page reference. The CSV has no trail column.
 """
 
 from __future__ import annotations

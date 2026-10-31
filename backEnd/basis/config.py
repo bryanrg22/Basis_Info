@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     review_deadline_days: int = Field(default=30, ge=1)
     # How long a firm invitation can be accepted (basis.db.repositories.invitation).
     invitation_ttl_days: int = Field(default=14, ge=1, le=90)
+    # The lowest firm role that may read a study's spend (GET /v1/studies/{id}/spend and
+    # /calls, docs/api/SPEND.md): what the firm pays per call is the owner's by default; a
+    # lower role gets 403, a non-member 404. "viewer" restores the behaviour before it.
+    spend_access_role: Literal["viewer", "engineer", "owner"] = "owner"
+    # PUT /v1/studies/{id}/intake without If-Match: accepted (false, the default, for clients
+    # that predate the intake's ETag) or 428 Precondition Required (true); a stale If-Match
+    # is 412 either way (docs/api/STUDY_RESULT.md).
+    intake_require_if_match: bool = False
     study_budget_usd: float = Field(default=25.0, gt=0)
     relay_poll_seconds: float = Field(default=2.0, gt=0)
     gcs_bucket: str | None = None

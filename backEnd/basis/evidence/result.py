@@ -83,6 +83,13 @@ from basis.domain.structure import (
     split_shares,
 )
 from basis.domain.structure import Check as StructureCheck
+from basis.evidence.pricing import (
+    PricingStatusOut,
+    current_pricing,
+    load_recorded,
+    pricing_status,
+    structure_inputs_as_priced,
+)
 
 NOT_PRODUCED_REASON: Final = (
     "no concealed row of the structure model priced this system (STRUCTURE_MODEL.md 3.5-3.6)"
@@ -366,7 +373,7 @@ class StudyResultOut(BaseModel):
         "(no appraisal cost approach and no living area), `depreciation` (no rate), "
         "`allocation` (nothing priced, or the reconciliation is not within tolerance), "
         "`cost_index` (no loaded index for the cost year: `cost_index` says which value to "
-        "enter), or nothing."
+        "enter), `repricing` (the recorded pricing is stale: `pricing` says why), or nothing."
     )
     cost_index: CostIndexStatusOut | None = Field(
         default=None,
@@ -381,6 +388,15 @@ class StudyResultOut(BaseModel):
     not_produced: list[NotProducedOut] = Field(
         description="Concealed systems with no priced row in this schedule, so the gap to the "
         "basis is explicit."
+    )
+    pricing: PricingStatusOut | None = Field(
+        default=None,
+        description="What the revision's dollars were priced with (recorded on its cost rows) "
+        "against what the study's current intake and index store give. The structure, the "
+        "reconciliation and the allocation use the recorded pricing, never a newer index. "
+        "When `stale`, the allocation is withheld (`missing` lists `repricing`) until a "
+        "reprice builds a revision priced with the current inputs. Null without structure "
+        "inputs.",
     )
 
 
@@ -630,8 +646,11 @@ def compute_result(
     intake: StudyIntake | None,
     revision: int,
     structure: StructureInputs | None = None,
+    pricing: PricingStatusOut | None = None,
 ) -> StudyResultOut:
-    """The result of one revision (pure). Rows are taken in asset id order."""
+    """The result of one revision (pure). Rows are taken in asset id order. ``structure``
+    is the revision's structure inputs as priced (:func:`load_result_inputs`); a stale
+    ``pricing`` withholds the allocation."""
     ordered = sorted(rows, key=lambda r: r.asset_id)
     by_id = {r.asset_id: r for r in ordered}
     land = [uuid.UUID(r.asset_id) for r in ordered if r.bucket == Bucket.LAND.value]
@@ -658,6 +677,7 @@ def compute_result(
             location_source=structure.location_source,
             rcn_source=structure.rcn_source,
             year=structure.year,
+            model_override=structure.model_override,
         )
         depr = depreciation(structure.cost_approach, structure.depreciation_method)
         if building is not None:
@@ -762,6 +782,11 @@ def compute_result(
             reconciliation_out = _reconciliation_out(reconciliation)
             allocate_rows = reconciliation.status == "reconciled"
             depreciated = True
+            if pricing is not None and pricing.stale:
+                # Reconciled against dollars the current inputs no longer give: withheld
+                # until a reprice (the reconciliation itself is still shown).
+                allocate_rows = False
+                missing.append("repricing")
         else:
             allocate_rows = True
             depreciated = False
@@ -800,6 +825,7 @@ def compute_result(
         reconciliation=reconciliation_out,
         allocation=alloc_out,
         not_produced=not_produced,
+        pricing=pricing,
     )
 
 
@@ -868,19 +894,45 @@ async def load_structure_inputs(
     return structure_inputs(measurements, cost_approach, intake, settings, values)
 
 
-def structure_inputs(
+async def load_result_inputs(
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    revision: int,
+    intake: StudyIntake | None,
+    intake_version: int | None,
+    settings: Settings,
+) -> tuple[StructureInputs | None, PricingStatusOut | None]:
+    """The structure inputs of the revision *as it was priced* (the year, location and
+    square-foot model recorded on its cost rows; :mod:`basis.evidence.pricing`) and its
+    pricing status against the current intake and index store. ``(None, None)`` when the
+    revision has no extraction fields."""
+    live = await load_structure_inputs(session, study_id, revision, intake, settings)
+    if live is None:
+        return None, None
+    recorded = await load_recorded(session, study_id, revision)
+    values = await load_index_values(session, settings)
+    index = resolve_index(live.measurements, intake, settings, values)
+    current = current_pricing(
+        live,
+        intake_version=intake_version if intake is not None else None,
+        property_class=intake.property_use.value if intake is not None else settings.property_class,
+        location_citation=None if index.location is None else index.location.citation(),
+    )
+    status = pricing_status(recorded, current, live)
+    return structure_inputs_as_priced(live, recorded), status
+
+
+def resolve_index(
     measurements: BuildingMeasurements | None,
-    cost_approach: Any,
     intake: StudyIntake | None,
     settings: Settings,
     values: IndexValues | None = None,
-) -> StructureInputs:
-    """The inputs with the cost index resolved as ``process_assets`` resolves it, from
-    the store's ``values`` (the released book's alone when None)."""
+) -> CostIndex:
+    """The cost index as ``process_assets`` resolves it (``TakeoffPlan.build``)."""
     setting_factor = Decimal(str(settings.cost_location_factor))
     values = values or book_values()
     if settings.cost_index == "study" and (measurements is not None or intake is not None):
-        index: CostIndex = resolve_cost_index(
+        return resolve_cost_index(
             measurements,
             cost_year=settings.cost_year,
             location_factor=setting_factor,
@@ -890,14 +942,25 @@ def structure_inputs(
             supplement=values.years,
             location_tables=values.location_tables,
         )
-    else:
-        index = CostIndex(
-            settings.cost_year,
-            None,
-            setting_factor,
-            None,
-            year_factor_index(settings.cost_year, values.years),
-        )
+    return CostIndex(
+        settings.cost_year,
+        None,
+        setting_factor,
+        None,
+        year_factor_index(settings.cost_year, values.years),
+    )
+
+
+def structure_inputs(
+    measurements: BuildingMeasurements | None,
+    cost_approach: Any,
+    intake: StudyIntake | None,
+    settings: Settings,
+    values: IndexValues | None = None,
+) -> StructureInputs:
+    """The inputs with the cost index resolved as ``process_assets`` resolves it, from
+    the store's ``values`` (the released book's alone when None)."""
+    index = resolve_index(measurements, intake, settings, values)
     return StructureInputs(
         measurements=measurements,
         cost_approach=cost_approach,
@@ -921,6 +984,8 @@ __all__ = [
     "compute_result",
     "concealed_label",
     "load_schedule",
+    "load_result_inputs",
     "load_structure_inputs",
+    "resolve_index",
     "structure_inputs",
 ]

@@ -1,19 +1,46 @@
 """``/v1/studies``: create, list, get, archive (S1_SPEC section 5); the intake
-(``PUT /v1/studies/{id}/intake``, docs/api/STUDY_RESULT.md)."""
+(``GET`` and ``PUT /v1/studies/{id}/intake``, docs/api/STUDY_RESULT.md).
+
+The intake is versioned (``studies.intake_version``, :mod:`basis.api.preconditions`): ``GET
+.../intake`` answers it with ``ETag: "<version>"``, and ``PUT .../intake`` with ``If-Match``
+writes only while that tag is still the current one (412 ``precondition-failed`` otherwise,
+nothing written), so an engineer cannot overwrite a colleague's intake unknowingly. Without
+``If-Match`` the write is accepted (clients that predate the tag), unless the deployment sets
+``INTAKE_REQUIRE_IF_MATCH`` (428 ``precondition-required``). Every write increments the
+version; ``study.intake_set`` records the intake before and after and, in ``detail``, the
+version before and after and whether the write was conditional.
+
+Invalidation: ``GET .../result`` prices with the intake as it is now and checks its pricing
+against the intake version each priced row recorded (docs/api/STUDY_RESULT.md), so a client
+holding a version can tell whether the numbers it shows still follow the intake it saved.
+"""
 
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
-from fastapi import Depends, Query, Response, status
+from fastapi import Depends, Header, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from basis.api.errors import Forbidden, NotFound, Unprocessable
+from basis.api.errors import (
+    Forbidden,
+    NotFound,
+    PreconditionFailed,
+    PreconditionRequired,
+    Unprocessable,
+)
+from basis.api.preconditions import ETAG_HEADER, intake_etag, parse_if_match
 from basis.api.routes.common import problems, read_router, write_router
 from basis.api.schemas.documents import DocumentOut
 from basis.api.schemas.reviews import ReviewOut
-from basis.api.schemas.studies import StudyCreate, StudyDetail, StudyList, StudyOut
+from basis.api.schemas.studies import (
+    StudyCreate,
+    StudyDetail,
+    StudyIntakeOut,
+    StudyList,
+    StudyOut,
+)
 from basis.api.users import (
     DETAIL_ORG_NOT_FOUND,
     CurrentUser,
@@ -21,7 +48,9 @@ from basis.api.users import (
     require_firm,
     study_access,
 )
+from basis.config import Settings
 from basis.db.enums import OrgRole, Stage
+from basis.db.errors import PreconditionFailedError
 from basis.db.repositories import (
     DocumentRepository,
     ReviewRepository,
@@ -116,25 +145,101 @@ async def stored_intake(
     return with_location(body, appraisal_state=state, appraisal_zip=zip_code)
 
 
+ETAG_RESPONSE: Final[dict[int | str, dict[str, Any]]] = {
+    200: {
+        "headers": {
+            ETAG_HEADER: {
+                "description": 'The intake\'s strong entity tag, its version in quotes ("3").',
+                "schema": {"type": "string"},
+            }
+        }
+    }
+}
+IfMatchHeader = Annotated[
+    str | None,
+    Header(
+        alias="If-Match",
+        description='The intake\'s entity tag from `GET .../intake` (`"3"`), or `*` (any '
+        "existing intake). Optional unless the deployment requires it.",
+    ),
+]
+
+
+@reads.get(
+    "/studies/{study_id}/intake",
+    summary="The study's intake and its version (ETag)",
+    description='Viewer role. `ETag: "<intake_version>"` (a strong entity tag; 0 while there '
+    "is no intake): send it back as `If-Match` on `PUT .../intake` so the write fails with "
+    "412 instead of overwriting a change made since this read (docs/api/STUDY_RESULT.md).",
+    responses={**problems(404), **ETAG_RESPONSE},
+)
+async def get_intake(
+    access: Annotated[VisibleStudy, Depends(study_access(OrgRole.VIEWER))], response: Response
+) -> StudyIntakeOut:
+    study = access.study
+    response.headers[ETAG_HEADER] = intake_etag(study.intake_version)
+    return StudyIntakeOut(
+        study_id=study.id, intake=study.intake, intake_version=study.intake_version
+    )
+
+
 @writes.put(
     "/studies/{study_id}/intake",
     summary="Set or replace the study's intake (engineer)",
     description="The whole intake, validated as one document (docs/api/STUDY_RESULT.md): a "
     "non-capitalizable cost category, a land method without its input, or a use that fails "
     "the 80 % test is a 422 naming the rule. `state`/`zip` left out are filled from the "
-    "appraisal's subject fields. A PUT is idempotent by itself; no `Idempotency-Key` is "
-    "needed. 409 `stale-state` on an archived study.",
-    responses=problems(403, 404, 409),
+    "appraisal's subject fields. No `Idempotency-Key` is needed. Optimistic concurrency: "
+    "with `If-Match` (the `ETag` of `GET .../intake`) the write happens only while that tag "
+    "is current; otherwise 412 `precondition-failed` with the current `ETag`, nothing "
+    "written (re-read, reapply, retry). `If-Match: *` writes only over an existing intake. "
+    "Without `If-Match` the write is accepted, unless the deployment requires it "
+    "(`INTAKE_REQUIRE_IF_MATCH`: 428 `precondition-required`). Every write increments "
+    "`intake_version`; the response carries the new `ETag`. The result's pricing is checked "
+    "against the intake version. 409 `stale-state` on an archived study.",
+    responses={**problems(403, 404, 409, 412, 428), **ETAG_RESPONSE},
 )
 async def put_intake(
     body: StudyIntakeIn,
     access: Annotated[VisibleStudy, Depends(study_access(OrgRole.ENGINEER))],
     user: CurrentUserDep,
     session: SessionDep,
+    request: Request,
+    response: Response,
+    if_match: IfMatchHeader = None,
 ) -> StudyOut:
+    settings: Settings = request.app.state.settings
+    condition = parse_if_match(if_match)
+    if condition is None and settings.intake_require_if_match:
+        raise PreconditionRequired(
+            "This deployment requires If-Match on intake writes: read the intake with GET "
+            "/v1/studies/{id}/intake and send its ETag as If-Match.",
+            code=E.STUDY_INTAKE_PRECONDITION_REQUIRED,
+        )
     intake = await stored_intake(session, access.study.id, body)
-    previous = access.study.intake
-    study = await StudyRepository(session).set_intake(access.study.id, intake)
+    try:
+        written = await StudyRepository(session).write_intake(
+            access.study.id,
+            intake,
+            precondition=None if condition is None else condition.allows,
+        )
+    except PreconditionFailedError as exc:
+        current = intake_etag(exc.version)
+        if condition is not None and condition.any_current:
+            detail = (
+                "If-Match: * needs an existing intake and this study has none; send the PUT "
+                "without If-Match to create it."
+            )
+        else:
+            detail = (
+                f"The intake changed since you read it (its ETag is now {current}); nothing "
+                "was written. Read it again with GET /v1/studies/{id}/intake, reapply your "
+                "change, and send the new ETag as If-Match."
+            )
+        raise PreconditionFailed(
+            detail, headers={ETAG_HEADER: current}, code=E.STUDY_INTAKE_PRECONDITION_FAILED
+        ) from exc
+    study = written.study
     await StudyEventRepository(session).record(
         study.id,
         "study.intake_set",
@@ -144,9 +249,15 @@ async def put_intake(
         revision=study.revision,
         entity_type="study",
         entity_id=study.id,
-        before=None if previous is None else previous.model_dump(mode="json"),
+        before=None if written.before is None else written.before.model_dump(mode="json"),
         after=intake.model_dump(mode="json"),
+        detail={
+            "version_before": written.version_before,
+            "version_after": study.intake_version,
+            "if_match": condition is not None,
+        },
     )
+    response.headers[ETAG_HEADER] = intake_etag(study.intake_version)
     return StudyOut.model_validate(study)
 
 

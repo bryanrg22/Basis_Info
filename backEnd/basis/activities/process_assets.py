@@ -32,7 +32,13 @@ an engineer added to a room at the rooms review always), with the quantity of ea
    ``placed_in_service_date`` and the factor of the intake's ``state``, else the
    appraisal's effective-date year and the appraisal's state, else the setting, with the
    source written on the cost row), else from settings; a missing cost row writes a
-   ``cost_estimates`` row with no amounts.
+   ``cost_estimates`` row with no amounts. Every cost row carries its cost trail
+   (``cost_estimates.trail``, :mod:`basis.domain.cost_trail`): the quantity with the
+   takeoff inputs, the base unit cost and the cost row it came from, the year factor with
+   both index values and the store rows they were read from, the location factor with its
+   city row or state mean and table, the intake version and the property class, built
+   from the objects the row was priced with and agreeing with its columns; it is written
+   once and never recomputed by a reader.
 
 The study's intake (``study.intake``, required before ``start`` since EVAL_REPORT section
 37; studies started earlier have none) also decides the property class: its
@@ -109,6 +115,15 @@ from basis.activities._support import (
 from basis.activities.apply_corrections import CARRIED_FROM
 from basis.activities.corrections import check_asset, parse_bucket, parse_recovery_period
 from basis.activities.deps import Deps
+from basis.activities.reprice_corrections import (
+    REPRICE,
+    STRUCTURE_MODEL,
+    STUDY_TARGETED,
+    check_reprice,
+    check_study_target,
+    override_record,
+    parse_structure_model,
+)
 from basis.classify.cache import ClassificationCacheRepository, ConventionIndex
 from basis.classify.router import (
     ClassificationResult,
@@ -121,7 +136,15 @@ from basis.classify.verify import VerifiedCitation
 from basis.config import Settings
 from basis.costs.indices.select import IndexValues, book_values, load_index_values
 from basis.db.enums import ClassificationMethod, Corpus
-from basis.db.models import Asset, Component, CorpusVersion, Correction, ExtractionField, Room
+from basis.db.models import (
+    Asset,
+    Citation,
+    Component,
+    CorpusVersion,
+    Correction,
+    ExtractionField,
+    Room,
+)
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
@@ -130,6 +153,13 @@ from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.domain.cost_table import CostTable, cost_table_for
+from basis.domain.cost_trail import (
+    TrailContext,
+    priced_trail,
+    quantity_block,
+    structure_block,
+    structure_residual_trail,
+)
 from basis.domain.costs import (
     CostError,
     CostEstimate,
@@ -156,6 +186,7 @@ from basis.domain.structure import (
     STRUCTURE_LABELS,
     CostApproach,
     ItemizedRow,
+    ModelOverride,
     StructureInputs,
     building_rcn,
     carve_out,
@@ -183,6 +214,13 @@ STRUCTURE_NAMESPACE: Final = uuid.UUID("5a1f0d6e-7c3b-4b2e-9c1d-2f6e8a9b0c11")
 # (COST_YEAR_INDEX_CONVERTED).
 EXTRAPOLATED_REASON: Final = "cost:YEAR_INDEX_MISSING"
 CONVERTED_REASON: Final = "cost:YEAR_INDEX_CONVERTED"
+# Review reasons the pricing and the structure model write: recomputed by every pricing,
+# so a carried classification (a reprice) drops them and keeps the classification's own.
+PRICING_REASON_PREFIXES: Final = ("cross:", "cost:", "takeoff:", "structure:")
+# Written on a carried asset's takeoff inputs: the asset its classification came from.
+CARRIED_CLASSIFICATION: Final = "carried_classification"
+# Written on the concealed rows' takeoff inputs when the engineer set the square-foot model.
+STRUCTURE_MODEL_INPUT: Final = "structure_model"
 
 
 def structure_id(label: str) -> uuid.UUID:
@@ -283,6 +321,18 @@ class _Prepared:
     structure_views: dict[uuid.UUID, ComponentView] = field(default_factory=dict)
     # An engineer's corrections of the rejected revision's concealed rows, by label.
     structure_overrides: dict[str, Override] = field(default_factory=dict)
+    # ``studies.intake_version`` of the intake read with it (None without an intake),
+    # written on every cost trail.
+    intake_version: int | None = None
+    # A reprice (``reprice`` or ``structure_model`` correction): the rejected revision's
+    # asset each component's classification is carried from, by component id, and each
+    # concealed row's, by label, with the takeoff key the old asset was measured under.
+    carried: dict[uuid.UUID, Asset] = field(default_factory=dict)
+    carried_keys: dict[uuid.UUID, str] = field(default_factory=dict)
+    carried_structure: dict[str, Asset] = field(default_factory=dict)
+    carried_citations: dict[uuid.UUID, list[Citation]] = field(default_factory=dict)
+    # The engineer's square-foot model (a ``structure_model`` correction).
+    model_override: ModelOverride | None = None
 
 
 async def _prepare(
@@ -309,14 +359,31 @@ async def _prepare(
         cost_approach = cost_approach_from_fields(fields)
     study = await StudyRepository(session).get(study_id)
     intake = None if study is None else study.intake
+    # Read with the intake, from the same row: the version the trail names is the one
+    # priced from.
+    intake_version = None if study is None or intake is None else study.intake_version
     overrides, structure_overrides = await _overrides(
         assets, study_id, components, input.corrections
     )
     property_class, _ = property_class_for(intake, settings)
+    carry, model_override = _rebuild(study_id, input.revision, input.corrections)
+    carried: _Carried = _Carried()
+    if carry:
+        carried = await _carried(
+            session,
+            assets,
+            study_id,
+            input.revision - 1,
+            components,
+            overrides,
+            structure_overrides,
+            property_class,
+            settings,
+        )
     views = {
         c.id: component_view(c, rooms.get(c.room_id) if c.room_id else None, property_class)
         for c in components
-        if c.id not in overrides
+        if c.id not in overrides and c.id not in carried.assets
     }
     # The structure model's concealed rows, classified like any component (a rule hit, or a
     # firm convention): one view per label when the appraisal gives the model its inputs.
@@ -330,6 +397,7 @@ async def _prepare(
                 property_class=property_class,
             )
             for label in STRUCTURE_LABELS
+            if label not in carried.structure
         }
     # Every component's label, not only the rules table's misses: a convention beats a
     # rule row (docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 2), and the
@@ -388,6 +456,12 @@ async def _prepare(
         cost_approach,
         structure_views,
         structure_overrides,
+        intake_version,
+        carried.assets,
+        carried.keys,
+        carried.structure,
+        carried.citations,
+        model_override,
     )
 
 
@@ -452,6 +526,7 @@ async def _write(
         intake=prepared.intake,
         values=await load_index_values(session, settings),
     )
+    context = TrailContext(prepared.intake_version, property_class)
     measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
     needs_review = 0
@@ -460,12 +535,20 @@ async def _write(
         heartbeat(str(component.id))
         room = rooms.get(component.room_id) if component.room_id else None
         override = overrides.get(component.id)
+        old = prepared.carried.get(component.id)
         if override is not None:
             asset, rule_key, extra_inputs = await _write_manual(
                 assets, component, input.revision, override, property_class, room
             )
             await _record_override(session, study_id, asset, override, input.revision)
             citations: tuple[VerifiedCitation, ...] = ()
+        elif old is not None:
+            asset = await _write_carried(
+                assets, input.revision, old, component.id, prepared.carried_citations
+            )
+            rule_key = prepared.carried_keys.get(component.id)
+            extra_inputs = {CARRIED_CLASSIFICATION: _carried_record(old)}
+            citations = ()
         else:
             result = results[component.id]
             if result.cache_key is not None:
@@ -502,26 +585,36 @@ async def _write(
             reasons += extra_reasons
             asset.needs_review = True
             asset.review_reason = "; ".join(dict.fromkeys(reasons))
+        takeoff_inputs = {
+            **takeoff.inputs,
+            "method": takeoff.method,
+            "assumptions": list(takeoff.assumptions),
+            **plan.study_inputs,
+            **extra_inputs,
+        }
         await assets.add_takeoff(
             asset=asset,
             quantity=takeoff.quantity,
             unit=takeoff.unit,
             formula=takeoff.formula,
-            inputs={
-                **takeoff.inputs,
-                "method": takeoff.method,
-                "assumptions": list(takeoff.assumptions),
-                **plan.study_inputs,
-                **extra_inputs,
-            },
+            inputs=takeoff_inputs,
         )
+        source_row = _source_row(takeoff, cost)
         await assets.add_cost_estimate(
             asset=asset,
             unit_cost=None if cost is None else cost.unit_cost,
             total=None if cost is None else cost.total,
-            source_row=_source_row(takeoff, cost),
+            source_row=source_row,
             location_factor=plan.index.location_factor,
             cost_year=plan.index.cost_year,
+            trail=priced_trail(
+                quantity_block(takeoff, takeoff_inputs),
+                cost,
+                plan.index,
+                context=context,
+                missing=None if cost is not None else source_row,
+                priced_per=priced_per,
+            ),
         )
         for citation in citations:
             row = await assets.add_citation(
@@ -536,7 +629,7 @@ async def _write(
             ItemizedRow(component.label, None if cost is None else cost.total, _count(component))
         )
     concealed = 0
-    if prepared.structure_views:
+    if prepared.structure_views or prepared.carried_structure:
         concealed, flagged = await _write_structure(
             session,
             assets,
@@ -548,6 +641,7 @@ async def _write(
             table,
             itemized,
             settings,
+            context,
         )
         needs_review += flagged
     await session.flush()
@@ -572,6 +666,7 @@ async def _write_structure(
     table: CostTable | None,
     itemized: list[ItemizedRow],
     settings: Settings,
+    context: TrailContext,
 ) -> tuple[int, int]:
     """The structure model's concealed rows (docs/review_2026-10-15/STRUCTURE_MODEL.md
     sections 3.5-3.6): the building's RCN from the appraisal, split into the RSMeans
@@ -588,6 +683,7 @@ async def _write_structure(
         location_source=plan.index.location_source,
         year=plan.index.year,
         rcn_source=settings.structure_rcn_source,
+        model_override=prepared.model_override,
     )
     building = building_rcn(
         inputs.measurements,
@@ -598,6 +694,7 @@ async def _write_structure(
         location_source=inputs.location_source,
         rcn_source=inputs.rcn_source,
         year=inputs.year,
+        model_override=inputs.model_override,
     )
     carve = None
     if building is not None:
@@ -607,14 +704,16 @@ async def _write_structure(
     for row in concealed_rows(building, carve, inputs.living_area, small, inputs.split):
         result = results.get(structure_id(row.label))
         override = prepared.structure_overrides.get(row.label)
-        if result is None and override is None:
+        carried = None if override is not None else prepared.carried_structure.get(row.label)
+        if result is None and override is None and carried is None:
             continue
         heartbeat(f"structure:{row.label}")
-        reasons = (
-            []
-            if result is None or override is not None
-            else [r for r in (result.review_reason or "").split("; ") if r]
-        )
+        if carried is not None:
+            reasons = _classification_reasons(carried)
+        elif result is None or override is not None:
+            reasons = []
+        else:
+            reasons = [r for r in (result.review_reason or "").split("; ") if r]
         reasons += list(row.review_reasons)
         takeoff = Takeoff(
             component=row.label,
@@ -623,6 +722,8 @@ async def _write_structure(
             formula=row.formula,
             method=row.method,
         )
+        cost: CostEstimate | None = None
+        priced_per: str | None = None
         if row.rcn is not None:
             unit_cost: Decimal | None = (
                 (row.rcn / row.quantity).quantize(Decimal("0.01")) if row.quantity > 0 else row.rcn
@@ -691,6 +792,18 @@ async def _write_structure(
             extra_inputs = {"asset_correction": {"from_asset_id": str(old.id), "after": after}}
             await _record_override(session, study_id, asset, override, revision)
             needs_review = bool(reasons)
+        elif carried is not None:
+            needs_review = row.needs_review or bool(reasons)
+            asset = await _write_carried(
+                assets,
+                revision,
+                carried,
+                None,
+                prepared.carried_citations,
+                reasons=reasons,
+                needs_review=needs_review,
+            )
+            extra_inputs = {CARRIED_CLASSIFICATION: _carried_record(carried)}
         else:
             assert result is not None
             needs_review = result.needs_review or row.needs_review or bool(reasons)
@@ -708,25 +821,56 @@ async def _write_structure(
                 review_reason="; ".join(dict.fromkeys(reasons)) or None,
                 convention=None if result.convention is None else dict(result.convention),
             )
+        takeoff_inputs = {
+            **row.inputs,
+            **extra_inputs,
+            "concealed": True,
+            "label": row.label,
+            "system": row.system,
+            "component": row.component,
+            "method": row.method,
+            "assumptions": list(row.assumptions),
+            "quantity_source": "structure_model",
+            "structure_source": row.source,
+            **plan.study_inputs,
+        }
+        if prepared.model_override is not None:
+            takeoff_inputs[STRUCTURE_MODEL_INPUT] = override_record(prepared.model_override)
         await assets.add_takeoff(
             asset=asset,
             quantity=row.quantity,
             unit=row.unit,
             formula=row.formula,
-            inputs={
-                **row.inputs,
-                **extra_inputs,
-                "concealed": True,
-                "label": row.label,
-                "system": row.system,
-                "component": row.component,
-                "method": row.method,
-                "assumptions": list(row.assumptions),
-                "quantity_source": "structure_model",
-                "structure_source": row.source,
-                **plan.study_inputs,
-            },
+            inputs=takeoff_inputs,
         )
+        quantity = quantity_block(takeoff, takeoff_inputs, row.assumptions)
+        if row.rcn is not None:
+            # A building residual: the square-foot model applied the study's index (its
+            # year and location are recorded); the appraiser's cost new did not.
+            trail = structure_residual_trail(
+                quantity,
+                unit_cost=unit_cost,
+                total=total,
+                cost_year=plan.index.cost_year,
+                location_factor=location_factor,
+                index=(
+                    plan.index
+                    if building is not None and building.source == "square_foot_model"
+                    else None
+                ),
+                structure=structure_block(row, building),
+                context=context,
+            )
+        else:
+            trail = priced_trail(
+                quantity,
+                cost,
+                plan.index,
+                context=context,
+                missing=None if cost is not None else source_row,
+                priced_per=priced_per,
+                structure=structure_block(row, None),
+            )
         await assets.add_cost_estimate(
             asset=asset,
             unit_cost=unit_cost,
@@ -734,8 +878,13 @@ async def _write_structure(
             source_row=source_row,
             location_factor=location_factor,
             cost_year=plan.index.cost_year,
+            trail=trail,
         )
-        for citation in () if result is None or override is not None else result.citations:
+        for citation in (
+            ()
+            if result is None or override is not None or carried is not None
+            else result.citations
+        ):
             cited = await assets.add_citation(
                 asset=asset,
                 chunk_id=citation.chunk_id,
@@ -1176,6 +1325,8 @@ async def _overrides(
     overrides: dict[uuid.UUID, Override] = {}
     structure_overrides: dict[str, Override] = {}
     for correction in corrections:
+        if correction.entity_type in STUDY_TARGETED:
+            continue  # the rebuild itself: ``_rebuild``
         if correction.entity_type != "asset":
             raise validation_error(
                 f"process_assets cannot apply a {correction.entity_type}", E.ASSETS_CORRECTION_TYPE
@@ -1210,6 +1361,160 @@ async def _overrides(
         merged = {**(previous.after if previous else {}), **correction.after}
         overrides[component_id] = Override(old=old, after=merged)
     return overrides, structure_overrides
+
+
+def _rebuild(
+    study_id: uuid.UUID, revision: int, corrections: tuple[CorrectionInput, ...]
+) -> tuple[bool, ModelOverride | None]:
+    """``(carry, model override)`` from the rejection's ``reprice`` and ``structure_model``
+    corrections (:mod:`basis.activities.reprice_corrections`); ``(False, None)`` for an
+    ordinary rejection."""
+    carry = False
+    override: ModelOverride | None = None
+    for correction in corrections:
+        if correction.entity_type not in STUDY_TARGETED:
+            continue
+        check_study_target(correction.entity_type, correction.entity_id, study_id)
+        carry = True
+        if correction.entity_type == REPRICE:
+            check_reprice(correction.after)
+        elif correction.entity_type == STRUCTURE_MODEL:
+            override = parse_structure_model(
+                correction.after,
+                f"the engineer's structure_model correction at the revision {revision - 1} "
+                "assets review",
+            )
+    return carry, override
+
+
+@dataclass(frozen=True, slots=True)
+class _Carried:
+    assets: dict[uuid.UUID, Asset] = field(default_factory=dict)
+    keys: dict[uuid.UUID, str] = field(default_factory=dict)
+    structure: dict[str, Asset] = field(default_factory=dict)
+    citations: dict[uuid.UUID, list[Citation]] = field(default_factory=dict)
+
+
+async def _carried(
+    session: AsyncSession,
+    assets: AssetRepository,
+    study_id: uuid.UUID,
+    previous: int,
+    components: list[Component],
+    overrides: dict[uuid.UUID, Override],
+    structure_overrides: dict[str, Override],
+    property_class: str,
+    settings: Settings,
+) -> _Carried:
+    """The rejected revision's asset each uncorrected component (by ``carried_from``) and
+    concealed row (by label) keeps its classification from. Nothing is carried when the
+    property class the rejected revision was classified under is not the current one (the
+    27.5- or 39-year building and the rules table's class change): every asset is
+    classified again, and an ``assets.reprice_reclassified`` event says why. The API
+    refuses such a reprice up front; this covers an intake changed in between."""
+    old_assets = await assets.list_for_revision(study_id, previous)
+    takeoffs = await assets.takeoffs([a.id for a in old_assets])
+    classes = {
+        str(t.inputs.get("property_class"))
+        for t in takeoffs.values()
+        if isinstance(t.inputs, dict) and t.inputs.get("property_class")
+    }
+    old_class = classes.pop() if len(classes) == 1 else settings.property_class
+    if classes or old_class != property_class:
+        await StudyEventRepository(session).record(
+            study_id,
+            "assets.reprice_reclassified",
+            actor="system",
+            revision=previous + 1,
+            code=E.ASSETS_REPRICE_CLASS_CHANGED,
+            detail={"classified_as": old_class, "now": property_class},
+        )
+        return _Carried()
+    by_component = {a.component_id: a for a in old_assets if a.component_id is not None}
+    carried: dict[uuid.UUID, Asset] = {}
+    keys: dict[uuid.UUID, str] = {}
+    for component in components:
+        raw = component.raw if isinstance(component.raw, dict) else {}
+        origin = raw.get(CARRIED_FROM)
+        if component.id in overrides or not isinstance(origin, str):
+            continue
+        old = by_component.get(uuid.UUID(origin))
+        if old is None:
+            continue
+        carried[component.id] = old
+        takeoff = takeoffs.get(old.id)
+        key = (
+            takeoff.inputs.get("component")
+            if takeoff and isinstance(takeoff.inputs, dict)
+            else None
+        )
+        if isinstance(key, str):
+            keys[component.id] = key
+    structure: dict[str, Asset] = {}
+    for old in old_assets:
+        if old.component_id is not None:
+            continue
+        takeoff = takeoffs.get(old.id)
+        label, concealed = concealed_label(takeoff.inputs if takeoff else None)
+        if concealed and label is not None and label not in structure_overrides:
+            structure[label] = old
+    citations: dict[uuid.UUID, list[Citation]] = {}
+    wanted = [a.id for a in (*carried.values(), *structure.values())]
+    for citation in await assets.citations(wanted):
+        citations.setdefault(citation.asset_id, []).append(citation)
+    return _Carried(carried, keys, structure, citations)
+
+
+def _classification_reasons(old: Asset) -> list[str]:
+    """The old asset's review reasons less those the pricing writes again."""
+    return [
+        r
+        for r in (old.review_reason or "").split("; ")
+        if r and not r.startswith(PRICING_REASON_PREFIXES)
+    ]
+
+
+def _carried_record(old: Asset) -> dict[str, Any]:
+    return {"from_asset_id": str(old.id), "from_revision": old.revision, "method": old.method.value}
+
+
+async def _write_carried(
+    assets: AssetRepository,
+    revision: int,
+    old: Asset,
+    component_id: uuid.UUID | None,
+    citations: dict[uuid.UUID, list[Citation]],
+    *,
+    reasons: list[str] | None = None,
+    needs_review: bool | None = None,
+) -> Asset:
+    """A new asset with ``old``'s classification (category, bucket, period, section,
+    method, confidence, convention) and its verified citations as they were verified;
+    the pricing reasons are dropped (written again by the caller)."""
+    kept = _classification_reasons(old) if reasons is None else reasons
+    asset = await assets.create(
+        study_id=old.study_id,
+        revision=revision,
+        component_id=component_id,
+        category=old.category,
+        bucket=old.bucket,
+        recovery_period=old.recovery_period,
+        irs_section=old.irs_section,
+        method=old.method,
+        confidence=old.confidence,
+        needs_review=bool(kept) if needs_review is None else needs_review,
+        review_reason="; ".join(dict.fromkeys(kept)) or None,
+        convention=old.convention,
+    )
+    for citation in citations.get(old.id, []):
+        row = await assets.add_citation(
+            asset=asset,
+            chunk_id=citation.chunk_id,
+            excerpt=citation.excerpt,
+            verification_method=citation.verification_method,
+        )
+        row.verified_at = citation.verified_at
+    return asset
 
 
 __all__ = [
