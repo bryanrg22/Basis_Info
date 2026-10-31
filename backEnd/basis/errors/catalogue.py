@@ -63,6 +63,7 @@ AREA_TITLES: Final[dict[str, str]] = {
     "EXPORT": "export_report",
     "CHECK": "Checks that flag a row for review",
     "COST": "The cost index store: the missing-year rule, conversions, acquisition",
+    "REPORT": "The study report and the preparer's schedule (basis.report)",
     "INF": "Infrastructure: worker start-up and the outbox relay",
 }
 
@@ -2963,6 +2964,70 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "job's exit status 1.",
         "Retry (the next scheduled run does); the failures name the year and the cause.",
         "yes",
+    ),
+    # ------------------------------------------------------------------ REPORT
+    _e(
+        E.REPORT_NOT_AN_EXPORT,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "The document given to the report is not a study export (`format` is not "
+        "`basis-export/2`).",
+        "`ReportError: not a study export: ... [BASIS-REPORT-001]`.",
+        "Pass the export JSON the export step wrote (`rev-<n>.json`).",
+        "no",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_NOT_PRODUCED,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "The export has no allocation (`summary.basis.not_produced` names why: an "
+        "unreconciled replacement cost, stale pricing, a missing intake): there is nothing to "
+        "report.",
+        "`ReportError: the allocation was not produced: ... [BASIS-REPORT-002]`; no PDF and no "
+        "schedule are written.",
+        "Resolve what `not_produced` names (the intake, a reprice, the reconciliation), approve "
+        "again, export again.",
+        "after fix",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_TOTALS_DO_NOT_TIE,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "A report total does not tie to the cent: the items, classes, categories or schedule "
+        "against the depreciable basis, or price plus capitalized costs less land against it.",
+        "`ReportError: ... [BASIS-REPORT-003]`; nothing is written, so a schedule with a broken "
+        "total never ships.",
+        "A defect in the allocation or the report: file it with the export JSON.",
+        "no",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_ASSET_UNACCOUNTED,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "An export asset is on no report line or on two (or an allocated asset is not in the "
+        "export).",
+        "`ReportError: assets not on exactly one line ... [BASIS-REPORT-004]`.",
+        "A defect: file it with the export JSON.",
+        "no",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_RENDER_FAILED,
+        "error",
+        "export_report",
+        "basis.report.render",
+        "The PDF template did not compile (Typst raised).",
+        "`ReportError: the report did not render: ... [BASIS-REPORT-005]`.",
+        "A template defect: file it with the export JSON and the template version.",
+        "no",
+        temporal_type="ReportError",
     ),
     # ------------------------------------------------------------------ INF
     _e(
