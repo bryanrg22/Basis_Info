@@ -182,6 +182,8 @@ def test_the_contested_set_is_what_section_4_leaves_contested() -> None:
         # the guide puts door locks on the building side; studies treat access control as
         # 5-year (STRUCTURE_MODEL.md section 1, 2026-10-30)
         "access_control",
+        # a residual stays with the building until identified (2026-10-31)
+        "specialties_residual",
     }
 
 
@@ -273,6 +275,7 @@ def test_only_building_rows_differ_by_property_class() -> None:
         "fire_alarm_system",
         "access_control",
         "site_utilities",
+        "specialties_residual",
         "hardwood_floor",
         "mirror",
     }
@@ -745,8 +748,9 @@ def test_rules_version_is_set() -> None:
 
 def test_rules_version_changed_with_the_context_dimension() -> None:
     # part of the cache key: a classification cached under an older table is never served;
-    # 2026-10-30.1 added the structure model's thirteen concealed rows
-    assert RULES_VERSION == "2026-10-30.1"
+    # 2026-10-30.1 added the structure model's thirteen concealed rows, 2026-10-31.1 the
+    # Specialties residual
+    assert RULES_VERSION == "2026-10-31.1"
 
 
 def test_every_variant_is_well_formed() -> None:

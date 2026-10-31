@@ -100,8 +100,8 @@ async def test_the_room_step_runs_between_the_two_reviews(harness: Harness) -> N
             await run.approve(handle, "components_review")
             await run.wait_awaiting(handle, "assets_review", 1)
             assert (
-                len(await rows(run, Asset, sid, 1)) == 4 + 13
-            )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)
+                len(await rows(run, Asset, sid, 1)) == 4 + 14
+            )  # + the structure model's 14 concealed rows (STRUCTURE_MODEL.md)
             await run.approve(handle, "assets_review")
             result = await run.result(handle)
     finally:
@@ -223,7 +223,7 @@ async def test_a_components_rejection_reanalyzes_in_the_approved_rooms(harness: 
             assert by_label["toilet"].room_id == r2["Bathroom"].id
             await run.approve(handle, "components_review", 2)
             await run.wait_awaiting(handle, "assets_review", 2)
-            assert len(await rows(run, Asset, sid, 2)) == 4 + 13
+            assert len(await rows(run, Asset, sid, 2)) == 4 + 14
             await run.approve(handle, "assets_review", 2)
             result = await run.result(handle)
     finally:

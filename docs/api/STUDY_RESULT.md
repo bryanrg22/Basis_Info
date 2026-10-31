@@ -169,7 +169,10 @@ route follows a later intake change.
   building's replacement cost new: `source` `square_foot_model` (the RSMeans model sized by
   the matrix, the default) or `appraisal_cost_approach` (`STRUCTURE_RCN_SOURCE`, or whenever
   no living area sizes a model), with `formula`, `inputs`, `assumptions`, `checks`,
-  `needs_review` and the model chosen), `components` (the nine RSMeans components: `share`, `top_down`, `itemized`,
+  `needs_review` and the model chosen; since 2026-10-31 the square-foot model's `inputs` add
+  `baths`, `model_baths`, `heating`, `cooling` and `modifications`, and its `formula` the
+  facing page's modifications and alternatives the appraisal's baths, heating and cooling call
+  for, STRUCTURE_MODEL.md section 9.1), `components` (the nine RSMeans components: `share`, `top_down`, `itemized`,
   `residual`, `clamped`, `concealed`), `concealed` (the schedule's concealed rows: label, the
   engineer's row as `system`, bucket, component, RCN) and `outside_model` (priced itemized
   rows the model does not include).
@@ -179,7 +182,9 @@ route follows a later intake change.
 * `reconciliation`: `status` `reconciled` (|gap| within `tolerance`, 10 %), `unreconciled`
   or `not_checked`; `building_basis` (B), `rcn_total`, `rcnld_total`, `gap` (B − RCNLD),
   `gap_share`; `implied_uniform_factor` (T / ΣRCN: what the old step-up would have been, a
-  diagnostic only); `by_component`, `unassigned_remainders` (Specialties), `outside_model`,
+  diagnostic only); `by_component`, `unassigned_remainders` (a component whose residual no
+  row holds: Specialties with `STRUCTURE_SPECIALTIES_RESIDUAL=report`; empty by default, where
+  the residual is the `specialties_residual` building row), `outside_model`,
   `unpriced_assets`, `appraisal_check` (the appraiser's own depreciated cost against the price
   less the appraisal's site value); `causes`: the guide's five (ATG ch. 3 D(6)) each with what
   this study's data says; `checks`.
@@ -194,7 +199,8 @@ route follows a later intake change.
   `label`, `concealed` and the cents the largest-remainder rule moved; `rows_sum` equals
   `total` by construction.
 * `not_produced`: the concealed systems no priced structure row answers in this schedule (all
-  thirteen when the structure model did not run), so the gap is explicit.
+  thirteen when the structure model did not run), so the gap is explicit. The Specialties
+  residual is a remainder, not a system, and is never listed.
 * `cost_index`: the time index the revision's dollars rest on (COST_INDICES.md section 10):
   `cost_year`, `status` (`published`: the year's RSMeans index is loaded; `missing`: no
   index for the year, the latest loaded one is applied and every priced row is flagged

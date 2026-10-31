@@ -49,6 +49,41 @@ Tier = Literal["economy", "standard", "premium", "luxury"]
 CENTS: Final = Decimal("0.01")
 BASE_YEAR: Final = 2020  # the RSMeans 2020 books' cost basis (Jan. 1, 2020)
 
+# The basis a row is priced on (STRUCTURE_MODEL.md section 9.3). ``bare``: material + labor +
+# equipment, RSMeans' "Bare Costs" (the behaviour before 2026-10-31). ``installed``: the line's
+# "Total Incl O&P", the installing contractor's overhead and profit included, which is the
+# basis of the square-foot models' components 1-9 ("The costs in components 1 through 9
+# include overhead and profit for the installing contractor", RSMeans Residential 2020, How to
+# Use the Residential Square Foot Cost Section, PDF p.21). A row without that column (the six
+# legacy rows) takes the same page's conversion: "Ten percent has been added to bare material
+# cost for profit"; "The average mark-up ... is 72% over and above bare labor costs"; "The
+# equipment rates include 10% for profit".
+CostBasis = Literal["bare", "installed"]
+COST_BASES: Final[tuple[CostBasis, ...]] = ("bare", "installed")
+DEFAULT_COST_BASIS: Final[CostBasis] = "installed"
+MATERIAL_PROFIT: Final = Decimal("1.10")
+LABOR_MARKUP: Final = Decimal("1.72")
+EQUIPMENT_PROFIT: Final = Decimal("1.10")
+INSTALLED_SOURCE: Final = (
+    "RSMeans Residential 2020, How to Use the Residential Square Foot Cost Section, PDF p.21"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Markup:
+    """A pro-rata share of an indirect cost on a row's direct cost: the general contractor's
+    overhead and profit of the square-foot model (its item 10 over components 1-9), for a row
+    inside the model (ATG ch. 4 C.11(2))."""
+
+    rate: Decimal  # e.g. 0.200129 for 20.0129 %
+    source: str
+
+
+def installed_cost(material: Decimal, labor: Decimal, equipment: Decimal) -> Decimal:
+    """Bare material, labor and equipment brought to the installing contractor's price by the
+    square-foot section's own markups (:data:`INSTALLED_SOURCE`)."""
+    return material * MATERIAL_PROFIT + labor * LABOR_MARKUP + equipment * EQUIPMENT_PROFIT
+
 
 class CostError(ValueError):
     """The estimate cannot be computed from the tables."""
@@ -193,13 +228,16 @@ def has_cost_row(component: str) -> bool:
     return component in TYPICAL_UNIT_COSTS
 
 
-def _per_takeoff_unit(row: UnitCost, unit: str, component: str) -> Decimal:
+def _per_takeoff_unit(
+    row: UnitCost, unit: str, component: str, basis: CostBasis = "bare"
+) -> Decimal:
+    total = row.total if basis == "bare" else installed_cost(row.material, row.labor, row.equipment)
     if unit == row.unit:
-        return row.total
+        return total
     if unit == "SY" and row.unit == "SF":
-        return row.total * SF_PER_SY
+        return total * SF_PER_SY
     if unit == "SF" and row.unit == "SY":
-        return row.total / SF_PER_SY
+        return total / SF_PER_SY
     raise UnitMismatch(f"{component}: takeoff is in {unit} but the cost row is per {row.unit}")
 
 
@@ -214,8 +252,11 @@ def estimate_cost(
     year_source: str | None = None,
     location_source: str | None = None,
     year: YearFactor | None = None,
+    basis: CostBasis = DEFAULT_COST_BASIS,
+    markup: Markup | None = None,
 ) -> CostEstimate:
-    """Price a takeoff: ``unit_cost = base x year factor x location``; ``total = unit_cost x qty``.
+    """Price a takeoff: ``unit_cost = base x (1 + markup) x year factor x location``;
+    ``total = unit_cost x qty``.
 
     The row is the legacy ``TYPICAL_UNIT_COSTS[takeoff.component][tier]``, else the cost
     table's row for ``label`` (the component's label), else its row for the takeoff
@@ -225,7 +266,10 @@ def estimate_cost(
     the firm's supplement); without it the cost year's factor comes from the released book
     alone. ``year_source`` and ``location_source`` (where the study's cost year and
     location factor came from: :func:`basis.domain.measurements.resolve_cost_index`) are
-    written into ``source_row`` after the factors when given.
+    written into ``source_row`` after the factors when given. ``basis`` is the cost basis
+    (:data:`CostBasis`: bare, or installed with the installing contractor's O&P); ``markup``
+    a pro-rata indirect cost on the row (the model's general contractor's O&P), recorded in
+    ``source_row``.
     """
     location = Decimal(str(location_factor))
     if not location.is_finite() or location <= 0:
@@ -233,8 +277,13 @@ def estimate_cost(
     rows = TYPICAL_UNIT_COSTS.get(takeoff.component)
     if rows is not None:
         row = rows[tier]
-        base = _per_takeoff_unit(row, takeoff.unit, takeoff.component)
+        base = _per_takeoff_unit(row, takeoff.unit, takeoff.component, basis)
         source = f"TYPICAL_UNIT_COSTS[{takeoff.component}][{tier}] per {row.unit}"
+        if basis == "installed":
+            source += (
+                f"; installed: material x{MATERIAL_PROFIT} + labor x{LABOR_MARKUP} + equipment "
+                f"x{EQUIPMENT_PROFIT} ({INSTALLED_SOURCE})"
+            )
     else:
         found = None
         if table is not None:
@@ -252,16 +301,29 @@ def estimate_cost(
                 f"{takeoff.quantity} {takeoff.unit}",
                 found.unit,
             )
-        base = found.total
         assert table is not None
         source = f"{table.name}[{found.label}] {found.source} per {found.unit}"
         if found.factor != 1:
             source += f" x{found.factor} from per {found.source_unit}"
+        if basis == "bare":
+            base = found.total
+        elif found.total_incl_op is not None:
+            base = found.total_incl_op
+            source += "; Total Incl O&P"
+        else:
+            base = installed_cost(found.material, found.labor, found.equipment)
+            source += (
+                f"; installed: material x{MATERIAL_PROFIT} + labor x{LABOR_MARKUP} + equipment "
+                f"x{EQUIPMENT_PROFIT} ({INSTALLED_SOURCE})"
+            )
         if found.assumption:
             source += f"; assumes {found.assumption}"
     if year is None or year.cost_year != cost_year:
         year = year_factor_index(cost_year)
     factor = year.factor
+    if markup is not None and markup.rate != 0:
+        base = base * (1 + markup.rate)
+        source += f"; x{1 + markup.rate} {markup.source}"
     unit_cost = (base * factor * location).quantize(CENTS, rounding=ROUND_HALF_UP)
     total = (unit_cost * takeoff.quantity).quantize(CENTS, rounding=ROUND_HALF_UP)
     year_text = f"x{factor} for {cost_year} = {year.citation()}"

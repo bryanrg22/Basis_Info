@@ -192,13 +192,15 @@ async def test_rule_model_and_fabricated_paths(
     assert output.cost_usd == pytest.approx(
         4 * cost_usd("scripted-model", Usage(input_tokens=100, output_tokens=50))
     )
-    # Bedroom: 150 SF typical -> 150 / 9 x 1.10 = 18.33 SY; 61.20/SY x 1.0000 (2026: after
-    # the book's last index, the Jan 2020 one applies and the row is flagged) = 61.20.
+    # Bedroom: 150 SF typical -> 150 / 9 x 1.10 = 18.33 SY; the legacy standard carpet
+    # installed (4.50 x 1.10 + 2.00 x 1.72 + 0.30 x 1.10 = 8.72/SF, STRUCTURE_MODEL.md 9.3) =
+    # 78.48/SY x 1.0000 (2026: after the book's last index, the Jan 2020 one applies and the
+    # row is flagged) = 78.48.
     assert (carpet_takeoff.quantity, carpet_takeoff.unit) == (Decimal("18.33"), "SY")
     assert carpet_takeoff.inputs["room_area_source"] == "typical_for_room_type"
     assert (carpet_cost.unit_cost, carpet_cost.total, carpet_cost.cost_year) == (
-        Decimal("61.20"),
-        Decimal("1121.80"),
+        Decimal("78.48"),
+        Decimal("1438.54"),
         2026,
     )
     assert output.needs_review == 4  # the three of before plus the carpet's index flag

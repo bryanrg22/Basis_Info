@@ -122,5 +122,5 @@ async def test_room_call_and_surface_crops_run_end_to_end(harness: Harness) -> N
     assert {c.raw["materials_second_look"] for c in inventory} == {"surface_crops"}
     assert {tuple(c.raw["surface_crops_flags"]) for c in inventory} == {()}
     assert (
-        len(await rows(run, Asset, sid, 1)) == 4 + 13
-    )  # + the structure model's 13 concealed rows (STRUCTURE_MODEL.md)
+        len(await rows(run, Asset, sid, 1)) == 4 + 14
+    )  # + the structure model's 14 concealed rows (STRUCTURE_MODEL.md)

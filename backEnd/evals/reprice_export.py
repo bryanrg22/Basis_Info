@@ -15,7 +15,8 @@ Usage (from ``backEnd/``)::
 
     python -m evals.reprice_export export/rev-5.json --out out/rev-5.repriced.json \\
         [--cost-table costs/unit_costs_rsmeans_2020.json] [--state CA] [--zip 90001] \\
-        [--supplement supplement.json] [--changes out/rev-5.reprice.json]
+        [--supplement supplement.json] [--changes out/rev-5.reprice.json] \\
+        [--cost-basis installed|bare] [--overhead pro_rata|none]
     python -m evals.structure_replay out/rev-5.repriced.json --out out/rev-5.structure.json ...
     python -m evals.e2e_report --export out/rev-5.structure.json ...
 
@@ -23,6 +24,13 @@ The repricing is checked against the stored dollars: the old unit cost divided b
 factors must equal the row's base unit cost within a cent, else the asset is reported as
 ``base_mismatch`` (a cost table row that changed since the run). A summary goes to stdout
 (and ``--changes`` as JSON).
+
+``--cost-basis`` and ``--overhead`` (STRUCTURE_MODEL.md section 9.3, EVAL_REPORT 49): the
+basis every row is priced on (installed: the line's Total Incl O&P; bare: material + labor +
+equipment, the basis the exports were priced on) and whether a row inside the square-foot
+model carries the model's general contractor's O&P pro rata (the model chosen from the
+export's extraction fields, as the structure model chooses it). The base check is made on
+the bare basis either way.
 """
 
 from __future__ import annotations
@@ -44,9 +52,27 @@ from basis.domain.cost_indices import (
     supplement_for,
 )
 from basis.domain.cost_table import CostTable, load_cost_table
-from basis.domain.costs import CostError, estimate_cost, year_factor_index
+from basis.domain.costs import (
+    COST_BASES,
+    DEFAULT_COST_BASIS,
+    CostBasis,
+    CostError,
+    Markup,
+    estimate_cost,
+    year_factor_index,
+)
+from basis.domain.measurements import measurements_from_fields
+from basis.domain.structure import (
+    DEFAULT_OVERHEAD_ALLOCATION,
+    OVERHEAD_ALLOCATIONS,
+    OverheadAllocation,
+    cost_approach_from_fields,
+    inside_model,
+    overhead_markup,
+    select_model,
+)
 from basis.domain.takeoffs import Takeoff
-from evals.structure_replay import EXPORT_FORMATS, ReplayError, takeoff_block
+from evals.structure_replay import EXPORT_FORMATS, ReplayError, field_rows, takeoff_block
 
 CENT = Decimal("0.01")
 EXTRAPOLATED = "cost:YEAR_INDEX_MISSING"
@@ -78,6 +104,8 @@ def reprice(
     state: str | None,
     zip_code: str | None,
     supplement: Mapping[int, YearIndex] | None,
+    cost_basis: CostBasis = "bare",
+    overhead: OverheadAllocation = "none",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """``(the repriced export, a summary of the run)``."""
     if document.get("format") not in EXPORT_FORMATS:
@@ -104,6 +132,12 @@ def reprice(
         raise ReplayError("no location: pass --state or --zip (the export names neither)")
     location_source = f"{kind} {value} ({origin}): {location.citation()}"
     new_location = location.factor
+    markup: Markup | None = None
+    if overhead == "pro_rata":
+        fields = field_rows(document)
+        read = measurements_from_fields(fields)
+        choice = select_model(None if read.is_empty else read, cost_approach_from_fields(fields))
+        markup = overhead_markup(choice.model)
 
     out = json.loads(json.dumps(document))
     kept: list[dict[str, Any]] = []
@@ -127,6 +161,17 @@ def reprice(
             formula=str(asset.get("formula") or ""),
         )
         try:
+            bare = estimate_cost(
+                takeoff,
+                cost_year,
+                new_location,
+                table=cost_table,
+                label=str(asset["label"]),
+                year_source=year_source,
+                location_source=location_source,
+                year=year,
+                basis="bare",
+            )
             estimate = estimate_cost(
                 takeoff,
                 cost_year,
@@ -136,6 +181,8 @@ def reprice(
                 year_source=year_source,
                 location_source=location_source,
                 year=year,
+                basis=cost_basis,
+                markup=markup if inside_model(str(asset["label"])) else None,
             )
         except CostError as exc:
             counts["not_repriced"] += 1
@@ -147,7 +194,7 @@ def reprice(
             old_year_factor = Decimal(match.group(1)) if match else None
         if old_year_factor is not None:
             implied = Decimal(str(asset["unit_cost"])) / (old_year_factor * old_location)
-            if abs(implied - estimate.base_unit_cost) > CENT:
+            if abs(implied - bare.base_unit_cost) > CENT:
                 counts["base_mismatch"] += 1
         old_total += Decimal(str(asset["total"]))
         new_total += estimate.total
@@ -209,6 +256,9 @@ def reprice(
         "year_citation": year.citation(),
         "location_factor": {"old": str(old_location), "new": str(new_location)},
         "location_source": {"old": old_location_source, "new": location_source},
+        "cost_basis": cost_basis,
+        "overhead": overhead,
+        "overhead_rate": None if markup is None else str(markup.rate),
         "counts": dict(counts),
         "priced_total": {
             "old": str(old_total.quantize(CENT)),
@@ -230,6 +280,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--zip", dest="zip_code", default=None, help="the study's ZIP")
     parser.add_argument("--supplement", type=Path, default=None, help="later index values")
     parser.add_argument("--changes", type=Path, default=None, help="the run summary as JSON")
+    parser.add_argument("--cost-basis", choices=COST_BASES, default=DEFAULT_COST_BASIS)
+    parser.add_argument(
+        "--overhead", choices=OVERHEAD_ALLOCATIONS, default=DEFAULT_OVERHEAD_ALLOCATION
+    )
     return parser.parse_args(argv)
 
 
@@ -244,6 +298,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         state=args.state,
         zip_code=args.zip_code,
         supplement=supplement,
+        cost_basis=args.cost_basis,
+        overhead=args.overhead,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(repriced, indent=1) + "\n", encoding="utf-8")

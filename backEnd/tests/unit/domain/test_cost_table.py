@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +22,21 @@ from basis.domain.cost_table import (
     load_cost_table,
     parse_cost_table,
 )
-from basis.domain.costs import MissingCostRow, NeedsQuantity, estimate_cost
+from basis.domain.costs import (
+    INSTALLED_SOURCE,
+    Markup,
+    MissingCostRow,
+    NeedsQuantity,
+    installed_cost,
+)
+from basis.domain.costs import estimate_cost as _estimate_cost
 from basis.domain.cross_validation import check_takeoff_cost, cross_validate
 from basis.domain.takeoffs import estimate_quantity
 
 PATH = str(fixture_path("cost_table.json"))
+# The table's mechanics are pinned on the bare basis (material + labor + equipment); the
+# installed basis, the default since 2026-10-31, has its own tests at the end.
+estimate_cost = partial(_estimate_cost, basis="bare")
 
 
 def table_doc() -> dict[str, Any]:
@@ -133,3 +144,66 @@ def test_a_missing_or_unreadable_file_is_refused(tmp_path: Path) -> None:
     broken.write_text("{not json")
     with pytest.raises(CostTableError, match="cannot be read"):
         load_cost_table(str(broken))
+
+
+# ------------------------------------------- the installed basis (STRUCTURE_MODEL.md 9.3)
+
+
+def test_the_installed_basis_takes_the_rows_total_incl_op() -> None:
+    table = load_cost_table(PATH)
+    window = _estimate_cost(estimate_quantity("window", 100), 2020, "1", table=table)
+    assert window.base_unit_cost == Decimal("280.00")  # Total Incl O&P, not 200 + 30
+    assert (
+        window.total == Decimal("280.00")
+        and window.source_row.endswith("location)")
+        and "; Total Incl O&P" in window.source_row
+    )
+    bare = estimate_cost(estimate_quantity("window", 100), 2020, "1", table=table)
+    assert bare.base_unit_cost == Decimal("230.00") and "O&P" not in bare.source_row
+    # the factor applies to the column as to the bare split (per L.F. -> per SF)
+    top = _estimate_cost(
+        estimate_quantity("countertop", 144), 2020, "1", table=table, label="countertop"
+    )
+    assert top.base_unit_cost == Decimal("18.00")  # 36 x 0.5
+
+
+def test_a_row_without_the_column_is_converted_by_the_books_markups() -> None:
+    doc = table_doc()
+    del doc["rows"]["window"]["total_incl_op"]
+    table = parse_cost_table(doc)
+    window = _estimate_cost(estimate_quantity("window", 100), 2020, "1", table=table)
+    # 200 x 1.10 + 30 x 1.72 + 0 x 1.10 = 271.60
+    assert window.base_unit_cost == Decimal("271.60")
+    assert INSTALLED_SOURCE in window.source_row and "labor x1.72" in window.source_row
+
+
+def test_the_legacy_rows_are_converted_on_the_installed_basis() -> None:
+    fixture = estimate_quantity("light_fixture", 100, 2)
+    installed = _estimate_cost(fixture, 2020, "1")
+    # standard light fixture 85 + 35 + 5: 85 x 1.10 + 35 x 1.72 + 5 x 1.10 = 159.20
+    assert installed.base_unit_cost == Decimal("159.20")
+    assert installed.total == Decimal("318.40")
+    assert installed.source_row.startswith("TYPICAL_UNIT_COSTS[light_fixture]")
+    assert "installed: material x1.10" in installed.source_row
+    assert estimate_cost(fixture, 2020, "1").base_unit_cost == Decimal("125.00")
+
+
+def test_installed_cost_is_the_square_foot_sections_markups() -> None:
+    assert installed_cost(Decimal(100), Decimal(100), Decimal(100)) == Decimal("392.00")
+    assert installed_cost(Decimal(0), Decimal(0), Decimal(0)) == 0
+
+
+def test_a_markup_multiplies_the_base_and_is_recorded() -> None:
+    table = load_cost_table(PATH)
+    markup = Markup(Decimal("0.200129"), "general contractor's overhead and profit pro rata")
+    door = _estimate_cost(
+        estimate_quantity("interior_door", 100, 3), 2020, "1.1", table=table, markup=markup
+    )
+    # 180 x 1.200129 = 216.02322 x 1.1 = 237.63 per door
+    assert door.unit_cost == Decimal("237.63") and door.total == Decimal("712.89")
+    assert "x1.200129 general contractor's overhead and profit pro rata" in door.source_row
+    zero = Markup(Decimal(0), "no markup")
+    plain = _estimate_cost(
+        estimate_quantity("interior_door", 100), 2020, "1", table=table, markup=zero
+    )
+    assert plain.unit_cost == Decimal("180.00") and "no markup" not in plain.source_row

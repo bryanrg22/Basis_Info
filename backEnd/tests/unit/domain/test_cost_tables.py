@@ -9,6 +9,7 @@ the assumption on the estimate, and a state is the mean of its listed cities.
 from __future__ import annotations
 
 from decimal import Decimal
+from functools import partial
 
 import pytest
 
@@ -19,13 +20,18 @@ from basis.domain.costs import (
     MissingCostRow,
     UnitMismatch,
     UnknownCostYear,
-    estimate_cost,
     has_cost_row,
     location_factor_for_state,
     year_factor,
     year_factor_index,
 )
+from basis.domain.costs import estimate_cost as _estimate_cost
 from basis.domain.takeoffs import Takeoff, estimate_quantity
+
+# These tests pin the arithmetic on the bare-cost basis (material + labor + equipment); the
+# installed basis (Total Incl O&P, the default since 2026-10-31) is tested in
+# test_cost_table.py.
+estimate_cost = partial(_estimate_cost, basis="bare")
 
 HCI_2018 = (
     "HCI 222.9 (July 2018) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778"

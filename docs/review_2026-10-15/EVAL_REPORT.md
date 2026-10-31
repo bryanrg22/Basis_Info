@@ -7399,3 +7399,139 @@ and legacy rows); `tests/api/test_room_metadata_api.py` (`GET /rooms` → `POST 
 `apply_corrections` → the vote → `GET /rooms` at the next revision with provenance; the 422s;
 the database equal to `initial_rooms`); `tests/unit/evals/test_room_metadata.py`. Gates: see
 the PR.
+## 49. The reconciliation gap closed for documented reasons: the house's baths and heating, the residual added back, one cost basis (2026-10-31)
+
+Question (section 47.4): with every cost factor a cited RSMeans index, both live exports of the
+client property replay to RCNLD 14.2 % (run 3A) and 13.4 % (run 3B) below the purchase price
+less land, outside the 10 % tolerance, so the allocation is withheld. The guide does not allow
+scaling the schedule to the basis (ATG ch. 3 D(3)-(5)); it asks for "an analysis of the
+available data and methodology ... to assess and determine the source of the difference"
+among five causes (D(6)). Which part of the gap does each cause explain, what does the guide
+or the cost source say to do about it, and does the schedule reconcile once those things are
+done? Section 48 is PR #99's. Design: STRUCTURE_MODEL.md sections 8 (the decomposition,
+written before any code changed) and 9 (what was built and measured). No paid run; no client
+dollar amount here (shares and points; artifacts, private:
+`work/e2e_artifacts/reconciliation_gap_2026-10-31/`).
+
+### 49.1 The decomposition
+
+Against the engineer's report (implied RCN per row, section 34) our RCN is 0.775 of the
+engineer's: thin in MEP (0.59), interior construction (0.62), the 5-year equipment and finishes
+(0.38, 0.73) and the land improvements we cannot measure (0.13); the engineer's RCN is itself
+12 % above the appraiser's cost new plus site improvements and is written down by one factor
+(0.710) on every row, so it says where our RCN is thin, not what it should be. By the guide's
+five causes (STRUCTURE_MODEL.md 8.2):
+
+| Cause (ATG D(6)) | Finding | Points of B, 3A / 3B (estimated before coding; measured) |
+|---|---|---|
+| Land FMV | B equals the engineer's (12 % flat); the appraisal's site value would move it 0.6 % | not a cause here |
+| Components and quantities not identified | The square-foot model was priced as RSMeans' base house (one full and one half bath, forced air: step 1 of the book's three); the house has six full baths and hot-water heat, which the facing page prices as modifications and alternatives (step 2: "Add or subtract the modifications, adjustments, and alternatives") | 7.8 / 7.8; measured 7.8 / 7.8 |
+| | The Specialties residual (custom cabinets, countertops, sink, water heater less the itemized ones) was reported but left out of the RCN total; C.4(1)-(2): a residual is assigned to the building and added back to reconcile | 3.7 / 3.5; measured 3.7 / 3.4 |
+| | Fire alarm, data cabling and locksets were priced on top of the components that include them (section 3.6 says carved): a double count | -0.5 / -0.7; measured -0.5 / -0.6 |
+| | Evidenced site and furnishing assets without a quantity (the driveway alone is 6.4 % of B in the engineer's RCN) | not closable without a measurement |
+| Cost estimates and factors | Itemized rows at RSMeans bare cost while the square-foot components carry the installing contractor's O&P ("The costs in components 1 through 9 include overhead and profit for the installing contractor", PDF p.21) | 1.2 / 1.3; measured 1.2 / 1.2 |
+| Depreciation factors | The appraiser's 21.4 % equals the age-life 15 / 70; per-class rates need the items' ages, and the building's effective age on shorter lives would only widen the gap | none |
+| Indirect costs | The model's general contractor's O&P (item 10) spread over the components but subtracted without it: the concealed 39-year rows carried the 5-year rows' share (C.11(2): pro rata) | 0 on the total; dollars move to the itemized rows |
+
+### 49.2 What was built
+
+The four changes are settings, each measured alone: `STRUCTURE_MODIFICATIONS` (the 18 facing
+pages' bath modifications and heating and cooling alternatives, re-read as images; the bath's
+plumbing to Mechanical by the three-fixture assembly over the Average full bath, 61.9 %, its
+finishes to Interiors; heating and cooling to HVAC), `STRUCTURE_SPECIALTIES_RESIDUAL` (the
+residual written as `specialties_residual`, a building row, contested, cited to ATG ch. 3
+C.4(1) p.31: rules row 68, `RULES_VERSION` 2026-10-31.1), `COST_BASIS` (the line's Total Incl
+O&P; a row without the column, the six legacy rows, by the book's markups: material + 10 %,
+labor + 72 %, equipment + 10 %, which reproduce the printed column within 5 % on 64 of the
+private table's 67 rows), `STRUCTURE_OVERHEAD_ALLOCATION` (the model's item 10 over components
+1-9 on every row inside the model, none outside it: C.11(2)-(3)). The small systems are carved
+(a defect against section 3.6, fixed without a setting). Defaults are all four on. Response
+shapes are additive: one more concealed row, new keys in `building_rcn.inputs`, the cost
+basis and markup written into each cost row's `source_row`, the causes' text; the result's
+`not_produced` never lists the residual. `evals.reprice_export` gains `--cost-basis` and
+`--overhead`, `evals.structure_replay` the new axes, and `evals.gap_sweep` runs them.
+
+### 49.3 The sweep
+
+Each export repriced three ways (bare; installed; installed with the general contractor's
+O&P) and replayed twelve ways (square-foot model with and without the modifications, the
+appraisal's cost new; the residual reported or written; the small systems added or carved):
+36 cells per export, every one scored by the e2e scorer with the July 2024 index (section 47),
+cost $0, about 10 ms a cell. Each step added in turn:
+
+| Step | 3A gap / status | 3A shares y5 / y7 / y15 / y39 | 3A bucket error mean / max | 3A TVD | 3B gap / status | 3B shares | 3B bucket error | 3B TVD |
+|---|---|---|---|---|---|---|---|---|
+| Before (section 47) | +14.2 unreconciled | 11.3 / 0.9 / 4.0 / 83.8 | 2.06 / 3.6 | 21.1 | +13.4 unreconciled | 8.4 / 0.9 / 4.0 / 86.7 | 3.49 / 6.5 | 21.8 |
+| + modifications | +6.4 reconciled | 10.3 / 0.8 / 3.7 / 85.2 | 2.69 / 5.0 | 20.9 | +5.6 reconciled | 7.7 / 0.8 / 3.7 / 87.8 | 4.00 / 7.6 | 22.6 |
+| + residual written | +2.7 | 9.9 / 0.8 / 3.5 / 85.8 | 2.96 / 5.5 | 20.6 | +2.2 | 7.4 / 0.8 / 3.6 / 88.3 | 4.21 / 8.0 | 21.8 |
+| + small systems carved | +3.2 | 10.0 / 0.8 / 3.6 / 85.7 | 2.92 / 5.5 | 20.7 | +2.8 | 7.5 / 0.8 / 3.6 / 88.2 | 4.17 / 7.9 | 22.0 |
+| + Total Incl O&P | +2.0 | 12.1 / 0.9 / 4.2 / 82.8 | 1.56 / 2.5 | 21.4 | +1.6 | 9.0 / 0.9 / 4.3 / 85.8 | 3.08 / 5.6 | 22.0 |
+| + GC O&P pro rata: **production** | **+2.0 reconciled** | **14.1 / 0.9 / 4.2 / 80.8** | **0.55 / 0.8** | 23.1 | **+1.6 reconciled** | **10.4 / 0.9 / 4.3 / 84.3** | **2.34 / 4.1** | 22.5 |
+| Appraisal's cost new, every other change | -1.7 reconciled | 13.6 / 0.9 / 4.1 / 81.5 | 0.88 / 1.2 | 22.9 | -2.1 reconciled | 10.1 / 0.9 / 4.1 / 84.9 | 2.61 / 4.7 | 22.5 |
+| Each alone: Total Incl O&P + GC O&P | +11.5 unreconciled | 15.6 / 1.1 / 4.7 / 78.7 | 0.97 / 1.5 | 24.6 | +10.5 unreconciled | 11.5 / 1.0 / 4.7 / 82.8 | 1.61 / 2.9 | 23.1 |
+
+Engineer: 14.4 / 0.4 / 5.1 / 80.2. Gap is B less RCNLD over B. Kind C rows: 8 produced, 7 in
+the engineer's bucket in every cell (Access Control, section 44). Regression line: the
+photo-visible rows are 35 evidenced / 35 bucket right (3A) and 35 / 34 (3B) in all 72 cells.
+With the production cell the allocation is no longer withheld: factor 1.022 (3A) and 1.017
+(3B) on RCNLD.
+
+**The pick.** Production: the square-foot model with all four changes. The sweep's
+bucket-error ranking (cells that reconcile on both exports) puts two cells first that skip the
+modifications (1.26 against 1.44 points mean, at a 9.5 % gap against 1.8 %): they price a
+six-bath, hot-water house as the book's base house, step 2 of the book's method left out,
+which is a defect kept rather than an alternative, and they are set aside as section 44 set
+aside the unsourced cells. Among the cells that apply every change, the square-foot model
+leads the appraisal's cost new (1.44 against 1.74 points; gaps 1.8 % and 1.9 %), so
+`STRUCTURE_RCN_SOURCE` keeps its default and its runner-up.
+
+### 49.4 Reading
+
+1. **The gap was the method, not the index or the depreciation.** Four sourced corrections,
+   each estimated before any code and each measured to within 0.1 point of its estimate, take
+   RCNLD from 14.2 % and 13.4 % below the basis to 2.0 % and 1.6 %: the RSMeans square-foot
+   method applied in full (7.8 points), the residual added back as the guide's residual
+   approach says (3.5-3.7), one cost basis for the itemized rows and the model (1.2), less the
+   double count the design doc had already ruled out (0.5-0.6). The depreciation rate and the
+   land were not touched, and nothing is scaled.
+2. **The 5-year side moved toward the engineer.** Once the itemized rows carry the installing
+   contractor's O&P and their share of the general contractor's, the 5-year share rises from
+   11.3 to 14.1 % on 3A (engineer 14.4 %) and 8.4 to 10.4 % on 3B; the bucket error falls from
+   2.06 to 0.55 points on 3A and 3.49 to 2.34 on 3B. On 3A, the study the engineer corrected at
+   every gate, every bucket is within 0.8 points of the engineer's.
+3. **A correct building addition can worsen the share score.** The modifications raise the
+   building's share past the engineer's (85.2 % on 3A before the pricing changes) because the 5-
+   and 15-year sides still lack what nobody measured (the driveway, walks and fences, the FF&E
+   without a cost row). In dollars the building moves toward the engineer's; the share metric
+   cannot tell the two apart, which is why the pick is not the metric's first row (49.3).
+4. **What got worse, reported rather than tuned.** The row-share distance rises 2.0 points on
+   3A and 0.7 on 3B: Interior Framing / Partitions falls to 7.2 % of the schedule (engineer
+   12.7 %: the itemized interiors now carry their general contractor's O&P instead of the
+   partition residual) and Plumbing rises to 7.7 % (engineer 5.2 %: the added baths' plumbing
+   at one national ratio), while the façade and framing rows move toward the engineer's.
+5. **What remains open.** The unmeasured site assets (a takeoff from the site plan or a
+   measurement at intake), per-class depreciation (the items' ages), permits and fees beyond
+   the model's "design" (no source in the corpus), the bath split's single ratio, and the
+   "Not Heated" alternative (its sign misprinted on the custom and luxury pages, not used).
+   One property decides this; `evals.gap_sweep` reruns on any export in seconds.
+
+### 49.5 Tests and gates
+
+`tests/unit/domain/test_structure.py` (all 18 models carry their page's modifications and one
+page's values as read; the UAD bath count and the ".5" decimal; heating and cooling to the
+page's alternative; the modifications in the building RCN, a deducted half bath, cooling in
+the ductwork the heating has, none on the appraisal's figure; `split_building` foots and puts
+each addition in its component; the Mechanical residual gives each addition to its row and
+keeps the ratio when a negative addition is too large; the small systems carved and the
+laterals not; the overhead markup per model and `inside_model`; a written residual is not an
+unassigned remainder; the causes say how rows were priced; the residual written and reported),
+`tests/unit/domain/test_cost_table.py` (Total Incl O&P, the conversion for a row without it
+and for the legacy rows, the markup recorded; the bare-basis tests pinned explicitly),
+`tests/unit/domain/test_rules_table.py` (the new row, contested, building, the version),
+`tests/unit/evidence/test_result.py` (the residual is never `not_produced`),
+`tests/unit/activities/test_process_assets.py` (a row inside the model carries the general
+contractor's O&P and an appliance does not, the residual row written, the four settings
+restore the behaviour before), `tests/lifecycle/test_intake_takeoff.py` (the fabricated house
+reconciles at a re-tuned price, as section 44 tuned it), and the counts of concealed rows (13
+to 14) across the API, export, lifecycle and failure tests. `tests/LEDGER.md` has each. Gates
+from `backEnd/`: see the PR for the tallies.
