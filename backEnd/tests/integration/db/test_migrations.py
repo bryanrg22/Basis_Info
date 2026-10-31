@@ -82,8 +82,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0018"
-HISTORY = [f"{n:04d}" for n in range(18, 0, -1)]  # "0018" .. "0001"
+HEAD = "0019"
+HISTORY = [f"{n:04d}" for n in range(19, 0, -1)]  # "0019" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}

@@ -171,6 +171,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         # The assets rebuild (docs/api/REPRICE.md)
         "GET /v1/studies/{study_id}/assets/reprice",
         "POST /v1/studies/{study_id}/assets/reprice",
+        # Internal system health for platform operators (docs/api/OPS_HEALTH.md)
+        "GET /v1/ops/health",
     }
 
 

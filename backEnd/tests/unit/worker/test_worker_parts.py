@@ -703,3 +703,64 @@ async def test_the_worker_refuses_to_start_without_the_model(
     assert probe.order == ["connect", "search_attributes", "deps", "warm_embedder"]
     assert "build_worker" not in probe.order and "polling" not in probe.order
     assert "will not start" in caplog.text
+
+
+class RecordingHeartbeat:
+    """Stands in for basis.ops.heartbeat.HeartbeatWriter: records the states written."""
+
+    instances: list[RecordingHeartbeat] = []
+
+    def __init__(self, sessionmaker: Any, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.states = ["starting"]
+        self.reports: list[dict[str, Any]] = []
+        RecordingHeartbeat.instances.append(self)
+
+    def start(self) -> None:
+        self.reports.append(self.kwargs["report"]())
+
+    def set_state(self, state: str) -> None:
+        self.states.append(state)
+        self.reports.append(self.kwargs["report"]())
+
+    async def stop(self, final_state: str = "stopped") -> None:
+        self.states.append(final_state)
+
+
+async def test_the_heartbeat_reports_cold_start_polling_and_shutdown(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import basis.worker.main as main
+
+    RecordingHeartbeat.instances = []
+    monkeypatch.setattr(main, "HeartbeatWriter", RecordingHeartbeat)
+    load = ModelLoad(model="test/warmable", revision="r1", source="cache", seconds=2.0)
+    probe = StartupProbe(monkeypatch, Warmable(load))
+    task = asyncio.create_task(probe.run(settings))
+    while "polling" not in probe.order:
+        await asyncio.sleep(0.01)
+    probe.stop.set()
+    await asyncio.wait_for(task, 5)
+    [beat] = RecordingHeartbeat.instances
+    assert beat.kwargs["service"] == "worker" and beat.kwargs["build_sha"] == settings.git_sha
+    assert beat.states == ["starting", "warming", "polling", "draining", "stopped"]
+    assert beat.reports[0] == {}  # before the deps exist there is nothing to report
+    warming, polling = beat.reports[1], beat.reports[2]
+    assert warming["embedder"]["status"] == "warming"
+    assert polling["embedder"] == {**polling["embedder"], "status": "ready", "source": "cache"}
+    assert polling["reference_index"]["status"] == "no_corpus"  # the fake warms nothing
+
+
+async def test_the_heartbeat_reports_a_failed_start(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import basis.worker.main as main
+
+    RecordingHeartbeat.instances = []
+    monkeypatch.setattr(main, "HeartbeatWriter", RecordingHeartbeat)
+    probe = StartupProbe(monkeypatch, Warmable(error=OSError("no model")))
+    with pytest.raises(OSError):
+        await asyncio.wait_for(probe.run(settings), 5)
+    [beat] = RecordingHeartbeat.instances
+    assert beat.states == ["starting", "warming", "failed"]
+    assert beat.reports[-1]["embedder"]["status"] == "warming"

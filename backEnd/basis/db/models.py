@@ -1243,3 +1243,33 @@ class CostIndexRun(Base):
     request_id: Mapped[str | None]
     detail: Mapped[Any | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
+
+
+class ServiceHeartbeat(Base):
+    """The latest heartbeat of one worker or relay process (migration
+    ``0019_service_heartbeats``), read by ``GET /v1/ops/health``.
+
+    One row per process start (``id`` is a random id, never the host name), upserted
+    every ``OPS_HEARTBEAT_SECONDS`` and on every state change. ``state`` is the process's
+    lifecycle (``starting``, ``warming``, ``polling``, ``draining``, ``stopped``, ``failed``);
+    ``report`` is what the process reports about its effective runtime (models and their
+    provider routes, adapters, warm-up, provider probe results), sanitized when written: no
+    keys, endpoints, host names or provider error text. A process prunes its service's rows
+    older than a day.
+    """
+
+    __tablename__ = "service_heartbeats"
+    __table_args__ = (
+        CheckConstraint("service IN ('worker', 'relay')", name="service_valid"),
+        Index(None, "service", "heartbeat_at"),
+    )
+
+    # The process's own random id (never the host name).
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    service: Mapped[str]
+    build_sha: Mapped[str]
+    state: Mapped[str]
+    started_at: Mapped[datetime]
+    heartbeat_at: Mapped[datetime]
+    report: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()

@@ -5926,6 +5926,83 @@
           }
         }
       }
+    },
+    "/v1/ops/health": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Internal system health for platform operators",
+        "description": "Every infrastructure dependency, provider and processing capability with the evidence behind its status. Platform operators only (`OPS_OPERATOR_UIDS`); a firm role never grants access. Read-only: no inference, prediction or document analysis. Cached for 10 s per API process. See docs/api/OPS_HEALTH.md.",
+        "operationId": "ops_health_v1_ops_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsHealthOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The same document, when a required service is `down`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsHealthOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -11481,6 +11558,37 @@
         "title": "LandMethod",
         "description": "Where the land figure comes from, in the spec's order of preference (5.2). The\nassessor's ratio is not a method (never alone: ATG p.64) and there is no residual."
       },
+      "LastInferenceOut": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "chat",
+              "document_analysis",
+              "localization",
+              "segmentation"
+            ],
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "model",
+          "kind"
+        ],
+        "title": "LastInferenceOut",
+        "description": "The latest successful paid call the ledger recorded for this service: evidence of\ninference, separate from the metadata probe that sets ``status``."
+      },
       "LocalizationOut": {
         "properties": {
           "status": {
@@ -11851,6 +11959,28 @@
           "reason"
         ],
         "title": "NotProducedOut"
+      },
+      "OpsHealthOut": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceHealthOut"
+            },
+            "type": "array",
+            "title": "Services"
+          }
+        },
+        "type": "object",
+        "required": [
+          "services"
+        ],
+        "title": "OpsHealthOut"
       },
       "OrgRole": {
         "type": "string",
@@ -13537,6 +13667,160 @@
         ],
         "title": "ScheduleOut",
         "description": "The revision's replacement-cost schedule, with or without an intake."
+      },
+      "ServiceHealthOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "api",
+              "db",
+              "temporal",
+              "worker",
+              "relay",
+              "storage",
+              "firebase",
+              "openai",
+              "azure_openai",
+              "anthropic",
+              "replicate",
+              "azure_di",
+              "appraisal",
+              "vision",
+              "sam3",
+              "mask2former",
+              "room_inventory",
+              "embeddings",
+              "retrieval",
+              "classification",
+              "takeoff",
+              "structure",
+              "rsmeans",
+              "cost_indices",
+              "exports"
+            ],
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "down",
+              "unknown",
+              "disabled"
+            ],
+            "title": "Status",
+            "description": "`disabled`: an optional dependency the effective configuration does not use. Evidence past `expires_at` is reported `unknown`."
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At",
+            "description": "When the evidence was gathered (a heartbeat, a probe, this request's check). Not refreshed when a cached answer is served. Null when nothing was checked."
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At",
+            "description": "When the evidence stops standing."
+          },
+          "check_kind": {
+            "type": "string",
+            "enum": [
+              "probe",
+              "heartbeat",
+              "model_run",
+              "configuration"
+            ],
+            "title": "Check Kind",
+            "description": "`configuration` alone is never `healthy`."
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "description": "Whether studies need it under the effective settings."
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "What the check established; never secrets or raw errors."
+          },
+          "adapter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter",
+            "description": "The implementation in effect."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "The model or deployment in effect, as the worker runs it."
+          },
+          "last_inference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastInferenceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "checked_at",
+          "expires_at",
+          "check_kind",
+          "latency_ms",
+          "required",
+          "detail",
+          "adapter",
+          "model"
+        ],
+        "title": "ServiceHealthOut"
       },
       "SignedUploadOut": {
         "properties": {

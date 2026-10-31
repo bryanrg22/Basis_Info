@@ -12,6 +12,11 @@
   ``TEMPORAL_WORKER_VERSIONING`` is true, with deployment ``temporal_deployment_name`` and
   build id ``temporal_build_id`` (default: the git sha).
 * ``/health`` on ``:8080`` for the Cloud Run worker-pool startup probe.
+* A ``service_heartbeats`` row (:mod:`basis.ops.heartbeat`) every ``OPS_HEARTBEAT_SECONDS``
+  from before the warm-up (``starting``, ``warming``, ``polling``, ``draining``,
+  ``stopped``/``failed``) with the effective runtime (:func:`build_runtime`), and the free
+  provider metadata probes every ``OPS_PROVIDER_PROBE_SECONDS``: what ``GET /v1/ops/health``
+  reports about the worker.
 * The embedding model is loaded before polling starts (:func:`warm_embedder`; EVAL_REPORT
   section 39): on a fresh container the first ``ingest_appraisal`` used to load it inside
   the activity, 187 s on a cold cache against a 30 s heartbeat timeout, and the stage
@@ -33,6 +38,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import uuid
 from collections.abc import Callable, Sequence
 from datetime import timedelta
 from typing import Any, Final
@@ -56,11 +62,15 @@ from basis.llm import prompts
 from basis.llm.cost import is_anthropic_model
 from basis.llm.pool import ProviderPool, unserved_models
 from basis.obs.logging import configure_logging
+from basis.ops.heartbeat import HeartbeatWriter, State
+from basis.ops.runtime import WorkerRuntime
 from basis.retrieval import default_retrieval
+from basis.retrieval.embed import ModelLoad
 from basis.retrieval.store import PostgresChunkStore, warm_latest_reference
 from basis.temporal.client import build_id, connect
 from basis.vision import fusion, room_step, surface_crops
 from basis.vision.analyze import prompts_for_mode
+from basis.vision.localize import google_id_token, static_token
 from basis.vision.localizer_config import build_localizer
 from basis.vision.surface_segmenter import SurfaceSegmenter, build_segmenter
 from basis.worker.health import HealthServer
@@ -84,6 +94,13 @@ OPENAI_VARS: Final = (
 logger = logging.getLogger("basis.worker")
 
 DepsFactory = Callable[[Settings, AsyncEngine], Deps]
+
+
+class IndexWarmFailed:
+    """:func:`warm_reference_index` could not build the index (logged)."""
+
+
+INDEX_WARM_FAILED: Final = IndexWarmFailed()
 
 
 def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
@@ -127,20 +144,8 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         settings.vision_fusion_reasoning_effort,
         fusion.TABLE_VERSION,
     )
-    rooms: room_step.RoomStepConfig | None = None
-    if settings.room_reconcile:
-        rooms = room_step.load_config(
-            prompt_version=settings.room_prompt_version,
-            model=settings.room_model,
-            reasoning_effort=settings.room_reasoning_effort,
-            single_photo=settings.room_single_photo,
-            materials=settings.room_materials,
-            mode=settings.room_step_mode,
-            room_call_model=settings.room_call_model,
-            room_call_reasoning_effort=settings.room_call_reasoning_effort,
-            materials_model=settings.room_materials_model,
-            materials_reasoning_effort=settings.room_materials_reasoning_effort,
-        )
+    rooms = room_config(settings)
+    if rooms is not None:
         logger.info(
             "room step: %s on %s at effort %s, one-photo rooms %s, second look %s (%s on %s "
             "at effort %s)",
@@ -233,6 +238,25 @@ def build_deps(settings: Settings, engine: AsyncEngine) -> Deps:
         chunk_store=PostgresChunkStore(sessionmaker, registry=retrieval.registry),
         localizer=localizer,
         segmenter=build_surface_segmenter(settings),
+    )
+
+
+def room_config(settings: Settings) -> room_step.RoomStepConfig | None:
+    """The room step's configuration (prompts loaded and checked), or None when
+    ``ROOM_RECONCILE`` is off."""
+    if not settings.room_reconcile:
+        return None
+    return room_step.load_config(
+        prompt_version=settings.room_prompt_version,
+        model=settings.room_model,
+        reasoning_effort=settings.room_reasoning_effort,
+        single_photo=settings.room_single_photo,
+        materials=settings.room_materials,
+        mode=settings.room_step_mode,
+        room_call_model=settings.room_call_model,
+        room_call_reasoning_effort=settings.room_call_reasoning_effort,
+        materials_model=settings.room_materials_model,
+        materials_reasoning_effort=settings.room_materials_reasoning_effort,
     )
 
 
@@ -376,7 +400,7 @@ def build_worker(
     )
 
 
-async def warm_embedder(deps: Deps) -> None:
+async def warm_embedder(deps: Deps) -> ModelLoad | None:
     """Load the embedding model (and encode once) before the worker polls, so no activity
     pays the load: ``ingest_appraisal`` embeds every chunk of the appraisal and
     ``process_assets`` embeds its evidence queries, both under a 30 s heartbeat timeout.
@@ -398,7 +422,7 @@ async def warm_embedder(deps: Deps) -> None:
         raise
     if load is None:
         logger.info("embedder %s needs no warm-up", embedder.name)
-        return
+        return None
     logger.info(
         "embedding model warm: %s from %s in %.1f s",
         load.model,
@@ -411,17 +435,22 @@ async def warm_embedder(deps: Deps) -> None:
             "seconds": round(load.seconds, 2),
         },
     )
+    return load
 
 
-async def warm_reference_index(deps: Deps) -> None:
-    """Build the reference BM25 index now so the first classification is not cold."""
+async def warm_reference_index(deps: Deps) -> uuid.UUID | None | IndexWarmFailed:
+    """Build the reference BM25 index now so the first classification is not cold.
+
+    Returns the corpus version warmed, None when no reference corpus is published, or
+    :data:`INDEX_WARM_FAILED` (logged; the index is then built on first use)."""
     registry = deps.retrieval_deps().registry
     try:
         version = await warm_latest_reference(deps.sessionmaker, registry)
     except Exception:  # never block startup: the index is built on first use instead
         logger.warning("could not warm the reference BM25 index", exc_info=True)
-        return
+        return INDEX_WARM_FAILED
     logger.info("reference BM25 index warm", extra={"corpus_version_id": str(version)})
+    return version
 
 
 def metrics_runtime(port: int) -> Runtime:
@@ -450,13 +479,41 @@ async def run_worker(
     if settings.temporal_api_key is None:
         await ensure_search_attributes(client)
     engine = create_engine(settings)
+    # The heartbeat GET /v1/ops/health reads: written from here on, so a cold start (the
+    # embedder loading) is visible as "warming" rather than as a missing worker.
+    runtime: WorkerRuntime | None = None
+    heartbeat = HeartbeatWriter(
+        create_sessionmaker(engine),
+        service="worker",
+        build_sha=settings.git_sha,
+        interval_s=settings.ops_heartbeat_seconds,
+        report=lambda: runtime.report() if runtime is not None else {},
+    )
+    heartbeat.start()
+    probing: asyncio.Task[None] | None = None
+    final_state: State = "failed"
     try:
         deps = deps_factory(settings, engine)
-        await warm_embedder(deps)  # refuses to start without the model
-        await warm_reference_index(deps)
+        runtime = build_runtime(settings, deps)
+        probing = asyncio.create_task(runtime.probe_loop(), name="worker-provider-probes")
+        embedder_name = deps.retrieval_deps().embedder.name
+        runtime.embedder_warming(embedder_name)
+        heartbeat.set_state("warming")
+        try:
+            load = await warm_embedder(deps)  # refuses to start without the model
+        except Exception:
+            runtime.embedder_failed(embedder_name)
+            raise
+        runtime.embedder_warmed(load, embedder_name)
+        index = await warm_reference_index(deps)
+        if index is INDEX_WARM_FAILED:
+            runtime.reference_failed()
+        else:
+            runtime.reference_warmed(index)
         worker = build_worker(client, settings, deps)
         polling = asyncio.create_task(worker.run())
         health.status = "ok"
+        heartbeat.set_state("polling")
         logger.info(
             "worker started",
             extra={
@@ -477,6 +534,7 @@ async def run_worker(
         stopping = asyncio.create_task(stop.wait())
         done, _ = await asyncio.wait({polling, stopping}, return_when=asyncio.FIRST_COMPLETED)
         health.status = "draining"
+        heartbeat.set_state("draining")
         if polling in done:
             stopping.cancel()
             polling.result()  # the worker failed: raise its error
@@ -486,9 +544,32 @@ async def run_worker(
             with contextlib.suppress(asyncio.CancelledError):
                 await polling
         logger.info("worker stopped")
+        final_state = "stopped"
     finally:
+        if probing is not None:
+            probing.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await probing
+        await heartbeat.stop(final_state)
         await engine.dispose()
         await health.stop()
+
+
+def build_runtime(settings: Settings, deps: Deps) -> WorkerRuntime:
+    """What this worker reports in its heartbeat: the models its pipeline calls with their
+    provider routes, the adapters it built, the cost table (``basis.ops.runtime``)."""
+    token = None
+    if settings.localizer_url and settings.ops_probe_localizer:
+        if settings.localizer_token is not None and settings.localizer_token.get_secret_value():
+            token = static_token(settings.localizer_token.get_secret_value())
+        elif settings.localizer_google_auth:
+            token = google_id_token(settings.localizer_url)
+    return WorkerRuntime(
+        deps,
+        pipeline_models(settings, room_config(settings)),
+        cost_table=cost_table_for(settings.cost_table_path),
+        localizer_token=token,
+    )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

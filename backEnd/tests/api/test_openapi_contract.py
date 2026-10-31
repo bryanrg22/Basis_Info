@@ -110,6 +110,10 @@ def operations() -> Iterator[tuple[str, str, dict[str, Any]]]:
             yield method.upper(), path, operation
 
 
+# Its 503 is the health document itself, like /health's (docs/api/OPS_HEALTH.md section 2).
+HEALTH_DOCUMENT_503 = {("GET", "/v1/ops/health")}
+
+
 @pytest.mark.parametrize(("method", "path", "operation"), list(operations()))
 def test_every_error_response_is_a_problem(
     method: str, path: str, operation: dict[str, Any]
@@ -118,6 +122,11 @@ def test_every_error_response_is_a_problem(
     if path.startswith("/v1/"):
         assert {"401", "422", "429", "503"} <= set(errors), f"{method} {path}"
     for code, spec in errors.items():
+        if code == "503" and (method, path) in HEALTH_DOCUMENT_503:
+            assert spec["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/OpsHealthOut"
+            }
+            continue
         assert spec["content"] == {PROBLEM_JSON: {"schema": {"$ref": PROBLEM_REF}}}, code
     assert "HTTPValidationError" not in json.dumps(operation)
 
