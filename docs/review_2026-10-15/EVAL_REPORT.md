@@ -7373,10 +7373,13 @@ file-name rows are a regression, not out-of-sample evidence; the 30 other names 
   and the classifier's context, so rooms whose type changed here (the basement bedrooms, the
   mechanical room, a seating area, an entrance) will get different room-step and convention
   keys; neither was rerun (both are paid or need a live study).
-* **Approval with unplaced photos**: this branch does not add the "every photo in a room before
-  Rooms approval" guard; the separate room-management work (not yet on main) implements it at
-  `POST /decisions`, and the rooms written here are compatible with its rule (no assignment, or
-  the room named exactly `Unassigned`).
+* **Not delivered: "every photo must be in a room before Rooms approval."** This change does
+  not add that guard; it depends on integrating the separate, uncommitted room-management work
+  (its hand-over note `ROOM_MANAGEMENT_HANDOFF.md`), which implements it at `POST /decisions`,
+  and that integration is Bryan's decision. Until then a Rooms review can still be approved
+  with photos unplaced. Where this change decides whether a photo is placed (`initial_rooms`,
+  `evals.room_metadata`) it uses that work's rule: no assignment, or the room named exactly
+  `Unassigned`.
 * Floors written as words ("Second Floor", "Floor 2", "Ground Floor") are not read, so such
   a name keeps its words and the floor comes from the photos or stays null; the room key rule
   is the labeller's and was not changed.
