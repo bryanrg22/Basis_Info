@@ -247,7 +247,7 @@ async def test_exterior_rooms_keep_the_reconcile_path_in_room_call_mode(
         next(n for n, r in rooms.items() if r.id == c.room_id): c.raw
         for c in await inventory(step, seeded.study_id)
     }
-    kitchen, exterior_raw = by_room["1st Floor Kitchen"], by_room["Exterior"]
+    kitchen, exterior_raw = by_room["Kitchen"], by_room["Exterior"]
     assert (kitchen["path"], kitchen["step"]) == ("room_call", "room_call")
     assert (exterior_raw["path"], exterior_raw["step"]) == ("reconcile", "model")
     assert exterior_raw["prompt_version"] == "room_inventory/v3"
