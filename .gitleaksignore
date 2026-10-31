@@ -6,3 +6,5 @@ e7efbb2bc628904fdf6665fb66c578747f875122:backEnd/tests/unit/config/test_settings
 # detect-secrets baseline entries (SHA-1 hashes of reviewed MISMO xPath strings in the generated UAD 3.6 map).
 b421b0a78127f3b1cd80c8be3bc9c831be97dd29:.secrets.baseline:generic-api-key:167
 b421b0a78127f3b1cd80c8be3bc9c831be97dd29:.secrets.baseline:generic-api-key:174
+# An error-code constant whose name ends in KEY (CORRECT_FIELD_ADD_UNKNOWN_KEY = "BASIS-CORRECT-034").
+3c00e367996229b87619e5b69670e5cef53c975a:backEnd/basis/errors/codes.py:generic-api-key:237
