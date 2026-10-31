@@ -8,7 +8,9 @@ of photos, with the providers configured in the environment:
    (``--per-photo-repeat``, default 1) of an earlier ``evals.predict_photos`` run read
    from ``DIR/photo_raw.jsonl`` (no per-photo calls);
 2. grouping: :func:`basis.vision.rooms.group_photos` (file names, ``--aliases FILE`` =
-   ``{"view room_id": "room_id"}``, room type voted by the per-photo model);
+   ``{"view room_id": "room_id"}``; name, type and floor by
+   :func:`basis.vision.rooms.resolve_room`: the type the name says, else the per-photo
+   model's vote);
 3. the deterministic baseline :func:`basis.vision.reconcile.heuristic_merge` per room;
 4. the reconciliation call :func:`basis.vision.reconcile.reconcile_room` per room,
    ``--repeats N`` times (the per-photo analyses are shared by the repeats, so the

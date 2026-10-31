@@ -13,9 +13,10 @@ matched ``bath`` to ``bathroom`` but also ``hall`` to ``hallway`` and ``office_k
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Final
+from typing import Any, Final
 
 # ROOM_ALIASES and normalize_room_type live in basis.domain.rules, whose lookup needs the
 # room type (importing this module from there would be a cycle); re-exported here so the
@@ -334,3 +335,46 @@ def typical_area_sf(room_type: str | None, property_class: str) -> tuple[Decimal
     known = areas.get(name)
     _, typical, _ = known if known is not None else DEFAULT_AREA_SF
     return Decimal(typical), known is not None
+
+
+# --------------------------------------------------------------------------- room corrections
+# A ``room`` correction's values (``name``, ``room_type``, ``floor``; ``merge_into`` is checked
+# by ``apply_corrections``). The decision route refuses what ``apply_corrections`` would, so a
+# bad value is a 422 instead of a rejection that starts the next revision without any of its
+# corrections; a floor sent as a number is stored as its text (``rooms.floor`` is text: "0"
+# is the basement).
+ROOM_TEXT_LIMITS: Final = {"name": 120, "room_type": 64, "floor": 64}
+FLOOR_RANGE: Final = range(-3, 201)  # the per-photo model's range (PhotoAnalysis.floor)
+
+
+def room_field_problems(after: Mapping[str, Any]) -> list[str]:
+    """What is wrong with a ``room`` correction's ``name``, ``room_type`` and ``floor``."""
+    problems = []
+    for key in ("name", "room_type"):
+        if key in after:
+            value = after[key]
+            limit = ROOM_TEXT_LIMITS[key]
+            if not isinstance(value, str) or not value.strip() or len(value) > limit:
+                problems.append(f"{key} must be text of 1 to {limit} characters")
+    if "floor" in after:
+        try:
+            stored_floor(after["floor"])
+        except ValueError as exc:
+            problems.append(str(exc))
+    return problems
+
+
+def stored_floor(value: Any) -> str | None:
+    """A corrected floor as ``rooms.floor`` stores it: null, the text as given (trimmed), or
+    a whole number as its text (``0`` -> ``"0"``). Anything else raises ``ValueError``."""
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value not in FLOOR_RANGE:
+            low, high = FLOOR_RANGE.start, FLOOR_RANGE.stop - 1
+            raise ValueError(f"floor {value} is outside {low}..{high}")
+        return str(value)
+    limit = ROOM_TEXT_LIMITS["floor"]
+    if isinstance(value, str) and value.strip() and len(value) <= limit:
+        return value.strip()
+    raise ValueError(f"floor must be null, a whole number or text of 1 to {limit} characters")

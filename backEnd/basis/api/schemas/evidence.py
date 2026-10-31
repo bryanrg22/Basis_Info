@@ -47,9 +47,22 @@ class CitationEvidenceOut(CitationOut):
 
 class RoomRefOut(ResponseModel):
     id: uuid.UUID
-    name: str
-    room_type: str
-    floor: str | None
+    name: str = Field(
+        description="What the room is called: the engineer's file name without the floor it "
+        "starts with (`2nd Floor Bed 2` is `Bed 2` on floor `2`), the model's room identity "
+        "(`Bedroom 2`), or the engineer's correction. Two rooms on different floors may share "
+        "a name; `floor` tells them apart. Rooms grouped before 2026-10-30 keep the floor in "
+        "the name."
+    )
+    room_type: str = Field(
+        description="The room type (`kitchen`, `bathroom`, ... `ambiguous`: not known yet): "
+        "what the name says, else the per-photo model's vote, else the engineer's correction."
+    )
+    floor: str | None = Field(
+        description="The floor: `0` is the basement, `1` the ground floor; null when no file "
+        "name, photo or engineer says it (never guessed: a room grouped by file name as "
+        "exterior or parking takes no floor from the photos)."
+    )
 
 
 class EvidencePhotoOut(ResponseModel):

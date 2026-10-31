@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-221 codes in 19 areas.
+222 codes in 19 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -250,6 +250,7 @@ stale).
 | `BASIS-CORRECT-024` | error | apply_corrections; `basis.activities.apply_corrections` | The study is gone while merges are recorded. | `ValidationError: ... [BASIS-CORRECT-024]`. (Temporal `ValidationError`) | Operator: the study was deleted. | no |
 | `BASIS-CORRECT-025` | error | apply_corrections; `basis.activities.apply_corrections` | A `room` or `component` target is not in the rejected revision. | `ValidationError: <kind> ... is not in the rejected revision [BASIS-CORRECT-025]`. (Temporal `ValidationError`) | Use the ids of the decided revision. | no |
 | `BASIS-CORRECT-026` | outcome | a rejection; `basis.workflow.study_workflow` | `apply_corrections` refused the batch (one of the CORRECT errors above): the revision started without any correction and the gate asks again. | `needs_review_stages` names the gate; the `corrections.refused` event carries the code of the refusal. | Decide again with the corrections fixed. | yes |
+| `BASIS-CORRECT-027` | error | corrections; `basis.domain.rooms` | A `room` correction's `name` or `room_type` is not non-empty text, or its `floor` is neither text, a whole number nor null. | `ValidationError: <problems> [BASIS-CORRECT-027]`. (Temporal `ValidationError`) | Send text (`"Guest Bedroom"`, `"bedroom"`), a floor as `"2"`, `2` or null. | no |
 
 ## ASSETS: process_assets
 

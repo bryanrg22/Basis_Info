@@ -4,6 +4,8 @@ Room identity within a study revision is ``(room_type, floor, ordinal)``:
 
 * ``room_type`` is the normalized enum value; ``floor`` is the model's hint as text
   (``None`` when not visible); ``ordinal`` is 1 unless the photo itself shows otherwise.
+  (This is the identity of a photo whose file name says nothing; a file-name room is keyed
+  by its ``group_key`` instead.)
 * The room's display name encodes the ordinal ("Bedroom", "Bedroom 2"); the floor is in
   its own column, so the kitchen on floor 1 and the one on floor 2 are two rows both
   named "Kitchen".
@@ -32,10 +34,21 @@ Production grouping (EVAL_REPORT sections 23.3 and 27): with ``ROOM_GROUPING=fil
 after the study's ``room_aliases`` (:func:`assign_room_by_name`; the room's ``group_key``
 is the canonical file-name room id); a photo whose name says nothing (``IMG_1234.JPG``)
 falls back to the model's room identity (:func:`assign_room`). ``reconcile_rooms`` then
-re-votes each file-name room's type and floor from its photos (:func:`vote_identity`), so
-the rooms are :func:`group_photos`'s. Merging rooms at the rooms review (a ``room``
-correction with ``merge_into``) records the merge as an alias (:func:`merge_alias`), so a
-photo re-analyzed later joins the merged room.
+resolves each file-name room's type and floor again from all of its photos
+(:func:`resolve_room`), so the rooms are :func:`group_photos`'s, and
+:func:`initial_rooms` is the whole result as a function (what ``evals.room_metadata``
+scores). Merging rooms at the rooms review (a ``room`` correction with ``merge_into``)
+records the merge as an alias (:func:`merge_alias`), so a photo re-analyzed later joins the
+merged room.
+
+A file-name room's three fields are independent (EVAL_REPORT section 48): the ``name`` is
+the file name without the floor prefix the rule identified (:func:`room_name`: ``"2nd Floor
+Bed 2"`` is ``"Bed 2"`` on floor ``"2"``, the ordinal kept); the ``room_type`` is what that
+name says (:func:`name_room_type`), else the per-photo answers' vote, a photo with no
+component included (``photo_room_answers``); the ``floor`` is the file name's, else none for
+the grounds, else the answers', else ``None`` (``"0"`` is the basement). Rooms are never
+merged because their names or types match; a room a reviewer corrected is never voted or
+renamed.
 """
 
 from __future__ import annotations
@@ -289,26 +302,18 @@ def _token_order(token: str) -> tuple[int, int]:
     return (2, 0)
 
 
-def _vote_room_type(photos: Sequence[PhotoInput]) -> RoomType:
-    """Majority of the model's room types; ties go to the earliest photo among the tied.
+def _vote_types(answers: Sequence[RoomType]) -> RoomType:
+    """Majority of the model's room types; ties go to the earliest answer among the tied.
 
     ``ambiguous`` is an abstention, not a vote: it wins only when nothing else was
-    answered. No analyses at all -> ``other``.
+    answered. No answers at all -> ``other``.
     """
-    return _vote_types([p.analysis.room_type for p in photos if p.analysis is not None])
-
-
-def _vote_types(answers: Sequence[RoomType]) -> RoomType:
     if not answers:
         return RoomType.OTHER
     votes: list[RoomType] = [a for a in answers if a is not RoomType.AMBIGUOUS] or list(answers)
     counts = Counter(votes)
     best = max(counts.values())
     return next(a for a in votes if counts[a] == best)
-
-
-def _model_floor(photos: Sequence[PhotoInput]) -> int | None:
-    return _vote_floor([p.analysis.floor for p in photos if p.analysis is not None])
 
 
 def _vote_floor(answers: Sequence[int | None]) -> int | None:
@@ -320,6 +325,205 @@ def _vote_floor(answers: Sequence[int | None]) -> int | None:
     return next(f for f in floors if counts[f] == best)
 
 
+# --------------------------------------------------------------------------- room metadata
+
+# A room's name, type and floor are three fields, each from its own evidence (EVAL_REPORT
+# section 48), as the RESO Data Dictionary keeps a listing's RoomType ("Bedroom 2") and
+# RoomLevel ("Second", "Basement") apart. The file name an engineer gave the photo names the
+# room; the per-photo model sees one frame of it.
+
+# Room words in a file name, by the type they name (lowercase words, phrases space-joined).
+# Common US residential and small-commercial terms, the RESO RoomType lookup's among them;
+# a word not listed says nothing. A phrase is matched before its words ("parking garage" is
+# parking, not garage; "living room" before "living").
+ROOM_TERMS: Final[Mapping[str, RoomType]] = {
+    **dict.fromkeys(("kitchen", "kitchenette"), RoomType.KITCHEN),
+    **dict.fromkeys(
+        (
+            "bath", "baths", "bathroom", "bathrooms", "restroom", "washroom", "lavatory",
+            "toilet", "wc", "shower", "tub", "bathtub", "powder room", "en suite", "ensuite",
+        ),
+        RoomType.BATHROOM,
+    ),
+    **dict.fromkeys(
+        ("bed", "beds", "bedroom", "bedrooms", "bdrm", "bedrm", "nursery", "guest room"),
+        RoomType.BEDROOM,
+    ),
+    **dict.fromkeys(
+        ("living", "living room", "great room", "lounge", "sitting room", "parlor", "parlour"),
+        RoomType.LIVING_ROOM,
+    ),
+    **dict.fromkeys(
+        ("dining", "dining room", "breakfast nook", "breakfast area", "breakfast room"),
+        RoomType.DINING_ROOM,
+    ),
+    **dict.fromkeys(
+        (
+            "family", "family room", "den", "game room", "media room", "rec room",
+            "recreation room", "bonus room", "playroom", "play room",
+        ),
+        RoomType.FAMILY_ROOM,
+    ),
+    **dict.fromkeys(("laundry", "laundry room"), RoomType.LAUNDRY),
+    **dict.fromkeys(
+        (
+            "hall", "hallway", "corridor", "entry", "entryway", "entrance", "foyer",
+            "vestibule", "mudroom", "mud room",
+        ),
+        RoomType.HALLWAY,
+    ),
+    **dict.fromkeys(
+        ("stair", "stairs", "stairway", "staircase", "stairwell", "steps"), RoomType.STAIRWAY
+    ),
+    **dict.fromkeys(("closet", "closets"), RoomType.CLOSET),
+    "basement": RoomType.BASEMENT,
+    "attic": RoomType.ATTIC,
+    **dict.fromkeys(("garage", "carport"), RoomType.GARAGE),
+    **dict.fromkeys(("office", "study"), RoomType.OFFICE),
+    **dict.fromkeys(("lobby", "reception"), RoomType.LOBBY),
+    **dict.fromkeys(("storage", "storage room"), RoomType.STORAGE),
+    **dict.fromkeys(
+        ("parking garage", "parking deck", "parking structure"), RoomType.PARKING
+    ),
+    **dict.fromkeys(
+        (
+            "exterior", "outside", "outdoor", "outdoors", "property", "grounds", "site",
+            "yard", "backyard", "lawn", "garden", "landscaping", "patio", "deck", "porch",
+            "balcony", "shed", "gazebo", "pergola", "pool", "fence", "driveway", "sidewalk",
+            "roof", "facade", "elevation", "signage", "sign", "address", "condenser", "meter",
+            "ingress", "egress", "parking lot", "parking area",
+        ),
+        RoomType.EXTERIOR,
+    ),
+    **dict.fromkeys(
+        (
+            "mechanical", "mechanicals", "mechanical room", "utility", "utility room",
+            "furnace", "boiler", "hvac", "water heater", "electrical room",
+        ),
+        RoomType.MECHANICAL,
+    ),
+}  # fmt: skip
+_TERM_WORDS: Final = max(len(term.split()) for term in ROOM_TERMS)
+# Words after which the name says where the room is, not what it is ("Stairs to Garage",
+# "Access from 1st Floor", "Closet off Kitchen").
+LOCATORS: Final = frozenset(
+    {"to", "from", "of", "off", "by", "near", "with", "behind", "beside", "under", "above",
+     "over", "into", "toward", "towards", "between", "next"}
+)  # fmt: skip
+# Room types a floor does not apply to: the grounds and a surface lot are not on a level.
+NO_FLOOR_TYPES: Final = frozenset({RoomType.EXTERIOR, RoomType.PARKING})
+
+
+def room_name(filename: str) -> str:
+    """The room's name from a file name: :func:`display_name` without the floor prefix
+    :func:`name_hint` identified, which the floor field says (``"2nd Floor Bed 2"`` ->
+    ``"Bed 2"``, ``"Basement Bath"`` -> ``"Bath"``). The rest is kept as written, ordinal
+    and all. A name with no identified floor is :func:`display_name` (``"Mechanicals"``,
+    ``"Second Floor Bedroom"``: the rule reads only ``<n>st/nd/rd/th Floor`` and
+    ``Basement``), and so is a name that is only a floor (``"Basement.jpg"``)."""
+    shown = display_name(filename)
+    if name_hint(filename).floor is None:
+        return shown
+    prefix = _FLOOR_PREFIX.match(shown) or _BASEMENT_PREFIX.match(shown)
+    if prefix is None:  # pragma: no cover - name_hint matched the same remainder
+        return shown
+    rest = shown[prefix.end() :].strip(" -_,.:;")
+    return rest if any(c.isalnum() for c in rest) else shown
+
+
+def name_room_type(name: str) -> RoomType | None:
+    """The room type a room's name says, or ``None`` when it says none.
+
+    The name's words (letters only, lowercased; ordinals and numbers drop out) up to the
+    first locator word (:data:`LOCATORS`: ``"Stairs to Garage"`` is stairs) are matched
+    against :data:`ROOM_TERMS`, longest phrase first; the last match wins, as the head of an
+    English noun phrase comes last (``"Bed 2 Bath"`` is a bathroom, ``"Bed 3 Seating
+    Area"`` a bedroom: "seating area" is no room type). ``"Extra Area"``, ``"Access"``
+    and camera names say none.
+    """
+    words = re.findall(r"[a-z]+", name.lower())
+    for index, word in enumerate(words):
+        if index > 0 and word in LOCATORS:
+            words = words[:index]
+            break
+    found: RoomType | None = None
+    position = 0
+    while position < len(words):
+        for size in range(min(_TERM_WORDS, len(words) - position), 0, -1):
+            term = " ".join(words[position : position + size])
+            if term in ROOM_TERMS:
+                found = ROOM_TERMS[term]
+                position += size
+                break
+        else:
+            position += 1
+    return found
+
+
+@dataclass(frozen=True, slots=True)
+class RoomAnswer:
+    """One photo's answer about its room: the per-photo model's room type and floor."""
+
+    room_type: RoomType
+    floor: int | None = None
+
+
+def answer_of(analysis: PhotoAnalysis) -> RoomAnswer:
+    return RoomAnswer(room_type=analysis.room_type, floor=analysis.floor)
+
+
+@dataclass(frozen=True, slots=True)
+class RoomMetadata:
+    """A file-name room's name, type and floor, and where each came from (``sources``:
+    ``file_name``, ``model`` or ``none`` per field)."""
+
+    name: str
+    room_type: RoomType
+    floor: int | None
+    sources: Mapping[str, str]
+
+
+def resolve_room(name: str, files: Sequence[str], answers: Sequence[RoomAnswer]) -> RoomMetadata:
+    """A file-name room's metadata, each field from its own evidence.
+
+    ``name`` is the room's name (:func:`room_name` of the photo it is named after), ``files``
+    the room's photos in order, ``answers`` the per-photo model's answers of the room's
+    analyzed photos, a photo with no component included.
+
+    * ``room_type``: what the name says (:func:`name_room_type`), else the answers'
+      majority (``ambiguous`` abstains; no answer: ``other``);
+    * ``floor``: the first floor a member's file name gives (a room the name calls a
+      basement is ``0``), else none for a room type no floor applies to
+      (:data:`NO_FLOOR_TYPES`), else the answers' most common floor, else ``None``: an
+      unknown floor stays unknown. ``0`` is the basement, never dropped as falsy.
+
+    The name is returned as given: what the room is called is never voted.
+    """
+    sources = {"name": "file_name"}
+    named = name_room_type(name)
+    if named is not None:
+        room_type, sources["room_type"] = named, "file_name"
+    else:
+        room_type = _vote_types([a.room_type for a in answers])
+        sources["room_type"] = "model" if answers else "none"
+    floor = next((f for f in map(lambda f: name_hint(f).floor, files) if f is not None), None)
+    if floor is None and named is RoomType.BASEMENT:
+        floor = 0  # the room is the basement ("Unfinished Basement"): the level below grade
+    if floor is not None:
+        sources["floor"] = "file_name"
+    elif room_type in NO_FLOOR_TYPES:
+        sources["floor"] = "none"
+    else:
+        floor = _vote_floor([a.floor for a in answers])
+        sources["floor"] = "none" if floor is None else "model"
+    return RoomMetadata(name=name, room_type=room_type, floor=floor, sources=sources)
+
+
+def named_after(room_id: str, files: Sequence[str]) -> str:
+    """The first of ``files`` whose own file-name room id is ``room_id``, else the first."""
+    return next((f for f in files if name_hint(f).room_id == room_id), files[0])
+
+
 def group_photos(
     photos: Sequence[PhotoInput], aliases: Mapping[str, str] | None = None
 ) -> list[RoomGroup]:
@@ -327,36 +531,33 @@ def group_photos(
 
     ``aliases`` maps a view's room id to the room it belongs to (``2_bed_2_seating_area``
     -> ``2_bed_2``), resolved transitively by :func:`resolve_aliases` (a cycle raises).
-    Per room:
-
-    * ``photos`` keep the input order (the reconciliation call numbers images in it);
-    * ``room_type`` is the majority of the per-photo model's room types
-      (:func:`_vote_room_type`);
-    * ``floor`` is the first floor a file name gives, else the most common floor the model
-      reported (ties: the earliest photo), else ``None``;
-    * ``name`` is the readable file name of the first photo whose own id is the room id
-      (so an aliased view does not rename the room), else of the first photo.
+    Per room, ``photos`` keep the input order (the reconciliation call numbers images in
+    it) and the name, type and floor are :func:`resolve_room`'s, named after the first
+    photo whose own id is the room id (so an aliased view does not rename the room), from
+    the answers of the photos that have an analysis.
 
     Rooms are ordered by floor token (basement, 1, 2, ..., no floor) then by slug.
     """
     canonical = resolve_aliases(aliases or {})
-    members: dict[str, list[tuple[PhotoInput, NameHint]]] = {}
+    members: dict[str, list[PhotoInput]] = {}
     for photo in photos:
-        hint = name_hint(photo.file)
-        room_id = canonical.get(hint.room_id, hint.room_id)
-        members.setdefault(room_id, []).append((photo, hint))
+        room_id = name_hint(photo.file).room_id
+        members.setdefault(canonical.get(room_id, room_id), []).append(photo)
     groups: list[RoomGroup] = []
-    for room_id, entries in members.items():
-        inputs = tuple(p for p, _ in entries)
-        own = next((p for p, h in entries if h.room_id == room_id), inputs[0])
-        hint_floor = next((h.floor for _, h in entries if h.floor is not None), None)
+    for room_id, inputs in members.items():
+        files = [p.file for p in inputs]
+        meta = resolve_room(
+            room_name(named_after(room_id, files)),
+            files,
+            [answer_of(p.analysis) for p in inputs if p.analysis is not None],
+        )
         groups.append(
             RoomGroup(
                 room_id=room_id,
-                name=display_name(own.file),
-                floor=hint_floor if hint_floor is not None else _model_floor(inputs),
-                room_type=_vote_room_type(inputs),
-                photos=inputs,
+                name=meta.name,
+                floor=meta.floor,
+                room_type=meta.room_type,
+                photos=tuple(inputs),
             )
         )
 
@@ -411,9 +612,9 @@ def name_group(
     """The room :func:`group_photos` puts ``filename`` in, among the study's ``photo_files``.
 
     The group is computed from the file names alone (no analyses), so its ``room_id``,
-    ``name`` and file-name ``floor`` are exactly :func:`group_photos`'s; the room type and
-    a floor no file name gives are voted later from the photos' analyses
-    (:func:`vote_identity`). ``filename`` is added to ``photo_files`` if missing.
+    ``name`` and file-name ``floor`` are exactly :func:`group_photos`'s; the type and a floor
+    no file name gives come from :func:`resolve_room` with the photos' answers.
+    ``filename`` is added to ``photo_files`` if missing.
     """
     files = list(photo_files)
     if filename not in files:
@@ -427,20 +628,6 @@ def name_group(
     raise AssertionError(f"{filename} is in no group")  # pragma: no cover - by construction
 
 
-def vote_identity(
-    room_types: Sequence[str], floors: Sequence[int | None]
-) -> tuple[RoomType, int | None]:
-    """A file-name room's type and model floor from its photos' stored answers (in photo
-    order), by :func:`group_photos`'s rules; an unknown type string votes ``other``."""
-    types = []
-    for room_type in room_types:
-        try:
-            types.append(RoomType(room_type))
-        except ValueError:
-            types.append(RoomType.OTHER)
-    return _vote_types(types), _vote_floor(floors)
-
-
 async def assign_room_by_name(
     session: AsyncSession,
     *,
@@ -452,20 +639,98 @@ async def assign_room_by_name(
     analysis: PhotoAnalysis,
 ) -> tuple[uuid.UUID, bool]:
     """The room of the revision whose ``group_key`` is the photo's file-name room id after
-    the study's aliases, created if missing (named and floored as :func:`group_photos`
-    would; typed by this photo's answer until :func:`vote_identity` re-votes it)."""
+    the study's aliases, created if missing, named as :func:`group_photos` names it and
+    typed and floored by :func:`resolve_room` from this photo's answer; ``reconcile_rooms``'
+    vote then resolves the type and floor again from all of the room's photos. An existing
+    room is returned as it is (a reviewer's name, type and floor stand)."""
     group = name_group(filename, photo_files, aliases)
-    floor = group.floor if group.floor is not None else analysis.floor
+    meta = resolve_room(group.name, [p.file for p in group.photos], [answer_of(analysis)])
     room, created = await RoomRepository(session).get_or_create_by_group(
         study_id=study_id,
         revision=revision,
         group_key=group.room_id,
-        name=group.name,
-        room_type=analysis.room_type.value,
-        floor=None if floor is None else str(floor),
+        name=meta.name,
+        room_type=meta.room_type.value,
+        floor=None if meta.floor is None else str(meta.floor),
         source=SOURCE,
     )
     return room.id, created
+
+
+@dataclass(frozen=True, slots=True)
+class InitialRoom:
+    """A room as the Rooms review first shows it (:func:`initial_rooms`)."""
+
+    key: str | None  # the group key; None for a room keyed by the model's identity
+    name: str
+    room_type: str
+    floor: str | None  # as stored: "0" is the basement, None unknown
+    photos: tuple[str, ...]
+    unassigned: bool = False  # the Unassigned room: photos the engineer still has to place
+
+
+def initial_rooms(
+    photos: Sequence[PhotoInput],
+    aliases: Mapping[str, str] | None = None,
+    *,
+    by_name: bool = True,
+) -> list[InitialRoom]:
+    """The rooms the photo stage writes for a revision, before any review: what
+    ``analyze_photo`` assigns each photo and ``reconcile_rooms``' vote then resolves, as a
+    function of the file names, the aliases and the per-photo answers (no database).
+
+    A photo with no analysis (it failed) gets no room. With ``by_name`` (``ROOM_GROUPING=
+    filename``) a photo whose file name names a room (:func:`is_room_hint`) is in its
+    :func:`name_group` room, named after it, typed and floored by :func:`resolve_room` from
+    the answers of every analyzed photo in the room; any other photo is in the room of its
+    model identity (:func:`room_key`), and an ``ambiguous`` one in the Unassigned room.
+    File-name rooms come first in :func:`group_photos`'s order, then the identity rooms in
+    the order their first photo appears.
+    """
+    files = sorted(p.file for p in photos)
+    groups = {g.room_id: g for g in group_photos([PhotoInput(f) for f in files], aliases)}
+    canonical = resolve_aliases(aliases or {})
+    named: dict[str, list[PhotoInput]] = {}
+    identity: dict[RoomKey, list[PhotoInput]] = {}
+    for photo in sorted(photos, key=lambda p: p.file):
+        if photo.analysis is None:
+            continue
+        if by_name and is_room_hint(photo.file):
+            room_id = name_hint(photo.file).room_id
+            named.setdefault(canonical.get(room_id, room_id), []).append(photo)
+        else:
+            identity.setdefault(room_key(photo.analysis), []).append(photo)
+    rooms: list[InitialRoom] = []
+    for room_id, group in groups.items():
+        members = named.get(room_id)
+        if not members:
+            continue
+        meta = resolve_room(
+            group.name,
+            [p.file for p in members],
+            [answer_of(p.analysis) for p in members if p.analysis is not None],
+        )
+        rooms.append(
+            InitialRoom(
+                key=room_id,
+                name=meta.name,
+                room_type=meta.room_type.value,
+                floor=None if meta.floor is None else str(meta.floor),
+                photos=tuple(p.file for p in members),
+            )
+        )
+    for key, members in identity.items():
+        rooms.append(
+            InitialRoom(
+                key=None,
+                name=key.name,
+                room_type=key.room_type,
+                floor=key.floor,
+                photos=tuple(p.file for p in members),
+                unassigned=key.room_type == RoomType.AMBIGUOUS.value,
+            )
+        )
+    return rooms
 
 
 def merge_alias(aliases: Mapping[str, str], source: str, target: str) -> dict[str, str]:

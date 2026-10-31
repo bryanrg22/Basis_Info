@@ -11,9 +11,10 @@ import uuid
 from typing import Any
 
 from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from basis.db.models import Component, PhotoRoom, Room
+from basis.db.models import Component, PhotoRoom, PhotoRoomAnswer, Room
 
 
 class RoomRepository:
@@ -267,3 +268,42 @@ class RoomRepository:
         if document_id is not None:
             stmt = stmt.where(Component.document_id == document_id)
         return int((await self._session.scalar(stmt)) or 0)
+
+    async def record_answer(
+        self,
+        *,
+        study_id: uuid.UUID,
+        document_id: uuid.UUID,
+        revision: int,
+        room_type: str,
+        room_confidence: float | None,
+        floor: int | None,
+        room_ordinal: int,
+        analysis_uri: str | None,
+    ) -> None:
+        """The per-photo model's room answer for this analysis of the photo; a second write
+        for the same revision keeps the first (an activity re-executed after its commit)."""
+        await self._session.execute(
+            insert(PhotoRoomAnswer)
+            .values(
+                study_id=study_id,
+                document_id=document_id,
+                revision=revision,
+                room_type=room_type,
+                room_confidence=room_confidence,
+                floor=floor,
+                room_ordinal=room_ordinal,
+                analysis_uri=analysis_uri,
+            )
+            .on_conflict_do_nothing(index_elements=["document_id", "revision"])
+        )
+
+    async def answers(self, study_id: uuid.UUID, revision: int) -> dict[uuid.UUID, PhotoRoomAnswer]:
+        """Each photo's latest answer at or before ``revision`` (a photo carried unchanged
+        into a revision answered when it was last analyzed), by document."""
+        stmt = (
+            select(PhotoRoomAnswer)
+            .where(PhotoRoomAnswer.study_id == study_id, PhotoRoomAnswer.revision <= revision)
+            .order_by(PhotoRoomAnswer.document_id, PhotoRoomAnswer.revision)
+        )
+        return {a.document_id: a for a in (await self._session.scalars(stmt)).all()}

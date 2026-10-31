@@ -118,6 +118,9 @@ SPEC_TABLES = {
     "cost_index_runs": "id source trigger actor_type actor_id actor_name status started_at "
     "finished_at rows_added years_wanted years_added failures document_sha256 request_id "
     "detail",
+    # The per-photo model's room answer, once per analysis (migration 0017).
+    "photo_room_answers": "study_id document_id revision room_type room_confidence floor "
+    "room_ordinal analysis_uri",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -186,6 +189,7 @@ SPEC_COMPOSITE_FKS = {
     ("photo_localizations", ("study_id", "document_id"), "documents", ("study_id", "id")),
     ("photo_objects", ("study_id", "document_id"), "documents", ("study_id", "id")),
     ("object_prompts", ("study_id", "document_id"), "documents", ("study_id", "id")),
+    ("photo_room_answers", ("study_id", "document_id"), "documents", ("study_id", "id")),
 }
 
 SPEC_SIMPLE_FKS = {
@@ -256,6 +260,7 @@ SPEC_PRIMARY_KEYS = {
     "document_pages": ("document_id", "page_no"),
     "photo_rooms": ("document_id", "revision"),
     "photo_localizations": ("document_id", "revision"),
+    "photo_room_answers": ("document_id", "revision"),
     "classification_cache": ("org_id", "key"),
     "idempotency_keys": ("key",),
 }
@@ -299,6 +304,7 @@ SPEC_CHECKS = {
     "ck_cost_index_runs_actor_valid",
     "ck_cost_index_runs_status_valid",
     "ck_cost_index_runs_rows_added_nonnegative",
+    "ck_photo_room_answers_room_confidence_range",
 }
 
 SPEC_NOT_NULL = {
@@ -332,6 +338,7 @@ SPEC_NOT_NULL = {
     "cost_indices": "source series year region value as_of citation version obtained_at "
     "obtained_by_name",
     "cost_index_runs": "source trigger actor_type status started_at finished_at rows_added",
+    "photo_room_answers": "study_id document_id revision room_type room_ordinal",
 }
 
 STUDY_SCOPED = {
@@ -353,6 +360,7 @@ STUDY_SCOPED = {
     "photo_objects",
     "object_prompts",
     "study_events",
+    "photo_room_answers",
 }
 
 

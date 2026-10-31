@@ -1945,6 +1945,18 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Decide again with the corrections fixed.",
         "yes",
     ),
+    _e(
+        E.CORRECT_ROOM_FIELD,
+        "error",
+        "corrections",
+        "basis.domain.rooms",
+        "A `room` correction's `name` or `room_type` is not non-empty text, or its `floor` "
+        "is neither text, a whole number nor null.",
+        "`ValidationError: <problems> [BASIS-CORRECT-027]`.",
+        'Send text (`"Guest Bedroom"`, `"bedroom"`), a floor as `"2"`, `2` or null.',
+        "no",
+        temporal_type="ValidationError",
+    ),
     # ------------------------------------------------------------------ ASSETS
     _e(
         E.ASSETS_CORRECTION_TYPE,
