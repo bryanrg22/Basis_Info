@@ -40,7 +40,7 @@ from basis.classify.cache import (
 from basis.classify.router import Route, classify, route
 from basis.classify.schemas import CitationClaim
 from basis.db.enums import Bucket
-from basis.domain.rules import RULES_VERSION, RuleHit
+from basis.domain.rules import RuleHit, canonical_key, row_digests, rule_fingerprint
 from basis.llm.provider import ScriptedProvider
 
 
@@ -164,12 +164,18 @@ async def test_property_class_is_part_of_the_cache_key() -> None:
     assert route(component(), ctx) == Route("llm", None, None)
 
 
-def test_cache_key_has_six_parts_normalized_and_versioned() -> None:
+def test_cache_key_has_six_parts_normalized_and_fingerprinted() -> None:
     key = cache_key(" Garage Door ", "Steel", "Built-In", "residential_rental", "Garage")
-    assert key == f"garage_door|steel|built_in|garage|residential_rental|{RULES_VERSION}"
+    door_fp = rule_fingerprint("garage_door")
+    assert key == f"garage_door|steel|built_in|garage|residential_rental|{door_fp}"
     assert len(key.split("|")) == 6
-    # The room is normalized like the rules table's (aliases included); unknown is empty.
-    assert cache_key("x", None, None, "nonresidential") == f"x||||nonresidential|{RULES_VERSION}"
+    # The last part is the digest of the row the label resolves to (section 10.3); a
+    # garage door has no row.
+    assert door_fp == "r1-none" and canonical_key("garage_door") is None
+    assert rule_fingerprint("Carpet") == row_digests()["carpet"]
+    # The room is normalized like the rules table's (aliases included); unknown is empty;
+    # a label with no row has the "none" fingerprint.
+    assert cache_key("x", None, None, "nonresidential") == "x||||nonresidential|r1-none"
     assert cache_key("x", None, None, "nonresidential", "Restroom") == cache_key(
         "x", None, None, "nonresidential", "bathroom"
     )
@@ -263,10 +269,11 @@ async def test_no_rule_row_is_named_in_the_rationale() -> None:
 
 def test_tier_keys_most_specific_first() -> None:
     key = cache_key("fireplace", "wood", "permanent", "nonresidential", "living_room")
+    fp = rule_fingerprint("fireplace")
     assert tier_keys(key) == (
         ("exact", key),
-        ("label_room", f"fireplace|||living_room|nonresidential|{RULES_VERSION}"),
-        ("label", f"fireplace||||nonresidential|{RULES_VERSION}"),
+        ("label_room", f"fireplace|||living_room|nonresidential|{fp}"),
+        ("label", f"fireplace||||nonresidential|{fp}"),
     )
     # No room: the label-and-room tier would be the label tier, so it is not repeated.
     assert [t for t, _ in tier_keys(cache_key("fireplace", "wood", None, "nonresidential"))] == [
@@ -275,17 +282,16 @@ def test_tier_keys_most_specific_first() -> None:
     ]
     # A generic floor keeps its material (the rules table resolves it by material).
     floor = cache_key("flooring", "vinyl", "removable", "residential_rental", "kitchen")
-    assert (
-        tier_key(floor, "label_room")
-        == f"flooring|vinyl||kitchen|residential_rental|{RULES_VERSION}"
-    )
-    assert tier_key(floor, "label") == f"flooring|vinyl|||residential_rental|{RULES_VERSION}"
+    vinyl = row_digests()["vinyl_flooring"]  # the generic floor resolves by its material
+    assert tier_key(floor, "label_room") == f"flooring|vinyl||kitchen|residential_rental|{vinyl}"
+    assert tier_key(floor, "label") == f"flooring|vinyl|||residential_rental|{vinyl}"
     # A surface finish keeps its material too: wallpaper and drywall are different answers.
     wall = cache_key("wall_finish", "wallpaper", "permanent", "nonresidential", "hallway")
-    assert tier_key(wall, "label") == f"wall_finish|wallpaper|||nonresidential|{RULES_VERSION}"
+    wall_fp = rule_fingerprint("wall_finish")
+    assert tier_key(wall, "label") == f"wall_finish|wallpaper|||nonresidential|{wall_fp}"
     # The catch-all label never generalizes.
     assert tier_keys(cache_key("other", "wood", "freestanding", "nonresidential", "exterior")) == (
-        ("exact", f"other|wood|freestanding|exterior|nonresidential|{RULES_VERSION}"),
+        ("exact", f"other|wood|freestanding|exterior|nonresidential|{rule_fingerprint('other')}"),
     )
     with pytest.raises(ValueError):
         tier_keys("not|a|key")
