@@ -30,11 +30,12 @@ import itertools
 import json
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from basis.domain.cost_indices import YearIndex
 from basis.domain.cost_table import load_cost_table
 from basis.domain.structure import (
     DEPRECIATION_METHODS,
@@ -105,15 +106,21 @@ def run_cell(
     rows: E2ERows,
     report: EngineerReport,
     baseline: tuple[int, int],
+    supplement: Mapping[int, YearIndex] | None = None,
+    label: str | None = None,
 ) -> Cell:
+    """One variant on one export; ``supplement`` the stored index values (as the replay
+    takes them), ``label`` the cell's name (default the variant's)."""
     started = time.perf_counter()
     try:
         intake = rebuild_intake(document, None)
-        replayed, changes = replay(document, cost_table=cost_table, intake=intake, variant=variant)
+        replayed, changes = replay(
+            document, cost_table=cost_table, intake=intake, variant=variant, supplement=supplement
+        )
     except StructureError as exc:
         return Cell(
             export=name,
-            variant=variant.name,
+            variant=label or variant.name,
             sourced=False,
             note=str(exc),
             runtime_ms=(time.perf_counter() - started) * 1000,
@@ -126,7 +133,7 @@ def run_cell(
     visible = (int(c["evidenced"]), int(c["bucket_right_by_count"]))
     return Cell(
         export=name,
-        variant=variant.name,
+        variant=label or variant.name,
         sourced=True,
         note="",
         runtime_ms=elapsed,

@@ -42,7 +42,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, localcontext
 from typing import Final, Literal
 
 from basis.domain.cost_indices import YearFactor, YearIndex, year_ratio
-from basis.domain.costs import year_factor_index
+from basis.domain.costs import DEFAULT_COST_BASIS, CostBasis, Markup, year_factor_index
 from basis.domain.measurements import (
     BuildingMeasurements,
     FieldRow,
@@ -82,6 +82,13 @@ LATERAL_LENGTH_FT: Final = Decimal(50)
 EXTERIOR_DOORS_DEFAULT: Final = 2
 # The printed total of the cost approach against the sum of its parts (a warning).
 COST_APPROACH_PARTS_TOLERANCE: Final = Decimal("0.01")
+# The plumbing share of a bath modification (STRUCTURE_MODEL.md section 9.1): the Assemblies
+# 8-12 three-fixture bathroom (BATHROOM_SYSTEM, printed p.250) over the Average models' "Full
+# Bath - including plumbing, wall and floor finishes" modification (+8,150, facing pages printed
+# pp.38-46); the rest is the bath's wall and floor finishes (Interiors). One ratio for every
+# class, recorded as an assumption on the rows it moves.
+AVERAGE_FULL_BATH: Final = Decimal("8150")
+BATH_PLUMBING_SHARE: Final = BATHROOM_SYSTEM / AVERAGE_FULL_BATH
 
 Class = Literal["economy", "average", "custom", "luxury"]
 BuildingType = Literal["1 story", "1-1/2 story", "2 story", "2-1/2 story", "3 story"]
@@ -147,9 +154,16 @@ DEPRECIATION_METHODS: Final[tuple[DepreciationMethod, ...]] = (
 # The sweep's pick (EVAL_REPORT 44.3): the square-foot model scored the engineer's bucket
 # shares closer on both live exports than the appraisal's figure, which reconciled tighter;
 # STRUCTURE_RCN_SOURCE switches to the appraisal's printed total or its parts.
+# What the Specialties residual becomes (STRUCTURE_MODEL.md section 9.2): reported only (the
+# EVAL_REPORT 44 behaviour), or written as a building row and so counted in the RCN total
+# (ATG ch. 3 C.4(1)-(2): a residual is assigned to the building and added back to reconcile).
+SpecialtiesResidual = Literal["report", "building"]
+SPECIALTIES_RESIDUALS: Final[tuple[SpecialtiesResidual, ...]] = ("report", "building")
 DEFAULT_RCN_SOURCE: Final[RcnSource] = "square_foot"
 DEFAULT_SPLIT: Final[SplitMethod] = "rsmeans"
 DEFAULT_DEPRECIATION: Final[DepreciationMethod] = "appraisal_physical"
+DEFAULT_MODIFICATIONS: Final = True
+DEFAULT_SPECIALTIES_RESIDUAL: Final[SpecialtiesResidual] = "building"
 
 # NAHB "Cost of Constructing a Home in 2024" (Eye on Housing, January 2025): the eight
 # construction stages as shares of the construction cost. Site work (permits, impact and
@@ -193,6 +207,75 @@ class StructureError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class Modifications:
+    """The facing page's "Modifications" and "Alternatives" a house's baths, heating and
+    cooling call for (STRUCTURE_MODEL.md section 9.1). The base cost is "with one full bath and
+    one full kitchen for economy and average homes, and an additional half bath for custom and
+    luxury models" (the instructions, PDF p.17); modifications are added to or subtracted from
+    the total cost, alternatives from the cost per square foot of living area."""
+
+    full_baths: int  # in the base model
+    half_baths: int
+    full_bath: Decimal  # "Full Bath - including plumbing, wall and floor finishes"
+    half_bath: Decimal  # "Half Bath - including plumbing, wall and floor finishes"
+    hot_water: Decimal  # per SF of living area: "Heating Systems, Hot Water"
+    heat_pump: Decimal  # "Heat Pump"
+    electric_heat: Decimal  # "Electric Heat" (a deduction)
+    # "Air Conditioning, in Heating Ductwork" / "In Separate Ductwork"; None where the page
+    # prints "Base System" (custom and luxury: the model's forced air includes cooling).
+    ac_in_heating_ducts: Decimal | None = None
+    ac_separate_ducts: Decimal | None = None
+
+
+def _mods(
+    baths: tuple[int, int, str, str],
+    heating: tuple[str, str, str],
+    cooling: tuple[str, str] | None = None,
+) -> Modifications:
+    return Modifications(
+        full_baths=baths[0],
+        half_baths=baths[1],
+        full_bath=Decimal(baths[2]),
+        half_bath=Decimal(baths[3]),
+        hot_water=Decimal(heating[0]),
+        heat_pump=Decimal(heating[1]),
+        electric_heat=Decimal(heating[2]),
+        ac_in_heating_ducts=None if cooling is None else Decimal(cooling[0]),
+        ac_separate_ducts=None if cooling is None else Decimal(cooling[1]),
+    )
+
+
+_ECON_BATHS: Final = (1, 0, "6520", "3892")
+_AVG_BATHS: Final = (1, 0, "8150", "4865")
+_CUSTOM_BATHS: Final = (1, 1, "9780", "5838")
+_LUX_BATHS: Final = (1, 1, "11736", "7006")
+# Each model's facing page (printed pp.24-86, even), read as an image: the bath modifications;
+# the hot water, heat pump and electric heat alternatives; the two air conditioning
+# alternatives where cooling is not the base system. "Not Heated" is not used (its sign is
+# printed "+" on the custom and luxury pages).
+MODIFICATIONS: Final[dict[tuple[Class, BuildingType], Modifications]] = {
+    ("economy", "1 story"): _mods(_ECON_BATHS, ("1.58", "1.13", "-2.46"), ("4.86", "7.24")),
+    ("economy", "1-1/2 story"): _mods(_ECON_BATHS, ("1.49", "1.25", "-1.96"), ("3.62", "6.36")),
+    ("economy", "2 story"): _mods(_ECON_BATHS, ("1.45", "1.31", "-1.71"), ("2.95", "5.84")),
+    ("average", "1 story"): _mods(_AVG_BATHS, ("1.60", "1.18", "-1.36"), ("5.02", "7.51")),
+    ("average", "1-1/2 story"): _mods(_AVG_BATHS, ("1.51", "1.29", "-1.23"), ("3.81", "6.57")),
+    ("average", "2 story"): _mods(_AVG_BATHS, ("1.49", "1.37", "-1.07"), ("3.04", "5.97")),
+    ("average", "2-1/2 story"): _mods(_AVG_BATHS, ("1.36", "1.40", "-1.90"), ("2.77", "5.78")),
+    ("average", "3 story"): _mods(_AVG_BATHS, ("1.36", "1.40", "-1.47"), ("2.77", "5.78")),
+    ("custom", "1 story"): _mods(_CUSTOM_BATHS, ("1.64", "1.17", "-3.99")),
+    ("custom", "1-1/2 story"): _mods(_CUSTOM_BATHS, ("1.58", "1.22", "-3.50")),
+    ("custom", "2 story"): _mods(_CUSTOM_BATHS, ("1.51", "1.36", "-3.50")),
+    ("custom", "2-1/2 story"): _mods(_CUSTOM_BATHS, ("1.38", "1.40", "-6.18")),
+    ("custom", "3 story"): _mods(_CUSTOM_BATHS, ("1.38", "1.40", "-6.18")),
+    ("luxury", "1 story"): _mods(_LUX_BATHS, ("1.77", "1.26", "-3.50")),
+    ("luxury", "1-1/2 story"): _mods(_LUX_BATHS, ("1.69", "1.39", "-3.50")),
+    ("luxury", "2 story"): _mods(_LUX_BATHS, ("1.64", "1.46", "-3.18")),
+    ("luxury", "2-1/2 story"): _mods(_LUX_BATHS, ("1.48", "1.51", "-6.25")),
+    ("luxury", "3 story"): _mods(_LUX_BATHS, ("1.48", "1.51", "-6.25")),
+}
+
+
+@dataclass(frozen=True, slots=True)
 class Model:
     """One RSMeans residential square-foot model page: dollars per square foot of living area
     per component (material plus installation) and the page's bottom line; the facing page's
@@ -210,6 +293,7 @@ class Model:
     unfinished_basement_add: Decimal
     garage_modification: Decimal  # the facing page's attached garage, dollars
     garage_cars: int  # cars in that modification
+    mods: Modifications | None = None  # the facing page's baths, heating and cooling
 
     @property
     def name(self) -> str:
@@ -251,6 +335,7 @@ def _m(
         unfinished_basement_add=Decimal(basement[1]),
         garage_modification=Decimal(garage[0]),
         garage_cars=garage[1],
+        mods=MODIFICATIONS[(cls, type_)],
     )
 
 
@@ -662,6 +747,10 @@ COST_APPROACH_TEXT_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "quality_uad": ("improvements.quality",),
     "quality_service": ("cost_approach.quality_rating_from_cost_service",),
     "cost_data_date": ("cost_approach.effective_date_of_cost_data",),
+    # The features the square-foot model's modifications and alternatives price (section 9.1).
+    "bathrooms": ("improvements.bathrooms",),
+    "heating": ("improvements.heating_type",),
+    "cooling": ("improvements.cooling",),
 }
 UTILITY_KEYS: Final[dict[str, str]] = {
     "water": "site.utilities_water",
@@ -701,6 +790,9 @@ class CostApproach:
     quality_uad: TextReading | None = None
     quality_service: TextReading | None = None
     cost_data_date: TextReading | None = None
+    bathrooms: TextReading | None = None  # UAD "full.half", e.g. "2.1"
+    heating: TextReading | None = None
+    cooling: TextReading | None = None
     # Public utility services the appraisal lists (water, sewer, gas), in that order.
     public_utilities: tuple[str, ...] = ()
 
@@ -740,6 +832,14 @@ def cost_approach_from_fields(rows: Iterable[FieldRow]) -> CostApproach:
             row = by_key.get(key)
             if row is not None and row.value_text and row.value_text.strip():
                 return TextReading(row.value_text.strip(), key, row.source)
+            if (
+                name == "bathrooms"
+                and row is not None
+                and row.value_num is not None
+                and not isinstance(row.value_num, bool)
+            ):
+                # A numeric bath count without its text: "2.1" as the number 2.1.
+                return TextReading(str(row.value_num), key, row.source)
         return None
 
     public = tuple(
@@ -828,6 +928,176 @@ def select_model(
     )
 
 
+# ----------------------------------------------------------------- modifications (9.1)
+
+HeatingAlternative = Literal["hot_water", "heat_pump", "electric_heat"]
+_BATHS: Final = re.compile(r"^\s*(\d{1,2})(?:\.(\d))?\s*$")
+_FORCED_AIR: Final = re.compile(r"\bFWA\b|\bFA\b|forced|warm\s*air|hot\s*air|furnace", re.I)
+_HEAT_PUMP: Final = re.compile(r"heat\s*pump|\bHP\b", re.I)
+_HOT_WATER: Final = re.compile(r"hot\s*water|\bHW|hydronic|boiler|steam", re.I)
+_ELECTRIC: Final = re.compile(r"electric|\bEBB\b|\belec\b", re.I)
+_RADIANT: Final = re.compile(r"radiant", re.I)  # hot water unless it says electric
+_NO_COOLING: Final = re.compile(r"^\s*(none|no)\b", re.I)
+_CENTRAL_AIR: Final = re.compile(r"central|\bCAC\b|\bA/?C\b|air\s*cond", re.I)
+
+
+def bath_counts(reading: TextReading | None) -> tuple[int, int] | None:
+    """``(full, half)`` from the UAD bath count ("2.1": two full baths and one half bath);
+    None when absent or not in that form. A ".5" is the pre-UAD decimal ("2.5" baths: two
+    full and one half), not five half baths (:func:`decimal_half_bath` says so)."""
+    if reading is None:
+        return None
+    match = _BATHS.match(reading.value)
+    if match is None:
+        return None
+    half = int(match.group(2) or 0)
+    return int(match.group(1)), 1 if half == 5 else half
+
+
+def decimal_half_bath(reading: TextReading | None) -> bool:
+    """Whether the bath count was read as the pre-UAD decimal (a ".5")."""
+    match = None if reading is None else _BATHS.match(reading.value)
+    return match is not None and match.group(2) == "5"
+
+
+def heating_alternative(reading: TextReading | None) -> tuple[HeatingAlternative | None, str]:
+    """The facing page's heating alternative for the heating the appraisal prints, and why;
+    None keeps the model's forced hot air (printed, or nothing recognised)."""
+    if reading is None:
+        return None, "heating not printed: the model's forced hot air kept"
+    text = reading.value
+    if _FORCED_AIR.search(text):
+        return None, f"heating {text!r}: forced air, the model's system"
+    if _HEAT_PUMP.search(text):
+        return "heat_pump", f"heating {text!r}: heat pump"
+    if _HOT_WATER.search(text):
+        return "hot_water", f"heating {text!r}: hot water"
+    if _ELECTRIC.search(text):
+        return "electric_heat", f"heating {text!r}: electric"
+    if _RADIANT.search(text):
+        return "hot_water", f"heating {text!r}: radiant, taken as hot water"
+    return None, f"heating {text!r} not recognised: the model's forced hot air kept"
+
+
+def central_air(reading: TextReading | None) -> bool | None:
+    """True for central air conditioning, False for none printed as such, None unknown."""
+    if reading is None:
+        return None
+    if _NO_COOLING.search(reading.value):
+        return False
+    return True if _CENTRAL_AIR.search(reading.value) else None
+
+
+@dataclass(frozen=True, slots=True)
+class Addition:
+    """A modification or alternative in the building RCN, at the cost year: the component it
+    belongs to and the residual label it goes to (None: the component's own split)."""
+
+    component: str
+    label: str | None
+    amount: Decimal
+    what: str
+
+
+def model_modifications(
+    model: Model, cost_approach: CostApproach | None, gla: Decimal
+) -> tuple[list[tuple[str, str | None, Decimal, str]], list[str], dict[str, str], list[str]]:
+    """The modifications and alternatives the appraisal's baths, heating and cooling call for,
+    on the 2020 national basis: ``(additions as (component, label, dollars, what), formula
+    terms, inputs, assumptions)``. A bath goes to Mechanical's plumbing by
+    :data:`BATH_PLUMBING_SHARE` and to Interiors for its finishes; heating and cooling to
+    Mechanical's HVAC."""
+    mods = model.mods
+    additions: list[tuple[str, str | None, Decimal, str]] = []
+    terms: list[str] = []
+    inputs: dict[str, str] = {}
+    assumptions: list[str] = []
+    if mods is None:
+        return additions, terms, inputs, assumptions
+    page = f"{RSMEANS}, {model.name} facing page, printed p.{model.printed_page - 1}"
+    ca = cost_approach
+    baths = bath_counts(None if ca is None else ca.bathrooms)
+    if baths is None:
+        assumptions.append(
+            f"bath count not read: the model's {mods.full_baths} full / {mods.half_baths} half "
+            "baths kept"
+        )
+    else:
+        full, half = baths
+        d_full, d_half = full - mods.full_baths, half - mods.half_baths
+        with localcontext() as ctx:
+            ctx.prec = PRECISION
+            amount = d_full * mods.full_bath + d_half * mods.half_bath
+            plumbing = amount * BATH_PLUMBING_SHARE
+        assert ca is not None and ca.bathrooms is not None
+        inputs["baths"] = f"{full} full / {half} half ({ca.bathrooms.describe()})"
+        if decimal_half_bath(ca.bathrooms):
+            assumptions.append(
+                f"bath count {ca.bathrooms.value!r} read as {full} full and one half bath (the "
+                "decimal convention; the UAD form would print it as full.half)"
+            )
+        inputs["model_baths"] = f"{mods.full_baths} full / {mods.half_baths} half"
+        if amount != 0:
+            what = (
+                f"baths {full} full / {half} half against the model's {mods.full_baths} / "
+                f"{mods.half_baths}: {d_full:+d} x {_fmt(mods.full_bath)} {d_half:+d} x "
+                f"{_fmt(mods.half_bath)} = {_fmt(amount)} ({page}, Modifications)"
+            )
+            terms.append(what)
+            additions.append(("mechanical", "plumbing_rough_in", plumbing, what))
+            additions.append(("interiors", None, amount - plumbing, what))
+            assumptions.append(
+                f"the bath modifications' plumbing is {_pct(BATH_PLUMBING_SHARE)} (the "
+                "three-fixture bathroom assembly over the Average full bath), the rest wall "
+                "and floor finishes"
+            )
+            if d_full < 0 or d_half < 0:
+                assumptions.append(
+                    "a bath the model includes and the house lacks is deducted at the page's "
+                    "figure (modifications are added to or subtracted from the total cost)"
+                )
+    alternative, why = heating_alternative(None if ca is None else ca.heating)
+    inputs["heating"] = why
+    per_sf = ZERO
+    if alternative is not None:
+        rate = {
+            "hot_water": mods.hot_water,
+            "heat_pump": mods.heat_pump,
+            "electric_heat": mods.electric_heat,
+        }[alternative]
+        per_sf += rate
+        what = (
+            f"heating {alternative.replace('_', ' ')} {rate:+}/SF x {_fmt(gla)} SF "
+            f"({page}, Alternatives)"
+        )
+        terms.append(what)
+        additions.append(("mechanical", "hvac_distribution", rate * gla, what))
+    elif "not" in why:
+        assumptions.append(why)
+    cooling = central_air(None if ca is None else ca.cooling)
+    if mods.ac_in_heating_ducts is None:
+        inputs["cooling"] = "the model's base system includes air conditioning"
+        if cooling is False:
+            assumptions.append(
+                "no air conditioning printed; the model includes it and the page prints no "
+                "deduction"
+            )
+    elif cooling:
+        separate = alternative in ("hot_water", "electric_heat")
+        ac_rate = mods.ac_separate_ducts if separate else mods.ac_in_heating_ducts
+        assert ac_rate is not None
+        what = (
+            f"air conditioning {'in separate ductwork' if separate else 'in heating ductwork'} "
+            f"{ac_rate:+}/SF x {_fmt(gla)} SF ({page}, Alternatives)"
+        )
+        inputs["cooling"] = what
+        terms.append(what)
+        additions.append(("mechanical", "hvac_distribution", ac_rate * gla, what))
+    else:
+        inputs["cooling"] = "no central air conditioning read: none added"
+    return additions, terms, inputs, assumptions
+
+
 # ----------------------------------------------------------------- the building RCN
 
 
@@ -855,6 +1125,8 @@ class BuildingRcn:
     appraisal_depreciated_cost: Decimal | None = None
     appraisal_site_improvements: Decimal | None = None
     appraisal_site_value: Decimal | None = None
+    # The square-foot model's modifications and alternatives (section 9.1), inside ``amount``.
+    additions: tuple[Addition, ...] = ()
 
 
 def money(value: Decimal) -> Decimal:
@@ -1035,7 +1307,9 @@ def _square_foot_rcn(
     location_factor: Decimal,
     location_source: str | None,
     year: YearFactor,
-) -> tuple[Decimal, str, dict[str, str], list[str], list[Check]]:
+    cost_approach: CostApproach | None = None,
+    modifications: bool = DEFAULT_MODIFICATIONS,
+) -> tuple[Decimal, str, dict[str, str], list[str], list[Check], tuple[Addition, ...]]:
     model = choice.model
     if measurements.gla_sf is None:
         raise StructureError("the square-foot model needs a living area (GLA)")
@@ -1100,8 +1374,24 @@ def _square_foot_rcn(
                 f"cars x {_fmt(cars)} cars = {_fmt(money(garage))}"
             )
             inputs["garage_cars"] = _fmt(cars)
+        raw: list[tuple[str, str | None, Decimal, str]] = []
+        if modifications:
+            raw, mod_terms, mod_inputs, mod_assumptions = model_modifications(
+                model, cost_approach, gla
+            )
+            base += sum((amount for _, _, amount, _ in raw), ZERO)
+            terms += mod_terms
+            inputs.update(mod_inputs)
+            assumptions += mod_assumptions
+            inputs["modifications"] = "applied" if raw else "none called for"
+        else:
+            inputs["modifications"] = "off: the base model as priced (STRUCTURE_MODIFICATIONS)"
         factor = year.factor
         amount = money(base * factor * location_factor)
+        additions = tuple(
+            Addition(component, label, money(dollars * factor * location_factor), what)
+            for component, label, dollars, what in raw
+        )
     inputs["year_factor"] = str(factor)
     inputs["year_factor_formula"] = year.citation()
     inputs["location_factor"] = str(location_factor)
@@ -1129,7 +1419,7 @@ def _square_foot_rcn(
                 f"priced at the latest, {year.index.describe()}",
             )
         )
-    return amount, formula, inputs, assumptions, checks
+    return amount, formula, inputs, assumptions, checks, additions
 
 
 def building_rcn(
@@ -1143,12 +1433,15 @@ def building_rcn(
     rcn_source: RcnSource = DEFAULT_RCN_SOURCE,
     year: YearFactor | None = None,
     supplement: Mapping[int, YearIndex] | None = None,
+    modifications: bool = DEFAULT_MODIFICATIONS,
 ) -> BuildingRcn | None:
     """The building's RCN from the appraisal's cost approach (``appraisal_total``: the
     printed total, ``appraisal_parts``: the sum of its parts), else the square-foot model
     (``square_foot`` asks for it first), else ``None`` (no living area to size a model).
     ``year`` is the study's resolved time factor (``CostIndex.year``); without it the cost
-    year's factor comes from the released book and ``supplement``."""
+    year's factor comes from the released book and ``supplement``. ``modifications`` adds the
+    square-foot model's modifications and alternatives for the house's baths, heating and
+    cooling (section 9.1; the appraisal's cost new is the whole house already)."""
     choice = select_model(measurements, cost_approach)
     if year is None or year.cost_year != cost_year:
         year = year_factor_index(cost_year, supplement)
@@ -1167,12 +1460,21 @@ def building_rcn(
             supplement=supplement,
         )
         source: Literal["appraisal_cost_approach", "square_foot_model"] = "appraisal_cost_approach"
+        additions: tuple[Addition, ...] = ()
         needs_review = any(c.severity == "warning" for c in checks)
         assumptions = [*choice.assumptions, *assumptions]
         needs_review = needs_review or choice.needs_review
     elif measurements is not None and measurements.gla_sf is not None:
-        amount, formula, inputs, assumptions, checks = _square_foot_rcn(
-            choice, measurements, cost_year, year_source, location_factor, location_source, year
+        amount, formula, inputs, assumptions, checks, additions = _square_foot_rcn(
+            choice,
+            measurements,
+            cost_year,
+            year_source,
+            location_factor,
+            location_source,
+            year,
+            cost_approach,
+            modifications,
         )
         source = "square_foot_model"
         needs_review = True
@@ -1200,6 +1502,7 @@ def building_rcn(
             else ca.site_improvements_value.value
         ),
         appraisal_site_value=None if ca is None or ca.site_value is None else ca.site_value.value,
+        additions=additions,
     )
 
 
@@ -1293,6 +1596,19 @@ def split_components(
     return dict(zip(COMPONENTS, _largest_remainder(exact, money(rcn)), strict=True))
 
 
+def split_building(
+    building: BuildingRcn, method: SplitMethod = DEFAULT_SPLIT
+) -> dict[str, Decimal]:
+    """The building RCN over the nine components: the part before the modifications and
+    alternatives by the split's shares, each addition to its own component (a bath to
+    Mechanical and Interiors, heating and cooling to Mechanical); foots to the amount."""
+    added = sum((a.amount for a in building.additions), ZERO)
+    parts = split_components(building.amount - added, building.model, method)
+    for a in building.additions:
+        parts[a.component] += a.amount
+    return parts
+
+
 # ----------------------------------------------------------------- systems and labels
 
 # The design partner's twelve building systems (``basis.domain.basis.REPORT_ROW_SYSTEMS``).
@@ -1341,6 +1657,19 @@ STRUCTURE_LABELS: Final[tuple[str, ...]] = (
     "data_cabling",
     "access_control",
     "site_utilities",
+    "specialties_residual",
+)
+# The small systems: a code-derived quantity priced from the cost table (section 3.6).
+SMALL_SYSTEM_LABELS: Final[tuple[str, ...]] = (
+    "fire_alarm_system",
+    "data_cabling",
+    "access_control",
+    "site_utilities",
+)
+# The concealed labels that answer a building system of a study (the result's
+# ``not_produced``): the Specialties residual is a remainder, not a system.
+SYSTEM_LABELS: Final[tuple[str, ...]] = tuple(
+    label for label in STRUCTURE_LABELS if label != "specialties_residual"
 )
 
 
@@ -1456,6 +1785,7 @@ LABEL_SYSTEMS: Final[dict[str, LabelMapping]] = {
     "data_cabling": _lm("Electrical", "electrical"),
     "access_control": _lm("Security", "exterior_walls"),
     "site_utilities": _lm(MISCELLANEOUS, None),
+    "specialties_residual": _lm(MISCELLANEOUS, "specialties"),
 }
 
 
@@ -1471,6 +1801,35 @@ def mapping_for(label: str | None) -> LabelMapping:
         if resolved is not None:
             found = LABEL_SYSTEMS.get(resolved[0])
     return found or LABEL_SYSTEMS["other"]
+
+
+# General contractor's overhead on a row inside the model (section 9.3).
+OverheadAllocation = Literal["pro_rata", "none"]
+OVERHEAD_ALLOCATIONS: Final[tuple[OverheadAllocation, ...]] = ("pro_rata", "none")
+DEFAULT_OVERHEAD_ALLOCATION: Final[OverheadAllocation] = "pro_rata"
+
+
+def inside_model(label: str | None) -> bool:
+    """Whether the square-foot model includes what the label is (it is carved from a
+    component); appliances, furnishings, decor and site work are outside it."""
+    return mapping_for(label).component is not None
+
+
+def overhead_markup(model: Model) -> Markup:
+    """The model's general contractor's overhead and profit (item 10) as a share of its
+    components 1-9: "Item 10 is overhead and profit for the general contractor. This is
+    typically a percentage mark-up of all other costs" (How to Use the Residential Square
+    Foot Cost Section, PDF p.21); allocated pro rata to the rows inside the model, as the
+    split already spreads it over the components (ATG ch. 4 C.11(2))."""
+    with localcontext() as ctx:
+        ctx.prec = PRECISION
+        rate = (model.overhead / model.base).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    return Markup(
+        rate,
+        f"general contractor's overhead and profit pro rata ({model.name} item 10 "
+        f"{_fmt(model.overhead)} / components 1-9 {_fmt(model.base)} per SF, {model.cite()}; "
+        "ATG ch. 4 C.11(2))",
+    )
 
 
 # ----------------------------------------------------------------- the carve-out
@@ -1587,6 +1946,10 @@ CATEGORIES: Final[dict[str, str]] = {
     "data_cabling": "Communication / Data (telephone and data outlets)",
     "access_control": "Access Control (keyed locksets and deadbolts)",
     "site_utilities": "Site Utilities (water, sewer and gas laterals)",
+    "specialties_residual": (
+        "Specialties residual (the model's cabinets, countertops, sink and water heater not "
+        "itemized)"
+    ),
 }
 # The engineer's row each concealed label answers (the e2e scorer's kind C rows and the
 # result's ``not_produced`` list).
@@ -1613,6 +1976,26 @@ class StructureInputs:
     split: SplitMethod = DEFAULT_SPLIT
     carve: bool = True
     depreciation_method: DepreciationMethod = DEFAULT_DEPRECIATION
+    # Section 9: the square-foot model's modifications, and what the Specialties residual is.
+    modifications: bool = DEFAULT_MODIFICATIONS
+    specialties_residual: SpecialtiesResidual = DEFAULT_SPECIALTIES_RESIDUAL
+    # How the itemized rows were priced (section 9.3), for the diagnosis.
+    cost_basis: CostBasis = DEFAULT_COST_BASIS
+    overhead_allocation: OverheadAllocation = DEFAULT_OVERHEAD_ALLOCATION
+
+    def pricing(self) -> str:
+        """How the itemized rows are priced, in words, for the reconciliation's causes."""
+        basis = (
+            "at Total Incl O&P (the installing contractor's O&P, as the model's components)"
+            if self.cost_basis == "installed"
+            else "at bare cost (no installing contractor's O&P, unlike the model's components)"
+        )
+        overhead = (
+            "the rows inside the model carry its general contractor's O&P pro rata"
+            if self.overhead_allocation == "pro_rata"
+            else "no row carries the model's general contractor's O&P (the residuals absorb it)"
+        )
+        return f"{basis}; {overhead}"
 
     @property
     def living_area(self) -> Decimal | None:
@@ -1639,7 +2022,11 @@ RESIDUAL_ROWS: Final[dict[str, tuple[tuple[str, Decimal], ...]]] = {
         ("hvac_distribution", ONE - PLUMBING_SHARE_OF_MECHANICAL_RESIDUAL),
     ),
     "electrical": (("electrical_wiring", ONE),),
-    # specialties: no concealed content; its residual is reported, never written
+    # specialties: no concealed content; its residual is reported, or written as a building
+    # row with ``specialties_residual="building"`` (SPECIALTIES_ROWS, section 9.2)
+}
+SPECIALTIES_ROWS: Final[dict[str, tuple[tuple[str, Decimal], ...]]] = {
+    "specialties": (("specialties_residual", ONE),),
 }
 SPLIT_SOURCES: Final[dict[str, str]] = {
     "interiors": (
@@ -1659,34 +2046,85 @@ def _pct(share: Decimal, *, signed: bool = False) -> str:
     return f"{value:+} %" if signed else f"{value} %"
 
 
+def residual_targets(
+    specialties: SpecialtiesResidual = DEFAULT_SPECIALTIES_RESIDUAL,
+) -> dict[str, tuple[tuple[str, Decimal], ...]]:
+    """The components whose residual is written, and the label(s) each becomes."""
+    if specialties == "building":
+        return {**RESIDUAL_ROWS, **SPECIALTIES_ROWS}
+    return dict(RESIDUAL_ROWS)
+
+
+def _weights(
+    rcn: BuildingRcn, component: str, top_down: Decimal, targets: tuple[tuple[str, Decimal], ...]
+) -> tuple[tuple[Decimal, ...], str | None]:
+    """The residual's split over its labels: the national assembly ratio for the model's own
+    part, each addition to the label it names (section 9.1); ``(weights, note)``."""
+    default = tuple(w for _, w in targets)
+    added = [a for a in rcn.additions if a.component == component]
+    if not added or len(targets) == 1 or top_down <= 0:
+        return default, None
+    base = top_down - sum((a.amount for a in added), ZERO)
+    with localcontext() as ctx:
+        ctx.prec = PRECISION
+        exact = [
+            base * w
+            + sum((a.amount for a in added if a.label == label), ZERO)
+            + sum((a.amount for a in added if a.label is None), ZERO) * w
+            for label, w in targets
+        ]
+        weights = tuple(x / top_down for x in exact)
+    if any(w < 0 for w in weights):
+        return default, "an addition below zero exceeds its label's part: the assembly ratio kept"
+    note = ", ".join(f"{label} {_pct(w)}" for (label, _), w in zip(targets, weights, strict=True))
+    return (
+        weights,
+        f"split {note} (the model's part by the assembly ratio, each addition to its row)",
+    )
+
+
 def _residual_rows(
     rcn: BuildingRcn,
     carve: CarveOut,
     living_area: Decimal | None,
     split: SplitMethod = DEFAULT_SPLIT,
+    specialties: SpecialtiesResidual = DEFAULT_SPECIALTIES_RESIDUAL,
 ) -> list[ConcealedRow]:
     """The building rows: each component's residual, by label."""
     rows: list[ConcealedRow] = []
     shares = split_shares(rcn.model, split)
+    added_total = sum((a.amount for a in rcn.additions), ZERO)
     amounts: dict[str, Decimal] = {}
     formulas: dict[str, list[str]] = {}
     inputs: dict[str, dict[str, str | int | bool | None]] = {}
-    for component in COMPONENTS:
+    for component, targets in residual_targets(specialties).items():
         c = carve.get(component)
-        targets = RESIDUAL_ROWS.get(component)
-        if targets is None:
-            continue
+        weights, note = _weights(rcn, component, c.top_down, targets)
         with localcontext() as ctx:
             ctx.prec = PRECISION
-            parts = _largest_remainder([c.residual * w for _, w in targets], c.residual)
-        for (label, weight), part in zip(targets, parts, strict=True):
+            parts = _largest_remainder([c.residual * w for w in weights], c.residual)
+        added = sum((a.amount for a in rcn.additions if a.component == component), ZERO)
+        for (label, weight), share_of_residual, part in zip(targets, weights, parts, strict=True):
             amounts[label] = amounts.get(label, ZERO) + part
-            text = (
-                f"{COMPONENT_NAMES[component]} {_pct(shares[component])} of the building RCN "
-                f"{_fmt(rcn.amount)} = {_fmt(c.top_down)}, less {c.itemized_assets} itemized "
-                f"assets {_fmt(c.itemized)} = {_fmt(c.residual)}"
-            )
-            if weight != ONE:
+            if added:
+                text = (
+                    f"{COMPONENT_NAMES[component]} {_pct(shares[component])} of the building RCN "
+                    f"before modifications {_fmt(rcn.amount - added_total)} "
+                    f"= {_fmt(c.top_down - added)}, plus modifications {_fmt(added)} "
+                    f"= {_fmt(c.top_down)}, less {c.itemized_assets} itemized assets "
+                    f"{_fmt(c.itemized)} = {_fmt(c.residual)}"
+                )
+            else:
+                text = (
+                    f"{COMPONENT_NAMES[component]} {_pct(shares[component])} of the building "
+                    f"RCN {_fmt(rcn.amount)} = {_fmt(c.top_down)}, less {c.itemized_assets} "
+                    f"itemized assets {_fmt(c.itemized)} = {_fmt(c.residual)}"
+                )
+            if len(targets) > 1:
+                text += f", x {_pct(share_of_residual)} ({SPLIT_SOURCES[component]})"
+                if note is not None:
+                    text += f"; {note}"
+            elif weight != ONE:
                 text += f", x {_pct(weight)} ({SPLIT_SOURCES[component]})"
             formulas.setdefault(label, []).append(text)
             entry = inputs.setdefault(label, {})
@@ -1707,6 +2145,10 @@ def _residual_rows(
             reasons.append("structure:component_clamped")
         if amount == 0:
             reasons.append("structure:residual_zero")
+        if label == "specialties_residual":
+            # Unidentified content stays with the building (ATG ch. 3 C.4(1)); the engineer
+            # identifies the cabinets in it.
+            reasons.append("structure:residual_unidentified")
         rows.append(
             ConcealedRow(
                 label=label,
@@ -1932,14 +2374,29 @@ def concealed_rows(
     living_area: Decimal | None,
     small: SmallSystemInputs,
     split: SplitMethod = DEFAULT_SPLIT,
+    specialties: SpecialtiesResidual = DEFAULT_SPECIALTIES_RESIDUAL,
 ) -> list[ConcealedRow]:
     """Every concealed row of a study: the building residuals when a building RCN exists,
     then the small systems."""
     rows: list[ConcealedRow] = []
     if rcn is not None and carve is not None:
-        rows += _residual_rows(rcn, carve, living_area, split)
+        rows += _residual_rows(rcn, carve, living_area, split, specialties)
     rows += small_system_rows(small)
     return rows
+
+
+def carved_small_systems(
+    rows: Iterable[ConcealedRow], priced: Mapping[str, Decimal | None]
+) -> list[ItemizedRow]:
+    """The small systems inside the model (fire alarm and data cabling in Electrical, the
+    locksets in Exterior Walls), as the carve-out sees them once priced: section 3.6 carves
+    them from their component like any itemized asset. Site utilities are outside the
+    model and are not returned."""
+    return [
+        ItemizedRow(row.label, priced.get(row.label))
+        for row in rows
+        if row.rcn is None and row.component is not None
+    ]
 
 
 # ----------------------------------------------------------------- depreciation
@@ -2112,6 +2569,7 @@ def reconcile(
     depreciation_: Depreciation | None,
     purchase_price: Decimal | None = None,
     tolerance: Decimal = RECONCILIATION_TOLERANCE,
+    pricing: str | None = None,
 ) -> Reconciliation:
     """RCNLD against the purchase price less land, with the diagnosis."""
     b = building_basis
@@ -2132,7 +2590,8 @@ def reconcile(
         )
         outside = carve.outside_model
         for c in carve.components:
-            if c.component not in RESIDUAL_ROWS and c.residual > 0:
+            written = c.component in RESIDUAL_ROWS or c.component in concealed_by_component
+            if not written and c.residual > 0:
                 remainders.append((c.component, c.residual))
     with localcontext() as ctx:
         ctx.prec = PRECISION
@@ -2227,6 +2686,7 @@ def reconcile(
         unpriced=unpriced_assets,
         depreciation_=depreciation_,
         outside=outside,
+        pricing=pricing,
     )
     return Reconciliation(
         status=status,
@@ -2256,6 +2716,7 @@ def _causes(
     unpriced: int,
     depreciation_: Depreciation | None,
     outside: Decimal,
+    pricing: str | None = None,
 ) -> tuple[tuple[str, str, str], ...]:
     """The guide's five causes (D(6)), each with what the data says."""
     out: list[tuple[str, str, str]] = []
@@ -2296,6 +2757,8 @@ def _causes(
                 if building is None
                 else f"building RCN from {building.source.replace('_', ' ')}: {building.formula}"
             )
+            if pricing is not None:
+                said += f"; itemized rows priced {pricing}"
         elif code == "depreciation_factors":
             said = (
                 "no depreciation rate"
@@ -2311,17 +2774,24 @@ def _causes(
                 "spread pro rata over the nine components; the appraiser's cost new includes "
                 "indirect costs"
             )
+            if pricing is not None:
+                said += f"; itemized rows priced {pricing}"
         out.append((code, words, said))
     return tuple(out)
 
 
 __all__ = [
     "ATG_CAUSES",
+    "AVERAGE_FULL_BATH",
+    "BATH_PLUMBING_SHARE",
     "BASE_COST_BY_AREA",
     "CATEGORIES",
     "DEFAULT_DEPRECIATION",
+    "DEFAULT_MODIFICATIONS",
+    "DEFAULT_OVERHEAD_ALLOCATION",
     "DEFAULT_RCN_SOURCE",
     "DEFAULT_SPLIT",
+    "DEFAULT_SPECIALTIES_RESIDUAL",
     "DEPRECIATION_METHODS",
     "ENGINEER_ROWS",
     "MARSHALL_SWIFT_UNAVAILABLE",
@@ -2337,13 +2807,20 @@ __all__ = [
     "LATERAL_LENGTH_FT",
     "MISCELLANEOUS",
     "MODELS",
+    "MODIFICATIONS",
+    "OVERHEAD_ALLOCATIONS",
     "PAINTING_SHARE_OF_INTERIORS_RESIDUAL",
     "PLUMBING_SHARE_OF_MECHANICAL_RESIDUAL",
     "RECONCILIATION_TOLERANCE",
     "RESIDUAL_ROWS",
+    "SPECIALTIES_RESIDUALS",
+    "SPECIALTIES_ROWS",
+    "SMALL_SYSTEM_LABELS",
     "STRUCTURE_LABELS",
     "SYSTEMS",
+    "SYSTEM_LABELS",
     "BuildingRcn",
+    "Addition",
     "CarveOut",
     "Check",
     "ComponentCarve",
@@ -2354,28 +2831,39 @@ __all__ = [
     "LabelMapping",
     "Model",
     "ModelChoice",
+    "Modifications",
     "Reconciliation",
     "SmallSystemInputs",
     "StructureError",
     "StructureInputs",
     "SystemLine",
     "base_cost_per_sf",
+    "bath_counts",
+    "decimal_half_bath",
     "building_rcn",
     "carve_out",
+    "carved_small_systems",
+    "central_air",
     "class_of",
     "component_shares",
     "concealed_rows",
     "cost_approach_from_fields",
     "depreciate",
     "depreciation",
+    "heating_alternative",
+    "inside_model",
     "mapping_for",
+    "model_modifications",
     "money",
     "nahb_shares",
+    "overhead_markup",
     "reconcile",
+    "residual_targets",
     "select_model",
     "small_system_inputs",
     "small_system_rows",
     "split_components",
+    "split_building",
     "split_shares",
     "split_source",
     "type_of",

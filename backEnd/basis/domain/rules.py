@@ -40,6 +40,11 @@ labels of the structure model's concealed rows (``foundation``, ``structural_fra
 contested because studies treat it as 5-year), each cited to the ATG residential matrix row
 that names it.
 
+Row added 2026-10-31 (``RULES_VERSION`` ``2026-10-31.1``, STRUCTURE_MODEL.md section 9.2):
+``specialties_residual``, the square-foot model's Specialties less the itemized cabinets,
+counters, sinks and water heaters: building, contested (a residual stays with the building
+until identified, ATG ch. 3 C.4(1); measured cabinets are commonly 5-year).
+
 ``property_class`` (``residential_rental`` or ``nonresidential``) is part of the lookup and
 of the cache key because the building buckets differ (27.5 vs 39 years): only the building
 rows (``Rule.building``, section 1250 components such as bathroom accessories or a concrete
@@ -80,7 +85,7 @@ from basis.db.enums import Bucket
 
 # Bump when any row, alias or matching rule changes: it is part of the cache key, so a
 # cached classification made under older rules is never served.
-RULES_VERSION: Final = "2026-10-30.1"
+RULES_VERSION: Final = "2026-10-31.1"
 
 PropertyClass = Literal["residential_rental", "nonresidential"]
 PROPERTY_CLASSES: Final[tuple[str, ...]] = get_args(PropertyClass)
@@ -173,6 +178,14 @@ _ACCESS_CONTROL: Final = (
     "keyless entry systems under Security Systems - Building (p.318), section 1250, 27.5 years "
     "(39 nonresidential); studies (the design partner's report among them) treat access "
     "control as 5-year property, so the bucket needs engineer confirmation"
+)
+_SPECIALTIES_RESIDUAL: Final = (
+    "A residual is not an identified asset: the guide's residual approach assigns what is left "
+    "after the identified items to the building (ATG ch. 3 C.4(1), p.31), section 1250, 27.5 "
+    "years (39 nonresidential). This one is the square-foot model's Specialties (kitchen "
+    "cabinets and countertops, kitchen sink, water heater) less the itemized ones; a study "
+    "that measures the cabinets itemizes them as 5-year property, so the engineer confirms "
+    "what the residual holds"
 )
 _ATTACHED_DECK: Final = (
     "ATG Exhibit A (p.300) lists only freestanding decks as asset class 00.3, 15 years; a "
@@ -1189,6 +1202,20 @@ _RULES: Final[tuple[Rule, ...]] = (
             "systems;",
         ),
         contested=_ACCESS_CONTROL,
+    ),
+    _bldg(
+        "specialties_residual",
+        "Specialties residual",
+        "The part of the square-foot model's Specialties no itemized asset accounts for "
+        "stays with the building until it is identified (ATG ch. 3 C.4(1), the residual "
+        "estimation approach; STRUCTURE_MODEL.md section 9.2)",
+        _c(
+            ATG,
+            31,
+            "remaining or “residual” cost is then simply assigned to the building and/or other "
+            "long-lived assets.",
+        ),
+        contested=_SPECIALTIES_RESIDUAL,
     ),
     _bldg(
         "site_utilities",

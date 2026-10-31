@@ -16,6 +16,7 @@ from basis.domain.measurements import measurements_from_fields
 from basis.domain.structure import (
     ENGINEER_ROWS,
     STRUCTURE_LABELS,
+    SYSTEM_LABELS,
     StructureInputs,
     cost_approach_from_fields,
 )
@@ -307,9 +308,13 @@ def test_the_structure_path_depreciates_reconciles_and_allocates_on_rcnld() -> N
     ]
     assert st.concealed[4].rcn is None and st.concealed[4].system == "Communication / Data"
     produced = {"foundation", "structural_framing", "interior_partition", "painting"}
+    # The Specialties residual is a remainder, not a system the engineer reports: it is
+    # never listed as not produced (SYSTEM_LABELS).
     assert [n.system for n in result.not_produced] == [
-        ENGINEER_ROWS[label] for label in STRUCTURE_LABELS if label not in produced
+        ENGINEER_ROWS[label] for label in SYSTEM_LABELS if label not in produced
     ]
+    assert "Specialties residual" not in {n.system for n in result.not_produced}
+    assert set(STRUCTURE_LABELS) - set(SYSTEM_LABELS) == {"specialties_residual"}
 
 
 def test_the_default_source_is_the_square_foot_model() -> None:

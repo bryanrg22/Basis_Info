@@ -489,12 +489,26 @@ def test_concealed_rows_split_interiors_and_mechanical_by_the_sourced_shares() -
         produced["foundation"].rcn
         == carve.get("site_work").residual + carve.get("foundation").residual
     )
-    # The nine building rows sum to the eight components they come from (not Specialties).
+    # The ten building rows sum to the nine components: the Specialties residual is written
+    # as a building row by default (STRUCTURE_MODEL.md section 9.2) ...
     building_sum = sum(
         (produced[k].rcn or D(0) for k in s.STRUCTURE_LABELS if produced[k].rcn is not None),
         D(0),
     )
-    assert building_sum == rcn.amount - carve.get("specialties").residual
+    assert building_sum == rcn.amount
+    residual = produced["specialties_residual"]
+    assert residual.rcn == carve.get("specialties").residual > 0
+    assert residual.review_reasons == ("structure:residual_unidentified",)
+    assert residual.needs_review is True and "7 Specialties" in residual.formula
+    # ... and only reported with specialties="report" (the behaviour before): the nine rows
+    # then sum to the eight components they come from.
+    reported = {
+        r.label: r for r in s.concealed_rows(rcn, carve, i.living_area, small, specialties="report")
+    }
+    assert "specialties_residual" not in reported
+    assert sum((r.rcn for r in reported.values() if r.rcn is not None), D(0)) == (
+        rcn.amount - carve.get("specialties").residual
+    )
     foundation = produced["foundation"]
     assert (foundation.quantity, foundation.unit, foundation.method) == (D(3000), "SF", "area")
     assert "ATG ch. 4 C.11" in str(foundation.inputs["overhead_spread"])
@@ -646,3 +660,293 @@ def test_the_assumption_constants_are_the_documented_ones() -> None:
     assert s.PAINTING_SHARE_OF_INTERIORS_RESIDUAL == D("0.75") / D("2.22")
     assert s.PLUMBING_SHARE_OF_MECHANICAL_RESIDUAL == D("5041.55") / D("10971.45")
     assert (s.LATERAL_LENGTH_FT, s.EXTERIOR_DOORS_DEFAULT) == (D(50), 2)
+
+
+# ------------------------------------- section 9: closing the reconciliation gap (2026-10-31)
+
+# The client's shape (fabricated values): a Q3 two-story with six full baths, hot-water
+# baseboard and in-floor heat, central air.
+FEATURES = rows(
+    improvements__bathrooms="6.0",
+    improvements__heating_type="HWBB, Other Infloor",
+    improvements__cooling="Central Air Conditioning",
+)
+SIX_BATHS = [r for r in HOUSE if r.section != "cost_approach"] + FEATURES
+
+
+def test_every_model_carries_its_facing_pages_modifications() -> None:
+    assert set(s.MODIFICATIONS) == set(s.MODELS)
+    for (cls, _), model in s.MODELS.items():
+        mods = model.mods
+        assert mods is not None and mods.full_bath > mods.half_bath > 0, model.name
+        assert mods.hot_water > 0 and mods.heat_pump > 0 and mods.electric_heat < 0
+        if cls in ("economy", "average"):
+            # "one full bath and one full kitchen for economy and average homes"; cooling
+            # is an alternative, cheaper in the heating ductwork than in its own.
+            assert (mods.full_baths, mods.half_baths) == (1, 0)
+            assert mods.ac_in_heating_ducts is not None and mods.ac_separate_ducts is not None
+            assert mods.ac_separate_ducts > mods.ac_in_heating_ducts > 0
+        else:
+            # "an additional half bath for custom and luxury models"; "Base System" cooling
+            assert (mods.full_baths, mods.half_baths) == (1, 1)
+            assert mods.ac_in_heating_ducts is None and mods.ac_separate_ducts is None
+    # one page as read (Custom 2 Story facing page, printed p.64)
+    custom = s.MODIFICATIONS[("custom", "2 story")]
+    assert (custom.full_bath, custom.half_bath) == (D(9780), D(5838))
+    assert (custom.hot_water, custom.heat_pump, custom.electric_heat) == (
+        D("1.51"),
+        D("1.36"),
+        D("-3.50"),
+    )
+    assert s.MODIFICATIONS[("average", "1 story")].ac_in_heating_ducts == D("5.02")
+    assert s.MODIFICATIONS[("luxury", "3 story")].full_bath == D(11736)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("6.0", (6, 0)), ("2.1", (2, 1)), (" 3 ", (3, 0)), ("2.2", (2, 2)), ("two", None)],
+)
+def test_bath_counts_read_the_uad_full_dot_half(
+    text: str, expected: tuple[int, int] | None
+) -> None:
+    reading = s.TextReading(text, "improvements.bathrooms", "llm")
+    assert s.bath_counts(reading) == expected and not s.decimal_half_bath(reading)
+
+
+def test_a_point_five_is_the_decimal_convention_not_five_half_baths() -> None:
+    reading = s.TextReading("2.5", "improvements.bathrooms", "llm")
+    assert s.bath_counts(reading) == (2, 1) and s.decimal_half_bath(reading)
+    two_and_a_half = [r for r in SIX_BATHS if r.field != "bathrooms"] + rows(
+        improvements__bathrooms="2.5"
+    )
+    i = inputs(two_and_a_half)
+    rcn = s.building_rcn(i.measurements, i.cost_approach, cost_year=2020)
+    assert rcn is not None
+    # 2 full / 1 half against the Custom model's 1 / 1: one full bath added
+    assert sum((a.amount for a in rcn.additions if "baths" in a.what), D(0)) == D("9780.00")
+    assert any("decimal convention" in a for a in rcn.assumptions)
+
+
+def test_bath_counts_absent_and_numeric_only() -> None:
+    assert s.bath_counts(None) is None
+    numeric = [Row("improvements", "bathrooms", value_num=D("2.1"))]
+    ca = s.cost_approach_from_fields(numeric)
+    assert ca.bathrooms is not None and s.bath_counts(ca.bathrooms) == (2, 1)
+
+
+@pytest.mark.parametrize(
+    ("text", "alternative"),
+    [
+        ("HWBB, Other Infloor", "hot_water"),
+        ("Radiant", "hot_water"),
+        ("Boiler", "hot_water"),
+        ("Heat Pump", "heat_pump"),
+        ("HP", "heat_pump"),
+        ("Electric baseboard", "electric_heat"),
+        ("Radiant floor, electric", "electric_heat"),  # radiant is hot water unless electric
+        ("FWA", None),  # forced warm air: the model's system
+        ("FWA, HWBB", None),  # forced air present: the model's system kept
+        ("Gas forced air", None),
+        ("Other", None),
+    ],
+)
+def test_heating_maps_to_the_pages_alternative(text: str, alternative: str | None) -> None:
+    found, why = s.heating_alternative(s.TextReading(text, "improvements.heating_type", "llm"))
+    assert found == alternative and text in why
+
+
+def test_heating_and_cooling_unread() -> None:
+    assert s.heating_alternative(None) == (
+        None,
+        "heating not printed: the model's forced hot air kept",
+    )
+    assert s.central_air(None) is None
+    reading = s.TextReading
+    assert s.central_air(reading("Central Air Conditioning", "f", "llm")) is True
+    assert s.central_air(reading("CAC", "f", "llm")) is True
+    assert s.central_air(reading("None", "f", "llm")) is False
+    assert s.central_air(reading("Evaporative cooler", "f", "llm")) is None
+
+
+def test_the_square_foot_model_adds_the_baths_and_heating_the_appraisal_reports() -> None:
+    i = inputs(SIX_BATHS)
+    base = s.building_rcn(i.measurements, i.cost_approach, cost_year=2020, modifications=False)
+    built = s.building_rcn(i.measurements, i.cost_approach, cost_year=2020)
+    assert base is not None and built is not None and base.additions == ()
+    assert base.inputs["modifications"].startswith("off")
+    # Custom 2 Story: 6 full / 0 half against the model's 1 / 1 -> +5 x 9780 - 1 x 5838 =
+    # 43062; hot water +1.51/SF x 3000 SF = 4530; central air is the base system. 2020, 1.0.
+    assert built.amount - base.amount == D("47592.00")
+    by_label = {(a.component, a.label): a.amount for a in built.additions}
+    plumbing = (D(43062) * s.BATHROOM_SYSTEM / s.AVERAGE_FULL_BATH).quantize(D("0.01"))
+    assert by_label[("mechanical", "plumbing_rough_in")] == plumbing  # 61.9 %
+    assert by_label[("interiors", None)] == D(43062) - plumbing
+    assert by_label[("mechanical", "hvac_distribution")] == D("4530.00")
+    assert built.inputs["baths"].startswith("6 full / 0 half")
+    assert built.inputs["model_baths"] == "1 full / 1 half"
+    assert built.inputs["cooling"] == "the model's base system includes air conditioning"
+    assert "Modifications" in built.formula and "Alternatives" in built.formula
+    assert any("61.9 %" in a for a in built.assumptions)
+    # a deducted half bath is an assumption: "added to or subtracted from the total cost"
+    assert any("deducted" in a for a in built.assumptions)
+
+
+def test_the_appraisals_cost_new_takes_no_modifications() -> None:
+    i = inputs(HOUSE + FEATURES)
+    rcn = s.building_rcn(
+        i.measurements, i.cost_approach, cost_year=2024, rcn_source="appraisal_total"
+    )
+    assert rcn is not None and rcn.source == "appraisal_cost_approach" and rcn.additions == ()
+
+
+def test_an_average_house_adds_cooling_in_the_ductwork_its_heating_has() -> None:
+    average = [r for r in SIX_BATHS if r.field != "quality"] + rows(improvements__quality="Q4")
+    forced = [r for r in average if r.field != "heating_type"] + rows(
+        improvements__heating_type="FWA"
+    )
+    model = s.MODIFICATIONS[("average", "2 story")]
+    for field_rows, ducts, rate in (
+        (average, "in separate ductwork", model.ac_separate_ducts),
+        (forced, "in heating ductwork", model.ac_in_heating_ducts),
+    ):
+        i = inputs(field_rows)
+        rcn = s.building_rcn(i.measurements, i.cost_approach, cost_year=2020)
+        assert rcn is not None and rcn.model.name == "Average 2 Story"
+        assert ducts in rcn.inputs["cooling"]
+        cooling = [a for a in rcn.additions if "air conditioning" in a.what]
+        assert [a.amount for a in cooling] == [(rate or D(0)) * 3000]
+
+
+def test_fewer_baths_than_the_model_deduct_at_the_pages_figure() -> None:
+    one_bath = [r for r in SIX_BATHS if r.field != "bathrooms"] + rows(
+        improvements__bathrooms="1.0"
+    )
+    i = inputs(one_bath)
+    rcn = s.building_rcn(i.measurements, i.cost_approach, cost_year=2020)
+    assert rcn is not None
+    bath = sum((a.amount for a in rcn.additions if "baths" in a.what), D(0))
+    assert bath == D("-5838.00")  # the model's half bath the house lacks
+
+
+def test_split_building_puts_each_addition_in_its_component() -> None:
+    i = inputs(SIX_BATHS)
+    rcn = s.building_rcn(i.measurements, i.cost_approach, cost_year=2024)
+    assert rcn is not None and rcn.additions
+    parts = s.split_building(rcn)
+    assert sum(parts.values(), D(0)) == rcn.amount
+    added = sum((a.amount for a in rcn.additions), D(0))
+    plain = s.split_components(rcn.amount - added, rcn.model)
+    for component in s.COMPONENTS:
+        mine = sum((a.amount for a in rcn.additions if a.component == component), D(0))
+        assert parts[component] == plain[component] + mine, component
+    assert parts["specialties"] == plain["specialties"]  # no addition there
+
+
+def test_the_mechanical_residual_gives_each_addition_to_its_row() -> None:
+    i = inputs(SIX_BATHS)
+    rcn = s.building_rcn(i.measurements, i.cost_approach, cost_year=2024)
+    assert rcn is not None
+    carve = s.carve_out(s.split_building(rcn), [])
+    small = s.small_system_inputs(i.measurements, i.cost_approach, [])
+    produced = {r.label: r for r in s.concealed_rows(rcn, carve, i.living_area, small)}
+    mechanical = carve.get("mechanical")
+    bath = next(a.amount for a in rcn.additions if a.label == "plumbing_rough_in")
+    heat = next(a.amount for a in rcn.additions if a.label == "hvac_distribution")
+    base = mechanical.top_down - bath - heat
+    plumbing, hvac = produced["plumbing_rough_in"].rcn, produced["hvac_distribution"].rcn
+    assert plumbing is not None and hvac is not None
+    assert plumbing + hvac == mechanical.residual
+    expected = base * s.PLUMBING_SHARE_OF_MECHANICAL_RESIDUAL + bath
+    assert abs(plumbing - expected) <= D("0.01")
+    assert "plus modifications" in produced["plumbing_rough_in"].formula
+    assert "each addition to its row" in produced["plumbing_rough_in"].formula
+
+
+def test_a_negative_addition_larger_than_its_rows_part_keeps_the_assembly_ratio() -> None:
+    model = s.MODELS[("custom", "2 story")]
+    rcn = s.BuildingRcn(
+        amount=D("1000.00"),
+        source="square_foot_model",
+        formula="",
+        inputs={},
+        assumptions=(),
+        checks=(),
+        needs_review=False,
+        model=model,
+        model_choice=s.ModelChoice(model, "", "", (), False),
+        additions=(s.Addition("mechanical", "hvac_distribution", D("-500.00"), "electric"),),
+    )
+    targets = s.RESIDUAL_ROWS["mechanical"]
+    weights, note = s._weights(rcn, "mechanical", D("100.00"), targets)
+    assert weights == tuple(w for _, w in targets) and note is not None
+
+
+def test_the_small_systems_inside_the_model_are_carved() -> None:
+    i = inputs()
+    small = s.small_system_rows(s.small_system_inputs(i.measurements, i.cost_approach, []))
+    priced = {
+        "fire_alarm_system": D("2000.00"),
+        "data_cabling": D("500.00"),
+        "access_control": D("700.00"),
+        "site_utilities": D("5000.00"),
+    }
+    carved = s.carved_small_systems(small, priced)
+    assert {r.label: r.rcn for r in carved} == {
+        "fire_alarm_system": D("2000.00"),
+        "data_cabling": D("500.00"),
+        "access_control": D("700.00"),
+    }  # the laterals are outside the model
+    rcn = s.building_rcn(i.measurements, i.cost_approach, cost_year=2024, rcn_source=APPRAISAL)
+    assert rcn is not None
+    plain = s.carve_out(s.split_building(rcn), [])
+    with_small = s.carve_out(s.split_building(rcn), carved)
+    assert plain.get("electrical").residual - with_small.get("electrical").residual == D(2500)
+    assert plain.get("exterior_walls").residual - with_small.get("exterior_walls").residual == (
+        D(700)
+    )
+
+
+def test_the_overhead_markup_is_the_models_item_10_over_components_1_to_9() -> None:
+    markup = s.overhead_markup(s.MODELS[("custom", "2 story")])
+    assert markup.rate == D("0.200129")  # 21.72 / 108.53
+    assert "ATG ch. 4 C.11(2)" in markup.source and "Custom 2 Story" in markup.source
+    for model in s.MODELS.values():
+        assert D("0.14") < s.overhead_markup(model).rate < D("0.25"), model.name
+    assert s.inside_model("carpet") and s.inside_model("fire_alarm_system")
+    assert not s.inside_model("refrigerator") and not s.inside_model("site_utilities")
+    assert not s.inside_model(None)
+
+
+def test_a_written_specialties_residual_is_not_an_unassigned_remainder() -> None:
+    i = inputs()
+    rcn = s.building_rcn(i.measurements, i.cost_approach, cost_year=2024, rcn_source=APPRAISAL)
+    assert rcn is not None
+    carve = s.carve_out(s.split_building(rcn), [])
+    common = {
+        "building_basis": D("500000"),
+        "total_basis": D("500000"),
+        "rcn_total": rcn.amount,
+        "rcnld_total": rcn.amount * D("0.75"),
+        "building": rcn,
+        "carve": carve,
+        "unpriced_assets": 0,
+        "land_checks": (),
+        "depreciation_": s.depreciation(i.cost_approach),
+    }
+    reported = s.reconcile(concealed_by_component={}, **common)  # type: ignore[arg-type]
+    assert [c for c, _ in reported.unassigned_remainders] == ["specialties"]
+    written = s.reconcile(  # type: ignore[arg-type]
+        concealed_by_component={"specialties": carve.get("specialties").residual},
+        pricing="at Total Incl O&P",
+        **common,
+    )
+    assert written.unassigned_remainders == ()
+    causes = {code: said for code, _, said in written.causes}
+    assert "itemized rows priced at Total Incl O&P" in causes["indirect_costs"]
+    assert "itemized rows priced at Total Incl O&P" in causes["cost_factors"]
+
+
+def test_the_inputs_say_how_the_rows_were_priced() -> None:
+    assert "Total Incl O&P" in inputs().pricing() and "pro rata" in inputs().pricing()
+    before = inputs(cost_basis="bare", overhead_allocation="none")
+    assert "bare cost" in before.pricing() and "absorb it" in before.pricing()
