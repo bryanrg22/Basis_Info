@@ -7,8 +7,10 @@ one ``photo_analysis`` call when ``Settings.vision_photo_mode`` is ``single``, t
 ``decomposed``) charged to the remaining budget the workflow passes in, stores the raw
 analysis next to the photo in storage, and writes the room (shared by every photo of the
 same room in the revision: by file name, or by the model's room identity when the name
-says nothing or ``ROOM_GROUPING=model``), the ``photo_rooms`` assignment and one ``components`` row
-per component kind (:mod:`basis.vision.rooms`). Each component row's ``raw.prompt_version``
+says nothing or ``ROOM_GROUPING=model``), the ``photo_rooms`` assignment, the photo's room
+answer (``photo_room_answers``: its room type, confidence, floor and ordinal, which the
+rooms' vote reads even when the photo has no component) and one ``components`` row per
+component kind (:mod:`basis.vision.rooms`). Each component row's ``raw.prompt_version``
 names every prompt that produced the analysis (``+``-joined in the decomposed mode); each
 call has its own ``llm_calls`` row and the activity's cost is their sum.
 
@@ -189,6 +191,16 @@ class AnalyzePhoto:
             )
             if simulate is not None and simulate.sleep_seconds > 0:
                 await sleep_heartbeating(simulate.sleep_seconds)
+            await rooms.record_answer(
+                study_id=study_id,
+                document_id=document_id,
+                revision=input.revision,
+                room_type=analysis.room_type.value,
+                room_confidence=analysis.room_confidence,
+                floor=analysis.floor,
+                room_ordinal=analysis.room_ordinal,
+                analysis_uri=uri,
+            )
             count = await write_photo(
                 session,
                 study_id=study_id,

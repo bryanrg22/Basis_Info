@@ -218,6 +218,7 @@ class E:
     CORRECT_STUDY_NOT_FOUND = "BASIS-CORRECT-024"
     CORRECT_TARGET_NOT_IN_REVISION = "BASIS-CORRECT-025"
     CORRECT_REFUSED = "BASIS-CORRECT-026"
+    CORRECT_ROOM_FIELD = "BASIS-CORRECT-027"
 
     # ---------------------------------------------------------------- process_assets
     ASSETS_CORRECTION_TYPE = "BASIS-ASSETS-001"

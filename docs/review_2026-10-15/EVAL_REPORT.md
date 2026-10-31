@@ -7248,6 +7248,157 @@ arrives through the store's manual path. Gates from `backEnd/`: `ruff check`, `r
 integration set: see the PR for the tallies. Client data: none in the repository (the recorded
 page is a public marketing page's index block; `tooling/check_no_client_data.py` clean).
 
+## 48. Rooms open named, typed and floored: the name's words first, then every photo's vote (2026-10-30)
+
+The live runs of section 38 opened the Rooms review on the per-photo grouping: 49 rooms for
+52 photos, every name carrying its floor ("2nd Floor Bed 2"), and some rooms typed
+`ambiguous` or wrong although their file names said what they were; the engineer fixed two
+room types by hand besides the 16 merges. Since PR #93 the room type also picks
+classification variants and is part of the firm conventions' key, so a wrong type now moves
+buckets, not only the review screen. This section makes a room's three fields independent and
+measures them on the client property's 52 photos, before and after, without a paid run.
+Section 47 is PR #97's. No client name, address or amount appears here; room descriptions
+are generic.
+
+### 48.1 What the Rooms review showed, and why (verified in code and data)
+
+Read from the local stack's database (revision 1 of the four live studies of 2026-10-29/30,
+read-only) and the stored per-photo run `vision_decomposed_v2_gpt61sol` (3 repeats):
+
+* **Names kept the floor.** The room's name was the file name's remainder (`display_name`),
+  floor prefix included, though the floor already had its own column: 36 of the 49 rooms.
+* **The type was the model's alone.** A file-name room's type was the per-photo model's
+  majority (`_vote_room_type` at creation, `vote_identity` in `reconcile_rooms`' vote); the
+  file name was read for the room key and the floor, never for the type. A one-photo room whose
+  photo answered `ambiguous` therefore opened as Ambiguous: the stored run answered `ambiguous`
+  11 times in 156 (a mechanical room named after its equipment, a bedroom's seating area, the
+  three basement bedrooms), and the live studies 1 to 2 rooms each. Wrong confident answers
+  went through the same way (basement bedrooms as `storage` or `basement`, a bedroom's seating
+  area as `living_room`, an entrance as `lobby`): 4 to 7 rooms per repeat with a wrong or
+  ambiguous type.
+* **A photo with no component never voted.** Its answer existed only in its `components`
+  rows' `raw` (`_answer` in `reconcile_rooms`); 3 of the stored run's 156 answers listed no
+  component. Such a room kept the answer of whichever photo was analyzed first.
+* **`ROOM_RECONCILE=false` skipped the vote** (the activity returned before planning), so
+  those rooms kept the first photo's answer too.
+* **Exterior views took the model's floor**: 0 to 3 of the 13 site views per live study were
+  `floor 1` (5 in the four studies).
+* Photos left without a room: none with descriptive file names (every name is a room hint);
+  with camera names the model's identity groups and an `ambiguous` answer goes to the
+  Unassigned room (1 to 4 photos of 52).
+
+### 48.2 The standard
+
+The RESO Data Dictionary 2.0 keeps a listing's `RoomType` (33 values, the ordinal inside the
+value: "Bedroom 2", "Bathroom 1") and `RoomLevel` (Basement, First, Second, Third, and the
+relative Main, Lower, Upper) as separate fields (dd.reso.org/DD2.0/lookups/RoomType,
+/RoomLevel, read 2026-10-30). Basis's `rooms` already had the three columns; what was missing
+was filling them from the right evidence each. The relative levels have no number, so they
+are not read: an unknown floor stays null.
+
+### 48.3 What changed (`basis.vision.rooms`, `reconcile_rooms`, migration 0017)
+
+* `room_name`: the file name without the floor prefix the labelling rule identified
+  (`<n>st/nd/rd/th Floor`, `Basement`), ordinal and words kept: "2nd Floor Bedroom 2" is
+  `Bedroom 2` on floor `2`, "Basement Bath" `Bath` on `0`. A name with no identified floor is
+  unchanged, and so is a name that is only a floor ("Basement").
+* `name_room_type`: the type the name says, from a fixed vocabulary of common US residential
+  and small-commercial room terms (the RESO lookup's among them), longest phrase first, words
+  after a locator ("to", "from", "off", ...) ignored, the last match winning (the head of an
+  English noun phrase is last: "Bed 2 Bath" is a bathroom, "Bed 3 Seating Area" a bedroom).
+  A name with no room word ("Extra Area Seating Area", "Access from 1st Floor") says nothing.
+* `resolve_room`, one function for creation, the vote, `group_photos` and the eval: type =
+  the name's, else the per-photo answers' majority (`ambiguous` abstains); floor = a file name's,
+  else none for exterior and parking (a floor does not apply to the grounds), else the answers'
+  most common, else null; `0` is kept as the basement. The name is never voted.
+* `photo_room_answers` (migration 0017): `analyze_photo` records each analysis' room type,
+  confidence, floor and ordinal, so every analyzed photo votes, components or not; a photo
+  carried into a revision answers from its latest analysis. Photos analyzed before the
+  migration vote from their component rows as before (no backfill).
+* The vote runs with the room step off too, and every change is a `room.voted` event (actor
+  `model`, before/after, the source of each field: `file_name`, `model` or `none`;
+  docs/api/TIMELINE_AND_AUDIT.md).
+* Unchanged on purpose: room keys (`group_key`), aliases, assignments and the merge path; a
+  room a reviewer corrected (`source = manual`) is never voted and no room is ever renamed, so
+  rooms grouped before this change keep their names; rooms are never merged because names or
+  types match (two "Bath" rooms on floors 1 and 0 stay two rooms).
+* Found while testing the round trip: a `room` correction with a numeric `floor` (`0`) passed
+  `POST /decisions` and then failed `apply_corrections` on the database write (asyncpg
+  `DataError`), so the rejection would never apply. Now a whole number is stored as its text,
+  and a value the activity cannot store (empty name, `true`, `2.5`, out of range) is a 422 at
+  the route (`BASIS-CORRECT-027` in the activity).
+* The export's assets CSV gains a last column `room_floor`, since two rooms may now share a
+  name.
+
+### 48.4 Measured: the 52 photos, no model call (`evals.room_metadata`)
+
+The grouping scored is `initial_rooms`, the function the activities' writes equal (an
+integration test compares the database after `assign_room_by_name`, the answer rows and the
+vote with it). "Before" is main `7aa78c3`'s production path replayed by a scratch script
+(creation by the first photo in file order, then `vote_room` on the photos with component
+rows). Truth: the room labels (`room_inventory_v1.json`, 33 rooms; for a view the labels alias
+into another room, its photos' labels), with `entry` as hallway and `stairs` as stairway. The
+name is scored against the engineer's own words without the leading floor, which checks the
+format, not a model. Ranges are over repeats.
+
+| answers | scenario | | rooms | name | room type | floor | all three | Ambiguous rooms | photos unassigned |
+|---|---|---|---|---|---|---|---|---|---|
+| live studies (4) | file names | before | 49 | 13 | 43–45 | 45–49 | 9–13 | 1–2 | 0 |
+| | | after | 49 | 49 | 48–49 | 48–49 | 48–49 | 0 | 0 |
+| | with the 16 aliases | before | 33 | 3 | 29–31 | 31–33 | 1–3 | 0–1 | 0 |
+| | | after | 33 | 33 | 32–33 | 32–33 | 32–33 | 0 | 0 |
+| | camera names | both | 17–19 | – | – | – | – | 0 | 1–2 |
+| stored run (3) | file names | before | 49 | 13 | 42–44 | 49 | 13 | 3–4 | 0 |
+| | | after | 49 | 49 | 49 | 49 | 49 | 0 | 0 |
+| | with the 16 aliases | before | 33 | 3 | 29–30 | 33 | 3 | 1–2 | 0 |
+| | | after | 33 | 33 | 33 | 33 | 33 | 0 | 0 |
+| | camera names | both | 13–14 | – | – | – | – | 0 | 3–4 |
+
+Per photo (the type of the room each photo is in against its own label), file names: 45–48
+of 52 before, 51–52 after. All three fields right over every room and repeat: 46 of 196 → 194
+of 196 (live), 39 of 147 → 147 of 147 (stored run). The three misses left are model-only
+fields (the name says nothing, or no file name gives a floor): a seating area typed `hallway`
+in one live study (labelled living room), and the mechanical room given floor `0` by the model
+in one live study, where the room label has no floor but its photos are labelled basement.
+The room count does not change (49, or 33 after the merges): proposing the merges is not this
+change. The camera-name rows do not change either: the model-identity path was left as it was.
+
+**What the number does not prove.** The vocabulary was written knowing these 52 names, so the
+file-name rows are a regression, not out-of-sample evidence; the 30 other names in the tests
+(listing and inspection terms) were written with it too. A second client package is the test.
+
+### 48.5 Not done, and what it touches
+
+* **Downstream not replayed**: the voted type is the room step's input (its path and prompt)
+  and the classifier's context, so rooms whose type changed here (the basement bedrooms, the
+  mechanical room, a seating area, an entrance) will get different room-step and convention
+  keys; neither was rerun (both are paid or need a live study).
+* **Not delivered: "every photo must be in a room before Rooms approval."** This change does
+  not add that guard; it depends on integrating the separate, uncommitted room-management work
+  (its hand-over note `ROOM_MANAGEMENT_HANDOFF.md`), which implements it at `POST /decisions`,
+  and that integration is Bryan's decision. Until then a Rooms review can still be approved
+  with photos unplaced. Where this change decides whether a photo is placed (`initial_rooms`,
+  `evals.room_metadata`) it uses that work's rule: no assignment, or the room named exactly
+  `Unassigned`.
+* Floors written as words ("Second Floor", "Floor 2", "Ground Floor") are not read, so such
+  a name keeps its words and the floor comes from the photos or stays null; the room key rule
+  is the labeller's and was not changed.
+* The model-identity path (camera names) still takes the model's floor for exterior views.
+* Rooms grouped before this change keep the floor in their names until regrouped.
+
+### 48.6 Tests and gates
+
+`tests/unit/vision/test_room_metadata.py` (names, the vocabulary on the package's and 30 other
+names, sources per field, basement `0`, unknown floors, the grounds, the vote with
+component-less photos, multiple floors and duplicate types kept apart, aliases, failed
+analyses, camera names and the Unassigned tray, corrected-floor parsing);
+`tests/unit/activities/test_reconcile_rooms.py` (the answer row, the `room.voted` event and
+its retry, a carried photo's answer, a reviewer's rename, refloor and move surviving the vote,
+a re-analysis and a retry across the two gates, the vote with the room step off, legacy names
+and legacy rows); `tests/api/test_room_metadata_api.py` (`GET /rooms` → `POST /decisions` →
+`apply_corrections` → the vote → `GET /rooms` at the next revision with provenance; the 422s;
+the database equal to `initial_rooms`); `tests/unit/evals/test_room_metadata.py`. Gates: see
+the PR.
 ## 49. The reconciliation gap closed for documented reasons: the house's baths and heating, the residual added back, one cost basis (2026-10-31)
 
 Question (section 47.4): with every cost factor a cited RSMeans index, both live exports of the

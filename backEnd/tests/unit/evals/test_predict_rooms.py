@@ -210,8 +210,8 @@ async def test_run_writes_the_heuristic_the_reconciled_inventory_and_raw_records
 
     grouping = json.loads((out / "rooms.json").read_text())
     assert [(r["room_id"], r["name"], r["floor"], r["room_type"]) for r in grouping] == [
-        ("b_bath", "Basement Bath", 0, "bathroom"),
-        ("1_kitchen", "1st Floor Kitchen", 1, "kitchen"),
+        ("b_bath", "Bath", 0, "bathroom"),
+        ("1_kitchen", "Kitchen", 1, "kitchen"),
     ]
     kitchen = grouping[1]
     assert kitchen["photos"] == [

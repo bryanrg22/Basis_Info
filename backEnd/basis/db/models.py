@@ -463,6 +463,38 @@ class PhotoRoom(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class PhotoRoomAnswer(Base):
+    """What the per-photo model said about a photo's room, once per analysis (migration
+    ``0017_photo_room_answers``): written by ``analyze_photo`` with the photo's rows, read by
+    ``reconcile_rooms``' vote (``basis.vision.rooms.resolve_room``).
+
+    The answer belongs to the photo, not to its room: a revision that carries the photo
+    unchanged has no row of its own, and the photo's answer there is its latest row at or
+    before that revision, wherever a move or merge put the photo. Kept apart from the
+    ``components`` rows because a photo with no component has none, and its answer must
+    still vote. ``room_type`` is the normalized value (``ambiguous`` when the model
+    abstained); ``floor`` the model's hint (``None``: not visible).
+    """
+
+    __tablename__ = "photo_room_answers"
+    __table_args__ = (
+        PrimaryKeyConstraint("document_id", "revision"),
+        ForeignKeyConstraint(["study_id", "document_id"], ["documents.study_id", "documents.id"]),
+        _confidence_check("room_confidence"),
+        Index(None, "study_id", "revision"),
+    )
+
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    document_id: Mapped[uuid.UUID]
+    revision: Mapped[int]
+    room_type: Mapped[str]
+    room_confidence: Mapped[float | None] = mapped_column(REAL)
+    floor: Mapped[int | None]
+    room_ordinal: Mapped[int]
+    analysis_uri: Mapped[str | None]
+    created_at: Mapped[datetime] = _created_at()
+
+
 class Component(Base):
     __tablename__ = "components"
     __table_args__ = (

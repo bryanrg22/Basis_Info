@@ -119,6 +119,7 @@ from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study_event import StudyEventRepository
+from basis.domain.rooms import room_field_problems, stored_floor
 from basis.errors.codes import E
 from basis.vision.rooms import (
     ROOM_MANUAL_SOURCE,
@@ -376,6 +377,10 @@ async def _carry_rooms(
     old_rooms = {room.id: room for room in await repo.list_for_revision(study_id, from_revision)}
     old_components = {c.id: c for c in await repo.components(study_id, from_revision)}
     room_after = _targets(room_corrections, old_rooms, ROOM_FIELDS, "room")
+    for after in room_after.values():
+        problems = room_field_problems(after)
+        if problems:
+            raise validation_error("; ".join(problems), E.CORRECT_ROOM_FIELD)
     component_after = _targets(component_corrections, old_components, COMPONENT_FIELDS, "component")
     for after in component_after.values():
         check_component(after)
@@ -629,7 +634,7 @@ async def _copy_room(
         revision=to_revision,
         name=str(changes.get("name", old.name)),
         room_type=str(changes.get("room_type", old.room_type)),
-        floor=changes.get("floor", old.floor),
+        floor=stored_floor(changes["floor"]) if "floor" in changes else old.floor,
         source="manual" if changes else old.source,
         group_key=old.group_key if old.group_key is not None else adopted_key,
         carried_from=old.id,

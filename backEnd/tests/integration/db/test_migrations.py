@@ -46,6 +46,9 @@
   value, keyed by source, series, year and region, versioned, append-only) and its ledger
   (``cost_index_runs``, append-only), both under ``forbid_mutation()``; nothing is seeded;
   it downgrades back to ``0015`` exactly;
+* ``0017_photo_room_answers`` creates the per-photo room answers (one row per document and
+  revision analyzed, confidence in range, tenancy through the document), nothing backfilled;
+  it downgrades back to ``0016`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -78,8 +81,8 @@ from basis.db.models import (
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0016"
-HISTORY = [f"{n:04d}" for n in range(16, 0, -1)]  # "0016" .. "0001"
+HEAD = "0017"
+HISTORY = [f"{n:04d}" for n in range(17, 0, -1)]  # "0017" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1170,3 +1173,33 @@ async def test_0016_cost_indices_store_append_only_and_downgrade(empty_database_
         await connection.close()
     await downgrade(url, "0015")
     assert await snapshot(url) == at_0015
+
+
+async def test_0017_photo_room_answers_and_downgrade(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0016")
+    at_0016 = await snapshot(url)
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, photo, _ = await _photo(connection)
+        insert = (
+            "INSERT INTO photo_room_answers (study_id, document_id, revision, room_type, "
+            "room_confidence, floor, room_ordinal) VALUES ($1, $2, $3, $4, $5, $6, 1)"
+        )
+        await connection.execute(insert, study, photo, 1, "bathroom", 0.9, 0)
+        await connection.execute(insert, study, photo, 2, "ambiguous", None, None)
+        with pytest.raises(asyncpg.UniqueViolationError):  # one answer per analysis
+            await connection.execute(insert, study, photo, 1, "kitchen", 0.5, 1)
+        with pytest.raises(asyncpg.CheckViolationError, match="room_confidence_range"):
+            await connection.execute(insert, study, photo, 3, "kitchen", 1.5, 1)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):  # the photo of another study
+            await connection.execute(insert, uuid.uuid4(), photo, 3, "kitchen", 0.5, 1)
+        floor = await connection.fetchval(
+            "SELECT floor FROM photo_room_answers WHERE document_id = $1 AND revision = 1", photo
+        )
+        assert floor == 0  # the basement is a value, not a null
+    finally:
+        await connection.close()
+    await downgrade(url, "0016")
+    assert await snapshot(url) == at_0016

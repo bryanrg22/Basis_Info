@@ -561,6 +561,11 @@ Vision architecture alternatives (EVAL_REPORT section 26; `docs/review_2026-10-1
   `--aliases`; `room_inventory.json` / `room_raw.jsonl` (each room's path, step, fallback,
   crops and cost) / `run.json`. EVAL_REPORT 29:
   `ROOM_STEP_MODE=room_call python -m evals.replay_rooms --photos ... --per-photo ... --aliases ... --out ...`.
+- `evals.room_metadata --per-photo DIR`: the rooms the Rooms review opens on
+  (`basis.vision.rooms.initial_rooms`, the production grouping) for every repeat of a stored
+  per-photo run, in three scenarios (the file names, with the labels' aliases, every file
+  renamed `IMG_<n>`), scored against the labels: name, room type and floor per room, type and
+  floor per photo, photos left without a room. No model call. EVAL_REPORT 48.
 - `evals.score_schedule`: row recall and precision against the engineer's schedule with
   distractor rows (`--template`), row quantities against the labelled room inventory (WAPE,
   cost-weighted relative error), room count error over every repeat, paired bootstraps over

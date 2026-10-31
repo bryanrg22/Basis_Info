@@ -77,6 +77,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `revision.carried` | system | `apply_corrections` finished copying a revision | `detail.applied`, `detail.from_revision` |
 | `corrections.refused` | system | `apply_corrections` refused a rejection's corrections; the revision started without them | `code`, `detail.reason` |
 | `inventory.rebuilt` | model | `reconcile_rooms` replaced a room's inventory rows | `entity_id` the room; `detail.deleted` (row ids), `written`, `step`, `model` |
+| `room.voted` | model | `reconcile_rooms`' vote changed a file-name room's `room_type` or `floor` (the name is never changed; a room an engineer corrected is never voted) | `entity_id` the room; `before`/`after` `{room_type, floor}`; `detail.sources` (`file_name`, `model` or `none` per field), `photos`, `answers` |
 | `stage.failed`, `stage.failure_cleared` | system | `record_failure` | `code`, `detail.reason`, `detail.marked` |
 | `study.stalled`, `review.reminded` | system | the review deadline and reminders | `detail.waiting_days` |
 | `study.retry_requested`, `study.cancel_requested` | engineer | `POST .../retry`, `POST .../cancel` | |

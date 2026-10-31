@@ -20,7 +20,6 @@ from basis.vision.rooms import (
     name_group,
     name_hint,
     resolve_aliases,
-    vote_identity,
 )
 from basis.vision.schemas import PhotoAnalysis, RoomType
 
@@ -104,12 +103,12 @@ def test_groups_by_room_id_in_floor_then_slug_order() -> None:
         "x_property_front",
     ]
     kitchen = groups[1]
-    assert kitchen.name == "1st Floor Kitchen" and kitchen.floor == 1
+    assert kitchen.name == "Kitchen" and kitchen.floor == 1  # the floor is not in the name
     assert [p.file for p in kitchen.photos] == [
         "21_1st Floor Kitchen photo 1.JPG",
         "22_1st Floor Kitchen photo 2.JPG",
     ]
-    # Tie (kitchen 1, dining 1) -> the first photo's answer.
+    # The name says kitchen (the answers tie kitchen 1, dining 1).
     assert kitchen.room_type is RoomType.KITCHEN
     assert groups[0].floor == 0
     # No floor in the name -> the model's floor.
@@ -137,8 +136,8 @@ def test_aliases_merge_a_view_into_its_room() -> None:
         "29_2nd Floor Bed 2 .JPG",
         "30_2nd Floor Bed 2 Seating Area.JPG",
     ]
-    # The canonical room keeps its own name; tie bedroom/living -> first photo.
-    assert bed.name == "2nd Floor Bed 2" and bed.room_type is RoomType.BEDROOM
+    # The canonical room keeps its own name, and its name says bedroom.
+    assert bed.name == "Bed 2" and bed.room_type is RoomType.BEDROOM
 
 
 def test_aliases_are_transitive_and_may_name_a_room_with_no_photo_of_its_own() -> None:
@@ -149,7 +148,7 @@ def test_aliases_are_transitive_and_may_name_a_room_with_no_photo_of_its_own() -
     }
     groups = group_photos(PACKAGE, aliases)
     suite = next(g for g in groups if g.room_id == "2_primary_suite")
-    assert len(suite.photos) == 2 and suite.name == "2nd Floor Bed 2"
+    assert len(suite.photos) == 2 and suite.name == "Bed 2"
     assert suite.floor == 2
 
 
@@ -172,7 +171,7 @@ def test_alias_cycles_are_refused(aliases: dict[str, str]) -> None:
 def test_room_type_is_the_majority_and_ambiguous_does_not_vote() -> None:
     def room(*types: RoomType | None) -> RoomType:
         photos = [
-            PhotoInput(f"1st Floor Den photo {i}.jpg", None if t is None else analysis(t))
+            PhotoInput(f"1st Floor Suite photo {i}.jpg", None if t is None else analysis(t))
             for i, t in enumerate(types, start=1)
         ]
         [group] = group_photos(photos)
@@ -208,7 +207,19 @@ def test_synthetic_fixture_photos_are_each_their_own_room() -> None:
         "x_ac_condenser",
         "x_ambiguous",
     }
-    assert all(g.floor is None and g.room_type is RoomType.OTHER for g in groups)
+    # No analyses: the names say the type, except "ambiguous" (no room word: other).
+    by_id = {g.room_id: g.room_type for g in groups}
+    assert by_id == {
+        "x_kitchen": RoomType.KITCHEN,
+        "x_bathroom": RoomType.BATHROOM,
+        "x_bedroom": RoomType.BEDROOM,
+        "x_living_room": RoomType.LIVING_ROOM,
+        "x_garage": RoomType.GARAGE,
+        "x_exterior_front": RoomType.EXTERIOR,
+        "x_ac_condenser": RoomType.EXTERIOR,
+        "x_ambiguous": RoomType.OTHER,
+    }
+    assert all(g.floor is None for g in groups)
 
 
 def test_empty_input_gives_no_rooms() -> None:
@@ -297,7 +308,7 @@ def test_name_group_is_group_photos_for_every_photo() -> None:
         want = expected[filename]
         assert (group.room_id, group.name, group.floor) == (want.room_id, want.name, want.floor)
     assert name_group("15_1st Floor Breakfast Nook.JPG", NAMED_PACKAGE, PACKAGE_ALIASES).name == (
-        "1st Floor Kitchen"
+        "Kitchen"
     )
     assert (
         name_group("32_2nd Floor Bed 3 Shower.JPG", NAMED_PACKAGE, PACKAGE_ALIASES).room_id
@@ -315,22 +326,7 @@ def test_name_group_order_does_not_depend_on_the_input_order() -> None:
     assert forward == backward
     # A file not in the list is grouped as if it were.
     alone = name_group("23_1st Floor Kitchen photo 3.JPG", NAMED_PACKAGE, PACKAGE_ALIASES)
-    assert (alone.room_id, alone.name) == ("1_kitchen", "1st Floor Kitchen")
-
-
-def test_vote_identity_follows_group_photos() -> None:
-    assert vote_identity(["kitchen", "kitchen", "bathroom"], [1, None, 2]) == (
-        RoomType.KITCHEN,
-        1,
-    )
-    # ambiguous abstains; ties go to the earliest; unknown strings vote other.
-    assert vote_identity(["ambiguous", "bedroom", "office"], [None, 2, 2]) == (
-        RoomType.BEDROOM,
-        2,
-    )
-    assert vote_identity(["ambiguous"], [None]) == (RoomType.AMBIGUOUS, None)
-    assert vote_identity(["not-a-type"], [3]) == (RoomType.OTHER, 3)
-    assert vote_identity([], []) == (RoomType.OTHER, None)
+    assert (alone.room_id, alone.name) == ("1_kitchen", "Kitchen")
 
 
 def test_merge_alias() -> None:
