@@ -7,7 +7,8 @@
   different content-length range, a body of another size, an unknown or expired token.
   A body over the 50 MiB upload limit is 413 before it is read.
 * The route is mounted only for local storage in dev and test, is not in the OpenAPI
-  document, and CORS allows the browser's ``PUT`` (with the range header) only then.
+  document, and CORS allows the browser's range header only then (``PUT`` itself is allowed
+  everywhere, for the intake).
 """
 
 from __future__ import annotations
@@ -174,7 +175,13 @@ async def test_cors_allows_the_browsers_put_for_local_uploads(client: httpx.Asyn
     assert CONTENT_LENGTH_RANGE_HEADER in response.headers["access-control-allow-headers"].lower()
 
 
-async def test_without_local_storage_there_is_no_route_and_no_put_in_cors(tmp_path: Path) -> None:
+async def test_without_local_storage_there_is_no_route_and_no_upload_header_in_cors(
+    tmp_path: Path,
+) -> None:
+    """PUT itself is an allowed method everywhere since the intake's conditional write
+    (``PUT /v1/studies/{id}/intake`` with ``If-Match``); the upload route stays unmounted and
+    its signed range header is not allowed, so a browser cannot upload through the API."""
+
     class OtherStorage:  # stands in for GCS: anything that is not LocalStorage
         pass
 
@@ -185,10 +192,14 @@ async def test_without_local_storage_there_is_no_route_and_no_put_in_cors(tmp_pa
         put = await c.put(f"{BASE}/dev/local-uploads/token", content=DATA)
         preflight = await c.options(
             "/v1/studies",
-            headers={"Origin": FRONTEND, "Access-Control-Request-Method": "PUT"},
+            headers={
+                "Origin": FRONTEND,
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": CONTENT_LENGTH_RANGE_HEADER,
+            },
         )
     assert put.status_code in (404, 405)
-    assert preflight.status_code == 400  # PUT is not an allowed method there
+    assert preflight.status_code == 400  # the upload's range header is not allowed there
 
 
 def test_local_uploads_are_off_outside_dev_and_test(tmp_path: Path) -> None:

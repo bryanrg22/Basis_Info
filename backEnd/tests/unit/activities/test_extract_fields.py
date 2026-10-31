@@ -23,6 +23,7 @@ from basis.activities import Deps
 from basis.activities.extract_fields import ExtractFields
 from basis.db.models import Document, Extraction, ExtractionField, LlmCall
 from basis.db.session import session_scope
+from basis.errors.codes import E
 from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.fallback import FallbackAnswer, FallbackValue
 from basis.llm import ScriptedProvider, ScriptedTurn, Usage
@@ -722,3 +723,215 @@ async def test_an_account_error_on_the_grounded_call_stops_the_stage(
         await activity_env.run(activity.run, extract(seeded))
     assert caught.value.type == PROVIDER_ACCOUNT_ERROR and caught.value.non_retryable
     assert await count_rows(deps.sessionmaker, Extraction) == 0
+
+
+# --------------------------------------------------------------------------- added fields
+# ``extraction_field_add`` (basis.extraction.added_fields): an appraisal field the decided
+# extraction lacked, written by the next extraction as an engineer's field.
+
+
+def _empty_fallback(turns: int) -> ScriptedProvider:
+    """A fallback model that reads nothing, so a field no reader found stays missing."""
+    return ScriptedProvider(
+        [
+            ScriptedTurn(
+                parsed=FallbackAnswer(fields=[]), usage=Usage(input_tokens=100, output_tokens=5)
+            )
+            for _ in range(turns)
+        ],
+        model="gpt-4o-mini",
+    )
+
+
+async def test_an_added_field_is_written_as_the_engineers_and_clears_its_missing_reason(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    """The scan has no text layer and Azure DI lost the GLA, so revision 1 misses a critical
+    field. The engineer adds it: revision 2 has it with source ``manual``, confidence 1, the
+    page given, its evidence in ``raw["added_fields"]``, an ``entity.added`` event and
+    ``engineer_added`` provenance; ``missing:improvements.gla_sqft`` is gone. A later stage's
+    rejection carries it with the same provenance; a second appraisal rejection re-extracts
+    and does not re-apply it (documented in basis.activities.extract_fields)."""
+    from basis.activities.apply_corrections import ApplyCorrections
+    from basis.db.models import Correction, StudyEvent
+    from basis.db.repositories.provenance import ProvenanceResolver
+    from basis.workflow.contracts import ApplyCorrectionsInput
+
+    await put_bytes(deps, seeded, await _fixture_bytes("urar_scan_noisy.pdf"))
+    activity = ExtractFields(
+        with_deps(
+            deps,
+            azure_di=StaticAzure(without_pair("Gross Living Area")),
+            llm=_empty_fallback(3),
+        )
+    )
+    rev1 = await activity_env.run(activity.run, extract(seeded))
+    old = await extraction(deps, rev1.extraction_id or "")
+    assert "missing:improvements.gla_sqft" in old.raw["review_reasons"]
+    assert "improvements.gla_sqft" not in await fields(deps, rev1.extraction_id or "")
+    after = {
+        "key": "improvements.gla_sqft",
+        "value_num": 1850,
+        "page": 3,
+        "evidence": "Gross Living Area 1,850 sq ft",
+    }
+    async with session_scope(deps.sessionmaker) as session:
+        row = Correction(
+            study_id=seeded.study_id,
+            entity_type="extraction_field_add",
+            entity_id=old.id,
+            revision=1,
+            after=after,
+            reason="Printed on page 3; the scan lost it.",
+            reviewer_id=seeded.owner_id,
+        )
+        session.add(row)
+        await session.flush()
+        correction_id = row.id
+    add = CorrectionInput(
+        entity_type="extraction_field_add",
+        entity_id=str(old.id),
+        after=after,
+        reason="Printed on page 3; the scan lost it.",
+    )
+    rev2 = await activity_env.run(activity.run, extract(seeded, 2, corrections=(add,)))
+    new = await extraction(deps, rev2.extraction_id or "")
+    gla = (await fields(deps, rev2.extraction_id or ""))["improvements.gla_sqft"]
+    assert (gla.value_num, gla.source, gla.confidence, gla.page) == (
+        Decimal("1850"),
+        "manual",
+        1.0,
+        3,
+    )
+    assert "missing:improvements.gla_sqft" not in new.raw["review_reasons"]
+    assert new.raw["added_fields"] == [
+        {
+            "key": "improvements.gla_sqft",
+            "page": 3,
+            "evidence": "Gross Living Area 1,850 sq ft",
+            "extraction_id": str(old.id),
+            "correction_ids": [str(correction_id)],
+        }
+    ]
+    async with session_scope(deps.sessionmaker) as session:
+        [event] = (
+            await session.scalars(
+                select(StudyEvent).where(
+                    StudyEvent.study_id == seeded.study_id,
+                    StudyEvent.event_type == "entity.added",
+                )
+            )
+        ).all()
+        provenance = await ProvenanceResolver(session, seeded.study_id).fields([gla])
+    assert (event.entity_type, event.entity_id, event.before, event.after) == (
+        "extraction_field",
+        gla.id,
+        None,
+        after,
+    )
+    assert (event.actor_id, event.revision) == (seeded.owner_id, 2)
+    assert event.detail["correction_ids"] == [str(correction_id)]
+    assert event.detail["key"] == "improvements.gla_sqft" and event.detail["from_revision"] == 1
+    added = provenance[gla.id]
+    assert (added.origin, added.correction_id, added.carried_from, added.before) == (
+        "engineer_added",
+        correction_id,
+        None,
+        None,
+    )
+    assert added.revision == 1 and added.by == seeded.owner_id
+
+    # A later stage's rejection copies the field; its provenance still names the addition.
+    activity_env.with_info(activity_id="apply-assets-2")
+    await activity_env.run(
+        ApplyCorrections(deps).run,
+        ApplyCorrectionsInput(
+            study_id=str(seeded.study_id),
+            stage="assets_review",
+            from_revision=2,
+            to_revision=3,
+            corrections=(),
+        ),
+    )
+    async with session_scope(deps.sessionmaker) as session:
+        [carried_extraction] = (
+            await session.scalars(
+                select(Extraction).where(
+                    Extraction.study_id == seeded.study_id, Extraction.revision == 3
+                )
+            )
+        ).all()
+        carried = {
+            f"{f.section}.{f.field}": f
+            for f in (
+                await session.scalars(
+                    select(ExtractionField).where(
+                        ExtractionField.extraction_id == carried_extraction.id
+                    )
+                )
+            ).all()
+        }["improvements.gla_sqft"]
+        carried_provenance = await ProvenanceResolver(session, seeded.study_id).fields([carried])
+    assert (carried.source, carried.value_num) == ("manual", Decimal("1850"))
+    assert carried_provenance[carried.id].origin == "engineer_added"
+    assert carried_provenance[carried.id].correction_id == correction_id
+
+    # Re-extracting without the correction, as a second appraisal rejection does (it applies
+    # only its own corrections), does not re-apply the earlier addition.
+    rev4 = await activity_env.run(activity.run, extract(seeded, 4))
+    assert "improvements.gla_sqft" not in await fields(deps, rev4.extraction_id or "")
+
+
+@pytest.mark.parametrize(
+    ("after", "code"),
+    [
+        (
+            {"key": "improvements.gla", "value_num": 1, "page": 1, "evidence": "x"},
+            E.CORRECT_FIELD_ADD_UNKNOWN_KEY,
+        ),
+        (
+            {"key": "subject.city", "value_text": "Oxnard", "page": 1, "evidence": "x"},
+            E.CORRECT_FIELD_ADD_EXISTS,
+        ),
+        (
+            {"key": "improvements.gla_sqft", "value_text": "big", "page": 1, "evidence": "x"},
+            E.CORRECT_FIELD_ADD_TYPE,
+        ),
+    ],
+)
+async def test_a_bad_added_field_is_not_retried_and_leaves_no_rows(
+    deps: Deps, seeded: SeededStudy, activity_env: Env, after: dict[str, Any], code: str
+) -> None:
+    activity = ExtractFields(deps)
+    rev1 = await activity_env.run(activity.run, extract(seeded))
+    assert "subject.city" in await fields(deps, rev1.extraction_id or "")
+    bad = (
+        CorrectionInput(
+            entity_type="extraction_field_add",
+            entity_id=rev1.extraction_id or "",
+            after=after,
+            reason="Seen on the page.",
+        ),
+    )
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(activity.run, extract(seeded, 2, corrections=bad))
+    assert caught.value.type == "ValidationError" and caught.value.non_retryable
+    assert f"[{code}]" in str(caught.value)
+    assert await count_rows(deps.sessionmaker, Extraction, revision=2) == 0
+
+
+async def test_an_added_field_without_a_reason_is_refused(
+    deps: Deps, seeded: SeededStudy, activity_env: Env
+) -> None:
+    activity = ExtractFields(deps)
+    rev1 = await activity_env.run(activity.run, extract(seeded))
+    bad = (
+        CorrectionInput(
+            entity_type="extraction_field_add",
+            entity_id=rev1.extraction_id or "",
+            after={"key": "subject.borrower", "value_text": "X", "page": 1, "evidence": "X"},
+        ),
+    )
+    with pytest.raises(ApplicationError) as caught:
+        await activity_env.run(activity.run, extract(seeded, 2, corrections=bad))
+    assert caught.value.non_retryable and "needs a reason" in str(caught.value)

@@ -220,6 +220,12 @@ class CostIndex:
     # values and, when the cost year has none, the assumption; the location row(s).
     year: YearFactor | None = None
     location: LocationFactor | None = None
+    # What ``location`` was looked up by (the cost trail): ``zip`` or ``state``, the ZIP or
+    # state code, and where it came from (``intake`` or the appraisal field); None when
+    # the factor is the setting's.
+    location_lookup: str | None = None
+    location_value: str | None = None
+    location_from: str | None = None
 
     @property
     def year_assumption(self) -> str | None:
@@ -812,6 +818,7 @@ def resolve_cost_index(
 
     factor, location_source = location_factor, "COST_LOCATION_FACTOR setting"
     location: LocationFactor | None = None
+    looked_up: tuple[str, str, str] | None = None
     unused: list[str] = []
     candidates: list[tuple[str, str, str]] = []  # (kind, value, origin)
     if zip_code:
@@ -831,14 +838,25 @@ def resolve_cost_index(
         if found is None:
             unused.append(f"no location factor for {kind} {value!r} ({origin})")
             continue
-        factor, location = found.factor, found
+        factor, location, looked_up = found.factor, found, (kind, value, origin)
         location_source = f"{kind} {value} ({origin}): {found.citation()}"
         break
     if location is None and unused:
         location_source = "COST_LOCATION_FACTOR setting: " + "; ".join(unused)
     elif unused:
         location_source = f"{location_source}; {'; '.join(unused)}"
-    return CostIndex(year, year_source, factor, location_source, year_factor, location)
+    lookup, looked_value, looked_from = looked_up or (None, None, None)
+    return CostIndex(
+        year,
+        year_source,
+        factor,
+        location_source,
+        year_factor,
+        location,
+        location_lookup=lookup,
+        location_value=looked_value,
+        location_from=looked_from,
+    )
 
 
 __all__ = [

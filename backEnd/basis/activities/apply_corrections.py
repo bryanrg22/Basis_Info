@@ -73,18 +73,38 @@ two file-name rooms is recorded in ``studies.room_aliases``
 merged room's file-name key instead. Either way a photo of the merged room re-analyzed
 later joins the target.
 
-``extraction_field`` and ``asset`` corrections are applied by the activity that
-recomputes those rows (they receive the corrections in their input), so ``applied``
-counts only the room, move and component corrections applied here. Every correction is
-validated here first, before anything is written: a type the stage does not accept, a
-target that is not in ``from_revision`` of this study, an unknown field or a value that
-does not parse is a ``ValidationError`` (the workflow then starts the revision without
-corrections and flags the stage; see ``StudyWorkflow._reject``).
+Removing a row (a ``component_remove`` correction, accepted wherever ``component`` is;
+:mod:`basis.domain.removals`): the named component row of the rejected revision (a
+reconciled inventory row, an engineer's added row or a photo's row) is not copied into the
+new revision, so every later revision lacks it too (each copies from the one before). ``after``
+is ``{}`` and the reason is required. Refused before anything is written: a row not in the
+rejected revision, a row removed twice or removed and corrected in one rejection, a row the
+rejection rebuilds anyway (an inventory row of a room with a flagged photo or a merge, a
+flagged photo's row), and the last inventory row of a reconciled room (without one the room
+falls back to its per-photo rows and the room step rebuilds it). Each removal is an
+``entity.removed`` event (``entity_id`` the removed row, ``before`` its label, material,
+attachment, count, room and photo, ``detail.kind``); a removed added row no longer keeps its
+room alive. The photo's localized objects (``photo_objects``) are never touched: removing a
+detected object is the objects route's ``DELETE``, and the room's suggested counts keep
+showing what the photos counted.
+
+An added appraisal field (``extraction_field_add``, :mod:`basis.extraction.added_fields`)
+is validated here (the extraction is of the rejected revision, the key is absent from it,
+the page is within its PDF, no key twice) and applied by ``extract_fields``.
+
+``extraction_field``, ``extraction_field_add`` and ``asset`` corrections are applied by the
+activity that recomputes those rows (they receive the corrections in their input), so
+``applied`` counts only the room, move, removal and component corrections applied here.
+Every correction is validated here first, before anything is written: a type the stage does
+not accept, a target that is not in ``from_revision`` of this study, an unknown field or a
+value that does not parse is a ``ValidationError`` (the workflow then starts the revision
+without corrections and flags the stage; see ``StudyWorkflow._reject``).
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any, Final
 
 from sqlalchemy import select
@@ -105,12 +125,21 @@ from basis.activities.corrections import (
     ROOM_FIELDS,
     check_asset,
     check_component,
+    check_component_remove,
     check_extraction_field,
+    check_extraction_field_add,
     check_fields,
     check_photo_room,
     check_room_component,
 )
 from basis.activities.deps import Deps
+from basis.activities.reprice_corrections import (
+    REPRICE,
+    STRUCTURE_MODEL,
+    check_reprice,
+    check_study_target,
+    parse_structure_model,
+)
 from basis.db.enums import DocumentKind
 from basis.db.models import Component, Correction, Extraction, Room, Study
 from basis.db.repositories.asset import AssetRepository
@@ -119,8 +148,10 @@ from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study_event import StudyEventRepository
+from basis.domain import removals
 from basis.domain.rooms import room_field_problems, stored_floor
 from basis.errors.codes import E
+from basis.extraction import added_fields
 from basis.vision.rooms import (
     ROOM_MANUAL_SOURCE,
     is_room_inventory,
@@ -252,7 +283,10 @@ class ApplyCorrections:
                 added=by_type.get("room_component", []),
                 moves=by_type.get("photo_room", []),
                 recorder=recorder,
+                component_removals=by_type.get(removals.COMPONENT_REMOVE, []),
             )
+            # Every removal is applied once validated (a duplicate is refused).
+            applied += len(by_type.get(removals.COMPONENT_REMOVE, []))
             await recorder.summary(input.stage, applied, (input.refused_code, input.refused_reason))
             return ApplyCorrectionsOutput(applied=applied)
 
@@ -305,6 +339,16 @@ async def _validate(
                 f"asset {correction.entity_id} is not in the rejected revision",
                 E.CORRECT_ASSET_NOT_IN_REVISION,
             )
+    _validate_removals(by_type)
+    await _validate_field_adds(session, study_id, from_revision, by_type)
+    for correction in by_type.get(REPRICE, []) + by_type.get(STRUCTURE_MODEL, []):
+        # The assets rebuild: its own study, a fingerprint or a square-foot model
+        # (``process_assets`` applies it).
+        check_study_target(correction.entity_type, correction.entity_id, study_id)
+        if correction.entity_type == REPRICE:
+            check_reprice(correction.after)
+        else:
+            parse_structure_model(correction.after, "structure_model correction")
     documents = DocumentRepository(session)
     for correction in by_type.get("photo", []) + by_type.get("photo_room", []):
         if correction.entity_type == "photo":
@@ -316,6 +360,64 @@ async def _validate(
             raise validation_error(
                 f"photo {correction.entity_id} is not a photo of this study", E.CORRECT_NOT_A_PHOTO
             )
+
+
+def _validate_removals(by_type: dict[str, list[CorrectionInput]]) -> None:
+    """Each ``component_remove`` by itself (``after`` is ``{}``, a reason), and none of a row
+    removed twice or also corrected. The row's revision and the rebuilt and last-row rules
+    need the revision's rows (:func:`_removed_rows`, :func:`_check_removals`)."""
+    seen: set[uuid.UUID] = set()
+    corrected = {parse_uuid(c.entity_id, "entity_id") for c in by_type.get("component", [])}
+    for correction in by_type.get(removals.COMPONENT_REMOVE, []):
+        check_component_remove(correction.after, correction.reason)
+        target = parse_uuid(correction.entity_id, "entity_id")
+        if target in seen or target in corrected:
+            raise validation_error(
+                f"component {target} is removed twice or removed and corrected in one rejection",
+                E.CORRECT_REMOVE_CONFLICT,
+            )
+        seen.add(target)
+
+
+async def _validate_field_adds(
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    from_revision: int,
+    by_type: dict[str, list[CorrectionInput]],
+) -> None:
+    """Each ``extraction_field_add`` (:mod:`basis.extraction.added_fields`): a valid
+    ``after`` and a reason, an extraction of the rejected revision of this study that lacks
+    the key, a page within its PDF when its page count is known, no key added twice to one
+    extraction."""
+    extractions = ExtractionRepository(session)
+    keys: dict[uuid.UUID, set[str]] = {}
+    added_keys: set[tuple[uuid.UUID, str]] = set()
+    for correction in by_type.get("extraction_field_add", []):
+        check_extraction_field_add(correction.after, correction.reason)
+        added = added_fields.parse(correction.after)
+        target = parse_uuid(correction.entity_id, "entity_id")
+        extraction = await extractions.get(study_id, target)
+        if extraction is None or extraction.revision != from_revision:
+            raise validation_error(
+                f"extraction {target} is not in the rejected revision",
+                E.CORRECT_EXTRACTION_NOT_IN_REVISION,
+            )
+        if (target, added.key) in added_keys:
+            raise validation_error(
+                f"{added.key} is added twice to extraction {target}",
+                E.CORRECT_FIELD_ADD_DUPLICATE,
+            )
+        added_keys.add((target, added.key))
+        if target not in keys:
+            keys[target] = {f"{f.section}.{f.field}" for f in await extractions.fields(target)}
+        problems = added_fields.target_problems(
+            added.key,
+            added.page,
+            existing_keys=keys[target],
+            page_count=added_fields.page_count(extraction.raw),
+        )
+        if problems:
+            raise validation_error(problems[0].message, problems[0].code)
 
 
 def _group(corrections: tuple[CorrectionInput, ...]) -> dict[str, list[CorrectionInput]]:
@@ -367,11 +469,15 @@ async def _carry_rooms(
     added: list[CorrectionInput],
     moves: list[CorrectionInput],
     recorder: _Recorder | None = None,
+    component_removals: Sequence[CorrectionInput] = (),
 ) -> int:
     """Copy the rooms, assignments, components and objects (module doc). ``skip_photos``
     are re-analyzed: their rows and objects stay behind, and so does their assignment
     unless ``keep_rooms_of_skipped`` (the components review: the approved room stands).
-    ``recorder`` writes the ``entity.*`` timeline events of what the corrections changed."""
+    ``recorder`` writes the ``entity.*`` timeline events of what the corrections changed.
+    ``component_removals`` (``component_remove``) name rows left out of the new revision:
+    they are taken out of the rows copied before anything else reads them (so a removed added
+    row keeps no room alive); their count is not in the return value (the caller adds it)."""
     repo = RoomRepository(session)
     recorder = recorder or _Recorder(session, study_id, from_revision)
     old_rooms = {room.id: room for room in await repo.list_for_revision(study_id, from_revision)}
@@ -384,6 +490,10 @@ async def _carry_rooms(
     component_after = _targets(component_corrections, old_components, COMPONENT_FIELDS, "component")
     for after in component_after.values():
         check_component(after)
+    every_row = list(old_components.values())
+    removed = _removed_rows(component_removals, old_components)
+    for component_id in removed:
+        del old_components[component_id]
     additions = _additions(added, old_rooms)
     merges = _merges(room_after, old_rooms)
     for source in merges:
@@ -399,6 +509,7 @@ async def _carry_rooms(
     rebuilt_rooms |= set(merges) | set(merges.values())
     rebuilt_rooms |= {pr.room_id for pr in all_assignments if pr.document_id in moved}
     rebuilt_rooms |= set(moved.values())
+    await _check_removals(removed, every_row, skip_photos, rebuilt_rooms, recorder)
     keep_rooms = set(room_of.values()) | set(room_after) | set(merges.values())
     # A room an engineer added a component to stays, now or in an earlier revision.
     keep_rooms |= {room_id for room_id, _ in additions}
@@ -474,6 +585,71 @@ async def _carry_rooms(
         study_id, from_revision, to_revision, skip_photos=skip_photos
     )
     return len(room_after) + len(merges) + len(component_after) + len(additions) + len(moved)
+
+
+def _removed_rows(
+    corrections: Sequence[CorrectionInput], rows: dict[uuid.UUID, Component]
+) -> dict[uuid.UUID, Component]:
+    """``{row id: row}`` of the ``component_remove`` corrections; a row that is not in the
+    rejected revision is a ``ValidationError`` (shape, reason and duplicates were checked by
+    :func:`_validate_removals`)."""
+    found: dict[uuid.UUID, Component] = {}
+    for correction in corrections:
+        target = parse_uuid(correction.entity_id, "entity_id")
+        if target not in rows:
+            raise validation_error(
+                f"component {target} is not in the rejected revision",
+                E.CORRECT_TARGET_NOT_IN_REVISION,
+            )
+        found[target] = rows[target]
+    return found
+
+
+async def _check_removals(
+    removed: dict[uuid.UUID, Component],
+    every_row: Sequence[Component],
+    flagged_photos: set[uuid.UUID],
+    rebuilt_rooms: set[uuid.UUID],
+    recorder: _Recorder,
+) -> None:
+    """Refuse a removal the rejection would undo (:mod:`basis.domain.removals`: a rebuilt
+    row, a room's last inventory row), then record each as ``entity.removed``. Runs before
+    the first row of the new revision is written."""
+    if not removed:
+        return
+    for component in removed.values():
+        problem = removals.rebuilt_problem(
+            removals.as_row(component), flagged_photos=flagged_photos, rebuilt=rebuilt_rooms
+        )
+        if problem is not None:
+            raise validation_error(problem, E.CORRECT_REMOVE_REBUILT)
+    emptied = removals.emptied_rooms((removals.as_row(c) for c in every_row), removed)
+    for component in removed.values():
+        if component.room_id in emptied:
+            raise validation_error(
+                removals.emptied_message(removals.as_row(component)),
+                E.CORRECT_REMOVE_LAST_INVENTORY,
+            )
+    for component in removed.values():
+        raw = component.raw if isinstance(component.raw, dict) else {}
+        await recorder.record(
+            "entity.removed",
+            entity_type="component",
+            entity_id=component.id,
+            corrected=(removals.COMPONENT_REMOVE, component.id),
+            before={
+                "label": component.label,
+                "material": component.material,
+                "attachment": component.attachment,
+                "count": raw.get("count"),
+                "room_id": None if component.room_id is None else str(component.room_id),
+                "document_id": (
+                    None if component.document_id is None else str(component.document_id)
+                ),
+            },
+            after=None,
+            extra={"kind": removals.row_kind(component.raw, component.document_id)},
+        )
 
 
 def _moves(

@@ -16,8 +16,10 @@ f = T / Σ RCN;  row_i = RCN_i × f;  Σ row_i = T to the cent
 ## The intake
 
 Set at creation (`POST /v1/studies`, optional `intake` member) or later with
-`PUT /v1/studies/{id}/intake` (engineer role; the whole document each time; idempotent by
-itself, no `Idempotency-Key`). `GET /v1/studies/{id}` returns it as `intake` (null until set).
+`PUT /v1/studies/{id}/intake` (engineer role; the whole document each time; no
+`Idempotency-Key`). `GET /v1/studies/{id}` returns it as `intake` (null until set) with its
+`intake_version`, and `GET /v1/studies/{id}/intake` (viewer role) returns it with its entity tag
+(below: two engineers cannot overwrite each other's intake unknowingly).
 **A study cannot start without it** (below). The takeoff reads
 `study.intake.placed_in_service_date` (the cost year), `.state` (the location cost index) and
 `.property_use` (27.5 or 39 years for the building and the classification rules' property
@@ -59,6 +61,53 @@ A violated rule is a `422` problem of type `.../validation` with the rule in `er
 for example `points is not a capitalized acquisition cost: points are prepaid interest, deducted
 over the loan's term (Pub. 527); a loan cost, not basis (Pub. 551)`. Nothing is stored on a 422.
 `403` for a viewer, `404` for a study not visible, `409 stale-state` for an archived study.
+
+### Versions and concurrent edits (`ETag`, `If-Match`)
+
+The intake carries a version, `intake_version`: 0 while the study has none, 1 for the first
+intake (at creation or the first `PUT`), and one more for every write after that, whether or not
+the document changed. Its entity tag is the version in quotes, a strong tag (RFC 9110 section
+8.8.3):
+
+```http
+GET /v1/studies/5f0c6a52-.../intake
+
+200 OK
+ETag: "3"
+
+{"study_id": "5f0c6a52-...", "intake": {"purchase_price": "650000.00", "...": "..."}, "intake_version": 3}
+```
+
+A client that edits the intake sends the tag back (RFC 9110 section 13.1.1, the lost-update
+case):
+
+```http
+PUT /v1/studies/5f0c6a52-.../intake
+If-Match: "3"
+
+200 OK
+ETag: "4"
+```
+
+| `If-Match` | Outcome |
+|---|---|
+| the current tag (or a list holding it) | written; `intake_version` + 1; the response's `ETag` is the new tag |
+| any other tag, a weak tag (`W/"3"`), or something that is not a quoted tag | `412 precondition-failed` (`BASIS-STUDY-018`); nothing written, no event; the response's `ETag` is the current tag. Read the intake again, reapply the change, retry with the new tag |
+| `*` | written only over an existing intake; on a study with none `412` |
+| absent | written (clients that predate the tag compare by reading first), unless the deployment sets `INTAKE_REQUIRE_IF_MATCH=true`: then `428 precondition-required` (`BASIS-STUDY-019`) |
+
+The comparison is made under the study's row lock (`SELECT ... FOR UPDATE`, then `UPDATE ...
+WHERE intake_version = <seen>`), so of two concurrent writes with the same tag exactly one
+succeeds and the other is a 412. An archived study is still `409 stale-state` first, whatever
+the tag. The `study.intake_set` event keeps the intake before and after, and `detail`
+`{"version_before": 3, "version_after": 4, "if_match": true}` (`if_match` false: an
+unconditional write).
+
+**Invalidation.** The result's pricing depends on the intake (the cost year, the location
+factor, the property class). `GET /v1/studies/{id}/result` is computed from the intake as it is
+now and checks its pricing against the intake version each priced row recorded when it was
+priced, so a client holding a version can tell whether the numbers it shows were priced with
+the intake it saved (the result section below says how a stale pricing is reported).
 
 ### Required before `start`
 
@@ -228,8 +277,9 @@ and prices were drawn from, read back from the stored rows (EVAL_REPORT section 
 row already carries its own `takeoff_inputs` (`room_area_source`: `gla_share`,
 `basement_share`, `garage_area`, `typical_for_room_type`, `default_150_sf`; `quantity_source:
 appraisal_derived` for the roof, siding, gutters and landscaping; `needs_measurement` for a site
-item the appraisal cannot size) and its `cost_source` text; `summary.takeoff` is the study-level
-view the end-to-end scorer prints.
+item the appraisal cannot size), its `cost_source` text and its `cost_trail` (how its cost was
+reached, as data, recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
+trail"); `summary.takeoff` is the study-level view the end-to-end scorer prints.
 
 ```json
 {

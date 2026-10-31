@@ -68,6 +68,16 @@ class InvitationClosedError(ConflictError):
         self.status = status
 
 
+class PreconditionFailedError(RepositoryError):
+    """A conditional write's condition is false for the row as it is (the intake's
+    ``If-Match``); nothing was written. ``version`` is the row's current version. Not a
+    ``ConflictError``: the route answers 412, not 409."""
+
+    def __init__(self, message: str, *, version: int) -> None:
+        super().__init__(message)
+        self.version = version
+
+
 class EmailUnverifiedError(RepositoryError):
     """The caller's token does not assert a verified email, which an invitation needs."""
 

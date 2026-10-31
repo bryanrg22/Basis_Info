@@ -3,8 +3,14 @@
 ``/spend`` rolls the study's ``llm_calls`` rows up by stage, activity, component, model and
 kind (calls, tokens of every kind, dollars, latency; non-token kinds also sum their pages or
 seconds); ``/calls`` pages the rows themselves, oldest first, with their request and response
-references (``activity``, ``kind`` and ``entity_id`` filters). Viewer access, like the other
-outputs; every study revision's calls are listed (spend is not per revision). docs/api/SPEND.md.
+references (``activity``, ``kind`` and ``entity_id`` filters). Every study revision's calls
+are listed (spend is not per revision). docs/api/SPEND.md.
+
+Access: what the firm pays per call is the owner's to see. Both routes need the firm role
+``SPEND_ACCESS_ROLE`` (``owner`` by default; ``engineer`` or ``viewer`` widen it) in the study's
+firm, checked here at request time like :func:`basis.api.users.study_access`: a member below
+it gets 403, a non-member (or an unknown study) 404, so ids still cannot be probed. The client
+hiding spend from engineers and viewers is presentation; this check is the access control.
 """
 
 from __future__ import annotations
@@ -12,11 +18,13 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Final
 
-from fastapi import Depends, Query
+from fastapi import Depends, Query, Request
 
 from basis.api.routes.common import problems, read_router
+from basis.api.schemas.common import NO_NUL_PATTERN
 from basis.api.schemas.spend import CallOut, CallsPageOut, SpendLineOut, StudySpendOut
-from basis.api.users import study_access
+from basis.api.users import CurrentUserDep, StudyIdPath, require_study_access
+from basis.config import Settings
 from basis.db.enums import OrgRole
 from basis.db.models import LlmCall
 from basis.db.repositories import VisibleStudy
@@ -30,7 +38,18 @@ MAX_FILTER_LENGTH: Final = 200
 
 reads = read_router(tags=["spend"])
 
-ViewerStudy = Annotated[VisibleStudy, Depends(study_access(OrgRole.VIEWER))]
+
+async def spend_access(
+    study_id: StudyIdPath, request: Request, user: CurrentUserDep, session: SessionDep
+) -> VisibleStudy:
+    """The study, when the caller's role in its firm is at least ``SPEND_ACCESS_ROLE``
+    (read per request from the app's settings): 404 for a non-member, 403 below the role."""
+    settings: Settings = request.app.state.settings
+    role = OrgRole(settings.spend_access_role)
+    return await require_study_access(session, user, study_id, role)
+
+
+SpendStudy = Annotated[VisibleStudy, Depends(spend_access)]
 Limit = Annotated[int, Query(ge=1, le=MAX_CALL_PAGE, description="Rows per page.")]
 Cursor = Annotated[
     str | None,
@@ -42,11 +61,18 @@ Cursor = Annotated[
 ]
 ActivityFilter = Annotated[
     str | None,
-    Query(min_length=1, max_length=MAX_FILTER_LENGTH, description="Only this activity."),
+    Query(
+        min_length=1,
+        max_length=MAX_FILTER_LENGTH,
+        pattern=NO_NUL_PATTERN,
+        description="Only this activity.",
+    ),
 ]
 KindFilter = Annotated[
     str | None,
-    Query(description=f"Only this kind: one of {', '.join(KINDS)}.", pattern="|".join(KINDS)),
+    Query(
+        description=f"Only this kind: one of {', '.join(KINDS)}.", pattern=f"^({'|'.join(KINDS)})$"
+    ),
 ]
 EntityFilter = Annotated[
     uuid.UUID | None,
@@ -130,9 +156,11 @@ def call_out(row: LlmCall) -> CallOut:
 @reads.get(
     "/studies/{study_id}/spend",
     summary="What the study has spent, by stage, activity, component, model and kind",
-    responses=problems(404),
+    description="Firm owners by default (`SPEND_ACCESS_ROLE`; docs/api/SPEND.md): a member "
+    "below that role is 403, a non-member 404.",
+    responses=problems(403, 404),
 )
-async def get_spend(access: ViewerStudy, session: SessionDep) -> StudySpendOut:
+async def get_spend(access: SpendStudy, session: SessionDep) -> StudySpendOut:
     spend = await LlmCallRepository(session).spend(access.study.id)
     return StudySpendOut(
         study_id=access.study.id,
@@ -148,10 +176,12 @@ async def get_spend(access: ViewerStudy, session: SessionDep) -> StudySpendOut:
 @reads.get(
     "/studies/{study_id}/calls",
     summary="The study's paid calls, oldest first, with their request and response references",
-    responses=problems(404),
+    description="Firm owners by default (`SPEND_ACCESS_ROLE`; docs/api/SPEND.md): a member "
+    "below that role is 403, a non-member 404.",
+    responses=problems(403, 404),
 )
 async def list_calls(
-    access: ViewerStudy,
+    access: SpendStudy,
     session: SessionDep,
     activity: ActivityFilter = None,
     kind: KindFilter = None,

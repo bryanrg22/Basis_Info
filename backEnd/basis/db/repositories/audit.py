@@ -3,8 +3,10 @@
 
 Read from the tables that are the source of truth, so a study whose rows predate the
 timeline lists the same: ``reviews`` (each decision), ``corrections`` (each correction, with
-the review it belonged to and what it did: ``modified``, ``added``, ``moved``, ``merged``,
-``reanalyzed``), manual ``photo_objects`` (``added`` when created, ``deleted`` when soft
+the review it belonged to and what it did: ``modified``, ``added`` (a component added to a
+room, an appraisal field added), ``moved``, ``merged``, ``reanalyzed``, ``removed`` (a
+component row left out of the next revision; it produced no row, so ``produced`` stays
+empty)), manual ``photo_objects`` (``added`` when created, ``deleted`` when soft
 deleted), and the ``study.intake_set`` events (the intake is engineer input too). Where
 ``study_events`` recorded which rows a correction produced (``entity.*`` events naming the
 correction), the item lists them as ``produced``, so a reviewer can go from the engineer's
@@ -26,8 +28,10 @@ from basis.db.models import Correction, PhotoObject, Review, StudyEvent
 
 ACTIONS: Final[dict[str, str]] = {
     "extraction_field": "modified",
+    "extraction_field_add": "added",
     "room": "modified",
     "component": "modified",
+    "component_remove": "removed",
     "room_component": "added",
     "photo_room": "moved",
     "photo": "reanalyzed",

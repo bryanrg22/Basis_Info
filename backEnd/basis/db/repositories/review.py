@@ -28,9 +28,10 @@ Temporal update from the message alone.
 
 :meth:`ReviewRepository.missing_targets` answers which correction targets do not exist in
 a study's revision (``CORRECTION_TARGET_TYPES``: extraction fields, rooms, components and
-assets of that revision, and for ``room_component`` the room a component is added to;
-photos, also of ``photo_room``, are documents of kind ``photo``, which are not
-revisioned). The API uses it to refuse a correction the workflow's ``apply_corrections``
+assets of that revision, and for ``room_component`` the room a component is added to; for
+``component_remove`` the component removed, for ``extraction_field_add`` the extraction a
+field is added to; photos, also of ``photo_room``, are documents of kind ``photo``, which are
+not revisioned). The API uses it to refuse a correction the workflow's ``apply_corrections``
 would refuse later.
 """
 
@@ -122,9 +123,15 @@ def _target_query(
         return select(Room.id).where(
             Room.study_id == study_id, Room.revision == revision, Room.id.in_(ids)
         )
-    if entity_type == "component":
+    if entity_type in ("component", "component_remove"):
         return select(Component.id).where(
             Component.study_id == study_id, Component.revision == revision, Component.id.in_(ids)
+        )
+    if entity_type == "extraction_field_add":
+        return select(Extraction.id).where(
+            Extraction.study_id == study_id,
+            Extraction.revision == revision,
+            Extraction.id.in_(ids),
         )
     if entity_type == "asset":
         return select(Asset.id).where(
@@ -136,7 +143,17 @@ def _target_query(
 # Every entity type a correction can target (the union of
 # ``basis.workflow.contracts.CORRECTION_TYPES``; a unit test keeps the two equal).
 CORRECTION_TARGET_TYPES: Final = frozenset(
-    {"extraction_field", "room", "component", "room_component", "asset", "photo", "photo_room"}
+    {
+        "extraction_field",
+        "extraction_field_add",
+        "room",
+        "component",
+        "component_remove",
+        "room_component",
+        "asset",
+        "photo",
+        "photo_room",
+    }
 )
 
 

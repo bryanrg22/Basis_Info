@@ -82,7 +82,10 @@ class AssetRepository:
         source_row: str | None,
         location_factor: Decimal | None = None,
         cost_year: int | None = None,
+        trail: dict[str, Any] | None = None,
     ) -> CostEstimate:
+        """``trail``: how the amounts were reached (``basis.domain.cost_trail``), written
+        with the row and never updated; None for a row written without one."""
         estimate = CostEstimate(
             study_id=asset.study_id,
             asset_id=asset.id,
@@ -91,6 +94,7 @@ class AssetRepository:
             source_row=source_row,
             location_factor=location_factor,
             cost_year=cost_year,
+            trail=trail,
         )
         self._session.add(estimate)
         await self._session.flush()

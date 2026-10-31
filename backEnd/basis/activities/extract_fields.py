@@ -26,8 +26,24 @@ Order of work, so that money is not spent twice and rows are written once:
    budget field; the workflow's own budget does not see the extraction's cents).
 3. ``run_once``: in one transaction, write the extraction, apply the reviewer's
    corrections (``extraction_field`` corrections from an appraisal rejection overwrite the
-   same ``(section, field)`` with ``source="manual"``, confidence 1), recompute the review
+   same ``(section, field)`` with ``source="manual"``, confidence 1; ``extraction_field_add``
+   corrections add the field the decided extraction lacked, below), recompute the review
    gate over the corrected fields, and complete the idempotency key.
+
+An added field (``extraction_field_add``, :mod:`basis.extraction.added_fields`; validated by
+``apply_corrections`` first): written as ``(section, field)`` of its ``key`` with
+``source="manual"``, confidence 1 and the page the engineer gave, whatever the re-extraction
+read for the key (the engineer's value wins, as a correction's does). The table has no column
+for the printed text, so the evidence is kept in the extraction's ``raw["added_fields"]``
+(``key``, ``page``, ``evidence``, ``correction_ids``) and on the ``entity.added`` event
+(``entity_id`` the new field row, ``after`` the correction's ``after``). A missing critical
+field that is added no longer counts as missing: the gate is recomputed over the fields.
+
+What survives a second appraisal rejection: each appraisal rejection re-extracts from the
+document and applies only that rejection's corrections, so an engineer's correction or added
+field of an earlier appraisal rejection is not re-applied (the reviewer sees the re-extracted
+value at the gate and corrects or adds it again). Every later stage's rejection copies the
+extraction with its fields, added ones included (``apply_corrections``).
 
 Errors: no appraisal uploaded -> ``needs_review`` with no extraction (unchanged from S2);
 a missing file, a non-PDF, a PDF with no pages, or a document Azure DI rejects ->
@@ -64,6 +80,7 @@ from basis.activities.appraisal_sources import (
 )
 from basis.activities.corrections import (
     check_extraction_field,
+    check_extraction_field_add,
     parse_date,
     parse_number,
     parse_text,
@@ -78,6 +95,7 @@ from basis.db.repositories.llm_call import LlmCallRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.errors.codes import E
+from basis.extraction import added_fields
 from basis.extraction.azure_di import AzureDiResult
 from basis.extraction.confidence import review_gate
 from basis.extraction.fallback import PROMPT_NAME
@@ -96,6 +114,8 @@ from basis.workflow.contracts import CorrectionInput, ExtractFieldsInput, Extrac
 
 ACTIVITY: Final = "extract_fields"
 MANUAL: Final = "manual"
+FIELD_ADD: Final = "extraction_field_add"
+ADDED_FIELDS: Final = "added_fields"
 # Issues the validator does not recompute: kept through a rejection's corrections.
 READER_ISSUES: Final = frozenset(
     {"sources_disagree", "azure_di_rejected", "xml_pdf_mismatch", NO_REPORT_PDF}
@@ -156,7 +176,10 @@ class ExtractFields:
                 return await _output(repo, existing)
             if result is None:  # pragma: no cover - only if the row vanished meanwhile
                 raise RuntimeError("extraction disappeared between the check and the write")
-            final = await _with_corrections(repo, study_id, result, input.corrections)
+            additions = await _addition_rows(session, study_id, input.revision, input.corrections)
+            final = await _with_corrections(
+                repo, study_id, result, input.corrections, additions=additions
+            )
             extraction = await persist_extraction(
                 session,
                 study_id=study_id,
@@ -165,6 +188,7 @@ class ExtractFields:
                 result=final,
             )
             await _record_corrected(session, repo, study_id, extraction, input.corrections)
+            await _record_added(session, repo, study_id, extraction, input.corrections, additions)
             return await _output(repo, extraction)
 
         return await self._run_once(input, work)
@@ -296,6 +320,10 @@ def _same_pdf(raw: object, report: Document | None) -> bool:
 
 
 def _check_correction(correction: CorrectionInput) -> None:
+    if correction.entity_type == FIELD_ADD:
+        check_extraction_field_add(correction.after, correction.reason)
+        parse_uuid(correction.entity_id, "entity_id")
+        return
     if correction.entity_type != "extraction_field":
         raise validation_error(
             f"extract_fields cannot apply a {correction.entity_type} correction",
@@ -305,19 +333,69 @@ def _check_correction(correction: CorrectionInput) -> None:
     parse_uuid(correction.entity_id, "entity_id")
 
 
+async def _addition_rows(
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    revision: int,
+    corrections: tuple[CorrectionInput, ...],
+) -> dict[tuple[uuid.UUID, str], list[Correction]]:
+    """The stored ``extraction_field_add`` correction rows of the decided revision
+    (``revision - 1``), by ``(extraction id, key)``: their ids go into ``raw["added_fields"]``
+    and the ``entity.added`` events."""
+    if not any(c.entity_type == FIELD_ADD for c in corrections):
+        return {}
+    rows = (
+        await session.scalars(
+            select(Correction)
+            .where(
+                Correction.study_id == study_id,
+                Correction.entity_type == FIELD_ADD,
+                Correction.revision == revision - 1,
+            )
+            .order_by(Correction.created_at, Correction.id)
+        )
+    ).all()
+    found: dict[tuple[uuid.UUID, str], list[Correction]] = {}
+    for row in rows:
+        key = row.after.get(added_fields.KEY) if isinstance(row.after, dict) else None
+        if isinstance(key, str):
+            found.setdefault((row.entity_id, key), []).append(row)
+    return found
+
+
 async def _with_corrections(
     repo: ExtractionRepository,
     study_id: uuid.UUID,
     result: ExtractionResult,
     corrections: tuple[CorrectionInput, ...],
+    *,
+    additions: dict[tuple[uuid.UUID, str], list[Correction]] | None = None,
 ) -> ExtractionResult:
-    """``result`` with the reviewer's corrections applied and the gate recomputed."""
+    """``result`` with the reviewer's corrections applied and the gate recomputed
+    (``additions``: the stored rows of the added fields, for ``raw["added_fields"]``)."""
     if not corrections:
         return result
     fields = dict(result.fields)
     corrected: set[str] = set()
+    added: list[dict[str, object]] = []
     for correction in corrections:
         _check_correction(correction)
+        if correction.entity_type == FIELD_ADD:
+            item = await _added_field(repo, study_id, correction)
+            fields[item.key] = item
+            corrected.add(item.key)
+            target_id = parse_uuid(correction.entity_id, "entity_id")
+            rows = (additions or {}).get((target_id, item.key), [])
+            added.append(
+                {
+                    "key": item.key,
+                    "page": item.page,
+                    "evidence": item.raw_text,
+                    "extraction_id": str(target_id),
+                    "correction_ids": [str(row.id) for row in rows],
+                }
+            )
+            continue
         target = await repo.get_field(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if target is None:
             raise validation_error(
@@ -355,6 +433,8 @@ async def _with_corrections(
         "review_reasons": list(gate.reasons),
         "corrected": sorted(corrected),
     }
+    if added:
+        raw[ADDED_FIELDS] = added
     return result.model_copy(
         update={
             "fields": fields,
@@ -365,6 +445,84 @@ async def _with_corrections(
             "raw": raw,
         }
     )
+
+
+async def _added_field(
+    repo: ExtractionRepository, study_id: uuid.UUID, correction: CorrectionInput
+) -> ExtractedField:
+    """The field an ``extraction_field_add`` writes. Its target extraction must be the
+    study's and lack the key (``apply_corrections`` checked both, and the page, first)."""
+    added = added_fields.parse(correction.after)
+    target_id = parse_uuid(correction.entity_id, "entity_id")
+    target = await repo.get(study_id, target_id)
+    if target is None:
+        raise validation_error(
+            f"extraction {target_id} not found in study {study_id}",
+            E.CORRECT_EXTRACTION_NOT_IN_REVISION,
+        )
+    existing = {f"{f.section}.{f.field}" for f in await repo.fields(target.id)}
+    problems = added_fields.target_problems(
+        added.key,
+        added.page,
+        existing_keys=existing,
+        page_count=added_fields.page_count(target.raw),
+    )
+    if problems:
+        raise validation_error(problems[0].message, problems[0].code)
+    return ExtractedField(
+        key=added.key,
+        raw_text=added.evidence,
+        value_text=added.value_text,
+        value_num=added.value_num,
+        value_date=added.value_date,
+        confidence=1.0,
+        source=MANUAL,
+        page=added.page,
+    )
+
+
+async def _record_added(
+    session: AsyncSession,
+    repo: ExtractionRepository,
+    study_id: uuid.UUID,
+    extraction: Extraction,
+    corrections: tuple[CorrectionInput, ...],
+    additions: dict[tuple[uuid.UUID, str], list[Correction]],
+) -> None:
+    """One ``entity.added`` timeline event per added field of the new extraction: the new
+    row (no row it was copied from), the correction's ``after`` (with the evidence), the
+    correction rows and the reviewer."""
+    adds = [c for c in corrections if c.entity_type == FIELD_ADD]
+    if not adds:
+        return
+    written = {f"{f.section}.{f.field}": f for f in await repo.fields(extraction.id)}
+    events = StudyEventRepository(session)
+    for correction in adds:
+        key = str(correction.after[added_fields.KEY])
+        new = written.get(key)
+        if new is None:  # pragma: no cover - the field was written just above
+            continue
+        target_id = parse_uuid(correction.entity_id, "entity_id")
+        matched = additions.get((target_id, key), [])
+        await events.record(
+            study_id,
+            "entity.added",
+            actor="engineer",
+            actor_id=matched[0].reviewer_id if matched else None,
+            revision=extraction.revision,
+            entity_type="extraction_field",
+            entity_id=new.id,
+            before=None,
+            after=dict(correction.after),
+            detail={
+                "carried_from": None,
+                "correction_ids": [str(row.id) for row in matched],
+                "reasons": [row.reason for row in matched if row.reason],
+                "from_revision": extraction.revision - 1,
+                "key": key,
+                "extraction_id": str(target_id),
+            },
+        )
 
 
 async def _record_corrected(
@@ -394,6 +552,8 @@ async def _record_corrected(
     for row in rows:
         by_target.setdefault(row.entity_id, []).append(row)
     for correction in corrections:
+        if correction.entity_type != "extraction_field":
+            continue  # an added field: _record_added
         target_id = parse_uuid(correction.entity_id, "entity_id")
         target = await repo.get_field(study_id, target_id)
         if target is None:

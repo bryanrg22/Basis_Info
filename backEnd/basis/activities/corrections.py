@@ -10,6 +10,12 @@ Counts (v0.11, manual add): a ``component`` correction may set ``count``, the qu
 correction adds a component the room's inventory is missing (``entity_id`` is the room).
 Their values follow :mod:`basis.domain.counts`, which the decision route checks too. A
 ``photo_room`` correction (v0.12) moves a photo to another room of the revision.
+
+A ``component_remove`` correction removes a component row from the next revision
+(:mod:`basis.domain.removals`): ``after`` is ``{}`` and the reason is required. An
+``extraction_field_add`` correction adds a field the extraction is missing
+(:mod:`basis.extraction.added_fields`), with a required reason too: removing or adding a row
+is engineer evidence, so it must say why.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from basis.domain.validators import (
     validate_section_bucket,
 )
 from basis.errors.codes import E
+from basis.extraction import added_fields
 
 EXTRACTION_FIELD_VALUES: Final = frozenset({"value_text", "value_num", "value_date"})
 ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor", "merge_into"})
@@ -117,6 +124,32 @@ def check_room_component(after: dict[str, Any]) -> None:
     problems = room_component_problems(after)
     if problems:
         raise validation_error("; ".join(problems), E.CORRECT_ROOM_COMPONENT)
+
+
+def check_reason(kind: str, reason: str | None) -> None:
+    """A non-blank reason (``component_remove``, ``extraction_field_add``)."""
+    if reason is None or not reason.strip():
+        raise validation_error(f"a {kind} correction needs a reason", E.CORRECT_REASON_REQUIRED)
+
+
+def check_component_remove(after: dict[str, Any], reason: str | None) -> None:
+    """A removal takes no field (``after`` is ``{}``) and needs a reason."""
+    if after:
+        raise validation_error(
+            f"a component_remove correction takes no fields (after must be {{}}); got "
+            f"{', '.join(sorted(after))}",
+            E.CORRECT_REMOVE_SHAPE,
+        )
+    check_reason("component_remove", reason)
+
+
+def check_extraction_field_add(after: dict[str, Any], reason: str | None) -> None:
+    """An added field's ``after`` (:func:`basis.extraction.added_fields.problems`, the first
+    problem with its code) and a reason."""
+    problems = added_fields.problems(after)
+    if problems:
+        raise validation_error(problems[0].message, problems[0].code)
+    check_reason("extraction_field_add", reason)
 
 
 def check_extraction_field(after: dict[str, Any]) -> None:

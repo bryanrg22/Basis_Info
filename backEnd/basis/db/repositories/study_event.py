@@ -9,7 +9,8 @@ the export's ``summary.timeline`` read it (docs/api/TIMELINE_AND_AUDIT.md).
 
 Event vocabulary (``event_type``; the actor in brackets):
 
-* ``study.created`` [engineer], ``study.intake_set`` [engineer], ``study.archived`` [engineer];
+* ``study.created`` [engineer], ``study.intake_set`` [engineer] (``detail``: the intake's
+  ``version_before``/``version_after`` and ``if_match``), ``study.archived`` [engineer];
 * ``document.uploaded`` [engineer]: an upload confirmed (``entity_id`` the document);
 * ``study.started`` [engineer]: ``POST .../start`` moved the study to ``extracting``;
 * ``run.started`` / ``run.ended`` [system]: the Temporal execution (``detail.outcome``);
@@ -29,6 +30,10 @@ Event vocabulary (``event_type``; the actor in brackets):
 * ``entity.corrected`` / ``entity.added`` / ``entity.moved`` / ``entity.merged``
   [engineer]: the row of the next revision that an applied correction produced
   (``entity_id`` the new row, ``detail.carried_from`` the old one, ``detail.correction_id``);
+* ``entity.removed`` [engineer]: a component row an applied ``component_remove`` left out of
+  the next revision (``entity_id`` the removed row, which has no successor; ``before`` its
+  values; ``detail.kind``); ``entity.added`` also for an appraisal field an
+  ``extraction_field_add`` added (``entity_id`` the new field row);
 * ``entity.deleted`` [engineer]: a manual photo object soft-deleted; ``entity.added``
   also for a manual photo object;
 * ``revision.carried`` [system]: ``apply_corrections`` copied the rest of a revision

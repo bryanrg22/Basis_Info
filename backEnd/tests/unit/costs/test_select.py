@@ -3,6 +3,7 @@ with the released book under them; the location table of the nearest year."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -12,10 +13,12 @@ from basis.config import Settings
 from basis.costs.indices.select import (
     MANUAL_SOURCE,
     book_values,
+    city_factor_of,
     source_priority,
     values_from_rows,
+    year_index_of,
 )
-from basis.domain.cost_indices import BOOK_SOURCE, book_location_table, indices
+from basis.domain.cost_indices import BOOK_SOURCE, StoreRow, book_location_table, indices
 from basis.domain.measurements import location_table_for, resolve_cost_index
 
 D = Decimal
@@ -85,6 +88,34 @@ def test_a_later_year_from_the_store_joins_the_book_years() -> None:
         None,
     )
     assert values.years[2024].describe() == "294.8 (July 2024)"
+
+
+def test_a_stored_value_names_its_store_row_and_still_equals_the_same_book_value() -> None:
+    """The cost trail names the store row a value came from (id, source, version); the
+    reference is not part of equality, so a stored value equal to the book's compares
+    equal to it (the seed check above and the book table short-circuit rely on it)."""
+    stored_id = uuid.UUID("5f0c6a52-0000-4000-8000-0000000000c3")
+    year = row(2018, "222.9", citation="RSMeans Building Construction Costs 2020 p.778")
+    year.id = stored_id
+    year.as_of = date(2018, 7, 1)
+    year.version = 3
+    city = row(
+        2024,
+        "1.05",
+        series="city",
+        region="CA:900-902",
+        citation="RSMeans Residential 2024 Location Factors p.720",
+        detail={"city": "Los Angeles", "state": "CA", "zip_prefixes": "900-902"},
+    )
+    values = values_from_rows([year, city], priority=(MANUAL_SOURCE,))
+    got = values.years[2018]
+    assert got.store == StoreRow(id=stored_id, source=MANUAL_SOURCE, version=3)
+    assert got == indices().years[2018] and indices().years[2018].store is None
+    assert hash(got) == hash(indices().years[2018])
+    [la] = values.location_tables[2024].by_state["CA"]
+    # A row built without a database id (this namespace has none) keeps id None.
+    assert la.store == StoreRow(id=None, source=MANUAL_SOURCE, version=1)
+    assert year_index_of(year).store == got.store and city_factor_of(city).store == la.store
 
 
 def test_the_stored_value_is_plain_decimal_whatever_the_columns_scale() -> None:

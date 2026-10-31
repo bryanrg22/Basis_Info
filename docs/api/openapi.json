@@ -62,6 +62,290 @@
         }
       }
     },
+    "/v1/studies/{study_id}/intake": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "The study's intake and its version (ETag)",
+        "description": "Viewer role. `ETag: \"<intake_version>\"` (a strong entity tag; 0 while there is no intake): send it back as `If-Match` on `PUT .../intake` so the write fails with 412 instead of overwriting a change made since this read (docs/api/STUDY_RESULT.md).",
+        "operationId": "get_intake_v1_studies__study_id__intake_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyIntakeOut"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "The intake's strong entity tag, its version in quotes (\"3\").",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Set or replace the study's intake (engineer)",
+        "description": "The whole intake, validated as one document (docs/api/STUDY_RESULT.md): a non-capitalizable cost category, a land method without its input, or a use that fails the 80 % test is a 422 naming the rule. `state`/`zip` left out are filled from the appraisal's subject fields. No `Idempotency-Key` is needed. Optimistic concurrency: with `If-Match` (the `ETag` of `GET .../intake`) the write happens only while that tag is current; otherwise 412 `precondition-failed` with the current `ETag`, nothing written (re-read, reapply, retry). `If-Match: *` writes only over an existing intake. Without `If-Match` the write is accepted, unless the deployment requires it (`INTAKE_REQUIRE_IF_MATCH`: 428 `precondition-required`). Every write increments `intake_version`; the response carries the new `ETag`. The result's pricing is checked against the intake version. 409 `stale-state` on an archived study.",
+        "operationId": "put_intake_v1_studies__study_id__intake_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The intake's entity tag from `GET .../intake` (`\"3\"`), or `*` (any existing intake). Optional unless the deployment requires it.",
+              "title": "If-Match"
+            },
+            "description": "The intake's entity tag from `GET .../intake` (`\"3\"`), or `*` (any existing intake). Optional unless the deployment requires it."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyIntakeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "The intake's strong entity tag, its version in quotes (\"3\").",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "`precondition-required`: this deployment requires `If-Match` on this write.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies": {
       "get": {
         "tags": [
@@ -441,147 +725,6 @@
             "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
           }
         ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StudyOut"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing or malformed `Idempotency-Key`.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing, malformed, expired or revoked bearer token.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "The request body is larger than 1 MiB.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limit exceeded; see `Retry-After`.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or not visible to you (the two are indistinguishable).",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/studies/{study_id}/intake": {
-      "put": {
-        "tags": [
-          "studies"
-        ],
-        "summary": "Set or replace the study's intake (engineer)",
-        "description": "The whole intake, validated as one document (docs/api/STUDY_RESULT.md): a non-capitalizable cost category, a land method without its input, or a use that fails the 80 % test is a 422 naming the rule. `state`/`zip` left out are filled from the appraisal's subject fields. A PUT is idempotent by itself; no `Idempotency-Key` is needed. 409 `stale-state` on an archived study.",
-        "operationId": "put_intake_v1_studies__study_id__intake_put",
-        "security": [
-          {
-            "FirebaseIdToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "study_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "description": "Study id.",
-              "title": "Study Id"
-            },
-            "description": "Study id."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StudyIntakeIn"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1238,7 +1381,7 @@
           "reviews"
         ],
         "summary": "Approve or reject the current review stage",
-        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field; rooms_review: room, photo_room; components_review: component, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\"]`.",
+        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field, extraction_field_add; rooms_review: room, photo_room; components_review: component, component_remove, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, component_remove, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\" | \"reason\"]`. A `component_remove` (an erroneous room inventory component row: `entity_id` a component of the revision, `after` exactly `{}`, `reason` required) leaves the row out of the next revision; refused: the same row removed twice or also corrected (`correction_duplicate`), a row the rejection rebuilds anyway (an inventory row of a room whose photo the same decision flags for re-analysis, or of a merged room, or a flagged photo's row: `correction_rebuilt`), a room's last inventory row (`correction_last_inventory`). It never deletes a photo's detected object (that is `DELETE .../photos/{document_id}/objects/{object_id}`). An `extraction_field_add` (an appraisal field the extraction missed: `entity_id` the extraction, `after` `{key, value_text | value_num | value_date, page, evidence}`, `reason` required) is refused for an unknown key, a value of the wrong type, a page past the PDF (`correction_value`), a key the extraction has (`correction_field_exists`: correct it with `extraction_field`) or a key added twice (`correction_duplicate`); a missing reason is `correction_reason` at `reason`.",
         "operationId": "record_decision_v1_studies__study_id__decisions_post",
         "security": [
           {
@@ -1289,6 +1432,348 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DecisionAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/assets/reprice": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Preview a rebuild of the assets with the current intake and cost indices",
+        "description": "Runs the rebuild's own code (carry, classifications carried, pricing) in a transaction that is rolled back: nothing is written and no model is called. Returns the per-asset change, the reconciliation before and after, why the pricing is stale and the `fingerprint` to send with the POST. `model_class`, `building_type` and `living_area_sf` preview a square-foot model set by the engineer.",
+        "operationId": "preview_reprice_v1_studies__study_id__assets_reprice_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2147483646,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A revision up to the current one (default).",
+              "title": "Revision"
+            },
+            "description": "A revision up to the current one (default)."
+          },
+          {
+            "name": "model_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "economy",
+                    "average",
+                    "custom",
+                    "luxury"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RSMeans class to preview.",
+              "title": "Model Class"
+            },
+            "description": "RSMeans class to preview."
+          },
+          {
+            "name": "building_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "1 story",
+                    "1-1/2 story",
+                    "2 story",
+                    "2-1/2 story",
+                    "3 story"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RSMeans building type to preview.",
+              "title": "Building Type"
+            },
+            "description": "RSMeans building type to preview."
+          },
+          {
+            "name": "living_area_sf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 100000,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Living area to preview, SF.",
+              "title": "Living Area Sf"
+            },
+            "description": "Living area to preview, SF."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepricePreviewOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Rebuild the assets with the current intake and cost indices (engineer)",
+        "description": "Records an assets-review rejection carrying a `reprice` correction (and a `structure_model` correction when `structure_model` is set); the workflow carries the revision and rebuilds the assets with every classification kept and no model call. Status: the study's stage (`assets_processing`, then `assets_review` of the new revision) and the timeline (`assets.reprice_requested`). 409 `reprice-inputs-changed`, `reprice-reclassify`, `gate-not-open` or stale; `Idempotency-Key` required.",
+        "operationId": "request_reprice_v1_studies__study_id__assets_reprice_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepriceIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepriceAccepted"
                 }
               }
             }
@@ -2205,6 +2690,7 @@
           "spend"
         ],
         "summary": "What the study has spent, by stage, activity, component, model and kind",
+        "description": "Firm owners by default (`SPEND_ACCESS_ROLE`; docs/api/SPEND.md): a member below that role is 403, a non-member 404.",
         "operationId": "get_spend_v1_studies__study_id__spend_get",
         "security": [
           {
@@ -2276,6 +2762,16 @@
               }
             }
           },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not found, or not visible to you (the two are indistinguishable).",
             "content": {
@@ -2295,6 +2791,7 @@
           "spend"
         ],
         "summary": "The study's paid calls, oldest first, with their request and response references",
+        "description": "Firm owners by default (`SPEND_ACCESS_ROLE`; docs/api/SPEND.md): a member below that role is 403, a non-member 404.",
         "operationId": "list_calls_v1_studies__study_id__calls_get",
         "security": [
           {
@@ -2323,7 +2820,8 @@
                 {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 200
+                  "maxLength": 200,
+                  "pattern": "^[^\\x00]*$"
                 },
                 {
                   "type": "null"
@@ -2342,7 +2840,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "chat|document_analysis|localization|segmentation"
+                  "pattern": "^(chat|document_analysis|localization|segmentation)$"
                 },
                 {
                   "type": "null"
@@ -2450,6 +2948,16 @@
           },
           "503": {
             "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5001,6 +5509,7 @@
           "cost indices"
         ],
         "summary": "The cost index store: every value obtained, with its citation",
+        "description": "Any firm member. The store is deployment-wide: every firm on the deployment reads (and is priced with) the same rows; there is no per-firm copy.",
         "operationId": "list_cost_indices_v1_cost_indices_get",
         "security": [
           {
@@ -5181,7 +5690,7 @@
           "cost indices"
         ],
         "summary": "Enter a cost index value by hand, with its citation",
-        "description": "A firm owner enters a published value the store lacks (the year's RSMeans Historical Cost Index, a location factor). The row is appended with the entering user and the time; a value for a key the store holds becomes its next version and the old row stays. The same value and citation as the current version is 409 `duplicate-value`.",
+        "description": "A firm owner enters a published value the store lacks (the year's RSMeans Historical Cost Index, a location factor). The store is deployment-wide: the value prices every firm's studies on the deployment, not only the entering firm's (it is not a per-firm override). The row is appended with the entering user and the time; a value for a key the store holds becomes its next version and the old row stays. The same value and citation as the current version is 409 `duplicate-value`.",
         "operationId": "create_cost_index_v1_cost_indices_post",
         "security": [
           {
@@ -5718,6 +6227,62 @@
         ],
         "title": "AllocationOut"
       },
+      "AmountsOut": {
+        "properties": {
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "unit_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Cost"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quantity",
+          "unit",
+          "unit_cost",
+          "total"
+        ],
+        "title": "AmountsOut"
+      },
       "AppraisalUpload": {
         "properties": {
           "filename": {
@@ -6228,7 +6793,7 @@
           "action": {
             "type": "string",
             "title": "Action",
-            "description": "`approved`, `rejected`, `modified`, `added`, `moved`, `merged`, `reanalyzed`, `deleted`."
+            "description": "`approved`, `rejected`, `modified`, `added`, `moved`, `merged`, `reanalyzed`, `removed` (a component row left out of the next revision), `deleted` (a manual photo object)."
           },
           "entity_type": {
             "anyOf": [
@@ -7861,7 +8426,7 @@
             "type": "object",
             "maxProperties": 100,
             "title": "After",
-            "description": "The corrected values."
+            "description": "The corrected values (`{}` for a `component_remove`; for an `extraction_field_add` the key, one value, the page and the printed evidence)."
           },
           "reason": {
             "anyOf": [
@@ -7874,7 +8439,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reason"
+            "title": "Reason",
+            "description": "Why. Required (non-blank) for `component_remove` and `extraction_field_add`: removing or adding a row is engineer evidence."
           }
         },
         "additionalProperties": false,
@@ -8528,6 +9094,23 @@
               }
             ],
             "title": "Cost Year"
+          },
+          "trail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How `unit_cost` and `total` were reached: the quantity and its takeoff inputs, the base unit cost and its cost row, the year and location factors with the index values and store rows used, recorded when the row was priced. Show it as recorded: never derive a base price from the rounded amounts, and never substitute today's index. Null for a row priced before the trail was recorded (`trail_recorded` false): such a row has only `source_row`."
+          },
+          "trail_recorded": {
+            "type": "boolean",
+            "title": "Trail Recorded",
+            "description": "Whether the row was priced with a trail (false: a legacy row, `trail` null).",
+            "default": false
           }
         },
         "type": "object",
@@ -8539,6 +9122,909 @@
           "cost_year"
         ],
         "title": "CostOut"
+      },
+      "CostTrailBaseOut": {
+        "properties": {
+          "unit_cost": {
+            "type": "string",
+            "title": "Unit Cost",
+            "description": "Per takeoff unit, at the row's base year, before the year and location factors; not rounded (it may carry more than two decimals). This, not a quotient of the rounded amounts, is the base price."
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "description": "The takeoff unit the base is per."
+          },
+          "table": {
+            "type": "string",
+            "title": "Table",
+            "description": "The cost table: `TYPICAL_UNIT_COSTS` (the legacy placeholder rows) or the configured table's name."
+          },
+          "row": {
+            "type": "string",
+            "title": "Row",
+            "description": "The row: the legacy component key or the table's label."
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier",
+            "description": "The legacy row's tier; null for a table row."
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "The row's printed source (book, line, page) as the table records it; null for a legacy placeholder row, which has none."
+          },
+          "base_year": {
+            "type": "integer",
+            "title": "Base Year",
+            "description": "The year the row's costs are as of."
+          },
+          "row_unit": {
+            "type": "string",
+            "title": "Row Unit",
+            "description": "The unit the row is printed per."
+          },
+          "conversion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversion",
+            "description": "How the row's unit became the takeoff's (`x9 from per SF`, `x0.01 from per Sq.`); null when none was needed."
+          },
+          "assumption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assumption",
+            "description": "The table row's stated assumption."
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis",
+            "description": "The cost basis (STRUCTURE_MODEL.md 9.3): `bare` (material + labor + equipment) or `installed` (with the installing contractor's overhead and profit). Rows priced before the basis was recorded read `bare`.",
+            "default": "bare"
+          },
+          "basis_how": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis How",
+            "description": "How `unit_cost` reached the installed basis: `Total Incl O&P` (the printed column) or the square-foot section's markups; null on the bare basis."
+          },
+          "markup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailMarkupOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The square-foot model's general contractor's overhead and profit spread on the row: `unit_cost x (1 + rate)` is what the year and location factors multiply. Null when none."
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_cost",
+          "unit",
+          "table",
+          "row",
+          "tier",
+          "source",
+          "base_year",
+          "row_unit",
+          "conversion",
+          "assumption"
+        ],
+        "title": "CostTrailBaseOut",
+        "description": "The base unit cost exactly as multiplied, and the cost row it came from."
+      },
+      "CostTrailBuildingOut": {
+        "properties": {
+          "amount": {
+            "type": "string",
+            "title": "Amount",
+            "description": "The building RCN at the cost year."
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "`appraisal_cost_approach` or `square_foot_model`."
+          },
+          "formula": {
+            "type": "string",
+            "title": "Formula",
+            "description": "How it was computed, in words."
+          },
+          "inputs": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Inputs",
+            "description": "Its inputs, including the appraiser's cost data date and time adjustment when the appraisal's cost new was used."
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions",
+            "description": "Its assumptions."
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount",
+          "source",
+          "formula",
+          "inputs",
+          "assumptions"
+        ],
+        "title": "CostTrailBuildingOut",
+        "description": "The building replacement cost new a residual was carved from."
+      },
+      "CostTrailIndexOut": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year",
+            "description": "The year the value is for."
+          },
+          "value": {
+            "type": "string",
+            "title": "Value",
+            "description": "The index (Jan. 1, 1993 = 100), as published."
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date",
+            "title": "As Of",
+            "description": "The date the value is for (July 1, or Jan. 1, 2020)."
+          },
+          "citation": {
+            "type": "string",
+            "title": "Citation",
+            "description": "The book and page, or the store row's citation."
+          },
+          "estimated": {
+            "type": "boolean",
+            "title": "Estimated",
+            "description": "The publication marks the value estimated."
+          },
+          "derived": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived",
+            "description": "How the value was converted from another public series, when it was."
+          },
+          "store": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailStoreRowOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The store row it was read from; null when it came from the released book file."
+          }
+        },
+        "type": "object",
+        "required": [
+          "year",
+          "value",
+          "as_of",
+          "citation",
+          "estimated",
+          "derived",
+          "store"
+        ],
+        "title": "CostTrailIndexOut",
+        "description": "One Historical Cost Index value exactly as used."
+      },
+      "CostTrailLocationOut": {
+        "properties": {
+          "factor": {
+            "type": "string",
+            "title": "Factor",
+            "description": "The location factor applied."
+          },
+          "from": {
+            "type": "string",
+            "title": "From",
+            "description": "Where it came from, in words (the setting when nothing else applied)."
+          },
+          "lookup": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "zip",
+                  "state"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookup",
+            "description": "Looked up by ZIP (a city row) or by state (the mean of its cities); null for the setting."
+          },
+          "zip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zip",
+            "description": "The ZIP looked up, when the factor came from one."
+          },
+          "lookup_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookup From",
+            "description": "Where the ZIP or state came from: `intake` or the appraisal field."
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State",
+            "description": "The state of the row(s)."
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City",
+            "description": "The city row's name; null for a state mean."
+          },
+          "zip_prefixes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zip Prefixes",
+            "description": "The city row's ZIP prefixes as printed."
+          },
+          "cities": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cities",
+            "description": "Rows averaged (1 for a city)."
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low",
+            "description": "The lowest factor averaged."
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High",
+            "description": "The highest factor averaged."
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages",
+            "description": "The printed page(s)."
+          },
+          "table_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Year",
+            "description": "The location table's year."
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin",
+            "description": "The location table's source (`rsmeans_2020_book`, `manual`, ...)."
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citation",
+            "description": "The factor's citation, in words."
+          },
+          "store": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailStoreRowOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The city row's store row; null for a state mean or the book file's row."
+          }
+        },
+        "type": "object",
+        "required": [
+          "factor",
+          "from",
+          "lookup",
+          "zip",
+          "lookup_from",
+          "state",
+          "city",
+          "zip_prefixes",
+          "cities",
+          "low",
+          "high",
+          "pages",
+          "table_year",
+          "origin",
+          "citation",
+          "store"
+        ],
+        "title": "CostTrailLocationOut",
+        "description": "The location factor exactly as used, with the row(s) it came from."
+      },
+      "CostTrailMarkupOut": {
+        "properties": {
+          "rate": {
+            "type": "string",
+            "title": "Rate",
+            "description": "The rate, e.g. 0.200129 for 20.0129 %."
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Where the rate comes from."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rate",
+          "source"
+        ],
+        "title": "CostTrailMarkupOut",
+        "description": "A pro-rata indirect cost on the row (ATG ch. 4 C.11(2))."
+      },
+      "CostTrailOut": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "The trail's shape version (1)."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "unit_price",
+              "unpriced",
+              "structure_residual"
+            ],
+            "title": "Kind",
+            "description": "`unit_price`: base x year factor x location factor x quantity; `unpriced`: no cost row (see `missing`); `structure_residual`: a concealed row whose total is the residual of the building RCN."
+          },
+          "quantity": {
+            "$ref": "#/components/schemas/CostTrailQuantityOut"
+          },
+          "base": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailBaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when no cost row was used."
+          },
+          "year": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailYearOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a residual of the appraiser's cost new (its own time adjustment is in `structure.building.inputs`)."
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailLocationOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when no location factor applied (the appraiser's cost new)."
+          },
+          "structure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailStructureOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set for a concealed row of the structure model."
+          },
+          "intake_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Version",
+            "description": "The study's intake version priced from; null without an intake."
+          },
+          "property_class": {
+            "type": "string",
+            "title": "Property Class",
+            "description": "The property class priced under."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "The pricing method the revision ran with (STRUCTURE_MODEL.md section 9): `cost_basis`, `overhead_allocation`, `modifications`, `specialties_residual`, `rcn_source`. Null for a row priced before it was recorded."
+          },
+          "cost_year": {
+            "type": "integer",
+            "title": "Cost Year",
+            "description": "Equals the cost row's `cost_year`."
+          },
+          "location_factor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Factor",
+            "description": "Equals the cost row's factor."
+          },
+          "unit_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Cost",
+            "description": "Equals the cost row's `unit_cost`."
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total",
+            "description": "Equals the cost row's `total`."
+          },
+          "rounding": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rounding",
+            "description": "The rounding rule, in words."
+          },
+          "priced_per": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priced Per",
+            "description": "For `unpriced`: the unit a cost table row prices the label in when the takeoff is in another unit."
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing",
+            "description": "For `unpriced`: why, as in `source_row`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "kind",
+          "quantity",
+          "base",
+          "year",
+          "location",
+          "structure",
+          "intake_version",
+          "property_class",
+          "cost_year",
+          "location_factor",
+          "unit_cost",
+          "total",
+          "rounding",
+          "priced_per",
+          "missing"
+        ],
+        "title": "CostTrailOut",
+        "description": "How the cost row's amounts were reached, recorded once when the row was priced and\nnever recomputed (docs/api/COST_INDICES.md, \"Per-asset cost trail\")."
+      },
+      "CostTrailQuantityOut": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value",
+            "description": "The quantity priced."
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "description": "Its unit (`EA`, `SF`, `LF`, `SY`)."
+          },
+          "formula": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formula",
+            "description": "How it was computed, in words."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "`count`, `area` or `perimeter`."
+          },
+          "inputs": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Inputs",
+            "description": "The takeoff inputs as written at pricing."
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions",
+            "description": "The takeoff's assumptions."
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "unit",
+          "formula",
+          "method",
+          "inputs",
+          "assumptions"
+        ],
+        "title": "CostTrailQuantityOut",
+        "description": "The quantity priced, as measured."
+      },
+      "CostTrailStoreRowOut": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id",
+            "description": "The store row's id."
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "The store source: `manual`, `rsmeans_2020_book`, ..."
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "The row's version (a revised value is a new version)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "version"
+        ],
+        "title": "CostTrailStoreRowOut",
+        "description": "The `cost_indices` store row a value was read from (docs/api/COST_INDICES.md)."
+      },
+      "CostTrailStructureOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The concealed row's label."
+          },
+          "system": {
+            "type": "string",
+            "title": "System",
+            "description": "The building system."
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component",
+            "description": "The RSMeans component it is carved from."
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "The structure model's source for the row."
+          },
+          "rcn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcn",
+            "description": "The residual RCN written as the total; null for a small system priced from the cost table."
+          },
+          "building": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailBuildingOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The building RCN of a residual; null for a small system."
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "system",
+          "component",
+          "source",
+          "rcn",
+          "building"
+        ],
+        "title": "CostTrailStructureOut",
+        "description": "A concealed row of the structure model."
+      },
+      "CostTrailYearOut": {
+        "properties": {
+          "cost_year": {
+            "type": "integer",
+            "title": "Cost Year",
+            "description": "The cost year priced to."
+          },
+          "factor": {
+            "type": "string",
+            "title": "Factor",
+            "description": "`index.value / base.value`, to four decimals."
+          },
+          "index": {
+            "$ref": "#/components/schemas/CostTrailIndexOut",
+            "description": "The cost year's index value (or the latest loaded one under the missing-year rule)."
+          },
+          "base": {
+            "$ref": "#/components/schemas/CostTrailIndexOut",
+            "description": "The books' cost basis (Jan. 1, 2020)."
+          },
+          "assumption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assumption",
+            "description": "Set when no index for the cost year was loaded and the latest applied."
+          },
+          "conversion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversion",
+            "description": "Set when the index value was converted."
+          },
+          "citation": {
+            "type": "string",
+            "title": "Citation",
+            "description": "The factor's citation, in words."
+          },
+          "from": {
+            "type": "string",
+            "title": "From",
+            "description": "Where the cost year came from (the intake, the appraisal, the setting)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "cost_year",
+          "factor",
+          "index",
+          "base",
+          "assumption",
+          "conversion",
+          "citation",
+          "from"
+        ],
+        "title": "CostTrailYearOut",
+        "description": "The time factor exactly as used."
       },
       "Decision": {
         "type": "string",
@@ -10777,6 +12263,237 @@
         ],
         "title": "PointSelection"
       },
+      "PricedWithOut": {
+        "properties": {
+          "recorded": {
+            "type": "boolean",
+            "title": "Recorded",
+            "description": "False for a revision priced before the cost trail was recorded (its factors are not known and are not reconstructed). Always true for `current`."
+          },
+          "cost_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Year"
+          },
+          "year_factor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Factor"
+          },
+          "year_citation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Citation"
+          },
+          "year_store_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Store Version",
+            "description": "The store version of the cost year's index value (null: the released book)."
+          },
+          "location_factor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Factor"
+          },
+          "location_citation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Citation"
+          },
+          "intake_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Version"
+          },
+          "property_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Property Class"
+          },
+          "model_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Class",
+            "description": "The structure model's class of construction."
+          },
+          "building_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Type",
+            "description": "The structure model's building type."
+          },
+          "living_area_sf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Living Area Sf",
+            "description": "The living area the square-foot model is sized by, when an engineer set it."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "The pricing method (STRUCTURE_MODEL.md section 9): `cost_basis` (bare or installed), `overhead_allocation` (pro_rata or none), `modifications`, `specialties_residual`, `rcn_source`. Null for a revision priced before it was recorded."
+          }
+        },
+        "type": "object",
+        "required": [
+          "recorded",
+          "cost_year",
+          "year_factor",
+          "year_citation",
+          "year_store_version",
+          "location_factor",
+          "location_citation",
+          "intake_version",
+          "property_class",
+          "model_class",
+          "building_type",
+          "living_area_sf"
+        ],
+        "title": "PricedWithOut",
+        "description": "What a revision's dollars rest on: recorded on its cost rows when it was priced\n(`priced_with`), or what a rebuild would use now (`current`)."
+      },
+      "PricingStatusOut": {
+        "properties": {
+          "priced_with": {
+            "$ref": "#/components/schemas/PricedWithOut"
+          },
+          "current": {
+            "$ref": "#/components/schemas/PricedWithOut"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "description": "The recorded pricing differs from what the current intake and index store give. A new index or intake never changes stored dollars: a reprice applies them in a new revision. A stale revision's allocation is withheld."
+          },
+          "reasons": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "not_recorded",
+                "intake_changed",
+                "cost_year_changed",
+                "index_updated",
+                "location_changed",
+                "property_class_changed",
+                "method_changed"
+              ]
+            },
+            "type": "array",
+            "title": "Reasons",
+            "description": "`not_recorded` (priced before the trail; not stale by itself), `intake_changed` (the intake version moved since the pricing), `cost_year_changed`, `index_updated` (the cost year's index value or its store version differs), `location_changed`, `property_class_changed`, `method_changed` (a pricing setting of STRUCTURE_MODEL.md section 9 changed since)."
+          },
+          "remedy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "reprice",
+                  "reject_assets"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remedy",
+            "description": "`reprice`: POST /v1/studies/{id}/assets/reprice (classifications carried, no model call); `reject_assets`: the property class changed, so the assets must be classified again (reject the assets review); null when nothing is stale."
+          }
+        },
+        "type": "object",
+        "required": [
+          "priced_with",
+          "current",
+          "stale",
+          "reasons",
+          "remedy"
+        ],
+        "title": "PricingStatusOut",
+        "description": "Whether the revision's recorded pricing is still what the study's inputs give."
+      },
       "PropertyUse": {
         "type": "string",
         "enum": [
@@ -11063,6 +12780,338 @@
           "checks"
         ],
         "title": "ReconciliationOut"
+      },
+      "ReconciliationSummaryOut": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "The reconciliation's status; null without one."
+          },
+          "rcn_total": {
+            "type": "string",
+            "title": "Rcn Total"
+          },
+          "rcnld_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld Total"
+          },
+          "building_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Basis"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap",
+            "description": "RCNLD less the building basis."
+          },
+          "allocated": {
+            "type": "boolean",
+            "title": "Allocated",
+            "description": "An allocation is produced (false: withheld)."
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "rcn_total",
+          "rcnld_total",
+          "building_basis",
+          "gap",
+          "allocated",
+          "missing"
+        ],
+        "title": "ReconciliationSummaryOut"
+      },
+      "RepriceAccepted": {
+        "properties": {
+          "review": {
+            "$ref": "#/components/schemas/ReviewOut"
+          },
+          "current_stage": {
+            "$ref": "#/components/schemas/Stage"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "The study's revision after the request (the rebuild's)."
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "correction_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Correction Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "review",
+          "current_stage",
+          "revision",
+          "fingerprint",
+          "correction_ids"
+        ],
+        "title": "RepriceAccepted",
+        "description": "202: the rebuild is recorded as an assets-review rejection carrying a `reprice`\ncorrection and queued for the workflow (outbox)."
+      },
+      "RepriceAssetOut": {
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id",
+            "description": "The asset of the current revision; null for a row the rebuild adds."
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "concealed": {
+            "type": "boolean",
+            "title": "Concealed"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountsOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a row the rebuild adds."
+          },
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountsOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a row the rebuild drops."
+          },
+          "change": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change",
+            "description": "`after.total - before.total` when both priced."
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id",
+          "label",
+          "category",
+          "bucket",
+          "concealed",
+          "before",
+          "after",
+          "change"
+        ],
+        "title": "RepriceAssetOut"
+      },
+      "RepriceIn": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "maximum": 2147483646.0,
+            "minimum": 1.0,
+            "title": "Revision",
+            "description": "The assets review revision being rebuilt."
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Fingerprint",
+            "description": "The `fingerprint` of the preview the engineer reviewed: 409 `reprice-inputs-changed` when the intake, the index store or the model inputs changed since."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "pattern": "^[^\\x00]*$",
+            "title": "Reason",
+            "description": "Why the assets are rebuilt (recorded on the correction and the event); not blank."
+          },
+          "structure_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructureModelIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "fingerprint",
+          "reason"
+        ],
+        "title": "RepriceIn"
+      },
+      "RepricePreviewOut": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "to_revision": {
+            "type": "integer",
+            "title": "To Revision"
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint",
+            "description": "Send back with the POST."
+          },
+          "allowed": {
+            "type": "boolean",
+            "title": "Allowed",
+            "description": "A rebuild can be requested now."
+          },
+          "blocked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked",
+            "description": "Why not, when `allowed` is false."
+          },
+          "blocked_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Code"
+          },
+          "pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PricingStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision's recorded pricing against the current inputs; null when the revision has no appraisal fields (no structure inputs)."
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/RepriceAssetOut"
+            },
+            "type": "array",
+            "title": "Assets"
+          },
+          "reclassified": {
+            "type": "integer",
+            "title": "Reclassified",
+            "description": "Components with no classification to carry (no asset in the revision): the rebuild classifies them (rules and conventions; the model when needed)."
+          },
+          "before": {
+            "$ref": "#/components/schemas/ReconciliationSummaryOut"
+          },
+          "after": {
+            "$ref": "#/components/schemas/ReconciliationSummaryOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "to_revision",
+          "fingerprint",
+          "allowed",
+          "blocked",
+          "blocked_code",
+          "pricing",
+          "assets",
+          "reclassified",
+          "before",
+          "after"
+        ],
+        "title": "RepricePreviewOut",
+        "description": "What a rebuild of the assets step would change, computed by the same code the\nrebuild runs, in a transaction that is rolled back: nothing is written."
       },
       "RetryRequested": {
         "properties": {
@@ -11841,6 +13890,65 @@
         ],
         "title": "StepOut"
       },
+      "StructureModelIn": {
+        "properties": {
+          "model_class": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "economy",
+                  "average",
+                  "custom",
+                  "luxury"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Class",
+            "description": "RSMeans class of construction: economy, average, custom, luxury."
+          },
+          "building_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "1 story",
+                  "1-1/2 story",
+                  "2 story",
+                  "2-1/2 story",
+                  "3 story"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Type",
+            "description": "RSMeans building type: 1 story ... 3 story."
+          },
+          "living_area_sf": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Living Area Sf",
+            "description": "Living area the model is sized by, SF."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StructureModelIn",
+        "description": "The engineer's confirmation or correction of the structure model's RSMeans\nsquare-foot model (class of construction, building type, living area), when the\nappraisal fields cannot say it: the class is a judgment from the quality rating, not a\nfield of the appraisal. A member left out keeps the model's own choice."
+      },
       "StructureOut": {
         "properties": {
           "building_rcn": {
@@ -12072,6 +14180,13 @@
             ],
             "description": "The study's intake as stored (state/zip filled from the appraisal when they were not given; `location_source` says so), or null until it is set."
           },
+          "intake_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Intake Version",
+            "description": "The intake's version: 0 while there is none, incremented by every write. Its entity tag is the version in quotes (`ETag: \"3\"`), which `PUT .../intake` takes as `If-Match`; the result's pricing is checked against it (docs/api/STUDY_RESULT.md).",
+            "default": 0
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -12120,6 +14235,7 @@
             "created_by": "a3c1b6f4-0b1e-4b77-8f8a-3d4c5e6f7a80",
             "current_stage": "uploading",
             "id": "5f0c6a52-2f53-4c39-9a3e-2b0a8f1f7d10",
+            "intake_version": 0,
             "org_id": "0b8f0f5e-8d3f-4d64-9a4b-7f3a2c1d9e01",
             "property_name": "1200 Harbor Blvd, Oxnard CA",
             "revision": 1,
@@ -12643,6 +14759,46 @@
           }
         ]
       },
+      "StudyIntakeOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "intake": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyIntake"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stored intake, or null until it is set."
+          },
+          "intake_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Intake Version",
+            "description": "The version (0: no intake yet); the response's `ETag` is `\"<version>\"`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "intake",
+          "intake_version"
+        ],
+        "title": "StudyIntakeOut",
+        "description": "``GET /v1/studies/{id}/intake``: the intake and its version (also the ``ETag``).",
+        "examples": [
+          {
+            "intake_version": 0,
+            "study_id": "5f0c6a52-2f53-4c39-9a3e-2b0a8f1f7d10"
+          }
+        ]
+      },
       "StudyList": {
         "properties": {
           "items": {
@@ -12746,6 +14902,13 @@
             ],
             "description": "The study's intake as stored (state/zip filled from the appraisal when they were not given; `location_source` says so), or null until it is set."
           },
+          "intake_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Intake Version",
+            "description": "The intake's version: 0 while there is none, incremented by every write. Its entity tag is the version in quotes (`ETag: \"3\"`), which `PUT .../intake` takes as `If-Match`; the result's pricing is checked against it (docs/api/STUDY_RESULT.md).",
+            "default": 0
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -12776,6 +14939,7 @@
             "created_by": "a3c1b6f4-0b1e-4b77-8f8a-3d4c5e6f7a80",
             "current_stage": "uploading",
             "id": "5f0c6a52-2f53-4c39-9a3e-2b0a8f1f7d10",
+            "intake_version": 0,
             "org_id": "0b8f0f5e-8d3f-4d64-9a4b-7f3a2c1d9e01",
             "property_name": "1200 Harbor Blvd, Oxnard CA",
             "revision": 1,
@@ -12802,7 +14966,7 @@
             },
             "type": "array",
             "title": "Missing",
-            "description": "What the result lacks: `intake` (no basis without it), `building_rcn` (no appraisal cost approach and no living area), `depreciation` (no rate), `allocation` (nothing priced, or the reconciliation is not within tolerance), `cost_index` (no loaded index for the cost year: `cost_index` says which value to enter), or nothing."
+            "description": "What the result lacks: `intake` (no basis without it), `building_rcn` (no appraisal cost approach and no living area), `depreciation` (no rate), `allocation` (nothing priced, or the reconciliation is not within tolerance), `cost_index` (no loaded index for the cost year: `cost_index` says which value to enter), `repricing` (the recorded pricing is stale: `pricing` says why), or nothing."
           },
           "cost_index": {
             "anyOf": [
@@ -12875,6 +15039,17 @@
             "type": "array",
             "title": "Not Produced",
             "description": "Concealed systems with no priced row in this schedule, so the gap to the basis is explicit."
+          },
+          "pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PricingStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the revision's dollars were priced with (recorded on its cost rows) against what the study's current intake and index store give. The structure, the reconciliation and the allocation use the recorded pricing, never a newer index. When `stale`, the allocation is withheld (`missing` lists `repricing`) until a reprice builds a revision priced with the current inputs. Null without structure inputs."
           }
         },
         "type": "object",
@@ -13110,6 +15285,39 @@
               }
             ],
             "title": "Formula"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "How the quantity was measured: `count`, `area` or `perimeter` (the takeoff inputs' `method`); null for a takeoff stored without it."
+          },
+          "inputs": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inputs",
+            "description": "The takeoff inputs exactly as stored when the asset was measured: the room area and its source, the appraisal fields, the cost index sources, an engineer's `asset_correction`, a concealed row's `label` and `system`. Keys vary by takeoff; show them, do not compute from them."
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions",
+            "description": "The takeoff's stated assumptions (the takeoff inputs' `assumptions`)."
           }
         },
         "type": "object",

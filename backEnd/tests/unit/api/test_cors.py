@@ -7,6 +7,8 @@
   methods and headers allowed, and without credentials.
 * Actual responses to a listed origin carry ``Access-Control-Allow-Origin`` and expose
   ``X-Request-Id``, including error responses (401 problem), which CORS must wrap.
+* The intake's conditional write works from the browser: a ``PUT`` preflight with
+  ``If-Match`` is allowed and ``ETag`` is exposed.
 * An unlisted origin gets no ``Access-Control-Allow-Origin``; its preflight is refused.
 """
 
@@ -57,6 +59,30 @@ async def test_preflight_from_a_listed_origin_is_allowed(client: httpx.AsyncClie
     assert {"authorization", "content-type", "idempotency-key", "x-request-id"} <= allowed
     assert response.headers["access-control-max-age"] == "600"
     assert "access-control-allow-credentials" not in response.headers
+
+
+async def test_the_intake_put_with_if_match_is_allowed_and_its_etag_exposed(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.options(
+        "/v1/studies/00000000-0000-0000-0000-000000000001/intake",
+        headers={
+            "Origin": FRONTEND,
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "authorization,content-type,if-match",
+        },
+    )
+    assert response.status_code == 200
+    assert "PUT" in {m.strip() for m in response.headers["access-control-allow-methods"].split(",")}
+    allowed = {
+        h.strip().lower() for h in response.headers["access-control-allow-headers"].split(",")
+    }
+    assert "if-match" in allowed
+    actual = await client.get("/v1/studies", headers={"Origin": FRONTEND})
+    exposed = {
+        h.strip().lower() for h in actual.headers["access-control-expose-headers"].split(",")
+    }
+    assert "etag" in exposed
 
 
 async def test_preflight_from_localhost_is_allowed(client: httpx.AsyncClient) -> None:

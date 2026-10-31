@@ -5,12 +5,21 @@ calls of every stage (`kind: chat`), each Azure Document Intelligence analysis
 (`document_analysis`, priced per page), each SAM 3 prediction (`localization`, priced per
 predict second; the engineer's manual box prompts included) and each surface-segmenter
 prediction (`segmentation`). The study budget is the SUM of `cost_usd` over the rows. Two
-routes read it, both with the viewer role (`403` below, `404` for a study not visible):
+routes read it, both for the firm's owners by default (`403` for a member below the role, `404`
+for a study not visible to the caller, a non-member included):
 
 | Route | Answers |
 |---|---|
 | `GET /v1/studies/{id}/spend` | The rollup: the whole study, then by stage, activity, component, model and kind. |
 | `GET /v1/studies/{id}/calls` | The rows, oldest first, keyset-paginated (`limit` up to 200, `cursor`), filtered by `activity`, `kind` or `entity_id`. |
+
+**Who may read it.** What the firm pays per call is the owner's to see, so both routes need
+the firm role `SPEND_ACCESS_ROLE` in the study's firm: `owner` (the default), `engineer`
+(engineers and owners) or `viewer` (every member, the behaviour before the setting). The check
+is the server's (`basis.api.routes.spend.spend_access`, read per request); the client hiding
+the spend panel from engineers and viewers is presentation only. A member below the role gets
+`403 forbidden` (`BASIS-API-010`, the detail names the role needed); a non-member gets the same
+`404` as for an unknown study (`BASIS-STUDY-017`), so study ids cannot be probed.
 
 The export (`rev-<n>.json`) carries the same rollup as `summary.spend`, and
 `rev-<n>.calls.jsonl` (named in `files.calls_jsonl`) is the transcript: one JSON line per

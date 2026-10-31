@@ -4,12 +4,15 @@
 :func:`values_from_rows` turns the store's current rows (the latest version of every key,
 every source) into one :class:`IndexValues`: for each year of the Historical Cost Index the
 value of the best-ranked source that holds it, and for each year that has location rows
-one :class:`~basis.domain.cost_indices.LocationTable`. The rank is: a manual entry (the
-firm's own, cited) first, then the configured sources in ``COST_INDEX_SOURCES`` order, then
-the released book, then any other source alphabetically; a value converted from another
-series (``derived``) never outranks a published one for the same year. The released book's
-values are the baseline under everything (the store seeds from them, so they agree; an
-empty store prices exactly as the file alone did).
+one :class:`~basis.domain.cost_indices.LocationTable`. The rank is: a manual entry (a firm
+owner's, cited; the store is shared by every firm on the deployment) first, then the
+configured sources in ``COST_INDEX_SOURCES`` order, then the released book, then any other
+source alphabetically; a value converted from another series (``derived``) never outranks
+a published one for the same year. The released book's values are the baseline under
+everything (the store seeds from them, so they agree; an empty store prices exactly as
+the file alone did). Every value read from a store row names it (``YearIndex.store``,
+``CityFactor.store``: id, source, version), so a priced row's cost trail
+(``basis.domain.cost_trail``) cites the exact append-only row it used.
 
 The per-study choice of the cost year (the intake's placed-in-service date, the appraisal's
 effective date as the cross-check) and of the location row (the intake's ZIP or state, the
@@ -36,6 +39,7 @@ from basis.domain.cost_indices import (
     BOOK_SOURCE,
     CityFactor,
     LocationTable,
+    StoreRow,
     YearIndex,
     book_location_table,
     indices,
@@ -85,6 +89,12 @@ def _plain(value: Decimal) -> Decimal:
     return value.normalize()
 
 
+def store_row_of(row: CostIndexValue) -> StoreRow:
+    """Which store row a value came from (id, source, version): what a priced row's cost
+    trail names (``basis.domain.cost_trail``)."""
+    return StoreRow(id=getattr(row, "id", None), source=row.source, version=row.version)
+
+
 def year_index_of(row: CostIndexValue) -> YearIndex:
     detail = row.detail if isinstance(row.detail, dict) else {}
     return YearIndex(
@@ -94,6 +104,7 @@ def year_index_of(row: CostIndexValue) -> YearIndex:
         source=row.citation,
         estimated=bool(detail.get("estimated", False)),
         derived=row.derived,
+        store=store_row_of(row),
     )
 
 
@@ -108,6 +119,7 @@ def city_factor_of(row: CostIndexValue) -> CityFactor:
         city=str(detail.get("city") or prefixes),
         factor=_plain(row.value),
         printed_page=int(page) if isinstance(page, int) else int(found.group(1)) if found else 0,
+        store=store_row_of(row),
     )
 
 
@@ -189,6 +201,7 @@ __all__ = [
     "city_factor_of",
     "load_index_values",
     "source_priority",
+    "store_row_of",
     "values_from_rows",
     "year_index_of",
 ]

@@ -7,6 +7,14 @@ obtained it and when (sections 9-12 of that document). The routes read it and le
 enter a value by hand; the refresh job (`python -m basis.costs.refresh`) fills it from the
 sources. Nothing in a request fetches anything.
 
+**Scope: one store per deployment, shared by every firm.** The `cost_indices` rows carry no
+firm (there is no `org_id` column), every firm member reads the same rows, and the selection
+that prices a study (`basis/costs/indices/select.py`) reads them whatever the study's firm. A
+value a firm owner enters with `POST` therefore prices every firm's studies on the deployment
+from then on (a manual entry outranks the other sources for its year). It is not a private
+per-firm override; that is why entering one needs the owner role and a citation, and why the
+ledger records who entered it.
+
 ## `GET /v1/cost-indices`
 
 Any member of a firm. The current version of every value, newest first; `all_versions=true`
@@ -59,7 +67,8 @@ lists the superseded rows too. Filters: `series` (`historical` | `city`), `year`
 ## `POST /v1/cost-indices`
 
 A firm owner (the admin role) of any firm: the store is shared by every firm on the
-deployment and a value is a published fact, cited. Idempotent (`Idempotency-Key`). Appends the
+deployment (the value prices every firm's studies, see the scope above) and a value is a
+published fact, cited. Idempotent (`Idempotency-Key`). Appends the
 value as source `manual` with the entering user and the time, and a ledger row (`run`) that
 says the same; 201 with both.
 
@@ -121,6 +130,100 @@ loaded index is priced at the latest loaded one, flagged `cost:YEAR_INDEX_MISSIN
 `needed` naming the value to enter (docs/api/STUDY_RESULT.md). A value entered or fetched later
 reaches a study when its assets step reruns (a rejection at the assets gate, or
 `POST /v1/studies/{id}/retry`); the store never changes a completed revision.
+
+## Per-asset cost trail
+
+Every cost row the assets step writes carries its trail (`cost_estimates.trail`, migration
+`0018`; `basis/domain/cost_trail.py`): how its dollars were reached, recorded once from the
+objects the row was priced with and never rewritten (the table refuses updates).
+`GET /v1/studies/{id}/assets` returns it as `cost.trail` with `cost.trail_recorded`, and the
+JSON export as each asset's `cost_trail` (the CSV has no trail column). Each takeoff also
+returns its stored `inputs`, `method` and `assumptions`.
+
+The rules for a reader:
+
+* Show the trail as recorded. Never derive a base price from the rounded amounts
+  (`unit_cost / factors` loses cents: a base of 1.6650 per SF and the cent-rounded 1.67 give
+  different unit costs), and never substitute today's index for the one recorded: a value
+  entered in the store later reaches a study only when its assets step reruns.
+* A row priced before the trail existed has `trail: null` and `trail_recorded: false`; it has
+  only its `source_row` sentence. Nothing is back-filled.
+* The trail's `unit_cost`, `total`, `location_factor` and `cost_year` are the row's own; for
+  `kind` `unit_price`, `base.unit_cost x (1 + base.markup.rate) x year.factor x
+  location.factor` rounded half up to the cent is `unit_cost` (no markup: factor 1), and
+  `unit_cost x quantity.value` so rounded is `total`.
+* `base.basis` is the cost basis (STRUCTURE_MODEL.md section 9.3): `bare`, or `installed`
+  with `base.basis_how` saying how (`Total Incl O&P`, or the square-foot section's markups on
+  material, labor and equipment); `base.markup` is the square-foot model's general
+  contractor's O&P spread on a row inside the model. `method` records the revision's pricing
+  method (`cost_basis`, `overhead_allocation`, `modifications`, `specialties_residual`,
+  `rcn_source`), which the result applies when it rebuilds the structure model for that
+  revision (docs/api/REPRICE.md).
+
+Every Decimal is a string exactly as used (`"1.2330"`, not `1.233`); dates are ISO 8601.
+
+```json
+{
+  "version": 1,
+  "kind": "unit_price",
+  "quantity": {"value": "18", "unit": "EA", "formula": "max(count=18, min_per_room=1)",
+               "method": "count", "inputs": {"…": "the takeoff inputs as stored"},
+               "assumptions": []},
+  "base": {"unit_cost": "425", "unit": "EA", "table": "rsmeans_2020", "row": "kitchen_cabinet",
+           "tier": null, "source": "<book, line, page as the table records it>",
+           "base_year": 2020, "row_unit": "Ea.", "conversion": null,
+           "assumption": "one cabinet unit priced as a 24-inch base cabinet"},
+  "year": {"cost_year": 2024, "factor": "1.2330",
+           "index": {"year": 2024, "value": "294.8", "as_of": "2024-01-01",
+                     "citation": "RSMeans 2024 Building Construction Costs p.778",
+                     "estimated": false, "derived": null,
+                     "store": {"id": "…", "source": "manual", "version": 2}},
+           "base": {"year": 2020, "value": "239.1", "as_of": "2020-01-01",
+                    "citation": "RSMeans Building Construction Costs 2020 p.778",
+                    "estimated": true, "derived": null, "store": null},
+           "assumption": null, "conversion": null,
+           "citation": "HCI 294.8 (Jan 2024) [RSMeans 2024 …] / 239.1 (Jan 2020, est.) […]",
+           "from": "placed in service 2024-03-01 (intake)"},
+  "location": {"factor": "0.98", "from": "zip 12345 (intake): 123 Schenectady 0.98, …",
+               "lookup": "zip", "zip": "12345", "lookup_from": "intake", "state": "NY",
+               "city": "Schenectady", "zip_prefixes": "123", "cities": 1, "low": "0.98",
+               "high": "0.98", "pages": "720", "table_year": 2020,
+               "origin": "rsmeans_2020_book", "citation": "123 Schenectady 0.98, …",
+               "store": null},
+  "structure": null,
+  "intake_version": 3,
+  "property_class": "residential_rental",
+  "cost_year": 2024,
+  "location_factor": "0.98",
+  "unit_cost": "513.54",
+  "total": "9243.72",
+  "rounding": "unit_cost = base x year factor x location factor, rounded half up to the cent; total = unit_cost x quantity, rounded half up to the cent",
+  "priced_per": null,
+  "missing": null
+}
+```
+
+* `kind`: `unit_price` (a cost row priced it), `unpriced` (no cost row, or a table row in
+  another unit: `missing` is the row's `source_row` text, `priced_per` the row's unit; `base`,
+  `unit_cost`, `total` and `rounding` are null; `year` and `location` are what the study would
+  price with), `structure_residual` (a concealed row of the structure model whose total is the
+  residual carved from the building's replacement cost new: `base` null; `structure.building`
+  carries the building RCN's amount, source, formula, inputs and assumptions; `year` and
+  `location` are recorded when the square-foot model applied them and null when the
+  appraiser's cost new was used, whose own time adjustment is in `structure.building.inputs`;
+  `unit_cost` is the total over the quantity, rounded half even, as the row is written). A
+  small system of the structure model (smoke alarms, data outlets, ...) is priced from the cost
+  table like any label: `unit_price` or `unpriced`, with `structure` set and `building` null.
+* `base.unit_cost` is per takeoff unit at the row's base year, before the factors, exactly as
+  multiplied (it can carry more than two decimals). `table` is `TYPICAL_UNIT_COSTS` (the legacy
+  placeholder rows: `tier` set, `source` null) or the configured table's name; `conversion` is
+  how the row's unit became the takeoff's (`x9 from per SF`, `x0.01 from per Sq.`).
+* `store` names the `cost_indices` row (id, source, version) a value was read from; it is null
+  for a value from the released book file, and for a city row of the 2020 book's location table
+  read from the store's seed (the seed is the file's table). A state mean names its table
+  (`table_year`, `origin`) and the cities averaged (`cities`, `low`, `high`), not each store row.
+* `intake_version` is `studies.intake_version` read with the intake the row was priced from
+  (null when the study has no intake).
 
 ## The operator CLI
 

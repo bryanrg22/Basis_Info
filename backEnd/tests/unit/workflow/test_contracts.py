@@ -94,16 +94,22 @@ def test_stage_vocabulary_matches_the_database_enum() -> None:
 
 def test_correction_types_per_gate() -> None:
     """v0.12 (patch components-gate-v1): the rooms review takes the grouping and the
-    components review the components; without the gate the single rooms review takes both."""
+    components review the components; without the gate the single rooms review takes both.
+    A removal (``component_remove``) goes wherever ``component`` does; an added appraisal
+    field (``extraction_field_add``) with the appraisal's corrections; the assets rebuild
+    (``reprice``, ``structure_model``, REPRICE.md) at the assets review."""
     gate = {s: c.correction_types(s, components_gate=True) for s in c.CORRECTION_TYPES}
     assert gate == {
-        "appraisal_review": {"extraction_field"},
+        "appraisal_review": {"extraction_field", "extraction_field_add"},
         "rooms_review": {"room", "photo_room"},
-        "components_review": {"component", "room_component", "photo"},
-        "assets_review": {"asset"},
+        "components_review": {"component", "component_remove", "room_component", "photo"},
+        "assets_review": {"asset", "reprice", "structure_model"},
     }
     single = {s: c.correction_types(s, components_gate=False) for s in c.CORRECTION_TYPES}
-    assert single == {**gate, "rooms_review": {"room", "component", "room_component", "photo"}}
+    assert single == {
+        **gate,
+        "rooms_review": {"room", "component", "component_remove", "room_component", "photo"},
+    }
     assert c.SINGLE_ROOMS_GATE_TYPES == single["rooms_review"]
     with pytest.raises(KeyError):
         c.correction_types("extracting", components_gate=True)

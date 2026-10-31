@@ -145,6 +145,7 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/assets",
         # basis and land allocation (tests/api/test_studies.py, test_result.py)
         "PUT /v1/studies/{study_id}/intake",
+        "GET /v1/studies/{study_id}/intake",  # the intake's version (ETag)
         "GET /v1/studies/{study_id}/result",
         # the paid-call ledger (tests/api/test_spend.py)
         "GET /v1/studies/{study_id}/spend",
@@ -167,6 +168,9 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/cost-indices",
         "POST /v1/cost-indices",
         "GET /v1/cost-indices/runs",
+        # The assets rebuild (docs/api/REPRICE.md)
+        "GET /v1/studies/{study_id}/assets/reprice",
+        "POST /v1/studies/{study_id}/assets/reprice",
     }
 
 

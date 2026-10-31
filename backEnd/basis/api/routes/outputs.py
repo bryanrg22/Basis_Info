@@ -8,7 +8,9 @@ first revision and appraisal rejections extract).
 What the review gates show (EVAL_REPORT section 23, finding 5): the appraisal's
 extraction fields, the rooms with their photos and inventories (the rooms review shows the
 grouping, the components review the inventories and ``suggested_counts``; patch
-``components-gate-v1``), and the assets with their takeoff, cost and citation counts.
+``components-gate-v1``), and the assets with their takeoff (its inputs as stored), cost
+(with the cost trail recorded when it was priced, read as stored and never recomputed:
+docs/api/COST_INDICES.md, "Per-asset cost trail") and citation counts.
 Viewer access, like the evidence page. Each is keyset-paginated (``limit``, ``cursor``; a
 cursor stays on the revision it was issued for) at the study's current revision, or at
 ``revision`` (an earlier one is history; a later one is 404). The ids are the
@@ -31,6 +33,7 @@ from basis.api.schemas.outputs import (
     AssetsPageOut,
     ConventionOut,
     CostOut,
+    CostTrailOut,
     ExtractionFieldOut,
     ExtractionFieldsPageOut,
     ExtractionIssueOut,
@@ -47,7 +50,7 @@ from basis.api.schemas.outputs import (
 from basis.api.schemas.timeline import ProvenanceOut
 from basis.api.users import study_access
 from basis.db.enums import OrgRole
-from basis.db.models import Extraction
+from basis.db.models import CostEstimate, Extraction, Takeoff
 from basis.db.repositories import VisibleStudy
 from basis.db.repositories.outputs import (
     MAX_OUTPUT_PAGE,
@@ -261,6 +264,37 @@ def room_out(
     )
 
 
+def takeoff_out(takeoff: Takeoff) -> TakeoffOut:
+    """The stored takeoff, with its inputs as written (``method`` and ``assumptions`` are
+    keys of them; a takeoff stored without them has null and [])."""
+    inputs = takeoff.inputs if isinstance(takeoff.inputs, dict) else None
+    method = None if inputs is None else inputs.get("method")
+    assumptions = None if inputs is None else inputs.get("assumptions")
+    return TakeoffOut(
+        quantity=takeoff.quantity,
+        unit=takeoff.unit,
+        formula=takeoff.formula,
+        method=method if isinstance(method, str) else None,
+        inputs=inputs,
+        assumptions=[str(a) for a in assumptions] if isinstance(assumptions, list) else [],
+    )
+
+
+def cost_out(cost: CostEstimate) -> CostOut:
+    """The stored cost row and the trail recorded when it was priced (read as stored,
+    never recomputed: a row priced before the trail existed has ``trail`` null)."""
+    trail = cost.trail if isinstance(cost.trail, dict) else None
+    return CostOut(
+        unit_cost=cost.unit_cost,
+        total=cost.total,
+        source_row=cost.source_row,
+        location_factor=cost.location_factor,
+        cost_year=cost.cost_year,
+        trail=None if trail is None else CostTrailOut.model_validate(trail),
+        trail_recorded=trail is not None,
+    )
+
+
 def asset_out(row: AssetRow, provenance: Provenance | None = None) -> AssetOut:
     asset, component = row.asset, row.component
     reasons = [r for r in (asset.review_reason or "").split("; ") if r]
@@ -279,24 +313,8 @@ def asset_out(row: AssetRow, provenance: Provenance | None = None) -> AssetOut:
         needs_review=asset.needs_review,
         review_reasons=reasons,
         review_codes=codes_for_reasons(reasons),
-        takeoff=(
-            TakeoffOut(
-                quantity=row.takeoff.quantity, unit=row.takeoff.unit, formula=row.takeoff.formula
-            )
-            if row.takeoff is not None
-            else None
-        ),
-        cost=(
-            CostOut(
-                unit_cost=row.cost.unit_cost,
-                total=row.cost.total,
-                source_row=row.cost.source_row,
-                location_factor=row.cost.location_factor,
-                cost_year=row.cost.cost_year,
-            )
-            if row.cost is not None
-            else None
-        ),
+        takeoff=takeoff_out(row.takeoff) if row.takeoff is not None else None,
+        cost=cost_out(row.cost) if row.cost is not None else None,
         citations=row.citations,
         verified_citations=row.verified_citations,
         convention=(

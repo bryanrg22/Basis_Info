@@ -16,6 +16,7 @@ from apitest_support import Api, Seed
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from basis.activities.reprice_corrections import STUDY_TARGETED
 from basis.api.errors import PROBLEM_JSON
 from basis.api.idempotency import IDEMPOTENCY_HEADER, REPLAYED_HEADER
 from basis.api.schemas.common import MAX_REVISION
@@ -28,7 +29,17 @@ from basis.db.enums import (
     StudyStatus,
     status_for_stage,
 )
-from basis.db.models import Correction, Document, OutboxMessage, Review, Study
+from basis.db.models import (
+    Component,
+    Correction,
+    Document,
+    Extraction,
+    ExtractionField,
+    OutboxMessage,
+    PhotoRoom,
+    Review,
+    Study,
+)
 from basis.db.repositories import (
     DECISION_TRANSITIONS,
     SINGLE_ROOMS_GATE_TRANSITIONS,
@@ -37,6 +48,8 @@ from basis.db.repositories import (
 )
 from basis.db.repositories.review import CORRECTION_TARGET_TYPES
 from basis.db.session import session_scope
+from basis.errors.codes import E
+from basis.vision.rooms import ROOM_INVENTORY_SOURCE
 from basis.workflow.contracts import CORRECTION_TYPES, SINGLE_ROOMS_GATE_TYPES, correction_types
 
 pytestmark = pytest.mark.integration
@@ -467,24 +480,47 @@ async def test_missing_idempotency_key_is_400(api: Api, seed: Seed) -> None:
 # Correction targets: the API refuses what the workflow's validator or apply_corrections
 # would refuse, naming the offending index (``basis.api.routes.decisions``).
 
+# The assets rebuild's types (``reprice``, ``structure_model``) are accepted by the workflow
+# but recorded only by ``POST .../assets/reprice`` (tests/api/test_reprice.py), so the
+# decisions route refuses them.
 STAGE_TYPES = sorted(
-    (stage, entity_type) for stage, types in CORRECTION_TYPES.items() for entity_type in types
+    (stage, entity_type)
+    for stage, types in CORRECTION_TYPES.items()
+    for entity_type in types
+    if entity_type not in STUDY_TARGETED
 )
 # v0.12: the types above are those of a study with the components gate (patch
 # components-gate-v1, ``studies.components_gate``); these tests seed it so.
 GATE = True
 
 
+# An added appraisal field the seeded extraction lacks (it has subject.year_built only).
+ADDED_FIELD: dict[str, Any] = {
+    "key": "improvements.year_built",
+    "value_num": 1987,
+    "page": 3,
+    "evidence": "Year Built 1987",
+}
+
+
 def correction(entity_type: str, entity_id: str, room_id: str | None = None) -> dict[str, Any]:
     # A room_component's values are checked (basis.domain.counts): it adds a real component;
-    # a photo_room's is a room of the revision (``room_id``, else a random one).
+    # a photo_room's is a room of the revision (``room_id``, else a random one); a removal is
+    # ``{}`` with a reason, an added field a catalogue key with its value, page and evidence.
     if entity_type == "room_component":
         after: dict[str, Any] = {"label": "window", "count": 2}
     elif entity_type == "photo_room":
         after = {"room_id": room_id or str(uuid.uuid4())}
+    elif entity_type == "component_remove":
+        after = {}
+    elif entity_type == "extraction_field_add":
+        after = dict(ADDED_FIELD)
     else:
         after = {"name": "Kitchen"}
-    return {"entity_type": entity_type, "entity_id": entity_id, "after": after}
+    one: dict[str, Any] = {"entity_type": entity_type, "entity_id": entity_id, "after": after}
+    if entity_type in ("component_remove", "extraction_field_add"):
+        one["reason"] = "Not in the property."
+    return one
 
 
 async def assert_nothing_written(
@@ -498,7 +534,7 @@ async def assert_nothing_written(
 
 def test_target_types_cover_the_contract() -> None:
     every_type: set[str] = set().union(*CORRECTION_TYPES.values(), SINGLE_ROOMS_GATE_TYPES)
-    assert every_type == CORRECTION_TARGET_TYPES
+    assert every_type - STUDY_TARGETED == CORRECTION_TARGET_TYPES
 
 
 @pytest.mark.parametrize(
@@ -626,7 +662,17 @@ async def test_a_target_of_another_study_is_422(
     await assert_nothing_written(sessionmaker, sid, Stage(stage), 1)
 
 
-@pytest.mark.parametrize("entity_type", ["extraction_field", "room", "component", "asset"])
+@pytest.mark.parametrize(
+    "entity_type",
+    [
+        "extraction_field",
+        "extraction_field_add",
+        "room",
+        "component",
+        "component_remove",
+        "asset",
+    ],
+)
 async def test_a_target_of_an_earlier_revision_is_422(
     api: Api,
     seed: Seed,
@@ -955,3 +1001,524 @@ async def test_an_approval_at_the_components_review_cannot_carry_corrections(
     )
     assert response.status_code == 422, response.text
     await assert_nothing_written(sessionmaker, sid, Stage.COMPONENTS_REVIEW, 1)
+
+
+# --------------------------------------------------------------------------- removals
+# ``component_remove`` (basis.domain.removals): an erroneous room inventory component row is
+# left out of the next revision; ``after`` is ``{}`` and a reason is required.
+
+REASON = "Not in the property."
+
+
+def removal(component_id: str, reason: str | None = REASON, **after: Any) -> dict[str, Any]:
+    one: dict[str, Any] = {
+        "entity_type": "component_remove",
+        "entity_id": component_id,
+        "after": dict(after),
+    }
+    if reason is not None:
+        one["reason"] = reason
+    return one
+
+
+async def inventory_rows(
+    sm: async_sessionmaker[AsyncSession],
+    sid: str,
+    targets: dict[str, str],
+    revision: int = 1,
+    count: int = 2,
+) -> list[str]:
+    """``count`` reconciled inventory rows in the seeded room, whose photo is assigned to it."""
+    async with session_scope(sm) as session:
+        session.add(
+            PhotoRoom(
+                study_id=uuid.UUID(sid),
+                document_id=uuid.UUID(targets["photo"]),
+                room_id=uuid.UUID(targets["room"]),
+                revision=revision,
+            )
+        )
+        rows = [
+            Component(
+                study_id=uuid.UUID(sid),
+                revision=revision,
+                document_id=None,
+                room_id=uuid.UUID(targets["room"]),
+                label=label,
+                raw={"source": ROOM_INVENTORY_SOURCE, "count": 2, "photos": [targets["photo"]]},
+            )
+            for label in ("cabinet", "window", "door", "sink")[:count]
+        ]
+        session.add_all(rows)
+        await session.flush()
+        return [str(row.id) for row in rows]
+
+
+async def test_a_removal_is_recorded_with_its_reason(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, revision=2, components_gate=True)
+    targets = await seed.outputs(sid, revision=2)
+    rows = await inventory_rows(sessionmaker, sid, targets, revision=2)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "components_review",
+            2,
+            "reject",
+            corrections=[removal(rows[0]), removal(targets["component"], reason="Duplicate.")],
+        ),
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["corrections_recorded"] == 2
+    async with sessionmaker() as session:
+        stored = (await session.scalars(select(Correction).order_by(Correction.reason))).all()
+        (signal,) = (await session.scalars(select(OutboxMessage))).all()
+    assert [(r.entity_type, r.after, r.reason) for r in stored] == [
+        ("component_remove", {}, "Duplicate."),
+        ("component_remove", {}, REASON),
+    ]
+    assert signal.payload["corrections"][0] == {
+        "entity_type": "component_remove",
+        "entity_id": rows[0],
+        "after": {},
+        "reason": REASON,
+    }
+
+
+@pytest.mark.parametrize("reason", [None, "", "   "])
+async def test_a_removal_without_a_reason_is_422_at_reason(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession], reason: str | None
+) -> None:
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    good = {
+        "entity_type": "room_component",
+        "entity_id": targets["room"],
+        "after": {"label": "window", "count": 1},
+    }
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "components_review",
+            1,
+            "reject",
+            corrections=[good, removal(targets["component"], reason=reason)],
+        ),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 1, "reason"],
+        "correction_reason",
+    )
+    await assert_nothing_written(sessionmaker, sid, Stage.COMPONENTS_REVIEW, 1)
+
+
+async def test_a_removal_without_a_reason_carries_its_code(api: Api, seed: Seed) -> None:
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "components_review", 1, "reject", corrections=[removal(targets["component"], None)]
+        ),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == E.STUDY_CORRECTION_REASON
+
+
+async def test_a_removal_takes_no_fields(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "components_review", 1, "reject", corrections=[removal(targets["component"], count=0)]
+        ),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 0, "after"],
+        "correction_value",
+    )
+    await assert_nothing_written(sessionmaker, sid, Stage.COMPONENTS_REVIEW, 1)
+
+
+async def test_a_row_removed_twice_or_removed_and_corrected_is_422(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    component = targets["component"]
+    count = {"entity_type": "component", "entity_id": component, "after": {"count": 3}}
+    for corrections, index in (
+        ([removal(component), removal(component)], 1),
+        ([count, removal(component)], 1),
+    ):
+        response = await api.post(
+            "alice",
+            f"/v1/studies/{sid}/decisions",
+            decision("components_review", 1, "reject", corrections=corrections),
+        )
+        assert response.status_code == 422, response.text
+        [error] = response.json()["errors"]
+        assert error["loc"] == ["body", "corrections", index, "entity_id"]
+        assert error["type"] == "correction_duplicate"
+        assert response.json()["code"] == E.STUDY_CORRECTION_DUPLICATE
+        await assert_nothing_written(sessionmaker, sid, Stage.COMPONENTS_REVIEW, 1)
+
+
+async def test_removing_a_row_the_rejection_rebuilds_is_422(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """A photo of the room flagged for re-analysis in the same decision: reconcile_rooms
+    rebuilds the room's inventory, and the photo's own rows are rebuilt by its analysis;
+    corrections of rebuilt rows are not carried, so the removal is refused (at its
+    entity_id). Without the re-analysis the same removal is accepted."""
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    rows = await inventory_rows(sessionmaker, sid, targets)
+    flag = {"entity_type": "photo", "entity_id": targets["photo"], "after": {}}
+    path = f"/v1/studies/{sid}/decisions"
+    for removed in (rows[0], targets["component"]):  # an inventory row, the photo's own row
+        response = await api.post(
+            "alice",
+            path,
+            decision("components_review", 1, "reject", corrections=[flag, removal(removed)]),
+        )
+        assert response.status_code == 422, response.text
+        [error] = response.json()["errors"]
+        assert error["loc"] == ["body", "corrections", 1, "entity_id"]
+        assert error["type"] == "correction_rebuilt"
+        assert "re-analy" in error["detail"] and "not carried" in error["detail"]
+        assert response.json()["code"] == E.STUDY_CORRECTION_REBUILT
+        await assert_nothing_written(sessionmaker, sid, Stage.COMPONENTS_REVIEW, 1)
+    accepted = await api.post(
+        "alice", path, decision("components_review", 1, "reject", corrections=[removal(rows[0])])
+    )
+    assert accepted.status_code == 202, accepted.text
+
+
+async def test_removing_a_merged_rooms_inventory_row_is_422_in_the_single_rooms_review(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.ROOMS_REVIEW, components_gate=False)
+    targets = await seed.outputs(sid)
+    rows = await inventory_rows(sessionmaker, sid, targets)
+    other = (await seed.outputs(sid))["room"]  # a second room of the same revision
+    merge = {"entity_type": "room", "entity_id": targets["room"], "after": {"merge_into": other}}
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("rooms_review", 1, "reject", corrections=[merge, removal(rows[0])]),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 1, "entity_id"],
+        "correction_rebuilt",
+    )
+    await assert_nothing_written(sessionmaker, sid, Stage.ROOMS_REVIEW, 1)
+
+
+async def test_removing_every_inventory_row_of_a_room_is_422(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.COMPONENTS_REVIEW, components_gate=True)
+    targets = await seed.outputs(sid)
+    rows = await inventory_rows(sessionmaker, sid, targets, count=2)
+    path = f"/v1/studies/{sid}/decisions"
+    response = await api.post(
+        "alice",
+        path,
+        decision("components_review", 1, "reject", corrections=[removal(r) for r in rows]),
+    )
+    assert response.status_code == 422, response.text
+    errors = response.json()["errors"]
+    assert [e["loc"] for e in errors] == [
+        ["body", "corrections", 0, "entity_id"],
+        ["body", "corrections", 1, "entity_id"],
+    ]
+    assert {e["type"] for e in errors} == {"correction_last_inventory"}
+    assert "last inventory row" in errors[0]["detail"]
+    assert response.json()["code"] == E.STUDY_CORRECTION_LAST_INVENTORY
+    await assert_nothing_written(sessionmaker, sid, Stage.COMPONENTS_REVIEW, 1)
+    one = await api.post(
+        "alice", path, decision("components_review", 1, "reject", corrections=[removal(rows[1])])
+    )
+    assert one.status_code == 202, one.text
+
+
+# --------------------------------------------------------------------------- added fields
+# ``extraction_field_add`` (basis.extraction.added_fields): an appraisal field the extraction
+# missed; ``entity_id`` is the extraction, a reason is required.
+
+
+def field_add(extraction_id: str, reason: str | None = REASON, **after: Any) -> dict[str, Any]:
+    one: dict[str, Any] = {
+        "entity_type": "extraction_field_add",
+        "entity_id": extraction_id,
+        "after": {**ADDED_FIELD, **after},
+    }
+    if reason is not None:
+        one["reason"] = reason
+    return one
+
+
+async def test_an_added_field_is_recorded(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.APPRAISAL_REVIEW, revision=2)
+    targets = await seed.outputs(sid, revision=2)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "appraisal_review",
+            2,
+            "reject",
+            corrections=[field_add(targets["extraction_field_add"])],
+        ),
+    )
+    assert response.status_code == 202, response.text
+    async with sessionmaker() as session:
+        (row,) = (await session.scalars(select(Correction))).all()
+    assert (row.entity_type, str(row.entity_id), row.after, row.reason) == (
+        "extraction_field_add",
+        targets["extraction_field_add"],
+        ADDED_FIELD,
+        REASON,
+    )
+
+
+@pytest.mark.parametrize(
+    ("after", "fragment"),
+    [
+        ({"key": "improvements.year"}, "catalogue"),
+        ({"value_num": None, "value_text": "1987"}, "takes value_num"),
+        ({"value_text": "1987"}, "exactly one"),
+        ({"value_num": 1987.5}, "whole number"),
+        ({"page": 0}, "from 1"),
+        ({"evidence": " "}, "evidence"),
+        ({"evidence": "e" * 1001}, "at most"),
+        ({"source_document": "appraisal"}, "not source_document"),
+    ],
+)
+async def test_an_added_field_the_workflow_would_refuse_is_422_at_after(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    after: dict[str, Any],
+    fragment: str,
+) -> None:
+    sid = await study_at(api, seed, Stage.APPRAISAL_REVIEW)
+    targets = await seed.outputs(sid)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "appraisal_review",
+            1,
+            "reject",
+            corrections=[field_add(targets["extraction_field_add"], **after)],
+        ),
+    )
+    assert response.status_code == 422, response.text
+    errors = response.json()["errors"]
+    assert {(tuple(e["loc"]), e["type"]) for e in errors} == {
+        (("body", "corrections", 0, "after"), "correction_value")
+    }
+    assert any(fragment in e["detail"] for e in errors), errors
+    await assert_nothing_written(sessionmaker, sid, Stage.APPRAISAL_REVIEW, 1)
+
+
+@pytest.mark.parametrize("reason", [None, "\t"])
+async def test_an_added_field_needs_a_reason(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession], reason: str | None
+) -> None:
+    sid = await study_at(api, seed, Stage.APPRAISAL_REVIEW)
+    targets = await seed.outputs(sid)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "appraisal_review",
+            1,
+            "reject",
+            corrections=[field_add(targets["extraction_field_add"], reason=reason)],
+        ),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 0, "reason"],
+        "correction_reason",
+    )
+    await assert_nothing_written(sessionmaker, sid, Stage.APPRAISAL_REVIEW, 1)
+
+
+async def test_adding_a_field_the_extraction_has_is_422_and_says_correct_it(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.APPRAISAL_REVIEW)
+    targets = await seed.outputs(sid)
+    extraction_id = uuid.UUID(targets["extraction_field_add"])
+    async with session_scope(sessionmaker) as session:
+        session.add(
+            ExtractionField(
+                extraction_id=extraction_id,
+                study_id=uuid.UUID(sid),
+                section="improvements",
+                field="year_built",
+                value_num=1990,
+                source="azure",
+            )
+        )
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("appraisal_review", 1, "reject", corrections=[field_add(str(extraction_id))]),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 0, "after"],
+        "correction_field_exists",
+    )
+    assert "extraction_field" in error["detail"]
+    assert response.json()["code"] == E.STUDY_CORRECTION_FIELD_EXISTS
+    await assert_nothing_written(sessionmaker, sid, Stage.APPRAISAL_REVIEW, 1)
+
+
+async def test_a_page_past_the_appraisal_pdf_is_422_only_when_the_page_count_is_known(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.APPRAISAL_REVIEW)
+    targets = await seed.outputs(sid)
+    extraction_id = uuid.UUID(targets["extraction_field_add"])
+    path = f"/v1/studies/{sid}/decisions"
+    async with session_scope(sessionmaker) as session:
+        await session.execute(
+            update(Extraction).where(Extraction.id == extraction_id).values(raw={"page_count": 2})
+        )
+    response = await api.post(
+        "alice",
+        path,
+        decision(
+            "appraisal_review", 1, "reject", corrections=[field_add(str(extraction_id), page=3)]
+        ),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert error["type"] == "correction_value" and "2 pages" in error["detail"]
+    await assert_nothing_written(sessionmaker, sid, Stage.APPRAISAL_REVIEW, 1)
+    accepted = await api.post(
+        "alice",
+        path,
+        decision(
+            "appraisal_review", 1, "reject", corrections=[field_add(str(extraction_id), page=2)]
+        ),
+    )
+    assert accepted.status_code == 202, accepted.text
+
+
+async def test_the_same_field_added_twice_is_422(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    sid = await study_at(api, seed, Stage.APPRAISAL_REVIEW)
+    targets = await seed.outputs(sid)
+    extraction_id = targets["extraction_field_add"]
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(
+            "appraisal_review",
+            1,
+            "reject",
+            corrections=[field_add(extraction_id), field_add(extraction_id, value_num=1988)],
+        ),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert (error["loc"], error["type"]) == (
+        ["body", "corrections", 1, "after"],
+        "correction_duplicate",
+    )
+    await assert_nothing_written(sessionmaker, sid, Stage.APPRAISAL_REVIEW, 1)
+
+
+# --------------------------------------------------------------------------- both new types
+# The contract every correction type keeps: a stale revision is 409, a viewer 403, a
+# non-member 404, and the same decision replayed with its Idempotency-Key is the same 202.
+
+NEW_TYPES = [
+    ("components_review", "component_remove"),
+    ("appraisal_review", "extraction_field_add"),
+]
+
+
+@pytest.mark.parametrize(("stage", "entity_type"), NEW_TYPES)
+async def test_a_stale_decision_with_a_new_type_is_409(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    stage: str,
+    entity_type: str,
+) -> None:
+    sid = await study_at(api, seed, Stage(stage), revision=2, components_gate=True)
+    old = await seed.outputs(sid, revision=1)
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision(stage, 1, "reject", corrections=[correction(entity_type, old[entity_type])]),
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["type"].endswith("/stale-state")
+    await assert_nothing_written(sessionmaker, sid, Stage(stage), 2)
+
+
+@pytest.mark.parametrize(("stage", "entity_type"), NEW_TYPES)
+async def test_a_viewer_is_403_and_a_non_member_404_with_a_new_type(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    stage: str,
+    entity_type: str,
+) -> None:
+    study = await api.create_study("alice")
+    sid = study["id"]
+    await seed.stage(sid, Stage(stage), components_gate=True)
+    targets = await seed.outputs(sid)
+    await seed.member(uuid.UUID(study["org_id"]), "vera", OrgRole.VIEWER)
+    body = decision(stage, 1, "reject", corrections=[correction(entity_type, targets[entity_type])])
+    assert (await api.post("vera", f"/v1/studies/{sid}/decisions", body)).status_code == 403
+    assert (await api.post("mallory", f"/v1/studies/{sid}/decisions", body)).status_code == 404
+    await assert_nothing_written(sessionmaker, sid, Stage(stage), 1)
+
+
+@pytest.mark.parametrize(("stage", "entity_type"), NEW_TYPES)
+async def test_a_decision_with_a_new_type_replays_with_its_key(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    stage: str,
+    entity_type: str,
+) -> None:
+    sid = await study_at(api, seed, Stage(stage), components_gate=True)
+    targets = await seed.outputs(sid)
+    path, key = f"/v1/studies/{sid}/decisions", str(uuid.uuid4())
+    body = decision(stage, 1, "reject", corrections=[correction(entity_type, targets[entity_type])])
+    first = await api.post("alice", path, body, key=key)
+    second = await api.post("alice", path, body, key=key)
+    assert (first.status_code, second.status_code) == (202, 202), first.text
+    assert second.content == first.content
+    assert second.headers[REPLAYED_HEADER] == "true"
+    assert await counts(sessionmaker) == (1, 1, 1)

@@ -55,6 +55,7 @@ from basis.api.idempotency import (
 from basis.api.idempotency_pg import PostgresIdempotencyStore
 from basis.api.middleware import REQUEST_ID_HEADER, RequestIdMiddleware
 from basis.api.openapi import build_openapi
+from basis.api.preconditions import ETAG_HEADER, IF_MATCH_HEADER
 from basis.api.ratelimit import InMemoryRateLimiter
 from basis.api.routes import api_routers
 from basis.auth.firebase import FirebaseTokenVerifier
@@ -72,11 +73,24 @@ SERVICE_NAME: Final = health.SERVICE_NAME
 DOCS_URL: Final = "/docs"
 LOCAL_BUCKET: Final = "basis-local"
 LOCAL_STORAGE_DIR: Final = Path(tempfile.gettempdir()) / "basis-local-storage"
-# What the browser may send and read cross-origin: the methods the /v1 routes use, the
-# request headers they read, and the response headers a client acts on.
-CORS_ALLOW_METHODS: Final = ("GET", "POST", "DELETE")
-CORS_ALLOW_HEADERS: Final = ("Authorization", "Content-Type", IDEMPOTENCY_HEADER, REQUEST_ID_HEADER)
-CORS_EXPOSE_HEADERS: Final = (REQUEST_ID_HEADER, REPLAYED_HEADER, "Location", "Retry-After")
+# What the browser may send and read cross-origin: the methods the /v1 routes use (PUT: the
+# intake), the request headers they read (If-Match: the intake's precondition), and the
+# response headers a client acts on (ETag: the intake's version).
+CORS_ALLOW_METHODS: Final = ("GET", "POST", "PUT", "DELETE")
+CORS_ALLOW_HEADERS: Final = (
+    "Authorization",
+    "Content-Type",
+    IDEMPOTENCY_HEADER,
+    REQUEST_ID_HEADER,
+    IF_MATCH_HEADER,
+)
+CORS_EXPOSE_HEADERS: Final = (
+    REQUEST_ID_HEADER,
+    REPLAYED_HEADER,
+    "Location",
+    "Retry-After",
+    ETAG_HEADER,
+)
 CORS_MAX_AGE_S: Final = 600
 
 logger = logging.getLogger(__name__)
@@ -104,13 +118,12 @@ def install_cors(app: FastAPI, settings: Settings, *, local_uploads: bool = Fals
     the browser shows the frontend the problem instead of an opaque CORS failure. Bearer
     tokens, not cookies, so credentials stay off. With ``local_uploads`` the browser's
     upload to the dev upload route (a ``PUT`` with the signed content-length range header,
-    as on GCS) is allowed too; deployed stacks never allow it.
+    as on GCS) is allowed too; deployed stacks never allow that header.
     """
     if not settings.cors_allowed_origins:
         return
     methods, headers = list(CORS_ALLOW_METHODS), list(CORS_ALLOW_HEADERS)
     if local_uploads:
-        methods.append("PUT")
         headers.append(CONTENT_LENGTH_RANGE_HEADER)
     app.add_middleware(
         CORSMiddleware,
