@@ -66,6 +66,16 @@ class VisibleStudy:
 
 
 @dataclass(frozen=True, slots=True)
+class Unarchived:
+    """What :meth:`StudyRepository.unarchive` did: the study as it is now, and whether this
+    call restored it. ``restored`` is decided under the study's row lock, not from a read
+    taken before it, so the caller records the change exactly when it made one."""
+
+    study: Study
+    restored: bool
+
+
+@dataclass(frozen=True, slots=True)
 class IntakeWrite:
     """An intake write: the study after it, and the intake and version it replaced."""
 
@@ -455,12 +465,18 @@ class StudyRepository:
             raise NotVisibleError(f"study {study_id} not found")
         return existing
 
-    async def unarchive(self, study_id: uuid.UUID) -> Study:
+    async def unarchive(self, study_id: uuid.UUID) -> Unarchived:
         """Undo :meth:`archive`: the status the study had before it was archived, derived
         the way the workflow derives it (``status_for_stage`` of its stage, ``failed`` while
         a failure is recorded on it; a ``stalled`` study comes back ``waiting_review`` and
         the reminder step marks it stalled again if the review is still waiting). Idempotent:
-        unarchiving a study that is not archived returns it unchanged."""
+        unarchiving a study that is not archived returns it unchanged, ``restored`` false.
+
+        Whether the study is archived is read under its row lock. Concurrent unarchives of
+        one study serialize on that lock: the first restores it, the others find it restored
+        and report ``restored`` false, whatever each read before the lock (a guard taken from
+        the route's earlier, unlocked read recorded three events for three requests;
+        EVAL_REPORT 55)."""
         locked = (
             await self._session.scalars(
                 select(Study)
@@ -472,7 +488,7 @@ class StudyRepository:
         if locked is None:
             raise NotVisibleError(f"study {study_id} not found")
         if locked.status is not StudyStatus.ARCHIVED:
-            return locked
+            return Unarchived(locked, restored=False)
         restored = (
             StudyStatus.FAILED
             if locked.failure_reason is not None
@@ -485,4 +501,4 @@ class StudyRepository:
             .returning(Study)
             .execution_options(synchronize_session=False, populate_existing=True)
         )
-        return (await self._session.scalars(stmt)).one()
+        return Unarchived((await self._session.scalars(stmt)).one(), restored=True)

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from apitest_support import COMPLETE_INTAKE, Api, Seed, bearer
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.db.enums import OrgRole, Stage, StudyStatus
@@ -334,15 +334,54 @@ async def test_unarchive_is_idempotent_and_records_only_the_change(
     assert len(await unarchived_events(sessionmaker, study["id"])) == 1
 
 
+async def backends(session: AsyncSession) -> list[tuple[Any, ...]]:
+    """The other backends of this database: state, what they wait on, their last query.
+
+    Read fresh each time: PostgreSQL keeps the first activity snapshot of a transaction for
+    the rest of it, and the caller polls from inside the one that holds the row lock."""
+    await session.execute(text("SELECT pg_stat_clear_snapshot()"))
+    rows = await session.execute(
+        text(
+            "SELECT state, wait_event_type, wait_event, left(query, 60) FROM pg_stat_activity "
+            "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+        )
+    )
+    return [tuple(row) for row in rows.all()]
+
+
+def waiting_on_a_lock(rows: list[tuple[Any, ...]]) -> int:
+    return sum(1 for row in rows if row[1] == "Lock")
+
+
 async def test_concurrent_unarchives_record_one_event(
     api: Api, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
+    """Three unarchives of one study at once: every one answers 200, exactly one event.
+
+    The study's row is held locked by this test while the three requests are sent, so all
+    three read the study as ``archived`` before any of them can restore it (the interleaving
+    that CI hit by chance, 2 of 20 rounds here without the lock); the lock is released once
+    all three wait on it. The guard then has to be the repository's, taken under the lock:
+    one taken from the route's earlier read recorded three events (verified by reverting it).
+    """
     study = await api.create_study("alice")
     await api.delete("alice", f"/v1/studies/{study['id']}")
-    responses = await asyncio.gather(
-        *(api.post("alice", f"/v1/studies/{study['id']}/unarchive") for _ in range(3))
-    )
+    study_id = uuid.UUID(study["id"])
+    async with sessionmaker() as locker:
+        async with locker.begin():
+            await locker.execute(select(Study).where(Study.id == study_id).with_for_update())
+            requests = [
+                asyncio.create_task(api.post("alice", f"/v1/studies/{study['id']}/unarchive"))
+                for _ in range(3)
+            ]
+            deadline = asyncio.get_running_loop().time() + 10
+            while waiting_on_a_lock(rows := await backends(locker)) < 3:
+                assert asyncio.get_running_loop().time() < deadline, f"never blocked: {rows}"
+                await asyncio.sleep(0.02)
+        # The commit released the lock: the three requests now take it one after another.
+        responses = await asyncio.gather(*requests)
     assert {r.status_code for r in responses} == {200}
+    assert {r.json()["status"] for r in responses} == {"draft"}
     assert len(await unarchived_events(sessionmaker, study["id"])) == 1
 
 
