@@ -17,8 +17,12 @@ what happened to a firm (docs/api/TIMELINE_AND_AUDIT.md "Your activity", "Firm a
   error, as an interval with nothing in it (Stripe's ``created[gte]``/``[lte]``, GitHub's
   ``since``/``until`` answer the same way).
 
-  Naive datetimes are read as UTC. A study the caller can no longer see (a firm they were
-  removed from) is not listed: the listing is the caller's view, not a personal record.
+  Naive datetimes are read as UTC. ``since``/``until`` must look like an RFC 3339 date-time
+  (:data:`DATE_TIME_PREFIX`): pydantic would otherwise read a bare number as a unix
+  timestamp, which the document (``format: date-time``) does not admit (the contract fuzz
+  sent ``until=-5.3e16`` and got the year 294). A study the caller can no longer see (a firm
+  they were removed from) is not listed: the listing is the caller's view, not a personal
+  record.
 
 * ``/orgs/{org_id}/activity`` (owner): the firm's ``org_events`` rows newest first, the same
   pagination and filters.
@@ -26,11 +30,13 @@ what happened to a firm (docs/api/TIMELINE_AND_AUDIT.md "Your activity", "Firm a
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
 from fastapi import Depends, Query
+from pydantic import BeforeValidator
 
 from basis.api.routes.common import MAX_SEQ_CURSOR_LENGTH, problems, read_router, seq_cursor
 from basis.api.schemas.activity import ActivityItemOut, ActivityOut, OrgActivityOut, OrgEventOut
@@ -45,6 +51,17 @@ from basis.db.session import SessionDep
 DEFAULT_PAGE: Final = 50
 DEFAULT_WINDOW: Final = timedelta(days=90)
 MAX_EVENT_TYPE_LENGTH: Final = 100
+# A date, a T (or a space), a time: what every RFC 3339 date-time starts with and no number does.
+DATE_TIME_PREFIX: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}")
+
+
+def _date_time_string(value: Any) -> Any:
+    if isinstance(value, str) and not DATE_TIME_PREFIX.match(value):
+        raise ValueError("must be an RFC 3339 date-time, such as 2026-08-01T00:00:00Z")
+    return value
+
+
+DateTime = Annotated[datetime, BeforeValidator(_date_time_string)]
 
 reads = read_router(tags=["activity"])
 
@@ -66,11 +83,11 @@ EventTypes = Annotated[
     Query(description="Only these event types (repeat the parameter)."),
 ]
 Since = Annotated[
-    datetime | None,
+    DateTime | None,
     Query(description="Only events at or after this time (RFC 3339; a naive time is UTC)."),
 ]
 Until = Annotated[
-    datetime | None,
+    DateTime | None,
     Query(description="Only events at or before this time (RFC 3339; a naive time is UTC)."),
 ]
 

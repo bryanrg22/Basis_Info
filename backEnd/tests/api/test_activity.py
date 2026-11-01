@@ -180,6 +180,9 @@ async def test_my_activity_defaults_to_the_last_90_days(
         {"cursor": "x"},
         {"cursor": "9" * 20},
         {"since": "yesterday"},
+        {"until": "1700000000"},  # a unix timestamp is not a date-time (pydantic would read it)
+        {"since": "-5.28809893034389e+16"},
+        {"until": "2026-01-01"},  # a date is not a date-time
         {"event_type": "a\x00b"},
         {"event_type": "x" * 101},
     ],
