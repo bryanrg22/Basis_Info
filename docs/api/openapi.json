@@ -1453,6 +1453,162 @@
         }
       }
     },
+    "/v1/studies/{study_id}/documents/{document_id}/upload-url": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Re-issue the signed upload URL of a registered, unconfirmed document",
+        "description": "For resuming an upload after a reload or an expired URL: the same document, a new 15-minute signed `PUT` for exactly the declared size and content type (the bytes must still hash to the registered sha256; `.../complete` checks). 409 `upload-complete` when the upload is already confirmed (nothing to resume; its bytes are immutable), 409 `study-archived` on an archived study, 404 for a document not in the study (docs/api/GATE_DRAFTS_AND_RESUME.md).",
+        "operationId": "reissue_upload_url_v1_studies__study_id__documents__document_id__upload_url_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Document id.",
+              "title": "Document Id"
+            },
+            "description": "Document id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadTicket"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies/{study_id}/documents/{document_id}/complete": {
       "post": {
         "tags": [
@@ -1751,6 +1907,519 @@
           },
           "404": {
             "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/drafts/{stage}": {
+      "get": {
+        "tags": [
+          "drafts"
+        ],
+        "summary": "Your pending corrections for a review stage, and whose other drafts exist",
+        "description": "Engineer role. `draft` is your saved draft on the stage (null when none), with `stale` and `stale_reason` when the study has moved to another revision or the stage was decided at the draft's revision (its corrections name rows no longer under review: carry what still applies, or `DELETE` it). `others` lists the other engineers' drafts on the stage (who, since when, how many corrections). `ETag: \"<version>\"` is your draft's version (`\"0\"` while none): send it as `If-Match` on `PUT`/`DELETE`. `Cache-Control: no-store` (docs/api/GATE_DRAFTS_AND_RESUME.md).",
+        "operationId": "get_draft_v1_studies__study_id__drafts__stage__get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "stage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "appraisal_review",
+                "rooms_review",
+                "components_review",
+                "assets_review"
+              ],
+              "type": "string",
+              "description": "The review stage the draft is for (a review stage only).",
+              "title": "Stage"
+            },
+            "description": "The review stage the draft is for (a review stage only)."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftsOut"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Your draft's strong entity tag, its version in quotes (\"3\"; \"0\" while you have none).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "drafts"
+        ],
+        "summary": "Save your pending corrections for a review stage (engineer)",
+        "description": "The whole draft each time (`revision`, `comment`, `corrections`), checked exactly as `POST .../decisions` checks a decision's corrections: `entity_type` for the stage in the study's flow, `entity_id` in the named revision, values, required reasons, removals and added fields (422 with one `errors` entry per offending correction, the same `type` values). `revision` must be the study's current one and the stage undecided at it, else 409 `draft-stale`. No `Idempotency-Key` is needed. Optimistic concurrency as on the intake: with `If-Match` (the `ETag` of the `GET`; `\"0\"` creates only while you have none) the write happens only while that tag is current, else 412 `precondition-failed` with the current `ETag`, nothing written; without it the save is accepted. Every save increments the version; the response carries the new `ETag`. A draft is yours alone: another engineer's draft on the stage is separate. 409 `study-archived` on an archived study.",
+        "operationId": "put_draft_v1_studies__study_id__drafts__stage__put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "stage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "appraisal_review",
+                "rooms_review",
+                "components_review",
+                "assets_review"
+              ],
+              "type": "string",
+              "description": "The review stage the draft is for (a review stage only).",
+              "title": "Stage"
+            },
+            "description": "The review stage the draft is for (a review stage only)."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The draft's entity tag from `GET .../drafts/{stage}` (`\"3\"`; `\"0\"` to create only while you have none), or `*` (only over an existing draft). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The draft's entity tag from `GET .../drafts/{stage}` (`\"3\"`; `\"0\"` to create only while you have none), or `*` (only over an existing draft). Optional."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftsOut"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Your draft's strong entity tag, its version in quotes (\"3\"; \"0\" while you have none).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "drafts"
+        ],
+        "summary": "Discard your pending corrections for a review stage (engineer)",
+        "description": "Deletes your draft on the stage (404 when you have none) and answers the stage's remaining drafts (yours null). `If-Match` as on `PUT`: the delete happens only while the tag is current (412 otherwise, nothing deleted). Another engineer's draft is never touched. Submitting a decision deletes your draft on its stage by itself.",
+        "operationId": "delete_draft_v1_studies__study_id__drafts__stage__delete",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "stage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "appraisal_review",
+                "rooms_review",
+                "components_review",
+                "assets_review"
+              ],
+              "type": "string",
+              "description": "The review stage the draft is for (a review stage only).",
+              "title": "Stage"
+            },
+            "description": "The review stage the draft is for (a review stage only)."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The draft's entity tag from `GET .../drafts/{stage}` (`\"3\"`; `\"0\"` to create only while you have none), or `*` (only over an existing draft). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The draft's entity tag from `GET .../drafts/{stage}` (`\"3\"`; `\"0\"` to create only while you have none), or `*` (only over an existing draft). Optional."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftsOut"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Your draft's strong entity tag, its version in quotes (\"3\"; \"0\" while you have none).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5799,6 +6468,150 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RetryRequested"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/restart": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "Run a cancelled study again from its uploads (owner only)",
+        "description": "For a study whose execution closed without completing (cancelled, terminated, timed out, or failed before v0.9): the study goes back to `extracting` on a new revision (the old revision's rows stay as history; gate drafts for it become stale) and a new execution of its workflow starts under the same `workflow_id`, reading the intake and the confirmed documents as they are now. 409 `workflow-running` while the execution runs (use `.../cancel` first, or `.../retry` for a failed stage), 409 `study-completed` after it completed, 409 `study-archived`, 404 when the study has no workflow. Repeating after a 503 reuses the reset (docs/api/GATE_DRAFTS_AND_RESUME.md).",
+        "operationId": "restart_study_v1_studies__study_id__restart_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartAccepted"
                 }
               }
             }
@@ -12323,6 +13136,201 @@
         ],
         "title": "DocumentOut"
       },
+      "DraftIn": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "maximum": 2147483646.0,
+            "minimum": 1.0,
+            "title": "Revision",
+            "description": "The study's current revision, whose rows the corrections name (`GET /v1/studies/{id}`); another revision is 409 `draft-stale`."
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "pattern": "^[^\\x00]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment",
+            "description": "The decision comment being drafted (sent with the decision)."
+          },
+          "corrections": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionIn"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Corrections",
+            "description": "The corrections being drafted, checked exactly as `POST .../decisions` checks them (type for the stage, target in the revision, values, reasons).",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "DraftIn",
+        "examples": [
+          {
+            "comment": "Year built looks wrong; checking the deed.",
+            "corrections": [
+              {
+                "after": {
+                  "year_built": 1998
+                },
+                "before": {
+                  "year_built": 1989
+                },
+                "entity_id": "9d1f8f3e-5c2b-4a1e-8f7d-6b5a4c3d2e10",
+                "entity_type": "extraction_field",
+                "reason": "Deed shows 1998."
+              }
+            ],
+            "revision": 1
+          }
+        ]
+      },
+      "DraftOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/Stage"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "The revision the draft was saved against."
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "corrections": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionIn"
+            },
+            "type": "array",
+            "title": "Corrections"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "The draft's entity tag without quotes (`ETag: \"3\"`)."
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "description": "True when the draft can no longer be submitted: the study moved to another revision, or the stage was decided at the draft's revision."
+          },
+          "stale_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "revision",
+                  "decided"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale Reason",
+            "description": "`revision`: the study is at another revision; `decided`: the stage was decided at the draft's revision; null while the draft is current."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "stage",
+          "revision",
+          "user_id",
+          "comment",
+          "corrections",
+          "version",
+          "stale",
+          "stale_reason",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DraftOut"
+      },
+      "DraftsOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/Stage"
+          },
+          "current_revision": {
+            "type": "integer",
+            "title": "Current Revision",
+            "description": "The study's revision now."
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "others": {
+            "items": {
+              "$ref": "#/components/schemas/OtherDraftOut"
+            },
+            "type": "array",
+            "title": "Others"
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "stage",
+          "current_revision",
+          "draft",
+          "others"
+        ],
+        "title": "DraftsOut",
+        "description": "The caller's draft on the stage (null when none) and whose other drafts exist."
+      },
       "Engineer": {
         "properties": {
           "name": {
@@ -14393,6 +15401,72 @@
         "title": "OrgRole",
         "description": "``org_members.role`` (TEXT with a CHECK, not a PostgreSQL enum)."
       },
+      "OtherDraftOut": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "corrections": {
+            "type": "integer",
+            "title": "Corrections",
+            "description": "How many corrections the draft holds."
+          },
+          "has_comment": {
+            "type": "boolean",
+            "title": "Has Comment"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "display_name",
+          "email",
+          "revision",
+          "corrections",
+          "has_comment",
+          "stale",
+          "updated_at"
+        ],
+        "title": "OtherDraftOut",
+        "description": "Another engineer's draft on the stage: who, since when, how much; not its content."
+      },
       "OtherUpload": {
         "properties": {
           "filename": {
@@ -15848,6 +16922,43 @@
         ],
         "title": "RepricePreviewOut",
         "description": "What a rebuild of the assets step would change, computed by the same code the\nrebuild runs, in a transaction that is rolled back: nothing is written."
+      },
+      "RestartAccepted": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id",
+            "description": "The new execution's run id (the workflow id is unchanged)."
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "The new revision the execution writes its outputs to."
+          },
+          "from_stage": {
+            "$ref": "#/components/schemas/Stage",
+            "description": "The stage the study was at when restarted."
+          },
+          "from_revision": {
+            "type": "integer",
+            "title": "From Revision",
+            "description": "The revision it was at."
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "run_id",
+          "revision",
+          "from_stage",
+          "from_revision"
+        ],
+        "title": "RestartAccepted",
+        "description": "202: the study is back at `extracting` on a new revision and a new execution of its\nworkflow runs from its uploads (docs/api/GATE_DRAFTS_AND_RESUME.md)."
       },
       "RetryRequested": {
         "properties": {
