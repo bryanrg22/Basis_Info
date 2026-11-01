@@ -58,6 +58,7 @@ UPLOAD: Final = {
 BODIES: Final[dict[str, Any]] = {
     "GET /v1/studies/{study_id}": None,
     "DELETE /v1/studies/{study_id}": None,
+    "POST /v1/studies/{study_id}/unarchive": None,
     "POST /v1/studies/{study_id}/documents": UPLOAD,
     "POST /v1/studies/{study_id}/documents/{document_id}/complete": None,
     "GET /v1/studies/{study_id}/documents/{document_id}/content": None,
@@ -116,6 +117,7 @@ BODIES: Final[dict[str, Any]] = {
     "GET /v1/orgs/{org_id}/profile": None,
     "PUT /v1/orgs/{org_id}/profile": {"name": "Other Firm"},
     "GET /v1/orgs/{org_id}/members": None,
+    "GET /v1/orgs/{org_id}/activity": None,
     "POST /v1/orgs/{org_id}/members/{user_id}/role": {"role": "engineer"},
     "DELETE /v1/orgs/{org_id}/members/{user_id}": None,
     "GET /v1/orgs/{org_id}/invitations": None,
