@@ -429,8 +429,18 @@ convention that serves replaces the classification (bucket, section, period, `me
 result. Three policies: `exact` (the exact key only; must reproduce the stored `cache`
 assets, the regression check), `tiered` (production: the guards of section 9) and `plain`
 (the three tiers with no guards), so the guards are measured. The rows are re-keyed to the
-running `RULES_VERSION` (`--keep-rules-version` keeps theirs); the report says which
-versions it bridged.
+running rule fingerprints (`--keep-rules-version` keeps their own keys, and then only rows
+current under the running table serve, as in production; CLASSIFICATION_CONVENTIONS.md
+section 10); the report says which versions it bridged.
+
+### `freeze_rule_fingerprints` (the release tables migration 0019 re-keys under)
+
+`python -m evals.freeze_rule_fingerprints [--check]` (CLASSIFICATION_CONVENTIONS.md section
+10.4). For each release a stored convention can carry (`2026-10-29.1`, `2026-10-30.1`,
+`2026-10-31.1`), it loads `basis/domain/rules.py` from the merge on main that released it
+and writes that table's resolution data (row digests by the running `rule_digest`, aliases,
+material map, generic floors) into the `FROZEN` literal of migration 0019; `--check` exits 1
+when the literal differs. It needs the git history (the unit test skips in a shallow clone).
 
 ### `structure_replay` (the structure model over a stored export)
 

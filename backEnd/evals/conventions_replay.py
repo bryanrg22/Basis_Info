@@ -71,7 +71,13 @@ from basis.classify.router import (
     route,
 )
 from basis.classify.schemas import ComponentView
-from basis.domain.rules import PROPERTY_CLASSES, RULES_VERSION, lookup, normalize_label
+from basis.domain.rules import (
+    PROPERTY_CLASSES,
+    RULES_VERSION,
+    lookup,
+    normalize_label,
+    rule_fingerprint,
+)
 from basis.llm.provider import Budget
 from evals.e2e_report import (
     REPORT_FILE,
@@ -133,16 +139,17 @@ def load_conventions(
     rows: Sequence[Mapping[str, Any]],
     *,
     as_of_study: uuid.UUID | None = None,
-    rules_version: str | None = RULES_VERSION,
+    rekey: bool = True,
 ) -> tuple[list[CachedClassification], frozenset[str]]:
     """The dump's rows as the router reads them (malformed rows skipped) and the firm's
     ruling labels: the labels with at least one engineer ruling (``result.method``
     ``manual``), whose assets the report counts as "still without a ruling". With
     ``as_of_study`` only the rows that study seeded, each with one approval. The rows are
-    re-keyed to ``rules_version`` (the running table's, by default): in production a row
-    made under an older table is never served, but the replay asks what the rulings would
-    do for this export, so the report must say which versions it bridged (``None`` keeps
-    the rows' own version)."""
+    re-keyed to the running table's :func:`~basis.domain.rules.rule_fingerprint` (with
+    ``rekey``, the default): in production a row made under another version of its rule
+    is never served, but the replay asks what the rulings would do for this export, so the
+    report must say which versions it bridged (``rekey=False`` keeps the rows' own keys,
+    and a row not at the running fingerprint then never serves, as in production)."""
     found: list[CachedClassification] = []
     ruling_labels: set[str] = set()
     for raw in rows:
@@ -153,8 +160,8 @@ def load_conventions(
         parts = key.split("|")
         if len(parts) != 6:
             continue
-        if rules_version is not None:
-            key = "|".join((*parts[:5], rules_version))
+        if rekey:
+            key = "|".join((*parts[:5], rule_fingerprint(parts[0], parts[1])))
         result = raw.get("result")
         if isinstance(result, dict) and result.get("method") == "manual":
             ruling_labels.add(normalize_label(parts[0]))
@@ -605,8 +612,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--keep-rules-version",
         action="store_true",
-        help="do not re-key the rows to the running RULES_VERSION (rows made under another "
-        "table then never serve, as in production)",
+        help="do not re-key the rows to the running rule fingerprints (rows made under "
+        "another version of their rule then never serve, as in production)",
     )
     return parser.parse_args(argv)
 
@@ -635,7 +642,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         conventions, ruling_labels = load_conventions(
             raw,
             as_of_study=args.as_of_study,
-            rules_version=None if args.keep_rules_version else RULES_VERSION,
+            rekey=not args.keep_rules_version,
         )
         if not conventions:
             raise ReplayError("no conventions to replay (check --as-of-study)")
