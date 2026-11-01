@@ -4652,7 +4652,6 @@ The steps, in order:
    deployed as a second worker pool on its own task queue. Until then, the local numbers
    (32.5, 32.6) are the worker's capacity.
 
-
 ### 32.12 Against the objectives, what to set before launch, follow-ups
 
 The proposed SLOs (LOAD_TESTING.md section 5) at 25 concurrent studies on one worker and one
@@ -7089,7 +7088,6 @@ three policies, the regression check, the conflict, the rebuilt conventions, the
 `tests/LEDGER.md` has each. Gates: `ruff check`, `ruff format --check`, `mypy basis`, the
 unit set and the integration set (see the PR for the tallies).
 
-
 ## 47. The cost index store: every study gets a sourced year index without a code change, and a value is never fetched twice (2026-10-30)
 
 Follows section 45 (the indices from the 2020 books, PR #96), which left every 2024 study
@@ -7753,7 +7751,37 @@ signature is refused (BASIS-REPORT-009).
 **Open.** The Fireplaces row; the 3.3-point 39-year gap (the structure model's Access Control row and
 Fireplaces); a second property, scored blind.
 
-## 54. Backups, a retention rule, and alerts before firms use Basis (2026-11-01)
+## 54. A decision outranks a model answer: the Fireplaces row (2026-11-01)
+
+**Question.** Run 5 (section 53) got 34 of 35 rows right; the engineer had ruled on the one wrong
+row, Fireplaces. Why did the ruling not serve, and what rule fixes it without losing the cost
+savings?
+
+**Finding.** Study 3B, a plain run approved by the driver without a correction, had promoted the
+model's 39-year fireplace (material not read) as an approved model answer at the exact key, with
+two approvals. The engineer's 5-year rulings carry a material, one tier down. An exact match
+consults no coarser tier, and at tiers 2 and 3 approvals alone settle a disagreement, so a blanket
+approval outvoted a correction. CLASSIFICATION_CONVENTIONS.md section 11 has the rule.
+
+**Replays of run 5's export** (no paid run), the production router each time:
+
+| rows | served by rulings | bucket right | max share error |
+|---|---|---|---|
+| every row, rule as before | 201 | 34/35 | 3.3 points |
+| decisions only (29 rows) | 47 | 35/35 | 1.8 points |
+| every row, decisions first | 201 | 35/35 | 1.8 points |
+
+Decisions only would hand about 140 items per study back to the model (about 1.50 a study at run
+5's prices). Decisions first keeps the 35/35 and the 201 served, with the blanket rows still in
+place. Bryan chose it over decisions only.
+
+**Change.** `CachedClassification.decided` (from the row's `result.method`), `ConventionIndex.match`
+looks at decisions first at any tier, `promote_conventions` never replaces a decision with a model
+answer, the provenance carries `origin`, and the rationale names the kind of row. Tests:
+`tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
+copy.
+
+## 55. Backups, a retention rule, and alerts before firms use Basis (2026-11-01)
 
 **Question.** Before a firm uploads client files: can a lost database or a deleted file be
 recovered, can the firm bound how long its files stay, and does someone hear when a worker

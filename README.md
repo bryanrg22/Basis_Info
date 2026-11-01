@@ -23,7 +23,7 @@
 * [Testing](#testing)
 * [CI](#ci)
 * [Security and data handling](#security-and-data-handling)
-* [Frontend (legacy, unchanged)](#frontend-legacy-unchanged)
+* [Frontend](#frontend)
 * [Deployment status](#deployment-status)
 * [Roadmap](#roadmap)
 * [History: the legacy design](#history-the-legacy-design)
@@ -61,7 +61,7 @@ The backend has been rebuilt against a reviewed plan. [REVIEW_AND_PLAN.md](docs/
 - An evaluation harness ([`backEnd/evals/`](backEnd/evals/)) and about 2273 tests collected by pytest.
 
 **Not built yet**
-- **Frontend migration (Stage 4).** The Next.js app in [`frontend/`](frontend/) is still the legacy one. It writes to Firestore directly and calls the legacy `/workflow/...` endpoints, which no longer exist. It does not use the new API yet.
+- **Frontend (Stage 4, in progress).** [`web/`](web/) talks to the API in live mode (see [Frontend](#frontend)); several screens are still mock-only and the intake has no form yet (`web/README.md`, "Gaps").
 - **Read endpoints for pipeline output.** The API has no routes yet that return extraction fields or rooms on their own. Assets are readable through `GET /v1/studies/{id}/evidence` (each asset with its room, photos, localized instances and citations, [`basis/api/routes/evidence.py`](backEnd/basis/api/routes/evidence.py)) and a photo's localized objects through `GET /v1/studies/{id}/photos/{document_id}/objects`; everything is also in PostgreSQL and in the export file.
 - **Deployment (Stage 5).** Nothing in this branch is deployed. See [Deployment status](#deployment-status).
 - **A real-provider evaluation report.** The harness runs on synthetic fixtures (`--dry-run`) and scores saved predictions. No report from real models on the private client package has been published.
@@ -84,7 +84,7 @@ The `xfail` tests were deleted when their replacements passed. The "regression" 
 ## Architecture
 
 ```
-  Browser (Next.js 14, Firebase Auth)        [Stage 4: today the frontend still uses Firestore]
+  Browser (web/: static HTML and JS, Firebase Auth)
      │ Authorization: Bearer <Firebase ID token>
      │                                        signed PUT URL
      ▼                                      ───────────────────►  Google Cloud Storage
@@ -339,7 +339,6 @@ Every test file, the invariant it protects and the release that introduced it ar
 
 - **backend-lint**: `ruff check`, `ruff format --check`, `mypy`.
 - **backend-test**: the full pytest suite including integration tests (testcontainers starts the pgvector image; the Temporal SDK starts its test servers), with a JUnit report uploaded. The OpenAPI document is checked by a test in this suite.
-- **frontend**: `npm ci`, `npm run lint`, and `tsc --noEmit` (reported, not blocking until Stage 4).
 - **secrets-scan**: gitleaks.
 - **client-data-guard**: tests and runs [`tooling/check_no_client_data.py`](tooling/check_no_client_data.py) over every tracked file.
 - **docker-build**: builds the backend image and imports `basis` in it (non-blocking until Stage 5).
@@ -360,21 +359,16 @@ Every test file, the invariant it protects and the release that introduced it ar
 
 ---
 
-## Frontend (legacy, unchanged)
+## Frontend
 
-[`frontend/`](frontend/) is a Next.js 14 (App Router) TypeScript app with TailwindCSS and Firebase (Auth with Google sign-in, Firestore, Storage). See [`frontend/README.md`](frontend/README.md). It has not changed in this rebuild:
+[`web/`](web/) is the frontend: plain HTML, CSS and JavaScript with no build step. Mock mode
+(the default) is the design review on fixtures; live mode (`?mode=live`) signs in with
+Firebase and reads and writes the API (`/v1`). `web/README.md` has the local setup, what
+live mode connects, what is still mock-only and the gaps. The node tests run with
+`node --test web/tests/*.test.cjs`.
 
-- **It does not use the new API.** It calls the legacy `/workflow/start`, `/workflow/resume` and `/workflow/{id}/status` endpoints ([`src/api/backend/workflow.api.ts`](frontend/src/api/backend/workflow.api.ts)), which were deleted with the legacy backend.
-- **It writes to Firestore directly**, including `workflowStatus`, rooms and assets. Firestore security rules are owner-only on `studies`, so the browser can write any field of its own study ([REVIEW_AND_PLAN A.4](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a4-persistence-queue-and-data-ownership)).
-- **The asset stages** on the engineering-takeoff page run on client-side demo models.
-
-**Firestore data model as the frontend uses it.** One `studies` collection; each document is owned by `userId` and holds `propertyName`, `status`, `workflowStatus`, `currentStep`, `visitedSteps`, `uploadedFiles`, `appraisalResources`, `rooms`, `takeoffs`, `assets`, `photoAnnotations`, `resourceChecklist` and `engineeringTakeoffState` ([`src/types/study.types.ts`](frontend/src/types/study.types.ts)). Files are in Firebase Storage. `workflowStatus` moves through:
-
-```
-uploading_documents → analyzing_rooms → resource_extraction → reviewing_rooms → engineering_takeoff → completed
-```
-
-Stage 4 moves the frontend to the API (no Firestore writes from the browser, a reject and correction UI, zero type errors, Next.js 15). Stage 6 migrates existing Firestore data into PostgreSQL.
+The legacy Next.js app that wrote to Firestore directly (`frontend/`, before 2026-11-01) was
+removed; it is in git history. Nothing in it used the new API.
 
 ---
 
