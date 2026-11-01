@@ -99,8 +99,10 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0021"
-HISTORY = [f"{n:04d}" for n in range(21, 0, -1)]  # "0021" .. "0001"
+HEAD = "0025"
+# 0025 (retention and alerts) revises 0021 on this branch; 0022-0024 land from other
+# branches and 0025's down_revision becomes 0024 at merge, which makes this range contiguous.
+HISTORY = ["0025"] + [f"{n:04d}" for n in range(21, 0, -1)]  # "0025", "0021" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}

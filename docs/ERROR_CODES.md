@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-263 codes in 20 areas.
+270 codes in 22 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -386,4 +386,21 @@ stale).
 | `BASIS-INF-002` | error | the outbox relay; `basis.relay.delivery` | The workflow's validator refused a decision the API had recorded (BASIS-WF-008); the refusal is final. | Relay log `outbox message refused by its consumer` with `error_code`; the outbox row is `delivered` with `last_error`. | Decide again on the current stage and revision. | no |
 | `BASIS-INF-003` | error | the outbox relay; `basis.relay.delivery` | A message failed `RELAY_MAX_ATTEMPTS` deliveries (Temporal unreachable for long). | Outbox row `status = dead` with `last_error`; relay log with `error_code`. | Operator: re-arm the row (`python -m basis.admin`) once Temporal is back. | after fix |
 | `BASIS-INF-004` | error | the worker and the relay, every heartbeat; `basis.ops.heartbeat` | The process could not write its `service_heartbeats` row (database unreachable, or migration 0019 not applied). The process keeps running and retries on the next beat. | Log line with `error_code`; `GET /v1/ops/health` reports the worker or relay `down` once the last heartbeat is older than its validity. | Check the database and run `alembic upgrade head`. | yes |
+
+## RETENTION: Client-data retention: the purge job (basis.retention)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-RETENTION-001` | outcome | `python -m basis.retention purge`; `basis.retention.purge` | A completed or archived study older than its firm's `retention_days` had its uploaded files, pages, analyses and model payloads deleted from storage; the export, the signed report, every database row and the timeline were kept. | `study.purged` on the timeline (`detail`: objects deleted and kept, bytes); `studies.purged_at`; the job's JSON line. | Nothing: the rule worked. To undo within the bucket's noncurrent-version window, copy the versions back (infra/staging/RUNBOOK.md 2.4). | no |
+| `BASIS-RETENTION-002` | outcome | `python -m basis.retention purge`; `basis.retention.purge` | A document or page row of a purged study named an object that was already gone from storage (deleted by hand, or by a lifecycle rule) before the purge ran. | Log line with `error_code` and the URI; `detail.missing` on the `study.purged` event. | Nothing for the purge (its outcome is the same). Check who deleted the object if it should have been there. | no |
+| `BASIS-RETENTION-003` | error | `python -m basis.retention purge`; `basis.retention.purge` | Storage refused or failed to delete one of the study's objects (permissions, an outage). The study is not marked purged; nothing is recorded on its timeline. | Log line with `error_code`, the study and the URI; the job's JSON line `status: failed`; exit status 1. | Fix the storage access and run the job again: it lists the remaining objects and finishes the study. | yes |
+
+## ALERT: Operator alerts: a failed study, a stale heartbeat (basis.notify)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-ALERT-001` | outcome | `record_failure`; `basis.db.repositories.alert` | A stage failed (`stage.failed`) and an alert for the operator was enqueued in the same transaction: one `alerts` row keyed by the failure, one `notification` outbox row of `type: alert`, which the relay renders and hands to the email sender. | `alerts` row (`kind = study_failed`); the relay's log when it is sent; the email. | Read the study's timeline (`event_type=stage.failed`), fix the cause, `POST /v1/studies/{id}/retry`. | no |
+| `BASIS-ALERT-002` | error | the relay's heartbeat check (`ALERT_CHECK_SECONDS`); `basis.notify.heartbeats` | No heartbeat of a service (worker, relay) is younger than `ALERT_HEARTBEAT_STALE_SECONDS`: the process died, hangs, or cannot reach the database. One alert per stale period (keyed by the last heartbeat seen); a new one only after the service came back and went stale again. | `alerts` row (`kind = heartbeat_stale`, `service`); the relay's log with `error_code`; the email; `GET /v1/ops/health` reports the service `down`. | Check the process (Cloud Run worker pool instances, container logs) and the database; restart it. Nothing to reset: the next stale period raises its own alert. | no |
+| `BASIS-ALERT-003` | error | the outbox relay (an `alert` notification); `basis.relay.delivery` | The email sender failed to send an alert: transient (the relay retries with backoff) or final (the recipient was refused; the outbox row is `dead`). | Relay log with `error_code`; the outbox row's `last_error` and `status`. | Fix the sender's configuration or the recipient (`ALERT_EMAIL_TO`) and requeue the dead row (S2_RUNBOOK section 5); the alert itself is still in `alerts`. | automatic |
+| `BASIS-ALERT-004` | outcome | the outbox relay (an `alert` notification); `basis.relay.delivery` | `ALERT_EMAIL_TO` is not set: the rendered alert was written to the relay's log at WARNING and the outbox row marked delivered. Nobody was emailed. | Relay log line `alert (no ALERT_EMAIL_TO)` with the subject and text. | Set `ALERT_EMAIL_TO` on the relay so alerts reach someone. | no |
 

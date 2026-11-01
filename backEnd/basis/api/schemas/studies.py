@@ -139,6 +139,12 @@ class StudyOut(ResponseModel):
         'Its entity tag is the version in quotes (`ETag: "3"`), which `PUT .../intake` takes '
         "as `If-Match`; the result's pricing is checked against it (docs/api/STUDY_RESULT.md).",
     )
+    purged_at: datetime | None = Field(
+        default=None,
+        description="When the firm's retention rule purged the study's uploaded files from "
+        "storage (docs/api/RETENTION_AND_ALERTS.md); `null` while they are kept. The export, "
+        "the signed report and the timeline stay readable after it.",
+    )
     created_at: datetime
     updated_at: datetime
 

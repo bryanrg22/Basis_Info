@@ -56,6 +56,9 @@ EXTRACTION_MAX_TOKENS_DEFAULT: Final = 800
 _ORIGIN: Final = re.compile(r"https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?")
 _LOCAL_ORIGIN: Final = re.compile(r"http://(?:localhost|127\.0\.0\.1)(?::\d{1,5})?")
 
+# One bare address for ALERT_EMAIL_TO: no display name, no list (the relay sends one message).
+_EMAIL: Final = re.compile(r"[^@\s,;<>]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
+
 _REQUIRED_IN_DEPLOYED: Final = ("database_url", "gcs_bucket", "firebase_project_id")
 _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "dev": (),
@@ -467,6 +470,16 @@ class Settings(BaseSettings):
     ops_provider_probe_seconds: float = Field(default=60.0, ge=0, le=3600)
     ops_probe_localizer: bool = False
 
+    # Operator alerts (basis.notify, docs/api/RETENTION_AND_ALERTS.md). ALERT_EMAIL_TO: the one
+    # address the relay emails when a study fails or a service's heartbeat goes stale; unset,
+    # the rendered alert goes to the relay's log at WARNING (E.ALERT_NO_RECIPIENT). The relay
+    # checks the heartbeats every ALERT_CHECK_SECONDS and calls a service stale once its
+    # newest heartbeat is older than ALERT_HEARTBEAT_STALE_SECONDS (5 min: well above the
+    # 45 s GET /v1/ops/health uses to call it "down", so a deploy's restart does not page).
+    alert_email_to: str | None = None
+    alert_heartbeat_stale_seconds: float = Field(default=300.0, ge=60, le=86400)
+    alert_check_seconds: float = Field(default=60.0, ge=5, le=3600)
+
     @property
     def vision_output_budget(self) -> int:
         """The per-photo calls' output budget: ``VISION_MAX_TOKENS`` when set, else the
@@ -530,6 +543,18 @@ class Settings(BaseSettings):
     def _split_uids(cls, value: object) -> object:
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("alert_email_to")
+    @classmethod
+    def _check_alert_email(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        if not _EMAIL.fullmatch(value):
+            raise ConfigError(
+                f"ALERT_EMAIL_TO {value!r} is not one email address (user@domain, no name part)"
+            )
         return value
 
     @field_validator("cors_allowed_origins")

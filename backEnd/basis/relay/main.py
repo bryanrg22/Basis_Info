@@ -17,6 +17,11 @@ needs nothing more.
 
 A ``service_heartbeats`` row (:func:`relay_heartbeat`) every ``OPS_HEARTBEAT_SECONDS``, for
 ``GET /v1/ops/health``.
+
+Operator alerts (``basis.notify``, docs/api/RETENTION_AND_ALERTS.md): the relay is the one
+process that sends them (``ALERT_EMAIL_TO``, through the configured email sender), and it
+runs the stale-heartbeat check (:class:`~basis.notify.heartbeats.HeartbeatMonitor`) every
+``ALERT_CHECK_SECONDS``.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ import logging
 import signal
 import time
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Any, Final
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -36,6 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from basis.config import Settings, get_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
+from basis.notify.heartbeats import HeartbeatMonitor
+from basis.notify.sender import build_email_sender
 from basis.obs.logging import configure_logging
 from basis.ops.heartbeat import HeartbeatWriter
 from basis.relay.delivery import Relay, TemporalWorkflowGateway
@@ -125,6 +133,14 @@ async def run(settings: Settings, *, health_port: int, once: bool = False) -> in
             sessionmaker,
             TemporalWorkflowGateway(client),
             poll_seconds=settings.relay_poll_seconds,
+            email_sender=build_email_sender(settings),
+            alert_to=settings.alert_email_to,
+            env=settings.env,
+        )
+        monitor = HeartbeatMonitor(
+            sessionmaker,
+            stale_after=timedelta(seconds=settings.alert_heartbeat_stale_seconds),
+            check_every=settings.alert_check_seconds,
         )
         if once:
             try:
@@ -144,6 +160,7 @@ async def run(settings: Settings, *, health_port: int, once: bool = False) -> in
         heartbeat.set_state("polling")
         try:
             task = asyncio.create_task(relay.run(stop))
+            checks = asyncio.create_task(monitor.run(stop), name="heartbeat-monitor")
             stopping = asyncio.create_task(stop.wait())
             await asyncio.wait({task, stopping}, return_when=asyncio.FIRST_COMPLETED)
             stopping.cancel()
@@ -153,6 +170,9 @@ async def run(settings: Settings, *, health_port: int, once: bool = False) -> in
                 await asyncio.wait_for(task, timeout=DRAIN_SECONDS)
             except TimeoutError:
                 logger.warning("outbox relay batch cancelled at shutdown")
+            checks.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await checks
         finally:
             await heartbeat.stop()
             server.close()

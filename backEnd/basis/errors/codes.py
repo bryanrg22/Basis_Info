@@ -4,7 +4,8 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 (``API``, ``FIRM``, ``UPLOAD``, ``STUDY``, ``OBJECT``, ``WF`` for the workflow and Temporal,
 ``PROVIDER``, ``BUDGET``, ``INGEST``, ``EXTRACT``, ``PHOTO``, ``LOCALIZE``, ``ROOMS``,
 ``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
-the cost index store, ``REPORT`` for the study report) and the number is
+the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
+purge, ``ALERT`` for the operator alerts) and the number is
 stable once published: a code is never renumbered or reused, a retired one is marked retired
 in the catalogue.
 
@@ -336,6 +337,17 @@ class E:
     INF_RELAY_REFUSED = "BASIS-INF-002"
     INF_RELAY_DEAD = "BASIS-INF-003"
     INF_HEARTBEAT_WRITE = "BASIS-INF-004"
+
+    # ---------------------------------------------------------------- client-data retention
+    RETENTION_PURGED = "BASIS-RETENTION-001"
+    RETENTION_OBJECT_MISSING = "BASIS-RETENTION-002"
+    RETENTION_DELETE_FAILED = "BASIS-RETENTION-003"
+
+    # ---------------------------------------------------------------- operator alerts
+    ALERT_STUDY_FAILED = "BASIS-ALERT-001"
+    ALERT_HEARTBEAT_STALE = "BASIS-ALERT-002"
+    ALERT_EMAIL_FAILED = "BASIS-ALERT-003"
+    ALERT_NO_RECIPIENT = "BASIS-ALERT-004"
 
 
 def tag(code: str, message: str) -> str:

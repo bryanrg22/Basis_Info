@@ -83,6 +83,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `study.stalled`, `review.reminded` | system | the review deadline and reminders | `detail.waiting_days` |
 | `study.retry_requested`, `study.cancel_requested` | engineer | `POST .../retry`, `POST .../cancel` | |
 | `export.written` | system | the export | `detail.uri`, `sha256`, `assets_csv` |
+| `study.purged` | system | the retention purge deleted the study's uploaded files from storage (docs/api/RETENTION_AND_ALERTS.md); the export, the signed report and every row stay | `detail`: `retention_days`, `rule_from`, `eligible_since`, `documents`, `pages`, `objects_deleted`, `objects_kept`, `missing` |
 | `convention.promoted` | engineer | `promote_conventions` promoted an approved asset's ruling to the firm's conventions | `actor_id` the approving reviewer; `entity_id` the asset; `detail` key, bucket, `agrees_with_rules`, `rule_key`, outcome (`created`, `confirmed`, `replaced`), approvals, method, cited |
 | `convention.replaced` | engineer | the approved answer differed from the firm's convention for the key, which it replaced | `code` `BASIS-ASSETS-013`; `before` the replaced convention, `after` the new one; `detail.key` |
 

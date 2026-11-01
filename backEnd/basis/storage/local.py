@@ -36,6 +36,7 @@ from basis.storage.base import (
     SignedUpload,
     UploadRejected,
     check_upload_args,
+    parse_prefix,
     parse_uri,
 )
 
@@ -122,6 +123,20 @@ class LocalStorage:
 
     async def put(self, uri: str, data: bytes, content_type: str) -> None:
         self.write(uri, data, content_type)
+
+    async def list(self, prefix: str) -> list[str]:
+        bucket, name = parse_prefix(prefix)
+        root = (self._root / bucket).resolve()
+        if not root.is_relative_to(self._root):  # parse_prefix already prevents this
+            raise ValueError(f"URI escapes the storage root: {prefix!r}")
+        if not root.is_dir():
+            return []
+        found = [
+            f"gs://{bucket}/{path.relative_to(root).as_posix()}"
+            for path in root.rglob("*")
+            if path.is_file() and path.relative_to(root).as_posix().startswith(name)
+        ]
+        return sorted(found)
 
     # ------------------------------------------------------------------ test helpers
 

@@ -48,6 +48,9 @@ Event vocabulary (``event_type``; the actor in brackets):
 * ``study.stalled`` / ``review.reminded`` [system]; ``study.retry_requested`` /
   ``study.cancel_requested`` [engineer];
 * ``export.written`` [system]: the export (``detail.uri``, ``detail.sha256``);
+* ``study.purged`` [system]: the retention purge deleted the study's uploaded files from
+  storage, keeping the exports and every row (``detail``: ``retention_days``, ``rule_from``,
+  ``objects_deleted``, ``objects_kept``, ``missing``; docs/api/RETENTION_AND_ALERTS.md);
 * ``study.report_answers_set`` [engineer]: the study's report answers (``before``/``after``;
   ``detail``: ``version_before``/``version_after``, ``if_match``);
 * ``report.signed`` [engineer]: the engineer signed the revision's report (``entity_id`` the
