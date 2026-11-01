@@ -1,4 +1,5 @@
-"""``/v1/studies``: create, list, get, archive (S1_SPEC section 5); the intake
+"""``/v1/studies``: create, list (the library: search, filters, sort, a total;
+docs/api/STUDY_LIBRARY.md), get, archive and unarchive (S1_SPEC section 5); the intake
 (``GET`` and ``PUT /v1/studies/{id}/intake``, docs/api/STUDY_RESULT.md).
 
 The intake is versioned (``studies.intake_version``, :mod:`basis.api.preconditions`): ``GET
@@ -32,6 +33,7 @@ from basis.api.errors import (
 )
 from basis.api.preconditions import ETAG_HEADER, intake_etag, parse_if_match
 from basis.api.routes.common import problems, read_router, write_router
+from basis.api.schemas.common import NO_NUL_PATTERN
 from basis.api.schemas.documents import DocumentOut
 from basis.api.schemas.reviews import ReviewOut
 from basis.api.schemas.studies import (
@@ -49,7 +51,7 @@ from basis.api.users import (
     study_access,
 )
 from basis.config import Settings
-from basis.db.enums import OrgRole, Stage
+from basis.db.enums import OrgRole, Stage, StudyStatus
 from basis.db.errors import PreconditionFailedError
 from basis.db.repositories import (
     DocumentRepository,
@@ -57,7 +59,7 @@ from basis.db.repositories import (
     StudyRepository,
     VisibleStudy,
 )
-from basis.db.repositories.study import MAX_PAGE_SIZE
+from basis.db.repositories.study import DEFAULT_SORT, MAX_PAGE_SIZE, StudyFilters, StudySort
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import SessionDep
 from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
@@ -65,6 +67,7 @@ from basis.errors.codes import E
 
 DEFAULT_PAGE_SIZE: Final = 50
 MAX_CURSOR_LENGTH: Final = 512
+MAX_QUERY_LENGTH: Final = 200
 CREATE_ROLE: Final = OrgRole.ENGINEER
 _STAGE_ORDER: Final = {stage: index for index, stage in enumerate(Stage)}
 
@@ -263,8 +266,13 @@ async def put_intake(
 
 @reads.get(
     "/studies",
-    summary="List studies visible to you, newest first",
-    description="403 `no-firm` when you are not a member of any firm (see `GET /v1/me`).",
+    summary="List studies visible to you: search, filter, sort, page (the library)",
+    description="The studies of every firm you belong to, most recently updated first "
+    "unless `sort` says otherwise (docs/api/STUDY_LIBRARY.md). Archived studies are left "
+    "out unless `include_archived` is true or `status` names `archived`. `total` counts "
+    "every match across pages; `next_cursor` continues the same `sort` (a cursor issued "
+    "under another sort is 422 `invalid-cursor`). 403 `no-firm` when you are not a member "
+    "of any firm (see `GET /v1/me`).",
     responses=problems(403),
 )
 async def list_studies(
@@ -278,16 +286,49 @@ async def list_studies(
         Query(
             min_length=1,
             max_length=MAX_CURSOR_LENGTH,
-            description="Opaque `next_cursor` from the previous page.",
+            description="Opaque `next_cursor` from the previous page, under the same `sort`.",
         ),
     ] = None,
+    q: Annotated[
+        str | None,
+        Query(
+            max_length=MAX_QUERY_LENGTH,
+            pattern=NO_NUL_PATTERN,
+            description="Case-insensitive substring of the property name (trimmed; blank "
+            "matches everything).",
+        ),
+    ] = None,
+    status: Annotated[
+        list[StudyStatus] | None,
+        Query(description="Only these statuses (repeat the parameter)."),
+    ] = None,
+    created_by: Annotated[
+        uuid.UUID | None, Query(description="Only studies this user created (`users.id`).")
+    ] = None,
+    include_archived: Annotated[
+        bool, Query(description="Also list archived studies (hidden by default).")
+    ] = False,
+    sort: Annotated[
+        StudySort,
+        Query(
+            description="`updated_desc` (most recently updated first, the default), "
+            "`created_desc` (newest first), `name_asc` (property name A to Z, case "
+            "ignored). Ties break by id."
+        ),
+    ] = DEFAULT_SORT,
 ) -> StudyList:
-    page = await StudyRepository(session).list_for_user(user.id, limit, cursor)
-    if not page.items:
+    filters = StudyFilters(
+        q=q, statuses=status or (), created_by=created_by, include_archived=include_archived
+    )
+    page = await StudyRepository(session).list_for_user(
+        user.id, limit, cursor, filters=filters, sort=sort
+    )
+    if not page.total:
         # Only a member of no firm at all sees no studies for that reason; tell them so.
         await require_firm(session, user)
     return StudyList(
         items=[StudyOut.model_validate(study) for study in page.items],
+        total=page.total,
         next_cursor=page.next_cursor,
     )
 
@@ -330,4 +371,36 @@ async def archive_study(
         stage=study.current_stage,
         revision=study.revision,
     )
+    return StudyOut.model_validate(study)
+
+
+@writes.post(
+    "/studies/{study_id}/unarchive",
+    summary="Unarchive a study (owner only)",
+    description="The study comes back with the status its stage implies (`draft` while "
+    "uploading, `processing`, `waiting_review` at a review gate, `completed`; `failed` while "
+    "a failure is recorded on it). Unarchiving a study that is not archived returns it "
+    "unchanged. Recorded as `study.unarchived` on the timeline.",
+    responses=problems(403, 404),
+)
+async def unarchive_study(
+    access: Annotated[VisibleStudy, Depends(study_access(OrgRole.OWNER))],
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> StudyOut:
+    # Whether there was anything to restore is the repository's call, taken under the row
+    # lock: ``access.study`` was read before it, and under concurrent unarchives that read
+    # says ``archived`` to every request while only the first one restores the study.
+    unarchived = await StudyRepository(session).unarchive(access.study.id)
+    study = unarchived.study
+    if unarchived.restored:
+        await StudyEventRepository(session).record(
+            study.id,
+            "study.unarchived",
+            actor="engineer",
+            actor_id=user.id,
+            stage=study.current_stage,
+            revision=study.revision,
+            after={"status": study.status.value},
+        )
     return StudyOut.model_validate(study)

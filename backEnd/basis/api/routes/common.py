@@ -17,18 +17,50 @@ lists every status a route can answer with and its ``application/problem+json`` 
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
-from basis.api.errors import PROBLEM_JSON, status_phrase
+from basis.api.errors import PROBLEM_JSON, Unprocessable, status_phrase
 from basis.api.idempotency import IdempotentRoute, idempotency
 from basis.api.ratelimit import rate_limited
+from basis.api.schemas.common import NO_NUL_PATTERN
 from basis.api.users import get_current_user
+from basis.errors.codes import E
 from basis.storage import Storage
 
 API_PREFIX: Final = "/v1"
 PROBLEM_SCHEMA_REF: Final = "#/components/schemas/ProblemDetail"
+MAX_SEQ: Final = 2**63 - 1  # ``study_events.seq`` and ``org_events.seq`` are bigints
+MAX_SEQ_CURSOR_LENGTH: Final = 32
+
+
+MAX_EVENT_TYPE_LENGTH: Final = 100
+# ``event_type`` filters (timeline, own activity, firm activity): each value is a non-empty
+# event-type name without a NUL, which PostgreSQL text cannot carry (asyncpg raises, the
+# route would answer 500; the contract fuzz sent one).
+EventTypes = Annotated[
+    list[
+        Annotated[
+            str, Query(min_length=1, max_length=MAX_EVENT_TYPE_LENGTH, pattern=NO_NUL_PATTERN)
+        ]
+    ]
+    | None,
+    Query(description="Only these event types (repeat the parameter)."),
+]
+
+
+def seq_cursor(cursor: str | None) -> int | None:
+    """The ``seq`` a cursor names: ASCII digits within the bigint range, else 422
+    ``invalid-cursor`` (a wider number would reach the database and fail there)."""
+    if cursor is None:
+        return None
+    if not (cursor.isascii() and cursor.isdigit()) or int(cursor) > MAX_SEQ:
+        raise Unprocessable(
+            "invalid pagination cursor", type_suffix="invalid-cursor", code=E.API_INVALID_CURSOR
+        )
+    return int(cursor)
+
 
 _PROBLEM_DESCRIPTIONS: Final[dict[int, str]] = {
     400: "Missing or malformed `Idempotency-Key`.",

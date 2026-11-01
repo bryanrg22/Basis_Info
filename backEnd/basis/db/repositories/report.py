@@ -28,6 +28,7 @@ from basis.db.errors import (
 )
 from basis.db.models import FirmProfileRow, ReportSignature, Study
 from basis.db.repositories.org import OrgRepository
+from basis.db.repositories.org_event import OrgEventRepository
 from basis.db.repositories.study import IntakePrecondition
 from basis.report.inputs import FirmProfile, ReportInputs, Signature, StudyAnswers
 
@@ -75,6 +76,12 @@ class ReportRepository:
             raise PreconditionFailedError(
                 f"the profile of org {org_id} is at version {seen}", version=seen
             )
+        # The fields the write changed: on the first write, the ones it set.
+        changed = sorted(
+            key
+            for key in type(profile).model_fields
+            if (None if before is None else getattr(before, key)) != getattr(profile, key)
+        )
         if existing is None:
             row = FirmProfileRow(org_id=org_id, profile=profile, version=1, updated_by=user_id)
             self._session.add(row)
@@ -87,6 +94,19 @@ class ReportRepository:
             await self._session.flush()
             await self._session.refresh(existing)
             row = existing
+        await OrgEventRepository(self._session).record(
+            org_id,
+            "profile.set",
+            actor_id=user_id,
+            entity_type="firm_profile",
+            entity_id=org_id,
+            detail={
+                "version_before": seen,
+                "version_after": row.version,
+                "if_match": precondition is not None,
+                "changed": changed,
+            },
+        )
         return ProfileWrite(row=row, before=before, version_before=seen)
 
     # ------------------------------------------------------------------ study answers

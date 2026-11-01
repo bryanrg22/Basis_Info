@@ -351,8 +351,8 @@
         "tags": [
           "studies"
         ],
-        "summary": "List studies visible to you, newest first",
-        "description": "403 `no-firm` when you are not a member of any firm (see `GET /v1/me`).",
+        "summary": "List studies visible to you: search, filter, sort, page (the library)",
+        "description": "The studies of every firm you belong to, most recently updated first unless `sort` says otherwise (docs/api/STUDY_LIBRARY.md). Archived studies are left out unless `include_archived` is true or `status` names `archived`. `total` counts every match across pages; `next_cursor` continues the same `sort` (a cursor issued under another sort is 422 `invalid-cursor`). 403 `no-firm` when you are not a member of any firm (see `GET /v1/me`).",
         "operationId": "list_studies_v1_studies_get",
         "security": [
           {
@@ -389,10 +389,99 @@
                   "type": "null"
                 }
               ],
-              "description": "Opaque `next_cursor` from the previous page.",
+              "description": "Opaque `next_cursor` from the previous page, under the same `sort`.",
               "title": "Cursor"
             },
-            "description": "Opaque `next_cursor` from the previous page."
+            "description": "Opaque `next_cursor` from the previous page, under the same `sort`."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[^\\x00]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive substring of the property name (trimmed; blank matches everything).",
+              "title": "Q"
+            },
+            "description": "Case-insensitive substring of the property name (trimmed; blank matches everything)."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StudyStatus"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only these statuses (repeat the parameter).",
+              "title": "Status"
+            },
+            "description": "Only these statuses (repeat the parameter)."
+          },
+          {
+            "name": "created_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only studies this user created (`users.id`).",
+              "title": "Created By"
+            },
+            "description": "Only studies this user created (`users.id`)."
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Also list archived studies (hidden by default).",
+              "default": false,
+              "title": "Include Archived"
+            },
+            "description": "Also list archived studies (hidden by default)."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "updated_desc",
+                "created_desc",
+                "name_asc"
+              ],
+              "type": "string",
+              "description": "`updated_desc` (most recently updated first, the default), `created_desc` (newest first), `name_asc` (property name A to Z, case ignored). Ties break by id.",
+              "default": "updated_desc",
+              "title": "Sort"
+            },
+            "description": "`updated_desc` (most recently updated first, the default), `created_desc` (newest first), `name_asc` (property name A to Z, case ignored). Ties break by id."
           }
         ],
         "responses": {
@@ -693,6 +782,150 @@
         ],
         "summary": "Archive a study (soft delete; owner only)",
         "operationId": "archive_study_v1_studies__study_id__delete",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/unarchive": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Unarchive a study (owner only)",
+        "description": "The study comes back with the status its stage implies (`draft` while uploading, `processing`, `waiting_review` at a review gate, `completed`; `failed` while a failure is recorded on it). Unarchiving a study that is not archived returns it unchanged. Recorded as `study.unarchived` on the timeline.",
+        "operationId": "unarchive_study_v1_studies__study_id__unarchive_post",
         "security": [
           {
             "FirebaseIdToken": []
@@ -4081,7 +4314,10 @@
                 {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[^\\x00]*$"
                   }
                 },
                 {
@@ -4254,6 +4490,7 @@
           "timeline"
         ],
         "summary": "Every engineer action on the study, in order",
+        "description": "Decisions, corrections, manual photo objects, the intake and the report answers set, uploads confirmed, the study started, retries and cancels requested, the study archived or unarchived, the report signed (docs/api/TIMELINE_AND_AUDIT.md). Oldest first; `cursor` continues from the previous page's `next_cursor`.",
         "operationId": "get_audit_v1_studies__study_id__audit_get",
         "security": [
           {
@@ -4272,6 +4509,40 @@
               "title": "Study Id"
             },
             "description": "Study id."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Items per page.",
+              "default": 200,
+              "title": "Limit"
+            },
+            "description": "Items per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` of the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` of the previous page."
           }
         ],
         "responses": {
@@ -4317,6 +4588,370 @@
           },
           "503": {
             "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/activity": {
+      "get": {
+        "tags": [
+          "activity",
+          "me"
+        ],
+        "summary": "Your own actions across the studies you can see, newest first",
+        "description": "Every timeline event you caused (`actor_id` is you) in every study of your firms, with the study's id and property name. The last 90 days unless `since` is given (the response says which window it applied); at most 200 per page, `next_cursor` continues with older events. `since` after `until` is an empty page.",
+        "operationId": "get_my_activity_v1_me_activity_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Events per page.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Events per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` of the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` of the previous page."
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[^\\x00]*$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only these event types (repeat the parameter).",
+              "title": "Event Type"
+            },
+            "description": "Only these event types (repeat the parameter)."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events at or after this time (RFC 3339; a naive time is UTC).",
+              "title": "Since"
+            },
+            "description": "Only events at or after this time (RFC 3339; a naive time is UTC)."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events at or before this time (RFC 3339; a naive time is UTC).",
+              "title": "Until"
+            },
+            "description": "Only events at or before this time (RFC 3339; a naive time is UTC)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{org_id}/activity": {
+      "get": {
+        "tags": [
+          "activity",
+          "firms"
+        ],
+        "summary": "The firm's own history: invitations, members, roles, the profile (owner only)",
+        "description": "Every recorded action on the firm that is not about a study, newest first (the vocabulary is in docs/api/TIMELINE_AND_AUDIT.md); `next_cursor` continues with older events. `since` after `until` is an empty page.",
+        "operationId": "get_org_activity_v1_orgs__org_id__activity_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "org_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Organization (firm) id.",
+              "title": "Org Id"
+            },
+            "description": "Organization (firm) id."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Events per page.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Events per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` of the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` of the previous page."
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[^\\x00]*$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only these event types (repeat the parameter).",
+              "title": "Event Type"
+            },
+            "description": "Only these event types (repeat the parameter)."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events at or after this time (RFC 3339; a naive time is UTC).",
+              "title": "Since"
+            },
+            "description": "Only events at or after this time (RFC 3339; a naive time is UTC)."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events at or before this time (RFC 3339; a naive time is UTC).",
+              "title": "Until"
+            },
+            "description": "Only events at or before this time (RFC 3339; a naive time is UTC)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgActivityOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -7154,6 +7789,313 @@
         ],
         "title": "AcquisitionCostOut"
       },
+      "ActivityItemOut": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq",
+            "description": "Insertion order; the keyset cursor."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At",
+            "description": "When it was recorded (the database clock)."
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type",
+            "description": "A dotted name; the vocabulary is in the docs."
+          },
+          "actor_type": {
+            "type": "string",
+            "enum": [
+              "engineer",
+              "model",
+              "system"
+            ],
+            "title": "Actor Type"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id",
+            "description": "The engineer (`users.id`), when one acted."
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity"
+          },
+          "activity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Id"
+          },
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "An activity attempt's start."
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms",
+            "description": "An activity attempt's duration."
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "The error code of a failure (docs/ERROR_CODES.md)."
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id",
+            "description": "The API request that caused it."
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "detail": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "property_name": {
+            "type": "string",
+            "title": "Property Name",
+            "description": "The study's property name, as it is now."
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "at",
+          "event_type",
+          "actor_type",
+          "actor_id",
+          "stage",
+          "revision",
+          "workflow_id",
+          "run_id",
+          "activity",
+          "activity_id",
+          "attempt",
+          "started_at",
+          "duration_ms",
+          "entity_type",
+          "entity_id",
+          "code",
+          "request_id",
+          "before",
+          "after",
+          "detail",
+          "study_id",
+          "property_name"
+        ],
+        "title": "ActivityItemOut",
+        "description": "A timeline event with the study it belongs to."
+      },
+      "ActivityOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityItemOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Newest first (`seq` descending)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since",
+            "description": "The window's start as applied: the `since` given, else 90 days before the request. Pass it as `since` on the next page to pin the window."
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until",
+            "description": "The window's end as applied, when one was given."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` to get the next (older) page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "since",
+          "until",
+          "next_cursor"
+        ],
+        "title": "ActivityOut"
+      },
       "AllocatedAssetOut": {
         "properties": {
           "asset_id": {
@@ -7858,9 +8800,18 @@
               "correction",
               "object_added",
               "object_deleted",
-              "intake"
+              "intake",
+              "report_answers",
+              "document",
+              "started",
+              "retry",
+              "cancel",
+              "archived",
+              "unarchived",
+              "report_signed"
             ],
-            "title": "Kind"
+            "title": "Kind",
+            "description": "What the engineer did: a review `decision`, a `correction`, a manual photo object (`object_added`, `object_deleted`), the `intake` or the `report_answers` set, a `document` upload confirmed, the study `started`, a `retry` or `cancel` requested, the study `archived` or `unarchived`, the report signed (`report_signed`)."
           },
           "at": {
             "type": "string",
@@ -7904,7 +8855,7 @@
           "action": {
             "type": "string",
             "title": "Action",
-            "description": "`approved`, `rejected`, `modified`, `added`, `moved`, `merged`, `reanalyzed`, `removed` (a component row left out of the next revision), `deleted` (a manual photo object)."
+            "description": "`approved`, `rejected`, `modified`, `added`, `moved`, `merged`, `reanalyzed`, `removed` (a component row left out of the next revision), `deleted` (a manual photo object), `uploaded`, `started`, `requested`, `archived`, `unarchived`, `signed`."
           },
           "entity_type": {
             "anyOf": [
@@ -8032,7 +8983,20 @@
               "$ref": "#/components/schemas/AuditItemOut"
             },
             "type": "array",
-            "title": "Items"
+            "title": "Items",
+            "description": "In time order (oldest first)."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` to get the next page; null on the last page."
           }
         },
         "type": "object",
@@ -13251,6 +14215,174 @@
         ],
         "title": "OpsHealthOut"
       },
+      "OrgActivityOut": {
+        "properties": {
+          "org_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Org Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrgEventOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Newest first (`seq` descending)."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` to get the next (older) page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "org_id",
+          "items",
+          "next_cursor"
+        ],
+        "title": "OrgActivityOut"
+      },
+      "OrgEventOut": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq",
+            "description": "Insertion order; the keyset cursor."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At",
+            "description": "When it was recorded (the database clock)."
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type",
+            "description": "A dotted name; the vocabulary is in the docs."
+          },
+          "actor_type": {
+            "type": "string",
+            "enum": [
+              "engineer",
+              "system"
+            ],
+            "title": "Actor Type",
+            "description": "`engineer`: a signed-in member (`actor_id`); `system`: the operator CLI."
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "subject_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject User Id",
+            "description": "The member the event is about."
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id",
+            "description": "The API request that caused it."
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "detail": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "at",
+          "event_type",
+          "actor_type",
+          "actor_id",
+          "subject_user_id",
+          "entity_type",
+          "entity_id",
+          "request_id",
+          "before",
+          "after",
+          "detail"
+        ],
+        "title": "OrgEventOut"
+      },
       "OrgRole": {
         "type": "string",
         "enum": [
@@ -16791,6 +17923,12 @@
             "type": "array",
             "title": "Items"
           },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "How many studies match the filters in all, across every page (docs/api/STUDY_LIBRARY.md)."
+          },
           "next_cursor": {
             "anyOf": [
               {
@@ -16801,12 +17939,13 @@
               }
             ],
             "title": "Next Cursor",
-            "description": "Pass as `cursor` to get the next page; null on the last page."
+            "description": "Pass as `cursor` with the same `sort` to get the next page; null on the last page."
           }
         },
         "type": "object",
         "required": [
           "items",
+          "total",
           "next_cursor"
         ],
         "title": "StudyList"
