@@ -103,7 +103,9 @@ jobs:
   backend-test:
     needs: changes
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The full suite takes about 26 minutes on a typical runner and 31 on a slow
+    # one (run 41306571662 was cancelled at 30 with the unit tests still to go).
+    timeout-minutes: 45
     env:
       BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
       BASIS_ENV: test
