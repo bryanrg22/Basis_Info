@@ -7535,3 +7535,86 @@ restore the behaviour before), `tests/lifecycle/test_intake_takeoff.py` (the fab
 reconciles at a re-tuned price, as section 44 tuned it), and the counts of concealed rows (13
 to 14) across the API, export, lifecycle and failure tests. `tests/LEDGER.md` has each. Gates
 from `backEnd/`: see the PR for the tallies.
+
+## 50. Live run 4 on main, and a release no longer hides the firm's rulings (2026-10-31)
+
+Question: does main (9c430aa, PRs #92-#101) produce a reconciled, correctly bucketed study live,
+on the stack as deployed? One study of the client property, every gate approved as the model
+left it, on a stack rebuilt from main with migrations to 0018, the worker started before the
+API, and the cost index store seeded (2024 HCI 294.8, factor 1.2330). Artifacts, private:
+`work/e2e_artifacts/live_2026-10-31_run4/`; dollars in `reports/E2E_LIVE_RUN4_2026-10-31.md`.
+
+### 50.1 What the live run measured
+
+It completed in 11.4 minutes with no failed stage and no retry. Reconciliation passed: RCNLD
+is 1.0 % under the purchase price less land. The allocation was produced and sums to the basis
+to the cent. The structure model produced 8 of 8 concealed rows, 7 in the right bucket (Access
+Control is y5 against the engineer's y39, contested, section 44). Rooms (#99): 49 of 49 named
+and typed, 36 of 49 with a floor; the 13 without are 12 exterior rooms and 1 mechanical room.
+Cost trail (#101): 384 of 384 assets carry a recorded trail.
+
+Bucket right: 27 of 35 evidenced rows, against 34-35 of 35 in run 3. The max bucket share error
+is 6.9 points. The eight wrong rows are Moldings, Fireplaces, Raised Wood Paneling, Wood
+Flooring, Wall Coverings, Interior Half Walls, Kitchen/Utility/Laundry Sink, and
+Security/Exterior Lighting.
+
+### 50.2 Why: the rules version hid every ruling
+
+The firm's conventions were keyed by `RULES_VERSION`, and the reader served only the running
+version. #94 and #100 moved the version from `2026-10-29.1` to `2026-10-31.1` by adding rows
+only: the diff is 222 insertions and one deletion, the version string. All 157 stored rulings
+(233 approvals) were hidden. They include baseboard, hardwood floor, wainscoting, half wall,
+fireplace and sink at 5 years, which are the rows run 4 lost.
+
+### 50.3 The fix
+
+CLASSIFICATION_CONVENTIONS.md section 10 has the design.
+
+* A convention's key now ends in the fingerprint of the rules-table row its label resolves
+  to, not in the release name. A ruling is retired when its row, a variant or the path to it
+  changes, and only then. The row's explanation (category, note, citations) is not part of the
+  fingerprint, so a re-citation pass retires nothing.
+* Migration 0019 re-keys stored rows to the fingerprint of the released table they were made
+  under. It carries those tables frozen from git (`evals.freeze_rule_fingerprints`).
+
+Checked:
+
+* No row changed across the three releases: each 10-29.1 and 10-30.1 row has the same digest
+  in 10-31.1, and the frozen 10-31.1 table equals the running one.
+* Mutants of the merge, of the conflict rule, of the version filter and of the downgrade's
+  keeper all fail the migration test.
+* Removing the reader's fingerprint filter, or keying by the release again, fails the
+  repository tests.
+
+### 50.4 Measured on a copy of the stack's database
+
+The migration ran on two copies, never on the live database.
+
+| copy | stored rows | re-keyed | merged | kept at old key, not served | current under the running code |
+|---|---|---|---|---|---|
+| rulings as they stood before run 4 | 157 | 157 (233 approvals) | 0 | 0 | 157 |
+| full database | 252 | 169 (300 approvals) | 68 | 15 (28 approvals) | 169 |
+
+On the full copy, 15 contexts take run 4's answer because its blanket approval is the latest
+ruling. A live `put` settles a disagreement the same way.
+
+Replay of run 4's export with the migrated rows (`evals.conventions_replay`, policy `tiered`,
+keys kept as stored, so only current fingerprints serve):
+
+| | bucket right | max bucket share error | bucket shares y5 / y7 / y15 / y39 |
+|---|---|---|---|
+| live run 4 | 27 / 35 | 6.9 points | 7.5 / 0.9 / 4.5 / 87.1 |
+| with the fix, rulings before run 4 | 34 / 35 | 2.2 points | 12.3 / 0.9 / 4.3 / 82.5 |
+| with the fix, full copy | 31 / 35 | 4.9 points | 9.6 / 0.9 / 4.3 / 85.2 |
+| engineer | | | 14.4 / 0.4 / 5.1 / 80.2 |
+
+The remaining wrong row is Fireplaces, as in run 3B: fireplace has no rules row, and the
+firm's rulings on it disagree (y5 and y39 rows in the same rooms, keyed by different materials).
+
+### 50.5 Also found
+
+* `python -m basis.costs.refresh` with no subcommand, the documented monthly job, raised
+  `AttributeError`. It is fixed on its own branch, `claude/refresh-cli-default`.
+* The store starts empty on a new database, so a deployment must seed it once.
+* A study run 4 approved without corrections promotes the pipeline's answers as the firm's
+  rulings. On a shared environment, a test study is approved only by someone who reviewed it.

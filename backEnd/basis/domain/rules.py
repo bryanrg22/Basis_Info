@@ -75,17 +75,28 @@ chunk whose text contains the excerpt is dropped and the asset is flagged
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import MISSING, dataclass, fields, is_dataclass
 from decimal import Decimal
+from enum import Enum
+from functools import cache
 from typing import Final, Literal, get_args
 
 from basis.db.enums import Bucket
 
-# Bump when any row, alias or matching rule changes: it is part of the cache key, so a
-# cached classification made under older rules is never served.
+# The table's release name: bump when any row, alias or matching rule changes. It is
+# recorded with every classification; the firm's conventions are keyed by
+# :func:`rule_fingerprint` instead, so a release keeps the rulings on rows it did not touch
+# (CLASSIFICATION_CONVENTIONS.md section 10).
 RULES_VERSION: Final = "2026-10-31.1"
+# Bump when :func:`lookup`'s own logic changes (the order of :func:`canonical_key`'s
+# fallbacks, ``Rule.bucket_for``, the structural-attachment test): what the row data cannot
+# show. It changes every :func:`rule_fingerprint`, so every convention is re-asked.
+RULE_FINGERPRINT_SCHEME: Final = 1
 
 PropertyClass = Literal["residential_rental", "nonresidential"]
 PROPERTY_CLASSES: Final[tuple[str, ...]] = get_args(PropertyClass)
@@ -1433,6 +1444,105 @@ def canonical_key(label: str) -> tuple[str, MatchKind] | None:
         if alias is not None:
             return alias, "alias"
     return None
+
+
+# A row's explanation, not its answer (as ``basis.classify.cache.answer_of`` leaves out the
+# category and the citations): rewording a note, re-citing a page or renaming a category
+# does not retire the firm's rulings on the row.
+EVIDENCE_FIELDS: Final = frozenset({"category", "irs_note", "citations"})
+
+
+def _canonical(value: object, skip: frozenset[str] = EVIDENCE_FIELDS) -> object:
+    """``value`` as plain JSON data for :func:`rule_digest`: a dataclass as its fields
+    (those named in ``skip`` and those at their dataclass default left out, so a new
+    defaulted field changes no digest), a set sorted, a tuple a list, an enum its value."""
+    if is_dataclass(value) and not isinstance(value, type):
+        out: dict[str, object] = {}
+        for f in fields(value):
+            if f.name in skip:
+                continue
+            item = getattr(value, f.name)
+            default = (
+                f.default
+                if f.default is not MISSING
+                else (f.default_factory() if f.default_factory is not MISSING else MISSING)
+            )
+            if default is not MISSING and item == default:
+                continue
+            out[f.name] = _canonical(item, skip)
+        return out
+    if isinstance(value, frozenset | set):
+        return sorted(_canonical(v, skip) for v in value)  # type: ignore[type-var]
+    if isinstance(value, tuple | list):
+        return [_canonical(v, skip) for v in value]
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def rule_digest(rule: Rule, structural: frozenset[str] = STRUCTURAL_ATTACHMENTS) -> str:
+    """The fingerprint of one row (section 10.3): ``r<scheme>-`` and 16 hex digits of the
+    SHA-256 of the canonical JSON of what the row answers (:data:`EVIDENCE_FIELDS` left
+    out) with its variants, plus the structural attachments when the row or a variant is
+    section 1245 (they decide a miss there)."""
+    payload: dict[str, object] = {"rule": _canonical(rule)}
+    if rule.section == "1245" or any(v.rule.section == "1245" for v in rule.variants):
+        payload["structural"] = sorted(structural)
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return f"r{RULE_FINGERPRINT_SCHEME}-{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+
+
+def resolve_fingerprint(
+    label: str | None,
+    material: str | None,
+    *,
+    row_digests: Mapping[str, str],
+    aliases: Mapping[str, str],
+    material_rules: Mapping[str, str],
+    generic_floors: frozenset[str],
+) -> str:
+    """The fingerprint of the row ``label`` (and, for a generic floor, ``material``)
+    resolves to over the given table data, resolved as :func:`lookup` and
+    :func:`canonical_key` do; ``r<scheme>-none`` when nothing matches. Pure, so a frozen
+    copy of an old table's data gives that table's answer (migration 0019)."""
+    none = f"r{RULE_FINGERPRINT_SCHEME}-none"
+    name = normalize_label(label)
+    if not name:
+        return none
+    if name in generic_floors:
+        key = material_rules.get(normalize_label(material))
+        return none if key is None else row_digests[key]
+    for candidate in (name, name[:-1] if name.endswith("s") else None):
+        if not candidate:
+            continue
+        if candidate in row_digests:
+            return row_digests[candidate]
+        alias = aliases.get(candidate)
+        if alias is not None:
+            return row_digests[alias]
+    return none
+
+
+@cache
+def row_digests() -> dict[str, str]:
+    """:func:`rule_digest` of every row of the running table, by key."""
+    return {key: rule_digest(rule) for key, rule in RULES.items()}
+
+
+def rule_fingerprint(label: str | None, material: str | None = None) -> str:
+    """What a firm convention for ``label`` (and ``material``) was decided under: the
+    fingerprint of the running table's row the label resolves to (section 10.3). It is the
+    convention key's last part; a convention serves while it equals the running one."""
+    return resolve_fingerprint(
+        label,
+        material,
+        row_digests=row_digests(),
+        aliases=ALIASES,
+        material_rules=MATERIAL_RULES,
+        generic_floors=GENERIC_FLOOR_LABELS,
+    )
 
 
 # Room type aliases (``basis.domain.rooms`` re-exports these; they live here because

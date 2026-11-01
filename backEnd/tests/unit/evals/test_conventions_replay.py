@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from basis.classify.cache import cache_key
-from basis.domain.rules import RULES_VERSION
+from basis.domain.rules import rule_fingerprint
 from evals.conventions_replay import (
     conventions_from_export,
     load_conventions,
@@ -96,7 +96,7 @@ def row(
 
 
 def old_key(label: str, material: str | None, attachment: str | None, room: str | None) -> str:
-    return cache_key(label, material, attachment, PC, room, rules_version="2026-10-29.1")
+    return cache_key(label, material, attachment, PC, room, fingerprint="2026-10-29.1")
 
 
 def export(*assets: dict[str, Any]) -> dict[str, Any]:
@@ -112,7 +112,7 @@ def export(*assets: dict[str, Any]) -> dict[str, Any]:
 FIREPLACE_RULING = old_key("fireplace", "wood", "permanent", "living_room")
 
 
-def test_rows_are_rekeyed_to_the_running_rules_version_and_filtered_by_study() -> None:
+def test_rows_are_rekeyed_to_the_running_rule_fingerprint_and_filtered_by_study() -> None:
     rows = [
         row(FIREPLACE_RULING, "y5", approvals=2),
         row(old_key("baseboard", "wood", "permanent", "bathroom"), "y5", study=STUDY_B),
@@ -121,9 +121,9 @@ def test_rows_are_rekeyed_to_the_running_rules_version_and_filtered_by_study() -
     conventions, ruling_labels = load_conventions(rows, as_of_study=STUDY_A)
     [fireplace] = conventions
     assert fireplace.key == cache_key("fireplace", "wood", "permanent", PC, "living_room")
-    assert fireplace.key.endswith(RULES_VERSION) and fireplace.approvals == 1
+    assert fireplace.key.endswith(rule_fingerprint("fireplace")) and fireplace.approvals == 1
     assert ruling_labels == frozenset({"fireplace"})
-    kept, _ = load_conventions(rows, rules_version=None)
+    kept, _ = load_conventions(rows, rekey=False)
     assert [c.key.rsplit("|", 1)[-1] for c in kept] == ["2026-10-29.1", "2026-10-29.1"]
     assert [c.approvals for c in kept] == [2, 1]
 
