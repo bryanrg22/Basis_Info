@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-248 codes in 19 areas.
+254 codes in 20 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -358,6 +358,17 @@ stale).
 | `BASIS-COST-003` | refusal | POST /v1/cost-indices; `basis.api.routes.cost_indices` | The store's latest version of this source, series, year and region already carries the same value and citation; nothing is written twice. | a problem response (type `duplicate-value`) | Nothing to do; to revise a value, send the new value or citation (it becomes the next version). | no |
 | `BASIS-COST-004` | outcome | python -m basis.costs.refresh; `basis.costs.refresh` | A configured source was not asked: fetching is off (`COST_INDEX_FETCH`) or the source lacks its credentials (the RSMeans API without a subscription). | A `cost_index_runs` row with status `skipped` and the reason in `detail.reason`. | Turn fetching on or configure the source; or enter the value manually. | no |
 | `BASIS-COST-005` | outcome | python -m basis.costs.refresh; `basis.costs.refresh` | A fetcher raised or returned no value for a wanted year (network, timeout, an unexpected document); the store is unchanged for that source. | A `cost_index_runs` row with status `failed` and the errors in `failures`; the job's exit status 1. | Retry (the next scheduled run does); the failures name the year and the cause. | yes |
+
+## REPORT: The study report and the preparer's schedule (basis.report)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-REPORT-001` | error | export_report; `basis.report.model` | The document given to the report is not a study export (`format` is not `basis-export/2`). | `ReportError: not a study export: ... [BASIS-REPORT-001]`. (Temporal `ReportError`) | Pass the export JSON the export step wrote (`rev-<n>.json`). | no |
+| `BASIS-REPORT-002` | error | export_report; `basis.report.model` | The export's allocation was withheld (`summary.basis.allocation` is null; `summary.basis.missing` names why: the intake, the cost index, repricing, an unreconciled replacement cost): there is nothing to report. | `ReportError: the allocation was withheld (missing: ...) [BASIS-REPORT-002]`; no PDF and no schedule are written, and `export.written` records the skip. (Temporal `ReportError`) | Resolve what `missing` names (the intake, a reprice, the reconciliation), approve again, export again. | after fix |
+| `BASIS-REPORT-003` | error | export_report; `basis.report.model` | A report total does not tie to the cent: the items, classes, categories or schedule against the depreciable basis, or price plus capitalized costs less land against it. | `ReportError: ... [BASIS-REPORT-003]`; nothing is written, so a schedule with a broken total never ships. (Temporal `ReportError`) | A defect in the allocation or the report: file it with the export JSON. | no |
+| `BASIS-REPORT-004` | error | export_report; `basis.report.model` | An export asset is on no report line or on two (or an allocated asset is not in the export). | `ReportError: assets not on exactly one line ... [BASIS-REPORT-004]`. (Temporal `ReportError`) | A defect: file it with the export JSON. | no |
+| `BASIS-REPORT-005` | error | export_report; `basis.report.render` | The PDF template did not compile (Typst raised). | `ReportError: the report did not render: ... [BASIS-REPORT-005]`. (Temporal `ReportError`) | A template defect: file it with the export JSON and the template version. | no |
+| `BASIS-REPORT-006` | refusal | GET /v1/studies/{id}/report; `basis.api.routes.report` | No report for the study and revision: nothing exported yet, or the files are missing from storage. (An export that skipped the report answers with the skip's own code, usually BASIS-REPORT-002.) | 404 `not-found` with the code. (type `not-found`) | Approve the assets review so the export runs; for missing bytes, export again. | after fix |
 
 ## INF: Infrastructure: worker start-up and the outbox relay
 

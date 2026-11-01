@@ -4,7 +4,7 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 (``API``, ``FIRM``, ``UPLOAD``, ``STUDY``, ``OBJECT``, ``WF`` for the workflow and Temporal,
 ``PROVIDER``, ``BUDGET``, ``INGEST``, ``EXTRACT``, ``PHOTO``, ``LOCALIZE``, ``ROOMS``,
 ``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
-the cost index store) and the number is
+the cost index store, ``REPORT`` for the study report) and the number is
 stable once published: a code is never renumbered or reused, a retired one is marked retired
 in the catalogue.
 
@@ -314,6 +314,14 @@ class E:
     COST_INDEX_DUPLICATE = "BASIS-COST-003"
     COST_INDEX_SOURCE_UNAVAILABLE = "BASIS-COST-004"
     COST_INDEX_FETCH_FAILED = "BASIS-COST-005"
+
+    # ---------------------------------------------------------------- the study report
+    REPORT_NOT_AN_EXPORT = "BASIS-REPORT-001"
+    REPORT_NOT_PRODUCED = "BASIS-REPORT-002"
+    REPORT_TOTALS_DO_NOT_TIE = "BASIS-REPORT-003"
+    REPORT_ASSET_UNACCOUNTED = "BASIS-REPORT-004"
+    REPORT_RENDER_FAILED = "BASIS-REPORT-005"
+    REPORT_NOT_FOUND = "BASIS-REPORT-006"
 
     # ---------------------------------------------------------------- infrastructure
     INF_WORKER_CONFIG = "BASIS-INF-001"

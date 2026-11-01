@@ -82,6 +82,113 @@ def calls_uri(bucket: str, study_id: uuid.UUID, revision: int) -> str:
     return f"{SCHEME}{bucket}/studies/{study_id}/exports/rev-{revision}.calls.jsonl"
 
 
+def report_uri(bucket: str, study_id: uuid.UUID, revision: int, suffix: str) -> str:
+    """``rev-<n>.report.pdf``, ``rev-<n>.schedule.csv``, ``rev-<n>.schedule.xlsx``."""
+    return f"{SCHEME}{bucket}/studies/{study_id}/exports/rev-{revision}.{suffix}"
+
+
+REPORT_FILES: Final = {
+    "report.pdf": "application/pdf",
+    "schedule.csv": "text/csv",
+    "schedule.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ReportFiles:
+    """The study report and the preparer's schedule (STUDY_REPORT_SPEC 11.2), or why there
+    are none (``skipped``: the ``BASIS-REPORT`` code and message)."""
+
+    files: dict[str, bytes]
+    draft: bool = True
+    skipped: tuple[str, str] | None = None
+
+
+async def build_report_files(
+    session: AsyncSession,
+    storage: Storage,
+    export_json: bytes,
+    study_id: uuid.UUID,
+    revision: int,
+) -> ReportFiles:
+    """The report files of the export just built. A report that cannot be produced (no
+    allocation, a total that does not tie) never fails the export: the evidence JSON is the
+    record, and the reason is returned for the timeline."""
+    import asyncio
+
+    from basis.db.repositories.document import DocumentRepository
+    from basis.db.repositories.photo_object import PhotoObjectRepository
+    from basis.report.exhibit import PhotoObjectView, exhibit_photo, line_index
+    from basis.report.inputs import ReportInputs
+    from basis.report.model import ReportError, build_report
+    from basis.report.render import render_pdf
+    from basis.report.schedule import rows, to_csv, to_xlsx
+
+    document = json.loads(export_json)
+    events = (await StudyEventRepository(session).list_for_study(study_id)).items
+    approvals = [
+        e
+        for e in events
+        if e.event_type == "review.decided"
+        and e.stage is Stage.ASSETS_REVIEW
+        and e.revision == revision
+        and (e.detail or {}).get("decision") == "approve"
+    ]
+    report_date = approvals[-1].created_at.date() if approvals else None
+    try:
+        report = build_report(document, ReportInputs(), report_date=report_date)
+    except ReportError as exc:
+        return ReportFiles(files={}, skipped=(exc.code, str(exc)))
+    heartbeat("report")
+    room_of = {str(a["id"]): a.get("room_id") for a in document.get("assets") or []}
+    lines = line_index(report, room_of)
+    photo_rooms = {p["document_id"]: p.get("room_id") for p in document.get("photos") or []}
+    rooms = {r["id"]: r.get("name") for r in document.get("rooms") or []}
+    documents = {
+        str(d.id): d
+        for d in await DocumentRepository(session).list_for_study(study_id)
+        if str(d.id) in photo_rooms
+    }
+    objects = await PhotoObjectRepository(session).active(
+        study_id, revision, [uuid.UUID(i) for i in documents]
+    )
+    by_photo: dict[str, list[PhotoObjectView]] = {}
+    for o in objects:
+        if o.counted:
+            by_photo.setdefault(str(o.document_id), []).append(
+                PhotoObjectView(o.label, (o.x1, o.y1, o.x2, o.y2), o.mask)
+            )
+    photos = []
+    for n, (doc_id, doc) in enumerate(
+        sorted(documents.items(), key=lambda d: (d[1].filename, d[0]))
+    ):
+        heartbeat("exhibit")
+        try:
+            jpeg = await storage.read(doc.gcs_uri)
+        except ObjectNotFound:
+            continue
+        room_id = photo_rooms.get(doc_id)
+        title = f"{doc.filename} ({rooms.get(room_id) or 'room unknown'})"
+        photos.append(
+            await asyncio.to_thread(
+                exhibit_photo, n, title, jpeg, room_id, by_photo.get(doc_id, []), lines
+            )
+        )
+    try:
+        pdf = await asyncio.to_thread(render_pdf, report, tuple(photos))
+        schedule = rows(report)
+    except ReportError as exc:
+        return ReportFiles(files={}, skipped=(exc.code, str(exc)))
+    return ReportFiles(
+        files={
+            "report.pdf": pdf,
+            "schedule.csv": to_csv(schedule),
+            "schedule.xlsx": to_xlsx(schedule),
+        },
+        draft=report.draft,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ExportFiles:
     json: bytes
@@ -354,13 +461,30 @@ class ExportReport:
             await self._deps.storage.put(transcript_uri, files.calls, JSONL_CONTENT_TYPE)
             await self._deps.storage.put(uri, files.json, CONTENT_TYPE)
             digest = sha256_hex(files.json)
+            report = await build_report_files(
+                session, self._deps.storage, files.json, study_id, input.revision
+            )
+            written: dict[str, dict[str, str]] = {}
+            for suffix, data in sorted(report.files.items()):
+                target = report_uri(self._deps.bucket, study_id, input.revision, suffix)
+                await self._deps.storage.put(target, data, REPORT_FILES[suffix])
+                written[suffix] = {"uri": target, "sha256": sha256_hex(data)}
             await StudyEventRepository(session).record(
                 study_id,
                 "export.written",
                 actor="system",
                 stage=Stage.EXPORTING,
                 revision=input.revision,
-                detail={"uri": uri, "sha256": digest, "assets_csv": table_uri},
+                detail={
+                    "uri": uri,
+                    "sha256": digest,
+                    "assets_csv": table_uri,
+                    "report": (
+                        {"files": written, "draft": report.draft}
+                        if report.skipped is None
+                        else {"skipped": {"code": report.skipped[0], "message": report.skipped[1]}}
+                    ),
+                },
             )
             return ExportReportOutput(export_uri=uri, sha256=digest)
 

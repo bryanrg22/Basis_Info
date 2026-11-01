@@ -14,18 +14,22 @@ its depreciation lands within the reconciliation's tolerance of the price less l
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from collections import Counter
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pymupdf
 import pytest
 from lifecycle_support import Harness
 from lifecycletest_support import intake_document, set_intake
 
 from basis.costs.refresh import manual_entry, record_manual
 from basis.db.enums import Stage, StudyStatus
+from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
@@ -198,5 +202,33 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         assert concealed["foundation"]["location_factor"] == "1.010"
         assert concealed["access_control"]["location_factor"] in ("1.010", None)
         assert all(a["cost_year"] == 2024 for a in concealed.values())
+
+        # The study report and the preparer's schedule (STUDY_REPORT_SPEC 11.2), written next
+        # to the export: a DRAFT (no report inputs yet), every total tied to the allocation.
+        base = (result.export_uri or "").removesuffix(".json")
+        pdf = await harness.deps.storage.read(base + ".report.pdf")
+        schedule = (await harness.deps.storage.read(base + ".schedule.csv")).decode()
+        xlsx = await harness.deps.storage.read(base + ".schedule.xlsx")
+        assert pdf.startswith(b"%PDF-") and xlsx.startswith(b"PK")
+        rows = list(csv.DictReader(io.StringIO(schedule)))
+        assert sum(Decimal(r["basis"]) for r in rows) == Decimal(allocation["total"])
+        assert {r["method"] for r in rows} <= {"200DB", "SL"} and rows[0][
+            "date_placed_in_service"
+        ] == "2024-03-01"
+        with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+            text = " ".join(" ".join(page.get_text() for page in doc).split())
+        assert "$360,180.00" in text and "DRAFT" in text
+        assert (
+            "Fire Protection & Alarm, Communication / Data, Access Control, Site Utilities" in text
+        )
+        async with session_scope(harness.sessionmaker) as session:
+            events = (await StudyEventRepository(session).list_for_study(study.study_id)).items
+        [written] = [e for e in events if e.event_type == "export.written"]
+        report = written.detail["report"]
+        assert report["draft"] is True and sorted(report["files"]) == [
+            "report.pdf",
+            "schedule.csv",
+            "schedule.xlsx",
+        ]
     finally:
         await harness.cleanup()
