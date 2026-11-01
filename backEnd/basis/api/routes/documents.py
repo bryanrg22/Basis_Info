@@ -38,6 +38,7 @@ open, and sets ``uploaded_at`` in a second one.
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from datetime import timedelta
 from typing import Annotated, Final
@@ -81,6 +82,12 @@ UPLOAD_URL_TTL: Final = timedelta(minutes=15)
 UPLOAD_ROLE: Final = OrgRole.ENGINEER
 CONTENT_CACHE_CONTROL: Final = "private, max-age=3600"
 ZIP_TYPE: Final = "application/zip"
+# What the quoted ASCII ``filename`` may not carry: C0 controls and DEL (a CR or LF would end
+# the header), the quote that delimits it and the backslash that escapes inside it. A
+# registered filename excludes them already (``FILENAME_PATTERN``); a name read out of an
+# uploaded ZIP does not.
+_UNSAFE_IN_QUOTED: Final = re.compile(r'[\x00-\x1f\x7f"\\]')
+_PATH_SEPARATORS: Final = re.compile(r"[/\\]")
 
 reads = read_router(tags=["documents"])
 writes = write_router(tags=["documents"])
@@ -235,8 +242,15 @@ async def complete_upload(
 
 
 def _content_disposition(filename: str) -> str:
-    """``inline`` with the RFC 6266 / 8187 ``filename*`` (UTF-8) and an ASCII fallback."""
-    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    """``inline`` with the RFC 6266 / 8187 ``filename*`` (UTF-8) and an ASCII fallback.
+
+    The fallback is a quoted-string: non-ASCII becomes ``?``, and a control character, a
+    quote or a backslash becomes ``_`` so the value cannot end the header or the quoted
+    string. ``filename*`` percent-encodes every byte outside the unreserved set, so the
+    original name survives there (RFC 8187 section 3.2.1).
+    """
+    ascii_name = filename.encode("ascii", "replace").decode("ascii")
+    ascii_name = _UNSAFE_IN_QUOTED.sub("_", ascii_name) or "file"
     return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
@@ -340,7 +354,8 @@ async def document_pdf(
         if upload.pdf is None:  # pragma: no cover - read_zip refuses a ZIP without a PDF
             raise Conflict("The package holds no report PDF.", type_suffix="no-report-pdf")
         data = upload.pdf
-        filename = (upload.pdf_name or "report.pdf").rsplit("/", 1)[-1]
+        # The ZIP's own entry name: a path with either separator, not a registered filename.
+        filename = _PATH_SEPARATORS.split(upload.pdf_name or "")[-1] or "report.pdf"
     headers["Content-Disposition"] = _content_disposition(filename)
     headers["X-Content-Type-Options"] = "nosniff"
     return Response(content=data, media_type="application/pdf", headers=headers)

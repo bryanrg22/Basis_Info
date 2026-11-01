@@ -70,6 +70,7 @@ class E:
     API_REPRICE_RECLASSIFY = "BASIS-API-041"
     API_REPRICE_NOT_AT_REVIEW = "BASIS-API-042"
     API_NOT_OPERATOR = "BASIS-API-043"
+    API_RATE_LIMIT_STORE_UNAVAILABLE = "BASIS-API-044"
 
     # ---------------------------------------------------------------- firms and membership
     FIRM_NO_FIRM = "BASIS-FIRM-001"

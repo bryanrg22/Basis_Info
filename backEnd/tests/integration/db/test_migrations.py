@@ -65,6 +65,8 @@
 * ``0022_user_activity_org_events`` adds the ``(actor_id, seq DESC)`` index on
   ``study_events`` and the append-only ``org_events`` (the firm's own history, under the
   ``forbid_mutation()`` trigger), nothing backfilled; it downgrades back to ``0021`` exactly;
+* ``0023_rate_limit_hits`` adds the Postgres-backed rate limiter's sliding-window log (an
+  ``UNLOGGED`` table, one row per accepted request), checked the same way;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -279,7 +281,8 @@ def test_offline_sql_rendering() -> None:
     assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
     assert "CREATE TYPE stage AS ENUM" in sql
     for table in model_tables():
-        assert f"CREATE TABLE {table} " in sql
+        assert f"CREATE TABLE {table} " in sql or f"CREATE UNLOGGED TABLE {table} " in sql, table
+    assert "CREATE UNLOGGED TABLE rate_limit_hits " in sql  # 0022: ephemeral, no WAL
     assert "CREATE TRIGGER reviews_append_only" in sql
     assert "CREATE TYPE outbox_status AS ENUM ('pending', 'delivered', 'dead')" in sql
     assert "UPDATE outbox SET status = 'delivered' WHERE delivered_at IS NOT NULL" in sql

@@ -38,6 +38,8 @@ Env = Literal["dev", "test", "staging", "prod"]
 # "minimal" are OpenAI only), Claude's ``output_config.effort`` on a ``claude-*`` model.
 Effort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+RateLimitStore = Literal["memory", "postgres"]
+_DEPLOYED_ENVS: Final = frozenset({"staging", "prod"})
 
 ENV_VAR: Final = "BASIS_ENV"
 DEFAULT_DEV_ENV_FILE: Final = ".env"
@@ -147,6 +149,11 @@ class Settings(BaseSettings):
     firebase_project_id: str | None = None
     rate_limit_reads_per_min: int = Field(default=240, gt=0)
     rate_limit_mutations_per_min: int = Field(default=60, gt=0)
+    # Where the per-caller budgets are counted (basis.api.ratelimit, ratelimit_pg): "memory"
+    # is one budget per API process, "postgres" one budget per caller across every process
+    # (the rate_limit_hits table). Unset: postgres in staging and prod, memory in dev and
+    # test; "memory" is refused in staging and prod, where several instances serve the API.
+    rate_limit_store: RateLimitStore | None = None
     # Browser origins allowed to call the API (CORS), comma-separated, e.g.
     # "https://cost-seg-basis.web.app,http://localhost:3000". Each is scheme://host[:port]
     # with no path. Empty: no CORS headers, so only same-origin pages and non-browser
@@ -526,6 +533,14 @@ class Settings(BaseSettings):
         return VISION_MAX_TOKENS_DEFAULT
 
     @property
+    def rate_limit_backend(self) -> RateLimitStore:
+        """``RATE_LIMIT_STORE`` when set, else ``postgres`` in staging and prod (one budget
+        per caller across the API's instances), ``memory`` in dev and test."""
+        if self.rate_limit_store is not None:
+            return self.rate_limit_store
+        return "postgres" if self.env in _DEPLOYED_ENVS else "memory"
+
+    @property
     def extraction_output_budget(self) -> int:
         """The extraction fallback's output budget: ``EXTRACTION_FALLBACK_MAX_TOKENS`` when
         set, else the default for the text model's family."""
@@ -604,6 +619,12 @@ class Settings(BaseSettings):
             raise ConfigError(f"{ENV_VAR}={self.env} requires these settings to be set: {names}")
         if self.embedding_model == "hash" and self.env not in ("dev", "test"):
             raise ConfigError(f"EMBEDDING_MODEL=hash is for tests only, not {ENV_VAR}={self.env}")
+        if self.rate_limit_store == "memory" and self.env in _DEPLOYED_ENVS:
+            raise ConfigError(
+                f"RATE_LIMIT_STORE=memory counts per API process, so with several instances "
+                f"the published limits do not hold; {ENV_VAR}={self.env} needs postgres "
+                "(the default: leave RATE_LIMIT_STORE unset)"
+            )
         if self.env not in ("dev", "test"):
             for origin in self.cors_allowed_origins:
                 if origin == "*":

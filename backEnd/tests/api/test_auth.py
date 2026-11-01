@@ -2,6 +2,10 @@
 
 * Every ``/v1`` route: no token, a malformed header, an expired or a revoked token is 401
   with ``WWW-Authenticate`` and nothing is written.
+* Every operation of the OpenAPI document except ``GET /health`` and ``GET /`` answers 401
+  to a request without a token and to one with a token the verifier rejects, before any
+  body validation and without creating a user (``test_every_documented_operation_needs_a_token``
+  walks the document, so a new route cannot arrive unauthenticated).
 * First sight of a uid creates the user and nothing else (firms are invite-only: no org,
   no membership); later requests reuse the user. (Before invite-only firms, first sight
   also created a personal org with an ``owner`` membership.)
@@ -23,7 +27,17 @@ from typing import Any
 
 import httpx
 import pytest
-from apitest_support import BASE_URL, Api, FakeVerifier, Seed, api_settings, bearer
+from apitest_support import (
+    BASE_URL,
+    UNAUTHENTICATED_OPERATIONS,
+    Api,
+    FakeVerifier,
+    Seed,
+    api_settings,
+    bearer,
+    fill_path,
+    operations,
+)
 from fastapi import FastAPI
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -105,6 +119,36 @@ async def test_every_route_needs_a_valid_token(
     assert response.headers["content-type"] == PROBLEM_JSON
     assert response.headers["www-authenticate"] == challenge
     assert response.json()["detail"] == detail
+    assert await table_count(sessionmaker, User) == 0
+
+
+@pytest.mark.parametrize(
+    ("authorization", "detail"),
+    [(None, DETAIL_MISSING), ("Bearer garbage", DETAIL_INVALID)],
+    ids=["missing", "invalid"],
+)
+async def test_every_documented_operation_needs_a_token(
+    api_app: FastAPI,
+    http: httpx.AsyncClient,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    authorization: str | None,
+    detail: str,
+) -> None:
+    """Walk the OpenAPI document: everything but ``/health`` and ``/`` is 401 without a usable
+    token, whatever the body (``{}`` here, so a 422 cannot mask a missing check)."""
+    headers = {} if authorization is None else {"Authorization": authorization}
+    checked = []
+    for method, template in operations(api_app):
+        if f"{method} {template}" in UNAUTHENTICATED_OPERATIONS:
+            continue
+        body = {} if method in ("POST", "PUT", "PATCH") else None
+        response = await send(http, method, fill_path(template), body, headers)
+        assert response.status_code == 401, (method, template, response.text)
+        assert response.headers["content-type"] == PROBLEM_JSON
+        assert response.headers["www-authenticate"].startswith("Bearer")
+        assert response.json()["detail"] == detail, (method, template)
+        checked.append(template)
+    assert len(checked) >= 50  # the /v1 surface; a shrunken walk is a broken walk
     assert await table_count(sessionmaker, User) == 0
 
 

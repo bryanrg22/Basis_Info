@@ -4652,7 +4652,6 @@ The steps, in order:
    deployed as a second worker pool on its own task queue. Until then, the local numbers
    (32.5, 32.6) are the worker's capacity.
 
-
 ### 32.12 Against the objectives, what to set before launch, follow-ups
 
 The proposed SLOs (LOAD_TESTING.md section 5) at 25 concurrent studies on one worker and one
@@ -7089,7 +7088,6 @@ three policies, the regression check, the conflict, the rebuilt conventions, the
 `tests/LEDGER.md` has each. Gates: `ruff check`, `ruff format --check`, `mypy basis`, the
 unit set and the integration set (see the PR for the tallies).
 
-
 ## 47. The cost index store: every study gets a sourced year index without a code change, and a value is never fetched twice (2026-10-30)
 
 Follows section 45 (the indices from the 2020 books, PR #96), which left every 2024 study
@@ -7819,6 +7817,133 @@ the tests, not against the staging deployment; the web app is unchanged and stil
 browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeCompare` and `lower()` may
 order accented names differently. The audit's in-memory page is the right size for a study's engineer
 actions; a study with thousands of corrections would want the union query.
+
+## 56. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
+
+**Question.** Before an outside firm receives a link: can a caller reach anything without a token, see
+or change another firm's data, exhaust the service, or read something the server should keep (a stack,
+a path, a key)? Yardsticks: OWASP ASVS 5.0 (V4 access control, V8 data protection, V14.4 headers) and
+the OWASP API Security Top 10 (API1 object-level authorization, API4 unrestricted resource consumption,
+API8 misconfiguration). Each claim below names the test that proves it; what is not tested says so.
+
+**Scope read.** `basis/auth/firebase.py`, `basis/api/{auth,users,app,ratelimit,errors,bodylimit,
+middleware,idempotency,openapi,local_uploads}.py`, every module in `basis/api/routes/`, the request
+schemas, `basis/config.py`, `basis/obs/logging.py`, the repositories' visibility methods, the
+Dockerfile, `docker-compose*.yml`, `infra/staging/run.tf`, `.env.example`, `.gitleaksignore`,
+`.pre-commit-config.yaml`, `tooling/check_no_client_data.py` and the CI workflow.
+
+### 56.1 Findings
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | medium | Rate limits were counted per API process only. `basis/api/ratelimit.py` promised a Postgres-backed limiter ("S1-C") that did not exist anywhere in the tree; `create_app` always installed `InMemoryRateLimiter`. Cloud Run runs up to `api_max_instances` processes, so a caller's budget was the published limit times the instance count, and a scale-out under a flood raised the budget exactly when it mattered (API4). | **Fixed** (56.2) |
+| 2 | low | No `Cache-Control` on `/v1` JSON responses and problems, and `X-Content-Type-Options` only on the four file routes. Every `/v1` answer is private to the token's bearer; RFC 9111 lets a private cache store a response to an `Authorization` request unless told otherwise (ASVS 8.3.1, 14.4.4). | **Fixed** (56.3) |
+| 3 | low | `Content-Disposition` on `GET .../documents/{id}/pdf`: the report PDF's name is read from inside the uploaded UAD 3.6 ZIP, and the ASCII fallback kept a backslash or a control character and turned a quote into `'`; a CR or LF would have ended the header. A registered filename could never carry them (`FILENAME_PATTERN`); a ZIP entry can. No test covered a hostile name. | **Fixed** (56.4) |
+| 4 | medium | `POST /v1/cost-indices` lets the owner of **any** firm append a value to the deployment-wide cost index store; the value then prices every firm's studies (the route's own description says so). With one firm this was a convenience; with a second firm it is one tenant changing another's pricing (API1/API5 by design). | **Deferred**: a product decision (operator-only through `OPS_OPERATOR_UIDS`, or a per-firm store); decide before the second firm is onboarded. |
+| 5 | low | `check_revoked` is on in `prod` only (S1_SPEC 4): in `staging` a disabled or deleted Firebase user keeps access until the ID token expires (at most one hour). | Deferred: by specification, saves a Firebase read per request in staging. |
+| 6 | low | `mask_reason` on a photo object whose SAM 3 box prompt failed carries the provider's URL path (query, hence the token, stripped) and up to 200 characters of the provider's error body, shown to the study's own engineers (`basis/api/routes/objects.py`, `tests/api/test_objects.py` asserts it). | Deferred: no secret in it, visible only inside the firm, useful to the engineer; change if a provider's error text ever carries account detail. |
+| 7 | low | Unauthenticated requests are limited by `request.client.host`; on Cloud Run that is the front end, so every anonymous caller shares one address budget. Authenticated budgets are by verified uid and unaffected; the anonymous path answers 401 anyway. | Deferred: the fix is `--proxy-headers --forwarded-allow-ips` on uvicorn in the image, an infrastructure change outside this PR. |
+| 8 | info | `/docs` and `/openapi.json` are public. The document holds no secret and the API is bearer-only. | Accepted (standard; `docs_url=None` in prod is a one-line change if wanted). |
+| 9 | info | A user's `display_name` is taken from the token's `name` claim and stored unbounded; shown to the firm's other members. Bounded in practice by the header size uvicorn accepts (about 16 KiB), which was not tested. | Accepted; a frontend must escape it like any user text. |
+| 10 | info | With Temporal not configured the workflow routes answer 503 `temporal-not-configured` before the study's access check runs (the same 503 for every id, so nothing is learned); with Temporal configured the check runs first. The isolation test therefore carries a fake workflow service. | Accepted. |
+
+Nothing high. The two medium findings are the ones to act on before launch: 1 is fixed here, 4 is a
+decision.
+
+### 56.2 Fix 1: one budget per caller across every API process
+
+`basis/api/ratelimit_pg.py`, `PostgresRateLimiter`: the same sliding-window log as the in-memory
+limiter, kept in `rate_limit_hits` (migration `0023`, an `UNLOGGED` table: ephemeral state, no WAL per
+request). Per hit, in one short transaction of its own: `pg_advisory_xact_lock(hashtext(key))`
+serializes the key (so two concurrent requests cannot both read `limit - 1`), `now()` is the database
+clock (instances agree), the key's expired rows are deleted, the rest counted; under the limit a row is
+inserted, over it the answer carries `Retry-After` as the moment the oldest counted hit leaves the
+window. A sweep every 60 s deletes idle keys' rows older than an hour. The alternatives considered:
+GCRA or a token bucket in one row (O(1), but admits a full burst then a steady refill, which the
+in-memory limiter's docstring rejects for being above the stated per-minute figure, and would have given
+the two stores different semantics); a fixed-window counter (admits 2x at a boundary). The log keeps both
+stores exact and identical, and at 240 reads per minute per user its cost is one row per request.
+
+`RATE_LIMIT_STORE` (`basis/config.py`): `memory` or `postgres`; unset means `postgres` in `staging`
+and `prod` and `memory` in `dev` and `test`; `memory` is **refused** in staging and prod
+(`ConfigError`), and `postgres` without a database refuses to start (`create_app`). `install_database`
+installs the limiter next to the Postgres idempotency store, so the lifespan-owned engine and the tests'
+injected sessionmaker take the same path.
+
+Degraded mode: when the database cannot be reached (connection refused, pool exhausted, connection
+dropped) the limiter answers from a per-process `InMemoryRateLimiter` and logs one warning per minute
+(`BASIS-API-044`, with `fallbacks`). Failing closed would turn a database outage into a refusal of every
+request, including `GET /v1/ops/health`, which is built to answer while the database is down. A
+`ProgrammingError` (the table missing because `0023` was not applied) is **not** caught: it surfaces as a
+500 on the first request instead of silently falling back.
+
+Proof: `tests/api/test_rate_limit.py` now runs all five route tests against both stores;
+`tests/api/test_rate_limit_pg.py` (13 tests): two instances share one budget; 20 concurrent requests
+against a budget of 5 admit exactly 5 (`asyncio.gather` across four limiter instances); a hit backdated
+to 40 s ago gives `Retry-After` in (15, 20] and one past the window frees its slot and is deleted;
+`Retry-After` is the oldest counted hit's expiry, not the whole window; the unreachable-database case
+limits per process, counts `fallbacks` and warns once; the lifespan installs and shutdown removes it.
+`tests/unit/config/test_rate_limit_store.py` (11 tests) covers the setting's defaults and refusals.
+`tests/integration/db/test_migrations.py`: head `0023`, `alembic check` clean, `CREATE UNLOGGED TABLE`
+in the offline SQL.
+
+Not measured: the limiter's cost under load (one lock, one delete, one select and one insert per
+`/v1` request). The load harness of section 31 can re-run against `RATE_LIMIT_STORE=postgres`.
+Migration numbering: three sessions add migrations in parallel; it is `0023` here, after #110's `0022`.
+
+### 56.3 Fix 2: response headers
+
+`basis/api/headers.py`, `SecurityHeadersMiddleware`, between the request-id middleware and CORS so
+error responses carry it too: `X-Content-Type-Options: nosniff` on every response; `Cache-Control:
+no-store` on every `/v1` response that sets none itself (the file routes keep `private, max-age=3600`
+and the preview `private, no-cache`); `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+in `staging` and `prod` only. Proof: `tests/unit/api/test_security_headers.py` (13 tests: a body, a 401,
+a 404, a 413, an opaque 500, a route's own policy kept, `/health` unmarked, HSTS by environment).
+
+### 56.4 Fix 3: download filenames
+
+`_content_disposition` in `basis/api/routes/documents.py`: the quoted fallback replaces every C0
+control, DEL, `"` and `\` with `_` (non-ASCII stays `?`), an empty name becomes `file`, and the ZIP
+entry's name is split on both separators. `filename*` already percent-encoded everything outside the
+unreserved set, so the original name survives there. Proof: `tests/unit/api/test_content_disposition.py`
+(8 cases including `x\r\nX-Injected: 1.pdf`, a backslash, a lone quote, NUL and DEL); the two existing
+header tests in `test_document_content.py` are unchanged.
+
+### 56.5 Verified safe, with the test that proves it
+
+| Area | What holds | Proof |
+|---|---|---|
+| Token checks | The Firebase Admin SDK checks the RS256 signature against Google's certificates, `aud` and `iss` against the project id, `exp`/`iat`/`auth_time`; expired, revoked, disabled, deleted, invalid and no-subject tokens each map to a distinct 401 detail that never includes the SDK's message; certificate fetch failure is 503, not 401 | `tests/unit/auth/test_firebase_verifier.py` (the real SDK against bad, expired and emulator tokens; audience checked even with the emulator) |
+| Emulator guard | `FIREBASE_AUTH_EMULATOR_HOST` with `BASIS_ENV` staging or prod is a `ConfigError` at `create_app`; a blank variable is "not set" | `test_emulator_refused_in_deployed_envs`, `test_app_refuses_to_start_with_emulator_in_deployed_envs` |
+| No route without a token | All 55 documented operations other than `GET /health` and `GET /` answer 401 (`WWW-Authenticate: Bearer`) to no token and to a rejected token, with `{}` as the body so a 422 cannot mask a missing check, and create no user | `tests/api/test_auth.py::test_every_documented_operation_needs_a_token` (new) |
+| Header parsing | Missing, non-Bearer, empty, two-token and case-variant headers; verification once per request, in a worker thread | `tests/api/test_auth_dependency.py` |
+| Verified email for invitations | Accepting or declining with an unverified email is 403 `email-unverified`; another email is 404; `GET /v1/me` lists pending invitations only for a verified email | `tests/api/test_firms.py` |
+| Tenant isolation | Every one of the 47 operations whose path names a study, a firm or an invitation answers 404 to a member of another firm, byte-identical (minus `request_id`, `instance`) to the 404 for an id that does not exist; a member's own study or firm in the path does not reach another firm's document, photo, object, member or invitation; a filter by another study's asset returns nothing | `tests/api/test_tenancy.py` (new; `BODIES` must list every scoped operation, so a new scoped route fails until listed) |
+| Access mechanism per route | Every `{study_id}` route goes through `study_access(...)` as a dependency or `require_study_access` as its first statement (documents, workflow, objects, spend); every `{org_id}` route through `org_access`; `POST /studies` through `require_firm` and the membership map; the unscoped `StudyRepository.get` is not called from `basis/api` (grep) | read; the walk above proves the outcome |
+| Files read after the check | `.../content`, `.../pdf` and `.../report` resolve the study and the document inside a transaction and read storage only afterwards, with no connection held; the preview and the signature render after `study_access` | `tests/api/test_tenancy.py::test_own_scope_does_not_reach_another_firms_rows` |
+| Roles | viewer < engineer < owner per route; a visible study with too low a role is 403 naming the role, never 404 | `tests/api/test_auth.py::test_role_requirements` |
+| Idempotency keys | Scoped per user; same key + different body 422; in flight 409 | `tests/api/test_idempotency.py` |
+| CORS | Exact origins, `allow_credentials` false, `*` and plain http (except localhost) refused outside dev and test, an unlisted origin's preflight refused, errors carry the headers | `tests/unit/api/test_cors.py`, `tests/unit/config/test_cors_settings.py` |
+| 500 handler | An unexpected exception is an opaque problem with the request id; its message does not reach the body; the stack goes to the log | `tests/api/test_errors.py::test_unexpected_exception_is_an_opaque_500` |
+| Validation errors | `errors[]` carries location, message and type; `input` and `ctx` are dropped | `tests/unit/api/test_errors.py` |
+| Logs | Any record attribute or context key matching key/token/secret/password/authorization is `***` | `tests/unit/obs/test_logging.py` |
+| Body size | `/v1` bodies over 1 MiB are 413 with and without `Content-Length`, before any route or idempotency work | `tests/api/test_errors.py` (413 tests) |
+| Uploads | At most 50 MiB per file, declared size and sha256 verified at completion, content type per kind (`PdfType`, `Uad36Type`, `ImageType`, `TextType`), filename a name not a path (`FILENAME_PATTERN`), an appraisal must be a PDF, a MISMO XML or a safe ZIP | `tests/api/test_uploads.py`, `test_uad36_api.py` |
+| Logo and text | `logo_png` at most 512 KB and a PNG by signature; every text field one line, bounded, no control characters | `tests/api/test_report_signing.py`, `tests/unit/domain/test_intake.py` |
+| Pagination | Every list route caps `limit` (`le=MAX_*`) and the cursor's length | `tests/api/test_studies.py`, `test_evidence.py`, `test_outputs.py`, `test_timeline.py`, `test_spend.py`, `test_cost_indices.py` |
+| Secrets in settings | Every `*_key`, `*_token`, `*_secret`, `*_password` field is a `SecretStr`; `database_url` is `repr=False`; no sentinel leaks through `repr`, `str` or `model_dump_json`; validation errors hide input | `tests/unit/config/test_secrets_in_repr.py` (new), `test_settings.py` |
+| Repository hygiene | `.env.example` carries names only (read line by line); `tooling/check_no_client_data.py --ci` passes on the whole tree, the report templates and fixtures included; gitleaks runs on every PR's commits in CI (`secrets-scan`) and `detect-secrets` as a pre-commit hook | run in this review (56.6) |
+
+### 56.6 Gates
+
+From `backEnd/`: `ruff check`, `ruff format --check`, `mypy basis`, the catalogue and OpenAPI
+`--check`, `evals.freeze_rule_fingerprints --check`, `tooling/check_no_client_data.py --ci`, pytest
+`-m "not integration and not slow"` and `-m "(integration or slow) and not eval_data"` (the results
+are in the PR). `docs/ERROR_CODES.md` regenerated for `BASIS-API-044`; `docs/api/openapi.json` is
+unchanged (no route changed).
+
+**Open.** Finding 4 (the deployment-wide index store); the limiter's cost under load; a penetration
+test from outside the code (this review read and tested the code, it did not probe a deployment).
 
 ## 58. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
 

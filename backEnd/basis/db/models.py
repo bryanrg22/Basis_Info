@@ -1419,3 +1419,23 @@ class ServiceHeartbeat(Base):
     heartbeat_at: Mapped[datetime]
     report: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
+
+
+class RateLimitHit(Base):
+    """One accepted request under a rate-limit key (migration ``0023_rate_limit_hits``), the
+    sliding-window log :class:`basis.api.ratelimit_pg.PostgresRateLimiter` keeps so every API
+    process shares one budget per caller.
+
+    ``key`` is the limiter's key (``read:uid:<uid>``, ``mutation:ip:<address>``, ...);
+    ``created_at`` is the hit's time by the database clock. A hit older than the window is
+    deleted on the key's next request, and a sweep removes rows older than an hour. The
+    table is ``UNLOGGED``: the log is ephemeral state that a crash may lose (every budget
+    then starts over), and skipping the WAL keeps a per-request write cheap.
+    """
+
+    __tablename__ = "rate_limit_hits"
+    __table_args__ = (Index(None, "key", "created_at"), {"prefixes": ["UNLOGGED"]})
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
