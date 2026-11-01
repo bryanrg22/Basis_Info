@@ -8025,7 +8025,7 @@ unchanged (no route changed).
 **Open.** Finding 4 (the deployment-wide index store); the limiter's cost under load; a penetration
 test from outside the code (this review read and tested the code, it did not probe a deployment).
 
-## 57. Leaving a study and coming back: gate drafts on the server, resumable uploads, restarting a cancelled study (2026-11-01)
+## 58. Leaving a study and coming back: gate drafts on the server, resumable uploads, restarting a cancelled study (2026-11-01)
 
 **Question.** An engineer who leaves a study at any stage must be able to come back and continue
 with nothing lost. What is lost today, and what does the backend need so that nothing is?
