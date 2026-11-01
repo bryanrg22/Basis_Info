@@ -93,7 +93,10 @@ restores the status the study's stage implies, the way the workflow derives it:
 | any, with a failure recorded (`failure_reason` set) | `failed` |
 
 Both are idempotent: archiving an archived study, or unarchiving one that is not archived,
-returns it unchanged and records nothing. Each change is on the timeline (`study.archived`,
+returns it unchanged and records nothing. Whether there is anything to restore is decided
+under the study's row lock, so several unarchives at once all answer 200 and exactly one
+records the change (the test holds the row locked while three requests queue on it). Each
+change is on the timeline (`study.archived`,
 `study.unarchived` with `after.status`), in the audit listing (`archived`, `unarchived`), and
 in the owner's `GET /v1/me/activity`.
 
