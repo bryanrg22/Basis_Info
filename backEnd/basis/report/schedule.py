@@ -7,7 +7,7 @@ what the report proves (the line, its class, its authority, the statutory bonus 
 with its source). The description is cut to 45 characters without quotes or commas, the
 limit of Fixed Assets CS's import. Every row's basis is the line's allocated cost, so the
 rows sum to the depreciable basis to the cent (:func:`rows` checks it). Vendor layouts are
-column mappings over these rows, added when a preparer supplies a template.
+column mappings over these rows (:mod:`basis.report.vendors`, STUDY_REPORT_SPEC 11.5.1).
 
 Both files are byte-identical for the same report: the CSV has fixed columns and order, the
 XLSX has its document properties pinned (no creation time).
@@ -127,15 +127,9 @@ FIXED_TIME: Final = datetime(2000, 1, 1)
 def to_xlsx(schedule: Iterable[Row], *, title: str = "Depreciation schedule") -> bytes:
     """The same rows as an XLSX workbook: basis and rates as numbers, dates as dates,
     with fixed document properties so the bytes do not change between runs."""
-    from openpyxl import Workbook
-
-    workbook = Workbook()
-    sheet = workbook.active
-    assert sheet is not None
-    sheet.title = "Schedule"
-    sheet.append(list(COLUMNS))
     numeric = {"basis", "statutory_bonus_rate", "recovery_period", "gds_life", "ads_life", "line"}
     dates = {"date_acquired", "date_placed_in_service"}
+    typed: list[list[object]] = []
     for row in schedule:
         cells: list[object] = []
         for name, value in zip(COLUMNS, row.values, strict=True):
@@ -145,9 +139,32 @@ def to_xlsx(schedule: Iterable[Row], *, title: str = "Depreciation schedule") ->
                 cells.append(date.fromisoformat(value))
             else:
                 cells.append(value)
-        sheet.append(cells)
-    for cell in sheet["N"][1:]:
-        cell.number_format = "#,##0.00"
+        typed.append(cells)
+    return workbook_bytes(COLUMNS, typed, money=("basis",), title=title)
+
+
+def workbook_bytes(
+    columns: tuple[str, ...],
+    cells: Iterable[list[object]],
+    *,
+    money: tuple[str, ...],
+    title: str,
+) -> bytes:
+    """One sheet, ``columns`` as its header row, ``cells`` typed as the caller made them,
+    ``money`` columns formatted to the cent, document properties and zip times pinned."""
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Schedule"
+    sheet.append(list(columns))
+    for row in cells:
+        sheet.append(row)
+    for name in money:
+        for cell in sheet[get_column_letter(columns.index(name) + 1)][1:]:
+            cell.number_format = "#,##0.00"
     sheet.freeze_panes = "A2"
     props = workbook.properties
     props.title = title
@@ -188,4 +205,13 @@ def _pin_zip_times(data: bytes) -> bytes:
     return out.getvalue()
 
 
-__all__ = ["COLUMNS", "DESCRIPTION_LIMIT", "Row", "description", "rows", "to_csv", "to_xlsx"]
+__all__ = [
+    "COLUMNS",
+    "DESCRIPTION_LIMIT",
+    "Row",
+    "description",
+    "rows",
+    "to_csv",
+    "to_xlsx",
+    "workbook_bytes",
+]
