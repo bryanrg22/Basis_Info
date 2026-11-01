@@ -7720,3 +7720,35 @@ they reviewed.
 - Interviews and prior depreciation (look-back studies) can be set through the API, but the app has
   no form for them yet.
 - The design's PDF viewer labels the preview "Local PDF · not uploaded".
+
+## 53. Live run 5 on main 7844e4d: the rulings survive the release, the report is signed (2026-11-01)
+
+**Question.** Does the merged build (#102 through #106) produce the study live, with the firm's rulings
+served after the release, and sign the report?
+
+**Setup.** One plain study of the client property, every gate approved as the model left it, on a stack
+built from main 7844e4d against a copy of the dev database (run 4's blanket-approval rows removed,
+migrations 0019 to 0021 applied). Private report: `E2E_LIVE_RUN5_2026-11-01.md` in the eval data.
+
+**Results, run 4 (section 50) against run 5:**
+
+| | run 4 | run 5 |
+|---|---|---|
+| completed, failures | yes, 0 (11.4 min) | yes, 0 (5.3 min) |
+| bucket right by count | 27/35 | 34/35 |
+| max bucket share error | 6.9 points | 3.3 points |
+| 39-year share (engineer 80.2 %) | 87.1 % | 83.5 % |
+| assets from the firm's rulings | 0 of 384 | 200 of 384 |
+| classifier calls | 477 | 15 |
+| study spend | 7.73 | 2.86 |
+
+The replay in section 50 predicted 34/35; the live run gives 34/35. The remaining wrong row is
+Fireplaces (5-year by the firm, 39-year by the rules table); why no ruling matched it is open.
+
+**The report.** The export step wrote the PDF and the schedule files; through the API the firm profile and
+the study answers were saved, the preview fetched (its `ETag` the sha256 of the bytes) and the revision
+signed in one second. The signed PDF has no DRAFT mark and carries the signature block; a second
+signature is refused (BASIS-REPORT-009).
+
+**Open.** The Fireplaces row; the 3.3-point 39-year gap (the structure model's Access Control row and
+Fireplaces); a second property, scored blind.
