@@ -1,15 +1,21 @@
-"""Invite-only firms: ``GET /v1/me``, owner administration, answering invitations.
+"""Invite-only firms: ``GET /v1/me``, creating and renaming a firm, owner administration,
+answering invitations (docs/api/FIRMS.md).
 
-A firm is an organization (``orgs``). Its owners (the admin role) manage members and
-invitations under ``/v1/orgs/{org_id}``; everyone else gets 404 (not a member: orgs are
-not enumerable) or 403 (a member below owner), like studies.
+A firm is an organization (``orgs``). Any signed-in user with a verified email creates one
+with ``POST /v1/orgs`` and is its first owner: that is how a new customer starts, with no
+operator involved (the operator CLI ``python -m basis.admin`` remains for firms Basis sets
+up). A user may belong to, and own, several firms. The firm's owners (the admin role)
+rename it and manage members and invitations under ``/v1/orgs/{org_id}``; everyone else
+gets 404 (not a member: orgs are not enumerable) or 403 (a member below owner), like
+studies.
 
 * Membership writes lock the firm's row and re-check the caller's role under the lock
   (``OrgRepository``), so two owners demoting each other concurrently leave one owner,
   and the last owner cannot be demoted or removed (409 ``last-owner``).
-* Invitations are bound to an email; no email is sent. The invitee answers in the app
-  with ``POST /v1/invitations/{id}/accept`` or ``/decline``, signed in with that email,
-  verified (``InvitationRepository.answer``).
+* Invitations are bound to an email. Creating one enqueues the invitation email in the
+  same transaction (``InvitationRepository.create``; the relay sends it and the list shows
+  ``delivery``). The invitee answers in the app with ``POST /v1/invitations/{id}/accept``
+  or ``/decline``, signed in with that email, verified (``InvitationRepository.answer``).
 
 Every route is on the standard read or write routers: rate limited per user, and writes
 take an ``Idempotency-Key``.
@@ -17,15 +23,20 @@ take an ``Idempotency-Key``.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import Depends, Path, Request, status
+from fastapi import Depends, Path, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from basis.api.errors import Forbidden
 from basis.api.routes.common import problems, read_router, write_router
 from basis.api.schemas.orgs import (
+    FirmCreate,
+    FirmOut,
+    FirmRename,
     InvitationAnswerOut,
     InvitationCreate,
     InvitationList,
@@ -43,8 +54,15 @@ from basis.config import Settings
 from basis.db.enums import OrgRole
 from basis.db.repositories import InvitationRepository, Membership, OrgRepository
 from basis.db.session import SessionDep
+from basis.errors.codes import E
 
 ADMIN_ROLE = OrgRole.OWNER
+DETAIL_CREATE_UNVERIFIED = (
+    "Creating a firm needs a sign-in that confirms your email address (Google sign-in "
+    "does): the firm's owner must be reachable at a verified address."
+)
+
+logger = logging.getLogger(__name__)
 
 reads = read_router(tags=["firms"])
 writes = write_router(tags=["firms"])
@@ -83,6 +101,55 @@ async def get_me(user: CurrentUserDep, session: SessionDep) -> MeOut:
         memberships=[MembershipOut.of(m) for m in memberships],
         pending_invitations=[InviteeInvitationOut.of(view) for view in pending],
     )
+
+
+# --------------------------------------------------------------------------- the firm
+
+
+@writes.post(
+    "/orgs",
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a firm; you become its owner",
+    description="How a new customer starts: any signed-in user whose sign-in confirms their "
+    "email creates a firm and is its first owner (403 `email-unverified` otherwise). You may "
+    "own or belong to several firms; names are not unique. Invite the rest of the firm with "
+    "`POST /v1/orgs/{org_id}/invitations`.",
+    responses=problems(403),
+)
+async def create_firm(
+    body: FirmCreate, user: CurrentUserDep, session: SessionDep, response: Response
+) -> FirmOut:
+    principal = user.principal
+    if not principal.email or not principal.email_verified:
+        raise Forbidden(
+            DETAIL_CREATE_UNVERIFIED,
+            type_suffix="email-unverified",
+            code=E.FIRM_EMAIL_UNVERIFIED,
+        )
+    org = await OrgRepository(session).create(body.name, owner_id=user.id)
+    logger.info(
+        "firm created", extra={"org_id": str(org.id), "user_id": str(user.id), "name": org.name}
+    )
+    response.headers["Location"] = f"/v1/orgs/{org.id}"
+    return FirmOut.of(org, OrgRole.OWNER)
+
+
+@writes.patch(
+    "/orgs/{org_id}",
+    summary="Rename the firm (owner only)",
+    description="The new name shows in `GET /v1/me`, the study list's firm switcher and "
+    "later invitation emails. Nothing else about the firm changes.",
+    responses=problems(403, 404),
+)
+async def rename_firm(
+    org_id: OwnedOrg, body: FirmRename, user: CurrentUserDep, session: SessionDep
+) -> FirmOut:
+    await lock_as_owner(session, user, org_id)
+    org = await OrgRepository(session).rename(org_id, body.name, renamed_by=user.id)
+    logger.info(
+        "firm renamed", extra={"org_id": str(org.id), "user_id": str(user.id), "name": org.name}
+    )
+    return FirmOut.of(org, OrgRole.OWNER)
 
 
 # --------------------------------------------------------------------------- members
@@ -155,11 +222,13 @@ async def list_invitations(org_id: OwnedOrg, session: SessionDep) -> InvitationL
     "/orgs/{org_id}/invitations",
     status_code=status.HTTP_201_CREATED,
     summary="Invite an email to the firm (owner only)",
-    description="No email is sent (`delivery` is `not_sent`): the invitee sees the "
-    "invitation in `GET /v1/me` once signed in with that email, verified. 409 "
-    "`already-member` when a member has the email; 409 `invitation-pending` while a pending "
-    "invitation for it exists (revoke it to change the role). An expired, revoked or "
-    "declined invitation does not block a new one.",
+    description="The invitation email is queued with the invitation and sent by the relay "
+    "(`delivery`, `emailed_at`, `email_error` on the list; docs/api/FIRMS.md). The invitee "
+    "accepts in the app, signed in with that email, verified (`GET /v1/me` lists it whether "
+    "or not the email arrived). 409 `already-member` when a member has the email; 409 "
+    "`invitation-pending` while a pending invitation for it exists (revoke it to change the "
+    "role or to send the email again). An expired, revoked or declined invitation does not "
+    "block a new one, which is a new email.",
     responses=problems(403, 404),
 )
 async def create_invitation(

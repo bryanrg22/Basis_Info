@@ -554,9 +554,10 @@ ENTRIES: Final[tuple[Entry, ...]] = (
     _e(
         E.FIRM_EMAIL_UNVERIFIED,
         "refusal",
-        "accept or decline an invitation",
-        "basis.db.repositories.invitation",
-        "The token does not assert a verified email, which an invitation is bound to.",
+        "accept or decline an invitation; `POST /orgs`",
+        "basis.db.repositories.invitation, basis.api.routes.orgs",
+        "The token does not assert a verified email, which an invitation is bound to and a "
+        "firm's first owner must have.",
         "403 `email-unverified`.",
         "Verify the email with the identity provider, sign in again.",
         "no",
@@ -3275,6 +3276,20 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Log line with `error_code`; `GET /v1/ops/health` reports the worker or relay "
         "`down` once the last heartbeat is older than its validity.",
         "Check the database and run `alembic upgrade head`.",
+        "yes",
+    ),
+    _e(
+        E.INF_EMAIL_FAILED,
+        "error",
+        "the outbox relay, sending an invitation email",
+        "basis.relay.delivery",
+        "The email sender (`EMAIL_PROVIDER`) failed or refused the invitation email: SMTP "
+        "unreachable, authentication refused, the recipient rejected (docs/api/FIRMS.md).",
+        "Relay log `invitation email failed` with `error_code`; the invitation's `email_error` "
+        "and `delivery: failed` in `GET /v1/orgs/{org_id}/invitations`; the outbox row retried "
+        "with backoff, `dead` after `RELAY_MAX_ATTEMPTS` or at once for a rejected recipient.",
+        "Fix the sender configuration or the address; revoke and invite again (a new "
+        "invitation is a new email). The invitee can still accept in the app meanwhile.",
         "yes",
     ),
 )

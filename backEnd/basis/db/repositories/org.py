@@ -11,8 +11,8 @@ two owners demoting each other at once cannot both succeed, because the second o
 after the first has committed and is no longer an owner. Under READ COMMITTED each
 statement after the lock wait sees what the first transaction committed.
 
-A role change and a removal are recorded on the firm's history (``org_events``,
-:mod:`basis.db.repositories.org_event`) in the same transaction.
+Creating and renaming a firm, a role change and a removal are recorded on the firm's
+history (``org_events``, :mod:`basis.db.repositories.org_event`) in the same transaction.
 """
 
 from __future__ import annotations
@@ -31,6 +31,8 @@ from basis.db.repositories.org_event import OrgEventRepository
 
 DETAIL_LAST_OWNER = "A firm must keep at least one owner; make another member an owner first."
 DETAIL_MEMBER_NOT_FOUND = "Member not found."
+# A firm's name: one line, trimmed (the API's ``LINE_PATTERN``; the CLI checks the same).
+MAX_FIRM_NAME_LENGTH = 200
 
 # Owners first, then engineers, then viewers.
 _ROLE_ORDER = case(
@@ -73,10 +75,56 @@ class OrgRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, name: str) -> Org:
+    async def create(self, name: str, owner_id: uuid.UUID | None = None) -> Org:
+        """A firm named ``name`` (trimmed; names are not unique), with ``owner_id`` as its
+        owner when given (``POST /v1/orgs``: the creator) and no member otherwise (the
+        operator CLI, which invites the owner). Recorded as ``org.created`` on the firm's
+        history, by the creator or by the system (the CLI)."""
+        name = name.strip()
+        if not name or len(name) > MAX_FIRM_NAME_LENGTH:
+            raise ValueError(f"a firm name is 1 to {MAX_FIRM_NAME_LENGTH} characters")
         org = Org(name=name)
         self._session.add(org)
         await self._session.flush()
+        if owner_id is not None:
+            self._session.add(OrgMember(org_id=org.id, user_id=owner_id, role=OrgRole.OWNER.value))
+            await self._session.flush()
+        await OrgEventRepository(self._session).record(
+            org.id,
+            "org.created",
+            actor_id=owner_id,
+            subject_user_id=owner_id,
+            entity_type="org",
+            entity_id=org.id,
+            after={"name": name},
+        )
+        await self._session.refresh(org)
+        return org
+
+    async def rename(self, org_id: uuid.UUID, name: str, *, renamed_by: uuid.UUID) -> Org:
+        """Rename the firm. Call with the firm locked (:meth:`lock`); ``NotVisibleError``
+        when it does not exist. Recorded as ``org.renamed`` (``before``/``after``
+        ``{name}``); the current name again records nothing."""
+        name = name.strip()
+        if not name or len(name) > MAX_FIRM_NAME_LENGTH:
+            raise ValueError(f"a firm name is 1 to {MAX_FIRM_NAME_LENGTH} characters")
+        org = await self.get(org_id)
+        if org is None:
+            raise NotVisibleError("Organization not found.")
+        if org.name == name:
+            return org
+        before = org.name
+        org.name = name
+        await self._session.flush()
+        await OrgEventRepository(self._session).record(
+            org_id,
+            "org.renamed",
+            actor_id=renamed_by,
+            entity_type="org",
+            entity_id=org_id,
+            before={"name": before},
+            after={"name": name},
+        )
         await self._session.refresh(org)
         return org
 

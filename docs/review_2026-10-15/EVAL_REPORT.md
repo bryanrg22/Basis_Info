@@ -8102,3 +8102,69 @@ been run live. The frontend changes (reading the draft on open, autosaving on ed
 **Open.** Whether a pending registration should be removable (not provided: a pending row
 costs nothing and keeps the duplicate check honest); whether `others` should carry the drafts'
 content for a reviewer role (not now: a colleague's half-finished work is theirs to send).
+
+## 59. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
+
+**Question.** Can an engineering firm get onto Basis from a link, with no operator at a terminal:
+create its firm, invite its people, and have them told? Before this, a firm existed only through
+`python -m basis.admin`, and an invitation was silent (`delivery: not_sent`).
+
+**The standard, and what was taken from it.**
+- Transactional email frameworks separate the message from the transport: Django renders an
+  `EmailMessage` and hands it to the backend `EMAIL_BACKEND` names (`console` logs, `locmem` keeps
+  it in memory, `smtp` sends); Rails' `ActionMailer` does the same with `delivery_method`. Basis
+  now has `basis.email`: `EmailMessage` in, `EmailSender.send` out, chosen by `EMAIL_PROVIDER`
+  (`log`, the default; `smtp` through the standard library; an HTTP provider is the documented
+  slot).
+- Providers that offer idempotent sends key them per intended send (Resend's `Idempotency-Key`,
+  kept 24 hours; a key shared across recipients sends once to the first). Basis keys each
+  invitation row (`invitation-{id}`); SMTP gets it as the `Message-ID`.
+- The transactional outbox the relay already runs (claims with `FOR UPDATE SKIP LOCKED`, retries
+  `min(2**attempts, 300)` s, dead after 50) is reused as the queue: the invitation is a
+  `notification` of type `invitation`, enqueued in the transaction that inserts the invitation.
+
+**Design.** `docs/api/FIRMS.md`. In short: `POST /v1/orgs` (verified email; the creator is the
+owner; several firms per user allowed; names not unique), `PATCH /v1/orgs/{id}` (owner renames),
+the invitation email through the outbox with its outcome on the invitation (`emailed_at`,
+`email_error`; `delivery` derived: `queued`, `sent`, `failed`, `not_sent`), `created_by_name` and
+`created_by_email` on studies, `signed_by_name` and `signed_by_email` on signatures; `org.created` and
+`org.renamed` on the firm's history (section 56). Migration 0025
+adds three nullable columns to `invitations`. Study visibility within a firm is unchanged and the
+reasons are written down (FIRMS.md 7).
+
+**Measured.**
+
+| | |
+|---|---|
+| unit tests added | 48 (`tests/unit/email` 21, `tests/unit/config/test_email_settings.py` 20, relay 7) |
+| integration tests added | 10 (`tests/integration/relay/test_invitation_emails.py`) |
+| API tests added | 17 in `test_firms.py`; shape assertions widened in `test_studies.py`, `test_report_signing.py`, `test_health.py`, the CLI and migration tests |
+| same transaction | a rolled-back create leaves neither row; a refused create (409) enqueues nothing |
+| once per invitation | a second poll and a duplicate outbox row for an emailed invitation send nothing; `emailed_at` is written once |
+| retries | a failing sender: outbox `attempts` 1, `email_error` set, `delivery: failed`; the next success clears it; three failures at `max_attempts=3` dead-letter; a 5xx recipient is dead at once |
+| not sent when moot | an invitation revoked before the relay ran: the row is delivered unsent, both rows say why |
+| SMTP | one session against a local server: From, To, Subject, deterministic `Message-ID`, `Auto-Submitted`; 550 final, 450 retried, refused connection retried |
+| contract | `POST /v1/orgs` and `PATCH /v1/orgs/{org_id}` in `docs/api/openapi.json`; Schemathesis ran both with no carve-out |
+
+**Decisions worth defending.**
+- *Why the relay sends and the API only enqueues.* The API's transaction must not wait on a mail
+  server, and a send that happened for an invitation that then rolled back cannot be unsent. The
+  outbox gives exactly the ordering we need: commit first, send after, retry on failure.
+- *Why `delivery: sent` with the log provider.* The sender accepted the message; what the sender
+  does is the deployment's choice and is visible in `GET /v1/ops/health`'s relay row and the relay
+  log. Reporting `not_sent` would make a firm's owner chase an email that was never meant to go.
+- *Why no `visibility` column yet.* A stored field nothing enforces misleads the client; the rule is
+  a product decision for the firms being pitched (FIRMS.md 7). `created_by_name` lets the app offer
+  the "My studies" filter client-side meanwhile.
+- *Why SMTP and not a provider SDK.* Every provider offers an SMTP relay; the standard library
+  needs no account, no dependency and no key in the repository. The HTTP slot is documented for
+  when bounce webhooks are wanted.
+
+**Not verified here.**
+- No email was sent to a real mailbox: no provider is configured in any environment
+  (`EMAIL_PROVIDER=log` everywhere). The SMTP sender was exercised against a local server written in
+  the test, not against a provider's relay with TLS and authentication.
+- The frontend still says "No email is sent" and has no create-a-firm screen; `web/README.md`
+  "Gaps" lists what the app does not show yet.
+- The migration was written as 0024 on 0021 and renumbered 0025 on 0024 once user activity (0022),
+  rate-limit hits (0023) and review drafts (0024) merged into this branch.

@@ -19,6 +19,7 @@ holding a version can tell whether the numbers it shows still follow the intake 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Annotated, Any, Final
 
 from fastapi import Depends, Header, Query, Request, Response, status
@@ -53,10 +54,12 @@ from basis.api.users import (
 from basis.config import Settings
 from basis.db.enums import OrgRole, Stage, StudyStatus
 from basis.db.errors import PreconditionFailedError
+from basis.db.models import Study
 from basis.db.repositories import (
     DocumentRepository,
     ReviewRepository,
     StudyRepository,
+    UserRepository,
     VisibleStudy,
 )
 from basis.db.repositories.study import DEFAULT_SORT, MAX_PAGE_SIZE, StudyFilters, StudySort
@@ -73,6 +76,28 @@ _STAGE_ORDER: Final = {stage: index for index, stage in enumerate(Stage)}
 
 reads = read_router(tags=["studies"])
 writes = write_router(tags=["studies"])
+
+
+async def studies_out(session: AsyncSession, studies: Sequence[Study]) -> list[StudyOut]:
+    """``StudyOut`` for each study, with the creator's name and email (one ``users`` read)."""
+    who = await UserRepository(session).identities({study.created_by for study in studies})
+    out = []
+    for study in studies:
+        identity = who.get(study.created_by)
+        out.append(
+            StudyOut.model_validate(study).model_copy(
+                update={
+                    "created_by_name": identity.display_name if identity else None,
+                    "created_by_email": identity.email if identity else None,
+                }
+            )
+        )
+    return out
+
+
+async def study_out(session: AsyncSession, study: Study) -> StudyOut:
+    (out,) = await studies_out(session, [study])
+    return out
 
 
 async def choose_org(
@@ -134,7 +159,7 @@ async def create_study(
         detail={"intake": intake is not None},
     )
     response.headers["Location"] = f"/v1/studies/{study.id}"
-    return StudyOut.model_validate(study)
+    return await study_out(session, study)
 
 
 async def stored_intake(
@@ -261,7 +286,7 @@ async def put_intake(
         },
     )
     response.headers[ETAG_HEADER] = intake_etag(study.intake_version)
-    return StudyOut.model_validate(study)
+    return await study_out(session, study)
 
 
 @reads.get(
@@ -327,7 +352,7 @@ async def list_studies(
         # Only a member of no firm at all sees no studies for that reason; tell them so.
         await require_firm(session, user)
     return StudyList(
-        items=[StudyOut.model_validate(study) for study in page.items],
+        items=await studies_out(session, page.items),
         total=page.total,
         next_cursor=page.next_cursor,
     )
@@ -346,7 +371,7 @@ async def get_study(
     latest = await ReviewRepository(session).latest_by_stage(study.id)
     reviews = [latest[stage] for stage in sorted(latest, key=_STAGE_ORDER.__getitem__)]
     return StudyDetail(
-        **StudyOut.model_validate(study).model_dump(),
+        **(await study_out(session, study)).model_dump(),
         documents=[DocumentOut.model_validate(document) for document in documents],
         latest_reviews=[ReviewOut.model_validate(review) for review in reviews],
     )
@@ -371,7 +396,7 @@ async def archive_study(
         stage=study.current_stage,
         revision=study.revision,
     )
-    return StudyOut.model_validate(study)
+    return await study_out(session, study)
 
 
 @writes.post(
@@ -403,4 +428,4 @@ async def unarchive_study(
             revision=study.revision,
             after={"status": study.status.value},
         )
-    return StudyOut.model_validate(study)
+    return await study_out(session, study)

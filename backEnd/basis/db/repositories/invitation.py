@@ -1,9 +1,18 @@
 """Invitations to join a firm: create, list, revoke, accept, decline.
 
 The GitHub organization-invitation pattern: an invitation is bound to an email, not to a
-secret link. No email is sent (there is no mail service); the invitee sees the invitation
-after signing in with that email (``GET /v1/me``) and answers it in the app. Answering
-needs the token's ``email_verified`` claim and the same normalized email.
+secret link. The invitee is emailed (below) and sees the invitation after signing in with
+that email (``GET /v1/me``), then answers it in the app. Answering needs the token's
+``email_verified`` claim and the same normalized email.
+
+* The email goes through the transactional outbox: :meth:`InvitationRepository.create`
+  enqueues a ``notification`` message of type ``invitation`` in the transaction that
+  inserts the row (so an invitation that commits is emailed, and one that rolls back is
+  not) and sets ``email_queued_at``. The relay (``basis.relay.delivery``) renders it,
+  hands it to the configured sender and records the outcome here: :meth:`record_emailed`
+  (``emailed_at``, once) or :meth:`record_email_error` (the last failure). The delivery
+  status the API shows is derived (:func:`email_delivery`): ``not_sent`` (created before
+  emails existed), ``queued``, ``sent``, ``failed``.
 
 * Emails are normalized with :func:`normalize_email` (trimmed, lower case) and stored that
   way. :data:`EMAIL_PATTERN` is what the API and the CLI accept.
@@ -34,7 +43,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Final
 
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import Select, and_, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -50,6 +59,7 @@ from basis.db.errors import (
 from basis.db.models import Invitation, Org, User
 from basis.db.repositories.org import OrgRepository
 from basis.db.repositories.org_event import OrgEventRepository
+from basis.db.repositories.outbox import INVITATION_NOTIFICATION, NOTIFICATION, OutboxRepository
 from basis.db.repositories.user import UserRepository
 
 MAX_EMAIL_LENGTH: Final = 254  # RFC 5321 section 4.5.3.1.3 (a path is at most 256 octets)
@@ -76,6 +86,18 @@ class InvitationStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class EmailDelivery(StrEnum):
+    """Where the invitation email stands (derived, never stored)."""
+
+    NOT_SENT = "not_sent"  # created before invitation emails existed: nothing was queued
+    QUEUED = "queued"  # enqueued for the relay; not handed to the sender yet
+    SENT = "sent"  # the sender accepted it (the log sender only logged it)
+    FAILED = "failed"  # the last attempt failed (``email_error``); the relay may still retry
+
+
+MAX_EMAIL_ERROR_LENGTH: Final = 2000
+
+
 _CLOSED_DETAIL: Final = {
     InvitationStatus.ACCEPTED: "This invitation was already accepted.",
     InvitationStatus.DECLINED: "This invitation was declined.",
@@ -95,6 +117,16 @@ def valid_email(raw: str) -> str:
     if len(email) > MAX_EMAIL_LENGTH or not _EMAIL.fullmatch(email):
         raise ValueError(f"not an email address: {raw!r}")
     return email
+
+
+def email_delivery(invitation: Invitation) -> EmailDelivery:
+    if invitation.emailed_at is not None:
+        return EmailDelivery.SENT
+    if invitation.email_error is not None:
+        return EmailDelivery.FAILED
+    if invitation.email_queued_at is not None:
+        return EmailDelivery.QUEUED
+    return EmailDelivery.NOT_SENT
 
 
 def invitation_status(invitation: Invitation, now: datetime) -> InvitationStatus:
@@ -119,6 +151,10 @@ class InvitationView:
     invited_by_name: str | None
     invited_by_email: str | None
     status: InvitationStatus
+
+    @property
+    def delivery(self) -> EmailDelivery:
+        return email_delivery(self.invitation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +222,10 @@ class InvitationRepository:
         for it exists. An expired open invitation is closed (revoked by ``created_by``;
         its status stays ``expired``) and replaced. Revoked, declined and accepted ones
         do not block a new invitation.
+
+        The invitation email is enqueued in this transaction (one outbox message per
+        invitation row, so re-inviting after expiry or revocation emails again, and a
+        refused request enqueues nothing); ``email_queued_at`` says so.
         """
         email = valid_email(email)
         if await OrgRepository(self._session).member_with_email(org_id, email) is not None:
@@ -203,6 +243,7 @@ class InvitationRepository:
                     role=role.value,
                     created_by=created_by,
                     expires_at=func.now() + ttl,
+                    email_queued_at=func.now(),
                 )
                 .on_conflict_do_nothing(
                     index_elements=[Invitation.org_id, Invitation.email],
@@ -212,6 +253,15 @@ class InvitationRepository:
             )
             if inserted is not None:
                 view = await self.view(inserted)
+                await OutboxRepository(self._session).enqueue(
+                    NOTIFICATION,
+                    {
+                        "type": INVITATION_NOTIFICATION,
+                        "invitation_id": str(inserted),
+                        "org_id": str(org_id),
+                        "email": email,
+                    },
+                )
                 await OrgEventRepository(self._session).record(
                     org_id,
                     "invitation.created",
@@ -251,6 +301,27 @@ class InvitationRepository:
         raise InvitationPendingError(
             "This email already has a pending invitation to the firm."
         )  # pragma: no cover - only under repeated concurrent invitations
+
+    async def record_emailed(self, invitation_id: uuid.UUID) -> bool:
+        """The relay handed the email to the sender: ``emailed_at`` now, the error cleared.
+        Once only: False when it was already recorded (a redelivered outbox row)."""
+        result = await self._session.execute(
+            update(Invitation)
+            .where(Invitation.id == invitation_id, Invitation.emailed_at.is_(None))
+            .values(emailed_at=func.now(), email_error=None)
+            .execution_options(synchronize_session=False)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    async def record_email_error(self, invitation_id: uuid.UUID, error: str) -> None:
+        """The last send attempt failed (or the message was not sent); kept until a later
+        attempt succeeds. Never overwrites a recorded success."""
+        await self._session.execute(
+            update(Invitation)
+            .where(Invitation.id == invitation_id, Invitation.emailed_at.is_(None))
+            .values(email_error=error[:MAX_EMAIL_ERROR_LENGTH])
+            .execution_options(synchronize_session=False)
+        )
 
     async def list_for_org(self, org_id: uuid.UUID) -> list[InvitationView]:
         """Every invitation of the firm, newest first."""

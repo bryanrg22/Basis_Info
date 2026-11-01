@@ -54,6 +54,8 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
+* ``0025_invitation_email`` adds ``invitations.email_queued_at``, ``emailed_at`` and
+  ``email_error`` (NULL for existing rows: ``delivery: not_sent``) and downgrades back;
 * ``0020_report_signing`` creates ``firm_profiles`` (one per firm, a JSON object, version
   >= 1, its ``updated_at`` trigger), ``studies.report_answers``/``report_answers_version``
   (NULL and 0 for existing studies) and ``report_signatures`` (one per revision, sha256 hex,
@@ -107,8 +109,10 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0024"
-HISTORY = [f"{n:04d}" for n in range(24, 0, -1)]  # "0024" .. "0001"
+# 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
+# (review drafts), the three branches it was merged with.
+HEAD = "0025"
+HISTORY = [f"{n:04d}" for n in range(25, 0, -1)]  # "0025" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
