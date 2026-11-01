@@ -71,7 +71,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `event_type` | Actor | When | Carries |
 |---|---|---|---|
 | `study.created`, `study.intake_set`, `study.archived`, `study.unarchived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md); `archived` and `unarchived` once per change, decided under the row lock (a repeat or a concurrent request records nothing); `unarchived`: `after.status` the status it came back to (docs/api/STUDY_LIBRARY.md) |
-| `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256. Once per document: of two confirmations at once only the one that set `uploaded_at` records it (EVAL_REPORT 59) |
+| `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256. Once per document: of two confirmations at once only the one that set `uploaded_at` records it (EVAL_REPORT 60) |
 | `study.started` | engineer | `POST .../start` moved the study to `extracting` | `detail.workflow_id` |
 | `run.started`, `run.ended` | system | the Temporal execution | `detail.outcome` on the end |
 | `stage.entered` | engineer or system | the study row moved (a decision moves it first; the workflow's `transition` converges) | `before`/`after` stage and revision |
@@ -403,7 +403,8 @@ or deleted (`forbid_mutation()`).
 
 | `event_type` | Actor | Carries |
 |---|---|---|
-| `org.created` | system (the CLI) | `after.name` |
+| `org.created` | the creator (`POST /v1/orgs`; also `subject_user_id`), or system (the CLI) | `after.name` |
+| `org.renamed` | an owner (`PATCH /v1/orgs/{org_id}`) | `before`/`after` `{name}`; the current name again records nothing |
 | `invitation.created` | engineer, or system from the CLI | `entity_id` the invitation; `after` `{email, role, expires_at}`; `detail.replaced` the expired invitation it closed, if any |
 | `invitation.revoked` | engineer, or system | `before` `{email, role, expires_at}`; `detail.reason`: `revoked` (an owner revoked it), `member_removed` (the member's removal revoked their open invitations; `subject_user_id` the member), `expired` (re-inviting closed an expired one) |
 | `invitation.accepted` | the invitee (also `subject_user_id`) | `after` `{email, role}` the role the member has afterwards; `detail.role_before` the role they already had (null when they joined) |

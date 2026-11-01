@@ -599,7 +599,7 @@ async def test_a_failed_study_shows_its_status_and_reason(
 # --------------------------------------------------------------------------- wiring
 
 
-# ------------------------------------------------------------------- archive (EVAL_REPORT 59)
+# ------------------------------------------------------------------- archive (EVAL_REPORT 60)
 
 
 async def archived_events(sm: async_sessionmaker[AsyncSession], sid: str) -> int:

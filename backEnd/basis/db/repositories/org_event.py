@@ -9,7 +9,9 @@ reads it newest first, keyset-paginated on ``seq``.
 Event vocabulary (``event_type``; the actor in brackets; ``subject_user_id`` the member the
 event is about):
 
-* ``org.created`` [system]: the operator CLI created the firm (``after.name``);
+* ``org.created`` [engineer: the creator, also the subject, from ``POST /v1/orgs``; system
+  from the operator CLI]: ``after.name``;
+* ``org.renamed`` [engineer: an owner]: ``before``/``after`` ``{name}``;
 * ``invitation.created`` [engineer, or system from the CLI]: ``entity_id`` the invitation;
   ``after`` ``{email, role, expires_at}``; ``detail.replaced`` the expired invitation it
   closed, when it closed one;

@@ -8102,7 +8102,74 @@ been run live. The frontend changes (reading the draft on open, autosaving on ed
 **Open.** Whether a pending registration should be removable (not provided: a pending row
 costs nothing and keeps the duplicate check honest); whether `others` should carry the drafts'
 content for a reviewer role (not now: a colleague's half-finished work is theirs to send).
-## 59. Races and edge cases before firms use it: two people on one study, nothing changes a final study silently (2026-11-01)
+
+## 59. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
+
+**Question.** Can an engineering firm get onto Basis from a link, with no operator at a terminal:
+create its firm, invite its people, and have them told? Before this, a firm existed only through
+`python -m basis.admin`, and an invitation was silent (`delivery: not_sent`).
+
+**The standard, and what was taken from it.**
+- Transactional email frameworks separate the message from the transport: Django renders an
+  `EmailMessage` and hands it to the backend `EMAIL_BACKEND` names (`console` logs, `locmem` keeps
+  it in memory, `smtp` sends); Rails' `ActionMailer` does the same with `delivery_method`. Basis
+  now has `basis.email`: `EmailMessage` in, `EmailSender.send` out, chosen by `EMAIL_PROVIDER`
+  (`log`, the default; `smtp` through the standard library; an HTTP provider is the documented
+  slot).
+- Providers that offer idempotent sends key them per intended send (Resend's `Idempotency-Key`,
+  kept 24 hours; a key shared across recipients sends once to the first). Basis keys each
+  invitation row (`invitation-{id}`); SMTP gets it as the `Message-ID`.
+- The transactional outbox the relay already runs (claims with `FOR UPDATE SKIP LOCKED`, retries
+  `min(2**attempts, 300)` s, dead after 50) is reused as the queue: the invitation is a
+  `notification` of type `invitation`, enqueued in the transaction that inserts the invitation.
+
+**Design.** `docs/api/FIRMS.md`. In short: `POST /v1/orgs` (verified email; the creator is the
+owner; several firms per user allowed; names not unique), `PATCH /v1/orgs/{id}` (owner renames),
+the invitation email through the outbox with its outcome on the invitation (`emailed_at`,
+`email_error`; `delivery` derived: `queued`, `sent`, `failed`, `not_sent`), `created_by_name` and
+`created_by_email` on studies, `signed_by_name` and `signed_by_email` on signatures; `org.created` and
+`org.renamed` on the firm's history (section 56). Migration 0025
+adds three nullable columns to `invitations`. Study visibility within a firm is unchanged and the
+reasons are written down (FIRMS.md 7).
+
+**Measured.**
+
+| | |
+|---|---|
+| unit tests added | 48 (`tests/unit/email` 21, `tests/unit/config/test_email_settings.py` 20, relay 7) |
+| integration tests added | 10 (`tests/integration/relay/test_invitation_emails.py`) |
+| API tests added | 17 in `test_firms.py`; shape assertions widened in `test_studies.py`, `test_report_signing.py`, `test_health.py`, the CLI and migration tests |
+| same transaction | a rolled-back create leaves neither row; a refused create (409) enqueues nothing |
+| once per invitation | a second poll and a duplicate outbox row for an emailed invitation send nothing; `emailed_at` is written once |
+| retries | a failing sender: outbox `attempts` 1, `email_error` set, `delivery: failed`; the next success clears it; three failures at `max_attempts=3` dead-letter; a 5xx recipient is dead at once |
+| not sent when moot | an invitation revoked before the relay ran: the row is delivered unsent, both rows say why |
+| SMTP | one session against a local server: From, To, Subject, deterministic `Message-ID`, `Auto-Submitted`; 550 final, 450 retried, refused connection retried |
+| contract | `POST /v1/orgs` and `PATCH /v1/orgs/{org_id}` in `docs/api/openapi.json`; Schemathesis ran both with no carve-out |
+
+**Decisions worth defending.**
+- *Why the relay sends and the API only enqueues.* The API's transaction must not wait on a mail
+  server, and a send that happened for an invitation that then rolled back cannot be unsent. The
+  outbox gives exactly the ordering we need: commit first, send after, retry on failure.
+- *Why `delivery: sent` with the log provider.* The sender accepted the message; what the sender
+  does is the deployment's choice and is visible in `GET /v1/ops/health`'s relay row and the relay
+  log. Reporting `not_sent` would make a firm's owner chase an email that was never meant to go.
+- *Why no `visibility` column yet.* A stored field nothing enforces misleads the client; the rule is
+  a product decision for the firms being pitched (FIRMS.md 7). `created_by_name` lets the app offer
+  the "My studies" filter client-side meanwhile.
+- *Why SMTP and not a provider SDK.* Every provider offers an SMTP relay; the standard library
+  needs no account, no dependency and no key in the repository. The HTTP slot is documented for
+  when bounce webhooks are wanted.
+
+**Not verified here.**
+- No email was sent to a real mailbox: no provider is configured in any environment
+  (`EMAIL_PROVIDER=log` everywhere). The SMTP sender was exercised against a local server written in
+  the test, not against a provider's relay with TLS and authentication.
+- The frontend still says "No email is sent" and has no create-a-firm screen; `web/README.md`
+  "Gaps" lists what the app does not show yet.
+- The migration was written as 0024 on 0021 and renumbered 0025 on 0024 once user activity (0022),
+  rate-limit hits (0023) and review drafts (0024) merged into this branch.
+
+## 60. Races and edge cases before firms use it: two people on one study, nothing changes a final study silently (2026-11-01)
 
 **Question.** Bryan's two conditions before an engineering firm works in Basis: two people acting
 on the same study at once must never corrupt it, and nothing may change a study that is already
@@ -8125,7 +8192,7 @@ broken version before it was kept; the break is named in each row. The Temporal 
 time-skipping test server with the real activities (`tests/lifecycle`), the archive rule with the
 real API over that server's client.
 
-### 59.1 Findings
+### 60.1 Findings
 
 | # | Path | Verdict | What holds, and the test |
 |---|---|---|---|
@@ -8133,17 +8200,17 @@ real API over that server's client.
 | 2 | Two `POST .../documents` with one sha256 | **verified safe** | Nothing is locked before the insert; released together from a table lock, the unique key `(study_id, sha256)` arbitrates: one 201, the other waits on the key, fails inside its savepoint and is 409 `duplicate-document` naming the winner; one row; only the winner got an upload URL. Which one wins is the index's choice, so the test is order-free. Broken (the unique constraint dropped in the test database): both 201, two rows. `test_uploads.py::test_two_registrations_of_one_sha256_at_once_create_one_document` |
 | 3 | Two `promote_conventions` of one firm on one key | **verified safe** | `put` and `confirm` lock the row (`FOR UPDATE`) before reading `approvals`; two activity bodies for two studies released by a barrier both answer `confirmed` and the row goes 1 -> 3 with the seeding study kept and one event per study (approvals 2 and 3); at the repository, `put`+`put`, `put`+`confirm`, `confirm`+`confirm` go 3, 5, 7. Learned from the broken versions: without the lock in `put`, two `put`s still end right, because the `INSERT ... ON CONFLICT DO NOTHING` makes PostgreSQL's unique check wait on the in-flight transaction holding the row, so the second read sees the first's commit; but a `put` racing a `confirm` reads before the `confirm` locks and the row ends at 4 instead of 5 (the repository test fails on it). The promote test, two `put`s, was proved against a `put` with neither the lock nor the insert on the existing-row path (a read-then-write): both read 1, both write 2. `node/test_promote_race.py`, `integration/db/test_classification_cache.py::test_two_approvals_of_one_convention_at_once_both_count` |
 | 4 | Two `PUT /orgs/{id}/profile` and two `PUT .../report-answers` with one `If-Match` | **verified safe** | The precondition is checked under the firm's (the study's) row lock against the version read there: 200 (version 2) and 412 with `ETag "2"` (`BASIS-REPORT-011`, `-012`); the loser's document is not written; the answers' timeline shows versions 1 and 2 only. Broken (the precondition checked against the route's unlocked read): both 200, version 3. `test_report_signing.py::test_two_profile_writes_with_one_etag_at_once_write_one`, `::test_two_answers_writes_with_one_etag_at_once_write_one` |
-| 5 | Archive while the workflow runs or waits at a gate | **fixed** (59.2) | `DELETE /v1/studies/{id}` archived a running study: its next transition then failed the execution (every transition refuses an archived study), and one at a gate waited for a decision the API refuses. Now 409 `workflow-running` (`BASIS-STUDY-030`) while Temporal says `RUNNING`; cancel first. On the real workflow: refused in progress and at the gate, 200 once the cancel closed the execution, recorded once; a decision after the archive is 409 from the API and refused by the closed execution; unarchived, the study reads `waiting_review` with a `CANCELED` execution and `restart` is the path. `lifecycle/test_archive_rule.py`, `test_workflow_routes.py::test_archive_is_refused_while_the_execution_runs`, `::test_archive_of_a_started_study_needs_temporal` |
+| 5 | Archive while the workflow runs or waits at a gate | **fixed** (60.2) | `DELETE /v1/studies/{id}` archived a running study: its next transition then failed the execution (every transition refuses an archived study), and one at a gate waited for a decision the API refuses. Now 409 `workflow-running` (`BASIS-STUDY-030`) while Temporal says `RUNNING`; cancel first. On the real workflow: refused in progress and at the gate, 200 once the cancel closed the execution, recorded once; a decision after the archive is 409 from the API and refused by the closed execution; unarchived, the study reads `waiting_review` with a `CANCELED` execution and `restart` is the path. `lifecycle/test_archive_rule.py`, `test_workflow_routes.py::test_archive_is_refused_while_the_execution_runs`, `::test_archive_of_a_started_study_needs_temporal` |
 | 6 | `POST .../retry` pressed twice on the real workflow | **verified safe** | With the clearing `record_failure` held open by the test (so the window between the first retry and the stage's restart is real), two more retries answer `already_requested: true` and start nothing: one `:retry1` extraction, two calls in all, the study completes; a retry after the restart is `InvalidRetry`. Broken (the ack's `already_requested` always false): the second reads false. `lifecycle/test_stage_retry.py::test_a_second_retry_before_the_stage_restarts_is_already_requested` |
-| 7 | An execution ending `failed` through `_record_end("failed")` | **fixed** (59.3) | The run was recorded `failed` while the study row stayed `processing` at its stage with no reason: a client polling the study saw it in progress forever. Now the workflow records the failure on the study first. `lifecycle/test_failed_end.py` |
-| 8 | Intake, report answers and firm profile after the study started or the report was signed | **fixed** (59.4) | `PUT .../intake` refused only archived studies: the price, the dates and the land method could change during the run, after completion and after signing, with nothing marking the result, the export or the signed report stale. Now 409 `intake-locked` (`BASIS-STUDY-031`) from the start on. The answers and the profile stay writable after signing (the profile serves every study); the signed PDF never changes (verified: the bytes are identical after both writes), and `report/state` now says which inputs changed since the signature. `test_studies.py::test_the_intake_is_locked_once_the_study_has_started`, `test_report_signing.py::test_inputs_written_after_signing_are_reported_not_rendered`, `::test_an_answers_write_queued_before_the_signing_makes_it_412` |
-| 9a | `POST .../start` and `DELETE` at once | **fixed** (59.2) | Both read a draft; with the start first on the row lock, the archive landed on a study whose execution had just begun. Now the archive's compare-and-set (`workflow_id` must still be what the route read) refuses: 202 and 409 `workflow-running`, the study `processing` with its execution, no event. Broken (no `expected_workflow_id`): the archive lands. `test_workflow_routes.py::test_a_start_and_an_archive_at_once_leave_the_study_running` |
-| 9b | `POST .../start` and `PUT .../intake` at once | **verified safe** (with 59.4) | With the start first, the write finds the study started under the lock and is 409 `intake-locked`; the run prices from the intake it read, version unchanged, no event. `test_workflow_routes.py::test_a_start_and_an_intake_write_at_once_leave_the_intake_the_run_read` |
-| 9c | Two `DELETE` (archive) at once, or a repeat | **fixed** (59.2) | The route recorded `study.archived` on every request, including on a study already archived: the mirror of the unarchive defect of section 56. Now `StudyRepository.archive` decides under the row lock and answers whether it archived; the route records only then. Broken (the event recorded unconditionally): two events. `test_study_library.py::test_concurrent_archives_record_one_event` |
-| 9d | Two `POST .../documents/{id}/complete` at once | **fixed** (59.2) | Both confirmations verify the object (it is immutable) and both reached the compare-and-set; the one that lost it still recorded `document.uploaded`, so one upload had two events. Now `confirm_upload` says which call set `uploaded_at` and only that one records. Broken (recorded unconditionally): two events. `test_uploads.py::test_two_confirmations_of_one_upload_at_once_record_one_event` |
+| 7 | An execution ending `failed` through `_record_end("failed")` | **fixed** (60.3) | The run was recorded `failed` while the study row stayed `processing` at its stage with no reason: a client polling the study saw it in progress forever. Now the workflow records the failure on the study first. `lifecycle/test_failed_end.py` |
+| 8 | Intake, report answers and firm profile after the study started or the report was signed | **fixed** (60.4) | `PUT .../intake` refused only archived studies: the price, the dates and the land method could change during the run, after completion and after signing, with nothing marking the result, the export or the signed report stale. Now 409 `intake-locked` (`BASIS-STUDY-031`) from the start on. The answers and the profile stay writable after signing (the profile serves every study); the signed PDF never changes (verified: the bytes are identical after both writes), and `report/state` now says which inputs changed since the signature. `test_studies.py::test_the_intake_is_locked_once_the_study_has_started`, `test_report_signing.py::test_inputs_written_after_signing_are_reported_not_rendered`, `::test_an_answers_write_queued_before_the_signing_makes_it_412` |
+| 9a | `POST .../start` and `DELETE` at once | **fixed** (60.2) | Both read a draft; with the start first on the row lock, the archive landed on a study whose execution had just begun. Now the archive's compare-and-set (`workflow_id` must still be what the route read) refuses: 202 and 409 `workflow-running`, the study `processing` with its execution, no event. Broken (no `expected_workflow_id`): the archive lands. `test_workflow_routes.py::test_a_start_and_an_archive_at_once_leave_the_study_running` |
+| 9b | `POST .../start` and `PUT .../intake` at once | **verified safe** (with 60.4) | With the start first, the write finds the study started under the lock and is 409 `intake-locked`; the run prices from the intake it read, version unchanged, no event. `test_workflow_routes.py::test_a_start_and_an_intake_write_at_once_leave_the_intake_the_run_read` |
+| 9c | Two `DELETE` (archive) at once, or a repeat | **fixed** (60.2) | The route recorded `study.archived` on every request, including on a study already archived: the mirror of the unarchive defect of section 56. Now `StudyRepository.archive` decides under the row lock and answers whether it archived; the route records only then. Broken (the event recorded unconditionally): two events. `test_study_library.py::test_concurrent_archives_record_one_event` |
+| 9d | Two `POST .../documents/{id}/complete` at once | **fixed** (60.2) | Both confirmations verify the object (it is immutable) and both reached the compare-and-set; the one that lost it still recorded `document.uploaded`, so one upload had two events. Now `confirm_upload` says which call set `uploaded_at` and only that one records. Broken (recorded unconditionally): two events. `test_uploads.py::test_two_confirmations_of_one_upload_at_once_record_one_event` |
 | 9e | An answers write queued before a signing | **verified safe** | The signing renders under the lock from the new answers, the reviewed preview is no longer the report: 412 `BASIS-REPORT-010` with the current tag, nothing signed, the answer kept. `test_report_signing.py::test_an_answers_write_queued_before_the_signing_makes_it_412` |
 
-### 59.2 The archive rule
+### 60.2 The archive rule
 
 Decided from `docs/api/WORKFLOW.md` and the repositories: `StudyRepository.transition`,
 `WorkflowStateRepository.converge` and `mark_failed` all refuse an archived study, and `unarchive`
@@ -8167,7 +8234,7 @@ route answers with the same 409. `docs/api/STUDY_LIBRARY.md` section 4 has the r
 `DocumentRepository.confirm_upload` is the same shape for uploads (`Confirmed(document,
 confirmed)`); `mark_uploaded` keeps its signature for the callers that do not care.
 
-### 59.3 An execution that ends failed
+### 60.3 An execution that ends failed
 
 Patch `failed-end-records-failure-v1` in `StudyWorkflow.run`: when the lifecycle task raises
 something no stage held (the photo listing failing permanently, a transition the API outran, an
@@ -8186,7 +8253,7 @@ activities are `list_photos`, `record_failure`, `record_run_end`, the timeline h
 `tests/lifecycle/histories` replay unchanged (none ends failed). `docs/api/WORKFLOW.md` has the
 client's view: retry is refused, restart runs the study again.
 
-### 59.4 Inputs that feed a final output
+### 60.4 Inputs that feed a final output
 
 **Research.** Systems that version inputs feeding a committed output do not edit the input in place:
 accounting packages close a period and require an explicit reopen to change anything dated inside it
@@ -8212,7 +8279,7 @@ not changed here; after the start it will receive this 409 (noted for `web/`).
 
 **The answers and the firm profile after signing.** They stay writable (the profile is firm-wide;
 the answers may be corrected for the next revision) and the signed PDF is stored, so they cannot
-change it; what was missing was the state saying so. Migration `0025_signature_input_versions` adds
+change it; what was missing was the state saying so. Migration `0026_signature_input_versions` adds
 `firm_profile_version` and `report_answers_version` to `report_signatures` (nullable: a signature
 recorded before them); `sign_report` records the versions it rendered with, under the same lock as the
 render, and puts them in the `report.signed` event's detail; `GET .../report/state` answers
@@ -8222,7 +8289,7 @@ signature predates the record). Versions were chosen over timestamps on purpose:
 signing and took the lock after it carries an earlier timestamp), while the version compared under the
 lock cannot lie. `docs/api/REPORT.md`, "After signing".
 
-### 59.5 What could not be made deterministic, and what was not done
+### 60.5 What could not be made deterministic, and what was not done
 
 * Which of two simultaneous document registrations wins (item 2) is the unique index's choice:
   a table lock releases both inserts together because their own locks do not conflict. The
@@ -8235,12 +8302,12 @@ lock cannot lie. `docs/api/REPORT.md`, "After signing".
 * The web client (`web/`) does not yet read `changed_since_signing` or handle 409 `intake-locked`
   on the intake form; the API answers are documented for it.
 
-### 59.6 Gates
+### 60.6 Gates
 
 From `backEnd/`: `ruff check`, `ruff format --check`, `mypy basis`, the catalogue and OpenAPI
 `--check` (both regenerated: `BASIS-STUDY-030`, `-031`, the archive and intake descriptions, the
 report state and signature members), `evals.freeze_rule_fingerprints --check`,
 `tooling/check_no_client_data.py --ci`, pytest `-m "not integration and not slow"` and
-`-m "(integration or slow) and not eval_data"`; the results are in the PR. Migration `0025` revises
-`0024` (the gate-drafts PR, #114, merged while this section was written; the migration test's head and
-history follow it). Error codes: `025`–`029` are that PR's; this section's are `030` and `031`.
+`-m "(integration or slow) and not eval_data"`; the results are in the PR. Migration `0026` revises
+`0025` (the gate-drafts PR #114 and the firm-onboarding PR #111 merged while this section was written; the
+migration test's head and history follow them). Error codes: `025`–`029` are that PR's; this section's are `030` and `031`.

@@ -210,7 +210,7 @@ class ReportRepository:
     ) -> list[str] | None:
         """Which inputs were written after the signature: ``firm`` (the firm's profile),
         ``study`` (the report answers), in that order; ``None`` when the signature predates
-        the record of the versions it was signed with (migration 0025). The signed PDF is
+        the record of the versions it was signed with (migration 0026). The signed PDF is
         unchanged either way; the state tells the engineer that the stored inputs no longer
         match it (docs/api/REPORT.md, "After signing")."""
         if signature.firm_profile_version is None or signature.report_answers_version is None:

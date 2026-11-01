@@ -215,7 +215,7 @@ COMPONENTS_GATE_PATCH: Final = "components-gate-v1"
 CONVENTIONS_PATCH: Final = "firm-conventions-v1"
 # An execution that ends failed (an error no stage holds for a retry) first records the
 # failure on the study row, so the study reads ``failed`` with the code instead of staying
-# ``processing`` with a closed execution (EVAL_REPORT 59).
+# ``processing`` with a closed execution (EVAL_REPORT 60).
 FAILED_END_PATCH: Final = "failed-end-records-failure-v1"
 MAX_FAILURE_CHARS: Final = 1000
 

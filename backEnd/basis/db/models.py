@@ -292,7 +292,9 @@ class Invitation(Base):
     has no ``revoked_by``); at most one outcome is set. The status (pending, accepted,
     declined, revoked, expired) is derived (``basis.db.repositories.invitation``).
     ``created_by`` is NULL for invitations issued by the operator CLI
-    (``python -m basis.admin``).
+    (``python -m basis.admin``). The email columns record the invitation email's delivery
+    (``emailed_at``, ``email_error``); the status it reports is derived
+    (``basis.db.repositories.invitation.email_delivery``).
     """
 
     __tablename__ = "invitations"
@@ -331,6 +333,12 @@ class Invitation(Base):
     declined_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     revoked_at: Mapped[datetime | None]
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # The invitation email (migration ``0025_invitation_email``; docs/api/FIRMS.md): when its
+    # outbox message was enqueued (NULL for rows created before emails existed), when the
+    # relay handed it to the sender, and the last send error (cleared on success).
+    email_queued_at: Mapped[datetime | None]
+    emailed_at: Mapped[datetime | None]
+    email_error: Mapped[str | None]
 
 
 # --------------------------------------------------------------------- studies, documents
@@ -1083,7 +1091,7 @@ class ReportSignature(Base):
     the name and credentials they attested, the certification version, and the sha256 of the
     export, of the preview they reviewed and of the signed PDF. One per revision; never
     updated (``forbid_mutation()``). ``firm_profile_version`` and ``report_answers_version``
-    (migration 0025) are the versions of the two inputs the signed report was rendered with,
+    (migration 0026) are the versions of the two inputs the signed report was rendered with,
     so ``GET .../report/state`` can say when an input changed after signing; NULL on a
     signature recorded before they were kept."""
 

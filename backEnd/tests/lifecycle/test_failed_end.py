@@ -1,5 +1,5 @@
 """An error no stage holds for a retry ends the execution failed, and the study says so
-(EVAL_REPORT 59; patch ``failed-end-records-failure-v1``).
+(EVAL_REPORT 60; patch ``failed-end-records-failure-v1``).
 
 ``stage-failure-retry-v1`` holds the extraction, the assets and the export for a retry. An
 activity outside those (here the photo listing, failing permanently) propagates out of the

@@ -26,7 +26,7 @@ from basis import admin
 from basis.admin import AdminError, create_firm, invite, list_firms
 from basis.db.engine import create_engine
 from basis.db.enums import OrgRole
-from basis.db.models import Invitation, Org, OrgMember
+from basis.db.models import Invitation, Org, OrgMember, OutboxMessage
 
 pytestmark = pytest.mark.integration
 
@@ -45,10 +45,13 @@ async def test_create_firm_creates_the_firm_and_a_pending_owner_invitation(
         "owner@example.com",
         "owner",
         "pending",
-        "not_sent",
+        "queued",  # the invitation email, enqueued with the invitation (migration 0025)
     )
     row = await session.get(Invitation, uuid.UUID(owner["invitation_id"]))
     assert row is not None and row.created_by is None
+    assert row.email_queued_at is not None and row.emailed_at is None
+    queued = (await session.scalars(select(OutboxMessage))).all()
+    assert [m.payload["invitation_id"] for m in queued] == [owner["invitation_id"]]
     assert await session.scalar(select(func.count()).select_from(OrgMember)) == 0
 
 

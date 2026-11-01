@@ -109,7 +109,7 @@ The retry is an update the workflow answers at once; the stage restarts a workfl
 `already_requested: true` and starts nothing: the stage runs again exactly once. A retry after
 the stage restarted is `409 study-not-failed` (nothing has failed). Tested on the real workflow
 with the clearing activity held open so the window is real (`tests/lifecycle/test_stage_retry.py`,
-EVAL_REPORT 59).
+EVAL_REPORT 60).
 
 ## An execution that ends `failed`
 
@@ -117,7 +117,7 @@ The hold-and-retry above covers the extraction, the assets and the export (and, 
 `provider-account-stop-v1`, a provider refusing the account during the photos). An activity
 outside those failing permanently (the photo listing, a stage transition the API outran, an
 unexpected exception) ends the execution: since patch `failed-end-records-failure-v1`
-(EVAL_REPORT 59) the workflow first records the failure on the study (`status: "failed"`,
+(EVAL_REPORT 60) the workflow first records the failure on the study (`status: "failed"`,
 `failure_reason`, `failure_code`, a `stage.failed` event), then the run's end (`run.ended`,
 `outcome: "failed"`), and the execution closes `FAILED`. Before the patch the run ended
 `failed` while the study stayed `processing` with no reason: a client polling the study saw it

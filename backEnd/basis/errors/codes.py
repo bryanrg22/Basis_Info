@@ -345,6 +345,7 @@ class E:
     INF_RELAY_REFUSED = "BASIS-INF-002"
     INF_RELAY_DEAD = "BASIS-INF-003"
     INF_HEARTBEAT_WRITE = "BASIS-INF-004"
+    INF_EMAIL_FAILED = "BASIS-INF-005"
 
 
 def tag(code: str, message: str) -> str:

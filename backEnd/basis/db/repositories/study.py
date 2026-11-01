@@ -578,7 +578,7 @@ class StudyRepository:
     ) -> Archived:
         """Soft delete. Idempotent: archiving an archived study returns it unchanged,
         ``archived`` false, so the caller records the change exactly when it made one
-        (two archives at once recorded two events before this; EVAL_REPORT 59).
+        (two archives at once recorded two events before this; EVAL_REPORT 60).
 
         ``expected_workflow_id`` is the workflow id the caller read before deciding the
         study may be archived (none: never started; or one whose execution it found

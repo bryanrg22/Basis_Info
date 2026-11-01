@@ -1,5 +1,5 @@
 """Two ``promote_conventions`` runs of one firm, for two studies, promoting the same key at
-the same moment (EVAL_REPORT 59): both approvals count, nothing is lost, one row.
+the same moment (EVAL_REPORT 60): both approvals count, nothing is lost, one row.
 
 The activity body (``promote``) runs in two transactions released together by a barrier
 (``dbtest_support.race``). The firm's row for the key already exists (a first study

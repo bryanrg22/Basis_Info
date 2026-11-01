@@ -251,6 +251,11 @@ async def test_a_signed_report_is_served_recorded_and_never_replaced(
     signed = await api.post("alice", f"/v1/studies/{sid}/report/sign", sign_body(reviewed))
     assert signed.status_code == 201, signed.text
     signature = signed.json()
+    # The signer as their sign-in names them, next to the id and the attested name.
+    assert (signature["signed_by_name"], signature["signed_by_email"]) == (
+        "Alice",
+        "alice@example.test",
+    )
     assert signature["revision"] == 1 and signature["reviewed_sha256"] == reviewed
     assert signature["engineer"] == {
         **SIGNER,
@@ -290,7 +295,7 @@ async def test_a_signed_report_is_served_recorded_and_never_replaced(
             await session.execute(text("UPDATE report_signatures SET pdf_uri = 'x'"))
 
 
-# --------------------------------------------------------------------- races (EVAL_REPORT 59)
+# --------------------------------------------------------------------- races (EVAL_REPORT 60)
 
 
 async def signable(

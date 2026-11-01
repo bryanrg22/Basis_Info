@@ -77,9 +77,10 @@ local test account (email and password; shown only when the emulator is configur
 Browsers that block pop-ups can use `?mode=live&signin=redirect`.
 
 4. A firm. Firms are invite-only: a new account belongs to no firm and sees "Not a member
-   of a firm yet". Create the first firm and invite its admin from the command line (there
-   is no sign-up and no HTTP route for it), then sign in with Google as that email and
-   accept the invitation on the join screen:
+   of a firm yet". A verified sign-in can create its own firm with the API
+   (`POST /v1/orgs`, docs/api/FIRMS.md; the live screens have no form for it yet), or
+   create the first firm and invite its admin from the command line, then sign in with
+   Google as that email and accept the invitation on the join screen:
 
    ```sh
    docker compose … exec api python -m basis.admin create-firm --name "Basis" --owner-email you@example.com
@@ -88,10 +89,13 @@ Browsers that block pop-ups can use `?mode=live&signin=redirect`.
 
    Accepting needs a verified email: the emulator's Google provider verifies it, its
    email/password accounts do not (they can sign in but cannot accept). The admin then
-   invites everyone else on **Team & invitations** (`#team`). No email is sent: an invited
-   person sees the invitation when they sign in with that address. A membership belongs to
-   the emulator account (its uid): if the emulator restarts without its saved state, the same
-   email is a new account and needs a new invitation (`python -m basis.admin invite`).
+   invites everyone else on **Team & invitations** (`#team`). The invitation email is
+   queued with the invitation and sent by the relay; the local stack runs
+   `EMAIL_PROVIDER=log`, so the relay logs the message instead of sending it (read it with
+   `docker compose … logs relay`). The invited person sees the invitation when they sign in
+   with that address either way. A membership belongs to the emulator account (its uid):
+   if the emulator restarts without its saved state, the same email is a new account and
+   needs a new invitation (`python -m basis.admin invite`).
 
 ### Configuration (`live/config.js`)
 
@@ -196,10 +200,14 @@ Fields the design shows that the API does not have:
 * Creator-scoped visibility (`TEAM_HANDOFF.md`): the API shows every member of a firm all of
   the firm's studies; "an engineer sees only their own studies" is not enforced, so the
   design's My studies / Workspace studies split is not shown in live mode.
-* Invitation email delivery: none (no mail service). The admin tells the person to sign in.
-* Creating or renaming a firm in the app (the operator CLI creates firms); a firm's
-  settings page.
-* Creator and last-editor display names (studies carry `created_by` ids only).
+* Invitation email delivery is in the API (docs/api/FIRMS.md: `delivery`, `emailed_at`,
+  `email_error` per invitation) but the team screen still says "No email is sent" and does
+  not show the delivery column.
+* Creating or renaming a firm is in the API (`POST /v1/orgs`, `PATCH /v1/orgs/{id}`); the
+  app has no create-a-firm screen for a new account and no firm settings page.
+* Creator display names are in the API (`created_by_name`, `created_by_email` on studies;
+  `signed_by_name` on a signature); the study list does not show them yet. Last-editor
+  names are not in the API.
 * Client name, property address and type, a cover photo per study.
 * Server-side study search, filters and sort; counts per status.
 * Adding a room (a photo can be moved to another existing room, or rooms merged).

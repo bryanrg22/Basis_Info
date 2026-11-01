@@ -1,4 +1,4 @@
-"""Archiving a study whose workflow runs, on the real workflow (EVAL_REPORT 59).
+"""Archiving a study whose workflow runs, on the real workflow (EVAL_REPORT 60).
 
 The rule (docs/api/STUDY_LIBRARY.md): a study is archived only while nothing runs for it.
 ``DELETE /v1/studies/{id}`` asks Temporal whether the execution is running and refuses with

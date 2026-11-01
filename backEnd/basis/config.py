@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+from email.utils import parseaddr
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Final, Literal, get_args
@@ -57,6 +58,11 @@ EXTRACTION_MAX_TOKENS_DEFAULT: Final = 800
 # A browser origin as the Origin header carries it: scheme, host, optional port, nothing else.
 _ORIGIN: Final = re.compile(r"https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?")
 _LOCAL_ORIGIN: Final = re.compile(r"http://(?:localhost|127\.0\.0\.1)(?::\d{1,5})?")
+# APP_URL: an origin with an optional path (the frontend may live under one), nothing after.
+_APP_URL: Final = re.compile(
+    r"https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?(?:/[^\s?#]*[^\s?#/])?"
+)
+_LOCAL_URL: Final = re.compile(r"http://(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?:/|$)")
 
 _REQUIRED_IN_DEPLOYED: Final = ("database_url", "gcs_bucket", "firebase_project_id")
 _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
@@ -113,6 +119,22 @@ class Settings(BaseSettings):
     review_deadline_days: int = Field(default=30, ge=1)
     # How long a firm invitation can be accepted (basis.db.repositories.invitation).
     invitation_ttl_days: int = Field(default=14, ge=1, le=90)
+    # Where the app lives for the people we email (docs/api/FIRMS.md): the invitation says
+    # "sign in to Basis at APP_URL". scheme://host[:port][/path], no trailing slash; outside
+    # dev and test https (or http://localhost). Unset, the email says "sign in to Basis".
+    app_url: str | None = None
+    # Transactional email (basis.email). "log" (the default) logs the rendered message and
+    # sends nothing; "smtp" sends through SMTP_HOST (STARTTLS, or implicit TLS on port 465)
+    # as EMAIL_FROM ("Name <address>" or an address), with SMTP_USERNAME/SMTP_PASSWORD when
+    # the relay authenticates by credentials. Only the relay sends; the API and the CLI
+    # enqueue. A provider's HTTP API is the slot described in basis.email.sender.
+    email_provider: Literal["log", "smtp"] = "log"
+    email_from: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_starttls: bool = True
     # The lowest firm role that may read a study's spend (GET /v1/studies/{id}/spend and
     # /calls, docs/api/SPEND.md): what the firm pays per call is the owner's by default; a
     # lower role gets 403, a non-member 404. "viewer" restores the behaviour before it.
@@ -558,6 +580,37 @@ class Settings(BaseSettings):
                 )
         return value
 
+    @field_validator("app_url", mode="before")
+    @classmethod
+    def _strip_app_url(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip().rstrip("/")
+            return value or None
+        return value
+
+    @field_validator("app_url")
+    @classmethod
+    def _check_app_url(cls, value: str | None) -> str | None:
+        if value is not None and not _APP_URL.fullmatch(value):
+            raise ConfigError(
+                f"APP_URL {value!r} is not a URL: use scheme://host[:port][/path] with no "
+                "trailing slash, query or fragment"
+            )
+        return value
+
+    @field_validator("email_from")
+    @classmethod
+    def _check_email_from(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        _, address = parseaddr(value)
+        if "@" not in address or any(c in value for c in "\r\n"):
+            raise ConfigError(
+                f"EMAIL_FROM {value!r} is not an address: use 'Name <user@domain>' or 'user@domain'"
+            )
+        return value
+
     @model_validator(mode="after")
     def _check_required(self) -> Settings:
         missing = [name for name in required_in(self.env) if not _is_set(getattr(self, name))]
@@ -594,6 +647,23 @@ class Settings(BaseSettings):
                 raise ConfigError(
                     f"LOCAL_UPLOAD_BASE_URL {self.local_upload_base_url!r} is not a base URL: "
                     "use scheme://host[:port] with no path or trailing slash"
+                )
+        if self.app_url is not None and self.env not in ("dev", "test"):
+            if self.app_url.startswith("http://") and not _LOCAL_URL.match(self.app_url):
+                raise ConfigError(
+                    f"APP_URL {self.app_url!r} is plain http; outside dev and test only https "
+                    "and http://localhost are allowed"
+                )
+        if self.email_provider == "smtp":
+            missing_mail = [
+                name
+                for name, value in (("SMTP_HOST", self.smtp_host), ("EMAIL_FROM", self.email_from))
+                if not _is_set(value)
+            ]
+            if missing_mail:
+                raise ConfigError(
+                    "EMAIL_PROVIDER=smtp requires these settings to be set: "
+                    + ", ".join(missing_mail)
                 )
         if self.retrieval_chunk_overlap >= self.retrieval_chunk_tokens:
             raise ConfigError(

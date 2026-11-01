@@ -208,7 +208,7 @@ class GatedRecordFailure:
 async def test_a_second_retry_before_the_stage_restarts_is_already_requested(
     harness: Harness,
 ) -> None:
-    """``POST .../retry`` pressed twice (EVAL_REPORT 59). The first retry wakes the hold;
+    """``POST .../retry`` pressed twice (EVAL_REPORT 60). The first retry wakes the hold;
     the second arrives while the failure is still being cleared (the clearing activity is
     held by the test, so the window is real, not a race won by timing): it is accepted with
     ``already_requested`` and starts nothing. The stage runs again exactly once (one

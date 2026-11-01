@@ -52,10 +52,13 @@ async def test_create_returns_201_with_the_study(api: Api, seed: Seed) -> None:
     assert body["created_by"] == str(alice.id)
     assert body["property_name"] == "1200 Harbor Blvd"
     assert (body["status"], body["current_stage"], body["revision"]) == ("draft", "uploading", 1)
+    assert (body["created_by_name"], body["created_by_email"]) == ("Alice", "alice@example.test")
     assert set(body) == {
         "id",
         "org_id",
         "created_by",
+        "created_by_name",  # the creator as their sign-in names them (docs/api/FIRMS.md 5)
+        "created_by_email",
         "property_name",
         "status",
         "current_stage",

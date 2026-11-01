@@ -367,7 +367,7 @@ async def test_concurrent_unarchives_record_one_event(
 async def test_concurrent_archives_record_one_event(
     api: Api, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """The mirror of the unarchive race (EVAL_REPORT 59): two archives of one draft at once
+    """The mirror of the unarchive race (EVAL_REPORT 60): two archives of one draft at once
     both answer 200 and the timeline says ``study.archived`` once. Before the repository
     decided under the row lock, the route recorded an event per request."""
     study = await api.create_study("alice")

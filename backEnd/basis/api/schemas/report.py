@@ -60,6 +60,14 @@ class SignatureOut(ResponseModel):
     study_id: uuid.UUID
     revision: int
     signed_by: uuid.UUID
+    signed_by_name: str | None = Field(
+        default=None,
+        description="The signer's display name from their sign-in (the attested name is in "
+        "`engineer`); null when unknown.",
+    )
+    signed_by_email: str | None = Field(
+        default=None, description="The signer's email; null when unknown."
+    )
     signed_at: datetime
     engineer: dict[str, Any]
     statement_version: int
