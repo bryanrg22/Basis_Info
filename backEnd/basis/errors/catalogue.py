@@ -513,6 +513,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "no",
         problem="not-operator",
     ),
+    _e(
+        E.API_RATE_LIMIT_STORE_UNAVAILABLE,
+        "error",
+        "any request",
+        "basis.api.ratelimit_pg",
+        "The Postgres-backed rate limiter (`RATE_LIMIT_STORE=postgres`, the default in "
+        "staging and prod) could not reach the database; the request was counted against "
+        "a per-process budget instead, so the published limit holds per API instance until "
+        "the database is back.",
+        "A warning log line, at most one per minute per process, with `fallbacks` (how many "
+        "requests used the per-process budget); requests are not refused for it.",
+        "Restore the database (the same cause makes every `/v1` route answer 503 "
+        "`BASIS-API-0xx`); nothing to reset, the shared log resumes on the next request.",
+        "yes",
+    ),
     # ------------------------------------------------------------------ FIRM
     _e(
         E.FIRM_NO_FIRM,

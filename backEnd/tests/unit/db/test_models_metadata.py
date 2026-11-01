@@ -131,6 +131,8 @@ SPEC_TABLES = {
     "export_sha256 reviewed_sha256 pdf_uri pdf_sha256",
     # The latest heartbeat of each worker and relay process (migration 0021, ops health).
     "service_heartbeats": "id service build_sha state started_at heartbeat_at report",
+    # the Postgres-backed rate limiter's sliding-window log (0022)
+    "rate_limit_hits": "id key",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision

@@ -60,6 +60,8 @@
   never updated, deletable); it downgrades back to ``0019`` exactly;
 * ``0021_service_heartbeats`` adds the ops health heartbeats (one row per worker or relay
   process), checked by ``alembic check`` and the downgrade to base;
+* ``0022_rate_limit_hits`` adds the Postgres-backed rate limiter's sliding-window log (an
+  ``UNLOGGED`` table, one row per accepted request), checked the same way;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -99,8 +101,8 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0021"
-HISTORY = [f"{n:04d}" for n in range(21, 0, -1)]  # "0021" .. "0001"
+HEAD = "0022"
+HISTORY = [f"{n:04d}" for n in range(22, 0, -1)]  # "0022" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -272,7 +274,8 @@ def test_offline_sql_rendering() -> None:
     assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
     assert "CREATE TYPE stage AS ENUM" in sql
     for table in model_tables():
-        assert f"CREATE TABLE {table} " in sql
+        assert f"CREATE TABLE {table} " in sql or f"CREATE UNLOGGED TABLE {table} " in sql, table
+    assert "CREATE UNLOGGED TABLE rate_limit_hits " in sql  # 0022: ephemeral, no WAL
     assert "CREATE TRIGGER reviews_append_only" in sql
     assert "CREATE TYPE outbox_status AS ENUM ('pending', 'delivered', 'dead')" in sql
     assert "UPDATE outbox SET status = 'delivered' WHERE delivered_at IS NOT NULL" in sql
