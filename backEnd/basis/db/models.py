@@ -901,7 +901,7 @@ class Correction(Base):
 
 class ReviewDraft(Base):
     """An engineer's pending corrections at a review gate, kept on the server (migration
-    ``0022_review_drafts``; ``GET``/``PUT``/``DELETE /v1/studies/{id}/drafts/{stage}``).
+    ``0024_review_drafts``; ``GET``/``PUT``/``DELETE /v1/studies/{id}/drafts/{stage}``).
 
     One row per ``(study, stage, user)``: two engineers draft apart. ``document`` is the
     pending ``{comment, corrections}`` as one JSON object, validated whole by the draft route

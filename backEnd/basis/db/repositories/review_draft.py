@@ -1,4 +1,4 @@
-"""An engineer's pending corrections at a review gate (``review_drafts``, migration ``0022``).
+"""An engineer's pending corrections at a review gate (``review_drafts``, migration ``0024``).
 
 What the browser used to keep in memory until ``POST /v1/studies/{id}/decisions`` sent it:
 the corrections and the comment an engineer has lined up for a gate. One row per ``(study,

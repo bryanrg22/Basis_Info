@@ -1,7 +1,7 @@
 """``review_drafts``: an engineer's pending corrections at a review gate, kept on the server.
 
-Revision ID: 0022
-Revises: 0021
+Revision ID: 0024
+Revises: 0023
 Create Date: 2026-11-01
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
@@ -23,8 +23,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0022"
-down_revision: str | Sequence[str] | None = "0021"
+revision: str = "0024"
+down_revision: str | Sequence[str] | None = "0023"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -10,7 +10,7 @@ nothing lost. Before this page three things lived only in the browser or had no 
 | A cancelled study was a dead end: `start` answered 409 `workflow-closed` for ever. | `POST /v1/studies/{id}/restart` (owner) runs it again from its uploads on a new revision. |
 
 Code: `basis/api/routes/drafts.py`, `basis/db/repositories/review_draft.py` (migration
-`0022_review_drafts`), `basis/api/routes/documents.py`, `basis/api/routes/workflow.py`,
+`0024_review_drafts`), `basis/api/routes/documents.py`, `basis/api/routes/workflow.py`,
 `basis/temporal/service.py`. Tests: `tests/api/test_drafts.py`, the resume section of
 `tests/api/test_uploads.py`, the restart section of `tests/api/test_workflow_routes.py`.
 
