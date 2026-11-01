@@ -26,6 +26,7 @@ from fastapi import Depends, Header, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.api.errors import (
+    Conflict,
     Forbidden,
     NotFound,
     PreconditionFailed,
@@ -34,6 +35,7 @@ from basis.api.errors import (
 )
 from basis.api.preconditions import ETAG_HEADER, intake_etag, parse_if_match
 from basis.api.routes.common import problems, read_router, write_router
+from basis.api.routes.workflow import as_problem, get_workflow_service
 from basis.api.schemas.common import NO_NUL_PATTERN
 from basis.api.schemas.documents import DocumentOut
 from basis.api.schemas.reviews import ReviewOut
@@ -48,12 +50,15 @@ from basis.api.users import (
     DETAIL_ORG_NOT_FOUND,
     CurrentUser,
     CurrentUserDep,
+    SessionmakerDep,
+    StudyIdPath,
     require_firm,
+    require_study_access,
     study_access,
 )
 from basis.config import Settings
 from basis.db.enums import OrgRole, Stage, StudyStatus
-from basis.db.errors import PreconditionFailedError
+from basis.db.errors import IntakeLockedError, PreconditionFailedError, StaleStateError
 from basis.db.models import Study
 from basis.db.repositories import (
     DocumentRepository,
@@ -64,9 +69,10 @@ from basis.db.repositories import (
 )
 from basis.db.repositories.study import DEFAULT_SORT, MAX_PAGE_SIZE, StudyFilters, StudySort
 from basis.db.repositories.study_event import StudyEventRepository
-from basis.db.session import SessionDep
+from basis.db.session import SessionDep, session_scope
 from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
 from basis.errors.codes import E
+from basis.temporal.service import WorkflowNotFoundError, WorkflowServiceError
 
 DEFAULT_PAGE_SIZE: Final = 50
 MAX_CURSOR_LENGTH: Final = 512
@@ -224,7 +230,9 @@ async def get_intake(
     "Without `If-Match` the write is accepted, unless the deployment requires it "
     "(`INTAKE_REQUIRE_IF_MATCH`: 428 `precondition-required`). Every write increments "
     "`intake_version`; the response carries the new `ETag`. The result's pricing is checked "
-    "against the intake version. 409 `stale-state` on an archived study.",
+    "against the intake version. 409 `stale-state` on an archived study; 409 `intake-locked` "
+    "once the study has started (the run, the result and the report are priced from the "
+    "intake: a change is a reopen, not an edit in place).",
     responses={**problems(403, 404, 409, 412, 428), **ETAG_RESPONSE},
 )
 async def put_intake(
@@ -251,6 +259,15 @@ async def put_intake(
             intake,
             precondition=None if condition is None else condition.allows,
         )
+    except IntakeLockedError as exc:
+        raise Conflict(
+            f"The study has started (stage {access.study.current_stage.value}); its intake "
+            "is locked because the run, the result and the report are priced from it. "
+            "Changing the inputs of a started study is a reopen with new inputs (a new "
+            "revision), not an edit in place (docs/api/STUDY_RESULT.md).",
+            type_suffix="intake-locked",
+            code=E.STUDY_INTAKE_LOCKED,
+        ) from exc
     except PreconditionFailedError as exc:
         current = intake_etag(exc.version)
         if condition is not None and condition.any_current:
@@ -377,26 +394,75 @@ async def get_study(
     )
 
 
+async def ensure_execution_ended(request: Request, workflow_id: str) -> None:
+    """409 ``workflow-running`` while the study's execution is running (in progress, at a
+    review gate, or holding a failed stage for a retry); 503 when Temporal is not configured
+    or does not answer. An execution Temporal no longer knows (retention) is over."""
+    workflows = get_workflow_service(request)
+    try:
+        described = await workflows.describe(workflow_id)
+    except WorkflowNotFoundError:
+        return
+    except WorkflowServiceError as exc:
+        raise as_problem(exc) from exc
+    if described.status == "RUNNING":
+        raise Conflict(
+            f"The study's workflow {workflow_id} is running (in progress, waiting at a review "
+            "gate, or waiting for a retry); it is not archived. Cancel it first with "
+            "POST /v1/studies/{id}/cancel, then archive.",
+            type_suffix="workflow-running",
+            code=E.STUDY_ARCHIVE_WHILE_RUNNING,
+        )
+
+
 @writes.delete(
     "/studies/{study_id}",
     summary="Archive a study (soft delete; owner only)",
-    responses=problems(403, 404),
+    description="A study that never started, or whose execution has ended (completed, "
+    "cancelled, terminated, timed out, failed), is archived and `study.archived` recorded "
+    "once; archiving an archived study returns it unchanged. While the execution is running "
+    "(in progress, at a review gate, or waiting for a retry) the answer is 409 "
+    "`workflow-running`: cancel it first (`POST .../cancel`). A study that is started while "
+    "the archive is decided is left as it is (the same 409). docs/api/STUDY_LIBRARY.md.",
+    responses=problems(403, 404, 409, 503),
 )
 async def archive_study(
-    access: Annotated[VisibleStudy, Depends(study_access(OrgRole.OWNER))],
+    study_id: StudyIdPath,
+    request: Request,
     user: CurrentUserDep,
-    session: SessionDep,
+    sessionmaker: SessionmakerDep,
 ) -> StudyOut:
-    study = await StudyRepository(session).archive(access.study.id)
-    await StudyEventRepository(session).record(
-        study.id,
-        "study.archived",
-        actor="engineer",
-        actor_id=user.id,
-        stage=study.current_stage,
-        revision=study.revision,
-    )
-    return await study_out(session, study)
+    async with session_scope(sessionmaker) as session:
+        seen = (await require_study_access(session, user, study_id, OrgRole.OWNER)).study
+        workflow_id, already = seen.workflow_id, seen.status is StudyStatus.ARCHIVED
+    # No transaction is open during the Temporal call (as on the workflow routes).
+    if workflow_id is not None and not already:
+        await ensure_execution_ended(request, workflow_id)
+    async with session_scope(sessionmaker) as session:
+        try:
+            # ``expected_workflow_id``: the start that could land between the read above
+            # and the row lock loses nothing (the study stays as the start left it).
+            outcome = await StudyRepository(session).archive(
+                study_id, expected_workflow_id=workflow_id
+            )
+        except StaleStateError as exc:
+            raise Conflict(
+                f"{exc}. Cancel its workflow first with POST /v1/studies/{{id}}/cancel, "
+                "then archive.",
+                type_suffix="workflow-running",
+                code=E.STUDY_ARCHIVE_WHILE_RUNNING,
+            ) from exc
+        study = outcome.study
+        if outcome.archived:
+            await StudyEventRepository(session).record(
+                study.id,
+                "study.archived",
+                actor="engineer",
+                actor_id=user.id,
+                stage=study.current_stage,
+                revision=study.revision,
+            )
+        return await study_out(session, study)
 
 
 @writes.post(

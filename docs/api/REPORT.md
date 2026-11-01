@@ -135,3 +135,25 @@ since; `*` only over an existing document).
 A firm profile or answers changed after signing do not change the signed PDF. A new revision
 is signed on its own. What the signature is and is not (ESIGN/UETA elements, no PAdES
 certificate, no PE seal): STUDY_REPORT_SPEC 11.13.
+
+Two signings at once take the study's row lock before any check, so the second re-reads under
+the lock, finds the signature and is refused (409 `BASIS-REPORT-009`) before it renders or
+stores anything: one row, one signed PDF, one event (EVAL_REPORT 62). An answers write that
+takes the lock first makes the signing a 412 `BASIS-REPORT-010` (the preview reviewed is no
+longer the report); one that takes it after lands after the signature and is reported below.
+
+## After signing
+
+The inputs stay writable: the firm's profile serves every study, and the answers may be
+corrected for the next revision. The signed PDF is what was signed (its sha256 is the
+signature's `pdf_sha256`), and `GET .../report/state` says whether the stored inputs still
+match it:
+
+| Member | Meaning |
+|---|---|
+| `signature.firm_profile_version`, `signature.report_answers_version` | the versions of the two inputs the signed report was rendered with (also in the `report.signed` event's `detail`) |
+| `changed_since_signing` | `[]`: nothing was written since; `["study"]`: the answers were; `["firm"]`: the profile was; both; `null` while unsigned, or for a signature recorded before the versions were kept (migration 0027): unknown rather than guessed from timestamps |
+
+A client shows a signed report with `changed_since_signing` non-empty as "signed with earlier
+inputs"; the change reaches a report only through a new revision, signed on its own. The
+preview follows the inputs (its `ETag` changes); the signed file does not.

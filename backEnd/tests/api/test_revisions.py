@@ -520,6 +520,8 @@ async def test_revisions_list_says_who_made_each_and_what_it_carries(
             reviewed_sha256="b" * 64,
             pdf_uri="gs://basis-local/x/signed.pdf",
             pdf_sha256="c" * 64,
+            firm_profile_version=0,
+            report_answers_version=0,
         )
         signature_id = signature.id
 

@@ -8,7 +8,9 @@ it are in ``tests/conftest.py``, so every suite shares one container.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +18,7 @@ import asyncpg
 from alembic.config import Config
 from sqlalchemy import select, text, update
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from basis.config import Settings
 from basis.db.enums import OrgRole, Stage, status_for_stage
@@ -68,6 +70,85 @@ async def ensure_own_firm(session: AsyncSession, user: User) -> None:
     await session.flush()
     session.add(OrgMember(org_id=org.id, user_id=user.id, role=OrgRole.OWNER.value))
     await session.flush()
+
+
+RACE_HOLD_S = 0.3  # how long each contender keeps its transaction open after its write
+
+
+async def race[T](
+    sm: async_sessionmaker[AsyncSession],
+    *actions: Callable[[AsyncSession], Awaitable[T]],
+    hold_s: float = RACE_HOLD_S,
+) -> list[T | BaseException]:
+    """Run each action in its own session (its own pooled connection) and transaction,
+    released together by a barrier; the winner keeps its transaction open for ``hold_s``
+    so the loser really waits on the lock instead of running after the winner is done. The
+    results (or exceptions) come back in the actions' order (S1_SPEC section 7)."""
+    from basis.db.session import session_scope
+
+    barrier = asyncio.Barrier(len(actions))
+
+    async def contender(action: Callable[[AsyncSession], Awaitable[T]]) -> T:
+        async with session_scope(sm) as session:
+            await session.execute(text("SELECT 1"))  # check out a connection first
+            await barrier.wait()
+            result = await action(session)
+            await asyncio.sleep(hold_s)
+            return result
+
+    return await asyncio.gather(*(contender(a) for a in actions), return_exceptions=True)
+
+
+async def backends(session: AsyncSession) -> list[tuple[Any, ...]]:
+    """The other backends of this database: state, what they wait on, their last query.
+
+    Read fresh each time: PostgreSQL keeps the first activity snapshot of a transaction for
+    the rest of it, and the caller polls from inside the one that holds the lock."""
+    await session.execute(text("SELECT pg_stat_clear_snapshot()"))
+    rows = await session.execute(
+        text(
+            "SELECT state, wait_event_type, wait_event, left(query, 60) FROM pg_stat_activity "
+            "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+        )
+    )
+    return [tuple(row) for row in rows.all()]
+
+
+def waiting_on_a_lock(rows: list[tuple[Any, ...]]) -> int:
+    return sum(1 for row in rows if row[1] == "Lock")
+
+
+async def queued_behind_a_lock[T](
+    sm: async_sessionmaker[AsyncSession],
+    lock: Any,
+    *requests: Callable[[], Awaitable[T]],
+    timeout_s: float = 10.0,
+) -> list[T]:
+    """Make a race deterministic and ordered: hold ``lock`` (a statement run in a
+    transaction of its own: a ``SELECT ... FOR UPDATE`` of the contested row, or a ``LOCK
+    TABLE``), start each request only once the previous one is seen waiting on it
+    (``pg_stat_activity``), then release the lock and gather the answers.
+
+    Every request has therefore read whatever it reads before the lock (an unlocked access
+    check, a stat of storage) while the row was still in its initial state, and they take
+    the lock in the order given (PostgreSQL grants a row lock to its waiters in queue
+    order), so the test chooses who wins. A request that never waits on the lock fails the
+    test: the code under test does not take it, which is itself the finding."""
+    tasks: list[asyncio.Task[T]] = []
+    loop = asyncio.get_running_loop()
+    async with sm() as locker, locker.begin():
+        await locker.execute(lock)
+        for n, request in enumerate(requests, start=1):
+            tasks.append(asyncio.create_task(request()))
+            deadline = loop.time() + timeout_s
+            while waiting_on_a_lock(rows := await backends(locker)) < n:
+                if loop.time() >= deadline:
+                    for task in tasks:
+                        task.cancel()
+                    raise AssertionError(f"request {n} never waited on the lock: {rows}")
+                await asyncio.sleep(0.02)
+    # The commit released the lock: the requests now take it one after another.
+    return list(await asyncio.gather(*tasks))
 
 
 def db_settings(database_url: str, **overrides: Any) -> Settings:

@@ -696,6 +696,42 @@ async def test_if_match_star_needs_an_existing_intake(api: Api) -> None:
     assert replaced.status_code == 200 and replaced.headers["etag"] == '"2"'
 
 
+async def test_the_intake_is_locked_once_the_study_has_started(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """``PUT .../intake`` is refused with 409 ``intake-locked`` (BASIS-STUDY-036) from the
+    moment the study leaves ``uploading``: during the run, at a gate, once completed and
+    once signed. The run read the intake and the result and the report are priced from it;
+    a change is a reopen (a new revision), not an edit in place (docs/api/STUDY_RESULT.md).
+    Nothing is written, no event; the tag sent makes no difference; reads still work."""
+    sid = (await api.create_study("alice"))["id"]
+    tag = (await put(api, sid, INTAKE)).headers["etag"]
+    for stage in (
+        Stage.EXTRACTING,
+        Stage.APPRAISAL_REVIEW,
+        Stage.ASSETS_PROCESSING,
+        Stage.COMPLETED,
+    ):
+        await seed.stage(sid, stage)
+        for if_match in (None, tag, "*"):
+            refused = await put(
+                api, sid, {**INTAKE, "purchase_price": "700000.00"}, if_match=if_match
+            )
+            assert refused.status_code == 409, (stage, if_match, refused.text)
+            problem = refused.json()
+            assert problem["type"].endswith("/intake-locked"), problem
+            assert problem["code"] == E.STUDY_INTAKE_LOCKED
+            assert stage.value in problem["detail"] and "reopen" in problem["detail"]
+    read = (await api.get("alice", f"/v1/studies/{sid}/intake")).json()
+    assert read["intake"]["purchase_price"] == INTAKE["purchase_price"]
+    assert read["intake_version"] == 1
+    assert len(await intake_events(sessionmaker, sid)) == 1
+    # Archived outranks the lock (the study is read-only for every write).
+    await api.delete("alice", f"/v1/studies/{sid}")
+    archived = await put(api, sid, INTAKE)
+    assert archived.status_code == 409 and archived.json()["type"].endswith("/stale-state")
+
+
 async def test_an_archived_study_is_still_409_with_or_without_if_match(api: Api) -> None:
     sid = (await api.create_study("alice"))["id"]
     tag = (await put(api, sid, INTAKE)).headers["etag"]

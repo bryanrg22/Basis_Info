@@ -227,6 +227,11 @@ API data the design does not show yet:
 * Room `source`, `group_key` and the study's `room_aliases`.
 * Workflow `runs`, `decisions_applied`, `needs_review_stages`, `flagged_photos` by id.
 * `failure_reason` beyond the progress page.
+* The intake form after a start: `PUT .../intake` answers 409 `intake-locked` once the study
+  has started (docs/api/STUDY_RESULT.md); the form should read as locked then.
+* `changed_since_signing` on `GET .../report/state`: a signed report whose answers or firm
+  profile changed since (docs/api/REPORT.md, "After signing") is not marked in the Schedule
+  screen; archiving a running study answers 409 `workflow-running` (cancel first).
 
 ## Editing the design
 

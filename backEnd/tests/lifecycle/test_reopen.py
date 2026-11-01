@@ -96,6 +96,8 @@ async def sign(harness: Harness, study: SeededStudy, revision: int) -> ReportSig
             reviewed_sha256="b" * 64,
             pdf_uri=f"gs://basis-test/studies/{study.study_id}/reports/rev-{revision}.pdf",
             pdf_sha256="c" * 64,
+            firm_profile_version=0,
+            report_answers_version=0,
         )
 
 

@@ -223,6 +223,10 @@ ACCOUNT_STOP_PATCH: Final = "provider-account-stop-v1"
 LOCALIZE_BACKGROUND_PATCH: Final = "localize-background-v1"
 COMPONENTS_GATE_PATCH: Final = "components-gate-v1"
 CONVENTIONS_PATCH: Final = "firm-conventions-v1"
+# An execution that ends failed (an error no stage holds for a retry) first records the
+# failure on the study row, so the study reads ``failed`` with the code instead of staying
+# ``processing`` with a closed execution (EVAL_REPORT 62).
+FAILED_END_PATCH: Final = "failed-end-records-failure-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
@@ -456,7 +460,9 @@ class StudyWorkflow:
             return self._result("cancelled")
         try:
             result = body.result()
-        except BaseException:
+        except BaseException as error:
+            if workflow.patched(FAILED_END_PATCH):
+                await self._record_failed(error)
             await self._record_end("failed")
             raise
         await self._record_end("completed")
@@ -1245,6 +1251,45 @@ class StudyWorkflow:
                 await task
             except (asyncio.CancelledError, ActivityError):
                 pass
+
+    async def _record_failed(self, error: BaseException) -> None:
+        """The execution is about to end ``failed`` with ``error``, an error no stage held
+        for a retry (a transition that lost to the API, the photo listing, an unexpected
+        exception). Record it on the study row (``status = failed``, the reason, the code)
+        and on the timeline, and expose it to the status query, so the study does not read
+        ``processing`` with a closed execution. ``POST .../retry`` cannot reach a closed
+        execution (409 ``workflow-closed``); ``POST .../restart`` runs the study again
+        (docs/api/WORKFLOW.md). A failure to record it is logged, never raised: the end is
+        still recorded."""
+        if isinstance(error, ActivityError):
+            reason, code = _failure(error)
+        else:
+            text = str(error) or type(error).__name__
+            code = code_in(text) or E.WF_UNEXPECTED_ERROR
+            reason = tag(code, f"{type(error).__name__}: {text}")[:MAX_FAILURE_CHARS]
+        self._failed_stage, self._failure, self._failure_code = self._stage, reason, code
+        workflow.logger.error(
+            "study failed at %s with no retry: %s", self._stage, reason, extra={"error_code": code}
+        )
+        try:
+            await self._activity(
+                "record_failure",
+                RecordFailureInput(
+                    study_id=self._input.study_id,
+                    stage=self._stage,
+                    revision=self._revision,
+                    reason=reason,
+                    code=code,
+                ),
+                None,
+                f"record_failure:{self._stage}:r{self._revision}:end",
+            )
+        except ActivityError as recording:
+            workflow.logger.error(
+                "the failure could not be recorded on the study: %s",
+                recording.cause or recording,
+                extra={"error_code": code},
+            )
 
     async def _record_end(self, outcome: Literal["completed", "cancelled", "failed"]) -> None:
         info = workflow.info()

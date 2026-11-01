@@ -130,7 +130,8 @@ SPEC_TABLES = {
     # 11.13); studies.report_answers / report_answers_version above.
     "firm_profiles": "org_id profile version updated_by created_at updated_at",
     "report_signatures": "id study_id revision signed_by signed_at engineer statement_version "
-    "export_sha256 reviewed_sha256 pdf_uri pdf_sha256",
+    "export_sha256 reviewed_sha256 pdf_uri pdf_sha256 firm_profile_version "
+    "report_answers_version",
     # The latest heartbeat of each worker and relay process (migration 0021, ops health).
     "service_heartbeats": "id service build_sha state started_at heartbeat_at report",
     # The firm's own history (migration 0022_user_activity_org_events).

@@ -25,13 +25,15 @@ from typing import Any
 import pymupdf
 import pytest
 from apitest_support import Api, Seed, bearer, sha256_hex
+from dbtest_support import queued_behind_a_lock
 from PIL import Image
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.activities.export_report import build_report_files
 from basis.db.enums import OrgRole, Stage
+from basis.db.models import Org, ReportSignature, Study
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.storage import LocalStorage
@@ -291,3 +293,197 @@ async def test_a_signed_report_is_served_recorded_and_never_replaced(
     async with sessionmaker() as session:
         with pytest.raises(DBAPIError, match="23001|append-only|not allowed"):
             await session.execute(text("UPDATE report_signatures SET pdf_uri = 'x'"))
+
+
+# --------------------------------------------------------------------- races (EVAL_REPORT 62)
+
+
+async def signable(
+    api: Api, seed: Seed, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> tuple[str, uuid.UUID, str]:
+    """A study whose current revision can be signed: ``(study id, org id, preview tag)``."""
+    sid = (await api.create_study("alice"))["id"]
+    org = await org_of(seed, "alice")
+    await put(api, "alice", f"/v1/orgs/{org}/profile", PROFILE)
+    await put(api, "alice", f"/v1/studies/{sid}/report-answers", ANSWERS)
+    await exported(sessionmaker, storage, sid)
+    return sid, org, await preview_tag(api, "alice", sid)
+
+
+def study_lock(sid: str) -> Any:
+    return select(Study).where(Study.id == uuid.UUID(sid)).with_for_update()
+
+
+async def signatures(sm: async_sessionmaker[AsyncSession], sid: str) -> list[ReportSignature]:
+    async with sm() as session:
+        rows = await session.scalars(
+            select(ReportSignature).where(ReportSignature.study_id == uuid.UUID(sid))
+        )
+        return list(rows.all())
+
+
+async def test_two_signings_at_once_record_one_signature_and_one_pdf(
+    api: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Two engineers sign the same preview at the same moment. ``sign_report`` takes the
+    study's row lock before any check, so the second waits, re-reads under the lock, finds
+    the signature and is refused before it renders or stores anything: one 201, one 409
+    BASIS-REPORT-009, one row, one signed PDF in storage, one ``report.signed`` event.
+    Without the lock (verified by removing ``FOR UPDATE`` from ``lock_study``) both render,
+    both store a PDF and the second insert dies on the unique key: a 500 and an orphan."""
+    sid, org, tag = await signable(api, seed, storage, sessionmaker)
+    await seed.member(org, "erin", OrgRole.ENGINEER)
+    sign = f"/v1/studies/{sid}/report/sign"
+    first, second = await queued_behind_a_lock(
+        sessionmaker,
+        study_lock(sid),
+        lambda: api.post("alice", sign, sign_body(tag)),
+        lambda: api.post("erin", sign, sign_body(tag)),
+    )
+    assert (first.status_code, second.status_code) == (201, 409), (first.text, second.text)
+    assert second.json()["code"] == "BASIS-REPORT-009"
+    [row] = await signatures(sessionmaker, sid)
+    assert str(row.id) == first.json()["id"] and str(row.signed_by) == str(
+        (await seed.user("alice")).id
+    )
+    assert len(list((tmp_path / "objects").rglob("rev-1.report.signed.*.pdf"))) == 1
+    timeline = await api.get(
+        "alice", f"/v1/studies/{sid}/timeline", params={"event_type": "report.signed"}
+    )
+    assert len(timeline.json()["items"]) == 1
+    state = (await api.get("alice", f"/v1/studies/{sid}/report/state")).json()
+    assert state["signature"]["id"] == first.json()["id"]
+
+
+async def test_two_profile_writes_with_one_etag_at_once_write_one(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The firm profile's compare-and-set is under the firm's row lock: two owners who read
+    version 1 and both send ``If-Match: "1"`` at once get one 200 (version 2) and one 412
+    carrying the current tag; the loser's profile is not written."""
+    org = await org_of(seed, "alice")
+    await seed.member(org, "owen", OrgRole.OWNER)
+    path = f"/v1/orgs/{org}/profile"
+    tag = (await put(api, "alice", path, PROFILE)).headers["etag"]
+    assert tag == '"1"'
+    lock = select(Org).where(Org.id == org).with_for_update()
+    mine, theirs = await queued_behind_a_lock(
+        sessionmaker,
+        lock,
+        lambda: put(api, "alice", path, {**PROFILE, "phone": "111"}, **{"If-Match": tag}),
+        lambda: put(api, "owen", path, {**PROFILE, "phone": "222"}, **{"If-Match": tag}),
+    )
+    assert (mine.status_code, theirs.status_code) == (200, 412), (mine.text, theirs.text)
+    assert mine.headers["etag"] == '"2"' and theirs.headers["etag"] == '"2"'
+    assert theirs.json()["code"] == "BASIS-REPORT-011"
+    read = (await api.get("alice", path)).json()
+    assert (read["version"], read["profile"]["phone"]) == (2, "111")
+
+
+async def test_two_answers_writes_with_one_etag_at_once_write_one(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The same for the study's report answers, under the study's row lock: one 200, one
+    412 BASIS-REPORT-012 with the current tag, one ``study.report_answers_set`` event."""
+    sid = (await api.create_study("alice"))["id"]
+    org = await org_of(seed, "alice")
+    await seed.member(org, "erin", OrgRole.ENGINEER)
+    path = f"/v1/studies/{sid}/report-answers"
+    tag = (await put(api, "alice", path, ANSWERS)).headers["etag"]
+    mine, theirs = await queued_behind_a_lock(
+        sessionmaker,
+        study_lock(sid),
+        lambda: put(api, "alice", path, {**ANSWERS, "taxpayer_name": "A"}, **{"If-Match": tag}),
+        lambda: put(api, "erin", path, {**ANSWERS, "taxpayer_name": "B"}, **{"If-Match": tag}),
+    )
+    assert (mine.status_code, theirs.status_code) == (200, 412), (mine.text, theirs.text)
+    assert theirs.json()["code"] == "BASIS-REPORT-012" and theirs.headers["etag"] == '"2"'
+    read = (await api.get("alice", path)).json()
+    assert (read["report_answers_version"], read["report_answers"]["taxpayer_name"]) == (2, "A")
+    timeline = await api.get(
+        "alice", f"/v1/studies/{sid}/timeline", params={"event_type": "study.report_answers_set"}
+    )
+    assert [e["detail"]["version_after"] for e in timeline.json()["items"]] == [1, 2]
+
+
+async def test_an_answers_write_queued_before_the_signing_makes_it_412(
+    api: Api, seed: Seed, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """An engineer saves an answer while another signs, and the save takes the study's row
+    lock first: the signing then renders from the new answers under the same lock, the
+    preview the signer reviewed is no longer the report, and nothing is signed (412
+    BASIS-REPORT-010 with the current tag). The answer is kept."""
+    sid, org, tag = await signable(api, seed, storage, sessionmaker)
+    await seed.member(org, "erin", OrgRole.ENGINEER)
+    answers = f"/v1/studies/{sid}/report-answers"
+    saved, signed = await queued_behind_a_lock(
+        sessionmaker,
+        study_lock(sid),
+        lambda: put(api, "erin", answers, {**ANSWERS, "taxpayer_name": "Changed LLC"}),
+        lambda: api.post("alice", f"/v1/studies/{sid}/report/sign", sign_body(tag)),
+    )
+    assert (saved.status_code, signed.status_code) == (200, 412), (saved.text, signed.text)
+    assert signed.json()["code"] == "BASIS-REPORT-010"
+    assert signed.headers["etag"].strip('"') == await preview_tag(api, "alice", sid) != tag
+    assert await signatures(sessionmaker, sid) == []
+    assert (await api.get("alice", answers)).json()["report_answers"]["taxpayer_name"] == (
+        "Changed LLC"
+    )
+
+
+async def test_inputs_written_after_signing_are_reported_not_rendered(
+    api: Api, seed: Seed, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """After signing, the answers and the firm profile stay writable (the profile serves
+    every study), the signed PDF is what was signed, and ``report/state`` says which inputs
+    changed since: the signature keeps the versions it was rendered with and the state
+    compares them with the current ones (docs/api/REPORT.md, "After signing")."""
+    sid, org, tag = await signable(api, seed, storage, sessionmaker)
+    signed = await api.post("alice", f"/v1/studies/{sid}/report/sign", sign_body(tag))
+    assert signed.status_code == 201, signed.text
+    signature = signed.json()
+    assert (signature["firm_profile_version"], signature["report_answers_version"]) == (1, 1)
+    state_path = f"/v1/studies/{sid}/report/state"
+    assert (await api.get("alice", state_path)).json()["changed_since_signing"] == []
+    final = (await api.get("alice", f"/v1/studies/{sid}/report")).content
+
+    answers = await put(
+        api, "alice", f"/v1/studies/{sid}/report-answers", {**ANSWERS, "taxpayer_name": "Later"}
+    )
+    assert answers.status_code == 200
+    state = (await api.get("alice", state_path)).json()
+    assert state["changed_since_signing"] == ["study"]
+    assert (state["report_answers_version"], state["firm_profile_version"]) == (2, 1)
+    profile = await put(api, "alice", f"/v1/orgs/{org}/profile", {**PROFILE, "name": "Renamed"})
+    assert profile.status_code == 200
+    state = (await api.get("alice", state_path)).json()
+    assert state["changed_since_signing"] == ["firm", "study"]
+    assert state["signature"]["id"] == signature["id"] and state["missing_for_final"] == []
+    # The signed PDF and its hash are untouched; the preview (a draft) follows the inputs.
+    assert (await api.get("alice", f"/v1/studies/{sid}/report")).content == final
+    assert await preview_tag(api, "alice", sid) != tag
+    event = (
+        await api.get(
+            "alice", f"/v1/studies/{sid}/timeline", params={"event_type": "report.signed"}
+        )
+    ).json()["items"][0]
+    assert (event["detail"]["firm_profile_version"], event["detail"]["report_answers_version"]) == (
+        1,
+        1,
+    )
+    # A signature recorded before the versions were kept: the state says "unknown".
+    async with sessionmaker() as session, session.begin():
+        await session.execute(text("ALTER TABLE report_signatures DISABLE TRIGGER USER"))
+        await session.execute(
+            text(
+                "UPDATE report_signatures SET firm_profile_version = NULL, "
+                "report_answers_version = NULL"
+            )
+        )
+        await session.execute(text("ALTER TABLE report_signatures ENABLE TRIGGER USER"))
+    state = (await api.get("alice", state_path)).json()
+    assert state["changed_since_signing"] is None and state["signature"]["id"] == signature["id"]

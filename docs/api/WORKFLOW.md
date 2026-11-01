@@ -77,7 +77,7 @@ Runs the failed stage again. No body; `Idempotency-Key` is not needed.
 | `202` `{workflow_id, stage, revision, already_requested}` | the workflow accepted the retry; `stage` is the stage that runs again, `revision` the input revision it runs on. `already_requested: true` means a retry was already accepted and the stage has not restarted yet (a repeat is harmless). |
 | `409` `study-not-failed` | no stage has failed (the workflow's validator refused the request). |
 | `409` `workflow-closed` | the execution has ended (completed, cancelled, or failed before v0.9, whose executions ended on a failure and cannot be resumed). |
-| `409` `study-archived` | the study is archived. |
+| `409` `study-archived` | the study is archived (a running study cannot be archived: `DELETE` answers `409 workflow-running` until the execution has closed, docs/api/STUDY_LIBRARY.md). |
 | `404` | the study has no workflow (never started). |
 | `503` | Temporal is not configured or unreachable; `Retry-After` is set. |
 
@@ -105,6 +105,34 @@ execution under the same `workflow_id` from the study's uploads and intake as th
 409 `workflow-running` while the execution runs, 409 `study-completed` after it completed.
 The whole contract, including two restarts racing, is in
 [GATE_DRAFTS_AND_RESUME.md](GATE_DRAFTS_AND_RESUME.md) section 3.
+## `POST .../retry` pressed twice
+
+The retry is an update the workflow answers at once; the stage restarts a workflow task later
+(the failure is cleared by an activity first). A second retry in that window is accepted with
+`already_requested: true` and starts nothing: the stage runs again exactly once. A retry after
+the stage restarted is `409 study-not-failed` (nothing has failed). Tested on the real workflow
+with the clearing activity held open so the window is real (`tests/lifecycle/test_stage_retry.py`,
+EVAL_REPORT 62).
+
+## An execution that ends `failed`
+
+The hold-and-retry above covers the extraction, the assets and the export (and, with patch
+`provider-account-stop-v1`, a provider refusing the account during the photos). An activity
+outside those failing permanently (the photo listing, a stage transition the API outran, an
+unexpected exception) ends the execution: since patch `failed-end-records-failure-v1`
+(EVAL_REPORT 62) the workflow first records the failure on the study (`status: "failed"`,
+`failure_reason`, `failure_code`, a `stage.failed` event), then the run's end (`run.ended`,
+`outcome: "failed"`), and the execution closes `FAILED`. Before the patch the run ended
+`failed` while the study stayed `processing` with no reason: a client polling the study saw it
+in progress forever.
+
+| Then | Answer |
+|---|---|
+| `GET /v1/studies/{id}` | `status: "failed"`, `failure_reason`, `failure_code` |
+| `GET .../workflow` | `execution_status: "FAILED"`; `status.failed_stage` and `status.failure` from the closed execution's final state |
+| `POST .../retry` | `409 workflow-closed`: nothing can resume a closed execution |
+| `POST .../restart` | runs the study again from its uploads under a new revision (docs/api/GATE_DRAFTS_AND_RESUME.md); the execution's own `FAILED` close is what `restart` requires |
+| `DELETE /v1/studies/{id}` | archives (the execution is over; docs/api/STUDY_LIBRARY.md) |
 
 ## The failure this page was written for
 

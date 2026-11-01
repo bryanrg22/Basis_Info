@@ -15,6 +15,7 @@ patch ``stage-failure-retry-v1``:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -30,6 +31,7 @@ from temporalio.worker import Replayer
 from basis.activities.export_report import ExportReport
 from basis.activities.extract_fields import ExtractFields
 from basis.activities.process_assets import ProcessAssets
+from basis.activities.record_failure import RecordFailure
 from basis.db.enums import StudyStatus
 from basis.db.models import Asset, PhotoRoom
 from basis.db.session import session_scope
@@ -40,6 +42,7 @@ from basis.workflow.contracts import (
     ExtractFieldsOutput,
     ProcessAssetsInput,
     ProcessAssetsOutput,
+    RecordFailureInput,
     SimulateFault,
 )
 from basis.workflow.study_workflow import StudyWorkflow
@@ -182,6 +185,71 @@ async def test_an_extraction_failure_stops_the_photos_and_a_retry_completes_the_
         workflows=[StudyWorkflow], data_converter=pydantic_data_converter
     ).replay_workflow(history)
     assert replayed.replay_failure is None
+
+
+class GatedRecordFailure:
+    """The real ``record_failure``, holding the clearing call (``reason=None``, the one a
+    retry triggers) until ``release`` is set, so a test can act while the retry is accepted
+    and the stage has not restarted yet."""
+
+    def __init__(self, harness: Harness) -> None:
+        self.real = RecordFailure(harness.deps)
+        self.clearing = asyncio.Event()
+        self.release = asyncio.Event()
+
+    @activity.defn(name="record_failure")
+    async def run(self, input: RecordFailureInput) -> None:
+        if input.reason is None:
+            self.clearing.set()
+            await self.release.wait()
+        await self.real.run(input)
+
+
+async def test_a_second_retry_before_the_stage_restarts_is_already_requested(
+    harness: Harness,
+) -> None:
+    """``POST .../retry`` pressed twice (EVAL_REPORT 62). The first retry wakes the hold;
+    the second arrives while the failure is still being cleared (the clearing activity is
+    held by the test, so the window is real, not a race won by timing): it is accepted with
+    ``already_requested`` and starts nothing. The stage runs again exactly once (one
+    ``:retry1`` extraction, two calls in all) and the study completes. A retry after the
+    stage restarted is refused (no stage has failed), as the API documents."""
+    flaky = FlakyExtract(harness, failures=1)
+    gate = GatedRecordFailure(harness)
+    async with harness.worker(extract_fields=flaky.run, record_failure=gate.run):
+        started = await harness.start()
+        handle, sid = started.handle, started.study_id
+        await harness.wait_for(handle, lambda s: s.failed_stage is not None, "the failure")
+        first = await handle.execute_update(StudyWorkflow.retry)
+        assert (first.stage, first.already_requested) == ("extracting", False)
+        await asyncio.wait_for(gate.clearing.wait(), 10)  # the hold woke; clearing in flight
+        second, third = await asyncio.gather(
+            handle.execute_update(StudyWorkflow.retry), handle.execute_update(StudyWorkflow.retry)
+        )
+        assert (second.stage, second.already_requested) == ("extracting", True)
+        assert (third.stage, third.already_requested) == ("extracting", True)
+        gate.release.set()
+        status = await harness.wait_awaiting(handle, "appraisal_review", 1)
+        assert status.failed_stage is None
+        with pytest.raises(WorkflowUpdateFailedError) as raised:
+            await handle.execute_update(StudyWorkflow.retry)
+        assert isinstance(raised.value.cause, ApplicationError)
+        assert raised.value.cause.type == "InvalidRetry"
+        await harness.wait_photos(handle, 3)
+        await harness.approve_all(handle)
+        result = await harness.result(handle)
+    assert result.outcome == "completed"
+    assert flaky.calls == 2
+    events = await history_events(handle)
+    assert [what for what, name in events if name == "extract_fields"] == [
+        "scheduled",
+        "failed",
+        "scheduled",
+        "completed",
+    ]
+    assert sum(1 for what, name in events if (what, name) == ("scheduled", "record_failure")) == 2
+    row = await harness.study_row(sid)
+    assert (row.status, row.failure_reason) == (StudyStatus.COMPLETED, None)
 
 
 async def test_retry_is_refused_while_nothing_has_failed(harness: Harness) -> None:

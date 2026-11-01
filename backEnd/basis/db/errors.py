@@ -43,6 +43,12 @@ class DuplicateDocumentError(ConflictError):
     """A document with the same sha256 (or storage URI) already exists in the study."""
 
 
+class IntakeLockedError(ConflictError):
+    """The study has started: its intake fed the run and feeds the result and the report,
+    so it is not replaced in place (``PUT /v1/studies/{id}/intake`` answers 409
+    ``intake-locked``; docs/api/STUDY_RESULT.md)."""
+
+
 class DuplicateKeyError(ConflictError):
     """An idempotency key was already used for a different write."""
 

@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,6 +38,13 @@ from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
 from basis.storage import LocalStorage
 from basis.worker.search_attributes import ensure_search_attributes
+
+# ``tests/api`` on ``sys.path`` so ``apitest_support`` (the API client over the test server's
+# Temporal client, ``test_archive_rule.py``) imports when this directory runs on its own, as
+# ``tests/integration/api/conftest.py`` does.
+API_TESTS = str(Path(__file__).resolve().parents[1] / "api")
+if API_TESTS not in sys.path:
+    sys.path.insert(0, API_TESTS)
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
