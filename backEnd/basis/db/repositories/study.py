@@ -476,7 +476,7 @@ class StudyRepository:
         one study serialize on that lock: the first restores it, the others find it restored
         and report ``restored`` false, whatever each read before the lock (a guard taken from
         the route's earlier, unlocked read recorded three events for three requests;
-        EVAL_REPORT 55)."""
+        EVAL_REPORT 56)."""
         locked = (
             await self._session.scalars(
                 select(Study)
