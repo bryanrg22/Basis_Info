@@ -152,7 +152,7 @@ match it:
 | Member | Meaning |
 |---|---|
 | `signature.firm_profile_version`, `signature.report_answers_version` | the versions of the two inputs the signed report was rendered with (also in the `report.signed` event's `detail`) |
-| `changed_since_signing` | `[]`: nothing was written since; `["study"]`: the answers were; `["firm"]`: the profile was; both; `null` while unsigned, or for a signature recorded before the versions were kept (migration 0024): unknown rather than guessed from timestamps |
+| `changed_since_signing` | `[]`: nothing was written since; `["study"]`: the answers were; `["firm"]`: the profile was; both; `null` while unsigned, or for a signature recorded before the versions were kept (migration 0025): unknown rather than guessed from timestamps |
 
 A client shows a signed report with `changed_since_signing` non-empty as "signed with earlier
 inputs"; the change reaches a report only through a new revision, signed on its own. The

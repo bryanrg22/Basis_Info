@@ -47,7 +47,6 @@ if API_TESTS not in sys.path:
     sys.path.insert(0, API_TESTS)
 
 
-
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def temporal_env() -> AsyncIterator[WorkflowEnvironment]:
     env = await start_env()

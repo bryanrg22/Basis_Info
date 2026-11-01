@@ -61,6 +61,7 @@ BODIES: Final[dict[str, Any]] = {
     "POST /v1/studies/{study_id}/unarchive": None,
     "POST /v1/studies/{study_id}/documents": UPLOAD,
     "POST /v1/studies/{study_id}/documents/{document_id}/complete": None,
+    "POST /v1/studies/{study_id}/documents/{document_id}/upload-url": None,
     "GET /v1/studies/{study_id}/documents/{document_id}/content": None,
     "GET /v1/studies/{study_id}/documents/{document_id}/pdf": None,
     "GET /v1/studies/{study_id}/extraction": None,
@@ -69,6 +70,10 @@ BODIES: Final[dict[str, Any]] = {
         "revision": 1,
         "decision": "approve",
     },
+    # Gate drafts (docs/api/GATE_DRAFTS_AND_RESUME.md): ``{stage}`` is a review stage (FIXED).
+    "GET /v1/studies/{study_id}/drafts/{stage}": None,
+    "PUT /v1/studies/{study_id}/drafts/{stage}": {"revision": 1, "comment": "x", "corrections": []},
+    "DELETE /v1/studies/{study_id}/drafts/{stage}": None,
     "GET /v1/studies/{study_id}/evidence": None,
     "GET /v1/studies/{study_id}/photos/{document_id}/objects": None,
     "POST /v1/studies/{study_id}/photos/{document_id}/objects": {
@@ -81,6 +86,7 @@ BODIES: Final[dict[str, Any]] = {
     "GET /v1/studies/{study_id}/workflow": None,
     "POST /v1/studies/{study_id}/cancel": None,
     "POST /v1/studies/{study_id}/retry": None,
+    "POST /v1/studies/{study_id}/restart": None,
     "GET /v1/studies/{study_id}/fields": None,
     "GET /v1/studies/{study_id}/rooms": None,
     "GET /v1/studies/{study_id}/assets": None,
@@ -127,6 +133,8 @@ BODIES: Final[dict[str, Any]] = {
     "POST /v1/invitations/{invitation_id}/decline": None,
 }
 SCOPE_PARAMS: Final = ("{study_id}", "{org_id}", "{invitation_id}")
+# Path parameters that are not ids: a random UUID would be a 422 before the access check.
+FIXED: Final = {"stage": "appraisal_review"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,8 +237,10 @@ async def test_another_firms_ids_are_404_exactly_like_missing_ones(
 ) -> None:
     for method, template in scoped_operations(api_app):
         body = BODIES[f"{method} {template}"]
-        hidden = await send(http, mallory.uid, method, fill_path(template, alice.ids), body)
-        missing = await send(http, mallory.uid, method, fill_path(template), body)
+        hidden = await send(
+            http, mallory.uid, method, fill_path(template, {**FIXED, **alice.ids}), body
+        )
+        missing = await send(http, mallory.uid, method, fill_path(template, FIXED), body)
         assert hidden.status_code == 404, (method, template, hidden.text)
         assert missing.status_code == 404, (method, template, missing.text)
         assert comparable(hidden) == comparable(missing), (method, template)
@@ -243,6 +253,7 @@ async def test_own_scope_does_not_reach_another_firms_rows(
     mine = {**alice.ids, "study_id": mallory.ids["study_id"], "org_id": mallory.ids["org_id"]}
     for method, template in (
         ("POST", "/v1/studies/{study_id}/documents/{document_id}/complete"),
+        ("POST", "/v1/studies/{study_id}/documents/{document_id}/upload-url"),
         ("GET", "/v1/studies/{study_id}/documents/{document_id}/content"),
         ("GET", "/v1/studies/{study_id}/documents/{document_id}/pdf"),
         ("GET", "/v1/studies/{study_id}/photos/{document_id}/objects"),

@@ -38,6 +38,7 @@ from basis.temporal.names import (
     study_workflow_id,
 )
 from basis.temporal.service import (
+    RestartRefusedError,
     RetryRefusedError,
     TemporalWorkflowService,
     WorkflowNotFoundError,
@@ -168,6 +169,40 @@ async def test_start_of_a_workflow_that_ended_unsuccessfully_is_not_running(
 async def test_start_errors_are_unavailable(error: BaseException) -> None:
     with pytest.raises(WorkflowUnavailableError, match="unavailable"):
         await service(StubClient(start=error)).start_study(INPUT)
+
+
+async def test_restart_uses_the_failed_only_reuse_policy() -> None:
+    """A cancelled study runs again under the same id (docs/api/GATE_DRAFTS_AND_RESUME.md):
+    REJECT_DUPLICATE would refuse any second execution, ALLOW_DUPLICATE_FAILED_ONLY allows
+    one over a closed execution that did not complete, and FAIL (not USE_EXISTING) on a
+    conflict so a running execution is never answered as if it were the new one."""
+    client = StubClient()
+    ref = await service(client).restart_study(INPUT)
+    assert (ref.workflow_id, ref.run_id) == ("study-s1", "run-1")
+    (_, workflow, arg, kwargs) = client.calls[0]
+    assert (workflow, arg) == ("StudyWorkflow", INPUT)
+    assert kwargs["id"] == "study-s1" and kwargs["task_queue"] == "basis-studies"
+    assert kwargs["id_conflict_policy"] is WorkflowIDConflictPolicy.FAIL
+    assert kwargs["id_reuse_policy"] is WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+
+
+@pytest.mark.parametrize(
+    "status", [WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.COMPLETED]
+)
+async def test_restart_over_a_running_or_completed_execution_is_refused(
+    status: WorkflowExecutionStatus,
+) -> None:
+    client = StubClient(start=WorkflowAlreadyStartedError("study-s1", "StudyWorkflow"))
+    client.status = status
+    with pytest.raises(RestartRefusedError, match=status.name.lower()) as refused:
+        await service(client).restart_study(INPUT)
+    assert refused.value.status == status.name
+
+
+@pytest.mark.parametrize("error", [UNAVAILABLE, RuntimeError("Failed client connect"), NOT_FOUND])
+async def test_restart_errors_are_unavailable(error: BaseException) -> None:
+    with pytest.raises(WorkflowUnavailableError, match="unavailable"):
+        await service(StubClient(start=error)).restart_study(INPUT)
 
 
 async def test_slow_calls_are_bounded() -> None:

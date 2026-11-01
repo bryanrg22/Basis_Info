@@ -756,6 +756,19 @@ ENTRIES: Final[tuple[Entry, ...]] = (
     ),
     # ------------------------------------------------------------------ STUDY
     _e(
+        E.UPLOAD_ALREADY_CONFIRMED,
+        "refusal",
+        "`POST .../documents/{id}/upload-url`",
+        "basis.api.routes.documents",
+        "A new signed upload URL was asked for a document whose upload is already confirmed; "
+        "its bytes are immutable (they hash to the registered sha256).",
+        "409 `upload-complete`.",
+        "Nothing to resume for this document. To replace the file, register the new bytes as a "
+        "new document.",
+        "no",
+        problem="upload-complete",
+    ),
+    _e(
         E.STUDY_INTAKE_REQUIRED,
         "refusal",
         "`POST /studies/{id}/start`",
@@ -1083,6 +1096,67 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         problem="intake-locked",
     ),
     # ------------------------------------------------------------------ OBJECT
+    _e(
+        E.STUDY_DRAFT_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT`/`DELETE .../drafts/{stage}`",
+        "basis.api.routes.drafts",
+        "The `If-Match` entity tag is not the draft's current version (this user's draft on the "
+        "stage was saved since the client read it, or `If-Match: *` with no draft).",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the draft again (`GET .../drafts/{stage}`), merge, and send the new `ETag` as "
+        "`If-Match` (docs/api/GATE_DRAFTS_AND_RESUME.md).",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.STUDY_DRAFT_STALE,
+        "refusal",
+        "`PUT .../drafts/{stage}`",
+        "basis.api.routes.drafts",
+        "The draft names a `revision` that is not the study's current one, or the stage has "
+        "already been decided at that revision: its corrections could never be submitted.",
+        "409 `draft-stale`; `detail` names the study's current revision.",
+        "Reload the gate at the current revision and draft against it; discard the stale draft "
+        "(`DELETE`) if it is still stored.",
+        "no",
+        problem="draft-stale",
+    ),
+    _e(
+        E.STUDY_DRAFT_NOT_FOUND,
+        "refusal",
+        "`DELETE .../drafts/{stage}`",
+        "basis.api.routes.drafts",
+        "The caller has no draft on that stage of the study (never saved, already submitted "
+        "with a decision, or already discarded).",
+        "404 `not-found`.",
+        "Nothing to discard; `GET .../drafts/{stage}` lists what exists.",
+        "no",
+        problem="not-found",
+    ),
+    _e(
+        E.STUDY_RESTART_RUNNING,
+        "refusal",
+        "`POST .../restart`",
+        "basis.api.routes.workflow",
+        "The study's execution is still running (or waiting for a retry): there is nothing to "
+        "restart from.",
+        "409 `workflow-running`.",
+        "Use `POST .../retry` for a failed stage, or `POST .../cancel` first, then restart.",
+        "no",
+        problem="workflow-running",
+    ),
+    _e(
+        E.STUDY_RESTART_COMPLETED,
+        "refusal",
+        "`POST .../restart`",
+        "basis.api.routes.workflow",
+        "The study's execution completed: its outputs and report exist and are not redone.",
+        "409 `study-completed`.",
+        "Reject a review stage to rework a revision, or create a new study.",
+        "no",
+        problem="study-completed",
+    ),
     _e(
         E.OBJECT_LOCALIZATION_PENDING,
         "refusal",
@@ -3256,6 +3330,9 @@ GENERIC_FOR_PROBLEM: Final[dict[str, str]] = {
     "service-unavailable": E.API_SERVICE_UNAVAILABLE,
     "stale-state": E.STUDY_STALE_STATE,
     "gate-not-open": E.STUDY_GATE_NOT_OPEN,
+    # Raised by the restart route (its code) and by the archive route (its own): a bare
+    # problem of this type keeps the restart's meaning, the first to carry it.
+    "workflow-running": E.STUDY_RESTART_RUNNING,
     # The intake's was the only 412 before the report's (signing, profile, answers), which
     # pass their codes explicitly; a bare 412 keeps the meaning it had.
     "precondition-failed": E.STUDY_INTAKE_PRECONDITION_FAILED,

@@ -7898,7 +7898,7 @@ browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeComp
 order accented names differently. The audit's in-memory page is the right size for a study's engineer
 actions; a study with thousands of corrections would want the union query.
 
-## 56. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
+## 57. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
 
 **Question.** Before an outside firm receives a link: can a caller reach anything without a token, see
 or change another firm's data, exhaust the service, or read something the server should keep (a stack,
@@ -8025,6 +8025,83 @@ unchanged (no route changed).
 **Open.** Finding 4 (the deployment-wide index store); the limiter's cost under load; a penetration
 test from outside the code (this review read and tested the code, it did not probe a deployment).
 
+## 58. Leaving a study and coming back: gate drafts on the server, resumable uploads, restarting a cancelled study (2026-11-01)
+
+**Question.** An engineer who leaves a study at any stage must be able to come back and continue
+with nothing lost. What is lost today, and what does the backend need so that nothing is?
+
+**What was lost, verified in the frontend.** `web/live/live-review.js:24` keeps the corrections
+an engineer adds at a gate in `L.corrections` (a `Map` per stage) until `POST .../decisions`
+sends them; `live-app.js:105,149,215` keeps the upload run in `L.upload`. Both are tab memory:
+a reload, a closed tab or a switch of study drops them. After a reload a draft study showed
+"Ready to start" with no way to add its files, and the upload screen always created a new
+study. A third gap was in the backend itself: `POST .../cancel` ends the execution and nothing
+can start the study again (`start` answers 409 `workflow-closed` for ever, because the one
+workflow id per study is reused with `REJECT_DUPLICATE`), so a cancelled study could only be
+archived and re-created by hand.
+
+**Built** (docs/api/GATE_DRAFTS_AND_RESUME.md; PR this section ships in):
+
+1. *Gate drafts.* `GET`/`PUT`/`DELETE /v1/studies/{id}/drafts/{stage}` (engineer): one
+   document per study, stage and user (`review_drafts`, migration 0024) with the pending
+   `comment` and `corrections`, the `revision` they name rows of, and a `version` that is its
+   `ETag`/`If-Match` exactly as the intake's. The `PUT` runs the decision route's own checks
+   (type for the stage, target in the revision, values, reasons, removals, added fields), so a
+   draft that would be refused at submit time is refused at save time with the same `errors`.
+   A draft whose revision the study has left, or whose stage was decided at that revision, is
+   returned with `stale: true` and the reason, never as current. The decision deletes the
+   submitting engineer's draft in its own transaction (`review.decided` records
+   `draft_discarded`). Two engineers draft apart; `GET` lists whose other drafts exist (who,
+   since when, how many), not their content.
+2. *Resumable uploads.* The registration already survived a reload (`GET /v1/studies/{id}`
+   lists the document with `uploaded_at: null` and its sha256); what was missing was the signed
+   URL, which only the first response carried and which expires in 15 minutes. `POST
+   .../documents/{id}/upload-url` re-issues it for an unconfirmed document (409
+   `upload-complete` for a confirmed one, whose bytes are immutable). A repeated `POST
+   .../documents` for the same bytes stays the 409 `duplicate-document` that names the
+   document: the route is not idempotent on sha256 in the replay sense, and it need not be,
+   since the client matches a re-selected file to its registration by sha256 from the study's
+   document list. The resume sequence is written out for the frontend.
+3. *Cancelled studies.* `POST /v1/studies/{id}/restart` (owner): the execution is described
+   first (RUNNING is 409 `workflow-running`, COMPLETED 409 `study-completed`; cancelled,
+   terminated, timed out, failed before v0.9, or gone after retention proceed); one transaction
+   resets the row to `extracting` on revision + 1 with the failure cleared (`stage.entered`,
+   `study.restarted`); then a new execution starts under the same `study-{id}` with
+   `ALLOW_DUPLICATE_FAILED_ONLY`, so `studies.workflow_id`, the relay's routing, `cancel` and
+   `retry` keep working. The new revision keeps the cancelled run's rows as history and makes
+   every draft for them stale. Two restarts racing, or a 503 after the reset: the row lock
+   serializes the resets and the second reuses the first's (it finds the `study.restarted`
+   event with no `run.started` after it), one start wins, the other is 409 `workflow-running`,
+   and the row is at the revision the running execution was given.
+
+**Why no `draft.saved` / `draft.discarded` timeline events.** The timeline is the record of
+what happened to the study and the audit trail of the engineer input that changed it. A draft
+changes nothing about the study; its corrections enter the trail as `correction.recorded` when
+the decision is submitted; it is saved on every edit (an append-only row per autosave would
+bury the trail and keep every half-typed value for ever) and deleted when submitted or
+discarded. `review.decided` carries `draft_discarded`; who is drafting since when is on the row.
+
+**Verified** (every gate green on the branch; `tests/LEDGER.md`): 20 draft tests (+ 6
+malformed-body cases) including three concurrent first saves and three concurrent saves with
+one tag each ending with exactly one 200; 6 resume tests including the documented sequence end
+to end against the local storage; 7 restart tests on the fake Temporal including the 503 and
+the concurrent double restart; 3 service tests on the id policies; migration 0024 from an
+empty database (the stage check compares the label as text, because `components_review` is a
+new enum value in the same transaction and PostgreSQL refuses an unsafe use of it) and back.
+The OpenAPI document carries the five operations and the Schemathesis contract test runs them
+(the draft `PUT` gets the intake's carve-out: `If-Match` dropped, since a generated tag is
+rightly 412).
+
+**Not verified.** The restart against a real Temporal server and worker (the fake answers the
+id policies as the real one does; the service unit test pins the policies sent). What the new
+execution does with a study whose revision 1 rows exist (ingest's "already published" branch
+and the per-revision unique keys say it writes revision 2 apart, as a rejection does) has not
+been run live. The frontend changes (reading the draft on open, autosaving on edit, the
+"continue this study" upload screen) are Bryan's.
+
+**Open.** Whether a pending registration should be removable (not provided: a pending row
+costs nothing and keeps the duplicate check honest); whether `others` should carry the drafts'
+content for a reviewer role (not now: a colleague's half-finished work is theirs to send).
 ## 59. Races and edge cases before firms use it: two people on one study, nothing changes a final study silently (2026-11-01)
 
 **Question.** Bryan's two conditions before an engineering firm works in Basis: two people acting
@@ -8135,7 +8212,7 @@ not changed here; after the start it will receive this 409 (noted for `web/`).
 
 **The answers and the firm profile after signing.** They stay writable (the profile is firm-wide;
 the answers may be corrected for the next revision) and the signed PDF is stored, so they cannot
-change it; what was missing was the state saying so. Migration `0024_signature_input_versions` adds
+change it; what was missing was the state saying so. Migration `0025_signature_input_versions` adds
 `firm_profile_version` and `report_answers_version` to `report_signatures` (nullable: a signature
 recorded before them); `sign_report` records the versions it rendered with, under the same lock as the
 render, and puts them in the `report.signed` event's detail; `GET .../report/state` answers
@@ -8164,6 +8241,6 @@ From `backEnd/`: `ruff check`, `ruff format --check`, `mypy basis`, the catalogu
 `--check` (both regenerated: `BASIS-STUDY-030`, `-031`, the archive and intake descriptions, the
 report state and signature members), `evals.freeze_rule_fingerprints --check`,
 `tooling/check_no_client_data.py --ci`, pytest `-m "not integration and not slow"` and
-`-m "(integration or slow) and not eval_data"`; the results are in the PR. Migration `0024` revises
-`0023`; the migration test's head and history follow it (renumber at merge if another migration lands
-first). Error codes: `025`–`029` are left to the gate-drafts PR (#114), which is merging the same day.
+`-m "(integration or slow) and not eval_data"`; the results are in the PR. Migration `0025` revises
+`0024` (the gate-drafts PR, #114, merged while this section was written; the migration test's head and
+history follow it). Error codes: `025`–`029` are that PR's; this section's are `030` and `031`.

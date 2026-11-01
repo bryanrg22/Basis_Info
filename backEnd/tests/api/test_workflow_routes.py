@@ -788,3 +788,203 @@ async def test_health_reports_temporal_without_failing_on_it(
     assert down.status_code == 200  # a Temporal outage does not take the API out of service
     assert down.json()["checks"]["temporal"]["status"] == "fail"
     assert down.json()["checks"]["db"]["status"] == "ok"
+
+
+# --------------------------------------------------------------------------- restart
+# docs/api/GATE_DRAFTS_AND_RESUME.md: a cancelled study runs again from its uploads.
+
+
+async def events_of(sm: async_sessionmaker[AsyncSession], sid: str, *types: str) -> list[Any]:
+    from basis.db.models import StudyEvent
+
+    async with sm() as session:
+        rows = (
+            await session.scalars(
+                select(StudyEvent)
+                .where(StudyEvent.study_id == uuid.UUID(sid), StudyEvent.event_type.in_(types))
+                .order_by(StudyEvent.seq)
+            )
+        ).all()
+    return list(rows)
+
+
+async def cancelled_study(
+    api: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    workflows: FakeWorkflowService,
+    *,
+    stage: Stage = Stage.ASSETS_REVIEW,
+    revision: int = 2,
+    outcome: str = "CANCELED",
+) -> str:
+    """A started study the workflow moved to ``stage``/``revision`` and then closed with
+    ``outcome`` (as the owner's cancel leaves it: the row stays where it was)."""
+    sid = await ready_study(api, storage)
+    assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
+    await seed.stage(sid, stage, revision, components_gate=True)
+    workflows.executions[f"study-{sid}"].status = outcome
+    return sid
+
+
+async def test_restart_runs_a_cancelled_study_again_on_a_new_revision(
+    api: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    workflows: FakeWorkflowService,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    sid = await cancelled_study(api, seed, storage, workflows)
+    old_run = workflows.executions[f"study-{sid}"].run_id
+    problem(await api.post("alice", f"/v1/studies/{sid}/start"), 409, "workflow-closed")  # dead end
+
+    response = await api.post("alice", f"/v1/studies/{sid}/restart")
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["workflow_id"] == f"study-{sid}" and body["run_id"] != old_run
+    assert (body["revision"], body["from_stage"], body["from_revision"]) == (3, "assets_review", 2)
+    study = await load(sessionmaker, sid)
+    assert (study.current_stage, study.status, study.revision) == (
+        Stage.EXTRACTING,
+        StudyStatus.PROCESSING,
+        3,
+    )
+    assert study.workflow_id == f"study-{sid}"  # the id is unchanged: cancel and retry still route
+    [started] = workflows.restart_calls
+    assert (started.study_id, started.input_revision) == (sid, 3)
+    execution = workflows.executions[f"study-{sid}"]
+    assert execution.status == "RUNNING" and execution.run_id == body["run_id"]
+    assert [e.status for e in workflows.history[f"study-{sid}"]] == ["CANCELED"]
+    # The timeline: the move and the restart, by the owner.
+    [moved] = [
+        e
+        for e in await events_of(sessionmaker, sid, "stage.entered")
+        if e.before and e.before["stage"] == "assets_review"
+    ]
+    assert moved.after == {"stage": "extracting", "revision": 3} and moved.actor_type == "engineer"
+    [restarted] = await events_of(sessionmaker, sid, "study.restarted")
+    assert restarted.before == {"stage": "assets_review", "revision": 2, "status": "waiting_review"}
+    assert restarted.after == {"stage": "extracting", "revision": 3}
+    assert restarted.detail == {"workflow_id": f"study-{sid}"} and restarted.revision == 3
+    # The workflow route follows the new execution.
+    view = (await api.get("alice", f"/v1/studies/{sid}/workflow")).json()
+    assert (view["run_id"], view["execution_status"]) == (body["run_id"], "RUNNING")
+    assert view["status"]["revision"] == 3
+    # A second restart now: the new execution runs.
+    problem(await api.post("alice", f"/v1/studies/{sid}/restart"), 409, "workflow-running")
+
+
+@pytest.mark.parametrize("outcome", ["TERMINATED", "TIMED_OUT", "FAILED"])
+async def test_restart_after_any_unsuccessful_close(
+    api: Api, seed: Seed, storage: LocalStorage, workflows: FakeWorkflowService, outcome: str
+) -> None:
+    sid = await cancelled_study(api, seed, storage, workflows, outcome=outcome)
+    assert (await api.post("alice", f"/v1/studies/{sid}/restart")).status_code == 202
+
+
+async def test_restart_clears_a_held_failure(
+    api: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    workflows: FakeWorkflowService,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    sid = await cancelled_study(api, seed, storage, workflows, stage=Stage.EXTRACTING, revision=1)
+    async with session_scope(sessionmaker) as session:
+        await session.execute(
+            update(Study)
+            .where(Study.id == uuid.UUID(sid))
+            .values(status=StudyStatus.FAILED, failure_reason="ingest: timeout", failure_code="X")
+        )
+    response = await api.post("alice", f"/v1/studies/{sid}/restart")
+    assert response.status_code == 202 and response.json()["revision"] == 2
+    study = await load(sessionmaker, sid)
+    assert (study.status, study.failure_reason, study.failure_code) == (
+        StudyStatus.PROCESSING,
+        None,
+        None,
+    )
+
+
+async def test_restart_refusals(
+    api: Api, seed: Seed, storage: LocalStorage, workflows: FakeWorkflowService
+) -> None:
+    sid = await ready_study(api, storage)
+    org = (await api.get("alice", f"/v1/studies/{sid}")).json()["org_id"]
+    await seed.member(uuid.UUID(org), "erin", OrgRole.ENGINEER)
+    problem(await api.post("alice", f"/v1/studies/{sid}/restart"), 404, "not-found")  # not started
+    assert (await api.post("alice", f"/v1/studies/{sid}/start")).status_code == 202
+
+    running = problem(
+        await api.post("alice", f"/v1/studies/{sid}/restart"), 409, "workflow-running"
+    )
+    assert running["code"] == E.STUDY_RESTART_RUNNING and "running" in running["detail"]
+    workflows.executions[f"study-{sid}"].status = "COMPLETED"
+    done = problem(await api.post("alice", f"/v1/studies/{sid}/restart"), 409, "study-completed")
+    assert done["code"] == E.STUDY_RESTART_COMPLETED
+    workflows.executions[f"study-{sid}"].status = "CANCELED"
+    problem(await api.post("erin", f"/v1/studies/{sid}/restart"), 403, "forbidden")  # owner only
+    problem(await api.post("mallory", f"/v1/studies/{sid}/restart"), 404)
+    problem(await api.post("alice", f"/v1/studies/{uuid.uuid4()}/restart"), 404)
+    workflows.unavailable = True
+    problem(await api.post("alice", f"/v1/studies/{sid}/restart"), 503, "service-unavailable")
+    workflows.unavailable = False
+    assert (await api.delete("alice", f"/v1/studies/{sid}")).status_code == 200
+    problem(await api.post("alice", f"/v1/studies/{sid}/restart"), 409, "study-archived")
+    assert workflows.restart_calls == []  # nothing was started by any refusal
+
+
+async def test_restart_after_a_failed_start_reuses_the_reset(
+    api: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    workflows: FakeWorkflowService,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Temporal down between the reset and the start: the row is reset (503); the repeat
+    does not bump the revision again, and two owners clicking at once end on one revision."""
+    from basis.temporal.service import WorkflowUnavailableError
+
+    sid = await cancelled_study(api, seed, storage, workflows)
+    workflows.fail_restart = WorkflowUnavailableError("Temporal is unavailable (fake).")
+    problem(await api.post("alice", f"/v1/studies/{sid}/restart"), 503, "service-unavailable")
+    study = await load(sessionmaker, sid)
+    assert (study.current_stage, study.revision) == (Stage.EXTRACTING, 3)  # reset, not started
+    assert workflows.executions[f"study-{sid}"].status == "CANCELED"
+
+    workflows.fail_restart = None
+    response = await api.post("alice", f"/v1/studies/{sid}/restart")
+    assert response.status_code == 202, response.text
+    assert (response.json()["revision"], response.json()["from_stage"]) == (3, "assets_review")
+    assert (await load(sessionmaker, sid)).revision == 3  # reused, not 4
+    assert len(await events_of(sessionmaker, sid, "study.restarted")) == 1
+    assert workflows.restart_calls[-1].input_revision == 3
+
+    # Two restarts at once on another cancelled study: one execution, one revision bump.
+    other = await cancelled_study(api, seed, storage, workflows)
+    first, second = await asyncio.gather(
+        api.post("alice", f"/v1/studies/{other}/restart"),
+        api.post("alice", f"/v1/studies/{other}/restart"),
+    )
+    assert sorted([first.status_code, second.status_code]) == [202, 409]
+    assert (await load(sessionmaker, other)).revision == 3
+    # The loser is refused at the describe (the winner's execution already runs) or at the
+    # start (both passed the describe; the fake refuses the second start): 409 either way,
+    # and never a second reset or a second execution.
+    assert 1 <= len([c for c in workflows.restart_calls if c.study_id == other]) <= 2
+    assert workflows.executions[f"study-{other}"].workflow_input.input_revision == 3
+    assert len(await events_of(sessionmaker, other, "study.restarted")) == 1
+
+
+async def test_restart_when_temporal_has_no_record_of_the_execution(
+    api: Api, seed: Seed, storage: LocalStorage, workflows: FakeWorkflowService
+) -> None:
+    """After namespace retention the execution is gone; the owner's explicit restart is
+    allowed (``start`` keeps refusing with ``workflow-missing``)."""
+    sid = await cancelled_study(api, seed, storage, workflows)
+    del workflows.executions[f"study-{sid}"]
+    problem(await api.post("alice", f"/v1/studies/{sid}/start"), 409, "workflow-missing")
+    response = await api.post("alice", f"/v1/studies/{sid}/restart")
+    assert response.status_code == 202 and response.json()["revision"] == 3
+    assert workflows.executions[f"study-{sid}"].status == "RUNNING"

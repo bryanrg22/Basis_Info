@@ -137,6 +137,8 @@ SPEC_TABLES = {
     "entity_id request_id before after detail",
     # the Postgres-backed rate limiter's sliding-window log (0023)
     "rate_limit_hits": "id key",
+    # An engineer's pending corrections at a review gate (migration 0024_review_drafts).
+    "review_drafts": "id study_id stage revision user_id document version created_at updated_at",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -183,6 +185,7 @@ ENUM_COLUMNS = {
     ("documents", "kind"): "document_kind",
     ("reviews", "stage"): "stage",
     ("reviews", "decision"): "decision",
+    ("review_drafts", "stage"): "stage",
     ("assets", "bucket"): "bucket",
     ("assets", "method"): "classification_method",
     ("outbox", "status"): "outbox_status",
@@ -222,6 +225,8 @@ SPEC_SIMPLE_FKS = {
     ("citations", "chunk_id", "chunks"),
     ("reviews", "study_id", "studies"),
     ("reviews", "reviewer_id", "users"),
+    ("review_drafts", "study_id", "studies"),
+    ("review_drafts", "user_id", "users"),
     ("corrections", "study_id", "studies"),
     ("corrections", "reviewer_id", "users"),
     ("runs", "study_id", "studies"),
@@ -267,6 +272,7 @@ SPEC_UNIQUES = {
     ("evidence_tables", ("corpus_version_id", "doc_id", "page", "id")),
     ("reviews", ("study_id", "stage", "revision")),
     ("reviews", ("idempotency_key",)),
+    ("review_drafts", ("study_id", "stage", "user_id")),
     ("runs", ("workflow_id", "run_id")),
     ("activity_results", ("idempotency_key",)),
     ("photo_objects", ("study_id", "id")),
@@ -326,6 +332,10 @@ SPEC_CHECKS = {
     "ck_cost_index_runs_actor_valid",
     "ck_cost_index_runs_status_valid",
     "ck_studies_intake_version_not_negative",
+    "ck_review_drafts_stage_is_review",
+    "ck_review_drafts_revision_positive",
+    "ck_review_drafts_version_positive",
+    "ck_review_drafts_document_is_object",
     "ck_cost_index_runs_rows_added_nonnegative",
     "ck_photo_room_answers_room_confidence_range",
 }
@@ -344,6 +354,7 @@ SPEC_NOT_NULL = {
     "chunks": "corpus_version_id doc_id chunk_key text",
     "citations": "chunk_id excerpt",
     "reviews": "stage revision decision reviewer_id idempotency_key",
+    "review_drafts": "study_id stage revision user_id document version",
     "corrections": "entity_type entity_id revision after reviewer_id",
     "runs": "workflow_id run_id workflow_version input_revision",
     "activity_results": "activity idempotency_key status",
@@ -486,9 +497,14 @@ def test_migration_enum_labels_match_models() -> None:
 
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
-    # 0020 adds firm_profiles to the updated_at tables.
+    # 0020 adds firm_profiles to the updated_at tables; 0024 adds review_drafts.
     report = load_migration(VERSIONS / "0020_report_signing.py")
-    assert (*migration.UPDATED_AT_TABLES, *report.UPDATED_AT_TABLES) == UPDATED_AT_TABLES
+    drafts = load_migration(VERSIONS / "0024_review_drafts.py")
+    assert (
+        *migration.UPDATED_AT_TABLES,
+        *report.UPDATED_AT_TABLES,
+        *drafts.UPDATED_AT_TABLES,
+    ) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
     # 0016 adds the cost index store and its ledger.
@@ -626,8 +642,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
     # ops health (0021): service_heartbeats.report; the firm's history (0022):
-    # org_events.before/after/detail
-    assert len(jsonb) == 35
+    # org_events.before/after/detail; gate drafts (0024): review_drafts.document
+    assert len(jsonb) == 36
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

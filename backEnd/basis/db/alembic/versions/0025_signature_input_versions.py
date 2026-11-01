@@ -1,7 +1,7 @@
 """``report_signatures``: the versions of the inputs a report was signed with.
 
-Revision ID: 0024
-Revises: 0023
+Revision ID: 0025
+Revises: 0024
 Create Date: 2026-11-01
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
@@ -20,8 +20,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0024"
-down_revision: str | Sequence[str] | None = "0023"
+revision: str = "0025"
+down_revision: str | Sequence[str] | None = "0024"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

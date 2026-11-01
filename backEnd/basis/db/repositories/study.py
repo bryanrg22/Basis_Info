@@ -68,6 +68,18 @@ class VisibleStudy:
 
 
 @dataclass(frozen=True, slots=True)
+class RestartRecord:
+    """The study row reset for a new execution (:meth:`StudyRepository.restart`): the study
+    as it is now, where it came from, and whether an earlier restart had already reset it
+    (its start failed or is in flight: nothing was changed again)."""
+
+    study: Study
+    from_stage: Stage
+    from_revision: int
+    reused: bool
+
+
+@dataclass(frozen=True, slots=True)
 class Unarchived:
     """What :meth:`StudyRepository.unarchive` did: the study as it is now, and whether this
     call restored it. ``restored`` is decided under the study's row lock, not from a read
@@ -373,6 +385,101 @@ class StudyRepository:
             detail={"workflow_id": workflow_id},
         )
         return started
+
+    async def restart(self, study_id: uuid.UUID, *, actor_id: uuid.UUID) -> RestartRecord:
+        """Reset the study row for a new execution of its workflow (``POST .../restart``,
+        docs/api/GATE_DRAFTS_AND_RESUME.md): ``extracting``/``processing`` at ``revision + 1``,
+        the failure cleared, recorded as ``stage.entered`` and ``study.restarted``.
+
+        The new revision keeps the cancelled execution's rows as history (outputs are
+        grouped by revision; the unique keys on extractions, reviews and the per-revision
+        tables mean the new run cannot collide with them) and makes every gate draft for the
+        old revision stale. The row lock (``SELECT ... FOR UPDATE``) serializes two restarts;
+        the second finds the first's ``study.restarted`` event with no ``run.started`` after
+        it and reuses the reset instead of bumping the revision a second time, so the row
+        stays at the revision the execution the first restart started (or failed to start,
+        when the route's Temporal call answered 503) was given. Archived: ``StaleStateError``;
+        unknown: ``NotVisibleError``; no workflow: ``ValueError`` (the route checks first).
+        """
+        locked = (
+            await self._session.scalars(
+                select(Study)
+                .where(Study.id == study_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one_or_none()
+        if locked is None:
+            raise NotVisibleError(f"study {study_id} not found")
+        if locked.status is StudyStatus.ARCHIVED:
+            raise StaleStateError(f"study {study_id} is archived; it cannot be restarted")
+        if locked.workflow_id is None:
+            raise ValueError(f"study {study_id} has no workflow to restart")
+        events = StudyEventRepository(self._session)
+        page = await events.list_for_study(study_id, event_types=["study.restarted", "run.started"])
+        last = page.items[-1] if page.items else None
+        if (
+            last is not None
+            and last.event_type == "study.restarted"
+            and isinstance(last.before, dict)
+            and last.revision == locked.revision
+        ):
+            return RestartRecord(
+                study=locked,
+                from_stage=Stage(last.before["stage"]),
+                from_revision=int(last.before["revision"]),
+                reused=True,
+            )
+        # Captured before the UPDATE: its RETURNING refreshes this same identity-mapped row.
+        from_stage, from_revision, from_status = (
+            locked.current_stage,
+            locked.revision,
+            locked.status,
+        )
+        stmt = (
+            update(Study)
+            .where(Study.id == study_id, Study.status != StudyStatus.ARCHIVED)
+            .values(
+                current_stage=Stage.EXTRACTING,
+                status=status_for_stage(Stage.EXTRACTING),
+                revision=Study.revision + 1,
+                failure_reason=None,
+                failure_code=None,
+            )
+            .returning(Study)
+            .execution_options(synchronize_session=False, populate_existing=True)
+        )
+        study = (await self._session.scalars(stmt)).one()
+        before = {
+            "stage": from_stage.value,
+            "revision": from_revision,
+            "status": from_status.value,
+        }
+        await events.record(
+            study_id,
+            "stage.entered",
+            actor="engineer",
+            actor_id=actor_id,
+            stage=Stage.EXTRACTING,
+            revision=study.revision,
+            before={"stage": from_stage.value, "revision": from_revision},
+            after={"stage": Stage.EXTRACTING.value, "revision": study.revision},
+        )
+        await events.record(
+            study_id,
+            "study.restarted",
+            actor="engineer",
+            actor_id=actor_id,
+            stage=Stage.EXTRACTING,
+            revision=study.revision,
+            workflow_id=locked.workflow_id,
+            before=before,
+            after={"stage": Stage.EXTRACTING.value, "revision": study.revision},
+            detail={"workflow_id": locked.workflow_id},
+        )
+        return RestartRecord(
+            study=study, from_stage=from_stage, from_revision=from_revision, reused=False
+        )
 
     async def set_intake(self, study_id: uuid.UUID, intake: StudyIntake) -> Study:
         """Set or replace the study's intake unconditionally (:meth:`write_intake`)."""
