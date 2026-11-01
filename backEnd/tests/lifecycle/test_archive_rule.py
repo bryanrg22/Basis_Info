@@ -2,7 +2,7 @@
 
 The rule (docs/api/STUDY_LIBRARY.md): a study is archived only while nothing runs for it.
 ``DELETE /v1/studies/{id}`` asks Temporal whether the execution is running and refuses with
-409 ``workflow-running`` (BASIS-STUDY-030) while it is: in progress, waiting at a review
+409 ``workflow-running`` (BASIS-STUDY-035) while it is: in progress, waiting at a review
 gate, or holding a failed stage for a retry. The owner cancels first; once the execution has
 closed, the archive proceeds and is recorded once. The API here is the real one over the test
 server's client (``TemporalWorkflowService``), as ``tests/integration/api`` runs it.

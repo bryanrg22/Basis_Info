@@ -103,7 +103,7 @@ in the owner's `GET /v1/me/activity`.
 ### A running study is not archived (EVAL_REPORT 60)
 
 A study whose workflow execution is **running** (in progress, waiting at a review gate, or
-holding a failed stage for a retry) answers `409 workflow-running` (`BASIS-STUDY-030`) and is
+holding a failed stage for a retry) answers `409 workflow-running` (`BASIS-STUDY-035`) and is
 unchanged. The route asks Temporal (`describe`) when the study has a `workflow_id` and is not
 archived already; a study never started asks nothing. The owner cancels first
 (`POST /v1/studies/{id}/cancel`), waits for `GET .../workflow` to show `execution_status` other

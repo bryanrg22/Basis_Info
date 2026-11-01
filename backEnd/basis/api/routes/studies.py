@@ -263,8 +263,8 @@ async def put_intake(
         raise Conflict(
             f"The study has started (stage {access.study.current_stage.value}); its intake "
             "is locked because the run, the result and the report are priced from it. "
-            "Changing the inputs of a started study is a reopen (a new revision), not an "
-            "edit in place (docs/api/STUDY_RESULT.md).",
+            "Changing the inputs of a started study is a reopen with new inputs (a new "
+            "revision), not an edit in place (docs/api/STUDY_RESULT.md).",
             type_suffix="intake-locked",
             code=E.STUDY_INTAKE_LOCKED,
         ) from exc

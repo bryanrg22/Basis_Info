@@ -114,7 +114,7 @@ the intake it saved (the result section below says how a stale pricing is report
 
 `PUT /v1/studies/{id}/intake` is accepted only while the study is `uploading`. From the start
 on (during the run, at a review gate, once completed, once the report is signed) it answers
-`409 intake-locked` (`BASIS-STUDY-031`), nothing is written and no event is recorded, whatever
+`409 intake-locked` (`BASIS-STUDY-036`), nothing is written and no event is recorded, whatever
 `If-Match` says. An archived study is still `409 stale-state` first.
 
 Why: `POST .../start` is the moment the engineer commits the inputs (it refuses an incomplete
@@ -126,11 +126,14 @@ signed report computed from inputs the study no longer shows, with nothing marki
 (the pricing records the intake version it used, so a stale pricing could be *detected*, but a
 signed report could not be). Systems that version inputs feeding a committed output do the same:
 a closed accounting period is not edited, it is reopened; a signed envelope is not changed, a new
-version is sent. Changing the inputs of a started study is therefore a **reopen** (a new
-revision that runs the study again on the new inputs and is exported and signed on its own),
-not an edit in place; until that route exists, a study whose execution was cancelled can be
-run again from its uploads with `POST .../restart` (docs/api/WORKFLOW.md), and its intake is
-still the one it started with.
+version is sent. Changing the inputs of a started study is therefore a **reopen with new
+inputs** (a new revision that runs the study again on them and is exported and signed on its
+own), not an edit in place. **Open:** the reopen that exists (`POST .../reopen`,
+docs/api/REVISIONS.md) takes a completed study back to a gate on the rows of its last revision
+and keeps its intake; `POST .../restart` runs a cancelled study again from its uploads on the
+intake as it is. Neither takes a new intake yet, so today a started study's intake does not
+change at all: that is the safe side of the rule, and the reopen that accepts an intake is the
+next step on this page.
 
 The lock is decided under the study's row lock, so a write racing a start cannot slip through:
 with the start first, the write is `409 intake-locked`; with the write first, the start runs on

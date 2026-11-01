@@ -620,7 +620,7 @@ async def test_archive_is_refused_while_the_execution_runs(
 ) -> None:
     """A started study is archived only once its execution has closed. While Temporal says
     ``RUNNING`` (in progress, at a gate, or holding a failure for a retry) the answer is
-    409 ``workflow-running`` BASIS-STUDY-030 and nothing changes; after a cancel (or any
+    409 ``workflow-running`` BASIS-STUDY-035 and nothing changes; after a cancel (or any
     other end: failed, terminated, timed out, completed) the archive proceeds and is
     recorded once. Temporal unreachable: 503, nothing changes. Temporal that has forgotten
     the execution (retention): it is over, the study archives."""

@@ -698,7 +698,7 @@ async def test_if_match_star_needs_an_existing_intake(api: Api) -> None:
 async def test_the_intake_is_locked_once_the_study_has_started(
     api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """``PUT .../intake`` is refused with 409 ``intake-locked`` (BASIS-STUDY-031) from the
+    """``PUT .../intake`` is refused with 409 ``intake-locked`` (BASIS-STUDY-036) from the
     moment the study leaves ``uploading``: during the run, at a gate, once completed and
     once signed. The run read the intake and the result and the report are priced from it;
     a change is a reopen (a new revision), not an edit in place (docs/api/STUDY_RESULT.md).

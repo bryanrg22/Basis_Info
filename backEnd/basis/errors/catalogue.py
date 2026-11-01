@@ -1090,9 +1090,9 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Replacing it in place would change a result, an export or a signed report after the "
         "fact with nothing marking them stale.",
         "409 `intake-locked`; nothing is written, no event.",
-        "Changing the inputs of a started study is a reopen (a new revision), not an edit in "
-        "place; the intake can be replaced while the study is `uploading` "
-        "(docs/api/STUDY_RESULT.md).",
+        "Changing the inputs of a started study is a reopen with new inputs (a new revision), "
+        "not an edit in place; the intake can be replaced while the study is `uploading`. The "
+        "reopen and restart that exist keep the intake (docs/api/STUDY_RESULT.md, Open).",
         "no",
         problem="intake-locked",
     ),
