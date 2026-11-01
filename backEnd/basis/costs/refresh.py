@@ -374,6 +374,8 @@ def export_document(years: dict[int, YearIndex]) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=PROG, description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command")
+    # No command means refresh (the cron line), so the namespace needs refresh's options.
+    parser.set_defaults(source=None, trigger="refresh")
     run = commands.add_parser("refresh", help="ask every enabled source for what the store lacks")
     run.add_argument("--source", action="append", default=None, help="only these sources")
     run.add_argument("--trigger", default="refresh", choices=["refresh", "seed"])

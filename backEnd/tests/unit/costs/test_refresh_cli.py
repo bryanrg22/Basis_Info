@@ -44,7 +44,13 @@ def test_fetching_is_off_by_default_and_the_sources_are_settings() -> None:
 
 def test_the_parser_has_every_command_and_defaults_to_refresh() -> None:
     parser = build_parser()
-    assert parser.parse_args([]).command is None
+    bare = parser.parse_args([])
+    # The bare command is the monthly job: it runs refresh with refresh's defaults.
+    assert (bare.command, bare.source, bare.trigger) == (None, None, "refresh")
+    assert [f.name for f in fetchers_for(settings(), bare.source)] == [
+        "rsmeans_2020_book",
+        "rsmeans_public",
+    ]
     args = parser.parse_args(["refresh", "--source", "rsmeans_public", "--trigger", "seed"])
     assert (args.command, args.source, args.trigger) == ("refresh", ["rsmeans_public"], "seed")
     assert parser.parse_args(["seed"]).command == "seed"
@@ -75,6 +81,8 @@ def test_the_parser_has_every_command_and_defaults_to_refresh() -> None:
     assert parser.parse_args(["export", "--out", "o.json"]).out.name == "o.json"
     listed = parser.parse_args(["list", "--series", "city", "--year", "2020", "--all-versions"])
     assert (listed.series, listed.year, listed.all_versions) == ("city", 2020, True)
+    assert parser.parse_args(["list", "--source", "manual"]).source == "manual"
+    assert parser.parse_args(["runs", "--source", "rsmeans_public"]).source == "rsmeans_public"
     assert parser.parse_args(["runs", "--limit", "5"]).limit == 5
 
 
