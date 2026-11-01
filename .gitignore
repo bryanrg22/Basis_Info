@@ -90,7 +90,6 @@ next-env.d.ts
 data_flow.txt
 
 .claude
-CLAUDE.md
 
 # --- Rebuild (Stage 0) -------------------------------------------------------
 # uv virtual environments (the root `.venv/` rule above already covers any
