@@ -65,6 +65,9 @@
   ``forbid_mutation()`` trigger), nothing backfilled; it downgrades back to ``0021`` exactly;
 * ``0023_rate_limit_hits`` adds the Postgres-backed rate limiter's sliding-window log (an
   ``UNLOGGED`` table, one row per accepted request), checked the same way;
+* ``0024_review_drafts`` creates an engineer's pending corrections at a review gate (one row
+  per study, stage and user; a review stage only; a JSON object; revision and version from 1;
+  its ``updated_at`` trigger), nothing backfilled; it downgrades back to ``0023`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -104,8 +107,8 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0023"
-HISTORY = [f"{n:04d}" for n in range(23, 0, -1)]  # "0023" .. "0001"
+HEAD = "0024"
+HISTORY = [f"{n:04d}" for n in range(24, 0, -1)]  # "0024" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1590,3 +1593,46 @@ async def test_0022_actor_index_and_org_events_append_only_and_downgrade(
     finally:
         await connection.close()
     await upgrade(url)
+
+
+# --------------------------------------------------------------------------- 0024
+
+
+async def test_0024_review_drafts_and_downgrade(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0023")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, user = await _photo(connection)
+    finally:
+        await connection.close()
+    at_0023 = await snapshot(url)
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        draft = (
+            "INSERT INTO review_drafts (study_id, stage, revision, user_id, document) "
+            "VALUES ($1, $2, $3, $4, $5) RETURNING id"
+        )
+        row = await connection.fetchval(draft, study, "appraisal_review", 1, user, '{"a": 1}')
+        with pytest.raises(asyncpg.UniqueViolationError):  # one draft per study, stage and user
+            await connection.execute(draft, study, "appraisal_review", 1, user, '{"b": 2}')
+        await connection.execute(draft, study, "rooms_review", 1, user, "{}")  # another stage
+        with pytest.raises(asyncpg.CheckViolationError, match="stage_is_review"):
+            await connection.execute(draft, study, "extracting", 1, user, "{}")
+        with pytest.raises(asyncpg.CheckViolationError, match="revision_positive"):
+            await connection.execute(draft, study, "assets_review", 0, user, "{}")
+        with pytest.raises(asyncpg.CheckViolationError, match="document_is_object"):
+            await connection.execute(draft, study, "assets_review", 1, user, "[1]")
+        with pytest.raises(asyncpg.CheckViolationError, match="version_positive"):
+            await connection.execute("UPDATE review_drafts SET version = 0 WHERE id = $1", row)
+        updated_at = "SELECT updated_at FROM review_drafts WHERE id = $1"
+        before = await connection.fetchval(updated_at, row)
+        await connection.execute("UPDATE review_drafts SET version = 2 WHERE id = $1", row)
+        after = await connection.fetchval(updated_at, row)
+        assert after >= before  # set_updated_at() ran (same transaction time at worst)
+        await connection.execute("DELETE FROM review_drafts WHERE id = $1", row)  # discardable
+    finally:
+        await connection.close()
+    await downgrade(url, "0023")
+    assert await snapshot(url) == at_0023

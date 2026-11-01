@@ -50,6 +50,14 @@ Event vocabulary (``event_type``; the actor in brackets):
 * ``stage.failed`` / ``stage.failure_cleared`` [system]: ``record_failure`` (``code``);
 * ``study.stalled`` / ``review.reminded`` [system]; ``study.retry_requested`` /
   ``study.cancel_requested`` [engineer];
+* ``study.restarted`` [engineer]: ``POST .../restart`` reset a study whose execution had
+  closed without completing (cancelled, terminated, timed out, failed before v0.9) to
+  ``extracting`` at a new revision for a new execution (``before`` the stage, revision and
+  status it left, ``after`` the new ones, ``detail.workflow_id``); a ``stage.entered`` row
+  goes with it. Gate drafts (``review_drafts``) record no event: a draft is work in progress
+  that changes nothing about the study and is saved on every edit; its corrections enter the
+  trail as ``correction.recorded`` when the decision is submitted, and ``review.decided``
+  records ``draft_discarded`` (docs/api/GATE_DRAFTS_AND_RESUME.md);
 * ``study.reopened`` / ``revision.restored`` [engineer] (docs/api/REVISIONS.md): a completed
   study moved to a review gate on a new revision for a resumed execution (``before`` the
   stage and revision it left, ``after`` the gate and the new revision; ``detail``:

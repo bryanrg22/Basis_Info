@@ -95,6 +95,17 @@ poll GET /workflow until status.awaiting (a review gate) or status.failed_stage
 execution_status not RUNNING -> the study ended (COMPLETED, CANCELED, FAILED)
 ```
 
+## A cancelled study: `POST /v1/studies/{id}/restart` (owner)
+
+`POST .../cancel` ends the execution (`execution_status: CANCELED`, `runs.outcome: cancelled`)
+and leaves the study row where it was. `start` cannot run it again (the workflow id is reused
+with `REJECT_DUPLICATE`: 409 `workflow-closed`), and neither can `retry` (the execution is
+closed). `restart` resets the study to `extracting` on a new revision and starts a new
+execution under the same `workflow_id` from the study's uploads and intake as they are now;
+409 `workflow-running` while the execution runs, 409 `study-completed` after it completed.
+The whole contract, including two restarts racing, is in
+[GATE_DRAFTS_AND_RESUME.md](GATE_DRAFTS_AND_RESUME.md) section 3.
+
 ## The failure this page was written for
 
 On 2026-10-29 a worker on a freshly built container failed the first stage of its first
