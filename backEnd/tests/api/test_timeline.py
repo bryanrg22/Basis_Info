@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apitest_support import COMPLETE_INTAKE, Api, Seed, api_settings, build_api_app
+from apitest_support import COMPLETE_INTAKE, Api, Seed, api_settings, bearer, build_api_app
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from workflowtest_support import FakeWorkflowService
@@ -40,6 +40,7 @@ from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.errors.codes import E
+from basis.storage import LocalStorage
 from basis.vision.rooms import ROOM_MANUAL_SOURCE
 
 pytestmark = pytest.mark.integration
@@ -579,3 +580,148 @@ async def test_problem_responses_carry_the_catalogue_code(
     assert [i["kind"] for i in audit["items"]] == ["intake"]
     assert datetime.fromisoformat(audit["items"][0]["at"]).tzinfo is not None
     assert datetime.now(UTC) > datetime.fromisoformat(audit["items"][0]["at"])
+
+
+# --------------------------------------------------------------------------- other audit kinds
+
+ANSWERS: dict[str, Any] = {
+    "taxpayer_name": "Example Holdings LLC",
+    "photographs": "taxpayer_supplied",
+    "photographed_by": "the owner",
+    "photographed_on": "2025-02-20",
+}
+PDF = b"%PDF-1.7\n" + b"appraisal body " * 20
+
+
+async def test_audit_lists_the_engineers_other_actions_and_pages(
+    api: Api, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The actions that exist only as events: the intake and the report answers set (through
+    their routes, twice, so the second is ``modified``), an upload confirmed, the study
+    archived and unarchived (their routes), and the start, retry, cancel and signature,
+    recorded as their routes record them (a start needs an appraisal and the workflow, a
+    signature a rendered export: ``test_workflow_routes.py`` and ``test_report_signing.py``
+    cover the routes; the audit reads the rows they leave)."""
+    study = await api.create_study("alice", "Harbor")
+    sid = study["id"]
+    headers = bearer("alice")
+    for body in (COMPLETE_INTAKE, {**COMPLETE_INTAKE, "purchase_price": "700000.00"}):
+        put = await api.client.put(f"/v1/studies/{sid}/intake", json=body, headers=headers)
+        assert put.status_code == 200, put.text
+    for body in (ANSWERS, {**ANSWERS, "taxpayer_name": "B"}):
+        put = await api.client.put(f"/v1/studies/{sid}/report-answers", json=body, headers=headers)
+        assert put.status_code == 200, put.text
+    ticket = (await api.request_upload("alice", sid, PDF)).json()
+    storage.put_signed(ticket["upload"]["url"], PDF, ticket["upload"]["headers"])
+    document_id = ticket["document"]["id"]
+    confirmed = await api.post("alice", f"/v1/studies/{sid}/documents/{document_id}/complete")
+    assert confirmed.status_code == 200, confirmed.text
+    assert (await api.delete("alice", f"/v1/studies/{sid}")).status_code == 200
+    assert (await api.post("alice", f"/v1/studies/{sid}/unarchive")).status_code == 200
+    actor = uuid.UUID(study["created_by"])
+    signature_id = uuid.uuid4()
+    async with session_scope(sessionmaker) as session:
+        events = StudyEventRepository(session)
+        study_id = uuid.UUID(sid)
+        await events.record(
+            study_id,
+            "study.started",
+            actor="engineer",
+            actor_id=actor,
+            stage=Stage.EXTRACTING,
+            revision=1,
+            detail={"workflow_id": f"study-{sid}"},
+        )
+        await events.record(
+            study_id,
+            "study.retry_requested",
+            actor="engineer",
+            actor_id=actor,
+            stage=Stage.EXTRACTING,
+            revision=1,
+            workflow_id=f"study-{sid}",
+            detail={"already_requested": False},
+        )
+        await events.record(
+            study_id,
+            "study.cancel_requested",
+            actor="engineer",
+            actor_id=actor,
+            workflow_id=f"study-{sid}",
+            detail={"reason": "wrong property"},
+        )
+        await events.record(
+            study_id,
+            "report.signed",
+            actor="engineer",
+            actor_id=actor,
+            stage=Stage.COMPLETED,
+            revision=1,
+            entity_type="report_signature",
+            entity_id=signature_id,
+            detail={"engineer": {"name": "A. Engineer"}, "pdf_sha256": "b" * 64},
+        )
+
+    audit = (await api.get("alice", f"/v1/studies/{sid}/audit")).json()
+    items = audit["items"]
+
+    assert [(i["kind"], i["action"]) for i in items] == [
+        ("intake", "added"),
+        ("intake", "modified"),
+        ("report_answers", "added"),
+        ("report_answers", "modified"),
+        ("document", "uploaded"),
+        ("archived", "archived"),
+        ("unarchived", "unarchived"),
+        ("started", "started"),
+        ("retry", "requested"),
+        ("cancel", "requested"),
+        ("report_signed", "signed"),
+    ]
+    assert [i["at"] for i in items] == sorted(i["at"] for i in items)
+    assert {i["by"] for i in items} == {str(actor)}
+    first, second = items[0], items[1]
+    assert first["before"] is None and first["after"]["purchase_price"] == "650000.00"
+    assert second["changed"] == ["purchase_price"] and second["entity_id"] == sid
+    answers = items[3]
+    assert answers["changed"] == ["taxpayer_name"] and answers["entity_type"] == "study"
+    document = items[4]
+    assert document["entity_type"] == "document" and document["entity_id"] == document_id
+    assert document["after"]["filename"] == "appraisal.pdf" and document["after"]["bytes"] == len(
+        PDF
+    )
+    assert items[5]["entity_id"] == sid and items[6]["after"] == {"status": "draft"}
+    assert (
+        items[7]["after"] == {"workflow_id": f"study-{sid}"} and items[7]["stage"] == "extracting"
+    )
+    assert items[8]["after"] == {"already_requested": False}
+    assert items[9]["after"] == {"reason": "wrong property"} and items[9]["stage"] is None
+    signed = items[10]
+    assert signed["entity_type"] == "report_signature" and signed["entity_id"] == str(signature_id)
+    assert signed["after"]["pdf_sha256"] == "b" * 64 and signed["revision"] == 1
+    assert audit["next_cursor"] is None
+
+    # Pages: every item once, in order, however the pages fall.
+    seen: list[tuple[str, str]] = []
+    cursor: str | None = None
+    pages = 0
+    while True:
+        params: dict[str, Any] = {"limit": 4}
+        if cursor:
+            params["cursor"] = cursor
+        page = (await api.get("alice", f"/v1/studies/{sid}/audit", params=params)).json()
+        assert len(page["items"]) <= 4
+        seen += [(i["kind"], i["at"]) for i in page["items"]]
+        pages += 1
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert pages == 3 and seen == [(i["kind"], i["at"]) for i in items]
+    for bad in ("x", "", "eyJ0IjoiMjAyNiJ9"):
+        response = await api.get("alice", f"/v1/studies/{sid}/audit", params={"cursor": bad})
+        assert response.status_code == 422
+        if bad:
+            assert response.json()["code"] == E.API_INVALID_CURSOR
+    assert (
+        await api.get("alice", f"/v1/studies/{sid}/audit", params={"limit": 1001})
+    ).status_code == 422

@@ -20,6 +20,9 @@ needs the token's ``email_verified`` claim and the same normalized email.
   Accepting grants the role without lowering a higher one the user already has
   (``UserRepository.grant_membership``). Answering again the same way is idempotent; a
   removed member who replays an accepted invitation does not get the membership back.
+* Every outcome is recorded on the firm's history (``org_events``,
+  :mod:`basis.db.repositories.org_event`) in the same transaction: ``invitation.created``,
+  ``invitation.revoked`` (with why), ``invitation.accepted``, ``invitation.declined``.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import Select, and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -46,6 +49,7 @@ from basis.db.errors import (
 )
 from basis.db.models import Invitation, Org, User
 from basis.db.repositories.org import OrgRepository
+from basis.db.repositories.org_event import OrgEventRepository
 from basis.db.repositories.user import UserRepository
 
 MAX_EMAIL_LENGTH: Final = 254  # RFC 5321 section 4.5.3.1.3 (a path is at most 256 octets)
@@ -189,6 +193,7 @@ class InvitationRepository:
                 "Someone with this email is already a member of the firm; change their "
                 "role in the member list instead."
             )
+        replaced: uuid.UUID | None = None
         for _ in range(2):
             inserted = await self._session.scalar(
                 pg_insert(Invitation)
@@ -206,7 +211,17 @@ class InvitationRepository:
                 .returning(Invitation.id)
             )
             if inserted is not None:
-                return await self.view(inserted)
+                view = await self.view(inserted)
+                await OrgEventRepository(self._session).record(
+                    org_id,
+                    "invitation.created",
+                    actor_id=created_by,
+                    entity_type="invitation",
+                    entity_id=inserted,
+                    after=_invitation_json(view.invitation),
+                    detail={"replaced": None if replaced is None else str(replaced)},
+                )
+                return view
             existing = await self._session.scalar(
                 select(Invitation)
                 .where(Invitation.org_id == org_id, Invitation.email == email, _OPEN_PREDICATE)
@@ -223,6 +238,16 @@ class InvitationRepository:
             existing.revoked_at = now
             existing.revoked_by = created_by
             await self._session.flush()
+            await OrgEventRepository(self._session).record(
+                org_id,
+                "invitation.revoked",
+                actor_id=created_by,
+                entity_type="invitation",
+                entity_id=existing.id,
+                before=_invitation_json(existing),
+                detail={"reason": "expired"},
+            )
+            replaced = existing.id
         raise InvitationPendingError(
             "This email already has a pending invitation to the firm."
         )  # pragma: no cover - only under repeated concurrent invitations
@@ -271,6 +296,15 @@ class InvitationRepository:
             invitation.revoked_at = await self.now()
             invitation.revoked_by = revoked_by
             await self._session.flush()
+            await OrgEventRepository(self._session).record(
+                org_id,
+                "invitation.revoked",
+                actor_id=revoked_by,
+                entity_type="invitation",
+                entity_id=invitation.id,
+                before=_invitation_json(invitation),
+                detail={"reason": "expired" if status is InvitationStatus.EXPIRED else "revoked"},
+            )
         return await self.view(invitation_id)
 
     async def answer(
@@ -324,14 +358,44 @@ class InvitationRepository:
                 detail = "This invitation was already accepted by another account."
             raise InvitationClosedError(detail, status=status.value)
         role: OrgRole | None = None
+        events = OrgEventRepository(self._session)
         if accept:
+            role_before = await firms.role_of(invitation.org_id, user_id)
             role = await UserRepository(self._session).grant_membership(
                 invitation.org_id, user_id, OrgRole(invitation.role)
             )
             invitation.accepted_at = now
             invitation.accepted_by = user_id
+            await self._session.flush()
+            await events.record(
+                invitation.org_id,
+                "invitation.accepted",
+                actor_id=user_id,
+                subject_user_id=user_id,
+                entity_type="invitation",
+                entity_id=invitation.id,
+                after={"email": invitation.email, "role": role.value},
+                detail={"role_before": None if role_before is None else role_before.value},
+            )
         else:
             invitation.declined_at = now
             invitation.declined_by = user_id
-        await self._session.flush()
+            await self._session.flush()
+            await events.record(
+                invitation.org_id,
+                "invitation.declined",
+                actor_id=user_id,
+                subject_user_id=user_id,
+                entity_type="invitation",
+                entity_id=invitation.id,
+                before=_invitation_json(invitation),
+            )
         return Answer(await self.view(invitation_id), role)
+
+
+def _invitation_json(invitation: Invitation) -> dict[str, Any]:
+    return {
+        "email": invitation.email,
+        "role": invitation.role,
+        "expires_at": invitation.expires_at.isoformat(),
+    }

@@ -122,6 +122,7 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "POST /v1/studies",
         "GET /v1/studies/{study_id}",
         "DELETE /v1/studies/{study_id}",
+        "POST /v1/studies/{study_id}/unarchive",
         "POST /v1/studies/{study_id}/documents",
         "POST /v1/studies/{study_id}/documents/{document_id}/complete",
         # the browser frontend's photos and appraisal (tests/api/test_document_content.py)
@@ -163,6 +164,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/timeline",
         "GET /v1/studies/{study_id}/timeline/steps",
         "GET /v1/studies/{study_id}/audit",
+        "GET /v1/me/activity",
+        "GET /v1/orgs/{org_id}/activity",
         # invite-only firms (tests/api/test_firms.py)
         "GET /v1/me",
         "GET /v1/orgs/{org_id}/members",

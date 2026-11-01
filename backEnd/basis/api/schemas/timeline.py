@@ -114,8 +114,31 @@ class TimelineStepsOut(ResponseModel):
     stages: list[StageOut]
 
 
+AuditKind = Literal[
+    "decision",
+    "correction",
+    "object_added",
+    "object_deleted",
+    "intake",
+    "report_answers",
+    "document",
+    "started",
+    "retry",
+    "cancel",
+    "archived",
+    "unarchived",
+    "report_signed",
+]
+
+
 class AuditItemOut(ResponseModel):
-    kind: Literal["decision", "correction", "object_added", "object_deleted", "intake"]
+    kind: AuditKind = Field(
+        description="What the engineer did: a review `decision`, a `correction`, a manual "
+        "photo object (`object_added`, `object_deleted`), the `intake` or the "
+        "`report_answers` set, a `document` upload confirmed, the study `started`, a "
+        "`retry` or `cancel` requested, the study `archived` or `unarchived`, the report "
+        "signed (`report_signed`)."
+    )
     at: datetime
     by: uuid.UUID | None
     stage: str | None
@@ -123,7 +146,8 @@ class AuditItemOut(ResponseModel):
     action: str = Field(
         description="`approved`, `rejected`, `modified`, `added`, `moved`, `merged`, "
         "`reanalyzed`, `removed` (a component row left out of the next revision), `deleted` "
-        "(a manual photo object)."
+        "(a manual photo object), `uploaded`, `started`, `requested`, `archived`, "
+        "`unarchived`, `signed`."
     )
     entity_type: str | None
     entity_id: uuid.UUID | None
@@ -140,4 +164,8 @@ class AuditItemOut(ResponseModel):
 
 class AuditOut(ResponseModel):
     study_id: uuid.UUID
-    items: list[AuditItemOut]
+    items: list[AuditItemOut] = Field(description="In time order (oldest first).")
+    next_cursor: str | None = Field(
+        default=None,
+        description="Pass as `cursor` to get the next page; null on the last page.",
+    )

@@ -131,6 +131,9 @@ SPEC_TABLES = {
     "export_sha256 reviewed_sha256 pdf_uri pdf_sha256",
     # The latest heartbeat of each worker and relay process (migration 0021, ops health).
     "service_heartbeats": "id service build_sha state started_at heartbeat_at report",
+    # The firm's own history (migration 0022_user_activity_org_events).
+    "org_events": "id org_id seq event_type actor_type actor_id subject_user_id entity_type "
+    "entity_id request_id before after detail",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -235,6 +238,9 @@ SPEC_SIMPLE_FKS = {
     ("invitations", "revoked_by", "users"),
     ("study_events", "study_id", "studies"),
     ("study_events", "actor_id", "users"),
+    ("org_events", "org_id", "orgs"),
+    ("org_events", "actor_id", "users"),
+    ("org_events", "subject_user_id", "users"),
     ("classification_cache", "org_id", "orgs"),
     ("classification_cache", "study_id", "studies"),
     ("classification_cache", "reviewer_id", "users"),
@@ -262,6 +268,7 @@ SPEC_UNIQUES = {
     ("activity_results", ("idempotency_key",)),
     ("photo_objects", ("study_id", "id")),
     ("study_events", ("seq",)),
+    ("org_events", ("seq",)),
     ("cost_indices", ("source", "series", "year", "region", "version")),
 }
 
@@ -305,6 +312,7 @@ SPEC_CHECKS = {
     "ck_invitations_one_outcome",
     "ck_study_events_actor_valid",
     "ck_study_events_duration_nonnegative",
+    "ck_org_events_actor_valid",
     "ck_classification_cache_approvals_positive",
     "ck_classification_cache_rule_agreement",
     "ck_assets_convention_from_cache",
@@ -347,6 +355,7 @@ SPEC_NOT_NULL = {
     "object_prompts": "revision label params status returned created_by",
     "invitations": "org_id email role expires_at",
     "study_events": "study_id seq event_type actor_type",
+    "org_events": "org_id seq event_type actor_type",
     "cost_indices": "source series year region value as_of citation version obtained_at "
     "obtained_by_name",
     "cost_index_runs": "source trigger actor_type status started_at finished_at rows_added",
@@ -481,10 +490,13 @@ def test_migration_trigger_tables_match_models() -> None:
     events = load_migration(VERSIONS / "0013_study_events.py")
     # 0016 adds the cost index store and its ledger.
     store = load_migration(VERSIONS / "0016_cost_indices.py")
+    # 0022 adds the firm's own history.
+    firm = load_migration(VERSIONS / "0022_user_activity_org_events.py")
     assert (
         *migration.APPEND_ONLY_TABLES,
         *events.APPEND_ONLY_TABLES,
         *store.APPEND_ONLY_TABLES,
+        *firm.APPEND_ONLY_TABLES,
     ) == APPEND_ONLY_TABLES
     with_updated_at = {t.name for t in Base.metadata.sorted_tables if "updated_at" in t.c}
     assert with_updated_at == set(UPDATED_AT_TABLES)
@@ -610,8 +622,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest;
     # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
-    # ops health (0021): service_heartbeats.report
-    assert len(jsonb) == 32
+    # ops health (0021): service_heartbeats.report; the firm's history (0022):
+    # org_events.before/after/detail
+    assert len(jsonb) == 35
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 
@@ -638,6 +651,9 @@ def test_indexes() -> None:
         "photo_objects.revision",
     ]
     assert indexes["ix_invitations_email"] == ["invitations.email"]
+    # 0022: the per-user activity reads one actor's events newest first.
+    assert indexes["ix_study_events_actor_id_seq"] == ["study_events.actor_id", "seq DESC"]
+    assert indexes["ix_org_events_org_id_seq"] == ["org_events.org_id", "org_events.seq"]
     assert indexes["uq_invitations_org_id_email_open"] == [
         "invitations.org_id",
         "invitations.email",
