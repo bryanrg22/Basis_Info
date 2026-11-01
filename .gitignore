@@ -75,13 +75,8 @@ test_docs/
 coverage/
 
 # Frontend local data (generated/uploaded during development)
-frontend/data/
 
 # Mock data (not used in production pipeline)
-frontend/public/mock/
-frontend/src/mock/
-frontend/scripts/*mock*
-frontend/demo.config.json
 **/mockdata*/
 **/mock-data/
 
@@ -109,9 +104,6 @@ backEnd/evidence_layer/data/studies/
 
 # Playwright auth state (contains session tokens) and reports.
 playwright/.auth/
-frontend/playwright/.auth/
-frontend/playwright-report/
-frontend/test-results/
 
 # Temporal dev server local databases.
 temporal.db

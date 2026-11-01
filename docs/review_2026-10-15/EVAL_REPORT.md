@@ -7753,7 +7753,37 @@ signature is refused (BASIS-REPORT-009).
 **Open.** The Fireplaces row; the 3.3-point 39-year gap (the structure model's Access Control row and
 Fireplaces); a second property, scored blind.
 
-## 54. Per-user activity, the study library on the server, the audit completed, the firm's own history (2026-11-01)
+## 54. A decision outranks a model answer: the Fireplaces row (2026-11-01)
+
+**Question.** Run 5 (section 53) got 34 of 35 rows right; the engineer had ruled on the one wrong
+row, Fireplaces. Why did the ruling not serve, and what rule fixes it without losing the cost
+savings?
+
+**Finding.** Study 3B, a plain run approved by the driver without a correction, had promoted the
+model's 39-year fireplace (material not read) as an approved model answer at the exact key, with
+two approvals. The engineer's 5-year rulings carry a material, one tier down. An exact match
+consults no coarser tier, and at tiers 2 and 3 approvals alone settle a disagreement, so a blanket
+approval outvoted a correction. CLASSIFICATION_CONVENTIONS.md section 11 has the rule.
+
+**Replays of run 5's export** (no paid run), the production router each time:
+
+| rows | served by rulings | bucket right | max share error |
+|---|---|---|---|
+| every row, rule as before | 201 | 34/35 | 3.3 points |
+| decisions only (29 rows) | 47 | 35/35 | 1.8 points |
+| every row, decisions first | 201 | 35/35 | 1.8 points |
+
+Decisions only would hand about 140 items per study back to the model (about 1.50 a study at run
+5's prices). Decisions first keeps the 35/35 and the 201 served, with the blanket rows still in
+place. Bryan chose it over decisions only.
+
+**Change.** `CachedClassification.decided` (from the row's `result.method`), `ConventionIndex.match`
+looks at decisions first at any tier, `promote_conventions` never replaces a decision with a model
+answer, the provenance carries `origin`, and the rationale names the kind of row. Tests:
+`tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
+copy.
+
+## 55. Per-user activity, the study library on the server, the audit completed, the firm's own history (2026-11-01)
 
 **Question.** Can an engineer see what they did, can the library search, filter and sort on the server
 instead of in the browser, does the audit list every engineer action, and is anything that happens to a

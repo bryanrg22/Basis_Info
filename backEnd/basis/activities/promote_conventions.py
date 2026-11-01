@@ -175,6 +175,17 @@ async def promote(
                 continue
             written = confirmed
         else:
+            standing = await repo.get(study.org_id, key)
+            if (
+                chosen.asset.method is not ClassificationMethod.MANUAL
+                and standing is not None
+                and standing.decided
+                and (standing.bucket.value, standing.period, standing.section) != answer_of(result)
+            ):
+                # Section 11: an approved model answer never replaces the engineer's ruling.
+                counts["skipped"] += 1
+                logger.info("convention %s skipped: a model answer does not replace a ruling", key)
+                continue
             written = await repo.put(
                 study.org_id,
                 key,
