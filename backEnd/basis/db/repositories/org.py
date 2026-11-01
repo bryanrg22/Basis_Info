@@ -27,6 +27,8 @@ from basis.db.models import Invitation, Org, OrgMember, User
 
 DETAIL_LAST_OWNER = "A firm must keep at least one owner; make another member an owner first."
 DETAIL_MEMBER_NOT_FOUND = "Member not found."
+# A firm's name: one line, trimmed (the API's ``LINE_PATTERN``; the CLI checks the same).
+MAX_FIRM_NAME_LENGTH = 200
 
 # Owners first, then engineers, then viewers.
 _ROLE_ORDER = case(
@@ -69,9 +71,32 @@ class OrgRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, name: str) -> Org:
+    async def create(self, name: str, owner_id: uuid.UUID | None = None) -> Org:
+        """A firm named ``name`` (trimmed; names are not unique), with ``owner_id`` as its
+        owner when given (``POST /v1/orgs``: the creator) and no member otherwise (the
+        operator CLI, which invites the owner)."""
+        name = name.strip()
+        if not name or len(name) > MAX_FIRM_NAME_LENGTH:
+            raise ValueError(f"a firm name is 1 to {MAX_FIRM_NAME_LENGTH} characters")
         org = Org(name=name)
         self._session.add(org)
+        await self._session.flush()
+        if owner_id is not None:
+            self._session.add(OrgMember(org_id=org.id, user_id=owner_id, role=OrgRole.OWNER.value))
+            await self._session.flush()
+        await self._session.refresh(org)
+        return org
+
+    async def rename(self, org_id: uuid.UUID, name: str) -> Org:
+        """Rename the firm. Call with the firm locked (:meth:`lock`); ``NotVisibleError``
+        when it does not exist."""
+        name = name.strip()
+        if not name or len(name) > MAX_FIRM_NAME_LENGTH:
+            raise ValueError(f"a firm name is 1 to {MAX_FIRM_NAME_LENGTH} characters")
+        org = await self.get(org_id)
+        if org is None:
+            raise NotVisibleError("Organization not found.")
+        org.name = name
         await self._session.flush()
         await self._session.refresh(org)
         return org

@@ -47,6 +47,9 @@ Schemathesis setup, and why:
   ``logo_png`` from the profile and ``prior_depreciation`` from the answers, as on the
   intake: a generated tag is rightly 412, a base64 string that is not a PNG or a money
   string that is not a number rightly 422 (``test_report_signing.py``).
+* 413 counts as rejecting invalid data: a generated negative body can exceed the API's
+  1 MiB limit (the profile's ``logo_png`` is any string in that mode), and the size
+  middleware refuses it before validation (``test_errors.py`` covers the limit itself).
 * The engine uses ``NullPool``: Schemathesis's ASGI client runs the app on its own event
   loop, and pooled asyncpg connections cannot move between loops.
 
@@ -213,6 +216,12 @@ def contract_schema(contract_app: FastAPI) -> Any:
             case.headers = {**(case.headers or {}), "Authorization": f"Bearer {data}"}
 
     schema.auth()(BearerToken)
+    # A negative body may be generated far past the API's 1 MiB limit (a `logo_png` of
+    # arbitrary text): the 413 the body-size middleware answers is a rejection too, which
+    # Schemathesis's default list (400, 401, 403, 404, 405, 406, 409, 415, 422, 428, 429, 5xx)
+    # does not include.
+    rejection = schema.config.checks.negative_data_rejection
+    rejection.expected_statuses = [*rejection.expected_statuses, "413"]
     return schema
 
 

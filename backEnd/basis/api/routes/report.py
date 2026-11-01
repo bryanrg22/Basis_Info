@@ -61,6 +61,7 @@ from basis.db.models import Study, StudyEvent
 from basis.db.repositories.report import ReportRepository
 from basis.db.repositories.study import VisibleStudy
 from basis.db.repositories.study_event import StudyEventRepository
+from basis.db.repositories.user import UserRepository
 from basis.db.session import SessionDep, session_scope
 from basis.errors.codes import E
 from basis.evidence.export import sha256_hex
@@ -401,8 +402,15 @@ async def _render_pdf(
     return files.files["report.pdf"]
 
 
-def _signature_out(row: Any) -> SignatureOut:
-    return SignatureOut.model_validate(row)
+async def _signature_out(session: AsyncSession, row: Any) -> SignatureOut:
+    """The signature with the signer's name and email next to ``signed_by``."""
+    who = (await UserRepository(session).identities([row.signed_by])).get(row.signed_by)
+    return SignatureOut.model_validate(row).model_copy(
+        update={
+            "signed_by_name": who.display_name if who else None,
+            "signed_by_email": who.email if who else None,
+        }
+    )
 
 
 @reads.get(
@@ -431,7 +439,7 @@ async def report_state(
         skipped=ReportSkip(code=skipped["code"], message=skipped["message"]) if skipped else None,
         files=sorted((report.get("files") or {}).keys()),
         missing_for_final=missing,
-        signature=None if signature is None else _signature_out(signature),
+        signature=None if signature is None else await _signature_out(session, signature),
         firm_profile_version=firm.version if firm else 0,
         report_answers_version=study.report_answers_version,
     )
@@ -577,7 +585,7 @@ async def sign_report(
             "signer_email": user.user.email,
         },
     )
-    return _signature_out(row)
+    return await _signature_out(session, row)
 
 
 __all__ = ["reads", "writes"]

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-263 codes in 20 areas.
+264 codes in 20 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -70,7 +70,7 @@ stale).
 |---|---|---|---|---|---|---|
 | `BASIS-FIRM-001` | refusal | `GET /studies`, `POST /studies`; `basis.api.users` | The caller belongs to no firm: firms are invite-only. | 403 `no-firm`. (type `no-firm`) | Accept an invitation (`GET /v1/me` lists the ones waiting for the verified email). | no |
 | `BASIS-FIRM-002` | refusal | `POST /studies`; `basis.api.routes.studies` | The caller may create studies in several firms and gave no `org_id`. | 422 `org-required`. (type `org-required`) | Set `org_id`. | yes |
-| `BASIS-FIRM-003` | refusal | accept or decline an invitation; `basis.db.repositories.invitation` | The token does not assert a verified email, which an invitation is bound to. | 403 `email-unverified`. (type `email-unverified`) | Verify the email with the identity provider, sign in again. | no |
+| `BASIS-FIRM-003` | refusal | accept or decline an invitation; `POST /orgs`; `basis.db.repositories.invitation, basis.api.routes.orgs` | The token does not assert a verified email, which an invitation is bound to and a firm's first owner must have. | 403 `email-unverified`. (type `email-unverified`) | Verify the email with the identity provider, sign in again. | no |
 | `BASIS-FIRM-004` | refusal | change a role, remove a member; `basis.db.repositories.org` | The change would leave the firm without an owner. | 409 `last-owner`. (type `last-owner`) | Make another member owner first. | no |
 | `BASIS-FIRM-005` | refusal | invite; `basis.db.repositories.invitation` | The email already belongs to a member of the firm. | 409 `already-member`. (type `already-member`) | Nothing to do; change their role instead. | no |
 | `BASIS-FIRM-006` | refusal | invite; `basis.db.repositories.invitation` | The firm already has an open invitation for this email. | 409 `invitation-pending`. (type `invitation-pending`) | Revoke it first, or wait for the answer. | no |
@@ -386,4 +386,5 @@ stale).
 | `BASIS-INF-002` | error | the outbox relay; `basis.relay.delivery` | The workflow's validator refused a decision the API had recorded (BASIS-WF-008); the refusal is final. | Relay log `outbox message refused by its consumer` with `error_code`; the outbox row is `delivered` with `last_error`. | Decide again on the current stage and revision. | no |
 | `BASIS-INF-003` | error | the outbox relay; `basis.relay.delivery` | A message failed `RELAY_MAX_ATTEMPTS` deliveries (Temporal unreachable for long). | Outbox row `status = dead` with `last_error`; relay log with `error_code`. | Operator: re-arm the row (`python -m basis.admin`) once Temporal is back. | after fix |
 | `BASIS-INF-004` | error | the worker and the relay, every heartbeat; `basis.ops.heartbeat` | The process could not write its `service_heartbeats` row (database unreachable, or migration 0019 not applied). The process keeps running and retries on the next beat. | Log line with `error_code`; `GET /v1/ops/health` reports the worker or relay `down` once the last heartbeat is older than its validity. | Check the database and run `alembic upgrade head`. | yes |
+| `BASIS-INF-005` | error | the outbox relay, sending an invitation email; `basis.relay.delivery` | The email sender (`EMAIL_PROVIDER`) failed or refused the invitation email: SMTP unreachable, authentication refused, the recipient rejected (docs/api/FIRMS.md). | Relay log `invitation email failed` with `error_code`; the invitation's `email_error` and `delivery: failed` in `GET /v1/orgs/{org_id}/invitations`; the outbox row retried with backoff, `dead` after `RELAY_MAX_ATTEMPTS` or at once for a rejected recipient. | Fix the sender configuration or the address; revoke and invite again (a new invitation is a new email). The invitee can still accept in the app meanwhile. | yes |
 

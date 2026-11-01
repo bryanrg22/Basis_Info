@@ -20,6 +20,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
 from basis.db.models import OutboxMessage
+from basis.email import LoggingEmailSender
 from basis.relay.delivery import (
     MAX_ATTEMPTS,
     Outcome,
@@ -147,6 +148,19 @@ async def test_notification_is_delivered_to_the_log(caplog: pytest.LogCaptureFix
     assert any(record.message == "notification" for record in caplog.records)
 
 
+async def test_an_invitation_notification_without_an_id_is_dead_and_nothing_is_sent() -> None:
+    """The invitation branch is selected by ``type`` (the database path is
+    ``tests/integration/relay/test_invitation_emails.py``); a payload without a usable id
+    cannot be retried."""
+    r = relay(Gateway())
+    assert isinstance(r.email_sender, LoggingEmailSender)  # the default: never real mail
+    for payload in ({"type": "invitation"}, {"type": "invitation", "invitation_id": "nope"}):
+        result = await r._deliver(message("notification", **payload))
+        assert result.outcome is Outcome.DEAD
+        assert result.error is not None and result.error.startswith("malformed payload")
+    assert list(r.email_sender.sent) == []
+
+
 async def test_unknown_kind_and_malformed_payload_are_dead() -> None:
     assert (await outcome_of(Gateway(), message("fax"))).outcome is Outcome.DEAD
     malformed = message(stage="nowhere")
@@ -209,6 +223,98 @@ async def test_record(attempts: int, outcome: Outcome, expected: tuple[Any, ...]
     error = None if outcome is Outcome.DELIVERED else "e"
     await relay(Gateway())._record(outbox, msg, Result(msg.id, outcome, error))  # type: ignore[arg-type]
     assert outbox.calls == [expected]
+
+
+class Invitations:
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    async def record_emailed(self, invitation_id: uuid.UUID) -> bool:
+        self.calls.append(("emailed", str(invitation_id)))
+        return True
+
+    async def record_email_error(self, invitation_id: uuid.UUID, error: str) -> None:
+        self.calls.append(("error", str(invitation_id), error))
+
+
+INVITATION = str(uuid.uuid4())
+
+
+def invitation_message(**extra: Any) -> OutboxMessage:
+    return OutboxMessage(
+        id=uuid.uuid4(),
+        kind="notification",
+        payload={"type": "invitation", "invitation_id": INVITATION, **extra},
+        attempts=0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("result", "recorded", "warned"),
+    [
+        # handed to the sender now: emailed_at
+        (("delivered", None, True), [("emailed", INVITATION)], False),
+        # a redelivered row whose email had gone: nothing to record
+        (("delivered", None, False), [], False),
+        # not sent because the invitation was revoked first: the reason, no warning
+        (
+            ("delivered", "not sent: revoked", False),
+            [("error", INVITATION, "not sent: revoked")],
+            False,
+        ),
+        # the sender failed: the error, and a warning with the code
+        (
+            ("retry", "EmailSendError: boom", False),
+            [("error", INVITATION, "EmailSendError: boom")],
+            True,
+        ),
+        (
+            ("dead", "email rejected: 550", False),
+            [("error", INVITATION, "email rejected: 550")],
+            True,
+        ),
+    ],
+    ids=["sent", "already-sent", "skipped", "retry", "dead"],
+)
+async def test_record_writes_the_email_outcome_on_the_invitation(
+    result: tuple[str, str | None, bool],
+    recorded: list[tuple[Any, ...]],
+    warned: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="basis.relay.delivery")
+    outbox, invitations = Outbox(), Invitations()
+    msg = invitation_message()
+    outcome, error, emailed = result
+    await relay(Gateway())._record(
+        outbox,  # type: ignore[arg-type]
+        msg,
+        Result(msg.id, Outcome(outcome), error, emailed=emailed),
+        invitations=invitations,  # type: ignore[arg-type]
+    )
+    assert invitations.calls == recorded
+    failed = [r for r in caplog.records if r.message == "invitation email failed"]
+    assert bool(failed) is warned
+    if warned:
+        assert failed[0].error_code == "BASIS-INF-005"  # type: ignore[attr-defined]
+    # The outbox row is marked as for any message; a skipped email keeps its reason.
+    assert (
+        outbox.calls[0][0] == {"delivered": "delivered", "retry": "failed", "dead": "dead"}[outcome]
+    )
+    if outcome == "delivered":
+        assert outbox.calls[0][1] == error
+
+
+async def test_record_ignores_other_messages_for_the_invitation_record() -> None:
+    outbox, invitations = Outbox(), Invitations()
+    for msg in (message(), message("notification", type="review_pending")):
+        await relay(Gateway())._record(
+            outbox,  # type: ignore[arg-type]
+            msg,
+            Result(msg.id, Outcome.DELIVERED),
+            invitations=invitations,  # type: ignore[arg-type]
+        )
+    assert invitations.calls == []
 
 
 def test_limits_must_be_positive() -> None:

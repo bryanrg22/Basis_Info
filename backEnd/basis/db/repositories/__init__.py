@@ -8,12 +8,24 @@ from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.idempotency import IdempotencyClaim, IdempotencyRepository, scoped_key
 from basis.db.repositories.invitation import (
     Answer,
+    EmailDelivery,
     InvitationRepository,
     InvitationStatus,
     InvitationView,
 )
-from basis.db.repositories.org import FirmSummary, Member, Membership, OrgRepository
-from basis.db.repositories.outbox import NOTIFICATION, WORKFLOW_SIGNAL, OutboxRepository
+from basis.db.repositories.org import (
+    MAX_FIRM_NAME_LENGTH,
+    FirmSummary,
+    Member,
+    Membership,
+    OrgRepository,
+)
+from basis.db.repositories.outbox import (
+    INVITATION_NOTIFICATION,
+    NOTIFICATION,
+    WORKFLOW_SIGNAL,
+    OutboxRepository,
+)
 from basis.db.repositories.review import (
     DECISION_TRANSITIONS,
     SINGLE_ROOMS_GATE_TRANSITIONS,
@@ -23,10 +35,12 @@ from basis.db.repositories.review import (
     decision_target,
 )
 from basis.db.repositories.study import StudyPage, StudyRepository, VisibleStudy
-from basis.db.repositories.user import UserRepository
+from basis.db.repositories.user import UserIdentity, UserRepository
 
 __all__ = [
     "DECISION_TRANSITIONS",
+    "INVITATION_NOTIFICATION",
+    "MAX_FIRM_NAME_LENGTH",
     "NOTIFICATION",
     "SINGLE_ROOMS_GATE_TRANSITIONS",
     "WORKFLOW_SIGNAL",
@@ -34,6 +48,7 @@ __all__ = [
     "CorrectionInput",
     "DecisionRecord",
     "DocumentRepository",
+    "EmailDelivery",
     "FirmSummary",
     "IdempotencyClaim",
     "IdempotencyRepository",
@@ -47,6 +62,7 @@ __all__ = [
     "ReviewRepository",
     "StudyPage",
     "StudyRepository",
+    "UserIdentity",
     "UserRepository",
     "VisibleStudy",
     "decision_target",

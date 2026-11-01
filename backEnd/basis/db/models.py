@@ -290,7 +290,9 @@ class Invitation(Base):
     has no ``revoked_by``); at most one outcome is set. The status (pending, accepted,
     declined, revoked, expired) is derived (``basis.db.repositories.invitation``).
     ``created_by`` is NULL for invitations issued by the operator CLI
-    (``python -m basis.admin``).
+    (``python -m basis.admin``). The email columns record the invitation email's delivery
+    (``emailed_at``, ``email_error``); the status it reports is derived
+    (``basis.db.repositories.invitation.email_delivery``).
     """
 
     __tablename__ = "invitations"
@@ -329,6 +331,12 @@ class Invitation(Base):
     declined_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     revoked_at: Mapped[datetime | None]
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # The invitation email (migration ``0024_invitation_email``; docs/api/FIRMS.md): when its
+    # outbox message was enqueued (NULL for rows created before emails existed), when the
+    # relay handed it to the sender, and the last send error (cleared on success).
+    email_queued_at: Mapped[datetime | None]
+    emailed_at: Mapped[datetime | None]
+    email_error: Mapped[str | None]
 
 
 # --------------------------------------------------------------------- studies, documents

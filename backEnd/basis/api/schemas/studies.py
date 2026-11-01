@@ -87,6 +87,8 @@ class StudyOut(ResponseModel):
                     "id": "5f0c6a52-2f53-4c39-9a3e-2b0a8f1f7d10",
                     "org_id": "0b8f0f5e-8d3f-4d64-9a4b-7f3a2c1d9e01",
                     "created_by": "a3c1b6f4-0b1e-4b77-8f8a-3d4c5e6f7a80",
+                    "created_by_name": "Erin Engineer",
+                    "created_by_email": "erin@example.com",
                     "property_name": "1200 Harbor Blvd, Oxnard CA",
                     "status": "draft",
                     "current_stage": "uploading",
@@ -106,6 +108,13 @@ class StudyOut(ResponseModel):
     id: uuid.UUID
     org_id: uuid.UUID
     created_by: uuid.UUID
+    created_by_name: str | None = Field(
+        default=None,
+        description="The creator's display name, as their sign-in carries it; null when unknown.",
+    )
+    created_by_email: str | None = Field(
+        default=None, description="The creator's email; null when unknown."
+    )
     property_name: str
     status: StudyStatus
     current_stage: Stage

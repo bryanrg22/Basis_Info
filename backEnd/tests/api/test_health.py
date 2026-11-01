@@ -165,6 +165,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/audit",
         # invite-only firms (tests/api/test_firms.py)
         "GET /v1/me",
+        "POST /v1/orgs",  # a verified user creates a firm and owns it (docs/api/FIRMS.md)
+        "PATCH /v1/orgs/{org_id}",  # the owner renames it
         "GET /v1/orgs/{org_id}/members",
         "POST /v1/orgs/{org_id}/members/{user_id}/role",
         "DELETE /v1/orgs/{org_id}/members/{user_id}",
