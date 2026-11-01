@@ -8304,7 +8304,7 @@ under the study's one workflow id.
 * **Not carried, on purpose:** nothing is re-analyzed, re-localized or re-voted by the copy;
   a photo the engineer wants re-analyzed is flagged at the components review as always.
 * Codes `BASIS-STUDY-030..034`; `workflow-running` is now shared with the restart's refusal
-  (each raise passes its code; the restart's is the generic). No migration (#114's `0024` is
+  (each raise passes its code; the restart's is the generic). No migration (#115's `0026` is
   the latest; the brief's `0027` is not needed).
 
 ### 59.3 Verified
