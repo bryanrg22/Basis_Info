@@ -160,8 +160,13 @@ def to_xlsx(schedule: Iterable[Row], *, title: str = "Depreciation schedule") ->
     return _pin_zip_times(buffer.getvalue())
 
 
+# openpyxl's save overwrites ``modified`` with the save time, whatever the properties say.
+_MODIFIED: Final = re.compile(rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)")
+
+
 def _pin_zip_times(data: bytes) -> bytes:
-    """Rewrite the XLSX zip with fixed member times (openpyxl stamps the save time)."""
+    """Rewrite the XLSX zip with fixed member times and a fixed ``dcterms:modified``
+    (openpyxl stamps the save time on both)."""
     import zipfile
 
     source = zipfile.ZipFile(io.BytesIO(data))
@@ -171,7 +176,15 @@ def _pin_zip_times(data: bytes) -> bytes:
             fixed = zipfile.ZipInfo(info.filename, date_time=(2000, 1, 1, 0, 0, 0))
             fixed.compress_type = zipfile.ZIP_DEFLATED
             fixed.external_attr = info.external_attr
-            target.writestr(fixed, source.read(info.filename))
+            content = source.read(info.filename)
+            if info.filename == "docProps/core.xml":
+                content, found = _MODIFIED.subn(
+                    rb"\g<1>" + FIXED_TIME.strftime("%Y-%m-%dT%H:%M:%SZ").encode() + rb"\g<2>",
+                    content,
+                )
+                if found != 1:
+                    raise ValueError("docProps/core.xml has no single dcterms:modified")
+            target.writestr(fixed, content)
     return out.getvalue()
 
 
