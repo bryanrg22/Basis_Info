@@ -52,6 +52,10 @@ Schemathesis setup, and why:
   ``logo_png`` from the profile and ``prior_depreciation`` from the answers, as on the
   intake: a generated tag is rightly 412, a base64 string that is not a PNG or a money
   string that is not a number rightly 422 (``test_report_signing.py``).
+* The negative-data check is off for the two ``/activity`` operations: their repeatable
+  ``event_type`` is negated into a number that a query string carries as a valid string,
+  which the API rightly accepts (seen once in 64 runs; ``test_activity.py`` covers the
+  parameters' rules).
 * 413 counts as rejecting invalid data: a generated negative body can exceed the API's
   1 MiB limit (the profile's ``logo_png`` is any string in that mode), and the size
   middleware refuses it before validation (``test_errors.py`` covers the limit itself).
@@ -81,6 +85,7 @@ from dbtest_support import truncate_all
 from fastapi import FastAPI
 from hypothesis import HealthCheck
 from hypothesis import settings as hypothesis_settings
+from schemathesis.config._operations import OperationConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 from workflowtest_support import FakeWorkflowService
@@ -227,6 +232,20 @@ def contract_schema(contract_app: FastAPI) -> Any:
     # does not include.
     rejection = schema.config.checks.negative_data_rejection
     rejection.expected_statuses = [*rejection.expected_statuses, "413"]
+    # The activity routes take `event_type` as a repeatable string parameter (`list[str]`).
+    # Schemathesis's negative data turns the array into a number, which a query string
+    # cannot carry: it arrives as the string "1.0e-107", valid under the item schema, and the
+    # API rightly answers 200. The guard for that case does not fire for array parameters,
+    # so the negative-data check is off for these two operations; their parameter rules
+    # (`since`/`until` as RFC 3339, `limit`, the cursor) are tested in test_activity.py.
+    schema.config.operations.operations.append(
+        OperationConfig.from_dict(
+            {
+                "include-path-regex": r"/activity$",
+                "checks": {"negative_data_rejection": {"enabled": False}},
+            }
+        )
+    )
     return schema
 
 
