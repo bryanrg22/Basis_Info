@@ -121,6 +121,7 @@ BODIES: Final[dict[str, Any]] = {
         "reason": "cross-firm probe",
     },
     "GET /v1/orgs/{org_id}/profile": None,
+    "PATCH /v1/orgs/{org_id}": {"name": "Other Firm"},
     "PUT /v1/orgs/{org_id}/profile": {"name": "Other Firm"},
     "GET /v1/orgs/{org_id}/members": None,
     "GET /v1/orgs/{org_id}/activity": None,
