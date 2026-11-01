@@ -66,6 +66,47 @@ class VisibleStudy:
 
 
 @dataclass(frozen=True, slots=True)
+class ResumeRecord:
+    """The study row moved to a gate on a new revision for a resumed execution
+    (:meth:`StudyRepository.begin_revision_at`, docs/api/REVISIONS.md): the study as it is
+    now, the revision copied into it, where it came from, and whether an earlier request had
+    already made this exact reset (its start is in flight or answered 503: nothing changed
+    again)."""
+
+    study: Study
+    from_stage: Stage
+    from_revision: int
+    source_revision: int
+    reused: bool
+
+
+# The events that mark a revision begun for a resumed execution (docs/api/REVISIONS.md).
+REOPENED_EVENT: Final = "study.reopened"
+RESTORED_EVENT: Final = "revision.restored"
+
+
+@dataclass(frozen=True, slots=True)
+class PendingResume:
+    """A reset made for a resumed execution whose start has not happened (the last resume
+    event at the study's current revision, with no ``run.started`` after it): a repeat of
+    the same request reuses it (:meth:`StudyRepository.pending_resume`)."""
+
+    stage: Stage
+    source_revision: int
+    reason: str
+    from_stage: Stage
+    from_revision: int
+
+    def matches(self, stage: Stage, source_revision: int | None) -> bool:
+        reason = "reopen" if source_revision is None else "restore"
+        return (
+            self.stage is stage
+            and self.reason == reason
+            and (source_revision is None or self.source_revision == source_revision)
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Unarchived:
     """What :meth:`StudyRepository.unarchive` did: the study as it is now, and whether this
     call restored it. ``restored`` is decided under the study's row lock, not from a read
@@ -362,6 +403,145 @@ class StudyRepository:
             detail={"workflow_id": workflow_id},
         )
         return started
+
+    async def begin_revision_at(
+        self,
+        study_id: uuid.UUID,
+        stage: Stage,
+        *,
+        actor_id: uuid.UUID,
+        source_revision: int | None = None,
+        plan: dict[str, Any] | None = None,
+    ) -> ResumeRecord:
+        """Move a ``completed`` study to review gate ``stage`` on ``revision + 1`` (status
+        ``processing`` until the workflow opens the gate) for a resumed execution
+        (docs/api/REVISIONS.md): a reopen (``source_revision`` None: the completed revision is
+        copied) or a restore (``source_revision`` the revision copied). Recorded as
+        ``stage.entered`` and ``study.reopened`` / ``revision.restored`` (``detail``: the
+        source revision, the reason and ``plan``, the recompute warning).
+
+        The row lock serializes concurrent requests. A study that is no longer completed is
+        ``StaleStateError``, unless the last of the resume, restart and ``run.started``
+        events on its timeline is this same reset (same stage, source and reason at the
+        current revision, no ``run.started`` after it): an earlier request made it and its
+        start did not happen yet (in flight, or 503), so it is reused without a second
+        revision bump; Temporal's start then admits exactly one of them. Archived:
+        ``StaleStateError``; unknown: ``NotVisibleError``; no workflow: ``ValueError``.
+        """
+        locked = (
+            await self._session.scalars(
+                select(Study)
+                .where(Study.id == study_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one_or_none()
+        if locked is None:
+            raise NotVisibleError(f"study {study_id} not found")
+        if locked.status is StudyStatus.ARCHIVED:
+            raise StaleStateError(f"study {study_id} is archived; unarchive it first")
+        if locked.workflow_id is None:
+            raise ValueError(f"study {study_id} has no workflow; nothing to reopen")
+        reason = "reopen" if source_revision is None else "restore"
+        event_type = REOPENED_EVENT if source_revision is None else RESTORED_EVENT
+        events = StudyEventRepository(self._session)
+        pending = await self.pending_resume(study_id, locked.revision)
+        if pending is not None and pending.matches(stage, source_revision):
+            return ResumeRecord(
+                study=locked,
+                from_stage=pending.from_stage,
+                from_revision=pending.from_revision,
+                source_revision=pending.source_revision,
+                reused=True,
+            )
+        completed = (
+            locked.current_stage is Stage.COMPLETED and locked.status is StudyStatus.COMPLETED
+        )
+        if not completed:
+            raise StaleStateError(
+                f"study {study_id} is at {locked.current_stage.value} revision "
+                f"{locked.revision} ({locked.status.value}), not completed"
+            )
+        from_stage, from_revision = locked.current_stage, locked.revision
+        source = from_revision if source_revision is None else source_revision
+        stmt = (
+            update(Study)
+            .where(Study.id == study_id, Study.status == StudyStatus.COMPLETED)
+            .values(
+                current_stage=stage,
+                status=StudyStatus.PROCESSING,
+                revision=Study.revision + 1,
+                failure_reason=None,
+                failure_code=None,
+            )
+            .returning(Study)
+            .execution_options(synchronize_session=False, populate_existing=True)
+        )
+        study = (await self._session.scalars(stmt)).one()
+        before = {"stage": from_stage.value, "revision": from_revision}
+        after = {"stage": stage.value, "revision": study.revision}
+        await events.record(
+            study_id,
+            "stage.entered",
+            actor="engineer",
+            actor_id=actor_id,
+            stage=stage,
+            revision=study.revision,
+            before=before,
+            after=after,
+        )
+        await events.record(
+            study_id,
+            event_type,
+            actor="engineer",
+            actor_id=actor_id,
+            stage=stage,
+            revision=study.revision,
+            workflow_id=locked.workflow_id,
+            before=before,
+            after=after,
+            detail={
+                "from_revision": source,
+                "reason": reason,
+                "workflow_id": locked.workflow_id,
+                **(plan or {}),
+            },
+        )
+        return ResumeRecord(
+            study=study,
+            from_stage=from_stage,
+            from_revision=from_revision,
+            source_revision=source,
+            reused=False,
+        )
+
+    async def pending_resume(self, study_id: uuid.UUID, revision: int) -> PendingResume | None:
+        """The reset a resumed execution has not started from yet: the last of the study's
+        ``study.reopened`` / ``revision.restored`` / ``study.restarted`` / ``run.started``
+        events is a resume at ``revision`` (``run.started`` after it would mean the execution
+        took it; a restart after it replaced it). None otherwise."""
+        page = await StudyEventRepository(self._session).list_for_study(
+            study_id,
+            event_types=[REOPENED_EVENT, RESTORED_EVENT, "study.restarted", "run.started"],
+        )
+        last = page.items[-1] if page.items else None
+        if (
+            last is None
+            or last.event_type not in (REOPENED_EVENT, RESTORED_EVENT)
+            or last.revision != revision
+            or last.stage is None
+            or not isinstance(last.detail, dict)
+            or not isinstance(last.before, dict)
+            or not isinstance(last.detail.get("from_revision"), int)
+        ):
+            return None
+        return PendingResume(
+            stage=last.stage,
+            source_revision=int(last.detail["from_revision"]),
+            reason=str(last.detail.get("reason")),
+            from_stage=Stage(last.before["stage"]),
+            from_revision=int(last.before["revision"]),
+        )
 
     async def set_intake(self, study_id: uuid.UUID, intake: StudyIntake) -> Study:
         """Set or replace the study's intake unconditionally (:meth:`write_intake`)."""

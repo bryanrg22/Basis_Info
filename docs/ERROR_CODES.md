@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-264 codes in 20 areas.
+269 codes in 20 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -123,6 +123,11 @@ stale).
 | `BASIS-STUDY-022` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | A `component_remove` names a row the rejection rebuilds anyway: an inventory row of a room with a photo flagged for re-analysis (or a merged room), or a row of a flagged photo; corrections of rebuilt rows are not carried. | 422 `validation`, `errors[].type` `correction_rebuilt` at the removal's `entity_id`. (type `validation`) | Drop the removal (or the re-analysis) and remove the row from the next revision. | yes |
 | `BASIS-STUDY-023` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | The decision removes every inventory row of a reconciled room: the room would fall back to its per-photo rows and the room step would rebuild the inventory. | 422 `validation`, `errors[].type` `correction_last_inventory` at each removal of that room. (type `validation`) | Keep at least one inventory row (correct it), or flag the room's photos for re-analysis. | yes |
 | `BASIS-STUDY-024` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | An `extraction_field_add` names a key the extraction already has. | 422 `validation`, `errors[].type` `correction_field_exists` at `after`. (type `validation`) | Correct the existing field with an `extraction_field` correction. | yes |
+| `BASIS-STUDY-030` | refusal | `POST .../reopen`, `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | The study is not `completed`: only a completed study is reopened at a gate or has a revision restored (docs/api/REVISIONS.md). | 409 `study-not-completed`. (type `study-not-completed`) | Reject at the gate the study waits at; `retry` a failed stage; `restart` a cancelled study. | no |
+| `BASIS-STUDY-031` | refusal | `POST .../reopen`, `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | An execution of the study's workflow is running: the completed one is still closing, or a concurrent reopen or restore won the start. | 409 `workflow-running`. (type `workflow-running`) | Wait for `GET .../workflow` to report the execution closed, or for the gate the other request opened. | yes |
+| `BASIS-STUDY-032` | refusal | `POST .../revisions/{n}/restore`, `GET .../revisions/{a}/diff/{b}`; `basis.api.routes.revisions` | The revision number is not one of the study's (1 to its current revision). | 404 `revision-not-found`. (type `revision-not-found`) | Read `GET .../revisions` for the numbers the study has. | no |
+| `BASIS-STUDY-033` | refusal | `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | The revision to restore is the study's current one; restoring it would copy the current state onto itself. | 409 `revision-current`. (type `revision-current`) | Reopen the study at a gate instead (`POST .../reopen`). | no |
+| `BASIS-STUDY-034` | refusal | `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | The revision never reached a review gate (the execution was cancelled or restarted during extraction), so there is no reviewed state to restore. | 409 `revision-not-restorable`. (type `revision-not-restorable`) | Restore a revision whose `stage_reached` in `GET .../revisions` is a review gate or later. | no |
 
 ## OBJECT: Photo objects (an engineer's selections)
 

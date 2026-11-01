@@ -9,11 +9,21 @@ an in-memory fake (``tests/workflowtest_support.py``), so they run without a ser
 Decisions are deliberately not here: the API never sends them to Temporal. It writes the
 review and an outbox row in one transaction, and ``basis.relay`` delivers the update.
 
-Errors are reduced to four exceptions the routes map to problems:
+Errors are reduced to five exceptions the routes map to problems:
 :class:`WorkflowNotFoundError` (404), :class:`WorkflowNotRunningError` (409),
-:class:`RetryRefusedError` (409) and :class:`WorkflowUnavailableError` (503). Every call
+:class:`RetryRefusedError` (409), :class:`ResumeRefusedError` (409) and
+:class:`WorkflowUnavailableError` (503). Every call
 is bounded by ``call_timeout``: the SDK retries ``UNAVAILABLE`` internally for about ten
 seconds (measured against the dev server), which is too long to hold an API request.
+
+Resuming (``POST .../reopen``, ``POST .../revisions/{n}/restore``; docs/api/REVISIONS.md): a
+completed execution cannot be continued (Temporal refuses signals and updates to a closed
+one), so :meth:`WorkflowService.resume_study` starts a **new execution under the same id**
+with id-reuse ``ALLOW_DUPLICATE`` (the only policy that admits an id whose last execution
+completed) and id-conflict ``FAIL``: a running execution refuses the start
+(:class:`ResumeRefusedError`), which is what makes two concurrent reopens admit exactly one.
+The id stays ``study-{id}``, so the study row's ``workflow_id``, the relay's routing and the
+cancel and retry routes keep working; the new execution gets its own run id and ``runs`` row.
 """
 
 from __future__ import annotations
@@ -69,6 +79,16 @@ class RetryRefusedError(WorkflowServiceError):
     """The workflow refused the ``retry`` update: no stage has failed (409)."""
 
 
+class ResumeRefusedError(WorkflowServiceError):
+    """A new execution cannot start under the study's id because one is running (a
+    concurrent reopen or restore won, or the completed execution is still closing);
+    ``status`` is the running execution's (409)."""
+
+    def __init__(self, message: str, *, status: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 @dataclass(frozen=True, slots=True)
 class RetryAccepted:
     stage: str
@@ -103,6 +123,12 @@ class WorkflowService(Protocol):
     async def start_study(self, workflow_input: StudyWorkflowInput) -> WorkflowRef:
         """Start ``study-{id}``; if it already exists (running or completed), return it;
         ``WorkflowNotRunningError`` if it ended any other way (failed, terminated, ...)."""
+        ...
+
+    async def resume_study(self, workflow_input: StudyWorkflowInput) -> WorkflowRef:
+        """Start a new execution of ``study-{id}`` at a review gate (``workflow_input.resume``)
+        over a closed one, whatever its outcome (``ALLOW_DUPLICATE``); ``ResumeRefusedError``
+        while one runs."""
         ...
 
     async def describe(self, workflow_id: str) -> WorkflowDescription: ...
@@ -160,6 +186,37 @@ class TemporalWorkflowService:
             described = await self.describe(workflow_id)
             ensure_not_ended_unsuccessfully(described)
             return WorkflowRef(workflow_id=workflow_id, run_id=described.run_id)
+        except Exception as exc:
+            raise _unavailable(exc) from exc
+        run_id = handle.result_run_id or handle.run_id
+        if run_id is None:  # pragma: no cover - the SDK always sets it after a start
+            raise WorkflowUnavailableError("Temporal did not return a run id.")
+        return WorkflowRef(workflow_id=workflow_id, run_id=run_id)
+
+    async def resume_study(self, workflow_input: StudyWorkflowInput) -> WorkflowRef:
+        if workflow_input.resume is None:
+            raise ValueError("a resumed execution needs workflow_input.resume")
+        workflow_id = study_workflow_id(workflow_input.study_id)
+        try:
+            async with asyncio.timeout(self.call_timeout):
+                handle: WorkflowHandle[object, object] = await self.client.start_workflow(
+                    STUDY_WORKFLOW,
+                    workflow_input,
+                    id=workflow_id,
+                    task_queue=self.task_queue,
+                    # Over any closed execution (the completed one): a new revision at a
+                    # gate; a running one refuses the start, so concurrent reopens admit one.
+                    id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    rpc_timeout=self._rpc_timeout,
+                )
+        except WorkflowAlreadyStartedError:
+            described = await self.describe(workflow_id)
+            raise ResumeRefusedError(
+                f"Workflow {workflow_id} is {described.status.lower()}; a study is reopened or "
+                "restored only while no execution of it runs.",
+                status=described.status,
+            ) from None
         except Exception as exc:
             raise _unavailable(exc) from exc
         run_id = handle.result_run_id or handle.run_id

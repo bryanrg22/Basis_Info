@@ -108,6 +108,10 @@ BODIES: Final[dict[str, Any]] = {
     "GET /v1/studies/{study_id}/timeline": None,
     "GET /v1/studies/{study_id}/timeline/steps": None,
     "GET /v1/studies/{study_id}/audit": None,
+    "POST /v1/studies/{study_id}/reopen": {"stage": "rooms_review"},
+    "GET /v1/studies/{study_id}/revisions": None,
+    "GET /v1/studies/{study_id}/revisions/{from_revision}/diff/{to_revision}": None,
+    "POST /v1/studies/{study_id}/revisions/{revision}/restore": None,
     "GET /v1/studies/{study_id}/assets/reprice": None,
     "POST /v1/studies/{study_id}/assets/reprice": {
         "revision": 1,
@@ -167,6 +171,10 @@ async def firm_of(api: Api, seed: Seed, uid: str) -> Firm:
             "user_id": me.json()["user"]["id"],
             "invitation_id": invitation.json()["id"],
             "asset_id": outputs["asset"],
+            # Revision numbers in paths (docs/api/REVISIONS.md): the study's revision 1.
+            "revision": "1",
+            "from_revision": "1",
+            "to_revision": "1",
         },
     )
 

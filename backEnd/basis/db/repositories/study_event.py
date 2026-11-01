@@ -50,6 +50,12 @@ Event vocabulary (``event_type``; the actor in brackets):
 * ``stage.failed`` / ``stage.failure_cleared`` [system]: ``record_failure`` (``code``);
 * ``study.stalled`` / ``review.reminded`` [system]; ``study.retry_requested`` /
   ``study.cancel_requested`` [engineer];
+* ``study.reopened`` / ``revision.restored`` [engineer] (docs/api/REVISIONS.md): a completed
+  study moved to a review gate on a new revision for a resumed execution (``before`` the
+  stage and revision it left, ``after`` the gate and the new revision; ``detail``:
+  ``from_revision`` the revision copied, ``reason``, the recompute plan, ``workflow_id``); a
+  ``stage.entered`` row goes with it, and ``revision.carried`` (``detail.through``,
+  ``detail.reason``, the row counts) when the workflow has copied the rows;
 * ``export.written`` [system]: the export (``detail.uri``, ``detail.sha256``);
 * ``study.report_answers_set`` [engineer]: the study's report answers (``before``/``after``;
   ``detail``: ``version_before``/``version_after``, ``if_match``);

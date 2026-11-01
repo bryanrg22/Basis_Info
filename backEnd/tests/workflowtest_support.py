@@ -47,6 +47,7 @@ from basis.db.repositories import (
 from basis.db.session import create_sessionmaker, session_scope
 from basis.temporal.names import STUDY_WORKFLOW, study_workflow_id
 from basis.temporal.service import (
+    ResumeRefusedError,
     RetryAccepted,
     RetryRefusedError,
     WorkflowDescription,
@@ -278,8 +279,16 @@ class FakeWorkflowService:
     def __init__(self) -> None:
         self.executions: dict[str, FakeExecution] = {}
         self.start_calls: list[StudyWorkflowInput] = []
+        self.resume_calls: list[StudyWorkflowInput] = []
+        # Every execution ever started under an id (a resume replaces ``executions[id]``).
+        self.history: dict[str, list[FakeExecution]] = {}
         self.unavailable = False
         self.query_fails = False
+        # Raised by ``resume_study`` alone (Temporal reachable for the describe before it).
+        self.fail_resume: BaseException | None = None
+        # The first ``resume_study`` call waits for this event before it is decided (a start
+        # in flight while another request runs the whole route).
+        self.hold_first_resume: asyncio.Event | None = None
 
     def _check(self) -> None:
         if self.unavailable:
@@ -299,6 +308,30 @@ class FakeWorkflowService:
             workflow_id, FakeExecution(workflow_input=workflow_input, run_id=str(uuid.uuid4()))
         )
         ensure_not_ended_unsuccessfully(await self.describe(workflow_id))  # as the real one
+        return WorkflowRef(workflow_id=workflow_id, run_id=execution.run_id)
+
+    async def resume_study(self, workflow_input: StudyWorkflowInput) -> WorkflowRef:
+        """As ``ALLOW_DUPLICATE`` with conflict ``FAIL``: a new execution over none or any
+        closed one; a running one refuses."""
+        self._check()
+        self.resume_calls.append(workflow_input)
+        if self.fail_resume is not None:
+            raise self.fail_resume
+        if self.hold_first_resume is not None and len(self.resume_calls) == 1:
+            await self.hold_first_resume.wait()
+        workflow_id = study_workflow_id(workflow_input.study_id)
+        previous = self.executions.get(workflow_id)
+        if previous is not None and previous.status == "RUNNING":
+            raise ResumeRefusedError(
+                f"Workflow {workflow_id} is running; a study is reopened or restored only "
+                "while no execution of it runs.",
+                status=previous.status,
+            )
+        execution = FakeExecution(workflow_input=workflow_input, run_id=str(uuid.uuid4()))
+        self.executions[workflow_id] = execution
+        self.history.setdefault(workflow_id, [])
+        if previous is not None:
+            self.history[workflow_id].append(previous)
         return WorkflowRef(workflow_id=workflow_id, run_id=execution.run_id)
 
     async def describe(self, workflow_id: str) -> WorkflowDescription:

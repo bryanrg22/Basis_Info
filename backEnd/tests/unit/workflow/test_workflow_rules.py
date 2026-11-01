@@ -39,6 +39,7 @@ PROVIDER_ACTIVITIES = {
     "export_report",
 }
 LOOPING_ACTIVITIES = {
+    "carry_revision",
     "ingest_appraisal",
     "extract_fields",
     "analyze_photo",

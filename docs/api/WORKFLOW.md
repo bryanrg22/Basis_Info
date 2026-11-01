@@ -7,7 +7,10 @@ failure and waits for `POST /v1/studies/{id}/retry`, which runs the stage again.
 the client's view of that; the workflow's own contract is `basis/workflow/study_workflow.py`
 (patch `stage-failure-retry-v1`, EVAL_REPORT section 27) and the routes are
 `basis/api/routes/workflow.py`. Decisions at the review gates are a separate page
-(`POST /v1/studies/{id}/decisions`; `openapi.json`).
+(`POST /v1/studies/{id}/decisions`; `openapi.json`). Reopening a completed study at a gate,
+the revision history and restoring a revision are docs/api/REVISIONS.md (`POST .../reopen`,
+`GET .../revisions`, `POST .../revisions/{n}/restore`): a completed execution is never
+continued; a new one starts under the same workflow id and opens the gate on a copied revision.
 
 ## `GET /v1/studies/{id}/workflow` (viewer)
 
