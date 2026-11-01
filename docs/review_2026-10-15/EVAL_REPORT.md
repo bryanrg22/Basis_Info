@@ -7782,3 +7782,65 @@ looks at decisions first at any tier, `promote_conventions` never replaces a dec
 answer, the provenance carries `origin`, and the rationale names the kind of row. Tests:
 `tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
 copy.
+
+## 55. Vendor import profiles for the preparer's schedule (2026-11-01)
+
+**Question.** No CPA partner has sent an import template. Can the schedule already be handed to
+the fixed-asset packages CPAs use most for cost segregation, so the first partner imports without
+a round trip, without guessing at any layout? Research and every mapping decision: STUDY_REPORT_SPEC
+11.5.1; API: docs/api/REPORT.md "Vendor import profiles". No paid run; no client data.
+
+### 55.1 What is public, from the vendors' own documentation
+
+| Package | Published | Not published |
+|---|---|---|
+| Thomson Reuters Fixed Assets CS | the Excel import's fields and limits: Description 0-45 "no quotation marks or commas", Method list (`M`, `M SL`, `150 DB`, ...), Life and ADS Life 1-99, Real property `R`, Force Mid Qtr Y/N, "Any Excel date format"; 168(k) applied by the package itself (no field) | the template's heading row (exported from the product) |
+| Sage Fixed Assets Depreciation | the whole Custom Import Helper (user guide Appendix C): five critical fields, two-letter method codes (`MF`, `MA`, ...), Declining Balance % in its own column, `168 Allow %` required with `MA`, lives as YYMM, Property Type letters, Mid-Quarter Flag, dates MM/DD/YYYY, field widths; field order free | nothing needed |
+| Intuit ProConnect / Lacerte | Intuit's Depreciation template (17 headings) and data rules (25-character description, mm/dd/yyyy, Category 1-8, Method numbers); Lacerte's wizard takes CSV/XLS only | nothing needed (Form and Activity numbers depend on the return) |
+| CCH ProSystem fx Fixed Assets | the mechanism: Excel headings mapped in a translation table; date in service and method required; each distinct method value mapped by hand; sample file ships with the product | field names, method and convention option names, limits |
+| Bloomberg Tax Fixed Assets | the mechanism: a CSV Import wizard that maps columns; convention solved, forced or "As Is" | the Import Guide (field names, codes, date format) |
+
+### 55.2 Built
+
+`basis/report/vendors.py`: a profile per package, each a column mapping over the generic rows
+(vendor headers in the vendor's order, its codes, its date format, its description limit), rendered
+on request by `GET /v1/studies/{id}/report?format=csv|xlsx&profile=<name>` from the stored export.
+The export step still writes only the generic files; `profile=generic` is the stored file.
+
+* **Generic unchanged**: the synthetic export's CSV and XLSX have the sha256 they had on main
+  396dcbe (pinned in `test_vendors.py`), after the XLSX writer was factored out for the profiles.
+* **Ties**: every profile's rows carry the line's allocated cost; `vendor_rows` refuses a row that
+  does not (BASIS-REPORT-003). On the synthetic export all five sum to 61,000.00 in the CSV and in
+  the typed XLSX money column.
+* **Limits**: descriptions cut to 45 (Fixed Assets CS, CCH, Bloomberg), 80 (Sage), 25
+  (ProConnect) without quotes, commas or breaks; Fixed Assets CS memos within 45 and clean in every
+  cell ("Don't use commas or quotation marks in any cells").
+* **Deterministic**: CSV and XLSX byte-identical across builds and with a clock that moves on
+  every call (the pinned-time test from section 51 repeated for a profile); the route's `ETag` is
+  the sha256 of the bytes.
+* **Bonus**: the schedule's statutory default travels as each package takes it: Sage `MA` with
+  `168 Allow %` (40, 60, 100, ...) when the default applies, else `MF`; Fixed Assets CS and
+  ProConnect apply the allowance themselves (a memo, no field); CCH and Bloomberg get a
+  `Bonus Default %` column. Mid-quarter is the preparer's 40 % test everywhere: half-year is said.
+* Sizes on the synthetic export: each XLSX 5.5-5.6 KB, the CSVs 0.6-1.3 KB.
+
+### 55.3 Checks
+
+* `tests/unit/report/test_vendors.py` (15 cases): the generic bytes pinned; profile names equal the
+  route's enum; per profile headers, ties, limits, typing and stability; each vendor's codes on the
+  synthetic export and, by hand-built rows, the 7 and 39-year classes, a 100 % and an undetermined
+  bonus, a 10-year period refused.
+* `tests/api/test_study_report.py` (2 added): a profile rendered from the stored export equals
+  `vendors.to_csv`/`to_xlsx` byte for byte, `ETag` and 304, the file name; the default and
+  `profile=generic` are the stored file; an unknown profile is 422 and `profile` is ignored for the PDF (Schemathesis's positive-data check rejected a 422 there); the
+  export JSON gone is 404 BASIS-REPORT-006; a skipped export is 404 with its code.
+* `docs/api/openapi.json` regenerated (`profile` enum); the contract test runs it.
+
+### 55.4 Verified and not
+
+* Verified: everything in 55.3, on this machine.
+* **Not verified: any import into the real software.** All five profiles are built to the published
+  specifications only. The open readings a preparer's first import settles: Fixed Assets CS `M` plus
+  life as the class method; Sage `MF` with `100` for straight-line real property and the Mid-Quarter
+  Flag blank on real property; ProConnect's integer bounds on cost (cents kept so the rows tie);
+  CCH's and Bloomberg's headings, which their mapping dialogs absorb.

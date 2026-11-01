@@ -2690,7 +2690,7 @@
           "report"
         ],
         "summary": "The study report (PDF) or the preparer's depreciation schedule (CSV, XLSX)",
-        "description": "Viewer role. `format=pdf` is the signed report when the revision is signed, else the draft the export wrote; `variant=draft` always asks for the draft.",
+        "description": "Viewer role. `format=pdf` is the signed report when the revision is signed, else the draft the export wrote; `variant=draft` always asks for the draft. `profile` (csv and xlsx; ignored for pdf) is the schedule's import layout: `generic` is the file the export wrote; a vendor profile is rendered now from the stored export (docs/api/REPORT.md lists them; none is verified against the vendor's software yet).",
         "operationId": "study_report_v1_studies__study_id__report_get",
         "security": [
           {
@@ -2762,6 +2762,26 @@
               "title": "Variant"
             },
             "description": "pdf only: `final` (the signed report when there is one) or `draft`."
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "generic",
+                "fixed_assets_cs",
+                "sage",
+                "proconnect",
+                "cch",
+                "bloomberg"
+              ],
+              "type": "string",
+              "description": "csv and xlsx only (ignored for pdf): the import layout (`generic`, `fixed_assets_cs`, `sage`, `proconnect`, `cch`, `bloomberg`).",
+              "default": "generic",
+              "title": "Profile"
+            },
+            "description": "csv and xlsx only (ignored for pdf): the import layout (`generic`, `fixed_assets_cs`, `sage`, `proconnect`, `cch`, `bloomberg`)."
           }
         ],
         "responses": {
