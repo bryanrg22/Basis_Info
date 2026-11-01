@@ -1,7 +1,7 @@
 """Invitation emails: ``invitations.email_queued_at``, ``emailed_at``, ``email_error``.
 
-Revision ID: 0024
-Revises: 0021
+Revision ID: 0025
+Revises: 0024
 Create Date: 2026-11-01
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
@@ -13,8 +13,8 @@ operator CLI enqueues the message in the transaction that creates the invitation
 nullable and nothing is backfilled: a row with none set was created before emails existed,
 which the API reports as ``delivery: not_sent``, as it always did.
 
-Numbering: written while migrations 0022 and 0023 were open on other branches, so it
-revises 0021 here; at merge ``down_revision`` becomes the then-current head (``0023``).
+Numbering: written as 0024 on 0021 while 0022 (user activity), 0023 (rate-limit hits) and
+0024 (review drafts) were open on other branches; renumbered 0025 on 0024 when those merged.
 
 Downgrade drops the three columns.
 """
@@ -24,8 +24,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0024"
-down_revision: str | Sequence[str] | None = "0021"
+revision: str = "0025"
+down_revision: str | Sequence[str] | None = "0024"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

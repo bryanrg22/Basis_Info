@@ -518,6 +518,38 @@ async def test_an_owner_renames_the_firm(invite_only_api: Api, seed: Seed) -> No
     assert again.status_code == 200 and again.json() == renamed.json()
 
 
+async def firm_activity(api: Api, uid: str, org: str) -> list[tuple[str, str, Any, Any]]:
+    """``(event_type, actor_type, before, after)`` of the firm's history, oldest first."""
+    response = await api.get(uid, f"/v1/orgs/{org}/activity")
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    return [(i["event_type"], i["actor_type"], i["before"], i["after"]) for i in reversed(items)]
+
+
+async def test_creating_and_renaming_a_firm_are_on_its_history(invite_only_api: Api) -> None:
+    api = invite_only_api
+    created = (await api.post("nina", "/v1/orgs", {"name": "Harbor"})).json()
+    nina = (await api.get("nina", "/v1/me")).json()["user"]["id"]
+    org = created["id"]
+
+    assert await patch(api, "nina", f"/v1/orgs/{org}", {"name": "Harbor"}) is not None
+    renamed = await patch(api, "nina", f"/v1/orgs/{org}", {"name": "Harbor Cost Seg"})
+    assert renamed.status_code == 200
+
+    events = await firm_activity(api, "nina", org)
+    assert events == [
+        ("org.created", "engineer", None, {"name": "Harbor"}),
+        # renaming to the current name recorded nothing
+        ("org.renamed", "engineer", {"name": "Harbor"}, {"name": "Harbor Cost Seg"}),
+    ]
+    [first] = [
+        i
+        for i in (await api.get("nina", f"/v1/orgs/{org}/activity")).json()["items"]
+        if i["event_type"] == "org.created"
+    ]
+    assert (first["actor_id"], first["subject_user_id"], first["entity_id"]) == (nina, nina, org)
+
+
 # --------------------------------------------------------------------------- the email
 
 

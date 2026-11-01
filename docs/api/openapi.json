@@ -13581,6 +13581,17 @@
         "title": "DraftsOut",
         "description": "The caller's draft on the stage (null when none) and whose other drafts exist."
       },
+      "EmailDelivery": {
+        "type": "string",
+        "enum": [
+          "not_sent",
+          "queued",
+          "sent",
+          "failed"
+        ],
+        "title": "EmailDelivery",
+        "description": "Where the invitation email stands (derived, never stored)."
+      },
       "Engineer": {
         "properties": {
           "name": {

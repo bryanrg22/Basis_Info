@@ -8047,7 +8047,8 @@ create its firm, invite its people, and have them told? Before this, a firm exis
 owner; several firms per user allowed; names not unique), `PATCH /v1/orgs/{id}` (owner renames),
 the invitation email through the outbox with its outcome on the invitation (`emailed_at`,
 `email_error`; `delivery` derived: `queued`, `sent`, `failed`, `not_sent`), `created_by_name` and
-`created_by_email` on studies, `signed_by_name` and `signed_by_email` on signatures. Migration 0024
+`created_by_email` on studies, `signed_by_name` and `signed_by_email` on signatures; `org.created` and
+`org.renamed` on the firm's history (section 55). Migration 0025
 adds three nullable columns to `invitations`. Study visibility within a firm is unchanged and the
 reasons are written down (FIRMS.md 7).
 
@@ -8057,7 +8058,7 @@ reasons are written down (FIRMS.md 7).
 |---|---|
 | unit tests added | 48 (`tests/unit/email` 21, `tests/unit/config/test_email_settings.py` 20, relay 7) |
 | integration tests added | 10 (`tests/integration/relay/test_invitation_emails.py`) |
-| API tests added | 16 in `test_firms.py`; shape assertions widened in `test_studies.py`, `test_report_signing.py`, `test_health.py`, the CLI and migration tests |
+| API tests added | 17 in `test_firms.py`; shape assertions widened in `test_studies.py`, `test_report_signing.py`, `test_health.py`, the CLI and migration tests |
 | same transaction | a rolled-back create leaves neither row; a refused create (409) enqueues nothing |
 | once per invitation | a second poll and a duplicate outbox row for an emailed invitation send nothing; `emailed_at` is written once |
 | retries | a failing sender: outbox `attempts` 1, `email_error` set, `delivery: failed`; the next success clears it; three failures at `max_attempts=3` dead-letter; a 5xx recipient is dead at once |
@@ -8085,5 +8086,5 @@ reasons are written down (FIRMS.md 7).
   the test, not against a provider's relay with TLS and authentication.
 - The frontend still says "No email is sent" and has no create-a-firm screen; `web/README.md`
   "Gaps" lists what the app does not show yet.
-- Migration 0024 revises 0021 on this branch; its `down_revision` and the migration test's history
-  must be set to the then-current head at merge (0022 and 0023 were open on other branches).
+- The migration was written as 0024 on 0021 and renumbered 0025 on 0024 once user activity (0022),
+  rate-limit hits (0023) and review drafts (0024) merged into this branch.

@@ -45,7 +45,7 @@ async def test_create_firm_creates_the_firm_and_a_pending_owner_invitation(
         "owner@example.com",
         "owner",
         "pending",
-        "queued",  # the invitation email, enqueued with the invitation (migration 0024)
+        "queued",  # the invitation email, enqueued with the invitation (migration 0025)
     )
     row = await session.get(Invitation, uuid.UUID(owner["invitation_id"]))
     assert row is not None and row.created_by is None

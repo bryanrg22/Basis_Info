@@ -25,10 +25,11 @@ Rules, and why:
 | `PATCH /v1/orgs/{org_id}` (owner only) renames; nothing else about a firm is editable here. | The firm's report profile (address, logo, engineer of record) is `PUT /v1/orgs/{org_id}/profile`, docs/api/REPORT.md. |
 | The operator CLI `python -m basis.admin create-firm` remains. | For firms Basis sets up on a customer's behalf. It takes the same path: the owner invitation it creates is emailed too. |
 
-No firm-level audit table exists: creating and renaming a firm are logged (`firm created`,
-`firm renamed`, with `org_id` and `user_id`) and not recorded in the database beyond the
-row itself. Study events (`docs/api/TIMELINE_AND_AUDIT.md`) are per study. A firm-level
-event table is a later change.
+Both are on the firm's history (`org_events`, `GET /v1/orgs/{org_id}/activity`,
+docs/api/TIMELINE_AND_AUDIT.md "Firm activity"): `org.created` by the creator (by the
+system when the operator CLI created the firm) and `org.renamed` with the name before and
+after; renaming to the current name records nothing. Both are also logged (`firm created`,
+`firm renamed`, with `org_id` and `user_id`).
 
 ## 2. The routes
 
@@ -180,4 +181,4 @@ against a local SMTP server, the factory), `tests/unit/config/test_email_setting
 rejected, revoked first, log sender), `tests/api/test_firms.py` (create, rename,
 authorization, delivery fields, creator names), `tests/api/test_report_signing.py`
 (signer names), `tests/integration/db/test_admin_cli.py` (the CLI's invitation is queued),
-`tests/integration/db/test_migrations.py` (0024). Rows in `tests/LEDGER.md`.
+`tests/integration/db/test_migrations.py` (0025). Rows in `tests/LEDGER.md`.

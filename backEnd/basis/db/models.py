@@ -333,7 +333,7 @@ class Invitation(Base):
     declined_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     revoked_at: Mapped[datetime | None]
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
-    # The invitation email (migration ``0024_invitation_email``; docs/api/FIRMS.md): when its
+    # The invitation email (migration ``0025_invitation_email``; docs/api/FIRMS.md): when its
     # outbox message was enqueued (NULL for rows created before emails existed), when the
     # relay handed it to the sender, and the last send error (cleared on success).
     email_queued_at: Mapped[datetime | None]

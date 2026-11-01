@@ -54,7 +54,7 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
-* ``0024_invitation_email`` adds ``invitations.email_queued_at``, ``emailed_at`` and
+* ``0025_invitation_email`` adds ``invitations.email_queued_at``, ``emailed_at`` and
   ``email_error`` (NULL for existing rows: ``delivery: not_sent``) and downgrades back;
 * ``0020_report_signing`` creates ``firm_profiles`` (one per firm, a JSON object, version
   >= 1, its ``updated_at`` trigger), ``studies.report_answers``/``report_answers_version``
