@@ -7804,13 +7804,24 @@ history are plain keyset queries.
 **Verified.** 18 library tests (pages under each of the three sorts over colliding names and shuffled
 update times have no gap or repeat and equal the one listing cut; a row inserted between pages is neither
 skipped nor repeated; `%`, `_` and `\` in `q` are literal; archived hidden unless asked; unarchive restores
-each of five statuses and records one event under three concurrent requests), 16 activity tests (own
+each of five statuses and records one event under three concurrent requests queued on the held row lock), 16 activity tests (own
 events only, a left firm hidden, the 90-day default against events written 80 and 100 days ago, every
 firm action through its real route with who did what, the CLI's rows as `system`, re-inviting after
 expiry, `org_events` refusing UPDATE and DELETE, the last-owner refusal leaving no event), the audit's
 eleven items in order with pages of four, migration `0022` up, constraints, down to the `0021` snapshot
 and up again, `alembic check` clean, the OpenAPI document regenerated and the contract test (Schemathesis
 over every operation, the three new ones included) green, every gate green.
+
+**One guard moved under the lock (2026-11-01).** CI once recorded three `study.unarchived` events for
+three concurrent unarchives (locally 2 of 20 rounds, with either rate-limit store). The route decided
+"was archived" from the access dependency's read, taken before the repository's `SELECT ... FOR UPDATE`;
+three requests that all read `archived` before the first committed then serialized on the lock, the
+second and third found the study restored, returned it unchanged, and still recorded an event because
+their pre-lock read said it had been archived. The repository now reports whether it restored the study,
+decided under the lock, and the route records exactly then. The test no longer relies on timing: it holds
+the row locked while the three requests are sent, waits until all three are blocked on it
+(`pg_stat_activity`), then releases; the old guard fails it every round, the new one passes it 20 of 20
+with the in-memory and the Postgres limiter.
 
 **Not verified.** No live run through the stack: the routes are exercised against a real PostgreSQL in
 the tests, not against the staging deployment; the web app is unchanged and still filters in the

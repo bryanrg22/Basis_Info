@@ -413,9 +413,12 @@ async def unarchive_study(
     user: CurrentUserDep,
     session: SessionDep,
 ) -> StudyOut:
-    was_archived = access.study.status is StudyStatus.ARCHIVED
-    study = await StudyRepository(session).unarchive(access.study.id)
-    if was_archived and study.status is not StudyStatus.ARCHIVED:
+    # Whether there was anything to restore is the repository's call, taken under the row
+    # lock: ``access.study`` was read before it, and under concurrent unarchives that read
+    # says ``archived`` to every request while only the first one restores the study.
+    unarchived = await StudyRepository(session).unarchive(access.study.id)
+    study = unarchived.study
+    if unarchived.restored:
         await StudyEventRepository(session).record(
             study.id,
             "study.unarchived",
