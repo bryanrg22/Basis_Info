@@ -19,6 +19,7 @@ from typing import Any, Final
 
 from basis.activities.analyze_photo import AnalyzePhoto
 from basis.activities.apply_corrections import ApplyCorrections
+from basis.activities.carry_revision import CarryRevision
 from basis.activities.deps import Deps
 from basis.activities.export_report import ExportReport
 from basis.activities.extract_fields import ExtractFields
@@ -48,6 +49,7 @@ ACTIVITY_CLASSES: Final[dict[str, type[Any]]] = {
     "localize_photo": LocalizePhoto,
     "reconcile_rooms": ReconcileRooms,
     "apply_corrections": ApplyCorrections,
+    "carry_revision": CarryRevision,
     "process_assets": ProcessAssets,
     "promote_conventions": PromoteConventions,
     "export_report": ExportReport,

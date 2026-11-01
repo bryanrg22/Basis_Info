@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 from lifecycletest_support import DEFAULT_APPRAISAL, DEFAULT_PHOTOS, SeededStudy, seed_study
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
@@ -33,17 +33,21 @@ from temporalio.worker import Worker
 
 from basis.activities import Deps, build_activities
 from basis.config import Settings
+from basis.db.enums import Stage
 from basis.db.models import ActivityResult, Run, Study
+from basis.db.repositories.study import StudyRepository
 from basis.db.session import session_scope
 from basis.worker.main import build_worker
 from basis.workflow.contracts import (
     CorrectionInput,
     Decision,
     DecisionAck,
+    ResumeInput,
     ReviewStage,
     StudyStatusView,
     StudyWorkflowInput,
     StudyWorkflowResult,
+    resume_plan,
 )
 from basis.workflow.study_workflow import STAGE_ATTR, StudyWorkflow, workflow_id_for
 
@@ -143,6 +147,51 @@ class Harness:
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             task_timeout=task_timeout,
+        )
+        self.handles.append(handle)
+        return Started(study=study, handle=handle)
+
+    async def resume(
+        self,
+        study: SeededStudy,
+        stage: ReviewStage,
+        *,
+        source_revision: int | None = None,
+        actor_id: uuid.UUID | None = None,
+        **overrides: Any,
+    ) -> Started:
+        """Reopen a completed study at ``stage`` (or restore ``source_revision``) the way the
+        API does (docs/api/REVISIONS.md): the row moved under its lock
+        (``StudyRepository.begin_revision_at``), then a new execution started under the
+        study's id over the completed one (``ALLOW_DUPLICATE``, conflict ``FAIL``) with the
+        ``resume`` input."""
+        workflow_id = workflow_id_for(str(study.study_id))
+        async with session_scope(self.sessionmaker) as session:
+            # The harness bypasses ``POST .../start``, which records the workflow id.
+            await session.execute(
+                update(Study).where(Study.id == study.study_id).values(workflow_id=workflow_id)
+            )
+            record = await StudyRepository(session).begin_revision_at(
+                study.study_id,
+                Stage(stage),
+                actor_id=actor_id or study.owner_id,
+                source_revision=source_revision,
+                plan=dict(resume_plan(stage).model_dump()),
+            )
+        resume = ResumeInput(
+            stage=stage,
+            from_revision=record.source_revision,
+            reason="reopen" if source_revision is None else "restore",
+        )
+        handle = await self.client.start_workflow(
+            StudyWorkflow.run,
+            self.workflow_input(
+                study, input_revision=record.study.revision, resume=resume, **overrides
+            ),
+            id=workflow_id,
+            task_queue=self.task_queue,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
         )
         self.handles.append(handle)
         return Started(study=study, handle=handle)

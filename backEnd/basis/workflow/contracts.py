@@ -35,6 +35,28 @@ class _Frozen(BaseModel):
 
 # --------------------------------------------------------------------------- workflow
 
+ResumeReason = Literal["reopen", "restore"]
+# The review gates in workflow order (docs/api/REVISIONS.md).
+GATES: tuple[ReviewStage, ...] = (
+    "appraisal_review",
+    "rooms_review",
+    "components_review",
+    "assets_review",
+)
+
+
+class ResumeInput(_Frozen):
+    """A new execution that opens ``stage`` on a new revision copied from ``from_revision``
+    instead of running the intake (docs/api/REVISIONS.md): a completed study reopened at a
+    gate (``reopen``: ``from_revision`` is the completed one) or an earlier revision restored
+    (``restore``). The API put the study row at ``(stage, input_revision, processing)`` before
+    starting the execution; the workflow copies the rows (``carry_revision``) and converges
+    the gate open."""
+
+    stage: ReviewStage
+    from_revision: int = Field(ge=1)
+    reason: ResumeReason
+
 
 class StudyWorkflowInput(_Frozen):
     study_id: str
@@ -56,6 +78,10 @@ class StudyWorkflowInput(_Frozen):
     # Test-only fault injection per photo document id. The API never sets it, and the
     # analyze_photo activity honours it only when BASIS_ENV is dev or test.
     simulate_photos: dict[str, SimulateFault] = Field(default_factory=dict)
+    # A reopened or restored study (docs/api/REVISIONS.md): the execution starts at a review
+    # gate on a copied revision. None (every execution before it) runs the intake; the
+    # branch is on the input, so executions without it keep their command sequence.
+    resume: ResumeInput | None = None
 
 
 class CorrectionInput(_Frozen):
@@ -419,6 +445,78 @@ class ApplyCorrectionsInput(_Frozen):
 
 class ApplyCorrectionsOutput(_Frozen):
     applied: int = 0
+
+
+# The stages a resumed execution runs again after each gate, and the tables the copy carries
+# into the new revision (docs/api/REVISIONS.md section 2). ``room_inventories`` are the room
+# step's rows (carried from the components review on), ``assets`` the assets with their
+# takeoffs, cost estimates and citations (carried at the assets review only).
+_CARRIED_BASE: tuple[str, ...] = (
+    "extractions",
+    "rooms",
+    "photo_rooms",
+    "components",
+    "photo_objects",
+)
+RECOMPUTED_AFTER: dict[ReviewStage, tuple[StageName, ...]] = {
+    "appraisal_review": ("components_processing", "assets_processing", "exporting"),
+    "rooms_review": ("components_processing", "assets_processing", "exporting"),
+    "components_review": ("assets_processing", "exporting"),
+    "assets_review": ("exporting",),
+}
+CARRIED_THROUGH: dict[ReviewStage, tuple[str, ...]] = {
+    "appraisal_review": _CARRIED_BASE,
+    "rooms_review": _CARRIED_BASE,
+    "components_review": (*_CARRIED_BASE, "room_inventories"),
+    "assets_review": (*_CARRIED_BASE, "room_inventories", "assets"),
+}
+
+
+class ResumePlan(_Frozen):
+    """What a reopen or restore at ``stage`` keeps and reruns (the API's warning)."""
+
+    stage: ReviewStage
+    recomputed: tuple[StageName, ...]
+    reviews: tuple[ReviewStage, ...]
+    carried: tuple[str, ...]
+
+
+def resume_plan(stage: ReviewStage) -> ResumePlan:
+    """The plan for a resumed execution opening ``stage``; ``KeyError`` for a non-gate."""
+    return ResumePlan(
+        stage=stage,
+        recomputed=RECOMPUTED_AFTER[stage],
+        reviews=GATES[GATES.index(stage) :],
+        carried=CARRIED_THROUGH[stage],
+    )
+
+
+class CarryRevisionInput(_Frozen):
+    """Copy revision ``from_revision``'s rows into ``to_revision``, everything the gate
+    ``through`` shows (:data:`CARRIED_THROUGH`), with no corrections; the first activity of a
+    resumed execution (docs/api/REVISIONS.md)."""
+
+    study_id: str
+    from_revision: int = Field(ge=1)
+    to_revision: int = Field(ge=1)
+    through: ReviewStage
+    reason: ResumeReason
+    idempotency_key: str
+
+
+class CarryRevisionOutput(_Frozen):
+    """What was copied, and what the gates after need from the intake that did not run: the
+    extraction source (``document_id``, for an appraisal rejection's re-extraction) and the
+    report PDF it was read with (``report_pdf``; None when unknown, the activity then applies
+    the companion rule itself)."""
+
+    document_id: str | None = None
+    report_pdf: ReportPdf | None = None
+    extractions: int = 0
+    rooms: int = 0
+    components: int = 0
+    objects: int = 0
+    assets: int = 0
 
 
 StudyWorkflowInput.model_rebuild()

@@ -100,7 +100,7 @@ from basis.temporal.service import (
     WorkflowUnavailableError,
     ensure_not_ended_unsuccessfully,
 )
-from basis.workflow.contracts import StudyWorkflowInput
+from basis.workflow.contracts import ResumeInput, StudyWorkflowInput
 
 START_ROLE: Final = OrgRole.ENGINEER
 READ_ROLE: Final = OrgRole.VIEWER
@@ -199,7 +199,11 @@ def ensure_intake_complete(study: Study) -> None:
     )
 
 
-def workflow_input(study: Study, settings: Settings) -> StudyWorkflowInput:
+def workflow_input(
+    study: Study, settings: Settings, *, resume: ResumeInput | None = None
+) -> StudyWorkflowInput:
+    """The execution's input from the study and the settings; ``resume`` for a reopened or
+    restored study (docs/api/REVISIONS.md)."""
     return StudyWorkflowInput(
         study_id=str(study.id),
         org_id=str(study.org_id),
@@ -211,6 +215,7 @@ def workflow_input(study: Study, settings: Settings) -> StudyWorkflowInput:
         rooms_gate_waits_for_localization=settings.rooms_gate_waits_for_localization,
         review_reminder_days=settings.review_reminder_days,
         review_deadline_days=settings.review_deadline_days,
+        resume=resume,
     )
 
 
