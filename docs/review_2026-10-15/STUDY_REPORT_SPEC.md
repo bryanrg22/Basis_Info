@@ -504,3 +504,120 @@ Measured on run 4's export (private copy; EVAL_REPORT section 51):
 * 67 categories (the export had 186 free-text names); 89 distinct item descriptions;
 * every total ties to the cent;
 * 52 photographs composed in 1.0 s; the PDF rendered in 0.2 s, 45 pages, 3.7 MB.
+
+### 11.13 Report inputs and signing: design (2026-10-31)
+
+Builds 11.6 and 11.11 items 1 and 2: the firm profile, the per-study answers, and the engineer's
+signature inside Basis, which turns the DRAFT into the final report.
+
+**What a valid electronic signature needs.** ESIGN (15 U.S.C. 7001 et seq.) and UETA give an electronic
+signature the effect of a handwritten one. Practice and the statute summaries reduce what has to be shown
+to four things:
+
+1. intent: an affirmative act to sign;
+2. attribution: the act of an identified person;
+3. association: the signature is logically attached to the record it signs;
+4. retention: the record can be reproduced later.
+
+Neither statute requires a hash or an audit trail. Signing services use both as their evidence. Basis
+maps the four like this:
+
+| Element | In Basis |
+|---|---|
+| Intent | `POST .../report/sign` with `attest: true` and the certification's `statement_version`. The client shows the certification text and a checkbox. |
+| Attribution | the signed-in user, who must hold the engineer or owner role (authenticated by Firebase), with uid, email and the name and credentials the engineer attests to |
+| Association | the signature row records the sha256 of the export, of the reviewed preview and of the signed PDF. The PDF prints the signature id, time, name and credentials. |
+| Retention | the signed PDF is stored at its own path and never overwritten. The signature row cannot be updated (`forbid_mutation()`), and a `report.signed` event goes in the timeline. |
+
+**Out of scope, stated rather than implied:**
+- A PAdES certificate signature inside the PDF.
+- A PE seal. State engineering boards govern seals, a cost segregation report is not a sealed design
+  document, and no source we found requires a seal on one.
+
+A firm that needs either can still sign outside Basis. The certification says "Signed in Basis", not
+"sealed".
+
+**Storage** (migration 0020):
+- `firm_profiles`:
+  - one row per firm (`org_id` primary key);
+  - `profile` holds the `FirmProfile` document, with the logo as base64 at most 512 KB;
+  - `version` is the entity tag, as for the intake;
+  - also `updated_by` and `updated_at`.
+- `studies.report_answers` (`StudyAnswers`) and `studies.report_answers_version`, beside the intake and
+  versioned the same way.
+- `report_signatures`:
+  - columns: `id`, `study_id`, `revision`, `signed_by`, `signed_at`, `engineer` (the attested name and
+    credentials), `statement_version`, `export_sha256`, `reviewed_sha256`, `pdf_uri`, `pdf_sha256`;
+  - unique on `(study_id, revision)`: one signature per revision;
+  - updates refused by `forbid_mutation()`. Deletes stay allowed so a purge can remove a study.
+
+**API:**
+
+| Route | Role | What |
+|---|---|---|
+| `GET /v1/orgs/{org_id}/profile` | member | the profile and its `ETag`. 404 when there is none yet. |
+| `PUT /v1/orgs/{org_id}/profile` | owner | the whole profile. `If-Match` as on the intake. |
+| `GET /v1/studies/{id}/report-answers` | viewer | the answers and their `ETag` |
+| `PUT /v1/studies/{id}/report-answers` | engineer | the whole answers document. `If-Match`. |
+| `GET /v1/studies/{id}/report/state` | viewer | the latest exported revision, whether its report was skipped, what a final report still lacks, and the signature, if any |
+| `GET /v1/studies/{id}/report/preview` | viewer | the current revision's report rendered now, with the stored inputs and no signature. `ETag` is the sha256 of the bytes. |
+| `POST /v1/studies/{id}/report/sign` | engineer | signs the current revision (below) |
+| `GET /v1/studies/{id}/report` | viewer | as before, but `format=pdf` serves the signed PDF when the revision is signed (`variant=draft` asks for the draft) |
+
+**Signing** checks, in order, and writes nothing unless all pass:
+1. The study is not archived.
+2. The current revision was exported and its report was not skipped (409 `report-not-exported`).
+3. The firm profile and the study answers exist (409 `report-inputs-missing`, naming the missing ones).
+4. The revision is not already signed (409 `report-already-signed`).
+5. The preview rendered now, from the same export and the same inputs, has the sha256 the engineer
+   reviewed (412 `report-changed`). Rendering is deterministic (11.8.1), so this proves the signer saw
+   exactly this report: the same text and figures, without the signature block.
+
+Then Basis renders the final PDF with the signature, stores `rev-<n>.report.signed.pdf`, and inserts the
+signature row and the `report.signed` event in one transaction.
+
+A new revision, from reopening the study, needs its own signature; the old one stays with its revision.
+The schedule files carry no signature and are unchanged.
+
+**The export step** reads the stored inputs, so the draft it writes already carries the firm and the
+study's answers when they exist.
+
+**Client (`web/live`):** a Report view for an exported study. It has:
+- the status, and what a final report still lacks;
+- the study answers form (engineers);
+- the firm profile form (owners; read-only for others);
+- preview and download links for the PDF, CSV and XLSX;
+- a Sign panel: name, credentials and license prefilled from the firm profile, the certification text,
+  a checkbox, then Sign. Sign is only enabled once the preview has been opened, because its `ETag` is the
+  `reviewed_sha256`.
+
+#### 11.13.1 As built (2026-10-31)
+
+As designed above, with these specifics:
+
+* **Code:**
+  * `basis/db/repositories/report.py` holds the profile, answers and signature writes.
+  * `basis/api/routes/report.py` and `basis/api/schemas/report.py` hold the routes.
+  * The client is `web/live/report.js` (the rules, tested with node) and `web/live/live-report.js`.
+  * The error codes are BASIS-REPORT-007 to 013. The API is documented in `docs/api/REPORT.md`.
+* **Signed PDF path.** It is `rev-<n>.report.signed.<signature id>.pdf`, one path per signature. A write
+  whose transaction then fails leaves an orphan file; it never puts a second file at a signed path.
+* **Already signed.** A second signing attempt is refused before anything is rendered or stored. The
+  unique key on `(study_id, revision)` backs the check.
+* **The study row lock.** Signing holds it while it renders twice (about 2 s on run 4), so a
+  concurrent signing waits, then is refused.
+* **Signature time.** `signed_at` is the database's transaction time. The PDF prints it in UTC.
+* **A changed report.** The client reloads the inputs and asks for the preview again; Sign stays
+  disabled until the preview is opened.
+
+Checked on a copy of the dev database migrated to 0020 (run 4, 52 photographs; the copy, not the dev
+database itself):
+- The firm profile and the study details were added in the app.
+- The preview opened: 45 pages, 3.7 MB, 0.8 to 1.0 s, byte-identical twice.
+- Signing with the box unchecked was refused in the client.
+- The study details were changed through the API while the sign dialog was open. Signing was then
+  refused with 412 BASIS-REPORT-010, and Sign was disabled again.
+- After the preview was opened again, the report was signed.
+- The signed PDF has no DRAFT mark. Its certification states the photographs the taxpayer supplied,
+  and the signature block shows the time, the id, the name, credentials and license, and the firm.
+- `report.signed` is in the timeline with the signer's email.

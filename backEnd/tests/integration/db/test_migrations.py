@@ -54,6 +54,10 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
+* ``0020_report_signing`` creates ``firm_profiles`` (one per firm, a JSON object, version
+  >= 1, its ``updated_at`` trigger), ``studies.report_answers``/``report_answers_version``
+  (NULL and 0 for existing studies) and ``report_signatures`` (one per revision, sha256 hex,
+  never updated, deletable); it downgrades back to ``0019`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -93,8 +97,8 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0019"
-HISTORY = [f"{n:04d}" for n in range(19, 0, -1)]  # "0019" .. "0001"
+HEAD = "0020"
+HISTORY = [f"{n:04d}" for n in range(20, 0, -1)]  # "0020" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -276,6 +280,7 @@ def test_offline_sql_rendering() -> None:
     )
     assert "CREATE TRIGGER chunks_published_immutable" in sql
     assert "CREATE TEMPORARY TABLE _fp_rekey AS" in sql  # 0019 is plain SQL
+    assert "CREATE TRIGGER report_signatures_no_update" in sql
 
 
 # --------------------------------------------------------------------------- 0002
@@ -1445,3 +1450,63 @@ async def test_0019_rekeys_conventions_to_rule_fingerprints_and_downgrade(
     finally:
         await connection.close()
     await upgrade(url)
+
+
+# --------------------------------------------------------------------------- 0020
+
+
+async def test_0020_report_signing_and_downgrade(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0019")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        existing, _, _ = await _photo(connection)
+    finally:
+        await connection.close()
+    at_0019 = await snapshot(url)
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        answers = await connection.fetchrow(
+            "SELECT report_answers, report_answers_version FROM studies WHERE id = $1", existing
+        )
+        assert answers["report_answers"] is None and answers["report_answers_version"] == 0
+        org, user = await connection.fetchrow(
+            "SELECT org_id, created_by FROM studies WHERE id = $1", existing
+        )
+        profile = "INSERT INTO firm_profiles (org_id, profile, updated_by) VALUES ($1, $2, $3)"
+        await connection.execute(profile, org, '{"name": "f"}', user)
+        with pytest.raises(asyncpg.UniqueViolationError):  # one profile per firm
+            await connection.execute(profile, org, '{"name": "g"}', user)
+        other = await connection.fetchval("INSERT INTO orgs (name) VALUES ('x') RETURNING id")
+        with pytest.raises(asyncpg.CheckViolationError, match="profile_is_object"):
+            await connection.execute(profile, other, '"a string"', user)
+        before = await connection.fetchval(
+            "SELECT updated_at FROM firm_profiles WHERE org_id = $1", org
+        )
+        await connection.execute("UPDATE firm_profiles SET version = 2 WHERE org_id = $1", org)
+        after = await connection.fetchval(
+            "SELECT updated_at FROM firm_profiles WHERE org_id = $1", org
+        )
+        assert after >= before  # set_updated_at() ran (same transaction time at worst)
+        with pytest.raises(asyncpg.CheckViolationError, match="report_answers_is_object"):
+            await connection.execute(
+                "UPDATE studies SET report_answers = '[1]' WHERE id = $1", existing
+            )
+        sign = (
+            "INSERT INTO report_signatures (study_id, revision, signed_by, signed_at, engineer, "
+            "statement_version, export_sha256, reviewed_sha256, pdf_uri, pdf_sha256) "
+            "VALUES ($1, $2, $3, now(), '{}', 1, $4, $4, 'gs://b/r.pdf', $5)"
+        )
+        await connection.execute(sign, existing, 1, user, "a" * 64, "b" * 64)
+        with pytest.raises(asyncpg.UniqueViolationError):  # one signature per revision
+            await connection.execute(sign, existing, 1, user, "a" * 64, "c" * 64)
+        with pytest.raises(asyncpg.CheckViolationError, match="sha256_hex"):
+            await connection.execute(sign, existing, 2, user, "A" * 64, "b" * 64)
+        with pytest.raises(asyncpg.exceptions.RestrictViolationError):
+            await connection.execute("UPDATE report_signatures SET pdf_uri = 'x'")
+        await connection.execute("DELETE FROM report_signatures")  # a purge may remove it
+    finally:
+        await connection.close()
+    await downgrade(url, "0019")
+    assert await snapshot(url) == at_0019

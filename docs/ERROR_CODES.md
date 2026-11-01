@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-254 codes in 20 areas.
+261 codes in 20 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -369,6 +369,13 @@ stale).
 | `BASIS-REPORT-004` | error | export_report; `basis.report.model` | An export asset is on no report line or on two (or an allocated asset is not in the export). | `ReportError: assets not on exactly one line ... [BASIS-REPORT-004]`. (Temporal `ReportError`) | A defect: file it with the export JSON. | no |
 | `BASIS-REPORT-005` | error | export_report; `basis.report.render` | The PDF template did not compile (Typst raised). | `ReportError: the report did not render: ... [BASIS-REPORT-005]`. (Temporal `ReportError`) | A template defect: file it with the export JSON and the template version. | no |
 | `BASIS-REPORT-006` | refusal | GET /v1/studies/{id}/report; `basis.api.routes.report` | No report for the study and revision: nothing exported yet, or the files are missing from storage. (An export that skipped the report answers with the skip's own code, usually BASIS-REPORT-002.) | 404 `not-found` with the code. (type `not-found`) | Approve the assets review so the export runs; for missing bytes, export again. | after fix |
+| `BASIS-REPORT-007` | refusal | `POST .../report/sign`, `GET .../report/preview`; `basis.api.routes.report` | The study's current revision has no report to sign or preview: it was not exported yet, its export skipped the report, or the study is archived. | 409 `conflict` with the code and the reason; nothing is written. (type `conflict`) | Approve the assets review so the export runs (or resolve what the skip names), then preview and sign. | after fix |
+| `BASIS-REPORT-008` | refusal | `POST .../report/sign`; `basis.api.routes.report` | A final report needs the firm profile and the study's report answers; one or both are not saved. | 409 `conflict` naming the missing inputs (`firm`, `study`); nothing is written. (type `conflict`) | An owner saves the firm profile (`PUT /v1/orgs/{id}/profile`), an engineer the answers (`PUT .../report-answers`); preview again and sign. | after fix |
+| `BASIS-REPORT-009` | refusal | `POST .../report/sign`; `basis.api.routes.report` | The revision's report is already signed; a signature is never replaced. | 409 `conflict`; the existing signature stands (`GET .../report/state`). (type `conflict`) | None for this revision. Reopening the study makes a new revision, which is signed on its own. | no |
+| `BASIS-REPORT-010` | refusal | `POST .../report/sign`; `basis.api.routes.report` | The report rendered now differs from the preview the engineer reviewed (`reviewed_sha256`): an input or the export changed since. | 412 `precondition-failed`; the response's `ETag` is the current preview's sha256. Nothing is signed. (type `precondition-failed`) | Open the preview again, review it, and sign with its `ETag`. | yes |
+| `BASIS-REPORT-011` | refusal | `PUT /v1/orgs/{id}/profile`; `basis.api.routes.report` | The `If-Match` entity tag is not the profile's current one, or `If-Match: *` on a firm with no profile. | 412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written. (type `precondition-failed`) | Read the profile again, reapply the change, and send the new `ETag` as `If-Match`. | yes |
+| `BASIS-REPORT-012` | refusal | `PUT .../report-answers`; `basis.api.routes.report` | The `If-Match` entity tag is not the answers' current one, or `If-Match: *` on a study with no answers. | 412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written. (type `precondition-failed`) | Read the answers again, reapply the change, and send the new `ETag` as `If-Match`. | yes |
+| `BASIS-REPORT-013` | refusal | `GET /v1/orgs/{id}/profile`; `basis.api.routes.report` | The firm has no profile yet. | 404 `not-found` with the code. (type `not-found`) | An owner saves it with `PUT /v1/orgs/{id}/profile`. | after fix |
 
 ## INF: Infrastructure: worker start-up and the outbox relay
 

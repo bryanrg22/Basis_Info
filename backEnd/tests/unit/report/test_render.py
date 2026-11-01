@@ -4,6 +4,7 @@ honestly, and renders to the same bytes every time (STUDY_REPORT_SPEC 11.8, 11.9
 from __future__ import annotations
 
 import io
+import uuid
 from datetime import UTC, date, datetime
 
 import pymupdf
@@ -27,6 +28,11 @@ def text_of(pdf: bytes) -> str:
 def pages_of(pdf: bytes) -> int:
     with pymupdf.open(stream=pdf, filetype="pdf") as doc:
         return doc.page_count
+
+
+def images_of(pdf: bytes) -> list[object]:
+    with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+        return [image for page in doc for image in page.get_images()]
 
 
 def fonts_of(pdf: bytes) -> set[str]:
@@ -124,7 +130,7 @@ def test_photographs_go_into_exhibit_a_and_unsafe_names_are_refused() -> None:
 def test_the_view_holds_only_formatted_text() -> None:
     data = view(build_report(export(), full_inputs(), report_date=date(2026, 10, 31)))
     assert data["depreciable"] == "$61,000.00" and data["report_date"] == "October 31, 2026"
-    assert data["signed"] == {"at": "October 31, 2026 15:00 UTC"}
+    assert data["signed"] == {"at": "October 31, 2026 15:00 UTC", "id": ""}
     assert data["classes"][0] == {
         "name": "5-year property",
         "section": "1245",
@@ -148,3 +154,24 @@ def test_unpriced_systems_are_disclosed_in_the_limiting_conditions() -> None:
     assert "no priced line in the schedule" in text
     assert "Fire Protection & Alarm, Site Utilities" in text
     assert "no priced line" not in " ".join(text_of(render_pdf(build_report(export()))).split())
+
+
+def test_a_signature_prints_its_id_and_a_logo_goes_on_the_cover() -> None:
+    signature_id = uuid.UUID("0b5e6f8a-1c2d-4e3f-8a9b-0c1d2e3f4a5b")
+    inputs = full_inputs()
+    signed = inputs.model_copy(
+        update={
+            "signature": inputs.signature.model_copy(update={"signature_id": signature_id}),  # type: ignore[union-attr]
+        }
+    )
+    text = text_of(render_pdf(build_report(export(), signed, report_date=date(2026, 10, 31))))
+    assert f"signature {signature_id}" in text
+    buffer = io.BytesIO()
+    Image.new("RGB", (60, 20), (29, 78, 137)).save(buffer, "PNG")
+    firm = signed.firm.model_copy(update={"logo_png": buffer.getvalue()})  # type: ignore[union-attr]
+    with_logo = render_pdf(
+        build_report(
+            export(), signed.model_copy(update={"firm": firm}), report_date=date(2026, 10, 31)
+        )
+    )
+    assert len(images_of(with_logo)) >= 1

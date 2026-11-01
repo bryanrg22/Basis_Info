@@ -7683,3 +7683,40 @@ was ten times faster. Typst was chosen (STUDY_REPORT_SPEC 11.8.1).
   every report is a DRAFT until then.
 * Vendor import layouts: they wait for a preparer's template.
 * A side-by-side review of the PDF with the design partner.
+
+## 52. Signing the report in Basis (2026-10-31)
+
+**Question.** Can an engineer turn the section 51 DRAFT into a final, signed report inside Basis? The
+signature must be defensible as an electronic signature, and the engineer must sign exactly the report
+they reviewed.
+
+**Design.** Laid out in STUDY_REPORT_SPEC 11.13:
+- Inputs: a firm profile (owners), study answers (engineers) and a signature row per revision
+  (migration 0020).
+- The signature maps to the four elements ESIGN and UETA practice asks for: intent, attribution,
+  association with the record, and retention.
+- The engineer signs the preview they opened. Rendering is deterministic, so the API re-renders the
+  preview and compares its sha256 with the one the engineer reviewed.
+
+**Results.**
+- **Tests:**
+  - API: 4 tests. Five mutants of the checks each fail them.
+  - Migration 0020: 1 test.
+  - Unit: 2 tests.
+  - Web: 7 node tests.
+  - The rows are in `tests/LEDGER.md`.
+- **Run 4, on a copy of the dev database:**
+  - The preview took 0.8 to 1.0 s for 45 pages and 3.7 MB, and was byte-identical twice.
+  - Changing an input after the preview refused the signature (412 BASIS-REPORT-010).
+  - The signed PDF carries the signature block and no DRAFT mark.
+  - The `report.signed` event is in the timeline.
+
+**What it is not.**
+- It is not a PAdES certificate signature.
+- It is not a PE seal. State engineering boards govern seals. We found no source that requires a seal
+  on a cost segregation report.
+
+**Open.**
+- Interviews and prior depreciation (look-back studies) can be set through the API, but the app has
+  no form for them yet.
+- The design's PDF viewer labels the preview "Local PDF · not uploaded".

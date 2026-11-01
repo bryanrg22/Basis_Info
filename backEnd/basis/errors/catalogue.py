@@ -3042,6 +3042,92 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "after fix",
         problem="not-found",
     ),
+    _e(
+        E.REPORT_NOT_SIGNABLE,
+        "refusal",
+        "`POST .../report/sign`, `GET .../report/preview`",
+        "basis.api.routes.report",
+        "The study's current revision has no report to sign or preview: it was not exported "
+        "yet, its export skipped the report, or the study is archived.",
+        "409 `conflict` with the code and the reason; nothing is written.",
+        "Approve the assets review so the export runs (or resolve what the skip names), then "
+        "preview and sign.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_INPUTS_MISSING,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "A final report needs the firm profile and the study's report answers; one or both are "
+        "not saved.",
+        "409 `conflict` naming the missing inputs (`firm`, `study`); nothing is written.",
+        "An owner saves the firm profile (`PUT /v1/orgs/{id}/profile`), an engineer the "
+        "answers (`PUT .../report-answers`); preview again and sign.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_ALREADY_SIGNED,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The revision's report is already signed; a signature is never replaced.",
+        "409 `conflict`; the existing signature stands (`GET .../report/state`).",
+        "None for this revision. Reopening the study makes a new revision, which is signed on "
+        "its own.",
+        "no",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_CHANGED,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The report rendered now differs from the preview the engineer reviewed "
+        "(`reviewed_sha256`): an input or the export changed since.",
+        "412 `precondition-failed`; the response's `ETag` is the current preview's sha256. "
+        "Nothing is signed.",
+        "Open the preview again, review it, and sign with its `ETag`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.REPORT_PROFILE_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT /v1/orgs/{id}/profile`",
+        "basis.api.routes.report",
+        "The `If-Match` entity tag is not the profile's current one, or `If-Match: *` on a "
+        "firm with no profile.",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the profile again, reapply the change, and send the new `ETag` as `If-Match`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.REPORT_ANSWERS_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT .../report-answers`",
+        "basis.api.routes.report",
+        "The `If-Match` entity tag is not the answers' current one, or `If-Match: *` on a "
+        "study with no answers.",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the answers again, reapply the change, and send the new `ETag` as `If-Match`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.REPORT_PROFILE_NOT_FOUND,
+        "refusal",
+        "`GET /v1/orgs/{id}/profile`",
+        "basis.api.routes.report",
+        "The firm has no profile yet.",
+        "404 `not-found` with the code.",
+        "An owner saves it with `PUT /v1/orgs/{id}/profile`.",
+        "after fix",
+        problem="not-found",
+    ),
     # ------------------------------------------------------------------ INF
     _e(
         E.INF_WORKER_CONFIG,
@@ -3099,6 +3185,9 @@ GENERIC_FOR_PROBLEM: Final[dict[str, str]] = {
     "service-unavailable": E.API_SERVICE_UNAVAILABLE,
     "stale-state": E.STUDY_STALE_STATE,
     "gate-not-open": E.STUDY_GATE_NOT_OPEN,
+    # The intake's was the only 412 before the report's (signing, profile, answers), which
+    # pass their codes explicitly; a bare 412 keeps the meaning it had.
+    "precondition-failed": E.STUDY_INTAKE_PRECONDITION_FAILED,
 }
 
 

@@ -186,3 +186,23 @@ def test_category_names_come_from_the_rules_table_else_the_label() -> None:
 
 def test_money_is_cents() -> None:
     assert money("1.005") == Decimal("1.01") and money(None) == Decimal(0) and money("") == 0
+
+
+def test_a_logo_must_be_a_png_and_travels_as_base64() -> None:
+    import base64
+
+    from pydantic import ValidationError
+
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+    firm = FirmProfile.model_validate(
+        {"name": "Example Engineering", "logo_png": base64.b64encode(png).decode()}
+    )
+    assert firm.logo_png == png
+    assert firm.model_dump(mode="json")["logo_png"] == base64.b64encode(png).decode()
+    assert FirmProfile.model_validate(firm.model_dump(mode="json")) == firm
+    with pytest.raises(ValidationError, match="must be a PNG"):
+        FirmProfile.model_validate({"name": "x", "logo_png": base64.b64encode(b"GIF89a").decode()})
+    with pytest.raises(ValidationError, match="at most 524288"):
+        FirmProfile.model_validate(
+            {"name": "x", "logo_png": base64.b64encode(png + bytes(524_288)).decode()}
+        )

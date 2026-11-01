@@ -35,6 +35,7 @@ def api_routers() -> list[APIRouter]:
         outputs.reads,
         result.reads,
         report.reads,
+        report.writes,
         spend.reads,
         timeline.reads,
         objects.reads,

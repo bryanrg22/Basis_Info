@@ -92,7 +92,12 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
             ),
         },
         "signed": (
-            {"at": sig.signed_at.astimezone(UTC).strftime("%B %-d, %Y %H:%M UTC")} if sig else None
+            {
+                "at": sig.signed_at.astimezone(UTC).strftime("%B %-d, %Y %H:%M UTC"),
+                "id": str(sig.signature_id) if sig.signature_id else "",
+            }
+            if sig
+            else None
         ),
         "taxpayer": study.taxpayer_name if study else "[taxpayer name]",
         "photographs": (
