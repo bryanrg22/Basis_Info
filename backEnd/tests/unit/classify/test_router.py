@@ -194,6 +194,7 @@ async def test_a_convention_beats_a_rule_row_and_says_whose_ruling_it_is() -> No
         rule_bucket=Bucket.Y5,
         agrees_with_rules=False,
         rationale="glued down over the slab",
+        decided=True,
     )
     provider = ScriptedProvider([])
     ctx = make_ctx(provider, cache={key: ruling}, org_id=FIRM)
@@ -205,7 +206,8 @@ async def test_a_convention_beats_a_rule_row_and_says_whose_ruling_it_is() -> No
     # an uncited ruling is not citation_unverified.
     assert (result.needs_review, result.review_reasons, result.citations) == (False, (), ())
     assert result.rationale == (
-        f"firm convention (approved by {REVIEWER} on study {SEEDING_STUDY}, 2026-10-29; "
+        f"firm convention (the engineer's ruling; approved by {REVIEWER} on study "
+        f"{SEEDING_STUDY}, 2026-10-29; "
         "3 approvals); agrees with the rules table: no (carpet says y5); matched: exact; "
         "uncited; reason: glued down over the slab"
     )
@@ -219,6 +221,7 @@ async def test_a_convention_beats_a_rule_row_and_says_whose_ruling_it_is() -> No
         "rule_key": "carpet",
         "agrees_with_rules": False,
         "citation": "firm convention, uncited",
+        "origin": "decision",
     }
     # The rules table still answers the same label in another room.
     assert route(component("carpet", room_type="bathroom"), ctx)[0] == "rule"
@@ -517,3 +520,111 @@ async def test_inconsistent_model_answer_is_flagged_by_the_validators() -> None:
     result = await classify(component(), make_ctx(provider))
     assert result.needs_review
     assert "validation:BUILDING_BUCKET_PROPERTY_CLASS" in result.review_reasons
+
+
+# ------------------------------------------------------------------ section 11: decisions first
+
+
+async def test_an_engineers_decision_outranks_a_model_answer_at_every_tier() -> None:
+    """Run 5 (EVAL_REPORT 54): a plain approval had promoted the model's 39-year fireplace
+    at the exact key, and it outvoted the engineer's 5-year ruling keyed with the material."""
+    exact, same_room, other_room = (
+        door("steel", "permanent"),
+        door("wood", "permanent"),
+        door("steel", "permanent", "basement"),
+    )
+    rows = {
+        exact: cached(exact, chunk=None, category="Model exact", approvals=4),
+        same_room: cached(
+            same_room,
+            chunk=None,
+            category="Ruling same room",
+            bucket=Bucket.Y5,
+            section="1245",
+            approvals=1,
+            decided=True,
+        ),
+    }
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+    result = await classify(component(material="steel", attachment="permanent"), ctx)
+    # The ruling serves from the coarser tier over the exact model answer with more approvals.
+    assert (result.method, result.cache_key, result.bucket) == ("cache", same_room, Bucket.Y5)
+    assert result.convention is not None and result.convention["matched_tier"] == "label_room"
+    assert result.convention["origin"] == "decision"
+    assert "firm convention (the engineer's ruling; approved by" in result.rationale
+    # A ruling in another room still beats the exact model answer (label tier, no rule row).
+    rows = {
+        exact: rows[exact],
+        other_room: cached(
+            other_room,
+            chunk=None,
+            category="Ruling other room",
+            bucket=Bucket.Y5,
+            section="1245",
+            approvals=1,
+            decided=True,
+        ),
+    }
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+    far = await classify(component(material="steel", attachment="permanent"), ctx)
+    assert (far.cache_key, far.convention["matched_tier"]) == (other_room, "label")  # type: ignore[index]
+    # With no decision anywhere the model answers serve as before, and say what they are.
+    ctx = make_ctx(ScriptedProvider([]), cache={exact: rows[exact]}, org_id=FIRM)
+    model = await classify(component(material="steel", attachment="permanent"), ctx)
+    assert model.cache_key == exact and model.convention["origin"] == "model"  # type: ignore[index]
+    assert "firm convention (an approved model answer; approved by" in model.rationale
+
+
+async def test_decisions_that_disagree_are_a_conflict_whatever_the_model_answers_say() -> None:
+    a, b, c = door("steel", "permanent"), door("wood", "permanent"), door("glass", "permanent")
+    rows = {
+        a: cached(a, chunk=None, category="Ruling building", approvals=1, decided=True),
+        b: cached(
+            b,
+            chunk=None,
+            category="Ruling personal",
+            bucket=Bucket.Y5,
+            section="1245",
+            approvals=1,
+            decided=True,
+        ),
+        # Nine blanket approvals of a model answer settle nothing between two rulings.
+        c: cached(c, chunk=None, category="Model", approvals=9),
+    }
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+    decided = route(component(material="fiberglass", attachment="permanent"), ctx)
+    assert isinstance(decided.conflict, ConventionConflict)
+    assert sorted(r.key for r in decided.conflict.rows) == sorted([a, b])
+    # Among decisions, the more approved one wins as before.
+    rows[b] = cached(
+        rows[b].key,
+        chunk=None,
+        category="Ruling personal",
+        bucket=Bucket.Y5,
+        section="1245",
+        approvals=2,
+        decided=True,
+    )
+    ctx = make_ctx(ScriptedProvider([]), cache=rows, org_id=FIRM)
+    result = await classify(component(material="fiberglass", attachment="permanent"), ctx)
+    assert (result.cache_key, result.bucket, result.needs_review) == (b, Bucket.Y5, False)
+
+
+def test_from_entry_reads_the_origin_from_the_result_method() -> None:
+    from basis.db.models import ClassificationCacheEntry
+
+    def entry(method: str | None) -> ClassificationCacheEntry:
+        result = {"bucket": "y5", "section": "1245", "category": "x", "citations": []}
+        if method:
+            result["method"] = method
+        return ClassificationCacheEntry(
+            org_id=FIRM,
+            key=door("steel", "permanent"),
+            result=result,
+            source="approved_asset:x",
+            approvals=1,
+        )
+
+    assert CachedClassification.from_entry(entry("manual")).decided is True  # type: ignore[union-attr]
+    assert CachedClassification.from_entry(entry("llm")).decided is False  # type: ignore[union-attr]
+    assert CachedClassification.from_entry(entry(None)).decided is False  # type: ignore[union-attr]

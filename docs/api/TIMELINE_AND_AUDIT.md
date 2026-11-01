@@ -265,9 +265,15 @@ items and the export's `assets[]`:
   "study_id": "<study whose approval seeded it>", "reviewer_id": "<user>",
   "approved_at": "2026-10-29T18:40:02.117Z", "approvals": 3,
   "rule_key": "toilet", "agrees_with_rules": false,
-  "citation": null
+  "citation": null,
+  "origin": "decision"
 }
 ```
+
+`origin` is `decision` for a ruling an engineer's correction seeded and `model` for an
+approved model answer; a decision outranks a model answer at every tier
+(CLASSIFICATION_CONVENTIONS.md section 11). An asset classified before this member existed
+has none.
 
 `key` is the served ruling's key: at `matched_tier` `exact` it is the asset's own; at
 `label_room` or `label` it is the ruling the asset's context met (here a toilet read as
