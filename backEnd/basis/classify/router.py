@@ -260,16 +260,18 @@ TIER_WORDS: Final[dict[Tier, str]] = {
 
 
 def convention_rationale(cached: CachedClassification, tier: Tier = "exact") -> str:
-    """``firm convention (approved by <reviewer> on study <id>, <date>; <n> approvals);
+    """``firm convention (the engineer's ruling|an approved model answer; approved by
+    <reviewer> on study <id>, <date>; <n> approvals);
     agrees with the rules table: yes|no (<rule key> says <bucket>); matched: exact``, the
     match naming the ruling's key when a coarser tier served (``matched: label and room
     (ruling keyed <key>)``), then ``uncited`` for a ruling without citations and the
     engineer's reason when there is one."""
     when = cached.approved_at.date().isoformat() if cached.approved_at else "unknown date"
     plural = "approval" if cached.approvals == 1 else "approvals"
+    what = "the engineer's ruling" if cached.decided else "an approved model answer"
     head = (
-        f"firm convention (approved by {cached.reviewer_id} on study {cached.study_id}, "
-        f"{when}; {cached.approvals} {plural})"
+        f"firm convention ({what}; approved by {cached.reviewer_id} on study "
+        f"{cached.study_id}, {when}; {cached.approvals} {plural})"
     )
     if cached.rule_key is None or cached.agrees_with_rules is None:
         rules = "agrees with the rules table: n/a (no rule row)"

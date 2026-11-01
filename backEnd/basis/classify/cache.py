@@ -181,6 +181,14 @@ class CachedClassification:
     agrees_with_rules: bool | None = None
     rationale: str = ""
     recovery_period: Decimal | None = None
+    # An engineer's decision (the row was seeded by a correction, ``result.method`` is
+    # ``manual``) or an approved model answer. A decision outranks a model answer at every
+    # tier (section 11): a blanket approval can never outvote a correction.
+    decided: bool = False
+
+    @property
+    def origin(self) -> str:
+        return "decision" if self.decided else "model"
 
     @property
     def period(self) -> Decimal:
@@ -204,6 +212,7 @@ class CachedClassification:
             "rule_key": self.rule_key,
             "agrees_with_rules": self.agrees_with_rules,
             "citation": None if self.citations else UNCITED,
+            "origin": self.origin,
         }
 
     @classmethod
@@ -244,6 +253,7 @@ class CachedClassification:
             agrees_with_rules=entry.agrees_with_rules,
             rationale=rationale if isinstance(rationale, str) else "",
             recovery_period=recovery,
+            decided=result.get("method") == "manual",
         )
 
 
@@ -303,17 +313,34 @@ class ConventionIndex:
     def match(
         self, key: str, *, org_id: uuid.UUID | None
     ) -> ConventionMatch | ConventionConflict | None:
-        """The convention for a component with exact ``key``: the most specific tier
-        (:func:`tier_keys`) with a candidate of the firm ``org_id`` (a row of another
-        firm, or any row when the study has no firm, never serves). Inside a tier the
+        """The convention for a component with exact ``key``: the firm's decisions
+        (rows seeded by a correction) at their most specific tier, else the approved model
+        answers at theirs (:func:`tier_keys`; a row of another firm, or any row when the
+        study has no firm, never serves). Inside a tier the
         candidates are grouped by answer; the answer whose strongest ruling has the most
         approvals wins, and among its rows the most approved serves (then the smallest
         key). Equally strong different answers are a :class:`ConventionConflict`: no
         coarser tier is consulted."""
         if org_id is None:
             return None
-        for tier, projected in tier_keys(key, catch_all=self.catch_all):
-            candidates = [r for r in self._tiers[tier].get(projected, ()) if r.org_id == org_id]
+        tiers = list(tier_keys(key, catch_all=self.catch_all))
+        # Section 11: the firm's decisions first, at their most specific tier; approved model
+        # answers only when no decision reaches the component at any tier.
+        for decided in (True, False):
+            found = self._match_rows(tiers, org_id, decided=decided)
+            if found is not None:
+                return found
+        return None
+
+    def _match_rows(
+        self, tiers: list[tuple[Tier, str]], org_id: uuid.UUID, *, decided: bool
+    ) -> ConventionMatch | ConventionConflict | None:
+        for tier, projected in tiers:
+            candidates = [
+                r
+                for r in self._tiers[tier].get(projected, ())
+                if r.org_id == org_id and r.decided is decided
+            ]
             if not candidates:
                 continue
             by_answer: dict[tuple[str, Decimal | None, str | None], list[CachedClassification]] = {}
@@ -394,6 +421,11 @@ class ClassificationCacheRepository:
             if cached is not None:
                 found.append(cached)
         return found
+
+    async def get(self, org_id: uuid.UUID, key: str) -> CachedClassification | None:
+        """The firm's row with this exact key, or ``None`` (also for a malformed row)."""
+        entry = await self._session.get(ClassificationCacheEntry, (org_id, key))
+        return None if entry is None else CachedClassification.from_entry(entry)
 
     async def record_hits(self, org_id: uuid.UUID, hits: Counter[str]) -> None:
         for key, count in sorted(hits.items()):
