@@ -84,6 +84,17 @@ of truth. Items are in the order they matter for a first firm.
   the PDF.
 - `room_aliases` is always sent as `{}`.
 
+## 7. Photos the analysis skipped (found in live run 6, EVAL_REPORT 63)
+
+- A photo whose analysis failed for good (provider outage, budget) is in the workflow
+  view's `flagged_photos` (`GET .../workflow`, `docs/api/WORKFLOW.md`) but has no room, so
+  the rooms page never shows it and the study page's note ("they stay visible in the rooms
+  review") is wrong for it. Show the unplaced photos as a section of their own on the rooms
+  page with the re-analyze action (a `photo` correction at the rooms gate), name them in
+  the note, and count them out of "N of M analyzed" (`completed_photos` includes them).
+  The API side (the rooms view returning the unplaced photos with their failure code) is a
+  backend item; until it lands, the ids come from `flagged_photos` and the documents list.
+
 ## Testing
 
 No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper
