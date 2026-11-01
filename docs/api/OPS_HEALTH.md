@@ -1,6 +1,7 @@
 # Internal system health: `GET /v1/ops/health`
 
-For platform operators and the developer page (`web/developer/`, served at `/developer/`).
+For platform operators. The developer page that would show it (`web/developer/`, served at
+`/developer/`) is not built yet; until it is, operators read the route directly (EVAL_REPORT 64).
 It is separate from customer study screens and from `GET /health`, which keeps its
 semantics: unauthenticated, 200 while Temporal fails, 503 with `checks` when the database
 fails.
