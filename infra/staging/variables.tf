@@ -89,7 +89,7 @@ variable "api_max_instances" {
 
 variable "parked" {
   description = <<-EOT
-    Staging is built but not running (STAGING.md section 5.4): the worker pool at 0
+    Staging is built but not running (STAGING.md section 5.5): the worker pool at 0
     instances, the Temporal VM stopped, Cloud SQL stopped (activation policy NEVER). The
     API service stays deployed and scales to zero; it answers /health with 503 while the
     database is stopped. Default true, so a plain `terraform apply` never starts the
@@ -121,4 +121,54 @@ variable "cost_table_object" {
   description = "Object in the private bucket holding the licensed unit-cost table (COST_TABLE_PATH)."
   type        = string
   default     = "costs/unit_costs_rsmeans_2020.json"
+}
+
+# --------------------------------------------------------------------------- backups
+
+variable "sql_backup_retained" {
+  description = "Automated Cloud SQL backups kept (one a day, so days). RUNBOOK.md section 1."
+  type        = number
+  default     = 30
+}
+
+variable "sql_pitr_days" {
+  description = "Days of write-ahead logs for point-in-time recovery: 1 to 7 on Enterprise edition."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.sql_pitr_days >= 1 && var.sql_pitr_days <= 7
+    error_message = "Cloud SQL Enterprise edition keeps 1 to 7 days of transaction logs."
+  }
+}
+
+variable "uploads_noncurrent_days" {
+  description = "Days a deleted or overwritten upload is kept as a noncurrent version before the lifecycle rule removes it."
+  type        = number
+  default     = 30
+}
+
+# --------------------------------------------------------------------------- alerts
+
+variable "alerts_enabled" {
+  description = <<-EOT
+    Create the alerting policies and the /health uptime check (alerts.tf). Off by default
+    because staging is parked (STAGING.md 5.5): parked, /health answers 503, the worker pool
+    has 0 instances and Cloud SQL is stopped, so every policy would fire at once. Set true
+    together with -var parked=false.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "alert_email" {
+  description = "Address for an email notification channel Terraform creates (null: none). Who gets paged."
+  type        = string
+  default     = null
+}
+
+variable "alert_notification_channels" {
+  description = "Existing notification channels (projects/<id>/notificationChannels/<id>) every policy notifies, in addition to alert_email's."
+  type        = list(string)
+  default     = []
 }

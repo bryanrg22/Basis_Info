@@ -68,6 +68,7 @@ async def test_create_returns_201_with_the_study(api: Api, seed: Seed) -> None:
         "components_gate",  # v0.12: null until the workflow starts (record_run_start)
         "intake",  # null until PUT .../intake (docs/api/STUDY_RESULT.md)
         "intake_version",  # 0 until the first intake write (migration 0018)
+        "purged_at",  # null until the retention purge (docs/api/RETENTION_AND_ALERTS.md)
         "created_at",
         "updated_at",
     }

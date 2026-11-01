@@ -88,6 +88,16 @@ class Storage(Protocol):
         """
         ...
 
+    async def list(self, prefix: str) -> list[str]:
+        """The URIs of every object whose name starts with ``prefix``'s object name, sorted.
+
+        ``prefix`` is a ``gs://bucket/name`` URI; a trailing ``/`` makes it a directory-like
+        prefix (``gs://b/studies/<id>/`` lists the study's objects and not another study's
+        whose id merely begins the same way). Used by the retention purge; the API never
+        lists on behalf of a client.
+        """
+        ...
+
 
 def validate_bucket(bucket: str) -> str:
     if not _BUCKET.fullmatch(bucket) or ".." in bucket:
@@ -120,6 +130,15 @@ def object_name(study_id: UUID, document_id: UUID, filename: str) -> str:
 def object_uri(bucket: str, study_id: UUID, document_id: UUID, filename: str) -> str:
     """``gs://<bucket>/studies/<study_id>/<document_id>/<filename>``."""
     return f"{SCHEME}{validate_bucket(bucket)}/{object_name(study_id, document_id, filename)}"
+
+
+def parse_prefix(uri: str) -> tuple[str, str]:
+    """Split a prefix URI (``gs://bucket/name`` or ``gs://bucket/name/``) into ``(bucket,
+    name)``, keeping a trailing slash; the same safety rules as :func:`parse_uri`."""
+    if uri.endswith("/"):
+        bucket, name = parse_uri(uri[:-1])
+        return bucket, name + "/"
+    return parse_uri(uri)
 
 
 def parse_uri(uri: str) -> tuple[str, str]:

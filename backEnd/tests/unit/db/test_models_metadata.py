@@ -35,7 +35,8 @@ VERSIONS = Path(__file__).resolve().parents[3] / "basis/db/alembic/versions"
 MIGRATION = VERSIONS / "0001_initial.py"
 
 SPEC_TABLES = {
-    "orgs": "id name created_at",
+    # Retention (migration 0026_retention_alerts): orgs.retention_days, studies.purged_at.
+    "orgs": "id name retention_days created_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
@@ -44,7 +45,7 @@ SPEC_TABLES = {
     # Error codes: failure_code (migration 0013_study_events).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
     "room_aliases failure_reason failure_code components_gate intake intake_version created_at "
-    "updated_at report_answers report_answers_version",
+    "updated_at report_answers report_answers_version purged_at",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",
@@ -139,6 +140,8 @@ SPEC_TABLES = {
     "rate_limit_hits": "id key",
     # An engineer's pending corrections at a review gate (migration 0024_review_drafts).
     "review_drafts": "id study_id stage revision user_id document version created_at updated_at",
+    # Operator alerts raised once per occurrence (migration 0026_retention_alerts).
+    "alerts": "id key kind study_id service outbox_id payload",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -249,6 +252,8 @@ SPEC_SIMPLE_FKS = {
     ("org_events", "org_id", "orgs"),
     ("org_events", "actor_id", "users"),
     ("org_events", "subject_user_id", "users"),
+    ("alerts", "study_id", "studies"),
+    ("alerts", "outbox_id", "outbox"),
     ("classification_cache", "org_id", "orgs"),
     ("classification_cache", "study_id", "studies"),
     ("classification_cache", "reviewer_id", "users"),
@@ -273,6 +278,7 @@ SPEC_UNIQUES = {
     ("reviews", ("study_id", "stage", "revision")),
     ("reviews", ("idempotency_key",)),
     ("review_drafts", ("study_id", "stage", "user_id")),
+    ("alerts", ("key",)),
     ("runs", ("workflow_id", "run_id")),
     ("activity_results", ("idempotency_key",)),
     ("photo_objects", ("study_id", "id")),
@@ -338,6 +344,8 @@ SPEC_CHECKS = {
     "ck_review_drafts_document_is_object",
     "ck_cost_index_runs_rows_added_nonnegative",
     "ck_photo_room_answers_room_confidence_range",
+    "ck_orgs_retention_days_positive",
+    "ck_alerts_kind_valid",
 }
 
 SPEC_NOT_NULL = {
@@ -374,6 +382,7 @@ SPEC_NOT_NULL = {
     "obtained_by_name",
     "cost_index_runs": "source trigger actor_type status started_at finished_at rows_added",
     "photo_room_answers": "study_id document_id revision room_type room_ordinal",
+    "alerts": "key kind outbox_id payload",
 }
 
 STUDY_SCOPED = {
@@ -642,8 +651,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
     # ops health (0021): service_heartbeats.report; the firm's history (0022):
-    # org_events.before/after/detail; gate drafts (0024): review_drafts.document
-    assert len(jsonb) == 36
+    # org_events.before/after/detail; gate drafts (0024): review_drafts.document;
+    # alerts (0026): alerts.payload
+    assert len(jsonb) == 37
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

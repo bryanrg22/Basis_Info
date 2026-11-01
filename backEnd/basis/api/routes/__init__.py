@@ -17,6 +17,7 @@ from basis.api.routes import (
     report,
     reprice,
     result,
+    retention,
     revisions,
     spend,
     studies,
@@ -52,6 +53,8 @@ def api_routers() -> list[APIRouter]:
         workflow.reads,
         orgs.reads,
         orgs.writes,
+        retention.reads,
+        retention.writes,
         cost_indices.reads,
         cost_indices.writes,
     ]

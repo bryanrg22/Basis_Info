@@ -10,7 +10,7 @@ deployed, and how to operate it. Infrastructure as code is in [`infra/staging`](
 | Health | `GET <api>/health` (build sha, database and Temporal checks) |
 | API docs | `GET <api>/docs` (Swagger UI), `GET <api>/openapi.json` |
 | Region | `us-central1` (everything except the optional SAM 3 GPU service, `us-east4`) |
-| State | **parked** since 2026-10-18 (built and verified once, then stopped; section 5.4) |
+| State | **parked** since 2026-10-18 (built and verified once, then stopped; section 5.5) |
 | Deploys | off until the repository variable `STAGING_DEPLOY` is `enabled`; then every merge to `main`, after CI passes, in the GitHub environment `staging` |
 
 Staging has a GCP project of its own, `basis-staging-512000` (number 138338018557,
@@ -114,7 +114,7 @@ Why this shape:
 * **Min instances = 1, and why not 0.** Temporal holds work in the task queue while no
   worker polls, but nothing makes progress: a started study would wait for a worker.
   Worker pools do not autoscale (the instance count is set), so 1 is the floor for a
-  usable staging. Parking staging (section 5.4) sets it to 0 when nobody is using it.
+  usable staging. Parking staging (section 5.5) sets it to 0 when nobody is using it.
 * **Why not a Cloud Run job:** a job runs to completion; a worker runs forever. Jobs are
   right for the migrations and the corpus ingest, which do run to completion (section 1.8).
 * **The relay as a sidecar,** not its own pool: it is a small poll loop, its outbox read
@@ -367,7 +367,7 @@ scan, the client-data guard and the image build):
 
 The job is off unless the repository variable `STAGING_DEPLOY` is `enabled`. Unset means no
 deploy, which is fail-safe while staging is parked (its migrations would fail against a
-stopped database). Section 5.4 turns it on with the unpark. The job runs one at a time and is never cancelled (runs on `main` queue instead of
+stopped database). Section 5.5 turns it on with the unpark. The job runs one at a time and is never cancelled (runs on `main` queue instead of
 cancelling each other, since a migration must not be cut off). To require a manual
 approval before each deploy: `REVIEWER=bryanrg22 infra/staging/scripts/github-environment.sh`.
 
@@ -396,7 +396,7 @@ Temporal VM ($28.56) are each under the $60 a month allowed for them. The worker
 the largest item, and its worker container's 1 vCPU is the floor for a Temporal worker
 that never idles.
 
-**Parked** (the default, section 5.4: worker pool at 0, VM stopped, Cloud SQL stopped):
+**Parked** (the default, section 5.5: worker pool at 0, VM stopped, Cloud SQL stopped):
 disks $4.00 + Cloud SQL storage $1.70 + its reserved IP while stopped ($7.30) + backups
 and the rest (about $2) = **about $15/month**. Unparking brings it back in a few minutes.
 
@@ -524,7 +524,16 @@ gcloud compute ssh staging-temporal --zone us-central1-a --tunnel-through-iap --
 * Upgrade Temporal: bump the three image tags one minor version at a time; the schema job
   migrates on boot.
 
-### 5.4 Park and unpark
+### 5.4 Backups, restores, retention and alerts
+
+[`infra/staging/RUNBOOK.md`](../../infra/staging/RUNBOOK.md): daily Cloud SQL backups (30
+kept) with 7-day point-in-time recovery, object versioning on the uploads bucket (30 days
+of noncurrent versions, 7 days of soft delete) with the exact restore commands, the firm
+retention purge (`python -m basis.retention purge`) and the alerting policies
+(`alerts.tf`, created only with `-var alerts_enabled=true` because a parked staging fails
+them all).
+
+### 5.5 Park and unpark
 
 Staging is **parked**: everything is built, the database is migrated and the corpus is
 ingested, but nothing that bills by the hour runs. Terraform's `parked` variable (default

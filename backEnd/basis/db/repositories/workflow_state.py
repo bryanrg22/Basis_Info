@@ -9,6 +9,7 @@ delivered, so the workflow's transition must accept that the API already got the
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -18,8 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from basis.db.enums import REVIEW_STAGES, Stage, StudyStatus, status_for_stage
 from basis.db.errors import NotVisibleError, StaleStateError
 from basis.db.models import Study
+from basis.db.repositories.alert import AlertRepository, study_failed_key
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
+from basis.errors.codes import E
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,10 +132,15 @@ class WorkflowStateRepository:
         revision: int,
         reason: str,
         code: str | None = None,
+        *,
+        alert_key: str | None = None,
     ) -> bool:
         """Set ``status = failed``, the reason and its error code (docs/ERROR_CODES.md)
         while the study is at ``stage``/``revision`` (not archived). False when it is
-        elsewhere. Recorded as a ``stage.failed`` event either way (the failure happened)."""
+        elsewhere. Recorded as a ``stage.failed`` event either way (the failure happened),
+        and an operator alert is enqueued in the same transaction (``AlertRepository``),
+        keyed by ``alert_key`` (the ``record_failure`` activity's key, so a retried activity
+        raises it once) or, without one, by the event itself."""
         result = await self._session.execute(
             update(Study)
             .where(
@@ -143,7 +153,7 @@ class WorkflowStateRepository:
             .execution_options(synchronize_session=False)
         )
         changed = bool(getattr(result, "rowcount", 0))
-        await StudyEventRepository(self._session).record(
+        event = await StudyEventRepository(self._session).record(
             study_id,
             "stage.failed",
             actor="system",
@@ -152,6 +162,26 @@ class WorkflowStateRepository:
             code=code,
             detail={"reason": reason, "marked": changed},
         )
+        alert = await AlertRepository(self._session).study_failed(
+            study_id,
+            key=study_failed_key(
+                alert_key or f"{study_id}:{stage.value}:r{revision}:seq{event.seq}"
+            ),
+            stage=stage.value,
+            revision=revision,
+            reason=reason,
+            code=code,
+            marked=changed,
+        )
+        if alert is not None:
+            logger.info(
+                "study failure alert enqueued",
+                extra={
+                    "error_code": E.ALERT_STUDY_FAILED,
+                    "study_id": str(study_id),
+                    "key": alert.key,
+                },
+            )
         return changed
 
     async def clear_failure(self, study_id: uuid.UUID) -> bool:

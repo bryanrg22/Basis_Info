@@ -129,6 +129,8 @@ BODIES: Final[dict[str, Any]] = {
     "PUT /v1/orgs/{org_id}/profile": {"name": "Other Firm"},
     "GET /v1/orgs/{org_id}/members": None,
     "GET /v1/orgs/{org_id}/activity": None,
+    "GET /v1/orgs/{org_id}/retention": None,
+    "PUT /v1/orgs/{org_id}/retention": {"retention_days": 30},
     "POST /v1/orgs/{org_id}/members/{user_id}/role": {"role": "engineer"},
     "DELETE /v1/orgs/{org_id}/members/{user_id}": None,
     "GET /v1/orgs/{org_id}/invitations": None,

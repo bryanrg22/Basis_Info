@@ -8169,6 +8169,87 @@ reasons are written down (FIRMS.md 7).
 - The migration was written as 0024 on 0021 and renumbered 0025 on 0024 once user activity (0022),
   rate-limit hits (0023) and review drafts (0024) merged into this branch.
 
+## 60. Backups, a retention rule, and alerts before firms use Basis (2026-11-01)
+
+**Question.** Before a firm uploads client files: can a lost database or a deleted file be
+recovered, can the firm bound how long its files stay, and does someone hear when a worker
+dies or a study fails?
+
+**Standard first.** Cloud SQL: daily automated backups plus point-in-time recovery from
+write-ahead logs (Enterprise edition keeps 1 to 7 days; PITR always restores into a new
+instance with `gcloud sql instances clone --point-in-time`; a backup restore overwrites its
+target). GCS: object versioning with lifecycle rules on noncurrent versions, and soft delete
+(7 days by default) under it; a deleted version is restored by copying `object#generation`
+back. Cloud Monitoring: an uptime check with the policy the console generates for it
+(`check_passed`, `ALIGN_NEXT_OLDER` over 20 min, `REDUCE_COUNT_FALSE`, more than one failed
+probe); a ratio condition for 5xx; `condition_matched_log` for a log-based alert with a
+notification rate limit; `cloudsql.googleapis.com/database/up` for the database. Email:
+render and transport split (Django's `EmailBackend`, Rails' delivery methods), one
+idempotency key per intended send. Retention: a per-tenant rule applied by a job that keeps
+the records of what it deleted (the pattern of every records-retention policy: the deletion
+log outlives the deleted thing).
+
+**What is plan-only (nothing applied; staging stays parked).** `infra/staging/sql.tf`: PITR on
+with 7 days of logs, 30 backups kept (`retention_unit = COUNT`), both deletion guards already
+on. `storage.tf`: versioning on the uploads bucket, noncurrent versions deleted after 30 days
+and capped at 10 per object, soft delete stated at 7 days, the staging-only 90-day rule kept
+on live objects. `alerts.tf`: an email notification channel from a variable, an uptime check on
+`/health` with its policy, API 5xx ratio above 5 % for 5 min (inactive without traffic), worker
+pool instance count below 1 for 5 min (or absent), Cloud SQL `database/up` below 1, and a
+log-based policy on `BASIS-WF-` codes except WF-010/011 (one notification per 5 min); all
+created only with `-var alerts_enabled=true`, because a parked staging fails every one.
+`RUNBOOK.md`: the restore commands (PITR clone, backup restore, noncurrent and soft-deleted
+object restore), the purge job and its documented-not-enabled schedule, and the alert table.
+
+Verified: `terraform fmt -check` and `terraform validate` (hashicorp/google 8.7.0); a read-only
+`terraform plan -lock=false` against the real parked state: **0 to add, 3 to change, 0 to
+destroy**: the Cloud SQL instance (`point_in_time_recovery_enabled false -> true`,
+`retained_backups 7 -> 30`; `transaction_log_retention_days` already 7), the uploads bucket
+(versioning, the two noncurrent rules, `with_state = LIVE` on the 90-day rule), and one
+pre-existing drift unrelated to this change (`desired_status = TERMINATED` on the Temporal VM,
+STAGING.md 5.5). The alert resources do not appear because `alerts_enabled` defaults to
+false. The metric types and resource types were read from the project's metric descriptors:
+`run.googleapis.com/container/instance_count` applies to `cloud_run_worker_pool` (label
+`state`), `request_count` carries `response_code_class`, `cloudsql.googleapis.com/database/up`
+is a GAUGE INT64. Not verified: no apply, no restore drill, no alert fired, and whether Cloud
+SQL accepts the PITR change while the instance is stopped (the runbook says what to do if it
+refuses).
+
+**Retention (backend, tested).** `orgs.retention_days` (null keeps everything), set by an owner
+with `PUT /v1/orgs/{org_id}/retention`, read by members. `python -m basis.retention purge
+[--dry-run]` selects completed or archived studies of firms with a rule whose row last changed
+more than the rule ago, lists the study's prefix in storage (`Storage.list`, new on the
+protocol), deletes every object except `exports/` (export JSON, assets CSV, calls transcript,
+report PDF and schedule, signed report), keeps every database row, sets `studies.purged_at`
+and appends `study.purged` with the counts; objects first, mark and event after, so a crash
+leaves work for the next run and never an unrecorded deletion. Migration
+`0026_retention_alerts` (revises `0025_invitation_email`). docs/api/RETENTION_AND_ALERTS.md.
+
+**Alerts (backend, tested).** `record_failure` enqueues one `alert` notification per failure in
+the transaction that writes `stage.failed`, keyed by the activity's key; the relay checks
+`service_heartbeats` every 60 s and enqueues one per service per stale period (newest
+heartbeat older than 300 s; keyed by that heartbeat, `never` for a service with no row). An
+`alerts` table with a unique key makes the second raise of the same occurrence a no-op. The
+relay renders the alert (`basis.notify.render`) and hands it to the `EmailSender`
+of section 59 (`basis.email`: `EMAIL_PROVIDER` log or SMTP, shared with the invitation
+emails) addressed to `ALERT_EMAIL_TO`, with the key as the idempotency key; unset,
+the alert goes to the log at WARNING. Transient sender errors retry with the relay's backoff,
+a refused recipient dead-letters.
+
+**Tests** (all on PostgreSQL where they touch the database): the selection, the dry run, the
+exact set deleted and kept, the no-op second run, an object already gone, a storage failure,
+the CLI's output and exit status; a failed study enqueues exactly one alert and a retried
+activity none more; one alert per service per stale period, one per service, `never`, the
+newest instance counting; the relay sends once and a redelivery reuses the key; the route's
+access rules and validation. Unit: the listing, the rendering, the sender boundary, the
+relay's outcomes. Gates green: ruff, format, mypy, the catalogue and OpenAPI checks, the rule
+fingerprints, pytest (unit and integration), the client-data guard.
+
+**Open.** The SMTP transport and `EMAIL_PROVIDER`/`EMAIL_FROM` come with the firm-admin branch;
+until it lands alerts are logged. A recovery notice ("worker back") is not sent. Firm owners
+are not emailed about their own failed studies (operator only). Scheduling the purge is a
+documented gcloud step, not Terraform, by decision (staging parked, no firm has a rule yet).
+
 ## 61. Reopening a completed study, the revision history, restoring a revision (2026-11-01)
 
 **Question.** Once a study is `completed` nothing could take it back to a gate. Bryan wants a

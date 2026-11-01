@@ -17,6 +17,7 @@ history (``org_events``, :mod:`basis.db.repositories.org_event`) in the same tra
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +29,8 @@ from basis.db.enums import OrgRole
 from basis.db.errors import LastOwnerError, NotVisibleError
 from basis.db.models import Invitation, Org, OrgMember, User
 from basis.db.repositories.org_event import OrgEventRepository
+
+logger = logging.getLogger(__name__)
 
 DETAIL_LAST_OWNER = "A firm must keep at least one owner; make another member an owner first."
 DETAIL_MEMBER_NOT_FOUND = "Member not found."
@@ -130,6 +133,32 @@ class OrgRepository:
 
     async def get(self, org_id: uuid.UUID) -> Org | None:
         return await self._session.get(Org, org_id)
+
+    async def set_retention(
+        self, org_id: uuid.UUID, retention_days: int | None, user_id: uuid.UUID
+    ) -> Org:
+        """Set the firm's client-data retention rule (None: keep everything), under the
+        firm's row lock; logged with who set it (no firm-level audit table exists)."""
+        if retention_days is not None and retention_days < 1:
+            raise ValueError("retention_days must be positive or None")
+        if not await self.lock(org_id):
+            raise NotVisibleError(f"org {org_id} not found")
+        org = await self._session.get(Org, org_id, populate_existing=True)
+        assert org is not None  # the lock found it
+        before = org.retention_days
+        org.retention_days = retention_days
+        await self._session.flush()
+        await self._session.refresh(org)
+        logger.info(
+            "firm retention rule set",
+            extra={
+                "org_id": str(org_id),
+                "user_id": str(user_id),
+                "retention_days_before": before,
+                "retention_days": retention_days,
+            },
+        )
+        return org
 
     async def by_name(self, name: str) -> list[Org]:
         """Firms named exactly ``name`` (names are not unique), oldest first."""

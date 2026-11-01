@@ -110,9 +110,9 @@ from basis.domain.rules import resolve_fingerprint
 pytestmark = pytest.mark.integration
 
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
-# (review drafts), the three branches it was merged with.
-HEAD = "0025"
-HISTORY = [f"{n:04d}" for n in range(25, 0, -1)]  # "0025" .. "0001"
+# (review drafts); 0026 (retention and alerts) revises 0025.
+HEAD = "0026"
+HISTORY = [f"{n:04d}" for n in range(26, 0, -1)]  # "0026" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
