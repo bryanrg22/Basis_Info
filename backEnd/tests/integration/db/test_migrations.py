@@ -58,6 +58,8 @@
   >= 1, its ``updated_at`` trigger), ``studies.report_answers``/``report_answers_version``
   (NULL and 0 for existing studies) and ``report_signatures`` (one per revision, sha256 hex,
   never updated, deletable); it downgrades back to ``0019`` exactly;
+* ``0021_service_heartbeats`` adds the ops health heartbeats (one row per worker or relay
+  process), checked by ``alembic check`` and the downgrade to base;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -97,8 +99,8 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0020"
-HISTORY = [f"{n:04d}" for n in range(20, 0, -1)]  # "0020" .. "0001"
+HEAD = "0021"
+HISTORY = [f"{n:04d}" for n in range(21, 0, -1)]  # "0021" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}

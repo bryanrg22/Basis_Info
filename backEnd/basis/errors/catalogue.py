@@ -501,6 +501,18 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "yes",
         problem="gate-not-open",
     ),
+    _e(
+        E.API_NOT_OPERATOR,
+        "refusal",
+        "`GET /v1/ops/health`",
+        "basis.api.routes.ops",
+        "The signed-in account is not a platform operator (its uid is not in "
+        "`OPS_OPERATOR_UIDS`); a firm role never grants it.",
+        "403 `not-operator`, with no diagnostics.",
+        "An operator with deployment access adds the uid to `OPS_OPERATOR_UIDS`.",
+        "no",
+        problem="not-operator",
+    ),
     # ------------------------------------------------------------------ FIRM
     _e(
         E.FIRM_NO_FIRM,
@@ -3163,6 +3175,18 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Outbox row `status = dead` with `last_error`; relay log with `error_code`.",
         "Operator: re-arm the row (`python -m basis.admin`) once Temporal is back.",
         "after fix",
+    ),
+    _e(
+        E.INF_HEARTBEAT_WRITE,
+        "error",
+        "the worker and the relay, every heartbeat",
+        "basis.ops.heartbeat",
+        "The process could not write its `service_heartbeats` row (database unreachable, or "
+        "migration 0019 not applied). The process keeps running and retries on the next beat.",
+        "Log line with `error_code`; `GET /v1/ops/health` reports the worker or relay "
+        "`down` once the last heartbeat is older than its validity.",
+        "Check the database and run `alembic upgrade head`.",
+        "yes",
     ),
 )
 

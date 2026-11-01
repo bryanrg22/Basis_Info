@@ -69,6 +69,7 @@ class E:
     API_REPRICE_INPUTS_CHANGED = "BASIS-API-040"
     API_REPRICE_RECLASSIFY = "BASIS-API-041"
     API_REPRICE_NOT_AT_REVIEW = "BASIS-API-042"
+    API_NOT_OPERATOR = "BASIS-API-043"
 
     # ---------------------------------------------------------------- firms and membership
     FIRM_NO_FIRM = "BASIS-FIRM-001"
@@ -334,6 +335,7 @@ class E:
     INF_WORKER_CONFIG = "BASIS-INF-001"
     INF_RELAY_REFUSED = "BASIS-INF-002"
     INF_RELAY_DEAD = "BASIS-INF-003"
+    INF_HEARTBEAT_WRITE = "BASIS-INF-004"
 
 
 def tag(code: str, message: str) -> str:

@@ -14,6 +14,9 @@ counted). The engine is disposed before exit.
 relay has reached the database within :data:`STALE_AFTER_S` (or is still starting),
 503 otherwise. Any other path is 404. It is a dependency-free asyncio server: the probe
 needs nothing more.
+
+A ``service_heartbeats`` row (:func:`relay_heartbeat`) every ``OPS_HEARTBEAT_SECONDS``, for
+``GET /v1/ops/health``.
 """
 
 from __future__ import annotations
@@ -26,12 +29,15 @@ import logging
 import signal
 import time
 from collections.abc import Sequence
-from typing import Final
+from typing import Any, Final
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.config import Settings, get_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
 from basis.obs.logging import configure_logging
+from basis.ops.heartbeat import HeartbeatWriter
 from basis.relay.delivery import Relay, TemporalWorkflowGateway
 from basis.temporal.client import connect
 
@@ -86,12 +92,37 @@ async def serve_health(relay: Relay, port: int, host: str = "0.0.0.0") -> asynci
     return await asyncio.start_server(handle, host, port)
 
 
+def relay_heartbeat(
+    relay: Relay, sessionmaker: async_sessionmaker[AsyncSession], settings: Settings
+) -> HeartbeatWriter:
+    """The relay's ``service_heartbeats`` row (``GET /v1/ops/health``): its poll interval and
+    how long ago it last reached the database."""
+    started = time.monotonic()
+
+    def report() -> dict[str, Any]:
+        last = relay.last_poll
+        return {
+            "poll_seconds": relay.poll_seconds,
+            "last_poll_age_s": None if last is None else round(time.monotonic() - last, 2),
+            "healthy": healthy(relay, started),
+        }
+
+    return HeartbeatWriter(
+        sessionmaker,
+        service="relay",
+        build_sha=settings.git_sha,
+        interval_s=settings.ops_heartbeat_seconds,
+        report=report,
+    )
+
+
 async def run(settings: Settings, *, health_port: int, once: bool = False) -> int:
     engine = create_engine(settings)
     try:
         client = await connect(settings, lazy=True)
+        sessionmaker = create_sessionmaker(engine)
         relay = Relay(
-            create_sessionmaker(engine),
+            sessionmaker,
             TemporalWorkflowGateway(client),
             poll_seconds=settings.relay_poll_seconds,
         )
@@ -108,6 +139,9 @@ async def run(settings: Settings, *, health_port: int, once: bool = False) -> in
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
         server = await serve_health(relay, health_port)
+        heartbeat = relay_heartbeat(relay, sessionmaker, settings)
+        heartbeat.start()
+        heartbeat.set_state("polling")
         try:
             task = asyncio.create_task(relay.run(stop))
             stopping = asyncio.create_task(stop.wait())
@@ -120,6 +154,7 @@ async def run(settings: Settings, *, health_port: int, once: bool = False) -> in
             except TimeoutError:
                 logger.warning("outbox relay batch cancelled at shutdown")
         finally:
+            await heartbeat.stop()
             server.close()
             await server.wait_closed()
             for sig in (signal.SIGTERM, signal.SIGINT):

@@ -129,6 +129,8 @@ SPEC_TABLES = {
     "firm_profiles": "org_id profile version updated_by created_at updated_at",
     "report_signatures": "id study_id revision signed_by signed_at engineer statement_version "
     "export_sha256 reviewed_sha256 pdf_uri pdf_sha256",
+    # The latest heartbeat of each worker and relay process (migration 0021, ops health).
+    "service_heartbeats": "id service build_sha state started_at heartbeat_at report",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -607,8 +609,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # (0012): llm_calls.request_params; the timeline (0013): study_events.before/after/detail;
     # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest;
     # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
-    # years_added / failures / detail; the report (0020): report_signatures.engineer
-    assert len(jsonb) == 31
+    # years_added / failures / detail; the report (0020): report_signatures.engineer;
+    # ops health (0021): service_heartbeats.report
+    assert len(jsonb) == 32
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

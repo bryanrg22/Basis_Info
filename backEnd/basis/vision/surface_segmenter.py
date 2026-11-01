@@ -117,6 +117,11 @@ class LocalMask2Former:
     def name(self) -> str:
         return f"local:{self.checkpoint}"
 
+    @property
+    def loaded(self) -> bool:
+        """Whether the checkpoint is in memory (it loads on the first segmentation)."""
+        return self._model is not None
+
     def _load(self) -> None:
         if self._model is not None:
             return

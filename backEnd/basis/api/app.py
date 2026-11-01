@@ -58,6 +58,7 @@ from basis.api.openapi import build_openapi
 from basis.api.preconditions import ETAG_HEADER, IF_MATCH_HEADER
 from basis.api.ratelimit import InMemoryRateLimiter
 from basis.api.routes import api_routers
+from basis.api.routes import ops as ops_route
 from basis.auth.firebase import FirebaseTokenVerifier
 from basis.config import Settings
 from basis.db.engine import create_engine
@@ -230,6 +231,9 @@ def create_app(
 
     for router in api_routers():
         app.include_router(router)
+    # Mounted apart from api_routers: it reuses the /health checks (basis.api.health imports
+    # the routes package) and needs no database user.
+    app.include_router(ops_route.router)
 
     app.openapi = lambda: build_openapi(app)  # type: ignore[method-assign]
     return app

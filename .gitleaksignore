@@ -17,3 +17,6 @@ e9814f3e40886b7ca13e4426a924a33b8b419a51:.gitleaksignore:generic-api-key:9
 146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:441
 146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:624
 146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:658
+# The ops probe tests' fake Replicate token ("r8_test-..."), a placeholder the tests assert
+# never leaks into a probe result, not a credential.
+0b7006000b757bdcf5959e8dcbbc27d8d2c238bc:backEnd/tests/unit/ops/test_probes.py:generic-api-key:31

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-261 codes in 20 areas.
+263 codes in 20 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -62,6 +62,7 @@ stale).
 | `BASIS-API-040` | refusal | `POST /studies/{id}/assets/reprice`; `basis.costs.reprice` | The `fingerprint` sent is not the current one: the intake, the cost index store, the square-foot model or a pricing setting changed since the preview. | 409 `reprice-inputs-changed`. (type `reprice-inputs-changed`) | Preview again (`GET .../assets/reprice`), review the new impact, send its fingerprint. | yes |
 | `BASIS-API-041` | refusal | `GET`/`POST /studies/{id}/assets/reprice`; `basis.costs.reprice` | The intake's property use changed since the assets were classified (27.5- or 39-year building, the rules table's class): carrying the classifications would be wrong. | 409 `reprice-reclassify`; the preview's `blocked_code`. (type `reprice-reclassify`) | Reject the assets review so the assets are classified again. | no |
 | `BASIS-API-042` | refusal | `GET`/`POST /studies/{id}/assets/reprice`; `basis.costs.reprice` | The study is not waiting at the assets review of that revision. | 409 `gate-not-open`; the preview's `blocked_code`. (type `gate-not-open`) | Wait for the assets review to open, or use the current revision. | yes |
+| `BASIS-API-043` | refusal | `GET /v1/ops/health`; `basis.api.routes.ops` | The signed-in account is not a platform operator (its uid is not in `OPS_OPERATOR_UIDS`); a firm role never grants it. | 403 `not-operator`, with no diagnostics. (type `not-operator`) | An operator with deployment access adds the uid to `OPS_OPERATOR_UIDS`. | no |
 
 ## FIRM: Firms and membership
 
@@ -384,4 +385,5 @@ stale).
 | `BASIS-INF-001` | error | worker start-up; `basis.worker.main` | A model the configured pipeline calls has no configured provider, or the embedding model cannot load: the worker refuses to start. | The worker exits; its last log line names the models and the settings (`[BASIS-INF-001]`). | Configure the provider or the model setting named, redeploy. | no |
 | `BASIS-INF-002` | error | the outbox relay; `basis.relay.delivery` | The workflow's validator refused a decision the API had recorded (BASIS-WF-008); the refusal is final. | Relay log `outbox message refused by its consumer` with `error_code`; the outbox row is `delivered` with `last_error`. | Decide again on the current stage and revision. | no |
 | `BASIS-INF-003` | error | the outbox relay; `basis.relay.delivery` | A message failed `RELAY_MAX_ATTEMPTS` deliveries (Temporal unreachable for long). | Outbox row `status = dead` with `last_error`; relay log with `error_code`. | Operator: re-arm the row (`python -m basis.admin`) once Temporal is back. | after fix |
+| `BASIS-INF-004` | error | the worker and the relay, every heartbeat; `basis.ops.heartbeat` | The process could not write its `service_heartbeats` row (database unreachable, or migration 0019 not applied). The process keeps running and retries on the next beat. | Log line with `error_code`; `GET /v1/ops/health` reports the worker or relay `down` once the last heartbeat is older than its validity. | Check the database and run `alembic upgrade head`. | yes |
 

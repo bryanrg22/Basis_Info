@@ -454,6 +454,19 @@ class Settings(BaseSettings):
     # bounded by this many seconds, after which the box is stored without an outline.
     object_prompt_timeout_s: float = Field(default=30.0, gt=0, le=120)
 
+    # Internal system health (GET /v1/ops/health, docs/api/OPS_HEALTH.md). OPS_OPERATOR_UIDS:
+    # the Firebase uids of the platform operators allowed to read it, comma-separated; empty
+    # (the default) refuses everyone. A firm role never grants it. The worker and the relay
+    # write a heartbeat row every OPS_HEARTBEAT_SECONDS; the worker asks each configured
+    # provider's free metadata endpoint (a model or account lookup, never inference) every
+    # OPS_PROVIDER_PROBE_SECONDS (0: never). OPS_PROBE_LOCALIZER asks a self-hosted SAM 3
+    # server's /health-check too: off by default, because on Cloud Run the request starts a
+    # GPU instance billed per second.
+    ops_operator_uids: Annotated[tuple[str, ...], NoDecode] = ()
+    ops_heartbeat_seconds: float = Field(default=15.0, ge=1, le=300)
+    ops_provider_probe_seconds: float = Field(default=60.0, ge=0, le=3600)
+    ops_probe_localizer: bool = False
+
     @property
     def vision_output_budget(self) -> int:
         """The per-photo calls' output budget: ``VISION_MAX_TOKENS`` when set, else the
@@ -508,6 +521,13 @@ class Settings(BaseSettings):
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("ops_operator_uids", mode="before")
+    @classmethod
+    def _split_uids(cls, value: object) -> object:
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
