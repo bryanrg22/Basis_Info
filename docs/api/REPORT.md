@@ -14,7 +14,7 @@ After the assets review is approved, the export step writes, next to `rev-<n>.js
 | File | What |
 |---|---|
 | `rev-<n>.report.pdf` | The report, in ATG chapter 4 D.1-D.9 order with Exhibits A (photographs with every counted object outlined and numbered, captioned with the report lines), B (cost source reconciliation by system) and C (the C.1-C.13 checklist), and Appendix 1 (every line). |
-| `rev-<n>.schedule.csv`, `rev-<n>.schedule.xlsx` | The preparer's schedule, one row per report line: IRC section, asset class, life (GDS and ADS), method, convention, dates acquired and placed in service, basis, bonus eligibility, statutory bonus default and its source, authority. Rows sum to the depreciable basis to the cent. |
+| `rev-<n>.schedule.csv`, `rev-<n>.schedule.xlsx` | The preparer's schedule in the generic layout, one row per report line: IRC section, asset class, life (GDS and ADS), method, convention, dates acquired and placed in service, basis, bonus eligibility, statutory bonus default and its source, authority. Rows sum to the depreciable basis to the cent. Vendor import layouts are rendered on request (below), not stored. |
 
 The `export.written` event records them under `detail.report`: `files` (uri and sha256 of
 each) and `draft`, or `skipped` (`code`, `message`) when there is nothing to report.
@@ -43,8 +43,8 @@ export step's draft carries the inputs stored when it ran.
 
 ## Fetching
 
-`GET /v1/studies/{id}/report?format=pdf|csv|xlsx[&revision=n][&variant=final|draft]`, for a
-viewer or above of the study. The default revision is the latest exported. The response is
+`GET /v1/studies/{id}/report?format=pdf|csv|xlsx[&revision=n][&variant=final|draft][&profile=<name>]`,
+for a viewer or above of the study. The default revision is the latest exported. The response is
 the file as an attachment, with the recorded sha256 as a strong `ETag` (`If-None-Match` gives
 304). `format=pdf` is the signed report once the revision is signed (file name
 `...-report-signed.pdf`), else the draft; `variant=draft` always gives the draft.
@@ -54,13 +54,40 @@ the file as an attachment, with the recorded sha256 as a strong `ETag` (`If-None
 | Nothing exported, revision never exported, file or bytes missing | 404 `BASIS-REPORT-006` |
 | The export skipped the report | 404 with the skip's code (usually `BASIS-REPORT-002`) and its message |
 | Another firm's study | 404 |
+| An unknown `profile` | 422 (`profile` is ignored for `format=pdf`, as `variant` is for the schedule) |
+
+## Vendor import profiles
+
+`GET /v1/studies/{id}/report?format=csv|xlsx&profile=<name>` renders the same schedule rows in
+a fixed-asset package's import layout, from the stored export, at request time: the export step
+writes only the generic files. Every profile keeps each line's allocated cost, so its rows sum
+to the depreciable basis to the cent, and the bytes are deterministic (the `ETag` is their
+sha256; `If-None-Match` gives 304). The file name ends `-schedule-<profile>.csv|xlsx`. Research,
+sources and every mapping decision: `STUDY_REPORT_SPEC.md` 11.5.1; code `basis/report/vendors.py`.
+
+| `profile` | Package | Format the package reads | Built from | Verified against the software |
+|---|---|---|---|---|
+| `generic` (default) | any; the stored file | csv, xlsx | Form 4562 Part III columns | n/a (it is the stored file) |
+| `fixed_assets_cs` | Thomson Reuters Fixed Assets CS | xlsx (its Import Spreadsheet), csv | Thomson Reuters' published import fields and limits: 45-character description without quotes or commas, Method `M`, Life, ADS Life, Real property `R`, Force Mid Qtr `N`, memos carrying the line and the bonus default | **no** |
+| `sage` | Sage Fixed Assets Depreciation | xlsx, csv (Custom Import Helper, columns mapped by name) | the user guide's Appendix C: Property Type `P`/`R`, dates MM/DD/YYYY, method `MA` + `168 Allow %` when the statutory bonus default applies else `MF`, Declining Balance % 200/150/100, lives as YYMM (`2706`), Mid-Quarter Flag `N` | **no** |
+| `proconnect` | Intuit ProConnect Tax; Lacerte (csv or xls only) | xlsx, csv | Intuit's own Depreciation template and data rules: its 17 headings in order, 25-character description, mm/dd/yyyy, Category 1-8, Method numbers (53, 57, 66, 85, 87); Form and Activity numbers left for the preparer (they depend on the return) | **no** |
+| `cch` | CCH ProSystem fx Fixed Assets (User Defined Import) | xlsx, csv | the published mechanism only (headings mapped in a translation table; each distinct method value mapped once): plain headings, `MACRS 200DB`/`MACRS 150DB`/`MACRS SL`, `Half-Year`/`Mid-Month` | **no** (layout not published) |
+| `bloomberg` | Bloomberg Tax Fixed Assets (Import wizard) | csv | the published mechanism only (the Import Guide is not public): the same plain layout as `cch` with Bloomberg-style headings | **no** (layout not published) |
+
+None of the five has been imported into the real software: each is built to the vendor's
+published specification and waits for a preparer's confirmation (the first import with a
+partner). Bonus depreciation is the preparer's election in every package; the profiles carry
+the schedule's statutory default (Fixed Assets CS and ProConnect apply it themselves and have
+no import field, Sage takes it as the `MA` method with the percentage, CCH and Bloomberg get it
+as a `Bonus Default %` column to map or ignore). Mid-quarter is likewise the preparer's 40 %
+test: every profile says half-year.
 
 ## Determinism
 
 The same export, inputs and photographs give the same bytes. Typst renders with the bundled
 font only, and the PDF timestamp is the report date, the day the assets review was approved.
-The XLSX has pinned document properties and zip times. Measured: Mac and the Linux worker
-image give byte-identical PDFs (STUDY_REPORT_SPEC 11.8.1).
+The XLSX has pinned document properties and zip times, in every profile. Measured: Mac and the
+Linux worker image give byte-identical PDFs (STUDY_REPORT_SPEC 11.8.1).
 
 ## Inputs
 

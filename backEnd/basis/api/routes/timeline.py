@@ -16,7 +16,13 @@ from typing import Annotated, Final
 
 from fastapi import Depends, Query
 
-from basis.api.routes.common import MAX_SEQ_CURSOR_LENGTH, problems, read_router, seq_cursor
+from basis.api.routes.common import (
+    MAX_SEQ_CURSOR_LENGTH,
+    EventTypes,
+    problems,
+    read_router,
+    seq_cursor,
+)
 from basis.api.schemas.timeline import (
     AuditItemOut,
     AuditOut,
@@ -61,10 +67,7 @@ async def get_timeline(
             description="Opaque `next_cursor` of the previous page.",
         ),
     ] = None,
-    event_type: Annotated[
-        list[str] | None,
-        Query(description="Only these event types (repeat the parameter)."),
-    ] = None,
+    event_type: EventTypes = None,
 ) -> TimelinePageOut:
     page = await StudyEventRepository(session).list_for_study(
         access.study.id, after_seq=seq_cursor(cursor), limit=limit, event_types=event_type

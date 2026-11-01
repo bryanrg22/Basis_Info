@@ -56,7 +56,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 
 | Member | Meaning |
 |---|---|
-| `event_type` | A dotted name from the vocabulary below. |
+| `event_type` | A dotted name from the vocabulary below: repeatable, each value 1 to 100 characters without a NUL (else 422), the same rule on the activity routes. |
 | `actor_type`, `actor_id` | Who caused it: `engineer` (`actor_id` is the user), `model` (a model call's output), `system` (the workflow, a rule, bookkeeping). |
 | `stage`, `revision` | The study's at the time. |
 | `workflow_id`, `run_id`, `activity`, `activity_id`, `attempt` | The Temporal execution and the activity attempt, on activity events. |
