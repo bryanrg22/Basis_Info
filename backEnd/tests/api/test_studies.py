@@ -710,7 +710,9 @@ async def test_the_intake_is_locked_once_the_study_has_started(
     ):
         await seed.stage(sid, stage)
         for if_match in (None, tag, "*"):
-            refused = await put(api, sid, {**INTAKE, "purchase_price": "1.00"}, if_match=if_match)
+            refused = await put(
+                api, sid, {**INTAKE, "purchase_price": "700000.00"}, if_match=if_match
+            )
             assert refused.status_code == 409, (stage, if_match, refused.text)
             problem = refused.json()
             assert problem["type"].endswith("/intake-locked"), problem

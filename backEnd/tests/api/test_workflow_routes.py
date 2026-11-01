@@ -733,7 +733,7 @@ async def test_a_start_and_an_intake_write_at_once_leave_the_intake_the_run_read
     engineer saw is the one on the row (version unchanged, no event)."""
     sid = await ready_study(api, storage)
     lock = select(Study).where(Study.id == uuid.UUID(sid)).with_for_update()
-    changed = {**COMPLETE_INTAKE, "purchase_price": "1.00"}
+    changed = {**COMPLETE_INTAKE, "purchase_price": "700000.00"}
     started, written = await queued_behind_a_lock(
         sessionmaker,
         lock,
