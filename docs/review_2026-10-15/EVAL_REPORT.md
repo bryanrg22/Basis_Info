@@ -8484,3 +8484,68 @@ report state and signature members), `evals.freeze_rule_fingerprints --check`,
 section was written, each with a migration; the migration test's head and history follow them). Error
 codes: `025`–`029` are #114's, `030`–`034` the revisions PR's (#117); this section's are `035` and `036`.
 Sections 60 and 61 are #115's and #117's; this one was 59, then 60, until they landed.
+
+## 63. Live run 6 on main 15cd291: two studies on the final build, and a lost network window (2026-11-01)
+
+**Question.** Does the build with every pre-firm PR merged (#108 through #119: signing, drafts, firm
+onboarding, security, per-user activity, backups and alerts, reopen and revisions, races) still
+produce the study live, in both ways an engineer uses it: every gate approved as the model left
+it (plain), and the engineer's corrections at every gate (corrected)?
+
+**Setup.** The `basis-web` stack rebuilt from main 15cd291 against the run-5 database copy migrated
+0021 to 0027; the same client property, driver `e2e_live3.py`, `--mode plain` then `--mode
+corrected`. Private report: `E2E_LIVE_RUN6_2026-11-01.md` in the eval data (the dollars and the
+row table). Baselines: run 5 (section 53, plain) and run 3's study A (section 42.5, corrected).
+
+**Results:**
+
+| | run 5 plain | run 6 plain | run 3 corrected | run 6 corrected |
+|---|---|---|---|---|
+| completed; activities failed | yes; 0 | yes; 22 (see below) | yes; 0 | yes; 0 |
+| processing time | 5.3 min | 7.4 min | - | 8.5 min incl. four reopened gates |
+| evidenced rows (of 38 photo-visible) | 35 | 34 | 35 | 35 |
+| bucket right, of evidenced | 34/35 | 34/34 | 35/35 | 35/35 |
+| max bucket share error (points) | 3.3 | 1.9 | - | 0.8 |
+| 39-year share (engineer 80.2 %) | 83.5 % | 82.2 % | - | 80.3 % |
+| assets from the firm's rulings | 200/384 | 176/366 | - | 160/340 |
+| rulings the engineer had to post | - | 0 | 9 | 1 |
+| study spend | 2.86 | 2.12 | - | 3.55 |
+
+The Fireplaces row, wrong in run 5 because an approved model answer outranked the engineer's
+ruling, is right in both studies: section 54's rule (#109) is confirmed live. The corrected study
+needed one ruling (Raised Wood Paneling) where run 3's needed nine, because the database copy
+already holds the firm's conventions and #109 serves them first. The one wrong row left in either
+study is Access Control, a concealed row the structure model produces (section 44), outside the
+evidenced count. The printed report reproduces from the export to the cent in both (87 numbers,
+one off by 0.01, as in run 5).
+
+**The 22 failed activities in the plain study are the host's, not Basis's.** `pmset -g log` shows
+the Mac running the stack entering sleep at 16:29Z and dark-waking at 16:32Z; in that window the
+Docker VM resolved no names (`[Errno -2] Name or service not known` on 17 OpenAI and 3 Anthropic
+connections). Two earlier failures were genuine provider timeouts (78 s and 74 s), recovered on
+the second attempt. In the no-DNS window seven `analyze_photo` activities exhausted their three
+attempts in two seconds and `reconcile_rooms` its three; the workflow flagged the seven photos,
+flagged the review that shows the room step's output, and finished with 45 of 52 photos placed
+in 43 rooms. That is the designed behaviour (`activity_options.py`: three attempts, one and two
+seconds apart, cannot outlast a 20-second outage; a photo's failure never fails the study), and it
+is why the plain study lost one evidenced row (Exterior Equipment Concrete Pads, 0.01 % of the
+total). The corrected study ran with the host held awake and had no failure.
+
+**Gap found.** The study page says "8 flagged photos. These photos could not be analyzed fully.
+They stay visible in the rooms review." The last sentence holds for a photo the model flagged
+(it has a room) and not for the seven whose analysis never ran: a photo with no analysis gets no
+room (`vision/rooms.py`), the rooms view returns rooms only, and the progress line counts a
+flagged photo as analyzed ("52 of 52"). An engineer cannot see which photos were skipped or send
+them back for analysis, because only a placed photo carries the re-analyze action. Not a
+regression (the behaviour dates from the first live-mode app), but the one item to fix from this
+run: the rooms view should return the unplaced photos with their failure code as a section of
+their own, with the re-analyze action; the progress line should count completed minus flagged.
+Recorded in `web/FRONTEND_BACKLOG.md` section 7. Also observed: `llm_calls` holds 5,683 rows,
+every one `status = ok`; a call that times out or fails to connect is never written, so the
+ledger can under-count spend during provider trouble (a request the provider completes after the
+client gives up is still billed). Low priority.
+
+**Verdict.** No regression on the final build; the corrected study is the best result so far
+(35/35, 39-year share within 0.07 points of the engineer's). Spend for the two studies: 5.67.
+Open: the unplaced-photos view; failed calls in the ledger; Access Control in the structure model;
+a second property, scored blind.
