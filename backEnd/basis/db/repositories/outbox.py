@@ -28,6 +28,9 @@ from basis.db.models import OutboxMessage
 
 WORKFLOW_SIGNAL: Final = "workflow_signal"
 NOTIFICATION: Final = "notification"
+# ``notification`` payloads carry a ``type``; this one is the invitation email the relay
+# renders and sends (``basis.relay.delivery``, ``basis.email.invitation``).
+INVITATION_NOTIFICATION: Final = "invitation"
 MAX_ERROR_LENGTH: Final = 2000
 
 

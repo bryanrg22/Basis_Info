@@ -406,7 +406,8 @@ or deleted (`forbid_mutation()`).
 
 | `event_type` | Actor | Carries |
 |---|---|---|
-| `org.created` | system (the CLI) | `after.name` |
+| `org.created` | the creator (`POST /v1/orgs`; also `subject_user_id`), or system (the CLI) | `after.name` |
+| `org.renamed` | an owner (`PATCH /v1/orgs/{org_id}`) | `before`/`after` `{name}`; the current name again records nothing |
 | `invitation.created` | engineer, or system from the CLI | `entity_id` the invitation; `after` `{email, role, expires_at}`; `detail.replaced` the expired invitation it closed, if any |
 | `invitation.revoked` | engineer, or system | `before` `{email, role, expires_at}`; `detail.reason`: `revoked` (an owner revoked it), `member_removed` (the member's removal revoked their open invitations; `subject_user_id` the member), `expired` (re-inviting closed an expired one) |
 | `invitation.accepted` | the invitee (also `subject_user_id`) | `after` `{email, role}` the role the member has afterwards; `detail.role_before` the role they already had (null when they joined) |

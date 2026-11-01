@@ -109,8 +109,9 @@ SPEC_TABLES = {
     "object_prompts": "id study_id document_id revision label params status reason returned "
     "kept_score model_version predict_seconds cost_usd created_by",
     # Invite-only firms: migration 0007_invitations.
+    # The invitation email's record (migration 0025_invitation_email; docs/api/FIRMS.md).
     "invitations": "id org_id email role created_by expires_at accepted_at accepted_by "
-    "declined_at declined_by revoked_at revoked_by",
+    "declined_at declined_by revoked_at revoked_by email_queued_at emailed_at email_error",
     # The per-study timeline and audit trail (migration 0013_study_events).
     "study_events": "id study_id seq event_type stage revision actor_type actor_id workflow_id "
     "run_id activity activity_id attempt started_at duration_ms entity_type entity_id code "
