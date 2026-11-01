@@ -8103,7 +8103,7 @@ been run live. The frontend changes (reading the draft on open, autosaving on ed
 costs nothing and keeps the duplicate check honest); whether `others` should carry the drafts'
 content for a reviewer role (not now: a colleague's half-finished work is theirs to send).
 
-## 58. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
+## 59. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
 
 **Question.** Can an engineering firm get onto Basis from a link, with no operator at a terminal:
 create its firm, invite its people, and have them told? Before this, a firm existed only through
@@ -8128,7 +8128,7 @@ owner; several firms per user allowed; names not unique), `PATCH /v1/orgs/{id}` 
 the invitation email through the outbox with its outcome on the invitation (`emailed_at`,
 `email_error`; `delivery` derived: `queued`, `sent`, `failed`, `not_sent`), `created_by_name` and
 `created_by_email` on studies, `signed_by_name` and `signed_by_email` on signatures; `org.created` and
-`org.renamed` on the firm's history (section 55). Migration 0025
+`org.renamed` on the firm's history (section 56). Migration 0025
 adds three nullable columns to `invitations`. Study visibility within a firm is unchanged and the
 reasons are written down (FIRMS.md 7).
 
