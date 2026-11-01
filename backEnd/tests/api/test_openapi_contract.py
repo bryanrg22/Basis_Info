@@ -43,6 +43,10 @@ Schemathesis setup, and why:
   method to its input, the use to the 80 % test), which JSON Schema cannot express, so a
   generated body is (correctly) 422. The rules are tested in ``test_studies.py`` and
   ``tests/unit/domain/test_intake.py``.
+* ``If-Match`` is dropped from ``PUT .../report-answers`` and ``PUT /orgs/{id}/profile``,
+  ``logo_png`` from the profile and ``prior_depreciation`` from the answers, as on the
+  intake: a generated tag is rightly 412, a base64 string that is not a PNG or a money
+  string that is not a number rightly 422 (``test_report_signing.py``).
 * The engine uses ``NullPool``: Schemathesis's ASGI client runs the app on its own event
   loop, and pooled asyncpg connections cannot move between loops.
 
@@ -258,6 +262,18 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         # 412 (tests/api/test_studies.py covers the precondition).
         if case.headers:
             case.headers.pop("If-Match", None)
+    if case.method.upper() == "PUT" and (
+        case.path.endswith("/report-answers") or case.path.endswith("/profile")
+    ):
+        # The report's inputs (docs/api/REPORT.md): If-Match as on the intake; a logo must be
+        # a PNG, and a money amount's string form a number, which the schema cannot say
+        # (tests/api/test_report_signing.py and the intake's tests cover them).
+        if case.headers:
+            case.headers.pop("If-Match", None)
+        if isinstance(case.body, dict):
+            case.body.pop("logo_png", None)
+            if "photographs" in case.body:
+                case.body["prior_depreciation"] = None
     if case.path.endswith("/assets/reprice") and case.method.upper() == "POST":
         # "At least one member" of the square-foot model is not in the schema.
         if isinstance(case.body, dict) and case.body.get("structure_model") is not None:

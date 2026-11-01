@@ -48,6 +48,11 @@ Event vocabulary (``event_type``; the actor in brackets):
 * ``study.stalled`` / ``review.reminded`` [system]; ``study.retry_requested`` /
   ``study.cancel_requested`` [engineer];
 * ``export.written`` [system]: the export (``detail.uri``, ``detail.sha256``);
+* ``study.report_answers_set`` [engineer]: the study's report answers (``before``/``after``;
+  ``detail``: ``version_before``/``version_after``, ``if_match``);
+* ``report.signed`` [engineer]: the engineer signed the revision's report (``entity_id`` the
+  signature; ``detail``: the attested engineer, the certification version, the sha256 of the
+  export, the reviewed preview and the signed PDF, its uri);
 * ``convention.promoted`` [engineer]: ``promote_conventions`` promoted an approved asset's
   ruling to the firm's conventions (``entity_id`` the asset; ``detail`` key, bucket,
   ``agrees_with_rules``, outcome, approvals); ``convention.replaced`` [engineer]: the

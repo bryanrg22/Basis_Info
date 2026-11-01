@@ -63,6 +63,7 @@ AREA_TITLES: Final[dict[str, str]] = {
     "EXPORT": "export_report",
     "CHECK": "Checks that flag a row for review",
     "COST": "The cost index store: the missing-year rule, conversions, acquisition",
+    "REPORT": "The study report and the preparer's schedule (basis.report)",
     "INF": "Infrastructure: worker start-up and the outbox relay",
 }
 
@@ -2976,6 +2977,169 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Retry (the next scheduled run does); the failures name the year and the cause.",
         "yes",
     ),
+    # ------------------------------------------------------------------ REPORT
+    _e(
+        E.REPORT_NOT_AN_EXPORT,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "The document given to the report is not a study export (`format` is not "
+        "`basis-export/2`).",
+        "`ReportError: not a study export: ... [BASIS-REPORT-001]`.",
+        "Pass the export JSON the export step wrote (`rev-<n>.json`).",
+        "no",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_NOT_PRODUCED,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "The export's allocation was withheld (`summary.basis.allocation` is null; "
+        "`summary.basis.missing` names why: the intake, the cost index, repricing, an "
+        "unreconciled replacement cost): there is nothing to report.",
+        "`ReportError: the allocation was withheld (missing: ...) [BASIS-REPORT-002]`; no PDF and "
+        "no schedule are written, and `export.written` records the skip.",
+        "Resolve what `missing` names (the intake, a reprice, the reconciliation), approve "
+        "again, export again.",
+        "after fix",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_TOTALS_DO_NOT_TIE,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "A report total does not tie to the cent: the items, classes, categories or schedule "
+        "against the depreciable basis, or price plus capitalized costs less land against it.",
+        "`ReportError: ... [BASIS-REPORT-003]`; nothing is written, so a schedule with a broken "
+        "total never ships.",
+        "A defect in the allocation or the report: file it with the export JSON.",
+        "no",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_ASSET_UNACCOUNTED,
+        "error",
+        "export_report",
+        "basis.report.model",
+        "An export asset is on no report line or on two (or an allocated asset is not in the "
+        "export).",
+        "`ReportError: assets not on exactly one line ... [BASIS-REPORT-004]`.",
+        "A defect: file it with the export JSON.",
+        "no",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_RENDER_FAILED,
+        "error",
+        "export_report",
+        "basis.report.render",
+        "The PDF template did not compile (Typst raised).",
+        "`ReportError: the report did not render: ... [BASIS-REPORT-005]`.",
+        "A template defect: file it with the export JSON and the template version.",
+        "no",
+        temporal_type="ReportError",
+    ),
+    _e(
+        E.REPORT_NOT_FOUND,
+        "refusal",
+        "GET /v1/studies/{id}/report",
+        "basis.api.routes.report",
+        "No report for the study and revision: nothing exported yet, or the files are missing "
+        "from storage. (An export that skipped the report answers with the skip's own code, "
+        "usually BASIS-REPORT-002.)",
+        "404 `not-found` with the code.",
+        "Approve the assets review so the export runs; for missing bytes, export again.",
+        "after fix",
+        problem="not-found",
+    ),
+    _e(
+        E.REPORT_NOT_SIGNABLE,
+        "refusal",
+        "`POST .../report/sign`, `GET .../report/preview`",
+        "basis.api.routes.report",
+        "The study's current revision has no report to sign or preview: it was not exported "
+        "yet, its export skipped the report, or the study is archived.",
+        "409 `conflict` with the code and the reason; nothing is written.",
+        "Approve the assets review so the export runs (or resolve what the skip names), then "
+        "preview and sign.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_INPUTS_MISSING,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "A final report needs the firm profile and the study's report answers; one or both are "
+        "not saved.",
+        "409 `conflict` naming the missing inputs (`firm`, `study`); nothing is written.",
+        "An owner saves the firm profile (`PUT /v1/orgs/{id}/profile`), an engineer the "
+        "answers (`PUT .../report-answers`); preview again and sign.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_ALREADY_SIGNED,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The revision's report is already signed; a signature is never replaced.",
+        "409 `conflict`; the existing signature stands (`GET .../report/state`).",
+        "None for this revision. Reopening the study makes a new revision, which is signed on "
+        "its own.",
+        "no",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_CHANGED,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The report rendered now differs from the preview the engineer reviewed "
+        "(`reviewed_sha256`): an input or the export changed since.",
+        "412 `precondition-failed`; the response's `ETag` is the current preview's sha256. "
+        "Nothing is signed.",
+        "Open the preview again, review it, and sign with its `ETag`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.REPORT_PROFILE_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT /v1/orgs/{id}/profile`",
+        "basis.api.routes.report",
+        "The `If-Match` entity tag is not the profile's current one, or `If-Match: *` on a "
+        "firm with no profile.",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the profile again, reapply the change, and send the new `ETag` as `If-Match`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.REPORT_ANSWERS_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT .../report-answers`",
+        "basis.api.routes.report",
+        "The `If-Match` entity tag is not the answers' current one, or `If-Match: *` on a "
+        "study with no answers.",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the answers again, reapply the change, and send the new `ETag` as `If-Match`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.REPORT_PROFILE_NOT_FOUND,
+        "refusal",
+        "`GET /v1/orgs/{id}/profile`",
+        "basis.api.routes.report",
+        "The firm has no profile yet.",
+        "404 `not-found` with the code.",
+        "An owner saves it with `PUT /v1/orgs/{id}/profile`.",
+        "after fix",
+        problem="not-found",
+    ),
     # ------------------------------------------------------------------ INF
     _e(
         E.INF_WORKER_CONFIG,
@@ -3045,6 +3209,9 @@ GENERIC_FOR_PROBLEM: Final[dict[str, str]] = {
     "service-unavailable": E.API_SERVICE_UNAVAILABLE,
     "stale-state": E.STUDY_STALE_STATE,
     "gate-not-open": E.STUDY_GATE_NOT_OPEN,
+    # The intake's was the only 412 before the report's (signing, profile, answers), which
+    # pass their codes explicitly; a bare 412 keeps the meaning it had.
+    "precondition-failed": E.STUDY_INTAKE_PRECONDITION_FAILED,
 }
 
 

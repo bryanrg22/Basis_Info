@@ -80,7 +80,7 @@ The API cannot see the worker's runtime: it is a separate process with its own s
 and in staging only the worker holds provider credentials. So:
 
 * **Worker and relay heartbeats.** Each process upserts one `service_heartbeats` row
-  (migration 0019) every `OPS_HEARTBEAT_SECONDS` (default 15) and on every state change:
+  (migration 0021) every `OPS_HEARTBEAT_SECONDS` (default 15) and on every state change:
   `starting`, then `warming` (the embedder loads before polling), then `polling`, then
   `draining`, then `stopped`, or `failed`. The worker's report holds its build, model
   routes, step switches (photo mode, count fusion, room step, surface crops, structure
@@ -185,5 +185,5 @@ explicitly authorized action with a budget and an audit record.
 | `OPS_PROVIDER_PROBE_SECONDS` | 60 (0: off) | worker |
 | `OPS_PROBE_LOCALIZER` | false | worker |
 
-Rollout: apply migration 0019 before deploying the worker and the relay. Until it is
+Rollout: apply migration 0021 before deploying the worker and the relay. Until it is
 applied they log `BASIS-INF-004` and keep running.

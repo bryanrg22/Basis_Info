@@ -86,6 +86,7 @@ from basis.db.enums import (
     StudyStatus,
 )
 from basis.domain.intake import StudyIntake
+from basis.report.inputs import FirmProfile, StudyAnswers
 
 EMBEDDING_DIM: Final = 384
 
@@ -98,7 +99,12 @@ NAMING_CONVENTION: Final[dict[str, str]] = {
 }
 
 # Tables with an ``updated_at`` column maintained by the set_updated_at() trigger.
-UPDATED_AT_TABLES: Final = ("studies", "activity_results", "classification_cache")
+UPDATED_AT_TABLES: Final = (
+    "studies",
+    "activity_results",
+    "classification_cache",
+    "firm_profiles",
+)
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
     "reviews",
@@ -109,7 +115,7 @@ APPEND_ONLY_TABLES: Final = (
 )
 # Tables whose rows are never updated once written (forbid_mutation() on UPDATE only;
 # migration 0018): a priced row's takeoff and cost, so the recorded trail cannot change.
-NO_UPDATE_TABLES: Final = ("takeoffs", "cost_estimates")
+NO_UPDATE_TABLES: Final = ("takeoffs", "cost_estimates", "report_signatures")
 # Tables whose rows cannot be inserted or updated once their corpus version is published.
 PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
 
@@ -173,6 +179,35 @@ class IntakeDocument(TypeDecorator[StudyIntake]):
 
     def process_result_value(self, value: Any, dialect: Dialect) -> StudyIntake | None:
         return None if value is None else StudyIntake.model_validate(value)
+
+
+class ReportAnswersDocument(TypeDecorator[StudyAnswers]):
+    """``studies.report_answers`` (migration ``0020_report_signing``): the study's answers
+    for the report (taxpayer, photographs, interviews, prior depreciation) as one JSONB
+    document, read back as :class:`basis.report.inputs.StudyAnswers`. NULL is "none yet"."""
+
+    impl = JSON_DOC
+    cache_ok = True
+
+    def process_bind_param(self, value: StudyAnswers | None, dialect: Dialect) -> Any:
+        return None if value is None else value.model_dump(mode="json")
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> StudyAnswers | None:
+        return None if value is None else StudyAnswers.model_validate(value)
+
+
+class FirmProfileDocument(TypeDecorator[FirmProfile]):
+    """``firm_profiles.profile``: :class:`basis.report.inputs.FirmProfile` as JSONB (the
+    logo as base64)."""
+
+    impl = JSON_DOC
+    cache_ok = True
+
+    def process_bind_param(self, value: FirmProfile | None, dialect: Dialect) -> Any:
+        return None if value is None else value.model_dump(mode="json")
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> FirmProfile | None:
+        return None if value is None else FirmProfile.model_validate(value)
 
 
 def _confidence_check(column: str) -> CheckConstraint:
@@ -307,6 +342,11 @@ class Study(Base):
             "intake IS NULL OR jsonb_typeof(intake) = 'object'", name="intake_is_object"
         ),
         CheckConstraint("intake_version >= 0", name="intake_version_not_negative"),
+        CheckConstraint(
+            "report_answers IS NULL OR jsonb_typeof(report_answers) = 'object'",
+            name="report_answers_is_object",
+        ),
+        CheckConstraint("report_answers_version >= 0", name="report_answers_version_not_negative"),
         Index("ix_studies_org_id_created_at", "org_id", text("created_at DESC")),
     )
 
@@ -340,6 +380,12 @@ class Study(Base):
     # The intake's version (migration ``0018``): incremented by every intake write, 0 while
     # there is none; the entity tag ``PUT /v1/studies/{id}/intake`` compares (``If-Match``).
     intake_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    # The study's answers for the report (STUDY_REPORT_SPEC 11.6, 11.13; migration ``0020``)
+    # and their version, the entity tag of ``PUT /v1/studies/{id}/report-answers``.
+    report_answers: Mapped[StudyAnswers | None] = mapped_column(
+        ReportAnswersDocument, nullable=True
+    )
+    report_answers_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -934,6 +980,59 @@ class StudyEvent(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+# --------------------------------------------------------------------- the report
+
+
+class FirmProfileRow(Base):
+    """The firm's letterhead and signing engineer for its reports (STUDY_REPORT_SPEC 11.13;
+    migration ``0020_report_signing``): one row per firm, ``version`` its entity tag."""
+
+    __tablename__ = "firm_profiles"
+    __table_args__ = (
+        CheckConstraint("jsonb_typeof(profile) = 'object'", name="profile_is_object"),
+        CheckConstraint("version >= 1", name="version_positive"),
+    )
+
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), primary_key=True)
+    profile: Mapped[FirmProfile] = mapped_column(FirmProfileDocument)
+    version: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class ReportSignature(Base):
+    """An engineer's signature on a revision's report (STUDY_REPORT_SPEC 11.13): who signed,
+    the name and credentials they attested, the certification version, and the sha256 of the
+    export, of the preview they reviewed and of the signed PDF. One per revision; never
+    updated (``forbid_mutation()``)."""
+
+    __tablename__ = "report_signatures"
+    __table_args__ = (
+        UniqueConstraint("study_id", "revision"),
+        CheckConstraint("revision >= 1", name="revision_positive"),
+        CheckConstraint("jsonb_typeof(engineer) = 'object'", name="engineer_is_object"),
+        CheckConstraint(
+            "export_sha256 ~ '^[0-9a-f]{64}$' AND reviewed_sha256 ~ '^[0-9a-f]{64}$' "
+            "AND pdf_sha256 ~ '^[0-9a-f]{64}$'",
+            name="sha256_hex",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    revision: Mapped[int]
+    signed_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    signed_at: Mapped[datetime]
+    engineer: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    statement_version: Mapped[int]
+    export_sha256: Mapped[str]
+    reviewed_sha256: Mapped[str]
+    pdf_uri: Mapped[str]
+    pdf_sha256: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
+
+
 class LlmCall(Base):
     """One paid call of a study: the ledger (EVAL_REPORT section 40; migration
     ``0012_call_ledger``). ``kind`` says what was paid for: ``chat`` (a model call through
@@ -1247,7 +1346,7 @@ class CostIndexRun(Base):
 
 class ServiceHeartbeat(Base):
     """The latest heartbeat of one worker or relay process (migration
-    ``0019_service_heartbeats``), read by ``GET /v1/ops/health``.
+    ``0021_service_heartbeats``), read by ``GET /v1/ops/health``.
 
     One row per process start (``id`` is a random id, never the host name), upserted
     every ``OPS_HEARTBEAT_SECONDS`` and on every state change. ``state`` is the process's

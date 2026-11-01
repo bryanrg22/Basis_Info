@@ -1,7 +1,7 @@
 """``service_heartbeats``: the latest heartbeat of each worker and relay process.
 
-Revision ID: 0019
-Revises: 0018
+Revision ID: 0021
+Revises: 0020
 Create Date: 2026-10-31
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
@@ -21,8 +21,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0019"
-down_revision: str | Sequence[str] | None = "0018"
+revision: str = "0021"
+down_revision: str | Sequence[str] | None = "0020"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

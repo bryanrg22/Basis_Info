@@ -139,7 +139,7 @@ before. `live/gates.js` holds these rules without the DOM (`web/tests/gates.test
 | Components review (`#components`) | `GET …/rooms` (photos, inventories, `suggested_counts`); `component` (label, count, material, attachment), `room_component` (add a component the inventory is missing) and `photo` (re-analyze, in the room the rooms review approved) corrections. A row whose label the photos show more of than the room counts says "Photos show N" with **Use N**; labels the photos show and the inventory lacks get **Add N to the room**; **Add a component to this room** takes a taxonomy label, a count and optional material and attachment (see "Adding what the pipeline missed"). For a study with the single rooms review all of this is on the rooms page, with the rooms corrections |
 | Photo components | `GET …/photos/{doc}/objects` (edits at the components review, or the single rooms review); SAM 3 masks decoded in the browser (`live/rle.js`) and drawn on a canvas (`live/mask-layer.js`): **Spotlight** (default: one component, glow, numbered pins), **Show all** (every counted instance, tinted by component), one instance (score, size, where its outline came from, delete). **Add object** (`live/manual-add.js`): **Draw a box** (the default) or **Tap it** to preview and cycle the candidates under the tap. Delete: `DELETE` (manual objects only; the API keeps the model's) |
 | Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with their document, page, section and verification, `live/citations.js`; review reasons as sentences, `live/review-reasons.js`); `asset` corrections (category, class, recovery period, IRS section) |
-| Schedule | totals by recovery class from `GET …/assets`; a CSV of the table |
+| Schedule | totals by recovery class from `GET …/assets`; a CSV of the table; the Client report (`live/live-report.js`): its state, the firm profile (owners) and study details (engineers), the preview, the report PDF (signed once it is) and the preparer's schedule (CSV, XLSX), and Sign (enabled once the preview was opened; `docs/api/REPORT.md`) |
 | Files | the study's documents; open and download through the API |
 
 ### Adding what the pipeline missed
@@ -208,7 +208,6 @@ Fields the design shows that the API does not have:
   and IRS section only).
 * "Reviewed" marks per field, photo or asset (the gate decision is the only review state).
 * Field locations on the page (a field has a page number, no box).
-* Report or export of the schedule (no endpoint): the CSV is built in the browser.
 * Activity history with attribution and revision diffs (`runs` and `latest_reviews` exist).
 
 API data the design does not show yet:
@@ -234,7 +233,7 @@ API data the design does not show yet:
 ## Tests
 
 ```sh
-node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons, firms, manual add)
+node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons, firms, manual add, report signing)
 node web/tests/live-smoke.mjs --origin http://127.0.0.1:3100 --owner-email you@example.com   # against the local stack
 ```
 

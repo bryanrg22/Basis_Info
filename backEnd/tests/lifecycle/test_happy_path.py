@@ -17,7 +17,16 @@ from lifecycletest_support import make_deps
 from sqlalchemy import select
 
 from basis.db.enums import ClassificationMethod, Stage, StudyStatus
-from basis.db.models import Asset, Citation, Component, Extraction, LlmCall, PhotoRoom, Room
+from basis.db.models import (
+    Asset,
+    Citation,
+    Component,
+    Extraction,
+    LlmCall,
+    PhotoRoom,
+    Room,
+    StudyEvent,
+)
 from basis.db.repositories.activity_result import COMPLETED
 from basis.db.session import session_scope
 from basis.workflow.study_workflow import workflow_id_for
@@ -168,6 +177,18 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         "evidence",
         "summary",
     }
+    # No intake, so no allocation: the export is written and the report is skipped with the
+    # reason on the timeline (BASIS-REPORT-002), never failing the export.
+    async with session_scope(harness.sessionmaker) as session:
+        events = await session.scalars(
+            select(StudyEvent).where(
+                StudyEvent.study_id == uuid.UUID(exported["study_id"]),
+                StudyEvent.event_type == "export.written",
+            )
+        )
+        [written] = list(events)
+    assert written.detail["report"]["skipped"]["code"] == "BASIS-REPORT-002"
+    assert "intake" in written.detail["report"]["skipped"]["message"]
 
 
 async def test_status_query_reports_the_gate_and_the_budget(harness: Harness) -> None:
