@@ -27,9 +27,10 @@ Every :data:`SWEEP_INTERVAL_S` a process also deletes rows older than :data:`RET
 Degraded mode: when the database cannot be reached (a connection cannot be opened, the pool
 is exhausted, a connection drops) the limiter answers from a per-process
 :class:`~basis.api.ratelimit.InMemoryRateLimiter` and logs a warning (at most one per
-:data:`SWEEP_INTERVAL_S`, with ``E.API_RATE_LIMIT_STORE_UNAVAILABLE``). Failing closed would turn a database
-outage into a refusal of every request, including ``GET /v1/ops/health``, which is built to
-answer while the database is down; failing to per-process limiting keeps a flood bounded
+:data:`SWEEP_INTERVAL_S`, with ``E.API_RATE_LIMIT_STORE_UNAVAILABLE``). Failing closed would
+turn a database outage into a refusal of every request, including ``GET /v1/ops/health``,
+which is built to answer while the database is down; failing to per-process limiting keeps a
+flood bounded
 while the database is being brought back. A programming error (the table missing because
 the migration was not applied) is not caught: it must surface as a 500 in the first
 request, not as silent per-process limiting.
