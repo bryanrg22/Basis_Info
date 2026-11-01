@@ -7783,7 +7783,44 @@ answer, the provenance carries `origin`, and the rationale names the kind of row
 `tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
 copy.
 
-## 55. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
+## 55. Per-user activity, the study library on the server, the audit completed, the firm's own history (2026-11-01)
+
+**Question.** Can an engineer see what they did, can the library search, filter and sort on the server
+instead of in the browser, does the audit list every engineer action, and is anything that happens to a
+firm (an invitation, a role, a removal) recorded anywhere?
+
+**What was built** (migration `0022`; docs/api/STUDY_LIBRARY.md, docs/api/TIMELINE_AND_AUDIT.md):
+
+| Piece | Route | Design decision |
+|---|---|---|
+| Per-user activity | `GET /v1/me/activity` | The caller's own `study_events` rows across the studies of their firms, with the study's id and property name, newest first by `seq`. The cap is two things: 200 rows a page, and a 90-day window when `since` is absent; the response echoes the window it applied so a client pins it on the next page. `since` after `until` is an empty page, not an error. Served by a new `(actor_id, seq DESC)` index. |
+| Library | `GET /v1/studies` | `q` (case-insensitive substring, LIKE wildcards literal), `status` (repeatable), `created_by`, `include_archived`, `sort` (`updated_desc` default, `created_desc`, `name_asc`), `total`. The keyset cursor encodes the sort it was issued under and the row's key, so a cursor replayed under another sort is 422 rather than a wrong page. The default order changed from newest to most recently updated, which is what the web app shows by default. `POST .../unarchive` (owner) restores the status the stage implies, `failed` while a failure is recorded. |
+| Audit | `GET /v1/studies/{id}/audit` | Eight kinds added from the events the routes already write (intake and report answers set, upload confirmed, started, retry, cancel, archived, unarchived, signed). Paginated on `(at, seq, kind, entity_id)`: assembled from four tables, sorted, cut; `seq` keeps several events of one request in order. |
+| Firm history | `GET /v1/orgs/{org_id}/activity` (owner) | `org_events`, append-only like `study_events`, written by the repositories so the operator CLI and the API record alike and a refused request leaves nothing: `org.created`, `invitation.created/accepted/declined/revoked` (with why), `member.role_changed`, `member.removed` (with the invitations it revoked), `profile.set` (the fields changed, never the logo). |
+
+**Not SQL, on purpose.** The audit page is cut in memory after a four-table assembly. One study's
+engineer actions are bounded by what engineers did to it (tens to low hundreds), not by the pipeline's
+output; a union of four row shapes would buy nothing at that size. `GET /v1/me/activity` and the firm
+history are plain keyset queries.
+
+**Verified.** 18 library tests (pages under each of the three sorts over colliding names and shuffled
+update times have no gap or repeat and equal the one listing cut; a row inserted between pages is neither
+skipped nor repeated; `%`, `_` and `\` in `q` are literal; archived hidden unless asked; unarchive restores
+each of five statuses and records one event under three concurrent requests), 16 activity tests (own
+events only, a left firm hidden, the 90-day default against events written 80 and 100 days ago, every
+firm action through its real route with who did what, the CLI's rows as `system`, re-inviting after
+expiry, `org_events` refusing UPDATE and DELETE, the last-owner refusal leaving no event), the audit's
+eleven items in order with pages of four, migration `0022` up, constraints, down to the `0021` snapshot
+and up again, `alembic check` clean, the OpenAPI document regenerated and the contract test (Schemathesis
+over every operation, the three new ones included) green, every gate green.
+
+**Not verified.** No live run through the stack: the routes are exercised against a real PostgreSQL in
+the tests, not against the staging deployment; the web app is unchanged and still filters in the
+browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeCompare` and `lower()` may
+order accented names differently. The audit's in-memory page is the right size for a study's engineer
+actions; a study with thousands of corrections would want the union query.
+
+## 58. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
 
 **Question.** Can an engineering firm get onto Basis from a link, with no operator at a terminal:
 create its firm, invite its people, and have them told? Before this, a firm existed only through

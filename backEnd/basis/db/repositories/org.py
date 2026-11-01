@@ -10,6 +10,9 @@ time. The caller re-reads its own role after taking the lock (``basis.api.routes
 two owners demoting each other at once cannot both succeed, because the second one runs
 after the first has committed and is no longer an owner. Under READ COMMITTED each
 statement after the lock wait sees what the first transaction committed.
+
+A role change and a removal are recorded on the firm's history (``org_events``,
+:mod:`basis.db.repositories.org_event`) in the same transaction.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from basis.db.enums import OrgRole
 from basis.db.errors import LastOwnerError, NotVisibleError
 from basis.db.models import Invitation, Org, OrgMember, User
+from basis.db.repositories.org_event import OrgEventRepository
 
 DETAIL_LAST_OWNER = "A firm must keep at least one owner; make another member an owner first."
 DETAIL_MEMBER_NOT_FOUND = "Member not found."
@@ -171,11 +175,19 @@ class OrgRepository:
         )
         return await self._session.scalar(stmt)
 
-    async def set_role(self, org_id: uuid.UUID, user_id: uuid.UUID, role: OrgRole) -> Member:
+    async def set_role(
+        self,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        role: OrgRole,
+        *,
+        changed_by: uuid.UUID | None = None,
+    ) -> Member:
         """Change a member's role. Call with the firm locked (:meth:`lock`).
 
         Raises ``NotVisibleError`` for a non-member and ``LastOwnerError`` when the last
-        owner would be demoted. Setting the current role is a no-op.
+        owner would be demoted. Setting the current role is a no-op (nothing recorded).
+        ``changed_by`` is the owner who changed it, recorded as ``member.role_changed``.
         """
         current = await self.member(org_id, user_id)
         if current is None:
@@ -191,6 +203,16 @@ class OrgRepository:
         )
         updated = await self.member(org_id, user_id)
         assert updated is not None
+        await OrgEventRepository(self._session).record(
+            org_id,
+            "member.role_changed",
+            actor_id=changed_by,
+            subject_user_id=user_id,
+            entity_type="member",
+            entity_id=user_id,
+            before={"role": current.role.value},
+            after={"role": role.value},
+        )
         return updated
 
     async def remove(self, org_id: uuid.UUID, user_id: uuid.UUID, removed_by: uuid.UUID) -> Member:
@@ -210,19 +232,54 @@ class OrgRepository:
         await self._session.execute(
             delete(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == user_id)
         )
+        revoked: list[Invitation] = []
         if current.email:
             # Lock order: the firm row (held by the caller), then invitation rows.
-            await self._session.execute(
-                update(Invitation)
-                .where(
-                    Invitation.org_id == org_id,
-                    Invitation.email == current.email.strip().lower(),
-                    Invitation.accepted_at.is_(None),
-                    Invitation.declined_at.is_(None),
-                    Invitation.revoked_at.is_(None),
-                )
-                .values(revoked_at=func.now(), revoked_by=removed_by)
-                .execution_options(synchronize_session=False)
+            revoked = list(
+                (
+                    await self._session.scalars(
+                        update(Invitation)
+                        .where(
+                            Invitation.org_id == org_id,
+                            Invitation.email == current.email.strip().lower(),
+                            Invitation.accepted_at.is_(None),
+                            Invitation.declined_at.is_(None),
+                            Invitation.revoked_at.is_(None),
+                        )
+                        .values(revoked_at=func.now(), revoked_by=removed_by)
+                        .returning(Invitation)
+                        .execution_options(synchronize_session=False, populate_existing=True)
+                    )
+                ).all()
+            )
+        events = OrgEventRepository(self._session)
+        await events.record(
+            org_id,
+            "member.removed",
+            actor_id=removed_by,
+            subject_user_id=user_id,
+            entity_type="member",
+            entity_id=user_id,
+            before={"role": current.role.value},
+            detail={
+                "self": removed_by == user_id,
+                "invitations_revoked": [str(invitation.id) for invitation in revoked],
+            },
+        )
+        for invitation in revoked:
+            await events.record(
+                org_id,
+                "invitation.revoked",
+                actor_id=removed_by,
+                subject_user_id=user_id,
+                entity_type="invitation",
+                entity_id=invitation.id,
+                before={
+                    "email": invitation.email,
+                    "role": invitation.role,
+                    "expires_at": invitation.expires_at.isoformat(),
+                },
+                detail={"reason": "member_removed"},
             )
         return current
 

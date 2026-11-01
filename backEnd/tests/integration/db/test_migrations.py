@@ -62,6 +62,9 @@
   never updated, deletable); it downgrades back to ``0019`` exactly;
 * ``0021_service_heartbeats`` adds the ops health heartbeats (one row per worker or relay
   process), checked by ``alembic check`` and the downgrade to base;
+* ``0022_user_activity_org_events`` adds the ``(actor_id, seq DESC)`` index on
+  ``study_events`` and the append-only ``org_events`` (the firm's own history, under the
+  ``forbid_mutation()`` trigger), nothing backfilled; it downgrades back to ``0021`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -101,10 +104,10 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-# 0024 revises 0021 on this branch (0022 and 0023 were open elsewhere when it was written);
-# at merge its down_revision and this list take the then-current head.
-HEAD = "0024"
-HISTORY = ["0024"] + [f"{n:04d}" for n in range(21, 0, -1)]  # "0024", "0021" .. "0001"
+# 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
+# (review drafts), the three branches it was merged with.
+HEAD = "0025"
+HISTORY = [f"{n:04d}" for n in range(25, 0, -1)]  # "0025" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1516,3 +1519,75 @@ async def test_0020_report_signing_and_downgrade(empty_database_url: str) -> Non
         await connection.close()
     await downgrade(url, "0019")
     assert await snapshot(url) == at_0019
+
+
+# --------------------------------------------------------------------------- 0022
+
+
+async def test_0022_actor_index_and_org_events_append_only_and_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0021")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, user = await _photo(connection)
+        org = await connection.fetchval("SELECT org_id FROM studies WHERE id = $1", study)
+    finally:
+        await connection.close()
+    at_0021 = await snapshot(url)
+    await upgrade(url)
+    after = await snapshot(url)
+    assert "org_events" in after["tables"]  # type: ignore[operator]
+    assert ("org_events_append_only", "org_events") in after["triggers"]  # type: ignore[operator]
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        index = await connection.fetchval(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_study_events_actor_id_seq'"
+        )
+        assert index is not None and index.endswith("(actor_id, seq DESC)")
+        first = await connection.fetchrow(
+            "INSERT INTO org_events (org_id, event_type, actor_type, actor_id, subject_user_id, "
+            "entity_type, entity_id, before, after, detail) VALUES ($1, 'member.role_changed', "
+            "'engineer', $2, $2, 'member', $2, '{\"role\": \"engineer\"}'::jsonb, "
+            '\'{"role": "owner"}\'::jsonb, NULL) RETURNING id, seq, created_at',
+            org,
+            user,
+        )
+        second = await connection.fetchrow(
+            "INSERT INTO org_events (org_id, event_type, actor_type) "
+            "VALUES ($1, 'org.created', 'system') RETURNING seq",
+            org,
+        )
+        assert second["seq"] > first["seq"] and first["created_at"] is not None
+        with pytest.raises(asyncpg.RestrictViolationError):
+            await connection.execute(
+                "UPDATE org_events SET event_type = 'x' WHERE id = $1", first["id"]
+            )
+        with pytest.raises(asyncpg.RestrictViolationError):
+            await connection.execute("DELETE FROM org_events WHERE id = $1", first["id"])
+        with pytest.raises(asyncpg.CheckViolationError, match="actor_valid"):
+            await connection.execute(
+                "INSERT INTO org_events (org_id, event_type, actor_type) VALUES ($1, 'x', 'model')",
+                org,
+            )
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute(
+                "INSERT INTO org_events (org_id, event_type, actor_type) "
+                "VALUES ($1, 'x', 'system')",
+                uuid.uuid4(),
+            )
+        # The study_events rows are untouched by the index.
+        assert await connection.fetchval("SELECT count(*) FROM study_events") == 0
+    finally:
+        await connection.close()
+    await downgrade(url, "0021")
+    assert await snapshot(url) == at_0021
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        assert not await connection.fetch(
+            "SELECT 1 FROM pg_indexes WHERE indexname = 'ix_study_events_actor_id_seq'"
+        )
+    finally:
+        await connection.close()
+    await upgrade(url)

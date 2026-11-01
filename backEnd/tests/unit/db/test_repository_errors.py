@@ -7,6 +7,8 @@ driver error.
 
 from __future__ import annotations
 
+import base64
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -24,6 +26,7 @@ from basis.db.errors import (
     StaleStateError,
     constraint_name,
 )
+from basis.db.models import Study
 from basis.db.repositories import (
     DECISION_TRANSITIONS,
     SINGLE_ROOMS_GATE_TRANSITIONS,
@@ -31,7 +34,7 @@ from basis.db.repositories import (
     scoped_key,
 )
 from basis.db.repositories.document import normalize_sha256
-from basis.db.repositories.study import decode_cursor, encode_cursor
+from basis.db.repositories.study import SORTS, StudySort, decode_cursor, encode_cursor
 
 
 @pytest.mark.parametrize(
@@ -112,12 +115,36 @@ def test_org_role_rank_order() -> None:
     assert OrgRole.VIEWER.rank < OrgRole.ENGINEER.rank < OrgRole.OWNER.rank
 
 
-def test_cursor_round_trip() -> None:
-    created_at = datetime(2026, 10, 15, 12, 30, 45, 123456, tzinfo=UTC)
-    study_id = uuid.uuid4()
-    cursor = encode_cursor(created_at, study_id)
+def _study(name: str = "Harbor") -> Study:
+    return Study(
+        id=uuid.uuid4(),
+        property_name=name,
+        created_at=datetime(2026, 10, 15, 12, 30, 45, 123456, tzinfo=UTC),
+        updated_at=datetime(2026, 10, 16, 8, 0, 0, 7, tzinfo=UTC),
+    )
+
+
+@pytest.mark.parametrize("sort", SORTS)
+def test_cursor_round_trip_under_each_sort(sort: StudySort) -> None:
+    study = _study("Harbor Blvd")
+    cursor = encode_cursor(sort, study)
     assert "=" not in cursor and "/" not in cursor and "+" not in cursor
-    assert decode_cursor(cursor) == (created_at, study_id)
+    key, study_id = decode_cursor(cursor, sort)
+    assert study_id == study.id
+    expected = {
+        "updated_desc": study.updated_at,
+        "created_desc": study.created_at,
+        "name_asc": "harbor blvd",  # the name's lower-cased form, the sort's key
+    }
+    assert key == expected[sort]
+
+
+def test_a_cursor_issued_under_another_sort_is_invalid() -> None:
+    cursor = encode_cursor("updated_desc", _study())
+    with pytest.raises(InvalidCursorError, match="issued for sort=updated_desc"):
+        decode_cursor(cursor, "name_asc")
+    with pytest.raises(InvalidCursorError, match="issued for sort=updated_desc"):
+        decode_cursor(cursor, "created_desc")
 
 
 @pytest.mark.parametrize(
@@ -126,16 +153,26 @@ def test_cursor_round_trip() -> None:
         "",
         "!!!",
         "bm90LWpzb24",  # "not-json"
-        encode_cursor(datetime(2026, 1, 1, tzinfo=UTC), uuid.uuid4())[:-4],
+        encode_cursor("created_desc", _study())[:-4],
+        # the cursor format before sorting existed ({"t", "id"}): no sort, so not comparable
+        "eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMCswMDowMCIsImlkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIn0",
         # naive timestamp
-        "eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMCIsImlkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIn0",
+        "eyJzIjoiY3JlYXRlZF9kZXNjIiwiayI6IjIwMjYtMDEtMDFUMDA6MDA6MDAiLCJpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMCJ9",
         # bad uuid
-        "eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMCswMDowMCIsImlkIjoibm9wZSJ9",
+        "eyJzIjoiY3JlYXRlZF9kZXNjIiwiayI6IjIwMjYtMDEtMDFUMDA6MDA6MDArMDA6MDAiLCJpZCI6Im5vcGUifQ",
     ],
 )
 def test_invalid_cursor(cursor: str) -> None:
     with pytest.raises(InvalidCursorError):
-        decode_cursor(cursor)
+        decode_cursor(cursor, "created_desc")
+
+
+def test_a_name_cursor_needs_a_string_key() -> None:
+    raw = base64.urlsafe_b64encode(
+        json.dumps({"s": "name_asc", "k": 3, "id": str(uuid.uuid4())}).encode()
+    ).decode()
+    with pytest.raises(InvalidCursorError):
+        decode_cursor(raw, "name_asc")
 
 
 def test_scoped_key() -> None:

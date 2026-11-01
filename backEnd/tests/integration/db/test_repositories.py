@@ -95,7 +95,9 @@ async def test_list_for_user_paginates_newest_first_without_gaps(
     cursor = None
     pages = 0
     while True:
-        page = await repo.list_for_user(owner.id, limit=3, cursor=cursor)
+        # The listing's default sort is updated_desc (the library); this test pins the
+        # creation order, so it asks for it.
+        page = await repo.list_for_user(owner.id, limit=3, cursor=cursor, sort="created_desc")
         seen.extend(study.id for study in page.items)
         pages += 1
         if page.next_cursor is None:

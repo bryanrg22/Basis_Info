@@ -112,6 +112,7 @@ APPEND_ONLY_TABLES: Final = (
     "study_events",
     "cost_indices",
     "cost_index_runs",
+    "org_events",
 )
 # Tables whose rows are never updated once written (forbid_mutation() on UPDATE only;
 # migration 0018): a priced row's takeoff and cost, so the recorded trail cannot change.
@@ -961,6 +962,8 @@ class StudyEvent(Base):
         UniqueConstraint("seq"),
         Index(None, "study_id", "seq"),
         Index(None, "study_id", "entity_id"),
+        # ``GET /v1/me/activity`` (migration ``0022``): one user's own actions, newest first.
+        Index("ix_study_events_actor_id_seq", "actor_id", text("seq DESC")),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -981,6 +984,42 @@ class StudyEvent(Base):
     entity_type: Mapped[str | None]
     entity_id: Mapped[uuid.UUID | None]
     code: Mapped[str | None]
+    request_id: Mapped[str | None]
+    before: Mapped[Any | None] = mapped_column(JSON_DOC)
+    after: Mapped[Any | None] = mapped_column(JSON_DOC)
+    detail: Mapped[Any | None] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
+
+
+ORG_EVENT_ACTORS: Final = ("engineer", "system")
+
+
+class OrgEvent(Base):
+    """One occurrence in a firm's history that is not about a study (migration ``0022``):
+    an invitation created, accepted, declined or revoked, a member's role changed, a member
+    removed, the report profile set, the firm created. Append-only (``forbid_mutation()``),
+    written in the same transaction as the change, ordered by ``seq``; the vocabulary is
+    :mod:`basis.db.repositories.org_event` (docs/api/TIMELINE_AND_AUDIT.md). ``actor_type``
+    is ``engineer`` for a signed-in member (``actor_id`` the user) and ``system`` for the
+    operator CLI or bookkeeping; ``subject_user_id`` is the member the event is about.
+    """
+
+    __tablename__ = "org_events"
+    __table_args__ = (
+        CheckConstraint("actor_type IN ('engineer', 'system')", name="actor_valid"),
+        UniqueConstraint("seq"),
+        Index(None, "org_id", "seq"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    event_type: Mapped[str]
+    actor_type: Mapped[str]
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    subject_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    entity_type: Mapped[str | None]
+    entity_id: Mapped[uuid.UUID | None]
     request_id: Mapped[str | None]
     before: Mapped[Any | None] = mapped_column(JSON_DOC)
     after: Mapped[Any | None] = mapped_column(JSON_DOC)

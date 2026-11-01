@@ -184,6 +184,12 @@ class StudyIntakeOut(ResponseModel):
 
 class StudyList(ResponseModel):
     items: list[StudyOut]
+    total: int = Field(
+        ge=0,
+        description="How many studies match the filters in all, across every page "
+        "(docs/api/STUDY_LIBRARY.md).",
+    )
     next_cursor: str | None = Field(
-        description="Pass as `cursor` to get the next page; null on the last page."
+        description="Pass as `cursor` with the same `sort` to get the next page; null on "
+        "the last page."
     )

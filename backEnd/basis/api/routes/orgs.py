@@ -179,7 +179,7 @@ async def change_member_role(
     session: SessionDep,
 ) -> MemberOut:
     await lock_as_owner(session, user, org_id)
-    member = await OrgRepository(session).set_role(org_id, user_id, body.role)
+    member = await OrgRepository(session).set_role(org_id, user_id, body.role, changed_by=user.id)
     return MemberOut.of(member)
 
 

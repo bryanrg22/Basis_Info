@@ -1,4 +1,12 @@
-"""Studies: creation, visibility through org membership, keyset listing, stage transitions."""
+"""Studies: creation, visibility through org membership, the library listing (search,
+filters, sort, keyset pages, a total), stage transitions, archive and unarchive.
+
+The listing (``GET /v1/studies``, docs/api/STUDY_LIBRARY.md) sorts by one of
+:data:`SORTS` and pages with a keyset cursor that encodes the sort it was issued under and
+the last row's sort key, so a page never skips or repeats a row while rows are inserted or
+updated between requests, and a cursor cannot be replayed under another sort (the keys
+would not compare). The same filters give ``total``, the count of matching rows.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +14,12 @@ import base64
 import binascii
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Any, Final, Literal
 
-from sqlalchemy import and_, select, tuple_, update
+from sqlalchemy import ColumnElement, and_, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import OrgRole, Stage, StudyStatus, status_for_stage
@@ -27,11 +35,28 @@ from basis.domain.intake import StudyIntake
 
 MAX_PAGE_SIZE: Final = 100
 
+StudySort = Literal["updated_desc", "created_desc", "name_asc"]
+SORTS: Final[tuple[StudySort, ...]] = ("updated_desc", "created_desc", "name_asc")
+DEFAULT_SORT: Final[StudySort] = "updated_desc"
+# A name sorts by its lower-cased form so case never splits the alphabet; ties by id.
+_NAME_KEY: Final = func.lower(Study.property_name)
+
 
 @dataclass(frozen=True, slots=True)
 class StudyPage:
     items: list[Study]
     next_cursor: str | None
+    total: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class StudyFilters:
+    """What ``GET /v1/studies`` narrows the listing by (docs/api/STUDY_LIBRARY.md)."""
+
+    q: str | None = None  # case-insensitive substring of the property name (trimmed)
+    statuses: Sequence[StudyStatus] = ()
+    created_by: uuid.UUID | None = None
+    include_archived: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,23 +78,57 @@ class IntakeWrite:
 IntakePrecondition = Callable[[int, bool], bool]
 
 
-def encode_cursor(created_at: datetime, study_id: uuid.UUID) -> str:
-    """Opaque keyset cursor for ``(created_at, id)``."""
-    raw = json.dumps({"t": created_at.isoformat(), "id": str(study_id)}, separators=(",", ":"))
+def encode_cursor(sort: StudySort, study: Study) -> str:
+    """Opaque keyset cursor: the sort and the row's sort key (``{"s", "k", "id"}``)."""
+    key: str = (
+        study.property_name.lower()
+        if sort == "name_asc"
+        else (study.updated_at if sort == "updated_desc" else study.created_at).isoformat()
+    )
+    raw = json.dumps({"s": sort, "k": key, "id": str(study.id)}, separators=(",", ":"))
     return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 
-def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+def decode_cursor(cursor: str, sort: StudySort) -> tuple[Any, uuid.UUID]:
+    """The sort key and id a cursor names, for ``sort``; ``InvalidCursorError`` when it
+    does not decode or was issued under another sort (its key is not comparable)."""
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         data = json.loads(base64.urlsafe_b64decode(padded.encode()))
-        created_at = datetime.fromisoformat(data["t"])
-        study_id = uuid.UUID(data["id"])
+        issued, study_id = data["s"], uuid.UUID(data["id"])
+        key: Any = data["k"]
+        if issued in SORTS and issued != "name_asc":
+            key = datetime.fromisoformat(key)
     except (binascii.Error, ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
         raise InvalidCursorError("invalid pagination cursor") from exc
-    if created_at.tzinfo is None:
+    if issued != sort:
+        raise InvalidCursorError(f"the cursor was issued for sort={issued}, not {sort}")
+    if (sort == "name_asc" and not isinstance(key, str)) or (
+        sort != "name_asc" and key.tzinfo is None
+    ):
         raise InvalidCursorError("invalid pagination cursor")
-    return created_at, study_id
+    return key, study_id
+
+
+def _escape_like(text: str) -> str:
+    """``text`` as a literal inside a LIKE pattern (``\\`` is the escape character)."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _filter_clauses(filters: StudyFilters) -> list[ColumnElement[bool]]:
+    clauses: list[ColumnElement[bool]] = []
+    statuses = list(filters.statuses)
+    if statuses:
+        clauses.append(Study.status.in_(statuses))
+    # Archived studies are hidden unless asked for, by the switch or by naming the status.
+    if not filters.include_archived and StudyStatus.ARCHIVED not in statuses:
+        clauses.append(Study.status != StudyStatus.ARCHIVED)
+    q = (filters.q or "").strip()
+    if q:
+        clauses.append(Study.property_name.ilike(f"%{_escape_like(q)}%", escape="\\"))
+    if filters.created_by is not None:
+        clauses.append(Study.created_by == filters.created_by)
+    return clauses
 
 
 class StudyRepository:
@@ -129,30 +188,49 @@ class StudyRepository:
         cursor: str | None = None,
         *,
         include_archived: bool = False,
+        filters: StudyFilters | None = None,
+        sort: StudySort = DEFAULT_SORT,
     ) -> StudyPage:
-        """Studies in every org the user belongs to, newest first, keyset-paginated."""
+        """Studies in every org the user belongs to, narrowed by ``filters``, in ``sort``
+        order, keyset-paginated; ``total`` counts every row the filters match.
+
+        ``updated_desc`` (the default): ``(updated_at, id)`` descending, so a study moves
+        to the top when anything about it changes; ``created_desc``: ``(created_at, id)``
+        descending, the order before sorting existed; ``name_asc``: ``(lower(name), id)``
+        ascending. The cursor carries the sort it was issued under and the last row's key
+        (:func:`encode_cursor`); one issued under another sort is ``InvalidCursorError``.
+        ``include_archived`` here is the keyword clients used before ``filters``; either
+        switch shows archived studies.
+        """
         if not 1 <= limit <= MAX_PAGE_SIZE:
             raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}")
-        stmt = (
-            select(Study)
-            .join(
-                OrgMember,
-                and_(OrgMember.org_id == Study.org_id, OrgMember.user_id == user_id),
-            )
-            .order_by(Study.created_at.desc(), Study.id.desc())
-            .limit(limit + 1)
+        filters = filters or StudyFilters()
+        if include_archived and not filters.include_archived:
+            filters = StudyFilters(filters.q, filters.statuses, filters.created_by, True)
+        member = and_(OrgMember.org_id == Study.org_id, OrgMember.user_id == user_id)
+        clauses = _filter_clauses(filters)
+        total = await self._session.scalar(
+            select(func.count()).select_from(Study).join(OrgMember, member).where(*clauses)
         )
-        if not include_archived:
-            stmt = stmt.where(Study.status != StudyStatus.ARCHIVED)
+        stmt = select(Study).join(OrgMember, member).where(*clauses)
+        if sort == "name_asc":
+            stmt = stmt.order_by(_NAME_KEY, Study.id)
+        elif sort == "created_desc":
+            stmt = stmt.order_by(Study.created_at.desc(), Study.id.desc())
+        else:
+            stmt = stmt.order_by(Study.updated_at.desc(), Study.id.desc())
         if cursor is not None:
-            after_created_at, after_id = decode_cursor(cursor)
-            stmt = stmt.where(tuple_(Study.created_at, Study.id) < (after_created_at, after_id))
-        rows = list((await self._session.scalars(stmt)).all())
+            key, after_id = decode_cursor(cursor, sort)
+            if sort == "name_asc":
+                stmt = stmt.where(tuple_(_NAME_KEY, Study.id) > (key, after_id))
+            elif sort == "created_desc":
+                stmt = stmt.where(tuple_(Study.created_at, Study.id) < (key, after_id))
+            else:
+                stmt = stmt.where(tuple_(Study.updated_at, Study.id) < (key, after_id))
+        rows = list((await self._session.scalars(stmt.limit(limit + 1))).all())
         items = rows[:limit]
-        next_cursor = (
-            encode_cursor(items[-1].created_at, items[-1].id) if len(rows) > limit else None
-        )
-        return StudyPage(items=items, next_cursor=next_cursor)
+        next_cursor = encode_cursor(sort, items[-1]) if len(rows) > limit else None
+        return StudyPage(items=items, next_cursor=next_cursor, total=int(total or 0))
 
     async def transition(
         self,
@@ -376,3 +454,35 @@ class StudyRepository:
         if existing is None:
             raise NotVisibleError(f"study {study_id} not found")
         return existing
+
+    async def unarchive(self, study_id: uuid.UUID) -> Study:
+        """Undo :meth:`archive`: the status the study had before it was archived, derived
+        the way the workflow derives it (``status_for_stage`` of its stage, ``failed`` while
+        a failure is recorded on it; a ``stalled`` study comes back ``waiting_review`` and
+        the reminder step marks it stalled again if the review is still waiting). Idempotent:
+        unarchiving a study that is not archived returns it unchanged."""
+        locked = (
+            await self._session.scalars(
+                select(Study)
+                .where(Study.id == study_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one_or_none()
+        if locked is None:
+            raise NotVisibleError(f"study {study_id} not found")
+        if locked.status is not StudyStatus.ARCHIVED:
+            return locked
+        restored = (
+            StudyStatus.FAILED
+            if locked.failure_reason is not None
+            else status_for_stage(locked.current_stage)
+        )
+        stmt = (
+            update(Study)
+            .where(Study.id == study_id, Study.status == StudyStatus.ARCHIVED)
+            .values(status=restored)
+            .returning(Study)
+            .execution_options(synchronize_session=False, populate_existing=True)
+        )
+        return (await self._session.scalars(stmt)).one()
