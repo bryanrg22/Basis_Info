@@ -3,7 +3,9 @@
 What the export step writes for the engineer to sign and the preparer to import, and how to
 fetch it. Design and decisions: `docs/review_2026-10-15/STUDY_REPORT_SPEC.md` section 11.
 Code: `basis/report/` (model, schedule, exhibit, render, the Typst template and the bundled
-IBM Plex Sans), `basis/activities/export_report.py`, `basis/api/routes/report.py`.
+IBM Plex Sans), `basis/activities/export_report.py`, `basis/api/routes/report.py`,
+`basis/db/repositories/report.py` (inputs and signatures, migration 0020); the client is
+`web/live/live-report.js` (the Schedule screen's "Client report").
 
 ## Files
 
@@ -36,14 +38,16 @@ conditions, not refused.
 
 The report is a DRAFT (watermark, placeholders) until it has the firm's profile, the study's
 answers (taxpayer; who photographed the property and when, so the certification states a
-site visit only when there was one) and the engineer's signature in Basis. Storing those
-inputs and the signing action are the next change; until then every report is a draft.
+site visit only when there was one) and the engineer's signature in Basis (below). The
+export step's draft carries the inputs stored when it ran.
 
 ## Fetching
 
-`GET /v1/studies/{id}/report?format=pdf|csv|xlsx[&revision=n]`, for a viewer or above of the
-study. The default revision is the latest exported. The response is the file as an
-attachment, with the recorded sha256 as a strong `ETag` (`If-None-Match` gives 304).
+`GET /v1/studies/{id}/report?format=pdf|csv|xlsx[&revision=n][&variant=final|draft]`, for a
+viewer or above of the study. The default revision is the latest exported. The response is
+the file as an attachment, with the recorded sha256 as a strong `ETag` (`If-None-Match` gives
+304). `format=pdf` is the signed report once the revision is signed (file name
+`...-report-signed.pdf`), else the draft; `variant=draft` always gives the draft.
 
 | Case | Answer |
 |---|---|
@@ -57,3 +61,50 @@ The same export, inputs and photographs give the same bytes. Typst renders with 
 font only, and the PDF timestamp is the report date, the day the assets review was approved.
 The XLSX has pinned document properties and zip times. Measured: Mac and the Linux worker
 image give byte-identical PDFs (STUDY_REPORT_SPEC 11.8.1).
+
+## Inputs
+
+Written whole, each with a version that is its entity tag (`ETag: "<n>"`); `If-Match` makes
+the write conditional exactly as on the intake (412 with the current `ETag` when someone saved
+since; `*` only over an existing document).
+
+| Route | Role | Body |
+|---|---|---|
+| `GET`, `PUT /v1/orgs/{org_id}/profile` | member reads; owner writes | `name`, `address`, `phone`, `logo_png` (base64 PNG, at most 512 KB), `engineer` (`name`, `credentials`, `license_number`, `license_state`), `limiting_conditions`. 404 `BASIS-REPORT-013` until saved; 412 `BASIS-REPORT-011`. |
+| `GET`, `PUT /v1/studies/{id}/report-answers` | viewer reads; engineer writes | `taxpayer_name`, `photographs` (`engineer_site_visit` or `taxpayer_supplied`), `photographed_by`, `photographed_on`, `interviews`, `prior_depreciation`. 412 `BASIS-REPORT-012`; a `study.report_answers_set` timeline event. |
+
+## Signing
+
+1. `GET /v1/studies/{id}/report/state`: the current revision, whether it was exported or its
+   report skipped, the files, `missing_for_final` (`firm`, `study`, `signature`) and the
+   signature.
+2. `GET /v1/studies/{id}/report/preview`: the current revision's report rendered now from its
+   export and the stored inputs, unsigned (a DRAFT). Its `ETag` is the sha256 of the bytes;
+   rendering is deterministic, so the same inputs give the same tag.
+3. `POST /v1/studies/{id}/report/sign` (engineer or owner; `Idempotency-Key`):
+
+   ```json
+   {"revision": 1, "reviewed_sha256": "<the preview's ETag, unquoted>",
+    "engineer": {"name": "A. Engineer", "credentials": "PE", "license_number": "123", "license_state": "NY"},
+    "attest": true, "statement_version": 1}
+   ```
+
+   Checked in order, nothing written unless all pass:
+
+   | Case | Answer |
+   |---|---|
+   | Archived, not the current revision, not exported, report skipped | 409 `BASIS-REPORT-007` |
+   | Firm profile or study answers not saved | 409 `BASIS-REPORT-008` |
+   | Already signed | 409 `BASIS-REPORT-009` |
+   | The preview rendered now is not the one reviewed (an input or the export changed) | 412 `BASIS-REPORT-010`, the current preview's `ETag` |
+   | `attest` not true, another `statement_version` | 422 |
+
+   Then the final PDF (the signature block: time in UTC, signature id, name, credentials,
+   license, firm) is stored at `rev-<n>.report.signed.<signature id>.pdf`, and the
+   `report_signatures` row (one per revision, never updated) and the `report.signed` event
+   (signer's email, the sha256 of the export, the reviewed preview and the signed PDF) are
+   written in one transaction. The answer is the signature (201).
+
+A firm profile or answers changed after signing do not change the signed PDF. A new revision
+is signed on its own. What the signature is and is not (ESIGN/UETA elements, no PAdES
+certificate, no PE seal): STUDY_REPORT_SPEC 11.13.

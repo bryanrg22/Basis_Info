@@ -2690,6 +2690,7 @@
           "report"
         ],
         "summary": "The study report (PDF) or the preparer's depreciation schedule (CSV, XLSX)",
+        "description": "Viewer role. `format=pdf` is the signed report when the revision is signed, else the draft the export wrote; `variant=draft` always asks for the draft.",
         "operationId": "study_report_v1_studies__study_id__report_get",
         "security": [
           {
@@ -2745,6 +2746,22 @@
               "title": "Revision"
             },
             "description": "Default: the latest exported revision."
+          },
+          {
+            "name": "variant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "final",
+                "draft"
+              ],
+              "type": "string",
+              "description": "pdf only: `final` (the signed report when there is one) or `draft`.",
+              "default": "final",
+              "title": "Variant"
+            },
+            "description": "pdf only: `final` (the signed report when there is one) or `draft`."
           }
         ],
         "responses": {
@@ -2796,6 +2813,880 @@
           },
           "404": {
             "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{org_id}/profile": {
+      "get": {
+        "tags": [
+          "report"
+        ],
+        "summary": "The firm's report profile: letterhead and signing engineer (members)",
+        "description": "`ETag: \"<version>\"`: send it back as `If-Match` on the `PUT`. 404 BASIS-REPORT-013 while the firm has none.",
+        "operationId": "get_firm_profile_v1_orgs__org_id__profile_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "org_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Organization (firm) id.",
+              "title": "Org Id"
+            },
+            "description": "Organization (firm) id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirmProfileOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Set or replace the firm's report profile (owner)",
+        "description": "The whole profile (`logo_png` as base64, a PNG of at most 512 KB). `If-Match` with the `ETag` of the `GET` writes only while it is current (412 BASIS-REPORT-011 with the current `ETag` otherwise); `*` only over an existing profile. A signed report keeps the profile it was signed with.",
+        "operationId": "put_firm_profile_v1_orgs__org_id__profile_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "org_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Organization (firm) id.",
+              "title": "Org Id"
+            },
+            "description": "Organization (firm) id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirmProfile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirmProfileOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/report-answers": {
+      "get": {
+        "tags": [
+          "report"
+        ],
+        "summary": "The study's answers for the report and their version (ETag)",
+        "description": "Viewer role. `report_answers` is null until an engineer saves them; the `ETag` is `\"0\"` then.",
+        "operationId": "get_report_answers_v1_studies__study_id__report_answers_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportAnswersOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Set or replace the study's answers for the report (engineer)",
+        "description": "The taxpayer, who photographed the property and when (an engineer's site visit, or photographs the taxpayer supplied: the report states which), interviews and prior depreciation. `If-Match` as on the intake (412 BASIS-REPORT-012). 409 `stale-state` on an archived study. A signed revision keeps the answers it was signed with.",
+        "operationId": "put_report_answers_v1_studies__study_id__report_answers_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyAnswers-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportAnswersOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/report/state": {
+      "get": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Where the current revision's report stands: exported, missing, signed",
+        "operationId": "report_state_v1_studies__study_id__report_state_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportStateOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/report/preview": {
+      "get": {
+        "tags": [
+          "report"
+        ],
+        "summary": "The current revision's report rendered now, unsigned (what the engineer signs)",
+        "description": "Viewer role. The report as it would be signed, from the current revision's export and the stored inputs, without the signature block (a DRAFT until signed). `ETag` is the sha256 of the bytes: `POST .../report/sign` takes it as `reviewed_sha256`. 409 BASIS-REPORT-007 when the current revision has no report.",
+        "operationId": "report_preview_v1_studies__study_id__report_preview_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The PDF, inline."
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/report/sign": {
+      "post": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Sign the current revision's report (engineer)",
+        "description": "The engineer's affirmative act (STUDY_REPORT_SPEC 11.13): `attest: true`, the certification version shown, the name and credentials attested, and the `ETag` of the preview reviewed. Checks in order, writing nothing unless all pass: the current revision has a report (409 BASIS-REPORT-007), the firm profile and the study answers exist (409 BASIS-REPORT-008), the revision is not signed (409 BASIS-REPORT-009), the preview rendered now has the reviewed sha256 (412 BASIS-REPORT-010 with the current `ETag`). Then the final PDF is rendered with the signature and stored, and the signature and the `report.signed` event are recorded.",
+        "operationId": "sign_report_v1_studies__study_id__report_sign_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignatureOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -10371,6 +11262,68 @@
         ],
         "title": "DocumentOut"
       },
+      "Engineer": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "credentials": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Credentials",
+            "description": "e.g. 'PE, CCSP'"
+          },
+          "license_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Number"
+          },
+          "license_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License State"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "credentials"
+        ],
+        "title": "Engineer"
+      },
       "EventOut": {
         "properties": {
           "seq": {
@@ -11104,6 +12057,120 @@
         ],
         "title": "FieldRegionOut"
       },
+      "FirmProfile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "logo_png": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 524288,
+                "format": "base64",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Png",
+            "description": "a PNG, at most 512 KB, base64 in JSON"
+          },
+          "engineer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Engineer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limiting_conditions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 4000,
+                  "minLength": 1
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limiting Conditions",
+            "description": "replaces the template's statements when set"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "FirmProfile"
+      },
+      "FirmProfileOut": {
+        "properties": {
+          "org_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Org Id"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/FirmProfile"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "org_id",
+          "profile",
+          "version",
+          "updated_at"
+        ],
+        "title": "FirmProfileOut",
+        "description": "``GET /v1/orgs/{id}/profile``: the profile and its version (also the ``ETag``)."
+      },
       "Health": {
         "properties": {
           "status": {
@@ -11176,6 +12243,54 @@
         },
         "type": "object",
         "title": "HealthChecks"
+      },
+      "Interview": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Role"
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "topics": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "role"
+        ],
+        "title": "Interview"
       },
       "InventoryItemOut": {
         "properties": {
@@ -12617,6 +13732,76 @@
         "title": "PricingStatusOut",
         "description": "Whether the revision's recorded pricing is still what the study's inputs give."
       },
+      "PriorDepreciation-Input": {
+        "properties": {
+          "tax_years": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Tax Years",
+            "description": "e.g. '2022-2024'"
+          },
+          "depreciation_claimed": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Depreciation Claimed"
+          },
+          "method_used": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Method Used",
+            "description": "e.g. '27.5-year SL on the whole building'"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tax_years",
+          "depreciation_claimed",
+          "method_used"
+        ],
+        "title": "PriorDepreciation",
+        "description": "A look-back study: what was claimed on the property before (Form 3115, DCN 7)."
+      },
+      "PriorDepreciation-Output": {
+        "properties": {
+          "tax_years": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Tax Years",
+            "description": "e.g. '2022-2024'"
+          },
+          "depreciation_claimed": {
+            "type": "string",
+            "title": "Depreciation Claimed"
+          },
+          "method_used": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Method Used",
+            "description": "e.g. '27.5-year SL on the whole building'"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tax_years",
+          "depreciation_claimed",
+          "method_used"
+        ],
+        "title": "PriorDepreciation",
+        "description": "A look-back study: what was claimed on the property before (Form 3115, DCN 7)."
+      },
       "PropertyUse": {
         "type": "string",
         "enum": [
@@ -12980,6 +14165,134 @@
           "missing"
         ],
         "title": "ReconciliationSummaryOut"
+      },
+      "ReportAnswersOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "report_answers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyAnswers-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report_answers_version": {
+            "type": "integer",
+            "title": "Report Answers Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "report_answers",
+          "report_answers_version"
+        ],
+        "title": "ReportAnswersOut",
+        "description": "``GET /v1/studies/{id}/report-answers``: the answers (``null`` until saved) and their\nversion (also the ``ETag``; 0 while there are none)."
+      },
+      "ReportSkip": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ReportSkip"
+      },
+      "ReportStateOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "The study's current revision."
+          },
+          "exported": {
+            "type": "boolean",
+            "title": "Exported",
+            "description": "The current revision was exported."
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportSkip"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the export wrote no report (no allocation, a total that did not tie)."
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "The files exported: `report.pdf`, `schedule.csv` ..."
+          },
+          "missing_for_final": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing For Final",
+            "description": "What a final report still lacks: `firm`, `study`, `signature`."
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignatureOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "firm_profile_version": {
+            "type": "integer",
+            "title": "Firm Profile Version",
+            "description": "0 while the firm has no profile."
+          },
+          "report_answers_version": {
+            "type": "integer",
+            "title": "Report Answers Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "revision",
+          "exported",
+          "skipped",
+          "files",
+          "missing_for_final",
+          "signature",
+          "firm_profile_version",
+          "report_answers_version"
+        ],
+        "title": "ReportStateOut",
+        "description": "``GET .../report/state``: where the current revision's report stands."
       },
       "RepriceAccepted": {
         "properties": {
@@ -13661,6 +14974,113 @@
         "title": "ScheduleOut",
         "description": "The revision's replacement-cost schedule, with or without an intake."
       },
+      "SignIn": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision",
+            "description": "The revision signed: the current one."
+          },
+          "reviewed_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Reviewed Sha256",
+            "description": "The `ETag` of `GET .../report/preview` the engineer reviewed, unquoted."
+          },
+          "engineer": {
+            "$ref": "#/components/schemas/Engineer",
+            "description": "The name and credentials the signer attests to."
+          },
+          "attest": {
+            "type": "boolean",
+            "const": true,
+            "title": "Attest",
+            "description": "Must be true: the signer affirms the certification (section 10)."
+          },
+          "statement_version": {
+            "type": "integer",
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Statement Version",
+            "description": "The certification text's version the client showed."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "reviewed_sha256",
+          "engineer",
+          "attest",
+          "statement_version"
+        ],
+        "title": "SignIn",
+        "description": "``POST .../report/sign``: the engineer's affirmative act (STUDY_REPORT_SPEC 11.13)."
+      },
+      "SignatureOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "signed_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Signed By"
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Signed At"
+          },
+          "engineer": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Engineer"
+          },
+          "statement_version": {
+            "type": "integer",
+            "title": "Statement Version"
+          },
+          "export_sha256": {
+            "type": "string",
+            "title": "Export Sha256"
+          },
+          "reviewed_sha256": {
+            "type": "string",
+            "title": "Reviewed Sha256"
+          },
+          "pdf_sha256": {
+            "type": "string",
+            "title": "Pdf Sha256"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "study_id",
+          "revision",
+          "signed_by",
+          "signed_at",
+          "engineer",
+          "statement_version",
+          "export_sha256",
+          "reviewed_sha256",
+          "pdf_sha256"
+        ],
+        "title": "SignatureOut"
+      },
       "SignedUploadOut": {
         "properties": {
           "url": {
@@ -14114,6 +15534,120 @@
         ],
         "title": "StructureOut",
         "description": "The structure model as recomputed from the appraisal for this result."
+      },
+      "StudyAnswers-Input": {
+        "properties": {
+          "taxpayer_name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Taxpayer Name"
+          },
+          "photographs": {
+            "type": "string",
+            "enum": [
+              "engineer_site_visit",
+              "taxpayer_supplied"
+            ],
+            "title": "Photographs"
+          },
+          "photographed_by": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Photographed By",
+            "description": "the person who took the photographs"
+          },
+          "photographed_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Photographed On"
+          },
+          "interviews": {
+            "items": {
+              "$ref": "#/components/schemas/Interview"
+            },
+            "type": "array",
+            "title": "Interviews",
+            "default": []
+          },
+          "prior_depreciation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriorDepreciation-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "taxpayer_name",
+          "photographs",
+          "photographed_by",
+          "photographed_on"
+        ],
+        "title": "StudyAnswers"
+      },
+      "StudyAnswers-Output": {
+        "properties": {
+          "taxpayer_name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Taxpayer Name"
+          },
+          "photographs": {
+            "type": "string",
+            "enum": [
+              "engineer_site_visit",
+              "taxpayer_supplied"
+            ],
+            "title": "Photographs"
+          },
+          "photographed_by": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Photographed By",
+            "description": "the person who took the photographs"
+          },
+          "photographed_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Photographed On"
+          },
+          "interviews": {
+            "items": {
+              "$ref": "#/components/schemas/Interview"
+            },
+            "type": "array",
+            "title": "Interviews",
+            "default": []
+          },
+          "prior_depreciation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriorDepreciation-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "taxpayer_name",
+          "photographs",
+          "photographed_by",
+          "photographed_on"
+        ],
+        "title": "StudyAnswers"
       },
       "StudyCorpusOut": {
         "properties": {

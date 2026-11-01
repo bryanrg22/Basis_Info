@@ -148,6 +148,14 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/intake",  # the intake's version (ETag)
         "GET /v1/studies/{study_id}/result",
         "GET /v1/studies/{study_id}/report",
+        # the report's inputs and signing (tests/api/test_report_signing.py)
+        "GET /v1/studies/{study_id}/report/state",
+        "GET /v1/studies/{study_id}/report/preview",
+        "POST /v1/studies/{study_id}/report/sign",
+        "GET /v1/studies/{study_id}/report-answers",
+        "PUT /v1/studies/{study_id}/report-answers",
+        "GET /v1/orgs/{org_id}/profile",
+        "PUT /v1/orgs/{org_id}/profile",
         # the paid-call ledger (tests/api/test_spend.py)
         "GET /v1/studies/{study_id}/spend",
         "GET /v1/studies/{study_id}/calls",

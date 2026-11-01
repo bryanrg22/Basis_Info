@@ -44,7 +44,7 @@ SPEC_TABLES = {
     # Error codes: failure_code (migration 0013_study_events).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
     "room_aliases failure_reason failure_code components_gate intake intake_version created_at "
-    "updated_at",
+    "updated_at report_answers report_answers_version",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",
@@ -124,6 +124,11 @@ SPEC_TABLES = {
     # The per-photo model's room answer, once per analysis (migration 0017).
     "photo_room_answers": "study_id document_id revision room_type room_confidence floor "
     "room_ordinal analysis_uri",
+    # The report's inputs and signatures (migration 0020_report_signing, STUDY_REPORT_SPEC
+    # 11.13); studies.report_answers / report_answers_version above.
+    "firm_profiles": "org_id profile version updated_by created_at updated_at",
+    "report_signatures": "id study_id revision signed_by signed_at engineer statement_version "
+    "export_sha256 reviewed_sha256 pdf_uri pdf_sha256",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -266,6 +271,7 @@ SPEC_PRIMARY_KEYS = {
     "photo_room_answers": ("document_id", "revision"),
     "classification_cache": ("org_id", "key"),
     "idempotency_keys": ("key",),
+    "firm_profiles": ("org_id",),
 }
 
 SPEC_CHECKS = {
@@ -466,7 +472,9 @@ def test_migration_enum_labels_match_models() -> None:
 
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
-    assert migration.UPDATED_AT_TABLES == UPDATED_AT_TABLES
+    # 0020 adds firm_profiles to the updated_at tables.
+    report = load_migration(VERSIONS / "0020_report_signing.py")
+    assert (*migration.UPDATED_AT_TABLES, *report.UPDATED_AT_TABLES) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
     # 0016 adds the cost index store and its ledger.
@@ -599,8 +607,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # (0012): llm_calls.request_params; the timeline (0013): study_events.before/after/detail;
     # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest;
     # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
-    # years_added / failures / detail
-    assert len(jsonb) == 30
+    # years_added / failures / detail; the report (0020): report_signatures.engineer
+    assert len(jsonb) == 31
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

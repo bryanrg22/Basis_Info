@@ -13,15 +13,20 @@ report renders as a DRAFT with marked placeholders.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Base64Bytes, BaseModel, ConfigDict, Field, field_validator
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
 LongText = Annotated[str, Field(min_length=1, max_length=4000)]
 Photographer = Literal["engineer_site_visit", "taxpayer_supplied"]
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# The certification the signer attests to (templates/report.typ, section 10). Bumped when its
+# wording changes, so a signature records which text was signed.
+CERTIFICATION_VERSION = 1
 
 
 class _Model(BaseModel):
@@ -40,13 +45,20 @@ class FirmProfile(_Model):
     name: Text
     address: Text | None = None
     phone: Text | None = None
-    logo_png: bytes | None = Field(
-        default=None, description="a PNG, at most 512 KB", max_length=524_288
+    logo_png: Annotated[Base64Bytes, Field(max_length=524_288)] | None = Field(
+        default=None, description="a PNG, at most 512 KB, base64 in JSON"
     )
     engineer: Engineer | None = None
     limiting_conditions: tuple[LongText, ...] | None = Field(
         default=None, description="replaces the template's statements when set"
     )
+
+    @field_validator("logo_png")
+    @classmethod
+    def _png(cls, value: bytes | None) -> bytes | None:
+        if value is not None and not value.startswith(PNG_SIGNATURE):
+            raise ValueError("the logo must be a PNG")
+        return value
 
 
 class Interview(_Model):
@@ -74,10 +86,12 @@ class StudyAnswers(_Model):
 
 
 class Signature(_Model):
-    """The final approval: who signed and when (the time printed on the certification)."""
+    """The final approval: who signed and when (the time printed on the certification), and
+    the signature's id (``report_signatures.id``), printed so the PDF names its record."""
 
     engineer: Engineer
     signed_at: datetime
+    signature_id: uuid.UUID | None = None
 
 
 class ReportInputs(_Model):
@@ -99,6 +113,7 @@ def missing_for_final(inputs: ReportInputs) -> tuple[str, ...]:
 
 
 __all__ = [
+    "CERTIFICATION_VERSION",
     "Engineer",
     "FirmProfile",
     "Interview",

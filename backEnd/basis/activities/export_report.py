@@ -51,12 +51,14 @@ from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.llm_call import LlmCallRepository, Spend, SpendGroup
 from basis.db.repositories.provenance import MODEL, Provenance, ProvenanceResolver, provenance_json
+from basis.db.repositories.report import ReportRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.errors.codes import E
 from basis.evidence.export import pack_document, pack_to_csv, sha256_hex
 from basis.evidence.pack import load_pack
+from basis.report.inputs import ReportInputs
 from basis.storage import ObjectNotFound, Storage
 from basis.storage.base import SCHEME
 from basis.workflow.contracts import ExportReportInput, ExportReportOutput
@@ -110,16 +112,21 @@ async def build_report_files(
     export_json: bytes,
     study_id: uuid.UUID,
     revision: int,
+    inputs: ReportInputs | None = None,
 ) -> ReportFiles:
-    """The report files of the export just built. A report that cannot be produced (no
-    allocation, a total that does not tie) never fails the export: the evidence JSON is the
-    record, and the reason is returned for the timeline."""
+    """The report files of an export. A report that cannot be produced (no allocation, a
+    total that does not tie) never fails the export: the evidence JSON is the record, and
+    the reason is returned for the timeline.
+
+    ``inputs`` default to the stored ones (the firm's profile and the study's answers, no
+    signature: :meth:`ReportRepository.inputs`), so the export step's draft carries them;
+    the signing route passes them with the signature. The same export, inputs and
+    photographs give the same bytes (STUDY_REPORT_SPEC 11.13: the reviewed preview)."""
     import asyncio
 
     from basis.db.repositories.document import DocumentRepository
     from basis.db.repositories.photo_object import PhotoObjectRepository
     from basis.report.exhibit import PhotoObjectView, exhibit_photo, line_index
-    from basis.report.inputs import ReportInputs
     from basis.report.model import ReportError, build_report
     from basis.report.render import render_pdf
     from basis.report.schedule import rows, to_csv, to_xlsx
@@ -135,8 +142,11 @@ async def build_report_files(
         and (e.detail or {}).get("decision") == "approve"
     ]
     report_date = approvals[-1].created_at.date() if approvals else None
+    if inputs is None:
+        study = await StudyRepository(session).get(study_id)
+        inputs = await ReportRepository(session).inputs(study) if study else ReportInputs()
     try:
-        report = build_report(document, ReportInputs(), report_date=report_date)
+        report = build_report(document, inputs, report_date=report_date)
     except ReportError as exc:
         return ReportFiles(files={}, skipped=(exc.code, str(exc)))
     heartbeat("report")

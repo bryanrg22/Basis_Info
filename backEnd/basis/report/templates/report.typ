@@ -224,7 +224,7 @@ I certify that, to the best of my knowledge and belief:
 #v(14pt)
 #if d.signed != none [
   #block(stroke: 0.6pt + accent, inset: 10pt, radius: 3pt)[
-    *Signed in Basis* · #d.signed.at \
+    *Signed in Basis* · #d.signed.at #if d.signed.id != "" [· signature #d.signed.id] \
     #d.engineer.name, #d.engineer.credentials #if d.engineer.license != "" [· #d.engineer.license] \
     #d.firm.name
   ]
