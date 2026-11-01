@@ -470,6 +470,7 @@ async def _carry_rooms(
     moves: list[CorrectionInput],
     recorder: _Recorder | None = None,
     component_removals: Sequence[CorrectionInput] = (),
+    rebuild_inventories: bool = False,
 ) -> int:
     """Copy the rooms, assignments, components and objects (module doc). ``skip_photos``
     are re-analyzed: their rows and objects stay behind, and so does their assignment
@@ -477,7 +478,10 @@ async def _carry_rooms(
     ``recorder`` writes the ``entity.*`` timeline events of what the corrections changed.
     ``component_removals`` (``component_remove``) name rows left out of the new revision:
     they are taken out of the rows copied before anything else reads them (so a removed added
-    row keeps no room alive); their count is not in the return value (the caller adds it)."""
+    row keeps no room alive); their count is not in the return value (the caller adds it).
+    ``rebuild_inventories`` leaves every room's inventory rows behind, as if every room had a
+    flagged photo: a reopen below the components review (``carry_revision``,
+    docs/api/REVISIONS.md), whose room step rebuilds them from the grouping."""
     repo = RoomRepository(session)
     recorder = recorder or _Recorder(session, study_id, from_revision)
     old_rooms = {room.id: room for room in await repo.list_for_revision(study_id, from_revision)}
@@ -509,6 +513,8 @@ async def _carry_rooms(
     rebuilt_rooms |= set(merges) | set(merges.values())
     rebuilt_rooms |= {pr.room_id for pr in all_assignments if pr.document_id in moved}
     rebuilt_rooms |= set(moved.values())
+    if rebuild_inventories:
+        rebuilt_rooms |= set(old_rooms)
     await _check_removals(removed, every_row, skip_photos, rebuilt_rooms, recorder)
     keep_rooms = set(room_of.values()) | set(room_after) | set(merges.values())
     # A room an engineer added a component to stays, now or in an earlier revision.

@@ -38,5 +38,5 @@ def test_build_activities_binds_every_activity(settings: Settings, tmp_path: Any
     assert tuple(built) == ACTIVITY_NAMES
     assert all(registered_name(fn) == name for name, fn in built.items())
     assert (
-        len(ACTIVITY_NAMES) == len(set(ACTIVITY_NAMES)) == 16  # promote_conventions
+        len(ACTIVITY_NAMES) == len(set(ACTIVITY_NAMES)) == 17  # carry_revision
     )  # v0.6: localize_photo; reconcile_rooms; v0.9: record_failure

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-278 codes in 22 areas.
+283 codes in 22 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -129,6 +129,11 @@ stale).
 | `BASIS-STUDY-027` | refusal | `DELETE .../drafts/{stage}`; `basis.api.routes.drafts` | The caller has no draft on that stage of the study (never saved, already submitted with a decision, or already discarded). | 404 `not-found`. (type `not-found`) | Nothing to discard; `GET .../drafts/{stage}` lists what exists. | no |
 | `BASIS-STUDY-028` | refusal | `POST .../restart`; `basis.api.routes.workflow` | The study's execution is still running (or waiting for a retry): there is nothing to restart from. | 409 `workflow-running`. (type `workflow-running`) | Use `POST .../retry` for a failed stage, or `POST .../cancel` first, then restart. | no |
 | `BASIS-STUDY-029` | refusal | `POST .../restart`; `basis.api.routes.workflow` | The study's execution completed: its outputs and report exist and are not redone. | 409 `study-completed`. (type `study-completed`) | Reject a review stage to rework a revision, or create a new study. | no |
+| `BASIS-STUDY-030` | refusal | `POST .../reopen`, `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | The study is not `completed`: only a completed study is reopened at a gate or has a revision restored (docs/api/REVISIONS.md). | 409 `study-not-completed`. (type `study-not-completed`) | Reject at the gate the study waits at; `retry` a failed stage; `restart` a cancelled study. | no |
+| `BASIS-STUDY-031` | refusal | `POST .../reopen`, `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | An execution of the study's workflow is running: the completed one is still closing, or a concurrent reopen or restore won the start. | 409 `workflow-running`. (type `workflow-running`) | Wait for `GET .../workflow` to report the execution closed, or for the gate the other request opened. | yes |
+| `BASIS-STUDY-032` | refusal | `POST .../revisions/{n}/restore`, `GET .../revisions/{a}/diff/{b}`; `basis.api.routes.revisions` | The revision number is not one of the study's (1 to its current revision). | 404 `revision-not-found`. (type `revision-not-found`) | Read `GET .../revisions` for the numbers the study has. | no |
+| `BASIS-STUDY-033` | refusal | `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | The revision to restore is the study's current one; restoring it would copy the current state onto itself. | 409 `revision-current`. (type `revision-current`) | Reopen the study at a gate instead (`POST .../reopen`). | no |
+| `BASIS-STUDY-034` | refusal | `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | The revision never reached a review gate (the execution was cancelled or restarted during extraction), so there is no reviewed state to restore. | 409 `revision-not-restorable`. (type `revision-not-restorable`) | Restore a revision whose `stage_reached` in `GET .../revisions` is a review gate or later. | no |
 
 ## OBJECT: Photo objects (an engineer's selections)
 

@@ -1066,6 +1066,68 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "yes",
         problem="validation",
     ),
+    _e(
+        E.STUDY_NOT_COMPLETED,
+        "refusal",
+        "`POST .../reopen`, `POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "The study is not `completed`: only a completed study is reopened at a gate or has a "
+        "revision restored (docs/api/REVISIONS.md).",
+        "409 `study-not-completed`.",
+        "Reject at the gate the study waits at; `retry` a failed stage; `restart` a cancelled "
+        "study.",
+        "no",
+        problem="study-not-completed",
+    ),
+    _e(
+        E.STUDY_EXECUTION_RUNNING,
+        "refusal",
+        "`POST .../reopen`, `POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "An execution of the study's workflow is running: the completed one is still closing, "
+        "or a concurrent reopen or restore won the start.",
+        "409 `workflow-running`.",
+        "Wait for `GET .../workflow` to report the execution closed, or for the gate the other "
+        "request opened.",
+        "yes",
+        problem="workflow-running",
+    ),
+    _e(
+        E.STUDY_REVISION_NOT_FOUND,
+        "refusal",
+        "`POST .../revisions/{n}/restore`, `GET .../revisions/{a}/diff/{b}`",
+        "basis.api.routes.revisions",
+        "The revision number is not one of the study's (1 to its current revision).",
+        "404 `revision-not-found`.",
+        "Read `GET .../revisions` for the numbers the study has.",
+        "no",
+        problem="revision-not-found",
+    ),
+    _e(
+        E.STUDY_REVISION_CURRENT,
+        "refusal",
+        "`POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "The revision to restore is the study's current one; restoring it would copy the "
+        "current state onto itself.",
+        "409 `revision-current`.",
+        "Reopen the study at a gate instead (`POST .../reopen`).",
+        "no",
+        problem="revision-current",
+    ),
+    _e(
+        E.STUDY_REVISION_NOT_RESTORABLE,
+        "refusal",
+        "`POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "The revision never reached a review gate (the execution was cancelled or restarted "
+        "during extraction), so there is no reviewed state to restore.",
+        "409 `revision-not-restorable`.",
+        "Restore a revision whose `stage_reached` in `GET .../revisions` is a review gate or "
+        "later.",
+        "no",
+        problem="revision-not-restorable",
+    ),
     # ------------------------------------------------------------------ OBJECT
     _e(
         E.STUDY_DRAFT_PRECONDITION_FAILED,
@@ -3407,6 +3469,9 @@ GENERIC_FOR_PROBLEM: Final[dict[str, str]] = {
     "service-unavailable": E.API_SERVICE_UNAVAILABLE,
     "stale-state": E.STUDY_STALE_STATE,
     "gate-not-open": E.STUDY_GATE_NOT_OPEN,
+    # Shared by the restart (docs/api/GATE_DRAFTS_AND_RESUME.md) and the reopen/restore
+    # (docs/api/REVISIONS.md) refusals, each raised with its own code; the earlier is generic.
+    "workflow-running": E.STUDY_RESTART_RUNNING,
     # The intake's was the only 412 before the report's (signing, profile, answers), which
     # pass their codes explicitly; a bare 412 keeps the meaning it had.
     "precondition-failed": E.STUDY_INTAKE_PRECONDITION_FAILED,

@@ -41,6 +41,7 @@ def fields(model: type[BaseModel]) -> list[str]:
                 "review_reminder_days",
                 "review_deadline_days",
                 "simulate_photos",
+                "resume",  # docs/api/REVISIONS.md: additive, default None (the intake runs)
             ],
         ),
         (
@@ -226,3 +227,39 @@ def test_decision_rejects_unknown_stage_and_kind() -> None:
 def test_simulate_fault_defaults_do_nothing() -> None:
     fault = c.SimulateFault()
     assert (fault.fail_attempts, fault.sleep_seconds, fault.fail_permanently) == (0, 0.0, False)
+
+
+def test_resume_plan_keeps_what_the_gate_shows_and_reruns_what_follows() -> None:
+    """docs/api/REVISIONS.md section 2: the carried tables grow with the gate, the recomputed
+    stages shrink, and the gates to pass again run from the chosen one."""
+    plans = {stage: c.resume_plan(stage) for stage in c.GATES}
+    assert [p.recomputed for p in plans.values()] == [
+        ("components_processing", "assets_processing", "exporting"),
+        ("components_processing", "assets_processing", "exporting"),
+        ("assets_processing", "exporting"),
+        ("exporting",),
+    ]
+    assert plans["appraisal_review"].reviews == c.GATES
+    assert plans["assets_review"].reviews == ("assets_review",)
+    base = ("extractions", "rooms", "photo_rooms", "components", "photo_objects")
+    assert plans["rooms_review"].carried == base
+    assert plans["components_review"].carried == (*base, "room_inventories")
+    assert plans["assets_review"].carried == (*base, "room_inventories", "assets")
+    with pytest.raises(KeyError):
+        c.resume_plan("extracting")  # type: ignore[arg-type]
+    resume = c.ResumeInput(stage="rooms_review", from_revision=1, reason="reopen")
+    with pytest.raises(ValidationError):
+        c.ResumeInput(stage="extracting", from_revision=1, reason="reopen")  # type: ignore[arg-type]
+    assert (
+        c.StudyWorkflowInput.model_validate(
+            {
+                "study_id": "s",
+                "org_id": "o",
+                "input_revision": 2,
+                "workflow_version": "v",
+                "budget_usd": 5,
+                "resume": resume.model_dump(),
+            }
+        ).resume
+        == resume
+    )
