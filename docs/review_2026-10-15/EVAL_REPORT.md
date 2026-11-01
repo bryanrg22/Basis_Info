@@ -7898,7 +7898,7 @@ browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeComp
 order accented names differently. The audit's in-memory page is the right size for a study's engineer
 actions; a study with thousands of corrections would want the union query.
 
-## 56. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
+## 57. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
 
 **Question.** Before an outside firm receives a link: can a caller reach anything without a token, see
 or change another firm's data, exhaust the service, or read something the server should keep (a stack,
