@@ -2,7 +2,11 @@
 
 Wiring (all on ``app.state``):
 
-* ``settings``, ``token_verifier`` (Firebase), ``rate_limiter`` (in memory, per process).
+* ``settings``, ``token_verifier`` (Firebase), ``rate_limiter``: in memory (per process)
+  by default in dev and test, :class:`~basis.api.ratelimit_pg.PostgresRateLimiter` (one
+  budget per caller across every process) in staging and prod, or as ``RATE_LIMIT_STORE``
+  says (:attr:`~basis.config.Settings.rate_limit_backend`). The Postgres limiter needs a
+  database: without one the app refuses to start.
 * ``db_sessionmaker``: created at startup (lifespan) from ``DATABASE_URL`` (or, from S5,
   ``CLOUD_SQL_INSTANCE``) and disposed at shutdown; ``None`` when neither is set, in which
   case ``/v1`` routes answer 503 and ``/health`` reports no database check. Tests pass a
@@ -25,8 +29,9 @@ Wiring (all on ``app.state``):
   neither is set (the box is stored without an outline). Tests pass ``localizer``.
 
 Middleware, innermost first: the 1 MiB body limit for ``/v1/``, the 500 handler, request
-ids, and CORS for ``CORS_ALLOWED_ORIGINS`` (:func:`install_cors`). The OpenAPI document is
-built by :func:`basis.api.openapi.build_openapi`.
+ids, the security headers (``nosniff``, ``no-store`` on ``/v1``, HSTS when deployed;
+:mod:`basis.api.headers`), and CORS for ``CORS_ALLOWED_ORIGINS`` (:func:`install_cors`).
+The OpenAPI document is built by :func:`basis.api.openapi.build_openapi`.
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ from basis.api import health
 from basis.api import local_uploads as local_uploads_route
 from basis.api.bodylimit import BodySizeLimitMiddleware
 from basis.api.errors import install_error_handlers
+from basis.api.headers import SecurityHeadersMiddleware
 from basis.api.idempotency import (
     IDEMPOTENCY_HEADER,
     REPLAYED_HEADER,
@@ -57,10 +63,11 @@ from basis.api.middleware import REQUEST_ID_HEADER, RequestIdMiddleware
 from basis.api.openapi import build_openapi
 from basis.api.preconditions import ETAG_HEADER, IF_MATCH_HEADER
 from basis.api.ratelimit import InMemoryRateLimiter
+from basis.api.ratelimit_pg import PostgresRateLimiter
 from basis.api.routes import api_routers
 from basis.api.routes import ops as ops_route
 from basis.auth.firebase import FirebaseTokenVerifier
-from basis.config import Settings
+from basis.config import ConfigError, Settings
 from basis.db.engine import create_engine
 from basis.db.session import SESSIONMAKER_STATE_ATTR, create_sessionmaker
 from basis.storage import GcsStorage, LocalStorage, Storage
@@ -102,9 +109,22 @@ def database_configured(settings: Settings) -> bool:
 
 
 def install_database(app: FastAPI, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
-    """Use ``sessionmaker`` for requests and keep idempotency keys in PostgreSQL."""
+    """Use ``sessionmaker`` for requests, keep idempotency keys in PostgreSQL, and count rate
+    limits there too when the settings select the Postgres store."""
     setattr(app.state, SESSIONMAKER_STATE_ATTR, sessionmaker)
     app.state.idempotency_store = PostgresIdempotencyStore(sessionmaker)
+    settings: Settings = app.state.settings
+    if settings.rate_limit_backend == "postgres":
+        app.state.rate_limiter = PostgresRateLimiter(sessionmaker)
+
+
+def ensure_rate_limit_store_available(settings: Settings, *, has_database: bool) -> None:
+    """Refuse to start when the Postgres rate limiter is selected and no database is set."""
+    if settings.rate_limit_backend == "postgres" and not has_database:
+        raise ConfigError(
+            "RATE_LIMIT_STORE=postgres (the default when BASIS_ENV is staging or prod) needs "
+            "a database: set DATABASE_URL or CLOUD_SQL_INSTANCE"
+        )
 
 
 def local_uploads_enabled(app: FastAPI, settings: Settings) -> bool:
@@ -184,6 +204,7 @@ def create_app(
                 await owned.dispose()
                 setattr(app.state, SESSIONMAKER_STATE_ATTR, None)
                 app.state.idempotency_store = InMemoryIdempotencyStore()
+                app.state.rate_limiter = InMemoryRateLimiter()
 
     app = FastAPI(
         title="Basis API",
@@ -195,6 +216,9 @@ def create_app(
     app.state.settings = settings
     # Raises ConfigError (refuses to start) if the auth emulator is set in staging/prod.
     app.state.token_verifier = FirebaseTokenVerifier(settings)
+    ensure_rate_limit_store_available(
+        settings, has_database=db_sessionmaker is not None or database_configured(settings)
+    )
     app.state.rate_limiter = InMemoryRateLimiter()
     setattr(app.state, SESSIONMAKER_STATE_ATTR, None)
     app.state.idempotency_store = InMemoryIdempotencyStore()
@@ -218,6 +242,7 @@ def create_app(
     app.add_middleware(BodySizeLimitMiddleware)
     install_error_handlers(app)
     app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware, hsts=settings.env in ("staging", "prod"))
     local_uploads = local_uploads_enabled(app, settings)
     install_cors(app, settings, local_uploads=local_uploads)
 

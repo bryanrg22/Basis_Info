@@ -1,9 +1,13 @@
 """Rate limits on the real routes (S1_SPEC section 5, BUILD_PLAN 6.4).
 
-The app is built with 3 reads and 2 mutations per minute. Budgets are per verified user,
-not per IP (every request here comes from the same ASGI client address), reads and
-mutations are counted separately, and a refused request gets a 429 problem with
-``Retry-After`` before any database work.
+The app is built with 3 reads and 2 mutations per minute, once with each store
+(``RATE_LIMIT_STORE=memory``, the per-process log, and ``postgres``, the shared
+``rate_limit_hits`` log of :mod:`basis.api.ratelimit_pg`): every test here runs against
+both. Budgets are per verified user, not per IP (every request here comes from the same
+ASGI client address), reads and mutations are counted separately, and a refused request
+gets a 429 problem with ``Retry-After`` before the request's own database work. The
+Postgres store's own invariants (shared across processes, exact under concurrency, the
+fallback) are in ``test_rate_limit_pg.py``.
 """
 
 from __future__ import annotations
@@ -26,7 +30,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.errors import PROBLEM_JSON
-from basis.api.ratelimit import WINDOW
+from basis.api.ratelimit import WINDOW, InMemoryRateLimiter
+from basis.api.ratelimit_pg import PostgresRateLimiter
 from basis.db.engine import create_engine
 from basis.db.models import Study
 from basis.db.session import create_sessionmaker
@@ -37,17 +42,31 @@ pytestmark = pytest.mark.integration
 READS, MUTATIONS = 3, 2
 
 
+STORES = {"memory": InMemoryRateLimiter, "postgres": PostgresRateLimiter}
+
+
+@pytest.fixture(params=sorted(STORES))
+def store(request: pytest.FixtureRequest) -> str:
+    return str(request.param)
+
+
 @pytest.fixture
 def limited_app(
     database_url: str,
     sessionmaker: async_sessionmaker[AsyncSession],
     storage: LocalStorage,
     verifier: FakeVerifier,
+    store: str,
 ) -> FastAPI:
     settings = api_settings(
-        database_url, rate_limit_reads_per_min=READS, rate_limit_mutations_per_min=MUTATIONS
+        database_url,
+        rate_limit_reads_per_min=READS,
+        rate_limit_mutations_per_min=MUTATIONS,
+        rate_limit_store=store,
     )
-    return build_api_app(settings, sessionmaker, storage, verifier)
+    app = build_api_app(settings, sessionmaker, storage, verifier)
+    assert isinstance(app.state.rate_limiter, STORES[store])
+    return app
 
 
 @pytest.fixture
@@ -96,10 +115,12 @@ async def test_mutation_limit_does_not_spend_reads(limited: Api) -> None:
     assert (await limited.get("alice", "/v1/studies")).status_code == 200
 
 
-async def test_the_limit_is_checked_before_any_database_work(
+async def test_the_limit_is_checked_before_the_request_touches_the_database(
     limited: Api, limited_app: FastAPI, database_url: str
 ) -> None:
-    """With the budget spent, the answer is 429 even when the database is unreachable."""
+    """With the budget spent, the answer is 429 even when the request's database is
+    unreachable (the Postgres store keeps its own sessionmaker, swapped out here only for
+    the request path)."""
     for _ in range(READS):
         await limited.get("alice", "/v1/studies")
     unreachable = create_engine(
