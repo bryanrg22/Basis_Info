@@ -134,6 +134,8 @@ SPEC_TABLES = {
     # The firm's own history (migration 0022_user_activity_org_events).
     "org_events": "id org_id seq event_type actor_type actor_id subject_user_id entity_type "
     "entity_id request_id before after detail",
+    # the Postgres-backed rate limiter's sliding-window log (0023)
+    "rate_limit_hits": "id key",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
