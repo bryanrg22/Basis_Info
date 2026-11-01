@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import Base64Bytes, BaseModel, ConfigDict, Field, field_validator
+
+from basis.domain.intake import Money
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
 LongText = Annotated[str, Field(min_length=1, max_length=4000)]
@@ -72,7 +73,7 @@ class PriorDepreciation(_Model):
     """A look-back study: what was claimed on the property before (Form 3115, DCN 7)."""
 
     tax_years: Text = Field(description="e.g. '2022-2024'")
-    depreciation_claimed: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)]
+    depreciation_claimed: Money
     method_used: Text = Field(description="e.g. '27.5-year SL on the whole building'")
 
 

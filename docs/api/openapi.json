@@ -13745,13 +13745,15 @@
             "anyOf": [
               {
                 "type": "number",
+                "maximum": 1000000000000.0,
                 "minimum": 0.0
               },
               {
                 "type": "string"
               }
             ],
-            "title": "Depreciation Claimed"
+            "title": "Depreciation Claimed",
+            "description": "Dollars to the cent, as a JSON number or a numeric string."
           },
           "method_used": {
             "type": "string",
@@ -13782,7 +13784,8 @@
           },
           "depreciation_claimed": {
             "type": "string",
-            "title": "Depreciation Claimed"
+            "title": "Depreciation Claimed",
+            "description": "Dollars to the cent, as a JSON number or a numeric string."
           },
           "method_used": {
             "type": "string",
