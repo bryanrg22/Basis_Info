@@ -536,6 +536,7 @@ async def test_the_next_study_at_the_firm_is_classified_from_the_conventions(
         "rule_key": None,
         "agrees_with_rules": None,
         "citation": None,
+        "origin": "model",
     }
 
     # The engineer's ruling beats the 5-year rule row and is not sent back to review for it.
@@ -617,7 +618,9 @@ async def test_a_repeat_approval_counts_and_a_different_answer_replaces(
     # Two studies of the firm classified before either is approved: the model answers the
     # garage door the same way in both.
     second = await study_at_firm(sm, study)
-    for seeded, key in ((study, "k-a"), (second, "k-b")):
+    # A fourth, classified by the model now and approved only at the end (section 11).
+    fourth = await study_at_firm(sm, study)
+    for seeded, key in ((study, "k-a"), (second, "k-b"), (fourth, "k-d")):
         await add_kept_room(sm, seeded.study_id, "Garage", "garage", "garage_door")
         deps = node_deps(sm, storage, db_test_settings, reference_store, garage_turns())
         await activity_env.run(ProcessAssets(deps).run, process(seeded, key=key))
@@ -667,6 +670,21 @@ async def test_a_repeat_approval_counts_and_a_different_answer_replaces(
     assert event.after["result"]["bucket"] == "y15"
     [promoted] = await events(sm, third.study_id, "convention.promoted")
     assert (promoted.detail["outcome"], promoted.detail["approvals"]) == ("replaced", 1)
+
+    # Section 11: the fourth study's untouched model answer (y27_5), approved after the
+    # engineer's ruling (y15) took the key, neither replaces nor outvotes it.
+    await approve_assets(sm, fourth)
+    skipped = await activity_env.run(promote.run, promote_input(fourth, 1, "k-promote-d"))
+    assert skipped == PromoteConventionsOutput(skipped=1)
+    row = (await conventions(sm, study.org_id))[GARAGE_KEY]
+    assert (row.result["bucket"], row.result["method"], row.approvals, row.study_id) == (
+        "y15",
+        "manual",
+        1,
+        third.study_id,
+    )
+    assert await events(sm, fourth.study_id, "convention.promoted") == []
+    assert await events(sm, fourth.study_id, "convention.replaced") == []
 
 
 async def test_a_coarser_tier_serves_the_next_study_and_counts_on_the_served_row(

@@ -477,3 +477,48 @@ before run 4. All 157 are current, and replaying run 4 with them scores 34 of 35
 One known gap. A study in flight across the deploy carries the old key in its assets'
 `convention` provenance, so its approval cannot confirm the re-keyed row (`confirm` finds
 nothing and writes nothing): one approval is lost per such key, and nothing is served wrongly.
+
+## 11. A decision outranks a model answer at every tier (2026-11-01)
+
+**What went wrong.** Live run 5 (EVAL_REPORT 54) classified Fireplaces as 39-year although the
+firm's engineer had ruled 5-year on study 3A. The ruling was keyed with the material
+(`fireplace|other|…|bedroom`, `fireplace|wood|…|living_room`). Study 3B, a plain run approved
+without a correction, had promoted the model's 39-year answer for `fireplace||…|bedroom` (no
+material read) as an approved model answer with two approvals. Run 5's bedroom fireplaces, also
+read without a material, met that row at the exact tier, and an exact match consults no coarser
+tier; the engineer's ruling, one tier down, never spoke. Specificity outranked the kind of row.
+
+The same shape at tiers 2 and 3: two blanket approvals of a model answer outvote one correction,
+because 9.3 settles a disagreement by approvals alone.
+
+**The rule.** The firm's rows are of two kinds, read from the row's `result.method`:
+
+| `origin` | seeded by | weight |
+|---|---|---|
+| `decision` | a `manual` asset: an engineer's correction at the assets gate | a decision |
+| `model` | an `llm` asset with reference citations, approved untouched | an answer the engineer did not object to |
+
+`ConventionIndex.match` now looks for the firm's **decisions** first, at their most specific
+tier, with 9.1 to 9.3 unchanged among them; only when no decision reaches the component at any
+tier does it look at the model answers, again by tier. Approvals still settle a disagreement, but
+only among rows of the same kind: nine blanket approvals of a model answer settle nothing between
+two rulings. `promote_conventions` never replaces a decision with a model answer (a key whose
+standing row is a decision with a different answer is skipped). The provenance carries `origin`,
+and the rationale says `the engineer's ruling` or `an approved model answer`.
+
+**Why not stop promoting model answers.** Measured on run 5's export (replay, no paid run):
+
+| rows | served by rulings | bucket right | max share error |
+|---|---|---|---|
+| as before (every row) | 201 | 34/35 | 3.3 |
+| decisions only (29 rows) | 47 | 35/35 | 1.8 |
+| every row, decisions first (this section) | 201 | 35/35 | 1.8 |
+
+Decisions alone fix the row but hand about 140 items per study back to the model (about 1.50 a
+study at run 5's prices); decisions first keeps both. The blanket rows of the test runs (3B, run 4)
+are removed from the dev database regardless: they were approved by a script, not an engineer.
+
+**Tests:** `tests/unit/classify/test_router.py` (a decision at a coarser tier beats an exact
+model answer with more approvals; decisions that disagree are a conflict whatever the model
+answers say; the origin is read from the row), `tests/node/test_process_assets.py` (a model
+answer does not replace a ruling).
