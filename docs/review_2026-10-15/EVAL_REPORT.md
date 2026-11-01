@@ -4652,7 +4652,6 @@ The steps, in order:
    deployed as a second worker pool on its own task queue. Until then, the local numbers
    (32.5, 32.6) are the worker's capacity.
 
-
 ### 32.12 Against the objectives, what to set before launch, follow-ups
 
 The proposed SLOs (LOAD_TESTING.md section 5) at 25 concurrent studies on one worker and one
@@ -7089,7 +7088,6 @@ three policies, the regression check, the conflict, the rebuilt conventions, the
 `tests/LEDGER.md` has each. Gates: `ruff check`, `ruff format --check`, `mypy basis`, the
 unit set and the integration set (see the PR for the tallies).
 
-
 ## 47. The cost index store: every study gets a sourced year index without a code change, and a value is never fetched twice (2026-10-30)
 
 Follows section 45 (the indices from the 2020 books, PR #96), which left every 2024 study
@@ -7753,7 +7751,37 @@ signature is refused (BASIS-REPORT-009).
 **Open.** The Fireplaces row; the 3.3-point 39-year gap (the structure model's Access Control row and
 Fireplaces); a second property, scored blind.
 
-## 54. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
+## 54. A decision outranks a model answer: the Fireplaces row (2026-11-01)
+
+**Question.** Run 5 (section 53) got 34 of 35 rows right; the engineer had ruled on the one wrong
+row, Fireplaces. Why did the ruling not serve, and what rule fixes it without losing the cost
+savings?
+
+**Finding.** Study 3B, a plain run approved by the driver without a correction, had promoted the
+model's 39-year fireplace (material not read) as an approved model answer at the exact key, with
+two approvals. The engineer's 5-year rulings carry a material, one tier down. An exact match
+consults no coarser tier, and at tiers 2 and 3 approvals alone settle a disagreement, so a blanket
+approval outvoted a correction. CLASSIFICATION_CONVENTIONS.md section 11 has the rule.
+
+**Replays of run 5's export** (no paid run), the production router each time:
+
+| rows | served by rulings | bucket right | max share error |
+|---|---|---|---|
+| every row, rule as before | 201 | 34/35 | 3.3 points |
+| decisions only (29 rows) | 47 | 35/35 | 1.8 points |
+| every row, decisions first | 201 | 35/35 | 1.8 points |
+
+Decisions only would hand about 140 items per study back to the model (about 1.50 a study at run
+5's prices). Decisions first keeps the 35/35 and the 201 served, with the blanket rows still in
+place. Bryan chose it over decisions only.
+
+**Change.** `CachedClassification.decided` (from the row's `result.method`), `ConventionIndex.match`
+looks at decisions first at any tier, `promote_conventions` never replaces a decision with a model
+answer, the provenance carries `origin`, and the rationale names the kind of row. Tests:
+`tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
+copy.
+
+## 55. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
 
 **Question.** Before an outside firm receives a link: can a caller reach anything without a token, see
 or change another firm's data, exhaust the service, or read something the server should keep (a stack,
@@ -7767,13 +7795,13 @@ schemas, `basis/config.py`, `basis/obs/logging.py`, the repositories' visibility
 Dockerfile, `docker-compose*.yml`, `infra/staging/run.tf`, `.env.example`, `.gitleaksignore`,
 `.pre-commit-config.yaml`, `tooling/check_no_client_data.py` and the CI workflow.
 
-### 54.1 Findings
+### 55.1 Findings
 
 | # | Severity | Finding | Outcome |
 |---|---|---|---|
-| 1 | medium | Rate limits were counted per API process only. `basis/api/ratelimit.py` promised a Postgres-backed limiter ("S1-C") that did not exist anywhere in the tree; `create_app` always installed `InMemoryRateLimiter`. Cloud Run runs up to `api_max_instances` processes, so a caller's budget was the published limit times the instance count, and a scale-out under a flood raised the budget exactly when it mattered (API4). | **Fixed** (54.2) |
-| 2 | low | No `Cache-Control` on `/v1` JSON responses and problems, and `X-Content-Type-Options` only on the four file routes. Every `/v1` answer is private to the token's bearer; RFC 9111 lets a private cache store a response to an `Authorization` request unless told otherwise (ASVS 8.3.1, 14.4.4). | **Fixed** (54.3) |
-| 3 | low | `Content-Disposition` on `GET .../documents/{id}/pdf`: the report PDF's name is read from inside the uploaded UAD 3.6 ZIP, and the ASCII fallback kept a backslash or a control character and turned a quote into `'`; a CR or LF would have ended the header. A registered filename could never carry them (`FILENAME_PATTERN`); a ZIP entry can. No test covered a hostile name. | **Fixed** (54.4) |
+| 1 | medium | Rate limits were counted per API process only. `basis/api/ratelimit.py` promised a Postgres-backed limiter ("S1-C") that did not exist anywhere in the tree; `create_app` always installed `InMemoryRateLimiter`. Cloud Run runs up to `api_max_instances` processes, so a caller's budget was the published limit times the instance count, and a scale-out under a flood raised the budget exactly when it mattered (API4). | **Fixed** (55.2) |
+| 2 | low | No `Cache-Control` on `/v1` JSON responses and problems, and `X-Content-Type-Options` only on the four file routes. Every `/v1` answer is private to the token's bearer; RFC 9111 lets a private cache store a response to an `Authorization` request unless told otherwise (ASVS 8.3.1, 14.4.4). | **Fixed** (55.3) |
+| 3 | low | `Content-Disposition` on `GET .../documents/{id}/pdf`: the report PDF's name is read from inside the uploaded UAD 3.6 ZIP, and the ASCII fallback kept a backslash or a control character and turned a quote into `'`; a CR or LF would have ended the header. A registered filename could never carry them (`FILENAME_PATTERN`); a ZIP entry can. No test covered a hostile name. | **Fixed** (55.4) |
 | 4 | medium | `POST /v1/cost-indices` lets the owner of **any** firm append a value to the deployment-wide cost index store; the value then prices every firm's studies (the route's own description says so). With one firm this was a convenience; with a second firm it is one tenant changing another's pricing (API1/API5 by design). | **Deferred**: a product decision (operator-only through `OPS_OPERATOR_UIDS`, or a per-firm store); decide before the second firm is onboarded. |
 | 5 | low | `check_revoked` is on in `prod` only (S1_SPEC 4): in `staging` a disabled or deleted Firebase user keeps access until the ID token expires (at most one hour). | Deferred: by specification, saves a Firebase read per request in staging. |
 | 6 | low | `mask_reason` on a photo object whose SAM 3 box prompt failed carries the provider's URL path (query, hence the token, stripped) and up to 200 characters of the provider's error body, shown to the study's own engineers (`basis/api/routes/objects.py`, `tests/api/test_objects.py` asserts it). | Deferred: no secret in it, visible only inside the firm, useful to the engineer; change if a provider's error text ever carries account detail. |
@@ -7785,7 +7813,7 @@ Dockerfile, `docker-compose*.yml`, `infra/staging/run.tf`, `.env.example`, `.git
 Nothing high. The two medium findings are the ones to act on before launch: 1 is fixed here, 4 is a
 decision.
 
-### 54.2 Fix 1: one budget per caller across every API process
+### 55.2 Fix 1: one budget per caller across every API process
 
 `basis/api/ratelimit_pg.py`, `PostgresRateLimiter`: the same sliding-window log as the in-memory
 limiter, kept in `rate_limit_hits` (migration `0022`, an `UNLOGGED` table: ephemeral state, no WAL per
@@ -7827,7 +7855,7 @@ Not measured: the limiter's cost under load (one lock, one delete, one select an
 Migration numbering: three sessions add migrations in parallel; `0022` here is renumbered by whichever
 PR merges later, as before.
 
-### 54.3 Fix 2: response headers
+### 55.3 Fix 2: response headers
 
 `basis/api/headers.py`, `SecurityHeadersMiddleware`, between the request-id middleware and CORS so
 error responses carry it too: `X-Content-Type-Options: nosniff` on every response; `Cache-Control:
@@ -7836,7 +7864,7 @@ and the preview `private, no-cache`); `Strict-Transport-Security: max-age=315360
 in `staging` and `prod` only. Proof: `tests/unit/api/test_security_headers.py` (13 tests: a body, a 401,
 a 404, a 413, an opaque 500, a route's own policy kept, `/health` unmarked, HSTS by environment).
 
-### 54.4 Fix 3: download filenames
+### 55.4 Fix 3: download filenames
 
 `_content_disposition` in `basis/api/routes/documents.py`: the quoted fallback replaces every C0
 control, DEL, `"` and `\` with `_` (non-ASCII stays `?`), an empty name becomes `file`, and the ZIP
@@ -7845,7 +7873,7 @@ unreserved set, so the original name survives there. Proof: `tests/unit/api/test
 (8 cases including `x\r\nX-Injected: 1.pdf`, a backslash, a lone quote, NUL and DEL); the two existing
 header tests in `test_document_content.py` are unchanged.
 
-### 54.5 Verified safe, with the test that proves it
+### 55.5 Verified safe, with the test that proves it
 
 | Area | What holds | Proof |
 |---|---|---|
@@ -7868,9 +7896,9 @@ header tests in `test_document_content.py` are unchanged.
 | Logo and text | `logo_png` at most 512 KB and a PNG by signature; every text field one line, bounded, no control characters | `tests/api/test_report_signing.py`, `tests/unit/domain/test_intake.py` |
 | Pagination | Every list route caps `limit` (`le=MAX_*`) and the cursor's length | `tests/api/test_studies.py`, `test_evidence.py`, `test_outputs.py`, `test_timeline.py`, `test_spend.py`, `test_cost_indices.py` |
 | Secrets in settings | Every `*_key`, `*_token`, `*_secret`, `*_password` field is a `SecretStr`; `database_url` is `repr=False`; no sentinel leaks through `repr`, `str` or `model_dump_json`; validation errors hide input | `tests/unit/config/test_secrets_in_repr.py` (new), `test_settings.py` |
-| Repository hygiene | `.env.example` carries names only (read line by line); `tooling/check_no_client_data.py --ci` passes on the whole tree, the report templates and fixtures included; gitleaks runs on every PR's commits in CI (`secrets-scan`) and `detect-secrets` as a pre-commit hook | run in this review (54.6) |
+| Repository hygiene | `.env.example` carries names only (read line by line); `tooling/check_no_client_data.py --ci` passes on the whole tree, the report templates and fixtures included; gitleaks runs on every PR's commits in CI (`secrets-scan`) and `detect-secrets` as a pre-commit hook | run in this review (55.6) |
 
-### 54.6 Gates
+### 55.6 Gates
 
 From `backEnd/`: `ruff check`, `ruff format --check`, `mypy basis`, the catalogue and OpenAPI
 `--check`, `evals.freeze_rule_fingerprints --check`, `tooling/check_no_client_data.py --ci`, pytest
