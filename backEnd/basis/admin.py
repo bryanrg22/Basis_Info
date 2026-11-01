@@ -1,10 +1,14 @@
-"""``python -m basis.admin``: operator bootstrap for invite-only firms (no HTTP route).
+"""``python -m basis.admin``: operator bootstrap for invite-only firms.
 
-Firms are invite-only, so the first owner of a firm cannot invite themselves: an operator
-with database access creates the firm and its first owner's invitation here. The owner
-accepts it in the app after signing in with that email (verified), exactly like any other
-invitation; an existing user is not added directly, so there is one path. From then on
-the firm's owners manage it in the app (``/v1/orgs/{org_id}``).
+A customer normally creates their own firm in the app (``POST /v1/orgs``: a verified
+sign-in becomes the first owner). This CLI is for the firms Basis sets up on a customer's
+behalf: an operator with database access creates the firm and its first owner's
+invitation here, and the owner accepts it in the app after signing in with that email
+(verified), exactly like any other invitation; an existing user is not added directly, so
+there is one path. From then on the firm's owners manage it in the app
+(``/v1/orgs/{org_id}``). The invitation email is queued with the invitation
+(``delivery: queued``) and sent by the relay; with ``EMAIL_PROVIDER=log`` the relay only
+logs it, so forward the sign-in instructions yourself.
 
 ::
 
@@ -45,6 +49,7 @@ from basis.db.enums import OrgRole
 from basis.db.errors import AlreadyMemberError, InvitationPendingError
 from basis.db.models import Invitation, Org
 from basis.db.repositories import (
+    MAX_FIRM_NAME_LENGTH,
     InvitationRepository,
     InvitationStatus,
     InvitationView,
@@ -53,7 +58,7 @@ from basis.db.repositories import (
 from basis.db.repositories.invitation import invitation_status, valid_email
 
 PROG: Final = "python -m basis.admin"
-MAX_NAME_LENGTH: Final = 200
+MAX_NAME_LENGTH: Final = MAX_FIRM_NAME_LENGTH
 
 
 class AdminError(Exception):
@@ -72,7 +77,7 @@ def _invitation(view: InvitationView) -> dict[str, Any]:
         "role": invitation.role,
         "status": view.status.value,
         "expires_at": invitation.expires_at.isoformat(),
-        "delivery": "not_sent",
+        "delivery": view.delivery.value,
     }
 
 
@@ -146,7 +151,7 @@ async def create_firm(
                 "invited to it; pass --allow-duplicate-name to create another, or use invite"
             )
         return {"action": "exists", "firm": _firm(org), **state}
-    org = await firms.create(name)
+    org = await firms.create(name)  # records org.created by the system
     view = await InvitationRepository(session).create(org.id, email, OrgRole.OWNER, None, ttl)
     return {"action": "created", "firm": _firm(org), "owner": _invitation(view)}
 

@@ -7,14 +7,29 @@ the review it belonged to and what it did: ``modified``, ``added`` (a component 
 room, an appraisal field added), ``moved``, ``merged``, ``reanalyzed``, ``removed`` (a
 component row left out of the next revision; it produced no row, so ``produced`` stays
 empty)), manual ``photo_objects`` (``added`` when created, ``deleted`` when soft
-deleted), and the ``study.intake_set`` events (the intake is engineer input too). Where
-``study_events`` recorded which rows a correction produced (``entity.*`` events naming the
-correction), the item lists them as ``produced``, so a reviewer can go from the engineer's
-input to the rows that carry it.
+deleted), and the engineer's other actions that only ``study_events`` records: the intake
+and the report answers set (``intake``, ``report_answers``: engineer input too), an upload
+confirmed (``document``), the study started, a retry or a cancel requested (``started``,
+``retry``, ``cancel``), the study archived or unarchived (``archived``, ``unarchived``) and
+the report signed (``report_signed``). Where ``study_events`` recorded which rows a
+correction produced (``entity.*`` events naming the correction), the item lists them as
+``produced``, so a reviewer can go from the engineer's input to the rows that carry it.
+
+Pagination: the listing is assembled from four tables with their own time columns, sorted
+by ``(at, seq, kind, entity_id)`` (``seq`` the event's insertion order for an item read from
+``study_events``, 0 for the others, so several events of one transaction, which share its
+``now()``, keep the order they were recorded in), then cut at the page: a keyset cursor
+names the last item's sort key (:func:`encode_cursor`), so a page never skips or repeats an
+item while new ones are appended (every source is append-only or soft-deleting). The
+assembly reads one study's engineer actions, bounded by what engineers did to it, not by
+the pipeline's output, which is why it is not pushed into SQL as a union of four shapes.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -24,7 +39,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import Decision
+from basis.db.errors import InvalidCursorError
 from basis.db.models import Correction, PhotoObject, Review, StudyEvent
+
+MAX_AUDIT_PAGE: Final = 1000
 
 ACTIONS: Final[dict[str, str]] = {
     "extraction_field": "modified",
@@ -39,9 +57,76 @@ ACTIONS: Final[dict[str, str]] = {
 }
 
 
+# The engineer's actions that exist only as events: ``event_type -> (kind, action)``. An
+# ``intake`` or ``report_answers`` item is ``added`` the first time and ``modified`` after.
+EVENT_KINDS: Final[dict[str, tuple[str, str]]] = {
+    "study.intake_set": ("intake", "modified"),
+    "study.report_answers_set": ("report_answers", "modified"),
+    "document.uploaded": ("document", "uploaded"),
+    "study.started": ("started", "started"),
+    "study.retry_requested": ("retry", "requested"),
+    "study.cancel_requested": ("cancel", "requested"),
+    "study.archived": ("archived", "archived"),
+    "study.unarchived": ("unarchived", "unarchived"),
+    "report.signed": ("report_signed", "signed"),
+}
+_PRODUCING_EVENTS: Final = ("entity.corrected", "entity.added", "entity.moved", "entity.merged")
+_VERSIONED: Final = ("intake", "report_answers")
+
+KINDS: Final = (
+    "decision",
+    "correction",
+    "object_added",
+    "object_deleted",
+    *dict.fromkeys(kind for kind, _ in EVENT_KINDS.values()),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditPage:
+    items: list[AuditItem]
+    next_cursor: str | None
+
+
+def encode_cursor(item: AuditItem) -> str:
+    """Opaque keyset cursor: the item's sort key ``(at, kind, entity_id)``."""
+    raw = json.dumps(
+        {"t": item.at.isoformat(), "q": item.seq, "k": item.kind, "e": _entity_key(item)},
+        separators=(",", ":"),
+    )
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def decode_cursor(cursor: str) -> tuple[datetime, int, str, str]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded.encode()))
+        at = datetime.fromisoformat(data["t"])
+        seq, kind, entity = data["q"], data["k"], data["e"]
+        if (
+            at.tzinfo is None
+            or isinstance(seq, bool)
+            or not isinstance(seq, int)
+            or not isinstance(kind, str)
+            or not isinstance(entity, str)
+        ):
+            raise ValueError("not a cursor")
+    except (binascii.Error, ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
+        raise InvalidCursorError("invalid pagination cursor") from exc
+    return at, seq, kind, entity
+
+
+def _entity_key(item: AuditItem) -> str:
+    return str(item.entity_id)
+
+
+def sort_key(item: AuditItem) -> tuple[datetime, int, str, str]:
+    return (item.at, item.seq, item.kind, _entity_key(item))
+
+
 @dataclass(frozen=True, slots=True)
 class AuditItem:
-    kind: str  # decision | correction | object_added | object_deleted | intake
+    kind: str  # one of KINDS
     at: datetime
     by: uuid.UUID | None
     stage: str | None
@@ -56,6 +141,7 @@ class AuditItem:
     review_id: uuid.UUID | None = None
     correction_id: uuid.UUID | None = None
     produced: tuple[uuid.UUID, ...] = field(default=())
+    seq: int = 0  # the event's ``seq`` for an item read from ``study_events``; the tiebreak
 
 
 def correction_action(entity_type: str, after: Any) -> str:
@@ -68,7 +154,24 @@ class AuditRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def page_for_study(
+        self, study_id: uuid.UUID, *, limit: int, cursor: str | None = None
+    ) -> AuditPage:
+        """One page of :meth:`list_for_study` after ``cursor`` (keyset on the sort key);
+        ``next_cursor`` names the page's last item, None on the last page."""
+        if not 1 <= limit <= MAX_AUDIT_PAGE:
+            raise ValueError(f"limit must be between 1 and {MAX_AUDIT_PAGE}")
+        items = await self.list_for_study(study_id)
+        if cursor is not None:
+            after = decode_cursor(cursor)
+            items = [item for item in items if sort_key(item) > after]
+        page = items[:limit]
+        return AuditPage(
+            items=page, next_cursor=encode_cursor(page[-1]) if len(items) > limit else None
+        )
+
     async def list_for_study(self, study_id: uuid.UUID) -> list[AuditItem]:
+        """Every engineer action on the study, in ``sort_key`` order."""
         reviews = list(
             (
                 await self._session.scalars(
@@ -101,15 +204,7 @@ class AuditRepository:
                     select(StudyEvent)
                     .where(
                         StudyEvent.study_id == study_id,
-                        StudyEvent.event_type.in_(
-                            [
-                                "entity.corrected",
-                                "entity.added",
-                                "entity.moved",
-                                "entity.merged",
-                                "study.intake_set",
-                            ]
-                        ),
+                        StudyEvent.event_type.in_([*_PRODUCING_EVENTS, *EVENT_KINDS]),
                     )
                     .order_by(StudyEvent.seq)
                 )
@@ -118,22 +213,8 @@ class AuditRepository:
         produced: dict[uuid.UUID, list[uuid.UUID]] = {}
         intakes: list[AuditItem] = []
         for event in events:
-            if event.event_type == "study.intake_set":
-                intakes.append(
-                    AuditItem(
-                        kind="intake",
-                        at=event.created_at,
-                        by=event.actor_id,
-                        stage=event.stage.value if event.stage is not None else None,
-                        revision=event.revision,
-                        action="modified" if event.before is not None else "added",
-                        entity_type="study",
-                        entity_id=event.entity_id,
-                        before=event.before,
-                        after=event.after,
-                        changed=tuple(sorted(_changed(event.before, event.after))),
-                    )
-                )
+            if event.event_type in EVENT_KINDS:
+                intakes.append(_event_item(event))
                 continue
             detail = event.detail if isinstance(event.detail, dict) else {}
             for raw in detail.get("correction_ids") or []:
@@ -219,8 +300,35 @@ class AuditRepository:
                         before=fields,
                     )
                 )
-        items.sort(key=lambda item: (item.at, item.kind, str(item.entity_id)))
+        items.sort(key=sort_key)
         return items
+
+
+def _event_item(event: StudyEvent) -> AuditItem:
+    """An action recorded only as an event, as an audit item: the event's ``before`` and
+    ``after`` where it has them (the intake, the report answers), else its ``detail`` as
+    ``after`` (what was uploaded, which workflow started, the retry's stage, the cancel's
+    reason, the signature's hashes), so the item says what the engineer did."""
+    kind, action = EVENT_KINDS[event.event_type]
+    if kind in _VERSIONED:
+        action = "modified" if event.before is not None else "added"
+        before, after = event.before, event.after
+    else:
+        before, after = event.before, event.after if event.after is not None else event.detail
+    return AuditItem(
+        kind=kind,
+        at=event.created_at,
+        by=event.actor_id,
+        stage=event.stage.value if event.stage is not None else None,
+        revision=event.revision,
+        action=action,
+        entity_type=event.entity_type if event.entity_type is not None else "study",
+        entity_id=event.entity_id if event.entity_id is not None else event.study_id,
+        before=before,
+        after=after,
+        changed=tuple(sorted(_changed(before, after))) if kind in _VERSIONED else (),
+        seq=event.seq,
+    )
 
 
 def _changed(before: Any, after: Any) -> set[str]:

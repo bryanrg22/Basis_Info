@@ -20,6 +20,10 @@ One :meth:`Relay.run_once` is one transaction:
    timeout, workflow not caught up yet)         due again in ``min(2**attempts, 300)`` s
    ... for the ``max_attempts``-th time         ``dead``
    malformed payload, unknown kind              ``dead`` at once: retrying cannot help
+   invitation email handed to the sender        ``delivered``; ``invitations.emailed_at``
+   sender failed (SMTP down, 4xx)               retried as transient; ``email_error`` set
+   recipient refused for good (5xx)             ``dead`` at once; ``email_error`` set
+   invitation revoked/answered before the send  ``delivered`` with ``last_error``, not sent
    alert handed to the email sender             ``delivered``
    alert, sender failed (SMTP down, 4xx)        retried as transient (``E.ALERT_EMAIL_FAILED``)
    alert, recipient refused for good (5xx)      ``dead`` at once (``E.ALERT_EMAIL_FAILED``)
@@ -32,12 +36,16 @@ claimed row is due again for any relay. Delivery is therefore at least once, and
 consumer is idempotent: the update id is ``decision-{review_id}`` (Temporal deduplicates
 updates by id within a run) and the workflow ignores a review id it has applied.
 
-**Notifications.** A ``notification`` row carries a ``type``. ``alert`` is an operator
-alert (``basis.db.repositories.alert``: a failed study, a stale heartbeat): the relay
-renders it (``basis.notify.render``) and calls the configured ``EmailSender`` with
+**Notifications.** A ``notification`` row carries a ``type``. ``invitation`` is the
+invitation email (``basis.email.invitation``): the relay loads the invitation, skips it
+when it was already emailed (a redelivered row) or is no longer pending, else renders it
+and calls the configured :class:`~basis.email.EmailSender`; the outcome is recorded on the
+invitation in the same transaction that marks the outbox row.
+``alert`` is an operator alert (``basis.db.repositories.alert``: a failed study, a stale
+heartbeat): the relay renders it (``basis.notify.render``) and calls the same sender with
 ``ALERT_EMAIL_TO`` as the recipient and the alert's key as the idempotency key, so a
-redelivered row cannot become a second email at a provider that honours the key. Any other
-type is delivered to the log, as before.
+redelivered row cannot become a second email at a provider that honours the key. Any
+other type is delivered to the log, as before.
 
 **Catching up before deciding.** The API moves the study in the database the moment a
 decision is recorded, but the workflow reaches the next review stage only after it has
@@ -66,18 +74,26 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.client import Client, WorkflowUpdateFailedError
 
 from basis.db.enums import Stage
+from basis.db.errors import NotVisibleError
 from basis.db.models import OutboxMessage
 from basis.db.repositories.alert import ALERT_NOTIFICATION
-from basis.db.repositories.outbox import NOTIFICATION, WORKFLOW_SIGNAL, OutboxRepository
+from basis.db.repositories.invitation import InvitationRepository, InvitationStatus
+from basis.db.repositories.outbox import (
+    INVITATION_NOTIFICATION,
+    NOTIFICATION,
+    WORKFLOW_SIGNAL,
+    OutboxRepository,
+)
 from basis.db.session import session_scope
-from basis.errors.codes import E
-from basis.notify.render import MalformedAlert, render_alert
-from basis.notify.sender import (
+from basis.email.invitation import render_invitation
+from basis.email.sender import (
     EmailRejectedError,
     EmailSender,
     EmailSendError,
     LoggingEmailSender,
 )
+from basis.errors.codes import E
+from basis.notify.render import MalformedAlert, render_alert
 from basis.obs.logging import bound
 from basis.temporal.names import (
     DECIDE_UPDATE,
@@ -159,6 +175,9 @@ class Result:
     message_id: uuid.UUID
     outcome: Outcome
     error: str | None = None
+    # An invitation email was handed to the sender in this delivery (``emailed_at`` is
+    # recorded); False for a redelivered row whose email had already gone.
+    emailed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +227,7 @@ class Relay:
         max_attempts: int = MAX_ATTEMPTS,
         delivery_timeout: float = DELIVERY_TIMEOUT_S,
         email_sender: EmailSender | None = None,
+        app_url: str | None = None,
         alert_to: str | None = None,
         env: str | None = None,
     ) -> None:
@@ -217,6 +237,7 @@ class Relay:
         self.gateway = gateway
         # The log sender unless one is given: a relay never sends mail by accident.
         self.email_sender: EmailSender = email_sender or LoggingEmailSender()
+        self.app_url = app_url
         self.alert_to = alert_to
         self.env = env
         self.poll_seconds = poll_seconds
@@ -236,8 +257,9 @@ class Relay:
             if not messages:
                 return BatchReport(claimed=0)
             results = await self._deliver_all(messages)
+            invitations = InvitationRepository(session)
             for message, result in zip(messages, results, strict=True):
-                await self._record(outbox, message, result)
+                await self._record(outbox, message, result, invitations=invitations)
         return BatchReport(
             claimed=len(messages),
             delivered=sum(r.outcome is Outcome.DELIVERED for r in results),
@@ -286,13 +308,53 @@ class Relay:
         if message.kind == WORKFLOW_SIGNAL:
             return await self._deliver_decision(message)
         if message.kind == NOTIFICATION:
+            if message.payload.get("type") == INVITATION_NOTIFICATION:
+                return await self._deliver_invitation(message)
             if message.payload.get("type") == ALERT_NOTIFICATION:
                 return await self._deliver_alert(message)
-            # Other notifications (review reminders) are delivered to the log until a
-            # recipient exists for them.
+            # Other notifications (review reminders) are delivered to the log until a channel
+            # for them exists.
             logger.info("notification", extra={"payload": dict(message.payload)})
             return Result(message.id, Outcome.DELIVERED)
         return Result(message.id, Outcome.DEAD, f"unknown outbox kind {message.kind!r}")
+
+    async def _deliver_invitation(self, message: OutboxMessage) -> Result:
+        try:
+            invitation_id = uuid.UUID(str(message.payload["invitation_id"]))
+        except (KeyError, ValueError, TypeError) as exc:
+            return Result(message.id, Outcome.DEAD, f"malformed payload: {_describe(exc)}")
+        # Read outside the claim transaction (nothing to lock: the row is written only by
+        # ``_record``, in the claim transaction, after this returns).
+        async with self.sessionmaker() as session:
+            try:
+                view = await InvitationRepository(session).view(invitation_id)
+            except NotVisibleError:
+                return Result(message.id, Outcome.DEAD, f"invitation {invitation_id} not found")
+        if view.invitation.emailed_at is not None:
+            return Result(message.id, Outcome.DELIVERED)  # already sent: never twice
+        if view.status is not InvitationStatus.PENDING:
+            return Result(
+                message.id,
+                Outcome.DELIVERED,
+                f"not sent: the invitation was {view.status.value} before it was emailed",
+            )
+        try:
+            email = render_invitation(view, self.app_url)
+        except ValueError as exc:  # an address the message rules refuse: retrying cannot help
+            return Result(message.id, Outcome.DEAD, f"cannot render: {exc}")
+        try:
+            sent = await self.email_sender.send(email)
+        except EmailRejectedError as exc:
+            return Result(message.id, Outcome.DEAD, f"email rejected: {exc}")
+        logger.info(
+            "invitation email sent",
+            extra={
+                "invitation_id": str(invitation_id),
+                "provider": sent.provider,
+                "message_id": sent.message_id,
+            },
+        )
+        return Result(message.id, Outcome.DELIVERED, emailed=True)
 
     async def _deliver_alert(self, message: OutboxMessage) -> Result:
         """Render the alert and hand it to the sender; without a recipient, log it."""
@@ -353,7 +415,12 @@ class Relay:
         return Result(message.id, Outcome.DELIVERED)
 
     async def _record(
-        self, outbox: OutboxRepository, message: OutboxMessage, result: Result
+        self,
+        outbox: OutboxRepository,
+        message: OutboxMessage,
+        result: Result,
+        *,
+        invitations: InvitationRepository | None = None,
     ) -> None:
         fields = {
             "outbox_id": str(message.id),
@@ -361,8 +428,10 @@ class Relay:
             "kind": message.kind,
         }
         attempts = message.attempts + 1
+        if invitations is not None:
+            await self._record_email(invitations, message, result, attempts)
         if result.outcome is Outcome.DELIVERED:
-            await outbox.mark_delivered(message.id)
+            await outbox.mark_delivered(message.id, last_error=result.error)
             logger.info("outbox message delivered", extra={**fields, "attempts": attempts})
         elif result.outcome is Outcome.REFUSED:
             await outbox.mark_delivered(message.id, last_error=result.error)
@@ -394,6 +463,37 @@ class Relay:
                 },
             )
 
+    async def _record_email(
+        self,
+        invitations: InvitationRepository,
+        message: OutboxMessage,
+        result: Result,
+        attempts: int,
+    ) -> None:
+        """The invitation's own record of its email, next to the outbox row's."""
+        if message.kind != NOTIFICATION or message.payload.get("type") != INVITATION_NOTIFICATION:
+            return
+        try:
+            invitation_id = uuid.UUID(str(message.payload.get("invitation_id")))
+        except (ValueError, TypeError):
+            return  # dead as malformed; there is no row to annotate
+        if result.emailed:
+            await invitations.record_emailed(invitation_id)
+            return
+        if result.error is None:
+            return  # already emailed earlier: nothing new to record
+        await invitations.record_email_error(invitation_id, result.error)
+        if result.outcome is not Outcome.DELIVERED:
+            logger.warning(
+                "invitation email failed",
+                extra={
+                    "invitation_id": str(invitation_id),
+                    "attempts": attempts,
+                    "error": result.error,
+                    "error_code": E.INF_EMAIL_FAILED,
+                },
+            )
+
     # ------------------------------------------------------------------ the loop
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -402,7 +502,8 @@ class Relay:
             "outbox relay started",
             extra={
                 "poll_seconds": self.poll_seconds,
-                "email_sender": self.email_sender.provider,
+                "email_provider": self.email_sender.provider,
+                "app_url": self.app_url,
                 "alert_recipient_set": self.alert_to is not None,
             },
         )

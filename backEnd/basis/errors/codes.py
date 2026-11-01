@@ -71,6 +71,7 @@ class E:
     API_REPRICE_RECLASSIFY = "BASIS-API-041"
     API_REPRICE_NOT_AT_REVIEW = "BASIS-API-042"
     API_NOT_OPERATOR = "BASIS-API-043"
+    API_RATE_LIMIT_STORE_UNAVAILABLE = "BASIS-API-044"
 
     # ---------------------------------------------------------------- firms and membership
     FIRM_NO_FIRM = "BASIS-FIRM-001"
@@ -95,6 +96,7 @@ class E:
     UPLOAD_LOCAL_DISABLED = "BASIS-UPLOAD-008"
     UPLOAD_LOCAL_TOO_LARGE = "BASIS-UPLOAD-009"
     UPLOAD_LOCAL_REJECTED = "BASIS-UPLOAD-010"
+    UPLOAD_ALREADY_CONFIRMED = "BASIS-UPLOAD-011"
 
     # ---------------------------------------------------------------- study lifecycle (API)
     STUDY_INTAKE_REQUIRED = "BASIS-STUDY-001"
@@ -121,6 +123,11 @@ class E:
     STUDY_CORRECTION_REBUILT = "BASIS-STUDY-022"
     STUDY_CORRECTION_LAST_INVENTORY = "BASIS-STUDY-023"
     STUDY_CORRECTION_FIELD_EXISTS = "BASIS-STUDY-024"
+    STUDY_DRAFT_PRECONDITION_FAILED = "BASIS-STUDY-025"
+    STUDY_DRAFT_STALE = "BASIS-STUDY-026"
+    STUDY_DRAFT_NOT_FOUND = "BASIS-STUDY-027"
+    STUDY_RESTART_RUNNING = "BASIS-STUDY-028"
+    STUDY_RESTART_COMPLETED = "BASIS-STUDY-029"
 
     # ---------------------------------------------------------------- photo objects (API)
     OBJECT_LOCALIZATION_PENDING = "BASIS-OBJECT-001"
@@ -337,6 +344,7 @@ class E:
     INF_RELAY_REFUSED = "BASIS-INF-002"
     INF_RELAY_DEAD = "BASIS-INF-003"
     INF_HEARTBEAT_WRITE = "BASIS-INF-004"
+    INF_EMAIL_FAILED = "BASIS-INF-005"
 
     # ---------------------------------------------------------------- client-data retention
     RETENTION_PURGED = "BASIS-RETENTION-001"

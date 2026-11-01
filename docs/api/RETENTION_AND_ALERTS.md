@@ -156,13 +156,12 @@ Other `notification` types (`review_pending`) still go to the log, as before.
 
 ### 2.4 The email sender
 
-`basis.notify.sender`: `EmailMessage(to, subject, text, idempotency_key)`,
-`EmailSender.send(message) -> SendResult`, `EmailSendError` (retry) and
-`EmailRejectedError` (final), `LoggingEmailSender` (logs, never sends). The firm-admin
-branch defines the same shapes in `basis.email.sender` with an SMTP sender and the
-`EMAIL_PROVIDER` / `EMAIL_FROM` / `SMTP_*` settings for invitation emails; at the merge
-`basis.notify` imports those names from `basis.email` and this build's log-only factory
-goes away. Until then the only transport is the log, and `ALERT_EMAIL_TO` names who the
+`basis.email` (docs/api/FIRMS.md 4, shared with the invitation emails): `EmailMessage(to,
+subject, text, idempotency_key)`, `EmailSender.send(message) -> SendResult`,
+`EmailSendError` (retry) and `EmailRejectedError` (final), `LoggingEmailSender` (logs, never
+sends) and `SmtpEmailSender`; `EMAIL_PROVIDER` (`log`, the default, or `smtp`) with
+`EMAIL_FROM` / `SMTP_*` picks the transport for both. `basis.notify` re-exports those names
+and adds only the alert rendering and the heartbeat monitor. `ALERT_EMAIL_TO` names who the
 SMTP sender will write to.
 
 ### 2.5 Settings
@@ -182,7 +181,7 @@ delete failed (error, exit 1); `BASIS-ALERT-001` study-failed alert enqueued (ou
 
 ## 4. Rollout
 
-Migration `0025_retention_alerts` (`orgs.retention_days`, `studies.purged_at`, `alerts`)
+Migration `0026_retention_alerts` (`orgs.retention_days`, `studies.purged_at`, `alerts`)
 before the relay, the worker and the API: `record_failure` (worker) writes `alerts`; the
 relay reads the heartbeats and sends. Until the migration is applied a worker on this
 build fails `record_failure` on the missing table (Temporal retries it; the study is still

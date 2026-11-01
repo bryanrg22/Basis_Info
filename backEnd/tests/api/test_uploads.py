@@ -19,6 +19,7 @@ from basis.api.errors import PROBLEM_JSON
 from basis.api.schemas.documents import MAX_UPLOAD_BYTES
 from basis.db.enums import OrgRole
 from basis.db.models import Document
+from basis.errors.codes import E
 from basis.storage import LocalStorage, ObjectNotFound, UploadRejected
 
 pytestmark = pytest.mark.integration
@@ -357,3 +358,154 @@ async def test_non_member_cannot_upload_or_confirm(api: Api, storage: LocalStora
     assert (await api.request_upload("bob", study["id"], b"x")).status_code == 404
     response = await api.post("bob", complete_path(study["id"], ticket["document"]["id"]))
     assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------- resuming
+# docs/api/GATE_DRAFTS_AND_RESUME.md: a registration survives a reload (``uploaded_at`` null in
+# the study's document list), ``POST .../documents/{id}/upload-url`` re-issues its signed URL,
+# and a repeated registration of the same bytes is the 409 that names the document.
+
+
+def upload_url_path(study_id: str, document_id: str) -> str:
+    return f"/v1/studies/{study_id}/documents/{document_id}/upload-url"
+
+
+async def test_a_registration_survives_a_reload_and_its_url_is_reissued(
+    api: Api, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    study = await api.create_study("alice")
+    ticket = await upload(api, "alice", study["id"])  # the browser then reloads: ticket gone
+    doc_id = ticket["document"]["id"]
+
+    # What a fresh client sees: the document registered, unconfirmed, with its sha256.
+    listed = (await api.get("alice", f"/v1/studies/{study['id']}")).json()["documents"]
+    assert [(d["id"], d["uploaded_at"], d["sha256"]) for d in listed] == [
+        (doc_id, None, sha256_hex(PDF))
+    ]
+    reissued = await api.post("alice", upload_url_path(study["id"], doc_id))
+    assert reissued.status_code == 201, reissued.text
+    body = reissued.json()
+    assert body["document"] == ticket["document"]  # the same registration, not a new one
+    assert body["upload"]["url"] != ticket["upload"]["url"]  # a fresh signature
+    assert body["upload"]["method"] == "PUT"
+    assert body["upload"]["headers"] == ticket["upload"]["headers"]  # same size and type
+    expires = datetime.fromisoformat(body["upload"]["expires_at"])
+    assert timedelta(minutes=14) < expires - datetime.now(UTC) <= timedelta(minutes=15)
+
+    storage.put_signed(body["upload"]["url"], PDF, body["upload"]["headers"])
+    confirmed = await api.post("alice", complete_path(study["id"], doc_id))
+    assert confirmed.status_code == 200 and confirmed.json()["uploaded_at"] is not None
+    assert (await document_row(sessionmaker, doc_id)).uploaded_at is not None
+    assert len((await api.get("alice", f"/v1/studies/{study['id']}")).json()["documents"]) == 1
+
+
+async def test_reissue_after_a_rejected_upload_then_the_right_bytes_confirm(
+    api: Api, storage: LocalStorage
+) -> None:
+    study = await api.create_study("alice")
+    ticket = await upload(api, "alice", study["id"])
+    doc_id = ticket["document"]["id"]
+    storage.put_signed(ticket["upload"]["url"], PDF[:-1] + b"X", ticket["upload"]["headers"])
+    rejected = await api.post("alice", complete_path(study["id"], doc_id))
+    assert rejected.status_code == 409 and rejected.json()["type"].endswith("/upload-mismatch")
+    body = (await api.post("alice", upload_url_path(study["id"], doc_id))).json()
+    storage.put_signed(body["upload"]["url"], PDF, body["upload"]["headers"])
+    confirmed = await api.post("alice", complete_path(study["id"], doc_id))
+    assert confirmed.status_code == 200 and confirmed.json()["uploaded_at"] is not None
+
+
+async def test_reissue_for_a_confirmed_document_is_409(api: Api, storage: LocalStorage) -> None:
+    study = await api.create_study("alice")
+    ticket = await upload(api, "alice", study["id"])
+    doc_id = ticket["document"]["id"]
+    storage.put_signed(ticket["upload"]["url"], PDF, ticket["upload"]["headers"])
+    assert (await api.post("alice", complete_path(study["id"], doc_id))).status_code == 200
+    refused = await api.post("alice", upload_url_path(study["id"], doc_id))
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["type"].endswith("/upload-complete")
+    assert refused.json()["code"] == E.UPLOAD_ALREADY_CONFIRMED
+    # The confirmed bytes are untouched and still served.
+    assert (
+        await api.get("alice", f"/v1/studies/{study['id']}/documents/{doc_id}/content")
+    ).content == PDF
+
+
+async def test_reissue_errors(api: Api, seed: Seed) -> None:
+    study = await api.create_study("alice")
+    other = await api.create_study("alice", "Other")
+    await seed.member(uuid.UUID(study["org_id"]), "vera", OrgRole.VIEWER)
+    ticket = await upload(api, "alice", study["id"])
+    doc_id = ticket["document"]["id"]
+
+    unknown = await api.post("alice", upload_url_path(study["id"], str(uuid.uuid4())))
+    assert unknown.status_code == 404 and unknown.json()["code"] == E.UPLOAD_DOCUMENT_NOT_FOUND
+    assert (await api.post("alice", upload_url_path(other["id"], doc_id))).status_code == 404
+    assert (await api.post("vera", upload_url_path(study["id"], doc_id))).status_code == 403
+    assert (await api.post("mallory", upload_url_path(study["id"], doc_id))).status_code == 404
+    assert (await api.delete("alice", f"/v1/studies/{study['id']}")).status_code == 200
+    archived = await api.post("alice", upload_url_path(study["id"], doc_id))
+    assert archived.status_code == 409 and archived.json()["type"].endswith("/study-archived")
+
+
+async def test_registering_the_same_bytes_again_names_the_unconfirmed_document(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """``POST .../documents`` is not replayed for the same sha256: it is the 409 that names the
+    existing registration, and the study's document list carries the sha256 and ``uploaded_at``
+    null, which is how a client matches a re-selected file to it and resumes."""
+    study = await api.create_study("alice")
+    ticket = await upload(api, "alice", study["id"])
+    doc_id = ticket["document"]["id"]
+    again = await api.request_upload("alice", study["id"], PDF)
+    assert again.status_code == 409, again.text
+    problem = again.json()
+    assert problem["type"].endswith("/duplicate-document") and doc_id in problem["detail"]
+    listed = (await api.get("alice", f"/v1/studies/{study['id']}")).json()["documents"]
+    assert len(listed) == 1  # nothing registered twice
+    [match] = [d for d in listed if d["sha256"] == sha256_hex(PDF) and d["uploaded_at"] is None]
+    assert match["id"] == doc_id
+    async with sessionmaker() as session:
+        rows = (await session.scalars(select(Document))).all()
+    assert [str(r.id) for r in rows] == [doc_id]
+
+
+async def test_the_resume_sequence_for_a_draft_study(api: Api, storage: LocalStorage) -> None:
+    """The documented sequence: a client with no memory of the upload run finishes it from the
+    study's document list alone: confirm what is uploaded, re-issue and upload the rest."""
+    study = await api.create_study("alice")
+    appraisal = await upload(api, "alice", study["id"])
+    photo_bytes = b"\xff\xd8\xff" + b"jpeg body " * 100
+    photo = await upload(
+        api,
+        "alice",
+        study["id"],
+        photo_bytes,
+        kind="photo",
+        content_type="image/jpeg",
+        filename="kitchen.jpg",
+    )
+    # The appraisal's bytes went up before the reload; its confirmation did not.
+    storage.put_signed(appraisal["upload"]["url"], PDF, appraisal["upload"]["headers"])
+    local_files = {sha256_hex(PDF): PDF, sha256_hex(photo_bytes): photo_bytes}
+
+    # ---- the reload: nothing but the study id and the files the engineer re-selects
+    detail = (await api.get("alice", f"/v1/studies/{study['id']}")).json()
+    assert detail["status"] == "draft" and detail["current_stage"] == "uploading"
+    pending = [d for d in detail["documents"] if d["uploaded_at"] is None]
+    assert {d["id"] for d in pending} == {appraisal["document"]["id"], photo["document"]["id"]}
+    for document in pending:
+        done = await api.post("alice", complete_path(study["id"], document["id"]))
+        if done.status_code == 200:
+            continue  # the bytes were already there: confirmed without a second upload
+        assert done.status_code == 409 and done.json()["type"].endswith("/upload-missing")
+        reissued = (await api.post("alice", upload_url_path(study["id"], document["id"]))).json()
+        storage.put_signed(
+            reissued["upload"]["url"],
+            local_files[document["sha256"]],
+            reissued["upload"]["headers"],
+        )
+        assert (
+            await api.post("alice", complete_path(study["id"], document["id"]))
+        ).status_code == 200
+    after = (await api.get("alice", f"/v1/studies/{study['id']}")).json()["documents"]
+    assert len(after) == 2 and all(d["uploaded_at"] is not None for d in after)

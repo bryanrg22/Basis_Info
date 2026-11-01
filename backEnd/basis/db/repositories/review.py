@@ -21,6 +21,10 @@ starts a new revision (S1_SPEC §1: outputs are grouped by revision per study), 
 rejected revision is never decided twice and its rows stay as history. The table is the
 single place to change if S2's workflow defines the stage graph differently.
 
+The reviewer's pending draft on the decided stage (``review_drafts``,
+:mod:`basis.db.repositories.review_draft`) is deleted in the decision's transaction, whatever
+revision it was drafted against; ``review.decided`` records ``draft_discarded``.
+
 The ``workflow_signal`` outbox payload carries every field of
 ``basis.workflow.contracts.Decision`` (review id, stage, revision, decision, reviewer,
 corrections, submission time) plus the routing fields, so ``basis.relay`` builds the
@@ -68,6 +72,7 @@ from basis.db.models import (
 )
 from basis.db.repositories.idempotency import scoped_key
 from basis.db.repositories.outbox import WORKFLOW_SIGNAL, OutboxRepository
+from basis.db.repositories.review_draft import ReviewDraftRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 
@@ -288,6 +293,11 @@ class ReviewRepository:
         if rows:
             self._session.add_all(rows)
             await self._session.flush()
+        # The reviewer's pending draft on this stage (``review_drafts``) was for this decision
+        # (or is stale): it goes with the decision, in the same transaction.
+        draft_discarded = await ReviewDraftRepository(self._session).discard_for_user(
+            study_id, stage, reviewer_id
+        )
         events = StudyEventRepository(self._session)
         await events.record(
             study_id,
@@ -304,6 +314,7 @@ class ReviewRepository:
                 "corrections": len(rows),
                 "to_stage": to_stage.value,
                 "new_revision": new_revision,
+                "draft_discarded": draft_discarded,
             },
         )
         for row in rows:

@@ -7781,7 +7781,395 @@ answer, the provenance carries `origin`, and the rationale names the kind of row
 `tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
 copy.
 
-## 55. Backups, a retention rule, and alerts before firms use Basis (2026-11-01)
+## 55. Vendor import profiles for the preparer's schedule (2026-11-01)
+
+**Question.** No CPA partner has sent an import template. Can the schedule already be handed to
+the fixed-asset packages CPAs use most for cost segregation, so the first partner imports without
+a round trip, without guessing at any layout? Research and every mapping decision: STUDY_REPORT_SPEC
+11.5.1; API: docs/api/REPORT.md "Vendor import profiles". No paid run; no client data.
+
+### 55.1 What is public, from the vendors' own documentation
+
+| Package | Published | Not published |
+|---|---|---|
+| Thomson Reuters Fixed Assets CS | the Excel import's fields and limits: Description 0-45 "no quotation marks or commas", Method list (`M`, `M SL`, `150 DB`, ...), Life and ADS Life 1-99, Real property `R`, Force Mid Qtr Y/N, "Any Excel date format"; 168(k) applied by the package itself (no field) | the template's heading row (exported from the product) |
+| Sage Fixed Assets Depreciation | the whole Custom Import Helper (user guide Appendix C): five critical fields, two-letter method codes (`MF`, `MA`, ...), Declining Balance % in its own column, `168 Allow %` required with `MA`, lives as YYMM, Property Type letters, Mid-Quarter Flag, dates MM/DD/YYYY, field widths; field order free | nothing needed |
+| Intuit ProConnect / Lacerte | Intuit's Depreciation template (17 headings) and data rules (25-character description, mm/dd/yyyy, Category 1-8, Method numbers); Lacerte's wizard takes CSV/XLS only | nothing needed (Form and Activity numbers depend on the return) |
+| CCH ProSystem fx Fixed Assets | the mechanism: Excel headings mapped in a translation table; date in service and method required; each distinct method value mapped by hand; sample file ships with the product | field names, method and convention option names, limits |
+| Bloomberg Tax Fixed Assets | the mechanism: a CSV Import wizard that maps columns; convention solved, forced or "As Is" | the Import Guide (field names, codes, date format) |
+
+### 55.2 Built
+
+`basis/report/vendors.py`: a profile per package, each a column mapping over the generic rows
+(vendor headers in the vendor's order, its codes, its date format, its description limit), rendered
+on request by `GET /v1/studies/{id}/report?format=csv|xlsx&profile=<name>` from the stored export.
+The export step still writes only the generic files; `profile=generic` is the stored file.
+
+* **Generic unchanged**: the synthetic export's CSV and XLSX have the sha256 they had on main
+  396dcbe (pinned in `test_vendors.py`), after the XLSX writer was factored out for the profiles.
+* **Ties**: every profile's rows carry the line's allocated cost; `vendor_rows` refuses a row that
+  does not (BASIS-REPORT-003). On the synthetic export all five sum to 61,000.00 in the CSV and in
+  the typed XLSX money column.
+* **Limits**: descriptions cut to 45 (Fixed Assets CS, CCH, Bloomberg), 80 (Sage), 25
+  (ProConnect) without quotes, commas or breaks; Fixed Assets CS memos within 45 and clean in every
+  cell ("Don't use commas or quotation marks in any cells").
+* **Deterministic**: CSV and XLSX byte-identical across builds and with a clock that moves on
+  every call (the pinned-time test from section 51 repeated for a profile); the route's `ETag` is
+  the sha256 of the bytes.
+* **Bonus**: the schedule's statutory default travels as each package takes it: Sage `MA` with
+  `168 Allow %` (40, 60, 100, ...) when the default applies, else `MF`; Fixed Assets CS and
+  ProConnect apply the allowance themselves (a memo, no field); CCH and Bloomberg get a
+  `Bonus Default %` column. Mid-quarter is the preparer's 40 % test everywhere: half-year is said.
+* Sizes on the synthetic export: each XLSX 5.5-5.6 KB, the CSVs 0.6-1.3 KB.
+
+### 55.3 Checks
+
+* `tests/unit/report/test_vendors.py` (15 cases): the generic bytes pinned; profile names equal the
+  route's enum; per profile headers, ties, limits, typing and stability; each vendor's codes on the
+  synthetic export and, by hand-built rows, the 7 and 39-year classes, a 100 % and an undetermined
+  bonus, a 10-year period refused.
+* `tests/api/test_study_report.py` (2 added): a profile rendered from the stored export equals
+  `vendors.to_csv`/`to_xlsx` byte for byte, `ETag` and 304, the file name; the default and
+  `profile=generic` are the stored file; an unknown profile is 422 and `profile` is ignored for the PDF (Schemathesis's positive-data check rejected a 422 there); the
+  export JSON gone is 404 BASIS-REPORT-006; a skipped export is 404 with its code.
+* `docs/api/openapi.json` regenerated (`profile` enum); the contract test runs it.
+
+### 55.4 Verified and not
+
+* Verified: everything in 55.3, on this machine.
+* **Not verified: any import into the real software.** All five profiles are built to the published
+  specifications only. The open readings a preparer's first import settles: Fixed Assets CS `M` plus
+  life as the class method; Sage `MF` with `100` for straight-line real property and the Mid-Quarter
+  Flag blank on real property; ProConnect's integer bounds on cost (cents kept so the rows tie);
+  CCH's and Bloomberg's headings, which their mapping dialogs absorb.
+
+
+## 56. Per-user activity, the study library on the server, the audit completed, the firm's own history (2026-11-01)
+
+**Question.** Can an engineer see what they did, can the library search, filter and sort on the server
+instead of in the browser, does the audit list every engineer action, and is anything that happens to a
+firm (an invitation, a role, a removal) recorded anywhere?
+
+**What was built** (migration `0022`; docs/api/STUDY_LIBRARY.md, docs/api/TIMELINE_AND_AUDIT.md):
+
+| Piece | Route | Design decision |
+|---|---|---|
+| Per-user activity | `GET /v1/me/activity` | The caller's own `study_events` rows across the studies of their firms, with the study's id and property name, newest first by `seq`. The cap is two things: 200 rows a page, and a 90-day window when `since` is absent; the response echoes the window it applied so a client pins it on the next page. `since` after `until` is an empty page, not an error. Served by a new `(actor_id, seq DESC)` index. |
+| Library | `GET /v1/studies` | `q` (case-insensitive substring, LIKE wildcards literal), `status` (repeatable), `created_by`, `include_archived`, `sort` (`updated_desc` default, `created_desc`, `name_asc`), `total`. The keyset cursor encodes the sort it was issued under and the row's key, so a cursor replayed under another sort is 422 rather than a wrong page. The default order changed from newest to most recently updated, which is what the web app shows by default. `POST .../unarchive` (owner) restores the status the stage implies, `failed` while a failure is recorded. |
+| Audit | `GET /v1/studies/{id}/audit` | Eight kinds added from the events the routes already write (intake and report answers set, upload confirmed, started, retry, cancel, archived, unarchived, signed). Paginated on `(at, seq, kind, entity_id)`: assembled from four tables, sorted, cut; `seq` keeps several events of one request in order. |
+| Firm history | `GET /v1/orgs/{org_id}/activity` (owner) | `org_events`, append-only like `study_events`, written by the repositories so the operator CLI and the API record alike and a refused request leaves nothing: `org.created`, `invitation.created/accepted/declined/revoked` (with why), `member.role_changed`, `member.removed` (with the invitations it revoked), `profile.set` (the fields changed, never the logo). |
+
+**Not SQL, on purpose.** The audit page is cut in memory after a four-table assembly. One study's
+engineer actions are bounded by what engineers did to it (tens to low hundreds), not by the pipeline's
+output; a union of four row shapes would buy nothing at that size. `GET /v1/me/activity` and the firm
+history are plain keyset queries.
+
+**Verified.** 18 library tests (pages under each of the three sorts over colliding names and shuffled
+update times have no gap or repeat and equal the one listing cut; a row inserted between pages is neither
+skipped nor repeated; `%`, `_` and `\` in `q` are literal; archived hidden unless asked; unarchive restores
+each of five statuses and records one event under three concurrent requests queued on the held row lock), 16 activity tests (own
+events only, a left firm hidden, the 90-day default against events written 80 and 100 days ago, every
+firm action through its real route with who did what, the CLI's rows as `system`, re-inviting after
+expiry, `org_events` refusing UPDATE and DELETE, the last-owner refusal leaving no event), the audit's
+eleven items in order with pages of four, migration `0022` up, constraints, down to the `0021` snapshot
+and up again, `alembic check` clean, the OpenAPI document regenerated and the contract test (Schemathesis
+over every operation, the three new ones included) green, every gate green.
+
+**One guard moved under the lock (2026-11-01).** CI once recorded three `study.unarchived` events for
+three concurrent unarchives (locally 2 of 20 rounds, with either rate-limit store). The route decided
+"was archived" from the access dependency's read, taken before the repository's `SELECT ... FOR UPDATE`;
+three requests that all read `archived` before the first committed then serialized on the lock, the
+second and third found the study restored, returned it unchanged, and still recorded an event because
+their pre-lock read said it had been archived. The repository now reports whether it restored the study,
+decided under the lock, and the route records exactly then. The test no longer relies on timing: it holds
+the row locked while the three requests are sent, waits until all three are blocked on it
+(`pg_stat_activity`), then releases; the old guard fails it every round, the new one passes it 20 of 20
+with the in-memory and the Postgres limiter.
+
+**And one the fuzz found after the merge with main.** `GET .../timeline?event_type=<NUL>` answered 500:
+the timeline's filter was a plain `list[str]`, the NUL reached asyncpg, which refuses it. The activity
+routes had the rule (non-empty, at most 100 characters, no NUL) from the start; it now lives in
+`basis.api.routes.common.EventTypes` and the three routes share it (three new timeline cases, the
+OpenAPI document regenerated).
+
+**Not verified.** No live run through the stack: the routes are exercised against a real PostgreSQL in
+the tests, not against the staging deployment; the web app is unchanged and still filters in the
+browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeCompare` and `lower()` may
+order accented names differently. The audit's in-memory page is the right size for a study's engineer
+actions; a study with thousands of corrections would want the union query.
+
+## 57. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
+
+**Question.** Before an outside firm receives a link: can a caller reach anything without a token, see
+or change another firm's data, exhaust the service, or read something the server should keep (a stack,
+a path, a key)? Yardsticks: OWASP ASVS 5.0 (V4 access control, V8 data protection, V14.4 headers) and
+the OWASP API Security Top 10 (API1 object-level authorization, API4 unrestricted resource consumption,
+API8 misconfiguration). Each claim below names the test that proves it; what is not tested says so.
+
+**Scope read.** `basis/auth/firebase.py`, `basis/api/{auth,users,app,ratelimit,errors,bodylimit,
+middleware,idempotency,openapi,local_uploads}.py`, every module in `basis/api/routes/`, the request
+schemas, `basis/config.py`, `basis/obs/logging.py`, the repositories' visibility methods, the
+Dockerfile, `docker-compose*.yml`, `infra/staging/run.tf`, `.env.example`, `.gitleaksignore`,
+`.pre-commit-config.yaml`, `tooling/check_no_client_data.py` and the CI workflow.
+
+### 56.1 Findings
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | medium | Rate limits were counted per API process only. `basis/api/ratelimit.py` promised a Postgres-backed limiter ("S1-C") that did not exist anywhere in the tree; `create_app` always installed `InMemoryRateLimiter`. Cloud Run runs up to `api_max_instances` processes, so a caller's budget was the published limit times the instance count, and a scale-out under a flood raised the budget exactly when it mattered (API4). | **Fixed** (56.2) |
+| 2 | low | No `Cache-Control` on `/v1` JSON responses and problems, and `X-Content-Type-Options` only on the four file routes. Every `/v1` answer is private to the token's bearer; RFC 9111 lets a private cache store a response to an `Authorization` request unless told otherwise (ASVS 8.3.1, 14.4.4). | **Fixed** (56.3) |
+| 3 | low | `Content-Disposition` on `GET .../documents/{id}/pdf`: the report PDF's name is read from inside the uploaded UAD 3.6 ZIP, and the ASCII fallback kept a backslash or a control character and turned a quote into `'`; a CR or LF would have ended the header. A registered filename could never carry them (`FILENAME_PATTERN`); a ZIP entry can. No test covered a hostile name. | **Fixed** (56.4) |
+| 4 | medium | `POST /v1/cost-indices` lets the owner of **any** firm append a value to the deployment-wide cost index store; the value then prices every firm's studies (the route's own description says so). With one firm this was a convenience; with a second firm it is one tenant changing another's pricing (API1/API5 by design). | **Deferred**: a product decision (operator-only through `OPS_OPERATOR_UIDS`, or a per-firm store); decide before the second firm is onboarded. |
+| 5 | low | `check_revoked` is on in `prod` only (S1_SPEC 4): in `staging` a disabled or deleted Firebase user keeps access until the ID token expires (at most one hour). | Deferred: by specification, saves a Firebase read per request in staging. |
+| 6 | low | `mask_reason` on a photo object whose SAM 3 box prompt failed carries the provider's URL path (query, hence the token, stripped) and up to 200 characters of the provider's error body, shown to the study's own engineers (`basis/api/routes/objects.py`, `tests/api/test_objects.py` asserts it). | Deferred: no secret in it, visible only inside the firm, useful to the engineer; change if a provider's error text ever carries account detail. |
+| 7 | low | Unauthenticated requests are limited by `request.client.host`; on Cloud Run that is the front end, so every anonymous caller shares one address budget. Authenticated budgets are by verified uid and unaffected; the anonymous path answers 401 anyway. | Deferred: the fix is `--proxy-headers --forwarded-allow-ips` on uvicorn in the image, an infrastructure change outside this PR. |
+| 8 | info | `/docs` and `/openapi.json` are public. The document holds no secret and the API is bearer-only. | Accepted (standard; `docs_url=None` in prod is a one-line change if wanted). |
+| 9 | info | A user's `display_name` is taken from the token's `name` claim and stored unbounded; shown to the firm's other members. Bounded in practice by the header size uvicorn accepts (about 16 KiB), which was not tested. | Accepted; a frontend must escape it like any user text. |
+| 10 | info | With Temporal not configured the workflow routes answer 503 `temporal-not-configured` before the study's access check runs (the same 503 for every id, so nothing is learned); with Temporal configured the check runs first. The isolation test therefore carries a fake workflow service. | Accepted. |
+
+Nothing high. The two medium findings are the ones to act on before launch: 1 is fixed here, 4 is a
+decision.
+
+### 56.2 Fix 1: one budget per caller across every API process
+
+`basis/api/ratelimit_pg.py`, `PostgresRateLimiter`: the same sliding-window log as the in-memory
+limiter, kept in `rate_limit_hits` (migration `0023`, an `UNLOGGED` table: ephemeral state, no WAL per
+request). Per hit, in one short transaction of its own: `pg_advisory_xact_lock(hashtext(key))`
+serializes the key (so two concurrent requests cannot both read `limit - 1`), `now()` is the database
+clock (instances agree), the key's expired rows are deleted, the rest counted; under the limit a row is
+inserted, over it the answer carries `Retry-After` as the moment the oldest counted hit leaves the
+window. A sweep every 60 s deletes idle keys' rows older than an hour. The alternatives considered:
+GCRA or a token bucket in one row (O(1), but admits a full burst then a steady refill, which the
+in-memory limiter's docstring rejects for being above the stated per-minute figure, and would have given
+the two stores different semantics); a fixed-window counter (admits 2x at a boundary). The log keeps both
+stores exact and identical, and at 240 reads per minute per user its cost is one row per request.
+
+`RATE_LIMIT_STORE` (`basis/config.py`): `memory` or `postgres`; unset means `postgres` in `staging`
+and `prod` and `memory` in `dev` and `test`; `memory` is **refused** in staging and prod
+(`ConfigError`), and `postgres` without a database refuses to start (`create_app`). `install_database`
+installs the limiter next to the Postgres idempotency store, so the lifespan-owned engine and the tests'
+injected sessionmaker take the same path.
+
+Degraded mode: when the database cannot be reached (connection refused, pool exhausted, connection
+dropped) the limiter answers from a per-process `InMemoryRateLimiter` and logs one warning per minute
+(`BASIS-API-044`, with `fallbacks`). Failing closed would turn a database outage into a refusal of every
+request, including `GET /v1/ops/health`, which is built to answer while the database is down. A
+`ProgrammingError` (the table missing because `0023` was not applied) is **not** caught: it surfaces as a
+500 on the first request instead of silently falling back.
+
+Proof: `tests/api/test_rate_limit.py` now runs all five route tests against both stores;
+`tests/api/test_rate_limit_pg.py` (13 tests): two instances share one budget; 20 concurrent requests
+against a budget of 5 admit exactly 5 (`asyncio.gather` across four limiter instances); a hit backdated
+to 40 s ago gives `Retry-After` in (15, 20] and one past the window frees its slot and is deleted;
+`Retry-After` is the oldest counted hit's expiry, not the whole window; the unreachable-database case
+limits per process, counts `fallbacks` and warns once; the lifespan installs and shutdown removes it.
+`tests/unit/config/test_rate_limit_store.py` (11 tests) covers the setting's defaults and refusals.
+`tests/integration/db/test_migrations.py`: head `0023`, `alembic check` clean, `CREATE UNLOGGED TABLE`
+in the offline SQL.
+
+Not measured: the limiter's cost under load (one lock, one delete, one select and one insert per
+`/v1` request). The load harness of section 31 can re-run against `RATE_LIMIT_STORE=postgres`.
+Migration numbering: three sessions add migrations in parallel; it is `0023` here, after #110's `0022`.
+
+### 56.3 Fix 2: response headers
+
+`basis/api/headers.py`, `SecurityHeadersMiddleware`, between the request-id middleware and CORS so
+error responses carry it too: `X-Content-Type-Options: nosniff` on every response; `Cache-Control:
+no-store` on every `/v1` response that sets none itself (the file routes keep `private, max-age=3600`
+and the preview `private, no-cache`); `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+in `staging` and `prod` only. Proof: `tests/unit/api/test_security_headers.py` (13 tests: a body, a 401,
+a 404, a 413, an opaque 500, a route's own policy kept, `/health` unmarked, HSTS by environment).
+
+### 56.4 Fix 3: download filenames
+
+`_content_disposition` in `basis/api/routes/documents.py`: the quoted fallback replaces every C0
+control, DEL, `"` and `\` with `_` (non-ASCII stays `?`), an empty name becomes `file`, and the ZIP
+entry's name is split on both separators. `filename*` already percent-encoded everything outside the
+unreserved set, so the original name survives there. Proof: `tests/unit/api/test_content_disposition.py`
+(8 cases including `x\r\nX-Injected: 1.pdf`, a backslash, a lone quote, NUL and DEL); the two existing
+header tests in `test_document_content.py` are unchanged.
+
+### 56.5 Verified safe, with the test that proves it
+
+| Area | What holds | Proof |
+|---|---|---|
+| Token checks | The Firebase Admin SDK checks the RS256 signature against Google's certificates, `aud` and `iss` against the project id, `exp`/`iat`/`auth_time`; expired, revoked, disabled, deleted, invalid and no-subject tokens each map to a distinct 401 detail that never includes the SDK's message; certificate fetch failure is 503, not 401 | `tests/unit/auth/test_firebase_verifier.py` (the real SDK against bad, expired and emulator tokens; audience checked even with the emulator) |
+| Emulator guard | `FIREBASE_AUTH_EMULATOR_HOST` with `BASIS_ENV` staging or prod is a `ConfigError` at `create_app`; a blank variable is "not set" | `test_emulator_refused_in_deployed_envs`, `test_app_refuses_to_start_with_emulator_in_deployed_envs` |
+| No route without a token | All 55 documented operations other than `GET /health` and `GET /` answer 401 (`WWW-Authenticate: Bearer`) to no token and to a rejected token, with `{}` as the body so a 422 cannot mask a missing check, and create no user | `tests/api/test_auth.py::test_every_documented_operation_needs_a_token` (new) |
+| Header parsing | Missing, non-Bearer, empty, two-token and case-variant headers; verification once per request, in a worker thread | `tests/api/test_auth_dependency.py` |
+| Verified email for invitations | Accepting or declining with an unverified email is 403 `email-unverified`; another email is 404; `GET /v1/me` lists pending invitations only for a verified email | `tests/api/test_firms.py` |
+| Tenant isolation | Every one of the 47 operations whose path names a study, a firm or an invitation answers 404 to a member of another firm, byte-identical (minus `request_id`, `instance`) to the 404 for an id that does not exist; a member's own study or firm in the path does not reach another firm's document, photo, object, member or invitation; a filter by another study's asset returns nothing | `tests/api/test_tenancy.py` (new; `BODIES` must list every scoped operation, so a new scoped route fails until listed) |
+| Access mechanism per route | Every `{study_id}` route goes through `study_access(...)` as a dependency or `require_study_access` as its first statement (documents, workflow, objects, spend); every `{org_id}` route through `org_access`; `POST /studies` through `require_firm` and the membership map; the unscoped `StudyRepository.get` is not called from `basis/api` (grep) | read; the walk above proves the outcome |
+| Files read after the check | `.../content`, `.../pdf` and `.../report` resolve the study and the document inside a transaction and read storage only afterwards, with no connection held; the preview and the signature render after `study_access` | `tests/api/test_tenancy.py::test_own_scope_does_not_reach_another_firms_rows` |
+| Roles | viewer < engineer < owner per route; a visible study with too low a role is 403 naming the role, never 404 | `tests/api/test_auth.py::test_role_requirements` |
+| Idempotency keys | Scoped per user; same key + different body 422; in flight 409 | `tests/api/test_idempotency.py` |
+| CORS | Exact origins, `allow_credentials` false, `*` and plain http (except localhost) refused outside dev and test, an unlisted origin's preflight refused, errors carry the headers | `tests/unit/api/test_cors.py`, `tests/unit/config/test_cors_settings.py` |
+| 500 handler | An unexpected exception is an opaque problem with the request id; its message does not reach the body; the stack goes to the log | `tests/api/test_errors.py::test_unexpected_exception_is_an_opaque_500` |
+| Validation errors | `errors[]` carries location, message and type; `input` and `ctx` are dropped | `tests/unit/api/test_errors.py` |
+| Logs | Any record attribute or context key matching key/token/secret/password/authorization is `***` | `tests/unit/obs/test_logging.py` |
+| Body size | `/v1` bodies over 1 MiB are 413 with and without `Content-Length`, before any route or idempotency work | `tests/api/test_errors.py` (413 tests) |
+| Uploads | At most 50 MiB per file, declared size and sha256 verified at completion, content type per kind (`PdfType`, `Uad36Type`, `ImageType`, `TextType`), filename a name not a path (`FILENAME_PATTERN`), an appraisal must be a PDF, a MISMO XML or a safe ZIP | `tests/api/test_uploads.py`, `test_uad36_api.py` |
+| Logo and text | `logo_png` at most 512 KB and a PNG by signature; every text field one line, bounded, no control characters | `tests/api/test_report_signing.py`, `tests/unit/domain/test_intake.py` |
+| Pagination | Every list route caps `limit` (`le=MAX_*`) and the cursor's length | `tests/api/test_studies.py`, `test_evidence.py`, `test_outputs.py`, `test_timeline.py`, `test_spend.py`, `test_cost_indices.py` |
+| Secrets in settings | Every `*_key`, `*_token`, `*_secret`, `*_password` field is a `SecretStr`; `database_url` is `repr=False`; no sentinel leaks through `repr`, `str` or `model_dump_json`; validation errors hide input | `tests/unit/config/test_secrets_in_repr.py` (new), `test_settings.py` |
+| Repository hygiene | `.env.example` carries names only (read line by line); `tooling/check_no_client_data.py --ci` passes on the whole tree, the report templates and fixtures included; gitleaks runs on every PR's commits in CI (`secrets-scan`) and `detect-secrets` as a pre-commit hook | run in this review (56.6) |
+
+### 56.6 Gates
+
+From `backEnd/`: `ruff check`, `ruff format --check`, `mypy basis`, the catalogue and OpenAPI
+`--check`, `evals.freeze_rule_fingerprints --check`, `tooling/check_no_client_data.py --ci`, pytest
+`-m "not integration and not slow"` and `-m "(integration or slow) and not eval_data"` (the results
+are in the PR). `docs/ERROR_CODES.md` regenerated for `BASIS-API-044`; `docs/api/openapi.json` is
+unchanged (no route changed).
+
+**Open.** Finding 4 (the deployment-wide index store); the limiter's cost under load; a penetration
+test from outside the code (this review read and tested the code, it did not probe a deployment).
+
+## 58. Leaving a study and coming back: gate drafts on the server, resumable uploads, restarting a cancelled study (2026-11-01)
+
+**Question.** An engineer who leaves a study at any stage must be able to come back and continue
+with nothing lost. What is lost today, and what does the backend need so that nothing is?
+
+**What was lost, verified in the frontend.** `web/live/live-review.js:24` keeps the corrections
+an engineer adds at a gate in `L.corrections` (a `Map` per stage) until `POST .../decisions`
+sends them; `live-app.js:105,149,215` keeps the upload run in `L.upload`. Both are tab memory:
+a reload, a closed tab or a switch of study drops them. After a reload a draft study showed
+"Ready to start" with no way to add its files, and the upload screen always created a new
+study. A third gap was in the backend itself: `POST .../cancel` ends the execution and nothing
+can start the study again (`start` answers 409 `workflow-closed` for ever, because the one
+workflow id per study is reused with `REJECT_DUPLICATE`), so a cancelled study could only be
+archived and re-created by hand.
+
+**Built** (docs/api/GATE_DRAFTS_AND_RESUME.md; PR this section ships in):
+
+1. *Gate drafts.* `GET`/`PUT`/`DELETE /v1/studies/{id}/drafts/{stage}` (engineer): one
+   document per study, stage and user (`review_drafts`, migration 0024) with the pending
+   `comment` and `corrections`, the `revision` they name rows of, and a `version` that is its
+   `ETag`/`If-Match` exactly as the intake's. The `PUT` runs the decision route's own checks
+   (type for the stage, target in the revision, values, reasons, removals, added fields), so a
+   draft that would be refused at submit time is refused at save time with the same `errors`.
+   A draft whose revision the study has left, or whose stage was decided at that revision, is
+   returned with `stale: true` and the reason, never as current. The decision deletes the
+   submitting engineer's draft in its own transaction (`review.decided` records
+   `draft_discarded`). Two engineers draft apart; `GET` lists whose other drafts exist (who,
+   since when, how many), not their content.
+2. *Resumable uploads.* The registration already survived a reload (`GET /v1/studies/{id}`
+   lists the document with `uploaded_at: null` and its sha256); what was missing was the signed
+   URL, which only the first response carried and which expires in 15 minutes. `POST
+   .../documents/{id}/upload-url` re-issues it for an unconfirmed document (409
+   `upload-complete` for a confirmed one, whose bytes are immutable). A repeated `POST
+   .../documents` for the same bytes stays the 409 `duplicate-document` that names the
+   document: the route is not idempotent on sha256 in the replay sense, and it need not be,
+   since the client matches a re-selected file to its registration by sha256 from the study's
+   document list. The resume sequence is written out for the frontend.
+3. *Cancelled studies.* `POST /v1/studies/{id}/restart` (owner): the execution is described
+   first (RUNNING is 409 `workflow-running`, COMPLETED 409 `study-completed`; cancelled,
+   terminated, timed out, failed before v0.9, or gone after retention proceed); one transaction
+   resets the row to `extracting` on revision + 1 with the failure cleared (`stage.entered`,
+   `study.restarted`); then a new execution starts under the same `study-{id}` with
+   `ALLOW_DUPLICATE_FAILED_ONLY`, so `studies.workflow_id`, the relay's routing, `cancel` and
+   `retry` keep working. The new revision keeps the cancelled run's rows as history and makes
+   every draft for them stale. Two restarts racing, or a 503 after the reset: the row lock
+   serializes the resets and the second reuses the first's (it finds the `study.restarted`
+   event with no `run.started` after it), one start wins, the other is 409 `workflow-running`,
+   and the row is at the revision the running execution was given.
+
+**Why no `draft.saved` / `draft.discarded` timeline events.** The timeline is the record of
+what happened to the study and the audit trail of the engineer input that changed it. A draft
+changes nothing about the study; its corrections enter the trail as `correction.recorded` when
+the decision is submitted; it is saved on every edit (an append-only row per autosave would
+bury the trail and keep every half-typed value for ever) and deleted when submitted or
+discarded. `review.decided` carries `draft_discarded`; who is drafting since when is on the row.
+
+**Verified** (every gate green on the branch; `tests/LEDGER.md`): 20 draft tests (+ 6
+malformed-body cases) including three concurrent first saves and three concurrent saves with
+one tag each ending with exactly one 200; 6 resume tests including the documented sequence end
+to end against the local storage; 7 restart tests on the fake Temporal including the 503 and
+the concurrent double restart; 3 service tests on the id policies; migration 0024 from an
+empty database (the stage check compares the label as text, because `components_review` is a
+new enum value in the same transaction and PostgreSQL refuses an unsafe use of it) and back.
+The OpenAPI document carries the five operations and the Schemathesis contract test runs them
+(the draft `PUT` gets the intake's carve-out: `If-Match` dropped, since a generated tag is
+rightly 412).
+
+**Not verified.** The restart against a real Temporal server and worker (the fake answers the
+id policies as the real one does; the service unit test pins the policies sent). What the new
+execution does with a study whose revision 1 rows exist (ingest's "already published" branch
+and the per-revision unique keys say it writes revision 2 apart, as a rejection does) has not
+been run live. The frontend changes (reading the draft on open, autosaving on edit, the
+"continue this study" upload screen) are Bryan's.
+
+**Open.** Whether a pending registration should be removable (not provided: a pending row
+costs nothing and keeps the duplicate check honest); whether `others` should carry the drafts'
+content for a reviewer role (not now: a colleague's half-finished work is theirs to send).
+
+## 59. Firm onboarding from the API: invitation emails, self-service firms, names on studies (2026-11-01)
+
+**Question.** Can an engineering firm get onto Basis from a link, with no operator at a terminal:
+create its firm, invite its people, and have them told? Before this, a firm existed only through
+`python -m basis.admin`, and an invitation was silent (`delivery: not_sent`).
+
+**The standard, and what was taken from it.**
+- Transactional email frameworks separate the message from the transport: Django renders an
+  `EmailMessage` and hands it to the backend `EMAIL_BACKEND` names (`console` logs, `locmem` keeps
+  it in memory, `smtp` sends); Rails' `ActionMailer` does the same with `delivery_method`. Basis
+  now has `basis.email`: `EmailMessage` in, `EmailSender.send` out, chosen by `EMAIL_PROVIDER`
+  (`log`, the default; `smtp` through the standard library; an HTTP provider is the documented
+  slot).
+- Providers that offer idempotent sends key them per intended send (Resend's `Idempotency-Key`,
+  kept 24 hours; a key shared across recipients sends once to the first). Basis keys each
+  invitation row (`invitation-{id}`); SMTP gets it as the `Message-ID`.
+- The transactional outbox the relay already runs (claims with `FOR UPDATE SKIP LOCKED`, retries
+  `min(2**attempts, 300)` s, dead after 50) is reused as the queue: the invitation is a
+  `notification` of type `invitation`, enqueued in the transaction that inserts the invitation.
+
+**Design.** `docs/api/FIRMS.md`. In short: `POST /v1/orgs` (verified email; the creator is the
+owner; several firms per user allowed; names not unique), `PATCH /v1/orgs/{id}` (owner renames),
+the invitation email through the outbox with its outcome on the invitation (`emailed_at`,
+`email_error`; `delivery` derived: `queued`, `sent`, `failed`, `not_sent`), `created_by_name` and
+`created_by_email` on studies, `signed_by_name` and `signed_by_email` on signatures; `org.created` and
+`org.renamed` on the firm's history (section 56). Migration 0025
+adds three nullable columns to `invitations`. Study visibility within a firm is unchanged and the
+reasons are written down (FIRMS.md 7).
+
+**Measured.**
+
+| | |
+|---|---|
+| unit tests added | 48 (`tests/unit/email` 21, `tests/unit/config/test_email_settings.py` 20, relay 7) |
+| integration tests added | 10 (`tests/integration/relay/test_invitation_emails.py`) |
+| API tests added | 17 in `test_firms.py`; shape assertions widened in `test_studies.py`, `test_report_signing.py`, `test_health.py`, the CLI and migration tests |
+| same transaction | a rolled-back create leaves neither row; a refused create (409) enqueues nothing |
+| once per invitation | a second poll and a duplicate outbox row for an emailed invitation send nothing; `emailed_at` is written once |
+| retries | a failing sender: outbox `attempts` 1, `email_error` set, `delivery: failed`; the next success clears it; three failures at `max_attempts=3` dead-letter; a 5xx recipient is dead at once |
+| not sent when moot | an invitation revoked before the relay ran: the row is delivered unsent, both rows say why |
+| SMTP | one session against a local server: From, To, Subject, deterministic `Message-ID`, `Auto-Submitted`; 550 final, 450 retried, refused connection retried |
+| contract | `POST /v1/orgs` and `PATCH /v1/orgs/{org_id}` in `docs/api/openapi.json`; Schemathesis ran both with no carve-out |
+
+**Decisions worth defending.**
+- *Why the relay sends and the API only enqueues.* The API's transaction must not wait on a mail
+  server, and a send that happened for an invitation that then rolled back cannot be unsent. The
+  outbox gives exactly the ordering we need: commit first, send after, retry on failure.
+- *Why `delivery: sent` with the log provider.* The sender accepted the message; what the sender
+  does is the deployment's choice and is visible in `GET /v1/ops/health`'s relay row and the relay
+  log. Reporting `not_sent` would make a firm's owner chase an email that was never meant to go.
+- *Why no `visibility` column yet.* A stored field nothing enforces misleads the client; the rule is
+  a product decision for the firms being pitched (FIRMS.md 7). `created_by_name` lets the app offer
+  the "My studies" filter client-side meanwhile.
+- *Why SMTP and not a provider SDK.* Every provider offers an SMTP relay; the standard library
+  needs no account, no dependency and no key in the repository. The HTTP slot is documented for
+  when bounce webhooks are wanted.
+
+**Not verified here.**
+- No email was sent to a real mailbox: no provider is configured in any environment
+  (`EMAIL_PROVIDER=log` everywhere). The SMTP sender was exercised against a local server written in
+  the test, not against a provider's relay with TLS and authentication.
+- The frontend still says "No email is sent" and has no create-a-firm screen; `web/README.md`
+  "Gaps" lists what the app does not show yet.
+- The migration was written as 0024 on 0021 and renumbered 0025 on 0024 once user activity (0022),
+  rate-limit hits (0023) and review drafts (0024) merged into this branch.
+
+## 60. Backups, a retention rule, and alerts before firms use Basis (2026-11-01)
 
 **Question.** Before a firm uploads client files: can a lost database or a deleted file be
 recovered, can the firm bound how long its files stay, and does someone hear when a worker
@@ -7835,16 +8223,16 @@ protocol), deletes every object except `exports/` (export JSON, assets CSV, call
 report PDF and schedule, signed report), keeps every database row, sets `studies.purged_at`
 and appends `study.purged` with the counts; objects first, mark and event after, so a crash
 leaves work for the next run and never an unrecorded deletion. Migration
-`0025_retention_alerts` (down_revision 0021 here; 0024 at merge). docs/api/RETENTION_AND_ALERTS.md.
+`0026_retention_alerts` (revises `0025_invitation_email`). docs/api/RETENTION_AND_ALERTS.md.
 
 **Alerts (backend, tested).** `record_failure` enqueues one `alert` notification per failure in
 the transaction that writes `stage.failed`, keyed by the activity's key; the relay checks
 `service_heartbeats` every 60 s and enqueues one per service per stale period (newest
 heartbeat older than 300 s; keyed by that heartbeat, `never` for a service with no row). An
 `alerts` table with a unique key makes the second raise of the same occurrence a no-op. The
-relay renders the alert (`basis.notify.render`) and hands it to an `EmailSender`
-(`basis.notify.sender`, the same shapes as the firm-admin branch's `basis.email`, to be
-unified at merge) addressed to `ALERT_EMAIL_TO`, with the key as the idempotency key; unset,
+relay renders the alert (`basis.notify.render`) and hands it to the `EmailSender`
+of section 59 (`basis.email`: `EMAIL_PROVIDER` log or SMTP, shared with the invitation
+emails) addressed to `ALERT_EMAIL_TO`, with the key as the idempotency key; unset,
 the alert goes to the log at WARNING. Transient sender errors retry with the relay's backoff,
 a refused recipient dead-letters.
 

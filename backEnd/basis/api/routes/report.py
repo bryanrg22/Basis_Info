@@ -7,7 +7,9 @@ docs/api/REPORT.md).
   ``ETag`` and a repeated request answers 304. ``format=pdf`` serves the signed report when
   the revision is signed (``variant=draft`` asks for the draft). When the export skipped
   the report (no allocation to report, ``E.REPORT_NOT_PRODUCED``), the answer is a 404
-  naming the reason.
+  naming the reason. ``profile=<vendor>`` with ``csv`` or ``xlsx`` renders the schedule in
+  a vendor's import layout now, from the stored export (:mod:`basis.report.vendors`); its
+  ``ETag`` is the sha256 of the bytes, which are deterministic.
 * The inputs: the firm's profile (``/orgs/{id}/profile``, owners write) and the study's
   answers (``.../report-answers``, engineers write), each written whole with ``If-Match``
   on its version, as the intake is (:mod:`basis.api.preconditions`).
@@ -22,6 +24,7 @@ docs/api/REPORT.md).
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any, Final, Literal
@@ -61,9 +64,11 @@ from basis.db.models import Study, StudyEvent
 from basis.db.repositories.report import ReportRepository
 from basis.db.repositories.study import VisibleStudy
 from basis.db.repositories.study_event import StudyEventRepository
+from basis.db.repositories.user import UserRepository
 from basis.db.session import SessionDep, session_scope
 from basis.errors.codes import E
 from basis.evidence.export import sha256_hex
+from basis.report import vendors
 from basis.report.inputs import (
     CERTIFICATION_VERSION,
     FirmProfile,
@@ -72,6 +77,8 @@ from basis.report.inputs import (
     StudyAnswers,
     missing_for_final,
 )
+from basis.report.model import ReportError, build_report
+from basis.report.schedule import rows
 from basis.storage import ObjectNotFound, Storage
 
 reads = read_router(tags=["report"])
@@ -121,6 +128,25 @@ def _report_detail(event: StudyEvent) -> dict[str, Any]:
     return report
 
 
+async def _profile_file(
+    storage: Storage, event: StudyEvent, profile: vendors.Profile, format: str
+) -> bytes:
+    """The schedule of the export ``event`` wrote, in ``profile``'s layout, rendered now."""
+    try:
+        data = await storage.read(str((event.detail or {}).get("uri")))
+    except ObjectNotFound:
+        raise NotFound(
+            "The export's bytes are missing from storage.", code=E.REPORT_NOT_FOUND
+        ) from None
+    try:
+        schedule = rows(build_report(json.loads(data)))
+    except ReportError as exc:
+        raise NotFound(f"The export has no schedule: {exc}", code=exc.code) from exc
+    if format == "csv":
+        return vendors.to_csv(schedule, profile)
+    return vendors.to_xlsx(schedule, profile)
+
+
 # --------------------------------------------------------------------- the files
 
 
@@ -128,7 +154,10 @@ def _report_detail(event: StudyEvent) -> dict[str, Any]:
     "/studies/{study_id}/report",
     summary="The study report (PDF) or the preparer's depreciation schedule (CSV, XLSX)",
     description="Viewer role. `format=pdf` is the signed report when the revision is "
-    "signed, else the draft the export wrote; `variant=draft` always asks for the draft.",
+    "signed, else the draft the export wrote; `variant=draft` always asks for the draft. "
+    "`profile` (csv and xlsx; ignored for pdf) is the schedule's import layout: `generic` is "
+    "the file the export wrote; a vendor profile is rendered now from the stored export "
+    "(docs/api/REPORT.md lists them; none is verified against the vendor's software yet).",
     response_class=Response,
     responses={
         200: {"description": "The file, with `Content-Disposition: attachment`."},
@@ -152,8 +181,16 @@ async def study_report(
         Literal["final", "draft"],
         Query(description="pdf only: `final` (the signed report when there is one) or `draft`."),
     ] = "final",
+    profile: Annotated[
+        vendors.ProfileName,
+        Query(
+            description="csv and xlsx only (ignored for pdf): the import layout (`generic`, "
+            "`fixed_assets_cs`, `sage`, `proconnect`, `cch`, `bloomberg`)."
+        ),
+    ] = "generic",
 ) -> Response:
     suffix, content_type = FILES[format]
+    layout = vendors.GENERIC if format == "pdf" else vendors.PROFILES[profile]
     async with session_scope(sessionmaker) as session:
         await require_study_access(session, user, study_id, OrgRole.VIEWER)
         written = [e for e in await _exports(session, study_id) if revision in (None, e.revision)]
@@ -183,16 +220,25 @@ async def study_report(
         entry = (report.get("files") or {}).get(suffix)
         if not entry:
             raise NotFound("The export has no report files.", code=E.REPORT_NOT_FOUND)
-    etag = f'"{entry["sha256"]}"'
+    rendered: bytes | None = None
+    if layout is not vendors.GENERIC:
+        rendered = await _profile_file(storage, latest, layout, format)
+        etag = f'"{sha256_hex(rendered)}"'
+        suffix = f"schedule-{layout.name}.{format}"
+    else:
+        etag = f'"{entry["sha256"]}"'
     headers = {"ETag": etag, "Cache-Control": CACHE_CONTROL}
     if _etag_matches(request, etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
-    try:
-        data = await storage.read(entry["uri"])
-    except ObjectNotFound:
-        raise NotFound(
-            "The report's bytes are missing from storage.", code=E.REPORT_NOT_FOUND
-        ) from None
+    if rendered is not None:
+        data = rendered
+    else:
+        try:
+            data = await storage.read(entry["uri"])
+        except ObjectNotFound:
+            raise NotFound(
+                "The report's bytes are missing from storage.", code=E.REPORT_NOT_FOUND
+            ) from None
     name = f"study-{str(study_id)[:8]}-rev-{latest.revision}-{suffix}"
     headers["Content-Disposition"] = f'attachment; filename="{name}"'
     headers["X-Content-Type-Options"] = "nosniff"
@@ -401,8 +447,15 @@ async def _render_pdf(
     return files.files["report.pdf"]
 
 
-def _signature_out(row: Any) -> SignatureOut:
-    return SignatureOut.model_validate(row)
+async def _signature_out(session: AsyncSession, row: Any) -> SignatureOut:
+    """The signature with the signer's name and email next to ``signed_by``."""
+    who = (await UserRepository(session).identities([row.signed_by])).get(row.signed_by)
+    return SignatureOut.model_validate(row).model_copy(
+        update={
+            "signed_by_name": who.display_name if who else None,
+            "signed_by_email": who.email if who else None,
+        }
+    )
 
 
 @reads.get(
@@ -431,7 +484,7 @@ async def report_state(
         skipped=ReportSkip(code=skipped["code"], message=skipped["message"]) if skipped else None,
         files=sorted((report.get("files") or {}).keys()),
         missing_for_final=missing,
-        signature=None if signature is None else _signature_out(signature),
+        signature=None if signature is None else await _signature_out(session, signature),
         firm_profile_version=firm.version if firm else 0,
         report_answers_version=study.report_answers_version,
     )
@@ -577,7 +630,7 @@ async def sign_report(
             "signer_email": user.user.email,
         },
     )
-    return _signature_out(row)
+    return await _signature_out(session, row)
 
 
 __all__ = ["reads", "writes"]

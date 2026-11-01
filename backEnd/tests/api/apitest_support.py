@@ -14,12 +14,17 @@ unique so it cannot collide with the legacy ``tests`` packages).
   mutation unless one is given.
 * :class:`Seed` writes directly through the repositories for states the API cannot reach
   in S1 (memberships in another org, a study waiting at a review stage).
+* :func:`operations` and :func:`fill_path` walk the OpenAPI document, so a test can assert
+  something of every route (401 without a token, 404 across firms) and fail on a new route
+  it does not know.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Final
 
@@ -61,6 +66,8 @@ from basis.temporal.service import WorkflowService
 from basis.vision.localize import Localizer
 
 TOKEN_PREFIX = "uid:"
+UNAUTHENTICATED_OPERATIONS = frozenset({"GET /health", "GET /"})
+_PATH_PARAM = re.compile(r"\{(\w+)\}")
 # Nothing listens on port 1: connecting fails at once with "connection refused".
 REFUSED_DATABASE_URL = "postgresql://basis:x@127.0.0.1:1/none"  # pragma: allowlist secret
 UNLIMITED = 1_000_000
@@ -75,6 +82,21 @@ def api_settings(database_url: str, **overrides: Any) -> Settings:
         **overrides,
     }
     return db_settings(database_url, **values)
+
+
+def operations(app: FastAPI) -> list[tuple[str, str]]:
+    """Every ``(METHOD, path template)`` the OpenAPI document publishes, sorted."""
+    return sorted(
+        (method.upper(), template)
+        for template, methods in app.openapi()["paths"].items()
+        for method in methods
+    )
+
+
+def fill_path(template: str, ids: Mapping[str, str] | None = None) -> str:
+    """The template with each ``{name}`` replaced by ``ids[name]``, else a random UUID."""
+    given = ids or {}
+    return _PATH_PARAM.sub(lambda m: given.get(m.group(1), str(uuid.uuid4())), template)
 
 
 def token_for(uid: str) -> str:

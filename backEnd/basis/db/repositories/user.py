@@ -9,6 +9,8 @@ audit and to accept invitations) but joins no org until an invitation is accepte
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Final
 
 from sqlalchemy import literal_column, select, update
@@ -28,6 +30,14 @@ _HIGHER_ROLE: Final[ColumnClause[str]] = literal_column(
     f"array_position({_RANKED_ROLES}, org_members.role) "
     "THEN excluded.role ELSE org_members.role END"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class UserIdentity:
+    """A user as shown next to their id: the display name and email the token carried."""
+
+    display_name: str | None
+    email: str | None
 
 
 class UserRepository:
@@ -84,6 +94,17 @@ class UserRepository:
 
     async def get(self, user_id: uuid.UUID) -> User | None:
         return await self._session.get(User, user_id)
+
+    async def identities(self, user_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, UserIdentity]:
+        """``{user id: (display name, email)}`` for the ids that exist: how the API names a
+        study's creator or a report's signer next to the id."""
+        wanted = {user_id for user_id in user_ids}
+        if not wanted:
+            return {}
+        rows = await self._session.execute(
+            select(User.id, User.display_name, User.email).where(User.id.in_(list(wanted)))
+        )
+        return {user_id: UserIdentity(name, email) for user_id, name, email in rows}
 
     async def get_by_firebase_uid(self, uid: str) -> User | None:
         stmt = select(User).where(User.firebase_uid == uid)

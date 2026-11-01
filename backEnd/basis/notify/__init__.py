@@ -1,13 +1,11 @@
-"""Operator alerts: the email boundary, the rendered messages, the heartbeat check.
+"""Operator alerts: the rendered messages and the heartbeat check.
 
-The transport protocol here (:class:`EmailSender`, :class:`EmailMessage`) has the same
-shape as ``basis.email.sender`` on the firm-admin branch (invitation emails); when both
-have landed, this module imports those names from ``basis.email`` and keeps only the
-alert rendering and the heartbeat monitor.
+The email boundary (:class:`EmailSender`, :class:`EmailMessage`, the senders and
+:func:`build_email_sender`) is ``basis.email``, shared with the invitation emails; it is
+re-exported here so the alert code and its tests name one place.
 """
 
-from basis.notify.render import render_alert
-from basis.notify.sender import (
+from basis.email import (
     EmailMessage,
     EmailRejectedError,
     EmailSender,
@@ -16,6 +14,7 @@ from basis.notify.sender import (
     SendResult,
     build_email_sender,
 )
+from basis.notify.render import render_alert
 
 __all__ = [
     "EmailMessage",

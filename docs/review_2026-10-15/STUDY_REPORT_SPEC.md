@@ -323,7 +323,168 @@ bonus_eligible (Y/N), statutory_bonus_rate, rate_source, source_line`.
   IRS table before release).
   It is labeled as the default and cites its source. Elections are the preparer's.
 * Vendor formats (Fixed Assets CS, Sage, Drake, CCH, Bloomberg) are column mappings over this one schedule.
-  They are added when a CPA partner provides a template; none is guessed.
+  They were to be added when a CPA partner provides a template; 11.5.1 (2026-11-01) builds five from the
+  vendors' published import documentation instead, each marked unverified until a preparer confirms it.
+
+#### 11.5.1 Vendor import profiles (2026-11-01)
+
+No CPA partner has sent a template yet. So that the first one can import without a round trip, the
+schedule gets one profile per package CPAs use most for cost segregation, each built from the
+vendor's own published import documentation and nothing else. Where a vendor publishes only the
+mechanism (a mapping dialog) and not the layout, the profile is a plainly headed file for that
+mechanism, and this section says so. **None of the five is verified against the real software**: each
+is built to the published specification, and `docs/api/REPORT.md` says which (all) wait for a
+preparer's confirmation. The profile is rendered on request from the stored export
+(`GET /v1/studies/{id}/report?format=csv|xlsx&profile=<name>`); the export step still writes only the
+generic files.
+
+What every package has in common, and what the profiles therefore map from the generic row: a
+description, the date placed in service (and acquired), the cost, a method, a convention (explicit, or
+implied by method and life), a recovery period, and the bonus election. Every profile's rows carry the
+line's allocated cost unchanged, so they sum to the depreciable basis to the cent as the generic rows
+do (`vendor_rows` checks it).
+
+**Thomson Reuters Fixed Assets CS** (`profile=fixed_assets_cs`; XLSX or CSV). Public: the Excel
+import's accepted fields and limits.
+
+* Sources: [Import asset data from an Excel spreadsheet](https://www.thomsonreuters.com/en-us/help/fixed-assets-cs/conversion/import-asset-data-from-an-excel-spreadsheet);
+  [Examples of asset data that Fixed Assets CS verifies before importing](https://www.thomsonreuters.com/en-us/help/fixed-assets-cs/integration/examples-of-asset-data-that-fixed-assets-cs-verifi);
+  [Creating an Excel spreadsheet template to import](https://www.thomsonreuters.com/content/helpandsupp/en-us/help/fixed-assets-cs/import-from-excel/create-an-excel-spreadsheet-template-to-import.html);
+  the conversion guides [Sage Fixed Assets to Fixed Assets CS](https://www.thomsonreuters.com/content/dam/helpandsupp/en-us/Topics/fixed-assets/Conversion/files/convguide_fas_to_fixa.pdf) and
+  [BNA Fixed Assets Desktop to Fixed Assets CS](https://www.thomsonreuters.com/en-us/help/fixed-assets-cs/conversion/depr-conversion-guide-asset-bna-fixed-assets) (for how it treats 168(k) and mid-quarter).
+* File: an Excel spreadsheet (the template is exported as XLS; the help also describes a CSV), one
+  header row, columns mapped to fields in the Import Spreadsheet window, so column order is free. "Only
+  complete asset information can be imported to set up a new asset." "Don't use commas or quotation
+  marks in any cells."
+* Fields and limits (verbatim where quoted): Description "0-45 characters, no quotation marks or
+  commas"; Memo one and two 0-45; Date In Service, Date Acquired "Any Excel date format, such as
+  MM/DD/YY"; Cost -9999999.99 to 99999999.99; Method, a CS list ("M or MACRS", "M SL or MACRS SL Class
+  Life", "M SL ADS or MACRS SL ADS Life", "M 150 GDS or MACRS 150% & Farm", "SL or Straight Line",
+  "150 DB or 150% DB", "200 DB or 200% DB", "L or Land", ...); Life 1-99; ADS Life 1-99; Real property
+  "R = Real property", blank otherwise; Force Mid Qtr "Y or YES = Yes; N or NO = No (blank defaults to
+  No)"; New / Used "N = New; U = Used", blank defaults to New; Activity (a list by return type: 1040
+  "A", "C", "E", "F", ...; 1120 "Page 1", "Rental", ...).
+* Bonus: no import field. "Fixed Assets CS automatically complies with section 168(k) (bonus
+  depreciation) for qualifying assets. You can elect out of bonus depreciation on a single asset, per
+  class life, per treatment, or per client."
+* The profile: Description (the generic cut, already 45 and clean), Date In Service, Date Acquired,
+  Cost, Method `M` for every class (MACRS: the package applies 200 % DB to 5 and 7-year, 150 % DB to
+  15-year and straight-line mid-month to 27.5 and 39-year property from the life and the real-property
+  mark, as Pub 946 Table 4-1 does; `M SL`/`150 DB`/`200 DB` are the non-MACRS or elective methods),
+  Life (5, 7, 15, 27.5, 39), ADS Life, Real property (`R` for 27.5 and 39-year, else blank), Force Mid
+  Qtr `N` (the schedule's half-year default; the preparer's 40 % test), New / Used `N`, Memo one
+  (the report line, IRC section and asset class), Memo two (the statutory bonus default and its
+  source, 45 characters). Activity is left out: it depends on the return the preparer files. **Not
+  verified**: the reading of `M` plus life as the class method is the package's documented design,
+  not an import we ran.
+
+**Sage Fixed Assets Depreciation** (`profile=sage`; XLSX or CSV). Public and complete: the Custom
+Import Helper's field list, formats and codes.
+
+* Sources: [Sage Fixed Assets Depreciation User's Guide for U.S. Companies](https://docs.sage.com/docs/en/customer/sfa/Guides/open/fasaagd.pdf) (last updated 2020-01-16): Appendix C "Custom Import Helper" (C-1 critical fields, C-12 "List of Importable Fields", C-14 "Field Specifications"), chapter 6 "Depreciation Method" (the code table, 6-6), Appendix A "Types of Property" and "Averaging Conventions";
+  Sage KB [How to do a custom import](https://us-kb.sage.com/portal/app/portlets/results/view2.jsp?k2dockey=221924950016892) (the five critical fields, "MF200 needs to be in two separate columns", dates "MM/DD/YYYY", 168 Allow % "20, 30, 40, 50, 60, 80, or 100").
+* File: "ASCII files (comma delimited)" or "Excel Spreadsheet files"; fields mapped in the helper
+  ("The order of the fields within a record is not important"); the helper "only creates new assets".
+  "Format all columns to General Text."
+* Critical fields, all five for any book imported: Property Type, Placed-in-Service Date, Acquisition
+  Value, Depreciation Method, Estimated Life. "Declining balance methods require a depreciation
+  percentage in addition to the depreciation method. These depreciation methods are MF, MA, MT, MI, MR,
+  DC, DE, DI, DB, DD, and DH." "The 'Plus 168' depreciation methods require a value in the 168
+  Allowance % field. If you use depreciation method MA, MR, SB, or AA, then a value ... must appear."
+* Formats (C-12): Description "Alphanumeric - 80"; Location, Department, Vendor 25; Asset ID 50;
+  dates "MM/DD/YYYY" ("Date - 10"); "Numeric (currency) fields are formatted with nine (or ten) digits
+  and two decimals (123456789.12)"; Estimated Life and ADS Life "YYMM" ("enter 5 1/2 years as 0506";
+  a 1-3 character value is read as Y, YY or YMM); Declining Balance % "100, 125, 150, 175, or 200";
+  168 Allow % "Numeric - 2"; Mid-Quarter Flag "Y" for mid-quarter or "N" for half-year "for
+  depreciation methods MF, MA, MT, MI, MR, AD, or AA", blank "if using other depreciation methods";
+  Property Type one uppercase letter: "P Personal property, general", "R Real property, general",
+  A, T, Q, S, C, E, F, H, Z, V.
+* Method codes (6-6; "A depreciation method code is a combination of the depreciation method and
+  averaging convention"): MF "MACRS formula", MA "MACRS formula plus 168 Allowance", MT "MACRS table",
+  AD "ADS straight-line MACRS", AA "ADS straight-line MACRS plus 168 Allowance", SL, SF, SH, DB, DH,
+  ..., "All depreciation method codes must be in uppercase letters."
+* Bonus: the method itself. MA with 168 Allow % claims the allowance; MF does not.
+* The profile: Asset ID (the line), Description, Location (25), Property Type (`R` for the 27.5 and
+  39-year classes, `P` otherwise: 15-year land improvements are IRC 1250 property but take the
+  half-year convention, which the guide ties to MACRS property other than residential rental and
+  nonresidential real property), Placed-In-Service Date and Acquisition Date (MM/DD/YYYY),
+  Acquisition Value, Depreciation Method (`MA` with 168 Allow % when the schedule's statutory default
+  rate is above zero, the default election in every package; `MF` otherwise: the preparer electing out
+  changes `MA` to `MF`), Declining Balance % (200, 150; 100 for the straight-line real property
+  classes), 168 Allow % (the default rate as a whole number: 40, 60, 100, ...), Estimated Life
+  (`0500`, `0700`, `1500`, `2706`, `3900`), ADS Life (`0900`, `1000`, `2000`, `3000`, `4000`),
+  Mid-Quarter Flag (`N` for the half-year classes, blank for real property). **Not verified**: that
+  the helper accepts `MF` with `100` for real property (the listed percentages include 100 and the
+  guide's example data is not public) and the 168 Allow % values above 100 % phase-down rates the
+  2020 guide predates (the KB lists 20-100).
+
+**Intuit ProConnect Tax, and Lacerte** (`profile=proconnect`; XLSX for ProConnect, CSV for Lacerte).
+Public and complete: Intuit's template and data rules.
+
+* Sources: [How to import tax data from a spreadsheet in ProConnect Tax](https://accountants.intuit.com/support/en-us/help-article/import-export-data-files/import-tax-data-spreadsheet-proconnect/L1e3s4KNr_US_en_US) with its
+  [Depreciation (fixed assets) template](https://digitalasset.intuit.com/DOCUMENT/A0rjGM1Sa/Depreciation_Template.xlsx) and
+  [data rules](https://digitalasset.intuit.com/DOCUMENT/A8P4ffPL9/Depreciation_data_rules.xlsx) (read 2026-11-01);
+  [Common questions about Fixed Asset Import in Lacerte](https://accountants.intuit.com/support/en-us/help-article/partnership/common-questions-fixed-asset-import/L2oMOnRf4_US_en_US).
+* File: ProConnect "Only Excel files (.xls or .xlsx) or comma-separated value files (.csv)", first
+  worksheet only, columns matched to fields by heading. Lacerte: "Only .CSV and .XLS files are
+  supported" ("2007 .XLSX files aren't supported"); required columns Description, Date placed in
+  service, Cost or basis, Category ("must be set up numerically"); method optional (the "Lacerte
+  Method" numbers, or the wizard derives one).
+* The template's 17 headings in order: Description of Property, Form Number, Activity Number,
+  Category Number (1-8), Date Placed in Service, Cost or Basis, Current Sec 179, Method, Prior Sec
+  179, Prior Special Depreciation Allowance, Prior Depreciation or Amortization, Prior Bonus
+  Depreciation, AMT Prior Depreciation (MACRS only), Book Cost Basis, Book Method, Book Life, Book
+  Prior Depreciation.
+* Data rules: Description "Alpha Numeric + Special Characters", "Max characters: 25"; Date "mm/dd/yyyy"
+  (a negative date "prints various"); Cost or Basis "Numeric only" 1 to 999999999; Category 1
+  Automobiles/transportation equip., 2 Furniture and fixtures, 3 Machinery and equip, 4 Buildings, 5
+  Improvements, 6 Land, 7 Miscellaneous, 8 Amortization; Form Number by return type (1040: 3 "Sch. E
+  rental", 17 "Form 4562 only"; 1065: 3 "Form 8825"; ...); Method table: 53 "5 yr % Personal", 57
+  "7 yr % Personal", 66 "15 yr % Property", 85 "27.5 yr SL Res. RE", 87 "31.5/39 year SL Non. RE"
+  (the "%" methods are the declining-balance class methods, the "SL" ones the elections).
+* Bonus: no current-year column (only "Prior Special Depreciation Allowance"); the program applies
+  the special allowance to qualifying property unless the preparer elects out.
+* The profile: the 17 headings in the template's order so the heading match is automatic;
+  Description cut to 25; Form Number and Activity Number blank (they depend on the return); Category
+  3 for 5-year, 2 for 7-year, 5 for 15-year, 4 for 27.5 and 39-year (reporting groups only); the
+  date as mm/dd/yyyy; Cost or Basis to the cent (the rules give integer bounds; whole-dollar rounding
+  is the preparer's); Method 53/57/66/85/87; every prior-year and book column blank. **Not
+  verified** against either program.
+
+**CCH ProSystem fx Fixed Assets** (`profile=cch`; XLSX or CSV). Public: the mechanism only.
+
+* Sources: CCH KB [How do I import a Microsoft Excel spreadsheet into CCH ProSystem fx Fixed Assets?](https://support.cch.com/kb/solution.aspx/sw20138);
+  KB [Creative Solutions Conversion Table](https://support.cch.com/kb/solution.aspx/sw32681) (how it reads lives and bonus on conversion);
+  CCH Axcess Tax help [Importing CCH ProSystem fx Fixed Asset Data](https://download.cchaxcess.com/pfxbrowserhelp/TaxHelp/Content/ImportExport/IE_Fixed%20Assets.htm) (the return-side import, not the layout).
+* File: "The Microsoft Excel spreadsheet should contain: Column Headings. Data for all books in a
+  single Worksheet. One row of data per asset. No empty columns between columns of data." Imported
+  through File > Import > Various File Types > User Defined Import with a translation table that
+  links each column heading to a Fixed Assets field; "Some data points, like method, must have each
+  unique entry in the Microsoft Excel column matched to a corresponding option in Fixed Assets."
+  "The minimum columns needed to be matched are the two required columns: date in service and
+  depreciation method." The sample file and translation table ship in the product's `maps` folder
+  and are not published.
+* Not public: the field names, the method and convention option names, date and length limits.
+* The profile: a plainly headed sheet for the translation table: Asset Number, Description,
+  Location, Date In Service, Date Acquired, Cost, Method (`MACRS 200DB`, `MACRS 150DB`, `MACRS SL`:
+  one distinct value per option the preparer maps once), Convention (`Half-Year`, `Mid-Month`),
+  Life, ADS Life, IRC Section, Asset Class, Bonus Default % (the statutory default; the conversion
+  notes say the package's "Special Allowance option will be applied for all qualified assets" by
+  default), Authority. **Built to the mechanism, not to a published layout.**
+
+**Bloomberg Tax Fixed Assets** (`profile=bloomberg`; CSV). Public: the mechanism only.
+
+* Sources: [Fixed Assets Quick Start Guide](https://assets.bbhub.io/bna/sites/9/2020/10/FAQuickStartGuide.pdf) (2020): "The Import utility allows you to import fixed asset data from spreadsheet applications that can save in CSV (comma separated value) or other comma delimited formats"; the Import wizard maps the file's columns to asset fields; "For more information, see Procedure Help and review the Fixed Assets Import Guide" (not published); the MQ Policy "drop-down box allows you to either force a particular convention, such as Half-Year or Mid-Quarter, or allow the application to solve ... or ... leave the convention As Is" and "Prior year columns are automatically set to As Is during import from other fixed asset programs"; Section 179 "Choose either Maximum or None".
+  Thomson Reuters' [BNA conversion guide](https://www.thomsonreuters.com/en-us/help/fixed-assets-cs/conversion/depr-conversion-guide-asset-bna-fixed-assets) names BNA method codes (SL, SLMM, SLF, DB175, ...) and conventions (MQ, AMQ) from the outside.
+* Not public: the Import Guide, so the field names, the method and convention codes and the date
+  format.
+* The profile: the same plainly headed layout as CCH's, as a CSV (the format the utility reads),
+  with the convention written as the guide names it (`Half-Year`, `Mid-Month`) and MM/DD/YYYY dates.
+  **Built to the mechanism, not to a published layout.**
+
+Not included: Drake (its fixed-asset import is a Drake-to-Drake file), Intuit ProSeries (its own
+Fixed Asset Manager; the same mapped-CSV mechanism), and UltraTax CS (it reads Fixed Assets CS
+directly).
 
 ### 11.6 Report inputs Basis does not have yet
 

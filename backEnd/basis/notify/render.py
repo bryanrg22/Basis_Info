@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 from basis.db.repositories.alert import HEARTBEAT_STALE, STUDY_FAILED
-from basis.notify.sender import EmailMessage
+from basis.email import EmailMessage
 
 SUBJECT_PREFIX: Final = "[Basis]"
 MAX_REASON_CHARS: Final = 600

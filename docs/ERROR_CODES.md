@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-270 codes in 22 areas.
+278 codes in 22 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -63,6 +63,7 @@ stale).
 | `BASIS-API-041` | refusal | `GET`/`POST /studies/{id}/assets/reprice`; `basis.costs.reprice` | The intake's property use changed since the assets were classified (27.5- or 39-year building, the rules table's class): carrying the classifications would be wrong. | 409 `reprice-reclassify`; the preview's `blocked_code`. (type `reprice-reclassify`) | Reject the assets review so the assets are classified again. | no |
 | `BASIS-API-042` | refusal | `GET`/`POST /studies/{id}/assets/reprice`; `basis.costs.reprice` | The study is not waiting at the assets review of that revision. | 409 `gate-not-open`; the preview's `blocked_code`. (type `gate-not-open`) | Wait for the assets review to open, or use the current revision. | yes |
 | `BASIS-API-043` | refusal | `GET /v1/ops/health`; `basis.api.routes.ops` | The signed-in account is not a platform operator (its uid is not in `OPS_OPERATOR_UIDS`); a firm role never grants it. | 403 `not-operator`, with no diagnostics. (type `not-operator`) | An operator with deployment access adds the uid to `OPS_OPERATOR_UIDS`. | no |
+| `BASIS-API-044` | error | any request; `basis.api.ratelimit_pg` | The Postgres-backed rate limiter (`RATE_LIMIT_STORE=postgres`, the default in staging and prod) could not reach the database; the request was counted against a per-process budget instead, so the published limit holds per API instance until the database is back. | A warning log line, at most one per minute per process, with `fallbacks` (how many requests used the per-process budget); requests are not refused for it. | Restore the database (the same cause makes every `/v1` route answer 503 `BASIS-API-0xx`); nothing to reset, the shared log resumes on the next request. | yes |
 
 ## FIRM: Firms and membership
 
@@ -70,7 +71,7 @@ stale).
 |---|---|---|---|---|---|---|
 | `BASIS-FIRM-001` | refusal | `GET /studies`, `POST /studies`; `basis.api.users` | The caller belongs to no firm: firms are invite-only. | 403 `no-firm`. (type `no-firm`) | Accept an invitation (`GET /v1/me` lists the ones waiting for the verified email). | no |
 | `BASIS-FIRM-002` | refusal | `POST /studies`; `basis.api.routes.studies` | The caller may create studies in several firms and gave no `org_id`. | 422 `org-required`. (type `org-required`) | Set `org_id`. | yes |
-| `BASIS-FIRM-003` | refusal | accept or decline an invitation; `basis.db.repositories.invitation` | The token does not assert a verified email, which an invitation is bound to. | 403 `email-unverified`. (type `email-unverified`) | Verify the email with the identity provider, sign in again. | no |
+| `BASIS-FIRM-003` | refusal | accept or decline an invitation; `POST /orgs`; `basis.db.repositories.invitation, basis.api.routes.orgs` | The token does not assert a verified email, which an invitation is bound to and a firm's first owner must have. | 403 `email-unverified`. (type `email-unverified`) | Verify the email with the identity provider, sign in again. | no |
 | `BASIS-FIRM-004` | refusal | change a role, remove a member; `basis.db.repositories.org` | The change would leave the firm without an owner. | 409 `last-owner`. (type `last-owner`) | Make another member owner first. | no |
 | `BASIS-FIRM-005` | refusal | invite; `basis.db.repositories.invitation` | The email already belongs to a member of the firm. | 409 `already-member`. (type `already-member`) | Nothing to do; change their role instead. | no |
 | `BASIS-FIRM-006` | refusal | invite; `basis.db.repositories.invitation` | The firm already has an open invitation for this email. | 409 `invitation-pending`. (type `invitation-pending`) | Revoke it first, or wait for the answer. | no |
@@ -93,6 +94,7 @@ stale).
 | `BASIS-UPLOAD-008` | refusal | dev upload route; `basis.api.local_uploads` | The dev upload route was called on a deployment that uses GCS. | 403 `forbidden`. (type `forbidden`) | Upload to the signed GCS URL. | no |
 | `BASIS-UPLOAD-009` | refusal | dev upload route; `basis.api.local_uploads` | The upload is larger than the maximum. | 413 `payload-too-large`. (type `payload-too-large`) | Upload a smaller file. | no |
 | `BASIS-UPLOAD-010` | refusal | dev upload route; `basis.api.local_uploads` | The signed token is unknown, expired, or the headers differ from the ticket. | 403 `forbidden`. (type `forbidden`) | Request a new upload ticket. | yes |
+| `BASIS-UPLOAD-011` | refusal | `POST .../documents/{id}/upload-url`; `basis.api.routes.documents` | A new signed upload URL was asked for a document whose upload is already confirmed; its bytes are immutable (they hash to the registered sha256). | 409 `upload-complete`. (type `upload-complete`) | Nothing to resume for this document. To replace the file, register the new bytes as a new document. | no |
 
 ## STUDY: Study lifecycle (start, decisions, retry, outputs)
 
@@ -122,6 +124,11 @@ stale).
 | `BASIS-STUDY-022` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | A `component_remove` names a row the rejection rebuilds anyway: an inventory row of a room with a photo flagged for re-analysis (or a merged room), or a row of a flagged photo; corrections of rebuilt rows are not carried. | 422 `validation`, `errors[].type` `correction_rebuilt` at the removal's `entity_id`. (type `validation`) | Drop the removal (or the re-analysis) and remove the row from the next revision. | yes |
 | `BASIS-STUDY-023` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | The decision removes every inventory row of a reconciled room: the room would fall back to its per-photo rows and the room step would rebuild the inventory. | 422 `validation`, `errors[].type` `correction_last_inventory` at each removal of that room. (type `validation`) | Keep at least one inventory row (correct it), or flag the room's photos for re-analysis. | yes |
 | `BASIS-STUDY-024` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | An `extraction_field_add` names a key the extraction already has. | 422 `validation`, `errors[].type` `correction_field_exists` at `after`. (type `validation`) | Correct the existing field with an `extraction_field` correction. | yes |
+| `BASIS-STUDY-025` | refusal | `PUT`/`DELETE .../drafts/{stage}`; `basis.api.routes.drafts` | The `If-Match` entity tag is not the draft's current version (this user's draft on the stage was saved since the client read it, or `If-Match: *` with no draft). | 412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written. (type `precondition-failed`) | Read the draft again (`GET .../drafts/{stage}`), merge, and send the new `ETag` as `If-Match` (docs/api/GATE_DRAFTS_AND_RESUME.md). | yes |
+| `BASIS-STUDY-026` | refusal | `PUT .../drafts/{stage}`; `basis.api.routes.drafts` | The draft names a `revision` that is not the study's current one, or the stage has already been decided at that revision: its corrections could never be submitted. | 409 `draft-stale`; `detail` names the study's current revision. (type `draft-stale`) | Reload the gate at the current revision and draft against it; discard the stale draft (`DELETE`) if it is still stored. | no |
+| `BASIS-STUDY-027` | refusal | `DELETE .../drafts/{stage}`; `basis.api.routes.drafts` | The caller has no draft on that stage of the study (never saved, already submitted with a decision, or already discarded). | 404 `not-found`. (type `not-found`) | Nothing to discard; `GET .../drafts/{stage}` lists what exists. | no |
+| `BASIS-STUDY-028` | refusal | `POST .../restart`; `basis.api.routes.workflow` | The study's execution is still running (or waiting for a retry): there is nothing to restart from. | 409 `workflow-running`. (type `workflow-running`) | Use `POST .../retry` for a failed stage, or `POST .../cancel` first, then restart. | no |
+| `BASIS-STUDY-029` | refusal | `POST .../restart`; `basis.api.routes.workflow` | The study's execution completed: its outputs and report exist and are not redone. | 409 `study-completed`. (type `study-completed`) | Reject a review stage to rework a revision, or create a new study. | no |
 
 ## OBJECT: Photo objects (an engineer's selections)
 
@@ -386,6 +393,7 @@ stale).
 | `BASIS-INF-002` | error | the outbox relay; `basis.relay.delivery` | The workflow's validator refused a decision the API had recorded (BASIS-WF-008); the refusal is final. | Relay log `outbox message refused by its consumer` with `error_code`; the outbox row is `delivered` with `last_error`. | Decide again on the current stage and revision. | no |
 | `BASIS-INF-003` | error | the outbox relay; `basis.relay.delivery` | A message failed `RELAY_MAX_ATTEMPTS` deliveries (Temporal unreachable for long). | Outbox row `status = dead` with `last_error`; relay log with `error_code`. | Operator: re-arm the row (`python -m basis.admin`) once Temporal is back. | after fix |
 | `BASIS-INF-004` | error | the worker and the relay, every heartbeat; `basis.ops.heartbeat` | The process could not write its `service_heartbeats` row (database unreachable, or migration 0019 not applied). The process keeps running and retries on the next beat. | Log line with `error_code`; `GET /v1/ops/health` reports the worker or relay `down` once the last heartbeat is older than its validity. | Check the database and run `alembic upgrade head`. | yes |
+| `BASIS-INF-005` | error | the outbox relay, sending an invitation email; `basis.relay.delivery` | The email sender (`EMAIL_PROVIDER`) failed or refused the invitation email: SMTP unreachable, authentication refused, the recipient rejected (docs/api/FIRMS.md). | Relay log `invitation email failed` with `error_code`; the invitation's `email_error` and `delivery: failed` in `GET /v1/orgs/{org_id}/invitations`; the outbox row retried with backoff, `dead` after `RELAY_MAX_ATTEMPTS` or at once for a rejected recipient. | Fix the sender configuration or the address; revoke and invite again (a new invitation is a new email). The invitee can still accept in the app meanwhile. | yes |
 
 ## RETENTION: Client-data retention: the purge job (basis.retention)
 

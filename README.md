@@ -407,7 +407,7 @@ Until Stage 3 the backend was three packages, all deleted on this branch:
 - `backEnd/evidence_layer/`: PDF parsing, pickled BM25 and FAISS indexes, regex and Azure DI extraction.
 - `backEnd/vision_layer/`: a Grounding DINO + SAM2 detection pipeline that was never wired in.
 
-The review found the four defects in the [Status](#status-october-2026) table: an unreachable graph, resumes that restarted, rejections recorded as approvals, and citations that were always empty. Those, plus state split between Firestore fields and an unused checkpointer, are why the workflow moved to Temporal and the data to PostgreSQL ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)). The useful parts were migrated module by module into `basis/`, and each module docstring says what was kept and what changed. The legacy design diagrams remain for reference: [architecture](docs/architecture.svg), [LangGraph workflow](docs/technique_stategraph.svg), [retrieval agent](docs/technique_rag.svg), [appraisal agent loop](docs/agent_loop.svg). They do not describe the current code.
+The review found the four defects in the [Status](#status-october-2026) table: an unreachable graph, resumes that restarted, rejections recorded as approvals, and citations that were always empty. Those, plus state split between Firestore fields and an unused checkpointer, are why the workflow moved to Temporal and the data to PostgreSQL ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)). The useful parts were migrated module by module into `basis/`, and each module docstring says what was kept and what changed. The legacy design diagrams were removed on 2026-11-01 (they are in git history before that date) since they did not describe the current code.
 
 ---
 
@@ -450,4 +450,5 @@ Basis has been used in paid pilots on the legacy system:
 - [INFRA_NOTES.md](docs/review_2026-10-15/INFRA_NOTES.md): what exists in the cloud project.
 - [docs/api/openapi.json](docs/api/openapi.json): the API contract.
 - [docs/api/WORKFLOW.md](docs/api/WORKFLOW.md): the workflow route, a failed stage (`failed_stage`, `failure`) and the retry.
+- [docs/api/GATE_DRAFTS_AND_RESUME.md](docs/api/GATE_DRAFTS_AND_RESUME.md): leaving and coming back: gate drafts on the server, resuming an upload, restarting a cancelled study.
 - [backEnd/tests/LEDGER.md](backEnd/tests/LEDGER.md): every test file and the invariant it protects.

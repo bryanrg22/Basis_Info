@@ -242,7 +242,7 @@ Both kinds are rows of the `alerts` table (the key is unique) with their outbox 
 
 Checked on 2026-11-01: `terraform fmt -check` and `terraform validate` on `infra/staging`
 (provider hashicorp/google 8.7.0); `terraform plan -lock=false` against the real state
-(read-only; the output is summarised in the pull request and in EVAL_REPORT section 55);
+(read-only; the output is summarised in the pull request and in EVAL_REPORT section 60);
 the metric types and resource types of section 4.1 read from the project's metric
 descriptors. Not done: no apply, no restore drill (the commands are Google's documented
 ones, not exercised against this instance), no scheduler created, no alert fired.

@@ -18,6 +18,17 @@ Flow:
    the answer is 422 ``invalid-appraisal`` naming the problem, the object is deleted and the
    document stays unconfirmed (the workflow never sees it; docs/api/UAD36_INTAKE.md).
 
+Resuming (docs/api/GATE_DRAFTS_AND_RESUME.md): the registration and the bytes are two steps,
+so a reload between them leaves a document with ``uploaded_at`` NULL in ``GET
+/v1/studies/{id}`` and a signed URL the client no longer has (or that expired, 15 minutes).
+``POST .../documents/{doc_id}/upload-url`` issues a new signed ``PUT`` for an unconfirmed
+document, the same declared size and content type (the bytes must still hash to the
+registered sha256, which ``complete`` checks); for a confirmed document it is 409
+``upload-complete`` (its bytes are immutable). A client with the file again matches it to the
+registered document by sha256 from the study's document list, re-issues the URL, uploads and
+confirms; the repeated ``POST .../documents`` for the same bytes stays 409
+``duplicate-document`` (naming the document), so nothing is registered twice.
+
 4. ``GET .../documents/{doc_id}/content`` returns a confirmed document's bytes to a viewer
    of the study (the frontend shows photos, their masks and the appraisal PDF from it).
    The bytes are immutable (they hash to the registered sha256), so the response is
@@ -38,6 +49,7 @@ open, and sets ``uploaded_at`` in a second one.
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from datetime import timedelta
 from typing import Annotated, Final
@@ -81,6 +93,12 @@ UPLOAD_URL_TTL: Final = timedelta(minutes=15)
 UPLOAD_ROLE: Final = OrgRole.ENGINEER
 CONTENT_CACHE_CONTROL: Final = "private, max-age=3600"
 ZIP_TYPE: Final = "application/zip"
+# What the quoted ASCII ``filename`` may not carry: C0 controls and DEL (a CR or LF would end
+# the header), the quote that delimits it and the backslash that escapes inside it. A
+# registered filename excludes them already (``FILENAME_PATTERN``); a name read out of an
+# uploaded ZIP does not.
+_UNSAFE_IN_QUOTED: Final = re.compile(r'[\x00-\x1f\x7f"\\]')
+_PATH_SEPARATORS: Final = re.compile(r"[/\\]")
 
 reads = read_router(tags=["documents"])
 writes = write_router(tags=["documents"])
@@ -136,6 +154,50 @@ async def request_upload(
     signed = await storage.signed_put_url(uri, body.content_type, body.bytes, UPLOAD_URL_TTL)
     return UploadTicket(
         document=DocumentOut.model_validate(document),
+        upload=SignedUploadOut(
+            url=signed.url,
+            method=signed.method,
+            headers=signed.headers,
+            expires_at=signed.expires_at,
+        ),
+    )
+
+
+@writes.post(
+    "/studies/{study_id}/documents/{document_id}/upload-url",
+    status_code=status.HTTP_201_CREATED,
+    summary="Re-issue the signed upload URL of a registered, unconfirmed document",
+    description="For resuming an upload after a reload or an expired URL: the same document, a "
+    "new 15-minute signed `PUT` for exactly the declared size and content type (the bytes must "
+    "still hash to the registered sha256; `.../complete` checks). 409 `upload-complete` when "
+    "the upload is already confirmed (nothing to resume; its bytes are immutable), 409 "
+    "`study-archived` on an archived study, 404 for a document not in the study "
+    "(docs/api/GATE_DRAFTS_AND_RESUME.md).",
+    responses=problems(403, 404),
+)
+async def reissue_upload_url(
+    document_id: DocumentIdPath,
+    access: Annotated[VisibleStudy, Depends(study_access(UPLOAD_ROLE))],
+    session: SessionDep,
+    storage: StorageDep,
+) -> UploadTicket:
+    study = access.study
+    ensure_not_archived(study)
+    found = await DocumentRepository(session).get(study.id, document_id)
+    if found is None:
+        raise NotFound("Document not found.", code=E.UPLOAD_DOCUMENT_NOT_FOUND)
+    if found.uploaded_at is not None:
+        raise Conflict(
+            "The document's upload is already confirmed; its bytes cannot be replaced. To "
+            "upload a different file, register it as a new document.",
+            type_suffix="upload-complete",
+            code=E.UPLOAD_ALREADY_CONFIRMED,
+        )
+    signed = await storage.signed_put_url(
+        found.gcs_uri, found.content_type, found.bytes, UPLOAD_URL_TTL
+    )
+    return UploadTicket(
+        document=DocumentOut.model_validate(found),
         upload=SignedUploadOut(
             url=signed.url,
             method=signed.method,
@@ -235,8 +297,15 @@ async def complete_upload(
 
 
 def _content_disposition(filename: str) -> str:
-    """``inline`` with the RFC 6266 / 8187 ``filename*`` (UTF-8) and an ASCII fallback."""
-    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    """``inline`` with the RFC 6266 / 8187 ``filename*`` (UTF-8) and an ASCII fallback.
+
+    The fallback is a quoted-string: non-ASCII becomes ``?``, and a control character, a
+    quote or a backslash becomes ``_`` so the value cannot end the header or the quoted
+    string. ``filename*`` percent-encodes every byte outside the unreserved set, so the
+    original name survives there (RFC 8187 section 3.2.1).
+    """
+    ascii_name = filename.encode("ascii", "replace").decode("ascii")
+    ascii_name = _UNSAFE_IN_QUOTED.sub("_", ascii_name) or "file"
     return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
@@ -340,7 +409,8 @@ async def document_pdf(
         if upload.pdf is None:  # pragma: no cover - read_zip refuses a ZIP without a PDF
             raise Conflict("The package holds no report PDF.", type_suffix="no-report-pdf")
         data = upload.pdf
-        filename = (upload.pdf_name or "report.pdf").rsplit("/", 1)[-1]
+        # The ZIP's own entry name: a path with either separator, not a registered filename.
+        filename = _PATH_SEPARATORS.split(upload.pdf_name or "")[-1] or "report.pdf"
     headers["Content-Disposition"] = _content_disposition(filename)
     headers["X-Content-Type-Options"] = "nosniff"
     return Response(content=data, media_type="application/pdf", headers=headers)

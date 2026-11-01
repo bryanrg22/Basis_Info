@@ -10,6 +10,9 @@ time. The caller re-reads its own role after taking the lock (``basis.api.routes
 two owners demoting each other at once cannot both succeed, because the second one runs
 after the first has committed and is no longer an owner. Under READ COMMITTED each
 statement after the lock wait sees what the first transaction committed.
+
+Creating and renaming a firm, a role change and a removal are recorded on the firm's
+history (``org_events``, :mod:`basis.db.repositories.org_event`) in the same transaction.
 """
 
 from __future__ import annotations
@@ -25,11 +28,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from basis.db.enums import OrgRole
 from basis.db.errors import LastOwnerError, NotVisibleError
 from basis.db.models import Invitation, Org, OrgMember, User
+from basis.db.repositories.org_event import OrgEventRepository
 
 logger = logging.getLogger(__name__)
 
 DETAIL_LAST_OWNER = "A firm must keep at least one owner; make another member an owner first."
 DETAIL_MEMBER_NOT_FOUND = "Member not found."
+# A firm's name: one line, trimmed (the API's ``LINE_PATTERN``; the CLI checks the same).
+MAX_FIRM_NAME_LENGTH = 200
 
 # Owners first, then engineers, then viewers.
 _ROLE_ORDER = case(
@@ -72,10 +78,56 @@ class OrgRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, name: str) -> Org:
+    async def create(self, name: str, owner_id: uuid.UUID | None = None) -> Org:
+        """A firm named ``name`` (trimmed; names are not unique), with ``owner_id`` as its
+        owner when given (``POST /v1/orgs``: the creator) and no member otherwise (the
+        operator CLI, which invites the owner). Recorded as ``org.created`` on the firm's
+        history, by the creator or by the system (the CLI)."""
+        name = name.strip()
+        if not name or len(name) > MAX_FIRM_NAME_LENGTH:
+            raise ValueError(f"a firm name is 1 to {MAX_FIRM_NAME_LENGTH} characters")
         org = Org(name=name)
         self._session.add(org)
         await self._session.flush()
+        if owner_id is not None:
+            self._session.add(OrgMember(org_id=org.id, user_id=owner_id, role=OrgRole.OWNER.value))
+            await self._session.flush()
+        await OrgEventRepository(self._session).record(
+            org.id,
+            "org.created",
+            actor_id=owner_id,
+            subject_user_id=owner_id,
+            entity_type="org",
+            entity_id=org.id,
+            after={"name": name},
+        )
+        await self._session.refresh(org)
+        return org
+
+    async def rename(self, org_id: uuid.UUID, name: str, *, renamed_by: uuid.UUID) -> Org:
+        """Rename the firm. Call with the firm locked (:meth:`lock`); ``NotVisibleError``
+        when it does not exist. Recorded as ``org.renamed`` (``before``/``after``
+        ``{name}``); the current name again records nothing."""
+        name = name.strip()
+        if not name or len(name) > MAX_FIRM_NAME_LENGTH:
+            raise ValueError(f"a firm name is 1 to {MAX_FIRM_NAME_LENGTH} characters")
+        org = await self.get(org_id)
+        if org is None:
+            raise NotVisibleError("Organization not found.")
+        if org.name == name:
+            return org
+        before = org.name
+        org.name = name
+        await self._session.flush()
+        await OrgEventRepository(self._session).record(
+            org_id,
+            "org.renamed",
+            actor_id=renamed_by,
+            entity_type="org",
+            entity_id=org_id,
+            before={"name": before},
+            after={"name": name},
+        )
         await self._session.refresh(org)
         return org
 
@@ -175,11 +227,19 @@ class OrgRepository:
         )
         return await self._session.scalar(stmt)
 
-    async def set_role(self, org_id: uuid.UUID, user_id: uuid.UUID, role: OrgRole) -> Member:
+    async def set_role(
+        self,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        role: OrgRole,
+        *,
+        changed_by: uuid.UUID | None = None,
+    ) -> Member:
         """Change a member's role. Call with the firm locked (:meth:`lock`).
 
         Raises ``NotVisibleError`` for a non-member and ``LastOwnerError`` when the last
-        owner would be demoted. Setting the current role is a no-op.
+        owner would be demoted. Setting the current role is a no-op (nothing recorded).
+        ``changed_by`` is the owner who changed it, recorded as ``member.role_changed``.
         """
         current = await self.member(org_id, user_id)
         if current is None:
@@ -195,6 +255,16 @@ class OrgRepository:
         )
         updated = await self.member(org_id, user_id)
         assert updated is not None
+        await OrgEventRepository(self._session).record(
+            org_id,
+            "member.role_changed",
+            actor_id=changed_by,
+            subject_user_id=user_id,
+            entity_type="member",
+            entity_id=user_id,
+            before={"role": current.role.value},
+            after={"role": role.value},
+        )
         return updated
 
     async def remove(self, org_id: uuid.UUID, user_id: uuid.UUID, removed_by: uuid.UUID) -> Member:
@@ -214,19 +284,54 @@ class OrgRepository:
         await self._session.execute(
             delete(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == user_id)
         )
+        revoked: list[Invitation] = []
         if current.email:
             # Lock order: the firm row (held by the caller), then invitation rows.
-            await self._session.execute(
-                update(Invitation)
-                .where(
-                    Invitation.org_id == org_id,
-                    Invitation.email == current.email.strip().lower(),
-                    Invitation.accepted_at.is_(None),
-                    Invitation.declined_at.is_(None),
-                    Invitation.revoked_at.is_(None),
-                )
-                .values(revoked_at=func.now(), revoked_by=removed_by)
-                .execution_options(synchronize_session=False)
+            revoked = list(
+                (
+                    await self._session.scalars(
+                        update(Invitation)
+                        .where(
+                            Invitation.org_id == org_id,
+                            Invitation.email == current.email.strip().lower(),
+                            Invitation.accepted_at.is_(None),
+                            Invitation.declined_at.is_(None),
+                            Invitation.revoked_at.is_(None),
+                        )
+                        .values(revoked_at=func.now(), revoked_by=removed_by)
+                        .returning(Invitation)
+                        .execution_options(synchronize_session=False, populate_existing=True)
+                    )
+                ).all()
+            )
+        events = OrgEventRepository(self._session)
+        await events.record(
+            org_id,
+            "member.removed",
+            actor_id=removed_by,
+            subject_user_id=user_id,
+            entity_type="member",
+            entity_id=user_id,
+            before={"role": current.role.value},
+            detail={
+                "self": removed_by == user_id,
+                "invitations_revoked": [str(invitation.id) for invitation in revoked],
+            },
+        )
+        for invitation in revoked:
+            await events.record(
+                org_id,
+                "invitation.revoked",
+                actor_id=removed_by,
+                subject_user_id=user_id,
+                entity_type="invitation",
+                entity_id=invitation.id,
+                before={
+                    "email": invitation.email,
+                    "role": invitation.role,
+                    "expires_at": invitation.expires_at.isoformat(),
+                },
+                detail={"reason": "member_removed"},
             )
         return current
 

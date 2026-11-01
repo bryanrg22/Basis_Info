@@ -1,21 +1,33 @@
-"""Firm (organization) membership and invitation bodies, and ``GET /v1/me``."""
+"""Firm (organization) bodies: creation and renaming, membership, invitations, ``GET /v1/me``."""
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, field_validator
 
-from basis.api.schemas.common import RequestModel, ResponseModel
+from basis.api.schemas.common import LINE_PATTERN, RequestModel, ResponseModel
 from basis.db.enums import OrgRole
-from basis.db.repositories import InvitationStatus, InvitationView, Member, Membership
+from basis.db.models import Org
+from basis.db.repositories import (
+    MAX_FIRM_NAME_LENGTH,
+    EmailDelivery,
+    InvitationStatus,
+    InvitationView,
+    Member,
+    Membership,
+)
 from basis.db.repositories.invitation import EMAIL_PATTERN, MAX_EMAIL_LENGTH
 
-# No mail service exists: an invitation is never emailed. The invitee sees it in the app
-# after signing in with the invited email (GET /v1/me).
-DELIVERY_NOT_SENT: Final = "not_sent"
+DELIVERY_DESCRIPTION: Final = (
+    "The invitation email (docs/api/FIRMS.md): `queued` (enqueued for the relay), `sent` "
+    "(handed to the configured sender; with `EMAIL_PROVIDER=log` it was only logged), `failed` "
+    "(the last attempt failed, see `email_error`; the relay retries), `not_sent` (created "
+    "before invitation emails existed). Whatever the delivery, the invitee sees the "
+    "invitation in `GET /v1/me` once signed in with the invited email, verified."
+)
 
 ROLE_DESCRIPTION: Final = (
     "`owner` (the firm's admin: members, invitations, every study), `engineer` (creates "
@@ -85,6 +97,51 @@ class MeOut(ResponseModel):
     )
 
 
+# --------------------------------------------------------------------------- the firm itself
+
+FIRM_NAME_DESCRIPTION: Final = (
+    "The firm's name as shown to its members and in invitation emails: one line, trimmed, "
+    f"1 to {MAX_FIRM_NAME_LENGTH} characters. Names are not unique."
+)
+
+
+class FirmCreate(RequestModel):
+    model_config = ConfigDict(json_schema_extra={"examples": [{"name": "Harbor Cost Seg"}]})
+
+    name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=MAX_FIRM_NAME_LENGTH,
+            pattern=LINE_PATTERN,
+            description=FIRM_NAME_DESCRIPTION,
+        ),
+    ]
+
+    @field_validator("name")
+    @classmethod
+    def _trim(cls, value: str) -> str:
+        return value.strip()
+
+
+class FirmRename(FirmCreate):
+    model_config = ConfigDict(json_schema_extra={"examples": [{"name": "Harbor Cost Seg LLC"}]})
+
+
+class FirmOut(ResponseModel):
+    id: uuid.UUID
+    name: str
+    created_at: datetime
+    role: OrgRole = Field(description="Your role in the firm. " + ROLE_DESCRIPTION)
+
+    @classmethod
+    def of(cls, org: Org, role: OrgRole) -> FirmOut:
+        return cls(id=org.id, name=org.name, created_at=org.created_at, role=role)
+
+
+# --------------------------------------------------------------------------- members
+
+
 class MemberOut(ResponseModel):
     user_id: uuid.UUID
     email: str | None
@@ -142,10 +199,16 @@ class InvitationOut(InviteeInvitationOut):
     declined_at: datetime | None
     revoked_at: datetime | None
     revoked_by: uuid.UUID | None
-    delivery: Literal["not_sent"] = Field(
-        default=DELIVERY_NOT_SENT,
-        description="No email is sent. The invitee sees the invitation when they sign in "
-        "with the invited email.",
+    delivery: EmailDelivery = Field(description=DELIVERY_DESCRIPTION)
+    email_queued_at: datetime | None = Field(
+        description="When the invitation email was enqueued (with the invitation)."
+    )
+    emailed_at: datetime | None = Field(
+        description="When the relay handed the email to the sender; null until then."
+    )
+    email_error: str | None = Field(
+        description="The last send error, while `delivery` is `failed`; also why an email "
+        "was not sent (the invitation was revoked or answered first)."
     )
 
     @classmethod
@@ -160,6 +223,10 @@ class InvitationOut(InviteeInvitationOut):
             declined_at=invitation.declined_at,
             revoked_at=invitation.revoked_at,
             revoked_by=invitation.revoked_by,
+            delivery=view.delivery,
+            email_queued_at=invitation.email_queued_at,
+            emailed_at=invitation.emailed_at,
+            email_error=invitation.email_error,
         )
 
 

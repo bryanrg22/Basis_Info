@@ -18,6 +18,9 @@ needs nothing more.
 A ``service_heartbeats`` row (:func:`relay_heartbeat`) every ``OPS_HEARTBEAT_SECONDS``, for
 ``GET /v1/ops/health``.
 
+Invitation emails are sent from here, by the sender ``EMAIL_PROVIDER`` names
+(``basis.email``), with ``APP_URL`` in the text; the API only enqueues them.
+
 Operator alerts (``basis.notify``, docs/api/RETENTION_AND_ALERTS.md): the relay is the one
 process that sends them (``ALERT_EMAIL_TO``, through the configured email sender), and it
 runs the stale-heartbeat check (:class:`~basis.notify.heartbeats.HeartbeatMonitor`) every
@@ -42,8 +45,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from basis.config import Settings, get_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker
+from basis.email import build_email_sender
 from basis.notify.heartbeats import HeartbeatMonitor
-from basis.notify.sender import build_email_sender
 from basis.obs.logging import configure_logging
 from basis.ops.heartbeat import HeartbeatWriter
 from basis.relay.delivery import Relay, TemporalWorkflowGateway
@@ -134,6 +137,7 @@ async def run(settings: Settings, *, health_port: int, once: bool = False) -> in
             TemporalWorkflowGateway(client),
             poll_seconds=settings.relay_poll_seconds,
             email_sender=build_email_sender(settings),
+            app_url=settings.app_url,
             alert_to=settings.alert_email_to,
             env=settings.env,
         )

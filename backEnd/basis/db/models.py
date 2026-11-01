@@ -104,6 +104,7 @@ UPDATED_AT_TABLES: Final = (
     "activity_results",
     "classification_cache",
     "firm_profiles",
+    "review_drafts",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -112,6 +113,7 @@ APPEND_ONLY_TABLES: Final = (
     "study_events",
     "cost_indices",
     "cost_index_runs",
+    "org_events",
 )
 # Tables whose rows are never updated once written (forbid_mutation() on UPDATE only;
 # migration 0018): a priced row's takeoff and cost, so the recorded trail cannot change.
@@ -252,7 +254,7 @@ class Org(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     name: Mapped[str]
-    # The firm's retention rule for client data (migration ``0025_retention_alerts``,
+    # The firm's retention rule for client data (migration ``0026_retention_alerts``,
     # docs/api/RETENTION_AND_ALERTS.md): NULL keeps everything; a number of days after
     # which a completed or archived study's uploaded files are purged (``basis.retention``).
     retention_days: Mapped[int | None]
@@ -299,7 +301,9 @@ class Invitation(Base):
     has no ``revoked_by``); at most one outcome is set. The status (pending, accepted,
     declined, revoked, expired) is derived (``basis.db.repositories.invitation``).
     ``created_by`` is NULL for invitations issued by the operator CLI
-    (``python -m basis.admin``).
+    (``python -m basis.admin``). The email columns record the invitation email's delivery
+    (``emailed_at``, ``email_error``); the status it reports is derived
+    (``basis.db.repositories.invitation.email_delivery``).
     """
 
     __tablename__ = "invitations"
@@ -338,6 +342,12 @@ class Invitation(Base):
     declined_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     revoked_at: Mapped[datetime | None]
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # The invitation email (migration ``0025_invitation_email``; docs/api/FIRMS.md): when its
+    # outbox message was enqueued (NULL for rows created before emails existed), when the
+    # relay handed it to the sender, and the last send error (cleared on success).
+    email_queued_at: Mapped[datetime | None]
+    emailed_at: Mapped[datetime | None]
+    email_error: Mapped[str | None]
 
 
 # --------------------------------------------------------------------- studies, documents
@@ -396,7 +406,7 @@ class Study(Base):
     )
     report_answers_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
     # When the retention purge deleted the study's uploaded files from storage (migration
-    # ``0025_retention_alerts``); NULL: never. The export, the signed report and every row
+    # ``0026_retention_alerts``); NULL: never. The export, the signed report and every row
     # survive; ``study.purged`` on the timeline records what went.
     purged_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = _created_at()
@@ -910,6 +920,43 @@ class Correction(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class ReviewDraft(Base):
+    """An engineer's pending corrections at a review gate, kept on the server (migration
+    ``0024_review_drafts``; ``GET``/``PUT``/``DELETE /v1/studies/{id}/drafts/{stage}``).
+
+    One row per ``(study, stage, user)``: two engineers draft apart. ``document`` is the
+    pending ``{comment, corrections}`` as one JSON object, validated whole by the draft route
+    with the decision route's own checks; ``revision`` is the revision the corrections name
+    rows of (a draft for a revision that is no longer the study's is stale); ``version`` is
+    the row's entity tag (``If-Match``), incremented by every save. Overwritten by each save,
+    deleted by the decision that submits it or by the engineer: work in progress, not history.
+    """
+
+    __tablename__ = "review_drafts"
+    __table_args__ = (
+        UniqueConstraint("study_id", "stage", "user_id"),
+        # As text: a new enum label cannot be used in the transaction that added it (0009).
+        CheckConstraint(
+            "stage::text IN ('appraisal_review', 'rooms_review', 'components_review', "
+            "'assets_review')",
+            name="stage_is_review",
+        ),
+        CheckConstraint("revision >= 1", name="revision_positive"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("jsonb_typeof(document) = 'object'", name="document_is_object"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    stage: Mapped[Stage] = mapped_column(STAGE_ENUM)
+    revision: Mapped[int]
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    document: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    version: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
 class Run(Base):
     __tablename__ = "runs"
     __table_args__ = (UniqueConstraint("workflow_id", "run_id"),)
@@ -966,6 +1013,8 @@ class StudyEvent(Base):
         UniqueConstraint("seq"),
         Index(None, "study_id", "seq"),
         Index(None, "study_id", "entity_id"),
+        # ``GET /v1/me/activity`` (migration ``0022``): one user's own actions, newest first.
+        Index("ix_study_events_actor_id_seq", "actor_id", text("seq DESC")),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -986,6 +1035,42 @@ class StudyEvent(Base):
     entity_type: Mapped[str | None]
     entity_id: Mapped[uuid.UUID | None]
     code: Mapped[str | None]
+    request_id: Mapped[str | None]
+    before: Mapped[Any | None] = mapped_column(JSON_DOC)
+    after: Mapped[Any | None] = mapped_column(JSON_DOC)
+    detail: Mapped[Any | None] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
+
+
+ORG_EVENT_ACTORS: Final = ("engineer", "system")
+
+
+class OrgEvent(Base):
+    """One occurrence in a firm's history that is not about a study (migration ``0022``):
+    an invitation created, accepted, declined or revoked, a member's role changed, a member
+    removed, the report profile set, the firm created. Append-only (``forbid_mutation()``),
+    written in the same transaction as the change, ordered by ``seq``; the vocabulary is
+    :mod:`basis.db.repositories.org_event` (docs/api/TIMELINE_AND_AUDIT.md). ``actor_type``
+    is ``engineer`` for a signed-in member (``actor_id`` the user) and ``system`` for the
+    operator CLI or bookkeeping; ``subject_user_id`` is the member the event is about.
+    """
+
+    __tablename__ = "org_events"
+    __table_args__ = (
+        CheckConstraint("actor_type IN ('engineer', 'system')", name="actor_valid"),
+        UniqueConstraint("seq"),
+        Index(None, "org_id", "seq"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    event_type: Mapped[str]
+    actor_type: Mapped[str]
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    subject_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    entity_type: Mapped[str | None]
+    entity_id: Mapped[uuid.UUID | None]
     request_id: Mapped[str | None]
     before: Mapped[Any | None] = mapped_column(JSON_DOC)
     after: Mapped[Any | None] = mapped_column(JSON_DOC)
@@ -1387,8 +1472,28 @@ class ServiceHeartbeat(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class RateLimitHit(Base):
+    """One accepted request under a rate-limit key (migration ``0023_rate_limit_hits``), the
+    sliding-window log :class:`basis.api.ratelimit_pg.PostgresRateLimiter` keeps so every API
+    process shares one budget per caller.
+
+    ``key`` is the limiter's key (``read:uid:<uid>``, ``mutation:ip:<address>``, ...);
+    ``created_at`` is the hit's time by the database clock. A hit older than the window is
+    deleted on the key's next request, and a sweep removes rows older than an hour. The
+    table is ``UNLOGGED``: the log is ephemeral state that a crash may lose (every budget
+    then starts over), and skipping the WAL keeps a per-request write cheap.
+    """
+
+    __tablename__ = "rate_limit_hits"
+    __table_args__ = (Index(None, "key", "created_at"), {"prefixes": ["UNLOGGED"]})
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
+
+
 class Alert(Base):
-    """An operator alert the application raised (migration ``0025_retention_alerts``,
+    """An operator alert the application raised (migration ``0026_retention_alerts``,
     docs/api/RETENTION_AND_ALERTS.md): a study failed (``study_failed``, ``study_id`` set)
     or a service's heartbeat went stale (``heartbeat_stale``, ``service`` set). ``key`` names
     the occurrence (the failure's activity key; the service and the last heartbeat before

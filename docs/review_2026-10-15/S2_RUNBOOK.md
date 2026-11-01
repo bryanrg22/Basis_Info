@@ -130,13 +130,15 @@ curl -s localhost:8081/health                    # {"status": "ok"}
 ```
 
 ```
-INFO     basis.relay.delivery: outbox relay started [poll_seconds=2.0]
+INFO     basis.relay.delivery: outbox relay started [poll_seconds=2.0 email_provider=log app_url=None]
 ```
 
 * Every `RELAY_POLL_SECONDS` (2 s) it claims up to 20 due `pending` rows
   (`FOR UPDATE SKIP LOCKED`, so several relays can run) and delivers them:
   `workflow_signal` as the `decide` update on `study-{study_id}` (update id
-  `decision-{review_id}`, 30 s timeout), `notification` to the log.
+  `decision-{review_id}`, 30 s timeout), `notification` of type `invitation` as the
+  invitation email through `EMAIL_PROVIDER` (docs/api/FIRMS.md), any other `notification`
+  to the log.
 * A refusal by the workflow's validator is final: the row is `delivered` with
   `last_error` and a WARNING `outbox message refused by its consumer; not retried`.
 * Anything else that fails (Temporal down, RPC error, timeout, workflow not yet at the
@@ -198,6 +200,7 @@ Settings the relay and the workflow routes read:
 | `TEMPORAL_API_KEY` | unset | API, worker, relay. Temporal Cloud: API key and TLS |
 | `TEMPORAL_TASK_QUEUE` | `basis-studies` | API (`start`), worker |
 | `RELAY_POLL_SECONDS` | `2.0` | relay |
+| `EMAIL_PROVIDER`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_STARTTLS`, `APP_URL` | `log`, unset, unset, `587`, unset, unset, `true`, unset | relay (invitation emails; docs/api/FIRMS.md section 6) |
 | `STUDY_BUDGET_USD`, `PHOTO_CONCURRENCY`, `REVIEW_REMINDER_DAYS`, `REVIEW_DEADLINE_DAYS` | `25.0`, `5`, `7`, `30` | API (`start` puts them in `StudyWorkflowInput`) |
 | `GIT_SHA` | `unknown` | API (`StudyWorkflowInput.workflow_version`), worker (build id) |
 | `RATE_LIMIT_MUTATIONS_PER_MIN`, `RATE_LIMIT_READS_PER_MIN` | `10`, `60` | API, per user |

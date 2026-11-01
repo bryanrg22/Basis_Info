@@ -10,6 +10,11 @@
   and never lowers a higher role.
 * A firm always keeps an owner: demoting or removing the last one is 409, also when two
   owners demote each other at the same time. Removing a member ends their access at once.
+* A verified sign-in creates a firm with ``POST /v1/orgs`` and owns it (unverified: 403
+  ``email-unverified``); a user may own several; owners rename with ``PATCH /v1/orgs/{id}``.
+* The invitation email is enqueued with the invitation (never for a refused one), the relay
+  sends it, and the list shows ``delivery``, ``emailed_at`` and ``email_error``.
+* Studies name their creator (``created_by_name``, ``created_by_email``).
 """
 
 from __future__ import annotations
@@ -21,18 +26,29 @@ from typing import Any
 
 import httpx
 import pytest
-from apitest_support import BASE_URL, Api, FakeVerifier, Seed, api_settings, build_api_app
+from apitest_support import (
+    BASE_URL,
+    Api,
+    FakeVerifier,
+    Seed,
+    api_settings,
+    bearer,
+    build_api_app,
+)
 from fastapi import FastAPI
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from workflowtest_support import RecordingGateway
 
 from basis.api.errors import PROBLEM_JSON
 from basis.api.idempotency import REPLAYED_HEADER
 from basis.api.users import DETAIL_NO_FIRM
 from basis.auth.firebase import Principal
 from basis.db.enums import OrgRole
-from basis.db.models import Invitation, Org, OrgMember, Study
+from basis.db.models import Invitation, Org, OrgMember, OutboxMessage, Study
 from basis.db.session import session_scope
+from basis.email import EmailMessage, EmailSendError, SendResult
+from basis.relay.delivery import Relay
 from basis.storage import LocalStorage
 
 pytestmark = pytest.mark.integration
@@ -62,6 +78,10 @@ async def join(api: Api, owner: str, org: str, uid: str, role: str) -> None:
     invitation = await invite(api, owner, org, f"{uid}@example.test", role)
     response = await accept(api, uid, invitation["id"])
     assert response.status_code == 200, response.text
+
+
+async def patch(api: Api, uid: str, path: str, body: Any) -> httpx.Response:
+    return await api.client.patch(path, json=body, headers=bearer(uid))
 
 
 def problem_type(response: httpx.Response) -> str:
@@ -204,8 +224,10 @@ async def test_owner_creates_lists_and_revokes_invitations(
     assert (created["role"], created["status"], created["delivery"]) == (
         "engineer",
         "pending",
-        "not_sent",
+        "queued",  # the email waits for the relay (test_invitation_emails.py sends it)
     )
+    assert created["email_queued_at"] is not None
+    assert (created["emailed_at"], created["email_error"]) == (None, None)
     assert created["invited_by_email"] == "olivia@example.test"
     listed = (await invite_only_api.get("olivia", f"/v1/orgs/{org}/invitations")).json()
     assert [i["id"] for i in listed["items"]] == [created["id"]]
@@ -331,6 +353,7 @@ async def test_the_invitation_lifetime_comes_from_settings(
 
 
 ADMIN_ROUTES = [
+    ("PATCH", "/v1/orgs/{org}", {"name": "Renamed"}),
     ("GET", "/v1/orgs/{org}/members", None),
     ("POST", "/v1/orgs/{org}/members/{user}/role", {"role": "viewer"}),
     ("DELETE", "/v1/orgs/{org}/members/{user}", None),
@@ -345,6 +368,8 @@ async def send(api: Api, uid: str, method: str, path: str, body: Any) -> httpx.R
         return await api.get(uid, path)
     if method == "DELETE":
         return await api.delete(uid, path)
+    if method == "PATCH":
+        return await patch(api, uid, path, body)
     return await api.post(uid, path, body)
 
 
@@ -377,6 +402,273 @@ async def test_engineers_and_viewers_get_403_and_non_members_404_on_every_admin_
     unknown = await send(invite_only_api, "olivia", method, path.replace(org, RANDOM), body)
     assert unknown.status_code == 404
     assert (await count(sessionmaker, OrgMember), await count(sessionmaker, Invitation)) == before
+
+
+# --------------------------------------------------------------------------- the firm itself
+
+
+async def test_a_verified_user_creates_a_firm_and_owns_it(
+    invite_only_api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    api = invite_only_api
+    key = str(uuid.uuid4())
+
+    created = await api.post("nina", "/v1/orgs", {"name": "  Harbor Cost Seg "}, key=key)
+
+    assert created.status_code == 201, created.text
+    firm_out = created.json()
+    assert set(firm_out) == {"id", "name", "created_at", "role"}
+    assert (firm_out["name"], firm_out["role"]) == ("Harbor Cost Seg", "owner")
+    assert created.headers["location"] == f"/v1/orgs/{firm_out['id']}"
+    me = (await api.get("nina", "/v1/me")).json()
+    assert me["memberships"] == [
+        {"org_id": firm_out["id"], "org_name": "Harbor Cost Seg", "role": "owner"}
+    ]
+    # The owner can do everything an owner does: see the members, invite, create studies.
+    members = (await api.get("nina", f"/v1/orgs/{firm_out['id']}/members")).json()["items"]
+    assert [(m["email"], m["role"]) for m in members] == [("nina@example.test", "owner")]
+    await invite(api, "nina", firm_out["id"], "drew@example.test", "engineer")
+    study = await api.create_study("nina")
+    assert study["org_id"] == firm_out["id"]
+    # Replaying the create with its key answers the same firm; no second firm appears.
+    replayed = await api.post("nina", "/v1/orgs", {"name": "  Harbor Cost Seg "}, key=key)
+    assert replayed.status_code == 201 and replayed.json() == firm_out
+    assert replayed.headers[REPLAYED_HEADER] == "true"
+    assert await count(sessionmaker, Org) == 1
+
+
+async def test_creating_a_firm_needs_a_verified_email(
+    invite_only_api: Api, verifier: FakeVerifier, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    verifier.identities["nina"] = Principal(uid="nina", email="nina@example.test")
+    verifier.identities["anon"] = Principal(uid="anon", email=None, email_verified=True)
+
+    for uid in ("nina", "anon"):
+        response = await invite_only_api.post(uid, "/v1/orgs", {"name": "Harbor"})
+        assert response.status_code == 403, response.text
+        assert problem_type(response) == "email-unverified"
+        assert response.json()["code"] == "BASIS-FIRM-003"
+    assert await count(sessionmaker, Org) == 0 and await count(sessionmaker, OrgMember) == 0
+
+
+async def test_a_user_may_own_several_firms(invite_only_api: Api) -> None:
+    api = invite_only_api
+    first = (await api.post("nina", "/v1/orgs", {"name": "Second"})).json()
+    second = (await api.post("nina", "/v1/orgs", {"name": "First"})).json()
+
+    me = (await api.get("nina", "/v1/me")).json()
+    assert [(m["org_name"], m["role"]) for m in me["memberships"]] == [
+        ("First", "owner"),
+        ("Second", "owner"),
+    ]
+    # With two firms a study needs its firm named, as for any member of several.
+    ambiguous = await api.post("nina", "/v1/studies", {"property_name": "12 Main"})
+    assert ambiguous.status_code == 422 and problem_type(ambiguous) == "org-required"
+    study = await api.create_study("nina", org_id=second["id"])
+    assert study["org_id"] == second["id"] != first["id"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"name": ""},
+        {"name": "   "},
+        {"name": "x" * 201},
+        {"name": "two\nlines"},
+        {"name": "a\x00b"},
+        {"name": 12},
+        {"name": "ok", "unexpected": True},
+    ],
+)
+async def test_invalid_firm_names_are_422(
+    invite_only_api: Api, seed: Seed, body: Any, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    org = await firm(seed)
+    created = await invite_only_api.post("nina", "/v1/orgs", body)
+    renamed = await patch(invite_only_api, "olivia", f"/v1/orgs/{org}", body)
+    assert created.status_code == 422 and renamed.status_code == 422, body
+    assert created.headers["content-type"] == PROBLEM_JSON and created.json()["errors"]
+    assert await count(sessionmaker, Org) == 1
+    assert (await invite_only_api.get("olivia", "/v1/me")).json()["memberships"][0][
+        "org_name"
+    ] == "Basis"
+
+
+async def test_an_owner_renames_the_firm(invite_only_api: Api, seed: Seed) -> None:
+    api = invite_only_api
+    org = await firm(seed)
+    sent = await invite(api, "olivia", org, "drew@example.test", "viewer")
+
+    renamed = await patch(api, "olivia", f"/v1/orgs/{org}", {"name": " Basis Engineering "})
+
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json() == {
+        "id": org,
+        "name": "Basis Engineering",
+        "created_at": renamed.json()["created_at"],
+        "role": "owner",
+    }
+    me = (await api.get("olivia", "/v1/me")).json()
+    assert me["memberships"][0]["org_name"] == "Basis Engineering"
+    # The invitee and the invitation list see the new name; the invitation is unchanged.
+    pending = (await api.get("drew", "/v1/me")).json()["pending_invitations"]
+    assert [(i["id"], i["org_name"]) for i in pending] == [(sent["id"], "Basis Engineering")]
+    again = await patch(api, "olivia", f"/v1/orgs/{org}", {"name": "Basis Engineering"})
+    assert again.status_code == 200 and again.json() == renamed.json()
+
+
+async def firm_activity(api: Api, uid: str, org: str) -> list[tuple[str, str, Any, Any]]:
+    """``(event_type, actor_type, before, after)`` of the firm's history, oldest first."""
+    response = await api.get(uid, f"/v1/orgs/{org}/activity")
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    return [(i["event_type"], i["actor_type"], i["before"], i["after"]) for i in reversed(items)]
+
+
+async def test_creating_and_renaming_a_firm_are_on_its_history(invite_only_api: Api) -> None:
+    api = invite_only_api
+    created = (await api.post("nina", "/v1/orgs", {"name": "Harbor"})).json()
+    nina = (await api.get("nina", "/v1/me")).json()["user"]["id"]
+    org = created["id"]
+
+    assert await patch(api, "nina", f"/v1/orgs/{org}", {"name": "Harbor"}) is not None
+    renamed = await patch(api, "nina", f"/v1/orgs/{org}", {"name": "Harbor Cost Seg"})
+    assert renamed.status_code == 200
+
+    events = await firm_activity(api, "nina", org)
+    assert events == [
+        ("org.created", "engineer", None, {"name": "Harbor"}),
+        # renaming to the current name recorded nothing
+        ("org.renamed", "engineer", {"name": "Harbor"}, {"name": "Harbor Cost Seg"}),
+    ]
+    [first] = [
+        i
+        for i in (await api.get("nina", f"/v1/orgs/{org}/activity")).json()["items"]
+        if i["event_type"] == "org.created"
+    ]
+    assert (first["actor_id"], first["subject_user_id"], first["entity_id"]) == (nina, nina, org)
+
+
+# --------------------------------------------------------------------------- the email
+
+
+class RecordingSender:
+    provider = "recording"
+
+    def __init__(self) -> None:
+        self.fail: BaseException | None = None
+        self.sent: list[EmailMessage] = []
+
+    async def send(self, message: EmailMessage) -> SendResult:
+        if self.fail is not None:
+            raise self.fail
+        self.sent.append(message)
+        return SendResult(self.provider, f"<{message.idempotency_key}@recording>")
+
+
+async def outbox_payloads(sm: async_sessionmaker[AsyncSession]) -> list[dict[str, Any]]:
+    async with sm() as session:
+        rows = await session.scalars(select(OutboxMessage).order_by(OutboxMessage.created_at))
+        return [dict(row.payload) for row in rows]
+
+
+async def test_an_invitation_enqueues_its_email_and_a_refused_one_does_not(
+    invite_only_api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    org = await firm(seed)
+    await join(invite_only_api, "olivia", org, "erin", "viewer")
+    before = len(await outbox_payloads(sessionmaker))
+
+    sent = await invite(invite_only_api, "olivia", org, "Drew@example.test", "engineer")
+    duplicate = await invite_only_api.post(
+        "olivia", f"/v1/orgs/{org}/invitations", {"email": "drew@example.test", "role": "owner"}
+    )
+    member = await invite_only_api.post(
+        "olivia", f"/v1/orgs/{org}/invitations", {"email": "erin@example.test", "role": "owner"}
+    )
+
+    assert (duplicate.status_code, member.status_code) == (409, 409)
+    payloads = (await outbox_payloads(sessionmaker))[before:]
+    # Erin's own invitation (join) and Drew's: one message per invitation created, none for
+    # the two refusals.
+    assert [p for p in payloads if p.get("invitation_id") == sent["id"]] == [
+        {
+            "type": "invitation",
+            "invitation_id": sent["id"],
+            "org_id": org,
+            "email": "drew@example.test",
+        }
+    ]
+    assert len(payloads) == 1
+
+
+async def test_the_invitation_list_shows_the_emails_delivery(
+    invite_only_api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    api = invite_only_api
+    org = await firm(seed)
+    sender = RecordingSender()
+    relay = Relay(
+        sessionmaker,
+        RecordingGateway(),  # type: ignore[arg-type]
+        email_sender=sender,
+        app_url="https://app.example.test",
+    )
+
+    sent = await invite(api, "olivia", org, "drew@example.test", "engineer")
+    assert (await relay.run_once()).delivered == 1
+    sender.fail = EmailSendError("SMTPConnectError: 421 busy")
+    failed = await invite(api, "olivia", org, "ray@example.test", "viewer")
+    assert (await relay.run_once()).retried == 1
+
+    listed = (await api.get("olivia", f"/v1/orgs/{org}/invitations")).json()["items"]
+    by_id = {i["id"]: i for i in listed}
+    assert by_id[sent["id"]]["delivery"] == "sent"
+    assert by_id[sent["id"]]["emailed_at"] is not None
+    assert by_id[sent["id"]]["email_error"] is None
+    assert by_id[failed["id"]]["delivery"] == "failed"
+    assert by_id[failed["id"]]["emailed_at"] is None
+    assert by_id[failed["id"]]["email_error"] == "EmailSendError: SMTPConnectError: 421 busy"
+    [drew] = sender.sent
+    assert drew.to == "drew@example.test"
+    assert drew.subject == "Olivia invited you to Basis on Basis"
+    assert "Olivia (olivia@example.test) invited you to join Basis on Basis" in drew.text
+    assert "https://app.example.test" in drew.text
+    # Delivery is the owner's concern: the invitee sees the invitation in /me either way,
+    # without the delivery fields.
+    [pending] = (await api.get("ray", "/v1/me")).json()["pending_invitations"]
+    assert pending["id"] == failed["id"] and "email_error" not in pending
+
+
+# --------------------------------------------------------------------------- names
+
+
+async def test_studies_name_their_creator(
+    invite_only_api: Api, seed: Seed, verifier: FakeVerifier
+) -> None:
+    api = invite_only_api
+    org = await firm(seed)
+    await join(api, "olivia", org, "erin", "engineer")
+    verifier.identities["noname"] = Principal(
+        uid="noname", email="noname@example.test", email_verified=True
+    )
+    await join(api, "olivia", org, "noname", "engineer")
+    erins = await api.create_study("erin", "Erin's")
+    anonymous = await api.create_study("noname", "No name")
+
+    assert (erins["created_by_name"], erins["created_by_email"]) == ("Erin", "erin@example.test")
+    assert (anonymous["created_by_name"], anonymous["created_by_email"]) == (
+        None,
+        "noname@example.test",
+    )
+    listed = (await api.get("olivia", "/v1/studies")).json()["items"]
+    assert {(s["property_name"], s["created_by_name"], s["created_by_email"]) for s in listed} == {
+        ("Erin's", "Erin", "erin@example.test"),
+        ("No name", None, "noname@example.test"),
+    }
+    one = (await api.get("olivia", f"/v1/studies/{erins['id']}")).json()
+    assert (one["created_by"], one["created_by_name"]) == (erins["created_by"], "Erin")
 
 
 # --------------------------------------------------------------------------- accepting

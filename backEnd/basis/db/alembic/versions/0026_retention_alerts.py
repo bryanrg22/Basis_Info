@@ -1,7 +1,7 @@
 """Client-data retention and operator alerts (docs/api/RETENTION_AND_ALERTS.md).
 
-Revision ID: 0025
-Revises: 0021 (locally; set to the merged head, 0024, when this lands after 0022-0024)
+Revision ID: 0026
+Revises: 0025 (invitation email)
 Create Date: 2026-11-01
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
@@ -22,8 +22,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0025"
-down_revision: str | Sequence[str] | None = "0021"
+revision: str = "0026"
+down_revision: str | Sequence[str] | None = "0025"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

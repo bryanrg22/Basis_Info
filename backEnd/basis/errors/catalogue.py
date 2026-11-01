@@ -515,6 +515,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "no",
         problem="not-operator",
     ),
+    _e(
+        E.API_RATE_LIMIT_STORE_UNAVAILABLE,
+        "error",
+        "any request",
+        "basis.api.ratelimit_pg",
+        "The Postgres-backed rate limiter (`RATE_LIMIT_STORE=postgres`, the default in "
+        "staging and prod) could not reach the database; the request was counted against "
+        "a per-process budget instead, so the published limit holds per API instance until "
+        "the database is back.",
+        "A warning log line, at most one per minute per process, with `fallbacks` (how many "
+        "requests used the per-process budget); requests are not refused for it.",
+        "Restore the database (the same cause makes every `/v1` route answer 503 "
+        "`BASIS-API-0xx`); nothing to reset, the shared log resumes on the next request.",
+        "yes",
+    ),
     # ------------------------------------------------------------------ FIRM
     _e(
         E.FIRM_NO_FIRM,
@@ -541,9 +556,10 @@ ENTRIES: Final[tuple[Entry, ...]] = (
     _e(
         E.FIRM_EMAIL_UNVERIFIED,
         "refusal",
-        "accept or decline an invitation",
-        "basis.db.repositories.invitation",
-        "The token does not assert a verified email, which an invitation is bound to.",
+        "accept or decline an invitation; `POST /orgs`",
+        "basis.db.repositories.invitation, basis.api.routes.orgs",
+        "The token does not assert a verified email, which an invitation is bound to and a "
+        "firm's first owner must have.",
         "403 `email-unverified`.",
         "Verify the email with the identity provider, sign in again.",
         "no",
@@ -742,6 +758,19 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         problem="forbidden",
     ),
     # ------------------------------------------------------------------ STUDY
+    _e(
+        E.UPLOAD_ALREADY_CONFIRMED,
+        "refusal",
+        "`POST .../documents/{id}/upload-url`",
+        "basis.api.routes.documents",
+        "A new signed upload URL was asked for a document whose upload is already confirmed; "
+        "its bytes are immutable (they hash to the registered sha256).",
+        "409 `upload-complete`.",
+        "Nothing to resume for this document. To replace the file, register the new bytes as a "
+        "new document.",
+        "no",
+        problem="upload-complete",
+    ),
     _e(
         E.STUDY_INTAKE_REQUIRED,
         "refusal",
@@ -1038,6 +1067,67 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         problem="validation",
     ),
     # ------------------------------------------------------------------ OBJECT
+    _e(
+        E.STUDY_DRAFT_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT`/`DELETE .../drafts/{stage}`",
+        "basis.api.routes.drafts",
+        "The `If-Match` entity tag is not the draft's current version (this user's draft on the "
+        "stage was saved since the client read it, or `If-Match: *` with no draft).",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the draft again (`GET .../drafts/{stage}`), merge, and send the new `ETag` as "
+        "`If-Match` (docs/api/GATE_DRAFTS_AND_RESUME.md).",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.STUDY_DRAFT_STALE,
+        "refusal",
+        "`PUT .../drafts/{stage}`",
+        "basis.api.routes.drafts",
+        "The draft names a `revision` that is not the study's current one, or the stage has "
+        "already been decided at that revision: its corrections could never be submitted.",
+        "409 `draft-stale`; `detail` names the study's current revision.",
+        "Reload the gate at the current revision and draft against it; discard the stale draft "
+        "(`DELETE`) if it is still stored.",
+        "no",
+        problem="draft-stale",
+    ),
+    _e(
+        E.STUDY_DRAFT_NOT_FOUND,
+        "refusal",
+        "`DELETE .../drafts/{stage}`",
+        "basis.api.routes.drafts",
+        "The caller has no draft on that stage of the study (never saved, already submitted "
+        "with a decision, or already discarded).",
+        "404 `not-found`.",
+        "Nothing to discard; `GET .../drafts/{stage}` lists what exists.",
+        "no",
+        problem="not-found",
+    ),
+    _e(
+        E.STUDY_RESTART_RUNNING,
+        "refusal",
+        "`POST .../restart`",
+        "basis.api.routes.workflow",
+        "The study's execution is still running (or waiting for a retry): there is nothing to "
+        "restart from.",
+        "409 `workflow-running`.",
+        "Use `POST .../retry` for a failed stage, or `POST .../cancel` first, then restart.",
+        "no",
+        problem="workflow-running",
+    ),
+    _e(
+        E.STUDY_RESTART_COMPLETED,
+        "refusal",
+        "`POST .../restart`",
+        "basis.api.routes.workflow",
+        "The study's execution completed: its outputs and report exist and are not redone.",
+        "409 `study-completed`.",
+        "Reject a review stage to rework a revision, or create a new study.",
+        "no",
+        problem="study-completed",
+    ),
     _e(
         E.OBJECT_LOCALIZATION_PENDING,
         "refusal",
@@ -3281,6 +3371,20 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Relay log line `alert (no ALERT_EMAIL_TO)` with the subject and text.",
         "Set `ALERT_EMAIL_TO` on the relay so alerts reach someone.",
         "no",
+    ),
+    _e(
+        E.INF_EMAIL_FAILED,
+        "error",
+        "the outbox relay, sending an invitation email",
+        "basis.relay.delivery",
+        "The email sender (`EMAIL_PROVIDER`) failed or refused the invitation email: SMTP "
+        "unreachable, authentication refused, the recipient rejected (docs/api/FIRMS.md).",
+        "Relay log `invitation email failed` with `error_code`; the invitation's `email_error` "
+        "and `delivery: failed` in `GET /v1/orgs/{org_id}/invitations`; the outbox row retried "
+        "with backoff, `dead` after `RELAY_MAX_ATTEMPTS` or at once for a rejected recipient.",
+        "Fix the sender configuration or the address; revoke and invite again (a new "
+        "invitation is a new email). The invitee can still accept in the app meanwhile.",
+        "yes",
     ),
 )
 

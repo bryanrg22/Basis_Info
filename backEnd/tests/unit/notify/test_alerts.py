@@ -145,12 +145,12 @@ async def test_logging_sender_sends_nothing_and_names_the_message_by_its_key(
 ) -> None:
     sender = LoggingEmailSender("Basis <alerts@basis.test>")
     message = EmailMessage(to="a@x.test", subject="s", text="t", idempotency_key="key-1")
-    with caplog.at_level("INFO", logger="basis.notify.sender"):
+    with caplog.at_level("INFO", logger="basis.email.sender"):
         result = await sender.send(message)
 
     assert result.provider == "log"
     assert result.message_id == "<key-1@basis.test>"
-    assert sender.sent == [message]
+    assert list(sender.sent) == [message]
     assert any("not sent" in record.message for record in caplog.records)
 
 

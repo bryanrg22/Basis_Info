@@ -43,10 +43,22 @@ Schemathesis setup, and why:
   method to its input, the use to the 80 % test), which JSON Schema cannot express, so a
   generated body is (correctly) 422. The rules are tested in ``test_studies.py`` and
   ``tests/unit/domain/test_intake.py``.
+* ``PUT .../drafts/{stage}`` (gate drafts, docs/api/GATE_DRAFTS_AND_RESUME.md) gets the
+  intake's treatment: ``If-Match`` dropped (a generated tag is rightly 412) and
+  ``corrections`` emptied (a correction must name a row of the revision, as on the decision);
+  the generated ``revision`` stays, since a wrong one is the documented 409 ``draft-stale``.
+  The rules are tested in ``test_drafts.py``.
 * ``If-Match`` is dropped from ``PUT .../report-answers`` and ``PUT /orgs/{id}/profile``,
   ``logo_png`` from the profile and ``prior_depreciation`` from the answers, as on the
   intake: a generated tag is rightly 412, a base64 string that is not a PNG or a money
   string that is not a number rightly 422 (``test_report_signing.py``).
+* The negative-data check is off for the two ``/activity`` operations: their repeatable
+  ``event_type`` is negated into a number that a query string carries as a valid string,
+  which the API rightly accepts (seen once in 64 runs; ``test_activity.py`` covers the
+  parameters' rules).
+* 413 counts as rejecting invalid data: a generated negative body can exceed the API's
+  1 MiB limit (the profile's ``logo_png`` is any string in that mode), and the size
+  middleware refuses it before validation (``test_errors.py`` covers the limit itself).
 * The engine uses ``NullPool``: Schemathesis's ASGI client runs the app on its own event
   loop, and pooled asyncpg connections cannot move between loops.
 
@@ -73,6 +85,7 @@ from dbtest_support import truncate_all
 from fastapi import FastAPI
 from hypothesis import HealthCheck
 from hypothesis import settings as hypothesis_settings
+from schemathesis.config._operations import OperationConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 from workflowtest_support import FakeWorkflowService
@@ -213,6 +226,26 @@ def contract_schema(contract_app: FastAPI) -> Any:
             case.headers = {**(case.headers or {}), "Authorization": f"Bearer {data}"}
 
     schema.auth()(BearerToken)
+    # A negative body may be generated far past the API's 1 MiB limit (a `logo_png` of
+    # arbitrary text): the 413 the body-size middleware answers is a rejection too, which
+    # Schemathesis's default list (400, 401, 403, 404, 405, 406, 409, 415, 422, 428, 429, 5xx)
+    # does not include.
+    rejection = schema.config.checks.negative_data_rejection
+    rejection.expected_statuses = [*rejection.expected_statuses, "413"]
+    # The activity routes take `event_type` as a repeatable string parameter (`list[str]`).
+    # Schemathesis's negative data turns the array into a number, which a query string
+    # cannot carry: it arrives as the string "1.0e-107", valid under the item schema, and the
+    # API rightly answers 200. The guard for that case does not fire for array parameters,
+    # so the negative-data check is off for these two operations; their parameter rules
+    # (`since`/`until` as RFC 3339, `limit`, the cursor) are tested in test_activity.py.
+    schema.config.operations.operations.append(
+        OperationConfig.from_dict(
+            {
+                "include-path-regex": r"/activity$",
+                "checks": {"negative_data_rejection": {"enabled": False}},
+            }
+        )
+    )
     return schema
 
 
@@ -262,6 +295,11 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         # 412 (tests/api/test_studies.py covers the precondition).
         if case.headers:
             case.headers.pop("If-Match", None)
+    if case.path.endswith("/drafts/{stage}") and case.method.upper() in ("PUT", "DELETE"):
+        # The draft's If-Match as on the intake (tests/api/test_drafts.py covers it); its
+        # corrections name rows of the revision, as a decision's do.
+        if case.headers:
+            case.headers.pop("If-Match", None)
     if case.method.upper() == "PUT" and (
         case.path.endswith("/report-answers") or case.path.endswith("/profile")
     ):
@@ -288,8 +326,10 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
 @pytest.mark.integration
 @pytest.mark.slow
 # One test for every operation (40 examples each): its run time grows with the API. With
-# the v0.9 routes (retry, fields, rooms, assets) it no longer fits the suite's 120 s.
-@pytest.mark.timeout(300)
+# the v0.9 routes (retry, fields, rooms, assets) it no longer fits the suite's 120 s; with
+# the gate drafts, upload-url and restart operations (59 in all) it takes 254 s alone and
+# timed out at 300 s on a loaded machine (2026-11-01).
+@pytest.mark.timeout(600)
 @LIVE_SCHEMA.parametrize()
 @hypothesis_settings(
     max_examples=40,
