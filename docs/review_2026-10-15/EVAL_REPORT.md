@@ -8102,3 +8102,92 @@ been run live. The frontend changes (reading the draft on open, autosaving on ed
 **Open.** Whether a pending registration should be removable (not provided: a pending row
 costs nothing and keeps the duplicate check honest); whether `others` should carry the drafts'
 content for a reviewer role (not now: a colleague's half-finished work is theirs to send).
+
+## 59. Reopening a completed study, the revision history, restoring a revision (2026-11-01)
+
+**Question.** Once a study is `completed` nothing could take it back to a gate. Bryan wants a
+Google-Docs-like history: reopen a completed study at a chosen step (the later steps recompute,
+with a warning), see every version with who, when and what changed, and restore an older
+version as a new one. The design is docs/api/REVISIONS.md; this section records what was
+decided, what was measured and what is not verified.
+
+### 59.1 The standard
+
+Versioned document systems append, they never undo: Git's `revert` is a new commit, a Wikipedia
+undo is a new revision, Google Docs' and Notion's "restore this version" make the chosen
+version current and keep the later ones in the history. Temporal cannot continue a closed
+execution (no signal or update reaches it), and among its id-reuse policies only
+`ALLOW_DUPLICATE` admits a new execution under an id whose last one completed
+(`ALLOW_DUPLICATE_FAILED_ONLY`, which `restart` uses, refuses it); a running execution is the
+conflict policy's business. So reopen and restore each add a revision and start a new execution
+under the study's one workflow id.
+
+### 59.2 Decisions a reviewer may ask about
+
+* **What a reopen keeps** is exactly what the chosen gate shows (REVISIONS.md section 2):
+  through the rooms review the extraction, rooms, assignments, per-photo components and
+  objects; the components review adds the reconciled inventories; the assets review adds the
+  assets with takeoffs, costs and citations. Everything after the gate recomputes. The room
+  inventories are left out below the components review because they are the room step's
+  output, rebuilt from the grouping the engineer approves (what a rooms rejection does); the
+  assets are copied, not recomputed, at the assets review because the gate must show what was
+  approved (recomputing could reprice with a newer index and spend on the classifier).
+* **A new execution, not a continued one**, with the gate and the copied revision in the
+  input (`StudyWorkflowInput.resume`). The lifecycle was split into gate segments
+  (`_appraisal_gate`, `_rooms_gates`, `_components_review_gate`, `_assets_gate_and_export`)
+  with the command order unchanged: the five recorded histories replay, so no patch marker.
+  The copy is the workflow's first activity (`carry_revision`, one transaction, idempotent,
+  heartbeating), not the API's transaction, for the same reason `apply_corrections` is one.
+* **Concurrency.** The route describes the execution before writing (running: 409), moves the
+  row under its lock, and starts with conflict `FAIL`: Temporal admits one of two concurrent
+  starts. A reset whose start did not happen (503, or in flight in the other request) is
+  reused by a repeat of the same request, found from the timeline (the last resume event at
+  the current revision with no `run.started` after it) exactly as `restart` does.
+* **The history and the diff read what exists** (`study_events`, `reviews`, `corrections`,
+  `report_signatures`, the rows' `carried_from`): no new table, no migration. The diff pairs
+  rows by their **lineage root** rather than by "the ancestor at revision a": for successive
+  revisions the two are the same; after a restore (whose rows descend from the restored
+  revision and skip the ones between) only the root pairs a row with its counterpart, so the
+  diff 3 → 4 of a revision 4 restored from 1 shows revision 3's changes undone. The first
+  version used the ancestor and the lifecycle round trip caught it.
+* **Restore opens at the last gate the revision reached** (its `stage.entered` rows; its rows
+  when it predates the timeline), copies through that gate, and refuses the current revision
+  (`revision-current`) and one that never reached a gate (`revision-not-restorable`). A reopen
+  and a restore both need a `completed` study: a study at a gate is changed by rejecting there.
+* **Not carried, on purpose:** nothing is re-analyzed, re-localized or re-voted by the copy;
+  a photo the engineer wants re-analyzed is flagged at the components review as always.
+* Codes `BASIS-STUDY-030..034`; `workflow-running` is now shared with the restart's refusal
+  (each raise passes its code; the restart's is the generic). No migration (#114's `0024` is
+  the latest; the brief's `0027` is not needed).
+
+### 59.3 Verified
+
+| What | Where | Result |
+|---|---|---|
+| Reopen at each of the four gates on the Temporal test server: the second execution's activity sequence, the gate open on revision 2 with the copy (assets only at the assets review), completion at revision 2 with its own export, revision 1's export bytes, signature and rows untouched, two runs under one id, the timeline events | `tests/lifecycle/test_reopen.py` (4 cases) | pass |
+| Restore round trip: 1 → reopen (2) → rename rejection (3) → restore 1 (4): revision 4 has revision 1's rooms, diff 1 → 4 empty, diff 3 → 4 the rename undone, the history's four origins, three distinct exports | same (1) | pass |
+| Two starts at once over the completed execution: Temporal admits exactly one | same (1) | pass |
+| The recorded histories still replay after the lifecycle refactor | `tests/lifecycle/test_versioning.py` | pass |
+| `carry_revision` per gate on rows the real activities wrote (inventories, assets, localizations, objects), idempotent, revision 1 untouched | `tests/unit/activities/test_carry_revision.py` (4) | pass |
+| Every refusal, the dry run, the concurrent and racing reopens, the reused reset, restore, the history (with and without a timeline), the diff with its pagination and reverse | `tests/api/test_revisions.py` (27) | pass |
+| Tenancy walk and route inventory with the four routes; the OpenAPI contract fuzz | `test_tenancy.py`, `test_health.py`, `test_openapi_contract.py` | pass |
+
+Two defects the tests found before the PR: the activity copied the localized objects twice
+(`_carry_rooms` already carries them; the lifecycle run hit `pk_photo_localizations`), and the
+resumed workflow pre-set its stage to the gate, so the status query said `awaiting` before the
+gate's transition had run (a client polling for it would have seen the gate before the row was
+open); the initial stage is `uploading` as for every execution.
+
+### 59.4 Not verified
+
+A reopen through a deployed API and worker (the API tests use the fake Temporal, the lifecycle
+tests bypass the API; the two halves are the same code as `restart`'s, whose live path is also
+unverified). The room step on a reopened study with `ROOM_RECONCILE` on (the suite pins it
+off, so the inventories' rebuild after a rooms-review reopen is exercised only by
+`test_carry_revision.py`'s "left behind" case, not by a live room call). The frontend (the
+warning from `dry_run`, the history view, the diff view) is Bryan's.
+
+**Open.** Extraction fields in the diff (the audit and `provenance` cover them); a reopen of a
+study whose execution predates the components gate runs the current flow and the API keeps its
+manual edits at the gate the new execution has (documented, not tested); whether a restore
+should be allowed while the study waits at a gate (it would have to cancel the execution).
