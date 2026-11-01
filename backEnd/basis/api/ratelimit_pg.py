@@ -4,7 +4,7 @@ every API process.
 :class:`~basis.api.ratelimit.InMemoryRateLimiter` counts per process, so a deployment with
 ``n`` instances admits ``n`` times the published limit (Cloud Run scales the API out under
 load, exactly when a limit matters). This limiter keeps the same sliding-window log in the
-``rate_limit_hits`` table (migration ``0022``), so the decision is the same whichever
+``rate_limit_hits`` table (migration ``0023``), so the decision is the same whichever
 instance answers, and it is the default in ``staging`` and ``prod`` (``RATE_LIMIT_STORE``,
 :attr:`basis.config.Settings.rate_limit_backend`).
 

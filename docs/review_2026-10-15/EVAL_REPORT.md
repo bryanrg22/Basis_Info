@@ -7781,7 +7781,44 @@ answer, the provenance carries `origin`, and the rationale names the kind of row
 `tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
 copy.
 
-## 55. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
+## 55. Per-user activity, the study library on the server, the audit completed, the firm's own history (2026-11-01)
+
+**Question.** Can an engineer see what they did, can the library search, filter and sort on the server
+instead of in the browser, does the audit list every engineer action, and is anything that happens to a
+firm (an invitation, a role, a removal) recorded anywhere?
+
+**What was built** (migration `0022`; docs/api/STUDY_LIBRARY.md, docs/api/TIMELINE_AND_AUDIT.md):
+
+| Piece | Route | Design decision |
+|---|---|---|
+| Per-user activity | `GET /v1/me/activity` | The caller's own `study_events` rows across the studies of their firms, with the study's id and property name, newest first by `seq`. The cap is two things: 200 rows a page, and a 90-day window when `since` is absent; the response echoes the window it applied so a client pins it on the next page. `since` after `until` is an empty page, not an error. Served by a new `(actor_id, seq DESC)` index. |
+| Library | `GET /v1/studies` | `q` (case-insensitive substring, LIKE wildcards literal), `status` (repeatable), `created_by`, `include_archived`, `sort` (`updated_desc` default, `created_desc`, `name_asc`), `total`. The keyset cursor encodes the sort it was issued under and the row's key, so a cursor replayed under another sort is 422 rather than a wrong page. The default order changed from newest to most recently updated, which is what the web app shows by default. `POST .../unarchive` (owner) restores the status the stage implies, `failed` while a failure is recorded. |
+| Audit | `GET /v1/studies/{id}/audit` | Eight kinds added from the events the routes already write (intake and report answers set, upload confirmed, started, retry, cancel, archived, unarchived, signed). Paginated on `(at, seq, kind, entity_id)`: assembled from four tables, sorted, cut; `seq` keeps several events of one request in order. |
+| Firm history | `GET /v1/orgs/{org_id}/activity` (owner) | `org_events`, append-only like `study_events`, written by the repositories so the operator CLI and the API record alike and a refused request leaves nothing: `org.created`, `invitation.created/accepted/declined/revoked` (with why), `member.role_changed`, `member.removed` (with the invitations it revoked), `profile.set` (the fields changed, never the logo). |
+
+**Not SQL, on purpose.** The audit page is cut in memory after a four-table assembly. One study's
+engineer actions are bounded by what engineers did to it (tens to low hundreds), not by the pipeline's
+output; a union of four row shapes would buy nothing at that size. `GET /v1/me/activity` and the firm
+history are plain keyset queries.
+
+**Verified.** 18 library tests (pages under each of the three sorts over colliding names and shuffled
+update times have no gap or repeat and equal the one listing cut; a row inserted between pages is neither
+skipped nor repeated; `%`, `_` and `\` in `q` are literal; archived hidden unless asked; unarchive restores
+each of five statuses and records one event under three concurrent requests), 16 activity tests (own
+events only, a left firm hidden, the 90-day default against events written 80 and 100 days ago, every
+firm action through its real route with who did what, the CLI's rows as `system`, re-inviting after
+expiry, `org_events` refusing UPDATE and DELETE, the last-owner refusal leaving no event), the audit's
+eleven items in order with pages of four, migration `0022` up, constraints, down to the `0021` snapshot
+and up again, `alembic check` clean, the OpenAPI document regenerated and the contract test (Schemathesis
+over every operation, the three new ones included) green, every gate green.
+
+**Not verified.** No live run through the stack: the routes are exercised against a real PostgreSQL in
+the tests, not against the staging deployment; the web app is unchanged and still filters in the
+browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeCompare` and `lower()` may
+order accented names differently. The audit's in-memory page is the right size for a study's engineer
+actions; a study with thousands of corrections would want the union query.
+
+## 56. Pre-launch security review of the backend: findings, fixes, what is verified (2026-11-01)
 
 **Question.** Before an outside firm receives a link: can a caller reach anything without a token, see
 or change another firm's data, exhaust the service, or read something the server should keep (a stack,
@@ -7795,13 +7832,13 @@ schemas, `basis/config.py`, `basis/obs/logging.py`, the repositories' visibility
 Dockerfile, `docker-compose*.yml`, `infra/staging/run.tf`, `.env.example`, `.gitleaksignore`,
 `.pre-commit-config.yaml`, `tooling/check_no_client_data.py` and the CI workflow.
 
-### 55.1 Findings
+### 56.1 Findings
 
 | # | Severity | Finding | Outcome |
 |---|---|---|---|
-| 1 | medium | Rate limits were counted per API process only. `basis/api/ratelimit.py` promised a Postgres-backed limiter ("S1-C") that did not exist anywhere in the tree; `create_app` always installed `InMemoryRateLimiter`. Cloud Run runs up to `api_max_instances` processes, so a caller's budget was the published limit times the instance count, and a scale-out under a flood raised the budget exactly when it mattered (API4). | **Fixed** (55.2) |
-| 2 | low | No `Cache-Control` on `/v1` JSON responses and problems, and `X-Content-Type-Options` only on the four file routes. Every `/v1` answer is private to the token's bearer; RFC 9111 lets a private cache store a response to an `Authorization` request unless told otherwise (ASVS 8.3.1, 14.4.4). | **Fixed** (55.3) |
-| 3 | low | `Content-Disposition` on `GET .../documents/{id}/pdf`: the report PDF's name is read from inside the uploaded UAD 3.6 ZIP, and the ASCII fallback kept a backslash or a control character and turned a quote into `'`; a CR or LF would have ended the header. A registered filename could never carry them (`FILENAME_PATTERN`); a ZIP entry can. No test covered a hostile name. | **Fixed** (55.4) |
+| 1 | medium | Rate limits were counted per API process only. `basis/api/ratelimit.py` promised a Postgres-backed limiter ("S1-C") that did not exist anywhere in the tree; `create_app` always installed `InMemoryRateLimiter`. Cloud Run runs up to `api_max_instances` processes, so a caller's budget was the published limit times the instance count, and a scale-out under a flood raised the budget exactly when it mattered (API4). | **Fixed** (56.2) |
+| 2 | low | No `Cache-Control` on `/v1` JSON responses and problems, and `X-Content-Type-Options` only on the four file routes. Every `/v1` answer is private to the token's bearer; RFC 9111 lets a private cache store a response to an `Authorization` request unless told otherwise (ASVS 8.3.1, 14.4.4). | **Fixed** (56.3) |
+| 3 | low | `Content-Disposition` on `GET .../documents/{id}/pdf`: the report PDF's name is read from inside the uploaded UAD 3.6 ZIP, and the ASCII fallback kept a backslash or a control character and turned a quote into `'`; a CR or LF would have ended the header. A registered filename could never carry them (`FILENAME_PATTERN`); a ZIP entry can. No test covered a hostile name. | **Fixed** (56.4) |
 | 4 | medium | `POST /v1/cost-indices` lets the owner of **any** firm append a value to the deployment-wide cost index store; the value then prices every firm's studies (the route's own description says so). With one firm this was a convenience; with a second firm it is one tenant changing another's pricing (API1/API5 by design). | **Deferred**: a product decision (operator-only through `OPS_OPERATOR_UIDS`, or a per-firm store); decide before the second firm is onboarded. |
 | 5 | low | `check_revoked` is on in `prod` only (S1_SPEC 4): in `staging` a disabled or deleted Firebase user keeps access until the ID token expires (at most one hour). | Deferred: by specification, saves a Firebase read per request in staging. |
 | 6 | low | `mask_reason` on a photo object whose SAM 3 box prompt failed carries the provider's URL path (query, hence the token, stripped) and up to 200 characters of the provider's error body, shown to the study's own engineers (`basis/api/routes/objects.py`, `tests/api/test_objects.py` asserts it). | Deferred: no secret in it, visible only inside the firm, useful to the engineer; change if a provider's error text ever carries account detail. |
@@ -7813,10 +7850,10 @@ Dockerfile, `docker-compose*.yml`, `infra/staging/run.tf`, `.env.example`, `.git
 Nothing high. The two medium findings are the ones to act on before launch: 1 is fixed here, 4 is a
 decision.
 
-### 55.2 Fix 1: one budget per caller across every API process
+### 56.2 Fix 1: one budget per caller across every API process
 
 `basis/api/ratelimit_pg.py`, `PostgresRateLimiter`: the same sliding-window log as the in-memory
-limiter, kept in `rate_limit_hits` (migration `0022`, an `UNLOGGED` table: ephemeral state, no WAL per
+limiter, kept in `rate_limit_hits` (migration `0023`, an `UNLOGGED` table: ephemeral state, no WAL per
 request). Per hit, in one short transaction of its own: `pg_advisory_xact_lock(hashtext(key))`
 serializes the key (so two concurrent requests cannot both read `limit - 1`), `now()` is the database
 clock (instances agree), the key's expired rows are deleted, the rest counted; under the limit a row is
@@ -7837,7 +7874,7 @@ Degraded mode: when the database cannot be reached (connection refused, pool exh
 dropped) the limiter answers from a per-process `InMemoryRateLimiter` and logs one warning per minute
 (`BASIS-API-044`, with `fallbacks`). Failing closed would turn a database outage into a refusal of every
 request, including `GET /v1/ops/health`, which is built to answer while the database is down. A
-`ProgrammingError` (the table missing because `0022` was not applied) is **not** caught: it surfaces as a
+`ProgrammingError` (the table missing because `0023` was not applied) is **not** caught: it surfaces as a
 500 on the first request instead of silently falling back.
 
 Proof: `tests/api/test_rate_limit.py` now runs all five route tests against both stores;
@@ -7847,15 +7884,14 @@ to 40 s ago gives `Retry-After` in (15, 20] and one past the window frees its sl
 `Retry-After` is the oldest counted hit's expiry, not the whole window; the unreachable-database case
 limits per process, counts `fallbacks` and warns once; the lifespan installs and shutdown removes it.
 `tests/unit/config/test_rate_limit_store.py` (11 tests) covers the setting's defaults and refusals.
-`tests/integration/db/test_migrations.py`: head `0022`, `alembic check` clean, `CREATE UNLOGGED TABLE`
+`tests/integration/db/test_migrations.py`: head `0023`, `alembic check` clean, `CREATE UNLOGGED TABLE`
 in the offline SQL.
 
 Not measured: the limiter's cost under load (one lock, one delete, one select and one insert per
 `/v1` request). The load harness of section 31 can re-run against `RATE_LIMIT_STORE=postgres`.
-Migration numbering: three sessions add migrations in parallel; `0022` here is renumbered by whichever
-PR merges later, as before.
+Migration numbering: three sessions add migrations in parallel; it is `0023` here, after #110's `0022`.
 
-### 55.3 Fix 2: response headers
+### 56.3 Fix 2: response headers
 
 `basis/api/headers.py`, `SecurityHeadersMiddleware`, between the request-id middleware and CORS so
 error responses carry it too: `X-Content-Type-Options: nosniff` on every response; `Cache-Control:
@@ -7864,7 +7900,7 @@ and the preview `private, no-cache`); `Strict-Transport-Security: max-age=315360
 in `staging` and `prod` only. Proof: `tests/unit/api/test_security_headers.py` (13 tests: a body, a 401,
 a 404, a 413, an opaque 500, a route's own policy kept, `/health` unmarked, HSTS by environment).
 
-### 55.4 Fix 3: download filenames
+### 56.4 Fix 3: download filenames
 
 `_content_disposition` in `basis/api/routes/documents.py`: the quoted fallback replaces every C0
 control, DEL, `"` and `\` with `_` (non-ASCII stays `?`), an empty name becomes `file`, and the ZIP
@@ -7873,7 +7909,7 @@ unreserved set, so the original name survives there. Proof: `tests/unit/api/test
 (8 cases including `x\r\nX-Injected: 1.pdf`, a backslash, a lone quote, NUL and DEL); the two existing
 header tests in `test_document_content.py` are unchanged.
 
-### 55.5 Verified safe, with the test that proves it
+### 56.5 Verified safe, with the test that proves it
 
 | Area | What holds | Proof |
 |---|---|---|
@@ -7896,9 +7932,9 @@ header tests in `test_document_content.py` are unchanged.
 | Logo and text | `logo_png` at most 512 KB and a PNG by signature; every text field one line, bounded, no control characters | `tests/api/test_report_signing.py`, `tests/unit/domain/test_intake.py` |
 | Pagination | Every list route caps `limit` (`le=MAX_*`) and the cursor's length | `tests/api/test_studies.py`, `test_evidence.py`, `test_outputs.py`, `test_timeline.py`, `test_spend.py`, `test_cost_indices.py` |
 | Secrets in settings | Every `*_key`, `*_token`, `*_secret`, `*_password` field is a `SecretStr`; `database_url` is `repr=False`; no sentinel leaks through `repr`, `str` or `model_dump_json`; validation errors hide input | `tests/unit/config/test_secrets_in_repr.py` (new), `test_settings.py` |
-| Repository hygiene | `.env.example` carries names only (read line by line); `tooling/check_no_client_data.py --ci` passes on the whole tree, the report templates and fixtures included; gitleaks runs on every PR's commits in CI (`secrets-scan`) and `detect-secrets` as a pre-commit hook | run in this review (55.6) |
+| Repository hygiene | `.env.example` carries names only (read line by line); `tooling/check_no_client_data.py --ci` passes on the whole tree, the report templates and fixtures included; gitleaks runs on every PR's commits in CI (`secrets-scan`) and `detect-secrets` as a pre-commit hook | run in this review (56.6) |
 
-### 55.6 Gates
+### 56.6 Gates
 
 From `backEnd/`: `ruff check`, `ruff format --check`, `mypy basis`, the catalogue and OpenAPI
 `--check`, `evals.freeze_rule_fingerprints --check`, `tooling/check_no_client_data.py --ci`, pytest

@@ -1,13 +1,15 @@
-# Timeline, audit trail and provenance
+# Timeline, audit trail, provenance, and the activity views
 
-Three questions about any study, answered from the database without reading a worker log:
+Three questions about any study, answered from the database without reading a worker log,
+and two about people (sections "Your activity" and "Firm activity"):
 
 1. **What happened, when, and how long did each step take?** `GET /v1/studies/{id}/timeline`
    (every recorded event, in order) and `GET /v1/studies/{id}/timeline/steps` (per activity:
    attempts and duration; per stage visit: duration and review wait). The same document is in
    the export as `summary.timeline`.
 2. **What did the engineer do?** `GET /v1/studies/{id}/audit`: every decision, correction,
-   manual object edit and intake change, in order, with before and after.
+   manual object edit, intake and report-answers change, upload, start, retry, cancel,
+   archive, unarchive and signature, in order, with before and after, paginated.
 3. **Who produced this row?** Every row the output routes return (`/fields`, `/rooms` with
    its photos and inventory, `/assets`) and every row of the export carries `provenance`:
    `model`, `engineer_added` or `engineer_modified`, with the correction, the step, the time,
@@ -15,6 +17,11 @@ Three questions about any study, answered from the database without reading a wo
 
 All three are viewer routes. Failures carry their error code (`BASIS-<area>-<nnn>`,
 [docs/ERROR_CODES.md](../ERROR_CODES.md)).
+
+4. **What did I do?** `GET /v1/me/activity`: the caller's own timeline events across every
+   study they can see, newest first, windowed and paginated.
+5. **What happened to the firm?** `GET /v1/orgs/{org_id}/activity` (owner): invitations,
+   members, roles and the report profile, from the append-only `org_events`.
 
 ## The timeline
 
@@ -63,7 +70,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 
 | `event_type` | Actor | When | Carries |
 |---|---|---|---|
-| `study.created`, `study.intake_set`, `study.archived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md) |
+| `study.created`, `study.intake_set`, `study.archived`, `study.unarchived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md); `unarchived`: `after.status` the status it came back to (docs/api/STUDY_LIBRARY.md) |
 | `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256 |
 | `study.started` | engineer | `POST .../start` moved the study to `extracting` | `detail.workflow_id` |
 | `run.started`, `run.ended` | system | the Temporal execution | `detail.outcome` on the end |
@@ -139,7 +146,7 @@ them.
 ## The audit listing
 
 ```
-GET /v1/studies/{id}/audit
+GET /v1/studies/{id}/audit?limit=200&cursor=<next_cursor>
 ```
 
 ```json
@@ -154,8 +161,11 @@ GET /v1/studies/{id}/audit
      "after": {"name": "Main Kitchen"}, "changed": ["name"], "reason": null,
      "review_id": "<review>", "correction_id": "<correction>", "produced": ["<room r2>"]},
     {"kind": "object_added", "at": "...", "by": "<user>", "stage": null, "revision": 1, "action": "added",
-     "entity_type": "photo_object", "entity_id": "<object>", "after": {"label": "light_fixture", "box": [0.1, 0.1, 0.2, 0.3], "mask_source": "none", "derived_from": null, "document_id": "<photo>"}, "...": null}
-  ]
+     "entity_type": "photo_object", "entity_id": "<object>", "after": {"label": "light_fixture", "box": [0.1, 0.1, 0.2, 0.3], "mask_source": "none", "derived_from": null, "document_id": "<photo>"}, "...": null},
+    {"kind": "document", "at": "...", "by": "<user>", "stage": null, "revision": null, "action": "uploaded",
+     "entity_type": "document", "entity_id": "<document>", "after": {"kind": "appraisal", "filename": "appraisal.pdf", "bytes": 48213, "sha256": "..."}, "...": null}
+  ],
+  "next_cursor": null
 }
 ```
 
@@ -164,7 +174,27 @@ GET /v1/studies/{id}/audit
 | `decision` | `approved`, `rejected` | `reviews` (the comment as `reason`) |
 | `correction` | `modified` (extraction_field, room, component, asset), `added` (room_component, extraction_field_add), `moved` (photo_room), `merged` (room with `merge_into`), `reanalyzed` (photo), `removed` (component_remove) | `corrections`, with the rejection it belonged to and, when recorded, `produced`: the rows of the next revision it produced (none for a removal) |
 | `object_added`, `object_deleted` | `added`, `deleted` | manual `photo_objects` (`created_by`/`created_at`, `deleted_by`/`deleted_at`) |
-| `intake` | `added`, `modified` | the `study.intake_set` events |
+| `intake` | `added`, `modified` | the `study.intake_set` events (`before`/`after` the intake, `changed` its fields) |
+| `report_answers` | `added`, `modified` | the `study.report_answers_set` events, the same way |
+| `document` | `uploaded` | `document.uploaded`: `entity_id` the document, `after` its kind, filename, bytes, sha256 |
+| `started` | `started` | `study.started`: `after.workflow_id` |
+| `retry`, `cancel` | `requested` | `study.retry_requested` (`after.already_requested`, the stage retried), `study.cancel_requested` (`after.reason`) |
+| `archived`, `unarchived` | `archived`, `unarchived` | `study.archived`, `study.unarchived` (`after.status`) |
+| `report_signed` | `signed` | `report.signed`: `entity_id` the signature, `after` the attested engineer, the statement version and the hashes (docs/api/REPORT.md) |
+
+For an item read from an event, `entity_type`/`entity_id` are the event's, or `study` and
+the study's id when the event names no row; `by` is the event's actor (null for a start the
+workflow made itself).
+
+Pagination: `limit` (1 to 1000, default 200) and `cursor`. The listing is assembled from
+`reviews`, `corrections`, manual `photo_objects` and `study_events`, each with its own time
+column, sorted by `(at, seq, kind, entity_id)` (`seq` the event's insertion order, so several
+events of one request, which share its transaction time, keep their order), and cut at the
+page; `next_cursor` names the last item's sort key, so a page never skips or repeats an item
+as actions are appended (every source is append-only or soft-deleting). An undecodable cursor
+is 422 `invalid-cursor`. The assembly reads one study's engineer actions, bounded by what
+engineers did to it rather than by the pipeline's output, which is why it is not a SQL union
+of four shapes.
 
 Deletion exists in three forms, all listed, and none deletes a stored row (every revision's
 rows stay as history):
@@ -298,3 +328,88 @@ ruling becomes the exact convention, which wins next time.
 | a timeline event (`activity.failed`, `stage.failed`, `corrections.refused`, `convention.replaced`) | `code` |
 | `/assets` and `/extraction` | `review_codes`, the codes behind `review_reasons` |
 | `activity_results.error`, the worker log, Temporal | `[BASIS-...]` at the end of the message |
+
+## Your activity
+
+```
+GET /v1/me/activity?limit=50&cursor=<next_cursor>&event_type=review.decided&since=2026-08-01T00:00:00Z&until=...
+```
+
+```json
+{
+  "items": [
+    {"seq": 912, "at": "...", "event_type": "review.decided", "actor_type": "engineer", "actor_id": "<me>",
+     "study_id": "<study>", "property_name": "1200 Harbor Blvd, Oxnard CA", "stage": "rooms_review",
+     "revision": 1, "entity_type": "review", "entity_id": "<review>", "detail": {"decision": "approve", "...": null}, "...": null}
+  ],
+  "since": "2026-08-03T14:02:11.482Z",
+  "until": null,
+  "next_cursor": "912"
+}
+```
+
+The caller's own `study_events` rows (`actor_id` is them) across every study of the firms
+they belong to now, newest first (`seq` descending), each with the study's id and current
+property name and every member of a timeline event. A study the caller can no longer see (a
+firm they were removed from) is not listed: this is the caller's view of their work, not a
+personal record kept past the firm.
+
+| Parameter | Meaning |
+|---|---|
+| `limit`, `cursor` | 1 to 200 per page (default 50); `next_cursor` continues with older events. |
+| `event_type` | Repeatable: only these types. |
+| `since`, `until` | RFC 3339, inclusive, on the event's time; a naive time is read as UTC. `since` after `until` is an empty page, not an error (an interval with nothing in it, as Stripe's `created[gte]`/`[lte]` and GitHub's `since`/`until` answer). |
+
+**The cap.** Three years of history should not all show up, and two mechanisms do that, not
+one: a page is at most 200 rows, and the window defaults to the last 90 days when `since` is
+absent. A page cap alone lets a client walk the whole history; a window alone still answers
+one large page. The response says which window it applied (`since`, `until`); a client that
+pages passes that `since` back, since the default is evaluated per request and would drift
+by the time between pages (nothing is skipped or repeated either way, the cursor is `seq`;
+only the oldest rows would fall out of a drifted window).
+
+Served by `ix_study_events_actor_id_seq` (migration `0022`); the join to `org_members`
+applies the caller's current memberships.
+
+## Firm activity
+
+```
+GET /v1/orgs/{org_id}/activity?limit=50&cursor=<next_cursor>&event_type=member.removed&since=...&until=...
+```
+
+Owner only (404 for a non-member, 403 below owner, like the other firm routes). The firm's
+`org_events` (migration `0022`): one append-only row per action on the firm that is not
+about a study, written in the same transaction as the change by the repository that makes
+it, so the API and the operator CLI (`python -m basis.admin`) record alike and a refused
+request (removing the last owner, 409) leaves nothing. Same pagination and filters as
+"Your activity", no default window (a firm's history is short). Rows can never be updated
+or deleted (`forbid_mutation()`).
+
+```json
+{
+  "org_id": "<firm>",
+  "items": [
+    {"seq": 31, "at": "...", "event_type": "member.removed", "actor_type": "engineer", "actor_id": "<owner>",
+     "subject_user_id": "<member>", "entity_type": "member", "entity_id": "<member>", "request_id": "...",
+     "before": {"role": "engineer"}, "after": null, "detail": {"self": false, "invitations_revoked": []}}
+  ],
+  "next_cursor": null
+}
+```
+
+| `event_type` | Actor | Carries |
+|---|---|---|
+| `org.created` | system (the CLI) | `after.name` |
+| `invitation.created` | engineer, or system from the CLI | `entity_id` the invitation; `after` `{email, role, expires_at}`; `detail.replaced` the expired invitation it closed, if any |
+| `invitation.revoked` | engineer, or system | `before` `{email, role, expires_at}`; `detail.reason`: `revoked` (an owner revoked it), `member_removed` (the member's removal revoked their open invitations; `subject_user_id` the member), `expired` (re-inviting closed an expired one) |
+| `invitation.accepted` | the invitee (also `subject_user_id`) | `after` `{email, role}` the role the member has afterwards; `detail.role_before` the role they already had (null when they joined) |
+| `invitation.declined` | the invitee (also the subject) | `before` `{email, role, expires_at}` |
+| `member.role_changed` | an owner | `subject_user_id` the member; `before`/`after` `{role}`; setting the current role records nothing |
+| `member.removed` | an owner | `subject_user_id` the member; `before` `{role}`; `detail.self` (an owner left), `detail.invitations_revoked` |
+| `profile.set` | an owner | the report profile written (`PUT /v1/orgs/{org_id}/profile`); `detail` `{version_before, version_after, if_match, changed}` (the fields the write set or changed). The profile itself is not copied into the event (its logo is up to 512 KB); `firm_profiles` holds the current one |
+
+What is not here: a member's study actions (the per-study timeline and "Your activity"), and
+the cost index store's runs (`cost_index_runs`). What was recorded before this table: only
+end states (the `invitations` row says who accepted it and when; a removed membership left
+no row), so a member removed and re-invited, or a role changed twice, had no record of who
+did what when. Nothing is backfilled.
