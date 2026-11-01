@@ -58,7 +58,16 @@ Event vocabulary (``event_type``; the actor in brackets):
   that changes nothing about the study and is saved on every edit; its corrections enter the
   trail as ``correction.recorded`` when the decision is submitted, and ``review.decided``
   records ``draft_discarded`` (docs/api/GATE_DRAFTS_AND_RESUME.md);
+* ``study.reopened`` / ``revision.restored`` [engineer] (docs/api/REVISIONS.md): a completed
+  study moved to a review gate on a new revision for a resumed execution (``before`` the
+  stage and revision it left, ``after`` the gate and the new revision; ``detail``:
+  ``from_revision`` the revision copied, ``reason``, the recompute plan, ``workflow_id``); a
+  ``stage.entered`` row goes with it, and ``revision.carried`` (``detail.through``,
+  ``detail.reason``, the row counts) when the workflow has copied the rows;
 * ``export.written`` [system]: the export (``detail.uri``, ``detail.sha256``);
+* ``study.purged`` [system]: the retention purge deleted the study's uploaded files from
+  storage, keeping the exports and every row (``detail``: ``retention_days``, ``rule_from``,
+  ``objects_deleted``, ``objects_kept``, ``missing``; docs/api/RETENTION_AND_ALERTS.md);
 * ``study.report_answers_set`` [engineer]: the study's report answers (``before``/``after``;
   ``detail``: ``version_before``/``version_after``, ``if_match``);
 * ``report.signed`` [engineer]: the engineer signed the revision's report (``entity_id`` the

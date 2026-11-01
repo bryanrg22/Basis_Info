@@ -110,7 +110,7 @@ now and checks its pricing against the intake version each priced row recorded w
 priced, so a client holding a version can tell whether the numbers it shows were priced with
 the intake it saved (the result section below says how a stale pricing is reported).
 
-### Locked once the study starts (`409 intake-locked`, EVAL_REPORT 60)
+### Locked once the study starts (`409 intake-locked`, EVAL_REPORT 62)
 
 `PUT /v1/studies/{id}/intake` is accepted only while the study is `uploading`. From the start
 on (during the run, at a review gate, once completed, once the report is signed) it answers

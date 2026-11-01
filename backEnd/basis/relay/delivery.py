@@ -24,6 +24,11 @@ One :meth:`Relay.run_once` is one transaction:
    sender failed (SMTP down, 4xx)               retried as transient; ``email_error`` set
    recipient refused for good (5xx)             ``dead`` at once; ``email_error`` set
    invitation revoked/answered before the send  ``delivered`` with ``last_error``, not sent
+   alert handed to the email sender             ``delivered``
+   alert, sender failed (SMTP down, 4xx)        retried as transient (``E.ALERT_EMAIL_FAILED``)
+   alert, recipient refused for good (5xx)      ``dead`` at once (``E.ALERT_EMAIL_FAILED``)
+   alert, no ``ALERT_EMAIL_TO``                 logged at WARNING, ``delivered``
+                                                (``E.ALERT_NO_RECIPIENT``)
    ===========================================  =======================================
 
 If the process dies mid-batch the transaction rolls back: nothing is marked and every
@@ -35,8 +40,12 @@ updates by id within a run) and the workflow ignores a review id it has applied.
 invitation email (``basis.email.invitation``): the relay loads the invitation, skips it
 when it was already emailed (a redelivered row) or is no longer pending, else renders it
 and calls the configured :class:`~basis.email.EmailSender`; the outcome is recorded on the
-invitation in the same transaction that marks the outbox row. Any other type is delivered
-to the log, as before.
+invitation in the same transaction that marks the outbox row.
+``alert`` is an operator alert (``basis.db.repositories.alert``: a failed study, a stale
+heartbeat): the relay renders it (``basis.notify.render``) and calls the same sender with
+``ALERT_EMAIL_TO`` as the recipient and the alert's key as the idempotency key, so a
+redelivered row cannot become a second email at a provider that honours the key. Any
+other type is delivered to the log, as before.
 
 **Catching up before deciding.** The API moves the study in the database the moment a
 decision is recorded, but the workflow reaches the next review stage only after it has
@@ -67,6 +76,7 @@ from temporalio.client import Client, WorkflowUpdateFailedError
 from basis.db.enums import Stage
 from basis.db.errors import NotVisibleError
 from basis.db.models import OutboxMessage
+from basis.db.repositories.alert import ALERT_NOTIFICATION
 from basis.db.repositories.invitation import InvitationRepository, InvitationStatus
 from basis.db.repositories.outbox import (
     INVITATION_NOTIFICATION,
@@ -76,8 +86,14 @@ from basis.db.repositories.outbox import (
 )
 from basis.db.session import session_scope
 from basis.email.invitation import render_invitation
-from basis.email.sender import EmailRejectedError, EmailSender, LoggingEmailSender
+from basis.email.sender import (
+    EmailRejectedError,
+    EmailSender,
+    EmailSendError,
+    LoggingEmailSender,
+)
 from basis.errors.codes import E
+from basis.notify.render import MalformedAlert, render_alert
 from basis.obs.logging import bound
 from basis.temporal.names import (
     DECIDE_UPDATE,
@@ -212,6 +228,8 @@ class Relay:
         delivery_timeout: float = DELIVERY_TIMEOUT_S,
         email_sender: EmailSender | None = None,
         app_url: str | None = None,
+        alert_to: str | None = None,
+        env: str | None = None,
     ) -> None:
         if batch_size < 1 or max_attempts < 1 or poll_seconds <= 0 or delivery_timeout <= 0:
             raise ValueError("relay limits must be positive")
@@ -220,6 +238,8 @@ class Relay:
         # The log sender unless one is given: a relay never sends mail by accident.
         self.email_sender: EmailSender = email_sender or LoggingEmailSender()
         self.app_url = app_url
+        self.alert_to = alert_to
+        self.env = env
         self.poll_seconds = poll_seconds
         self.batch_size = batch_size
         self.max_attempts = max_attempts
@@ -290,6 +310,8 @@ class Relay:
         if message.kind == NOTIFICATION:
             if message.payload.get("type") == INVITATION_NOTIFICATION:
                 return await self._deliver_invitation(message)
+            if message.payload.get("type") == ALERT_NOTIFICATION:
+                return await self._deliver_alert(message)
             # Other notifications (review reminders) are delivered to the log until a channel
             # for them exists.
             logger.info("notification", extra={"payload": dict(message.payload)})
@@ -333,6 +355,48 @@ class Relay:
             },
         )
         return Result(message.id, Outcome.DELIVERED, emailed=True)
+
+    async def _deliver_alert(self, message: OutboxMessage) -> Result:
+        """Render the alert and hand it to the sender; without a recipient, log it."""
+        recipient = self.alert_to or "nobody@localhost"
+        try:
+            email = render_alert(message.payload, recipient, env=self.env)
+        except MalformedAlert as exc:
+            return Result(message.id, Outcome.DEAD, f"malformed alert: {exc}")
+        if self.alert_to is None:
+            logger.warning(
+                "alert (no ALERT_EMAIL_TO)",
+                extra={
+                    "error_code": E.ALERT_NO_RECIPIENT,
+                    "alert_key": email.idempotency_key,
+                    "alert_subject": email.subject,
+                    "alert_text": email.text,
+                },
+            )
+            return Result(message.id, Outcome.DELIVERED)
+        try:
+            sent = await self.email_sender.send(email)
+        except EmailRejectedError as exc:
+            logger.error(
+                "alert email refused",
+                extra={"error_code": E.ALERT_EMAIL_FAILED, "alert_key": email.idempotency_key},
+            )
+            return Result(message.id, Outcome.DEAD, f"alert email refused: {exc}")
+        except EmailSendError as exc:
+            logger.warning(
+                "alert email failed; will retry",
+                extra={"error_code": E.ALERT_EMAIL_FAILED, "alert_key": email.idempotency_key},
+            )
+            raise TransientDeliveryError(f"alert email failed: {exc}") from exc
+        logger.info(
+            "alert emailed",
+            extra={
+                "alert_key": email.idempotency_key,
+                "provider": sent.provider,
+                "message_id": sent.message_id,
+            },
+        )
+        return Result(message.id, Outcome.DELIVERED)
 
     async def _deliver_decision(self, message: OutboxMessage) -> Result:
         try:
@@ -440,6 +504,7 @@ class Relay:
                 "poll_seconds": self.poll_seconds,
                 "email_provider": self.email_sender.provider,
                 "app_url": self.app_url,
+                "alert_recipient_set": self.alert_to is not None,
             },
         )
         while not stop.is_set():

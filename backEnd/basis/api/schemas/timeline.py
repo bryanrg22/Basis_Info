@@ -128,6 +128,8 @@ AuditKind = Literal[
     "archived",
     "unarchived",
     "report_signed",
+    "reopened",
+    "restored",
 ]
 
 
@@ -137,7 +139,8 @@ class AuditItemOut(ResponseModel):
         "photo object (`object_added`, `object_deleted`), the `intake` or the "
         "`report_answers` set, a `document` upload confirmed, the study `started`, a "
         "`retry` or `cancel` requested, the study `archived` or `unarchived`, the report "
-        "signed (`report_signed`)."
+        "signed (`report_signed`), the completed study `reopened` at a gate or a revision "
+        "`restored` (docs/api/REVISIONS.md)."
     )
     at: datetime
     by: uuid.UUID | None

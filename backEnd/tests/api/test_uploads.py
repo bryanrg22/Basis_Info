@@ -512,7 +512,7 @@ async def test_the_resume_sequence_for_a_draft_study(api: Api, storage: LocalSto
     assert len(after) == 2 and all(d["uploaded_at"] is not None for d in after)
 
 
-# --------------------------------------------------------------------- races (EVAL_REPORT 60)
+# --------------------------------------------------------------------- races (EVAL_REPORT 62)
 
 
 async def document_rows(sm: async_sessionmaker[AsyncSession], study_id: str) -> list[Document]:
@@ -560,7 +560,7 @@ async def test_two_confirmations_of_one_upload_at_once_record_one_event(
     immutable), both reach the compare-and-set; held on the document's row lock until both
     are there, exactly one sets ``uploaded_at``. Both answer 200 with the same document and
     the timeline says ``document.uploaded`` once (it said it twice before the route asked
-    the repository which call confirmed; EVAL_REPORT 60)."""
+    the repository which call confirmed; EVAL_REPORT 62)."""
     study = await api.create_study("alice")
     ticket = await upload(api, "alice", study["id"])
     doc_id = ticket["document"]["id"]

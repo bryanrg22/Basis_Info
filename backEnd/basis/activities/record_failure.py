@@ -39,7 +39,12 @@ class RecordFailure:
                 logger.info("study %s failure %s", study_id, "cleared" if changed else "not set")
                 return
             changed = await repo.mark_failed(
-                study_id, Stage(input.stage), input.revision, input.reason[:MAX_REASON], input.code
+                study_id,
+                Stage(input.stage),
+                input.revision,
+                input.reason[:MAX_REASON],
+                input.code,
+                alert_key=key,
             )
             logger.error(
                 "study %s %s at %s revision %s: %s",
@@ -51,4 +56,5 @@ class RecordFailure:
                 extra={"error_code": input.code},
             )
 
-        await run_once_no_output(self._deps, name="record_failure", key=activity_key(), work=work)
+        key = activity_key()
+        await run_once_no_output(self._deps, name="record_failure", key=key, work=work)

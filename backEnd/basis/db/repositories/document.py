@@ -124,7 +124,7 @@ class DocumentRepository:
         """:meth:`mark_uploaded`, saying whether this call set ``uploaded_at``: the
         compare-and-set (``WHERE uploaded_at IS NULL``) decides under the row lock, so of
         two confirmations at once exactly one is ``confirmed`` and records the upload
-        (both recorded it before this; EVAL_REPORT 60)."""
+        (both recorded it before this; EVAL_REPORT 62)."""
         stmt = (
             update(Document)
             .where(

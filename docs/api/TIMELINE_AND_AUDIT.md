@@ -71,7 +71,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `event_type` | Actor | When | Carries |
 |---|---|---|---|
 | `study.created`, `study.intake_set`, `study.archived`, `study.unarchived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md); `archived` and `unarchived` once per change, decided under the row lock (a repeat or a concurrent request records nothing); `unarchived`: `after.status` the status it came back to (docs/api/STUDY_LIBRARY.md) |
-| `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256. Once per document: of two confirmations at once only the one that set `uploaded_at` records it (EVAL_REPORT 60) |
+| `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256. Once per document: of two confirmations at once only the one that set `uploaded_at` records it (EVAL_REPORT 62) |
 | `study.started` | engineer | `POST .../start` moved the study to `extracting` | `detail.workflow_id` |
 | `run.started`, `run.ended` | system | the Temporal execution | `detail.outcome` on the end |
 | `stage.entered` | engineer or system | the study row moved (a decision moves it first; the workflow's `transition` converges) | `before`/`after` stage and revision |
@@ -90,7 +90,10 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `study.stalled`, `review.reminded` | system | the review deadline and reminders | `detail.waiting_days` |
 | `study.retry_requested`, `study.cancel_requested` | engineer | `POST .../retry`, `POST .../cancel` | |
 | `study.restarted` | engineer | `POST .../restart` reset a study whose execution had closed without completing (cancelled, terminated, timed out, failed before v0.9) to `extracting` on a new revision for a new execution (docs/api/GATE_DRAFTS_AND_RESUME.md); a `stage.entered` row goes with it | `before` `{stage, revision, status}` it left, `after` `{stage, revision}`, `detail.workflow_id` |
+| `study.reopened`, `revision.restored` | engineer | `POST .../reopen`, `POST .../revisions/{n}/restore` moved a completed study to a review gate on a new revision for a resumed execution (docs/api/REVISIONS.md) | `before`/`after` the stage and revision left and entered; `detail.from_revision` (the revision copied), `reason`, `recomputed`, `reviews`, `carried`, `workflow_id`; a `stage.entered` row goes with it |
+| `revision.carried` (resumed) | system | `carry_revision` copied the source revision into the new one | `detail.from_revision`, `to_revision`, `through` (the gate), `reason`, the row counts |
 | `export.written` | system | the export | `detail.uri`, `sha256`, `assets_csv` |
+| `study.purged` | system | the retention purge deleted the study's uploaded files from storage (docs/api/RETENTION_AND_ALERTS.md); the export, the signed report and every row stay | `detail`: `retention_days`, `rule_from`, `eligible_since`, `documents`, `pages`, `objects_deleted`, `objects_kept`, `missing` |
 | `convention.promoted` | engineer | `promote_conventions` promoted an approved asset's ruling to the firm's conventions | `actor_id` the approving reviewer; `entity_id` the asset; `detail` key, bucket, `agrees_with_rules`, `rule_key`, outcome (`created`, `confirmed`, `replaced`), approvals, method, cited |
 | `convention.replaced` | engineer | the approved answer differed from the firm's convention for the key, which it replaced | `code` `BASIS-ASSETS-013`; `before` the replaced convention, `after` the new one; `detail.key` |
 
@@ -185,6 +188,7 @@ GET /v1/studies/{id}/audit?limit=200&cursor=<next_cursor>
 | `retry`, `cancel` | `requested` | `study.retry_requested` (`after.already_requested`, the stage retried), `study.cancel_requested` (`after.reason`) |
 | `archived`, `unarchived` | `archived`, `unarchived` | `study.archived`, `study.unarchived` (`after.status`) |
 | `report_signed` | `signed` | `report.signed`: `entity_id` the signature, `after` the attested engineer, the statement version and the hashes (docs/api/REPORT.md) |
+| `reopened`, `restored` | `reopened`, `restored` | `study.reopened`, `revision.restored` (`after` the gate and the new revision; `before` the completed revision; docs/api/REVISIONS.md) |
 
 For an item read from an event, `entity_type`/`entity_id` are the event's, or `study` and
 the study's id when the event names no row; `by` is the event's actor (null for a start the

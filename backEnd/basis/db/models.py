@@ -246,9 +246,18 @@ def _updated_at() -> Mapped[datetime]:
 
 class Org(Base):
     __tablename__ = "orgs"
+    __table_args__ = (
+        CheckConstraint(
+            "retention_days IS NULL OR retention_days >= 1", name="retention_days_positive"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     name: Mapped[str]
+    # The firm's retention rule for client data (migration ``0026_retention_alerts``,
+    # docs/api/RETENTION_AND_ALERTS.md): NULL keeps everything; a number of days after
+    # which a completed or archived study's uploaded files are purged (``basis.retention``).
+    retention_days: Mapped[int | None]
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -396,6 +405,10 @@ class Study(Base):
         ReportAnswersDocument, nullable=True
     )
     report_answers_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    # When the retention purge deleted the study's uploaded files from storage (migration
+    # ``0026_retention_alerts``); NULL: never. The export, the signed report and every row
+    # survive; ``study.purged`` on the timeline records what went.
+    purged_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -1091,7 +1104,7 @@ class ReportSignature(Base):
     the name and credentials they attested, the certification version, and the sha256 of the
     export, of the preview they reviewed and of the signed PDF. One per revision; never
     updated (``forbid_mutation()``). ``firm_profile_version`` and ``report_answers_version``
-    (migration 0026) are the versions of the two inputs the signed report was rendered with,
+    (migration 0027) are the versions of the two inputs the signed report was rendered with,
     so ``GET .../report/state`` can say when an input changed after signing; NULL on a
     signature recorded before they were kept."""
 
@@ -1481,4 +1494,31 @@ class RateLimitHit(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     key: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
+
+
+class Alert(Base):
+    """An operator alert the application raised (migration ``0026_retention_alerts``,
+    docs/api/RETENTION_AND_ALERTS.md): a study failed (``study_failed``, ``study_id`` set)
+    or a service's heartbeat went stale (``heartbeat_stale``, ``service`` set). ``key`` names
+    the occurrence (the failure's activity key; the service and the last heartbeat before
+    the silence) and is unique, so a retried activity or a repeated check never raises the
+    same alert twice: the insert that loses is a no-op. ``outbox_id`` is the ``notification``
+    row that carries it to the email sender; ``payload`` is what that row carries.
+    """
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        CheckConstraint("kind IN ('study_failed', 'heartbeat_stale')", name="kind_valid"),
+        UniqueConstraint("key"),
+        Index(None, "study_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str]
+    kind: Mapped[str]
+    study_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("studies.id"))
+    service: Mapped[str | None]
+    outbox_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("outbox.id"))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()

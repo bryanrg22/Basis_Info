@@ -93,7 +93,7 @@ async def test_a_ruling_keeps_its_key_and_approvals_across_a_release(
     assert served.approvals == 2
 
 
-# --------------------------------------------------------------------- races (EVAL_REPORT 60)
+# --------------------------------------------------------------------- races (EVAL_REPORT 62)
 
 
 def approval(

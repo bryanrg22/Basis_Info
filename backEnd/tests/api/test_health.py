@@ -172,12 +172,19 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/timeline",
         "GET /v1/studies/{study_id}/timeline/steps",
         "GET /v1/studies/{study_id}/audit",
+        # Revisions: reopen, history, diff, restore (docs/api/REVISIONS.md)
+        "POST /v1/studies/{study_id}/reopen",
+        "GET /v1/studies/{study_id}/revisions",
+        "GET /v1/studies/{study_id}/revisions/{from_revision}/diff/{to_revision}",
+        "POST /v1/studies/{study_id}/revisions/{revision}/restore",
         "GET /v1/me/activity",
         "GET /v1/orgs/{org_id}/activity",
         # invite-only firms (tests/api/test_firms.py)
         "GET /v1/me",
         "POST /v1/orgs",  # a verified user creates a firm and owns it (docs/api/FIRMS.md)
         "PATCH /v1/orgs/{org_id}",  # the owner renames it
+        "GET /v1/orgs/{org_id}/retention",
+        "PUT /v1/orgs/{org_id}/retention",
         "GET /v1/orgs/{org_id}/members",
         "POST /v1/orgs/{org_id}/members/{user_id}/role",
         "DELETE /v1/orgs/{org_id}/members/{user_id}",

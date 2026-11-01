@@ -295,7 +295,7 @@ async def test_a_signed_report_is_served_recorded_and_never_replaced(
             await session.execute(text("UPDATE report_signatures SET pdf_uri = 'x'"))
 
 
-# --------------------------------------------------------------------- races (EVAL_REPORT 60)
+# --------------------------------------------------------------------- races (EVAL_REPORT 62)
 
 
 async def signable(

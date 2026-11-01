@@ -7,7 +7,10 @@ failure and waits for `POST /v1/studies/{id}/retry`, which runs the stage again.
 the client's view of that; the workflow's own contract is `basis/workflow/study_workflow.py`
 (patch `stage-failure-retry-v1`, EVAL_REPORT section 27) and the routes are
 `basis/api/routes/workflow.py`. Decisions at the review gates are a separate page
-(`POST /v1/studies/{id}/decisions`; `openapi.json`).
+(`POST /v1/studies/{id}/decisions`; `openapi.json`). Reopening a completed study at a gate,
+the revision history and restoring a revision are docs/api/REVISIONS.md (`POST .../reopen`,
+`GET .../revisions`, `POST .../revisions/{n}/restore`): a completed execution is never
+continued; a new one starts under the same workflow id and opens the gate on a copied revision.
 
 ## `GET /v1/studies/{id}/workflow` (viewer)
 
@@ -109,7 +112,7 @@ The retry is an update the workflow answers at once; the stage restarts a workfl
 `already_requested: true` and starts nothing: the stage runs again exactly once. A retry after
 the stage restarted is `409 study-not-failed` (nothing has failed). Tested on the real workflow
 with the clearing activity held open so the window is real (`tests/lifecycle/test_stage_retry.py`,
-EVAL_REPORT 60).
+EVAL_REPORT 62).
 
 ## An execution that ends `failed`
 
@@ -117,7 +120,7 @@ The hold-and-retry above covers the extraction, the assets and the export (and, 
 `provider-account-stop-v1`, a provider refusing the account during the photos). An activity
 outside those failing permanently (the photo listing, a stage transition the API outran, an
 unexpected exception) ends the execution: since patch `failed-end-records-failure-v1`
-(EVAL_REPORT 60) the workflow first records the failure on the study (`status: "failed"`,
+(EVAL_REPORT 62) the workflow first records the failure on the study (`status: "failed"`,
 `failure_reason`, `failure_code`, a `stage.failed` event), then the run's end (`run.ended`,
 `outcome: "failed"`), and the execution closes `FAILED`. Before the patch the run ended
 `failed` while the study stayed `processing` with no reason: a client polling the study saw it

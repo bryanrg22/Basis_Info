@@ -118,6 +118,13 @@ Patches in this file:
   ``components_gate=False`` keeps the single rooms review (tests run that flow afresh);
   executions recorded before the patch replay with it, and the API keeps their manual edits
   at ``rooms_review``.
+* A **resumed execution** (``StudyWorkflowInput.resume``; docs/api/REVISIONS.md) is not a
+  patch: a completed study reopened at a review gate, or an earlier revision restored, starts
+  a new execution under the study's id whose input names the gate and the revision copied.
+  It records its run, copies the rows (``carry_revision``) and opens the gate on the new
+  revision; from there the code path is the ordinary one. The branch is on the input, which
+  is in the history, so executions without ``resume`` take the command sequence they always
+  took (the recorded histories replay unchanged).
 * ``firm-conventions-v1`` (docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 5):
   right after the assets review is approved, ``promote_conventions`` turns the approved
   revision's engineer corrections and cited model answers into the firm's conventions, which
@@ -156,6 +163,8 @@ with workflow.unsafe.imports_passed_through():
         AnalyzePhotoOutput,
         ApplyCorrectionsInput,
         ApplyCorrectionsOutput,
+        CarryRevisionInput,
+        CarryRevisionOutput,
         CorrectionInput,
         Decision,
         DecisionAck,
@@ -179,6 +188,7 @@ with workflow.unsafe.imports_passed_through():
         ReconcileRoomsOutput,
         RecordFailureInput,
         ReportPdf,
+        ResumeInput,
         RetryAck,
         ReviewStage,
         RunEndInput,
@@ -215,7 +225,7 @@ COMPONENTS_GATE_PATCH: Final = "components-gate-v1"
 CONVENTIONS_PATCH: Final = "firm-conventions-v1"
 # An execution that ends failed (an error no stage holds for a retry) first records the
 # failure on the study row, so the study reads ``failed`` with the code instead of staying
-# ``processing`` with a closed execution (EVAL_REPORT 60).
+# ``processing`` with a closed execution (EVAL_REPORT 62).
 FAILED_END_PATCH: Final = "failed-end-records-failure-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
@@ -251,6 +261,9 @@ class StudyWorkflow:
     @workflow.init
     def __init__(self, input: StudyWorkflowInput) -> None:
         self._input = input
+        # Also for a resumed execution (the API put the study row at its gate): the status
+        # query reports the gate only once the gate's transition has run, as for any gate,
+        # so a client polling for ``awaiting`` never sees it before the row is open.
         self._stage: StageName = "uploading"
         self._revision = input.input_revision
         self._awaiting: ReviewStage | None = None
@@ -456,6 +469,8 @@ class StudyWorkflow:
         return result
 
     async def _lifecycle(self) -> StudyWorkflowResult:
+        if self._input.resume is not None:
+            return await self._resumed(self._input.resume)
         study_id = self._input.study_id
         await self._transition("extracting")
 
@@ -483,6 +498,62 @@ class StudyWorkflow:
         # (moving the study to the gate would clear its failed status).
         if self._account_stop:
             await workflow.wait_condition(lambda: self._photo_holds == 0)
+        await self._appraisal_gate(document_id, photo_task)
+
+        # Gate 2: rooms review, once the photo stage is done.
+        if photo_task is not None:
+            await photo_task
+        await self._rooms_gates()
+
+        # Assets, then gate 3: assets review.
+        await self._transition("assets_processing")
+        await self._process_assets(())
+        return await self._assets_gate_and_export()
+
+    async def _resumed(self, resume: ResumeInput) -> StudyWorkflowResult:
+        """A reopened or restored study (docs/api/REVISIONS.md): copy the source revision
+        into this one, open the gate, and run the ordinary path from there. The intake
+        (ingest, extraction, photos) does not run; the gates before ``resume.stage`` are
+        not passed again; the stages after it recompute as after any decision."""
+        self._stage_retry = workflow.patched(STAGE_RETRY_PATCH)
+        self._account_stop = self._stage_retry and workflow.patched(ACCOUNT_STOP_PATCH)
+        if workflow.patched(LOCALIZE_BACKGROUND_PATCH):
+            self._localize_slots = asyncio.Semaphore(self._input.localize_concurrency)
+            self._localize_background = not self._input.rooms_gate_waits_for_localization
+        activity_id = f"carry_revision:r{self._revision}"
+        carried = await self._activity(
+            "carry_revision",
+            CarryRevisionInput(
+                study_id=self._input.study_id,
+                from_revision=resume.from_revision,
+                to_revision=self._revision,
+                through=resume.stage,
+                reason=resume.reason,
+                idempotency_key=self._key(activity_id),
+            ),
+            CarryRevisionOutput,
+            activity_id,
+        )
+        self._report_pdf = carried.report_pdf
+        stage = resume.stage
+        if stage == "appraisal_review":
+            await self._appraisal_gate(carried.document_id, None)
+        if stage in ("appraisal_review", "rooms_review"):
+            await self._rooms_gates()
+        elif stage == "components_review":
+            self._grouping_approved = True
+            await self._components_review_gate()
+        if stage != "assets_review":
+            await self._transition("assets_processing")
+            await self._process_assets(())
+        return await self._assets_gate_and_export()
+
+    # ------------------------------------------------------------------ stages
+
+    async def _appraisal_gate(
+        self, document_id: str | None, photo_task: asyncio.Task[None] | None
+    ) -> None:
+        """The appraisal review; a rejection re-extracts on the next revision."""
         while True:
             decision = await self._await_decision("appraisal_review")
             if decision.decision == "approve":
@@ -492,9 +563,9 @@ class StudyWorkflow:
             new_revision, corrections = await self._reject(decision, "extracting")
             await self._held("extracting", self._extractor(document_id, new_revision, corrections))
 
-        # Gate 2: rooms review, once the photo stage is done.
-        if photo_task is not None:
-            await photo_task
+    async def _rooms_gates(self) -> None:
+        """The rooms review and, with the components gate, the room step and the components
+        review; without it, the single rooms review of the executions before the patch."""
         if self._components_gate:
             await self._grouping_then_components()
         while not self._components_gate:
@@ -505,9 +576,8 @@ class StudyWorkflow:
             flagged = [c.entity_id for c in corrections if c.entity_type == "photo"]
             await self._photo_pass(flagged, new_revision)
 
-        # Assets, then gate 3: assets review.
-        await self._transition("assets_processing")
-        await self._process_assets(())
+    async def _assets_gate_and_export(self) -> StudyWorkflowResult:
+        """The assets review, the conventions promotion, the export, ``completed``."""
         while True:
             decision = await self._await_decision("assets_review")
             if decision.decision == "approve":
@@ -523,8 +593,6 @@ class StudyWorkflow:
         await self._transition("completed")
         return self._result("completed", export)
 
-    # ------------------------------------------------------------------ stages
-
     async def _grouping_then_components(self) -> None:
         """Patch ``components-gate-v1``: the rooms review (the grouping), the room step on the
         approved grouping, the components review (module doc)."""
@@ -537,6 +605,11 @@ class StudyWorkflow:
         self._grouping_approved = True
         await self._transition("components_processing")
         await self._prepare_components([], self._revision)
+        await self._components_review_gate()
+
+    async def _components_review_gate(self) -> None:
+        """The components review; a rejection re-analyzes the flagged photos in their
+        approved rooms and runs the room step again."""
         while True:
             decision = await self._await_decision("components_review")
             if decision.decision == "approve":

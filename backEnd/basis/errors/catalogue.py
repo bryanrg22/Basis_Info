@@ -65,6 +65,8 @@ AREA_TITLES: Final[dict[str, str]] = {
     "COST": "The cost index store: the missing-year rule, conversions, acquisition",
     "REPORT": "The study report and the preparer's schedule (basis.report)",
     "INF": "Infrastructure: worker start-up and the outbox relay",
+    "RETENTION": "Client-data retention: the purge job (basis.retention)",
+    "ALERT": "Operator alerts: a failed study, a stale heartbeat (basis.notify)",
 }
 
 
@@ -1063,6 +1065,68 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Correct the existing field with an `extraction_field` correction.",
         "yes",
         problem="validation",
+    ),
+    _e(
+        E.STUDY_NOT_COMPLETED,
+        "refusal",
+        "`POST .../reopen`, `POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "The study is not `completed`: only a completed study is reopened at a gate or has a "
+        "revision restored (docs/api/REVISIONS.md).",
+        "409 `study-not-completed`.",
+        "Reject at the gate the study waits at; `retry` a failed stage; `restart` a cancelled "
+        "study.",
+        "no",
+        problem="study-not-completed",
+    ),
+    _e(
+        E.STUDY_EXECUTION_RUNNING,
+        "refusal",
+        "`POST .../reopen`, `POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "An execution of the study's workflow is running: the completed one is still closing, "
+        "or a concurrent reopen or restore won the start.",
+        "409 `workflow-running`.",
+        "Wait for `GET .../workflow` to report the execution closed, or for the gate the other "
+        "request opened.",
+        "yes",
+        problem="workflow-running",
+    ),
+    _e(
+        E.STUDY_REVISION_NOT_FOUND,
+        "refusal",
+        "`POST .../revisions/{n}/restore`, `GET .../revisions/{a}/diff/{b}`",
+        "basis.api.routes.revisions",
+        "The revision number is not one of the study's (1 to its current revision).",
+        "404 `revision-not-found`.",
+        "Read `GET .../revisions` for the numbers the study has.",
+        "no",
+        problem="revision-not-found",
+    ),
+    _e(
+        E.STUDY_REVISION_CURRENT,
+        "refusal",
+        "`POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "The revision to restore is the study's current one; restoring it would copy the "
+        "current state onto itself.",
+        "409 `revision-current`.",
+        "Reopen the study at a gate instead (`POST .../reopen`).",
+        "no",
+        problem="revision-current",
+    ),
+    _e(
+        E.STUDY_REVISION_NOT_RESTORABLE,
+        "refusal",
+        "`POST .../revisions/{n}/restore`",
+        "basis.api.routes.revisions",
+        "The revision never reached a review gate (the execution was cancelled or restarted "
+        "during extraction), so there is no reviewed state to restore.",
+        "409 `revision-not-restorable`.",
+        "Restore a revision whose `stage_reached` in `GET .../revisions` is a review gate or "
+        "later.",
+        "no",
+        problem="revision-not-restorable",
     ),
     _e(
         E.STUDY_ARCHIVE_WHILE_RUNNING,
@@ -3310,6 +3374,98 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Check the database and run `alembic upgrade head`.",
         "yes",
     ),
+    # ------------------------------------------------------------------ RETENTION
+    _e(
+        E.RETENTION_PURGED,
+        "outcome",
+        "`python -m basis.retention purge`",
+        "basis.retention.purge",
+        "A completed or archived study older than its firm's `retention_days` had its uploaded "
+        "files, pages, analyses and model payloads deleted from storage; the export, the signed "
+        "report, every database row and the timeline were kept.",
+        "`study.purged` on the timeline (`detail`: objects deleted and kept, bytes); "
+        "`studies.purged_at`; the job's JSON line.",
+        "Nothing: the rule worked. To undo within the bucket's noncurrent-version window, "
+        "copy the versions back (infra/staging/RUNBOOK.md 2.4).",
+        "no",
+    ),
+    _e(
+        E.RETENTION_OBJECT_MISSING,
+        "outcome",
+        "`python -m basis.retention purge`",
+        "basis.retention.purge",
+        "A document or page row of a purged study named an object that was already gone from "
+        "storage (deleted by hand, or by a lifecycle rule) before the purge ran.",
+        "Log line with `error_code` and the URI; `detail.missing` on the `study.purged` event.",
+        "Nothing for the purge (its outcome is the same). Check who deleted the object if it "
+        "should have been there.",
+        "no",
+    ),
+    _e(
+        E.RETENTION_DELETE_FAILED,
+        "error",
+        "`python -m basis.retention purge`",
+        "basis.retention.purge",
+        "Storage refused or failed to delete one of the study's objects (permissions, an outage). "
+        "The study is not marked purged; nothing is recorded on its timeline.",
+        "Log line with `error_code`, the study and the URI; the job's JSON line `status: "
+        "failed`; exit status 1.",
+        "Fix the storage access and run the job again: it lists the remaining objects and "
+        "finishes the study.",
+        "yes",
+    ),
+    # ------------------------------------------------------------------ ALERT
+    _e(
+        E.ALERT_STUDY_FAILED,
+        "outcome",
+        "`record_failure`",
+        "basis.db.repositories.alert",
+        "A stage failed (`stage.failed`) and an alert for the operator was enqueued in the same "
+        "transaction: one `alerts` row keyed by the failure, one `notification` outbox row of "
+        "`type: alert`, which the relay renders and hands to the email sender.",
+        "`alerts` row (`kind = study_failed`); the relay's log when it is sent; the email.",
+        "Read the study's timeline (`event_type=stage.failed`), fix the cause, `POST "
+        "/v1/studies/{id}/retry`.",
+        "no",
+    ),
+    _e(
+        E.ALERT_HEARTBEAT_STALE,
+        "error",
+        "the relay's heartbeat check (`ALERT_CHECK_SECONDS`)",
+        "basis.notify.heartbeats",
+        "No heartbeat of a service (worker, relay) is younger than `ALERT_HEARTBEAT_STALE_SECONDS`: "
+        "the process died, hangs, or cannot reach the database. One alert per stale period "
+        "(keyed by the last heartbeat seen); a new one only after the service came back and "
+        "went stale again.",
+        "`alerts` row (`kind = heartbeat_stale`, `service`); the relay's log with `error_code`; "
+        "the email; `GET /v1/ops/health` reports the service `down`.",
+        "Check the process (Cloud Run worker pool instances, container logs) and the database; "
+        "restart it. Nothing to reset: the next stale period raises its own alert.",
+        "no",
+    ),
+    _e(
+        E.ALERT_EMAIL_FAILED,
+        "error",
+        "the outbox relay (an `alert` notification)",
+        "basis.relay.delivery",
+        "The email sender failed to send an alert: transient (the relay retries with backoff) "
+        "or final (the recipient was refused; the outbox row is `dead`).",
+        "Relay log with `error_code`; the outbox row's `last_error` and `status`.",
+        "Fix the sender's configuration or the recipient (`ALERT_EMAIL_TO`) and requeue the dead "
+        "row (S2_RUNBOOK section 5); the alert itself is still in `alerts`.",
+        "automatic",
+    ),
+    _e(
+        E.ALERT_NO_RECIPIENT,
+        "outcome",
+        "the outbox relay (an `alert` notification)",
+        "basis.relay.delivery",
+        "`ALERT_EMAIL_TO` is not set: the rendered alert was written to the relay's log at WARNING "
+        "and the outbox row marked delivered. Nobody was emailed.",
+        "Relay log line `alert (no ALERT_EMAIL_TO)` with the subject and text.",
+        "Set `ALERT_EMAIL_TO` on the relay so alerts reach someone.",
+        "no",
+    ),
     _e(
         E.INF_EMAIL_FAILED,
         "error",
@@ -3345,8 +3501,9 @@ GENERIC_FOR_PROBLEM: Final[dict[str, str]] = {
     "service-unavailable": E.API_SERVICE_UNAVAILABLE,
     "stale-state": E.STUDY_STALE_STATE,
     "gate-not-open": E.STUDY_GATE_NOT_OPEN,
-    # Raised by the restart route (its code) and by the archive route (its own): a bare
-    # problem of this type keeps the restart's meaning, the first to carry it.
+    # Shared by the restart (docs/api/GATE_DRAFTS_AND_RESUME.md), the reopen/restore
+    # (docs/api/REVISIONS.md) and the archive (docs/api/STUDY_LIBRARY.md) refusals, each raised
+    # with its own code; the earliest, the restart's, is generic.
     "workflow-running": E.STUDY_RESTART_RUNNING,
     # The intake's was the only 412 before the report's (signing, profile, answers), which
     # pass their codes explicitly; a bare 412 keeps the meaning it had.

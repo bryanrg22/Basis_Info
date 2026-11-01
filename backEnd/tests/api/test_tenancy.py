@@ -114,6 +114,10 @@ BODIES: Final[dict[str, Any]] = {
     "GET /v1/studies/{study_id}/timeline": None,
     "GET /v1/studies/{study_id}/timeline/steps": None,
     "GET /v1/studies/{study_id}/audit": None,
+    "POST /v1/studies/{study_id}/reopen": {"stage": "rooms_review"},
+    "GET /v1/studies/{study_id}/revisions": None,
+    "GET /v1/studies/{study_id}/revisions/{from_revision}/diff/{to_revision}": None,
+    "POST /v1/studies/{study_id}/revisions/{revision}/restore": None,
     "GET /v1/studies/{study_id}/assets/reprice": None,
     "POST /v1/studies/{study_id}/assets/reprice": {
         "revision": 1,
@@ -125,6 +129,8 @@ BODIES: Final[dict[str, Any]] = {
     "PUT /v1/orgs/{org_id}/profile": {"name": "Other Firm"},
     "GET /v1/orgs/{org_id}/members": None,
     "GET /v1/orgs/{org_id}/activity": None,
+    "GET /v1/orgs/{org_id}/retention": None,
+    "PUT /v1/orgs/{org_id}/retention": {"retention_days": 30},
     "POST /v1/orgs/{org_id}/members/{user_id}/role": {"role": "engineer"},
     "DELETE /v1/orgs/{org_id}/members/{user_id}": None,
     "GET /v1/orgs/{org_id}/invitations": None,
@@ -135,7 +141,14 @@ BODIES: Final[dict[str, Any]] = {
 }
 SCOPE_PARAMS: Final = ("{study_id}", "{org_id}", "{invitation_id}")
 # Path parameters that are not ids: a random UUID would be a 422 before the access check.
-FIXED: Final = {"stage": "appraisal_review"}
+# Path values that are not ids: the drafts' stage and the revision numbers of the revision
+# routes (docs/api/REVISIONS.md), which a random UUID would make 422 instead of the 404.
+FIXED: Final = {
+    "stage": "appraisal_review",
+    "revision": "1",
+    "from_revision": "1",
+    "to_revision": "1",
+}
 
 
 @dataclass(frozen=True, slots=True)

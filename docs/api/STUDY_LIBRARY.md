@@ -100,7 +100,7 @@ it; EVAL_REPORT 56 and 59). Each change is on the timeline (`study.archived`,
 `study.unarchived` with `after.status`), in the audit listing (`archived`, `unarchived`), and
 in the owner's `GET /v1/me/activity`.
 
-### A running study is not archived (EVAL_REPORT 60)
+### A running study is not archived (EVAL_REPORT 62)
 
 A study whose workflow execution is **running** (in progress, waiting at a review gate, or
 holding a failed stage for a retry) answers `409 workflow-running` (`BASIS-STUDY-035`) and is

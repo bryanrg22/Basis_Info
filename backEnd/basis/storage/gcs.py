@@ -34,6 +34,7 @@ from basis.storage.base import (
     ObjectStat,
     SignedUpload,
     check_upload_args,
+    parse_prefix,
     parse_uri,
     validate_bucket,
 )
@@ -163,3 +164,13 @@ class GcsStorage:
 
     async def put(self, uri: str, data: bytes, content_type: str) -> None:
         await _in_thread(self._put, uri, data, content_type)
+
+    def _list(self, prefix: str) -> list[str]:
+        bucket, name = parse_prefix(prefix)
+        if bucket != self._bucket_name:
+            raise ValueError(f"URI is not in bucket {self._bucket_name!r}: {prefix!r}")
+        blobs = self._get_client().list_blobs(bucket, prefix=name)
+        return sorted(f"gs://{bucket}/{blob.name}" for blob in blobs)
+
+    async def list(self, prefix: str) -> list[str]:
+        return await _in_thread(self._list, prefix)
