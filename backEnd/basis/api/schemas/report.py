@@ -66,6 +66,13 @@ class SignatureOut(ResponseModel):
     export_sha256: str
     reviewed_sha256: str
     pdf_sha256: str
+    firm_profile_version: int | None = Field(
+        description="The firm profile's version the report was signed with (null on a "
+        "signature recorded before it was kept)."
+    )
+    report_answers_version: int | None = Field(
+        description="The report answers' version the report was signed with (null as above)."
+    )
 
 
 class ReportSkip(BaseModel):
@@ -89,6 +96,13 @@ class ReportStateOut(BaseModel):
     signature: SignatureOut | None
     firm_profile_version: int = Field(description="0 while the firm has no profile.")
     report_answers_version: int
+    changed_since_signing: list[Literal["firm", "study"]] | None = Field(
+        default=None,
+        description="Once signed: the inputs written after the signature (`firm`: the firm "
+        "profile, `study`: the report answers). The signed PDF is unchanged; the stored "
+        "inputs no longer match it. `[]` when none changed; null while unsigned, or when the "
+        "signature predates the record of the versions it was signed with.",
+    )
 
 
 __all__ = [

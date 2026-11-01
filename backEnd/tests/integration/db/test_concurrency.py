@@ -15,8 +15,8 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from dbtest_support import Factory
-from sqlalchemy import func, select, text
+from dbtest_support import Factory, race
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -39,26 +39,6 @@ from basis.db.repositories import (
 from basis.db.session import session_scope
 
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
-
-HOLD_S = 0.3  # how long each contender keeps its transaction open after its write
-
-
-async def race[T](
-    sm: async_sessionmaker[AsyncSession],
-    *actions: Callable[[AsyncSession], Awaitable[T]],
-) -> list[T | BaseException]:
-    """Run each action in its own transaction, released together by a barrier."""
-    barrier = asyncio.Barrier(len(actions))
-
-    async def contender(action: Callable[[AsyncSession], Awaitable[T]]) -> T:
-        async with session_scope(sm) as session:
-            await session.execute(text("SELECT 1"))  # check out a connection first
-            await barrier.wait()
-            result = await action(session)
-            await asyncio.sleep(HOLD_S)
-            return result
-
-    return await asyncio.gather(*(contender(a) for a in actions), return_exceptions=True)
 
 
 def split(results: list[Any]) -> tuple[list[Any], list[BaseException]]:
@@ -340,7 +320,7 @@ async def test_archived_study_cannot_transition(
     study, _ = await setup_study(committed)
     async with session_scope(committed) as session:
         archived = await StudyRepository(session).archive(study.id)
-        assert archived.status is StudyStatus.ARCHIVED
+        assert archived.study.status is StudyStatus.ARCHIVED and archived.archived
     with pytest.raises(StaleStateError, match="archived"):
         async with session_scope(committed) as session:
             await StudyRepository(session).transition(

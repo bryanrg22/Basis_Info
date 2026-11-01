@@ -223,21 +223,27 @@ async def complete_upload(
         return document
     await verify_object(storage, document, uri)
     async with session_scope(sessionmaker) as session:
-        confirmed = await DocumentRepository(session).mark_uploaded(study_id, document_id)
-        await StudyEventRepository(session).record(
-            study_id,
-            "document.uploaded",
-            actor="engineer",
-            actor_id=user.id,
-            entity_type="document",
-            entity_id=document_id,
-            detail={
-                "kind": confirmed.kind.value,
-                "filename": confirmed.filename,
-                "bytes": confirmed.bytes,
-                "sha256": confirmed.sha256,
-            },
-        )
+        # Two confirmations of one upload at once both verify the object (it is immutable)
+        # and both reach here; the compare-and-set says which one set ``uploaded_at``, and
+        # only that one records the upload (docs/api/TIMELINE_AND_AUDIT.md: one
+        # ``document.uploaded`` per document).
+        outcome = await DocumentRepository(session).confirm_upload(study_id, document_id)
+        confirmed = outcome.document
+        if outcome.confirmed:
+            await StudyEventRepository(session).record(
+                study_id,
+                "document.uploaded",
+                actor="engineer",
+                actor_id=user.id,
+                entity_type="document",
+                entity_id=document_id,
+                detail={
+                    "kind": confirmed.kind.value,
+                    "filename": confirmed.filename,
+                    "bytes": confirmed.bytes,
+                    "sha256": confirmed.sha256,
+                },
+            )
         return DocumentOut.model_validate(confirmed)
 
 

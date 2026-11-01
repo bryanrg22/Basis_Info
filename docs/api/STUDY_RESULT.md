@@ -60,7 +60,8 @@ class); `.zip` is recorded for the city cost index, a follow-up.
 A violated rule is a `422` problem of type `.../validation` with the rule in `errors[].detail`,
 for example `points is not a capitalized acquisition cost: points are prepaid interest, deducted
 over the loan's term (Pub. 527); a loan cost, not basis (Pub. 551)`. Nothing is stored on a 422.
-`403` for a viewer, `404` for a study not visible, `409 stale-state` for an archived study.
+`403` for a viewer, `404` for a study not visible, `409 stale-state` for an archived study,
+`409 intake-locked` once the study has started (below).
 
 ### Versions and concurrent edits (`ETag`, `If-Match`)
 
@@ -108,6 +109,33 @@ factor, the property class). `GET /v1/studies/{id}/result` is computed from the 
 now and checks its pricing against the intake version each priced row recorded when it was
 priced, so a client holding a version can tell whether the numbers it shows were priced with
 the intake it saved (the result section below says how a stale pricing is reported).
+
+### Locked once the study starts (`409 intake-locked`, EVAL_REPORT 59)
+
+`PUT /v1/studies/{id}/intake` is accepted only while the study is `uploading`. From the start
+on (during the run, at a review gate, once completed, once the report is signed) it answers
+`409 intake-locked` (`BASIS-STUDY-031`), nothing is written and no event is recorded, whatever
+`If-Match` says. An archived study is still `409 stale-state` first.
+
+Why: `POST .../start` is the moment the engineer commits the inputs (it refuses an incomplete
+intake, above), and from then on the intake is read by the run and priced into every output:
+the cost year, the location factor and the property class go into each cost row's trail, the
+basis into the result, the export (`summary.basis`), the report and, once signed, a PDF that
+cannot change. An intake replaced in place after that would leave a result, an export or a
+signed report computed from inputs the study no longer shows, with nothing marking them stale
+(the pricing records the intake version it used, so a stale pricing could be *detected*, but a
+signed report could not be). Systems that version inputs feeding a committed output do the same:
+a closed accounting period is not edited, it is reopened; a signed envelope is not changed, a new
+version is sent. Changing the inputs of a started study is therefore a **reopen** (a new
+revision that runs the study again on the new inputs and is exported and signed on its own),
+not an edit in place; until that route exists, a study whose execution was cancelled can be
+run again from its uploads with `POST .../restart` (docs/api/WORKFLOW.md), and its intake is
+still the one it started with.
+
+The lock is decided under the study's row lock, so a write racing a start cannot slip through:
+with the start first, the write is `409 intake-locked`; with the write first, the start runs on
+the intake as written (tested on the routes). The result (`GET .../result`) still reads the
+stored intake; reads are never refused.
 
 ### Required before `start`
 

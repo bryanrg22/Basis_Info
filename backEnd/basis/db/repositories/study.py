@@ -17,6 +17,7 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from types import EllipsisType
 from typing import Any, Final, Literal
 
 from sqlalchemy import ColumnElement, and_, func, select, tuple_, update
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import OrgRole, Stage, StudyStatus, status_for_stage
 from basis.db.errors import (
+    IntakeLockedError,
     InvalidCursorError,
     NotVisibleError,
     PreconditionFailedError,
@@ -73,6 +75,15 @@ class Unarchived:
 
     study: Study
     restored: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Archived:
+    """What :meth:`StudyRepository.archive` did: the study as it is now, and whether this
+    call archived it (decided under the row lock, as :class:`Unarchived` is)."""
+
+    study: Study
+    archived: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,6 +411,13 @@ class StudyRepository:
             raise NotVisibleError(f"study {study_id} not found")
         if locked.status is StudyStatus.ARCHIVED:
             raise StaleStateError(f"study {study_id} is archived; its intake cannot change")
+        if locked.current_stage is not Stage.UPLOADING:
+            # Started: the run read this intake and the result and the report are priced
+            # from it (docs/api/STUDY_RESULT.md, "Locked once the study starts").
+            raise IntakeLockedError(
+                f"study {study_id} has started (stage {locked.current_stage.value}); its "
+                "intake is locked"
+            )
         before, seen = locked.intake, locked.intake_version
         if precondition is not None and not precondition(seen, before is not None):
             raise PreconditionFailedError(
@@ -448,8 +466,36 @@ class StudyRepository:
         stmt = select(Run).where(Run.study_id == study_id).order_by(Run.started_at, Run.id)
         return list((await self._session.scalars(stmt)).all())
 
-    async def archive(self, study_id: uuid.UUID) -> Study:
-        """Soft delete. Idempotent: archiving an archived study returns it unchanged."""
+    async def archive(
+        self, study_id: uuid.UUID, *, expected_workflow_id: str | None | EllipsisType = ...
+    ) -> Archived:
+        """Soft delete. Idempotent: archiving an archived study returns it unchanged,
+        ``archived`` false, so the caller records the change exactly when it made one
+        (two archives at once recorded two events before this; EVAL_REPORT 59).
+
+        ``expected_workflow_id`` is the workflow id the caller read before deciding the
+        study may be archived (none: never started; or one whose execution it found
+        closed). It is compared under the row lock: a study that was started in between
+        (``workflow_id`` set since) is ``StaleStateError`` and stays as it is, so an archive
+        can never land on a study whose execution has just begun (the route refuses to
+        archive a running study: docs/api/STUDY_LIBRARY.md). Left out: no comparison."""
+        locked = (
+            await self._session.scalars(
+                select(Study)
+                .where(Study.id == study_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one_or_none()
+        if locked is None:
+            raise NotVisibleError(f"study {study_id} not found")
+        if locked.status is StudyStatus.ARCHIVED:
+            return Archived(locked, archived=False)
+        if expected_workflow_id is not ... and locked.workflow_id != expected_workflow_id:
+            raise StaleStateError(
+                f"study {study_id} was started while the archive was decided "
+                f"(workflow {locked.workflow_id}); it is not archived"
+            )
         stmt = (
             update(Study)
             .where(Study.id == study_id, Study.status != StudyStatus.ARCHIVED)
@@ -457,13 +503,7 @@ class StudyRepository:
             .returning(Study)
             .execution_options(synchronize_session=False, populate_existing=True)
         )
-        study = (await self._session.scalars(stmt)).one_or_none()
-        if study is not None:
-            return study
-        existing = await self._session.get(Study, study_id, populate_existing=True)
-        if existing is None:
-            raise NotVisibleError(f"study {study_id} not found")
-        return existing
+        return Archived((await self._session.scalars(stmt)).one(), archived=True)
 
     async def unarchive(self, study_id: uuid.UUID) -> Unarchived:
         """Undo :meth:`archive`: the status the study had before it was archived, derived

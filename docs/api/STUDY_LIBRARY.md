@@ -93,12 +93,36 @@ restores the status the study's stage implies, the way the workflow derives it:
 | any, with a failure recorded (`failure_reason` set) | `failed` |
 
 Both are idempotent: archiving an archived study, or unarchiving one that is not archived,
-returns it unchanged and records nothing. Whether there is anything to restore is decided
-under the study's row lock, so several unarchives at once all answer 200 and exactly one
-records the change (the test holds the row locked while three requests queue on it). Each
-change is on the timeline (`study.archived`,
+returns it unchanged and records nothing. Whether there is anything to archive or restore is
+decided under the study's row lock, so several archives (or unarchives) at once all answer 200
+and exactly one records the change (the tests hold the row locked while the requests queue on
+it; EVAL_REPORT 56 and 59). Each change is on the timeline (`study.archived`,
 `study.unarchived` with `after.status`), in the audit listing (`archived`, `unarchived`), and
 in the owner's `GET /v1/me/activity`.
+
+### A running study is not archived (EVAL_REPORT 59)
+
+A study whose workflow execution is **running** (in progress, waiting at a review gate, or
+holding a failed stage for a retry) answers `409 workflow-running` (`BASIS-STUDY-030`) and is
+unchanged. The route asks Temporal (`describe`) when the study has a `workflow_id` and is not
+archived already; a study never started asks nothing. The owner cancels first
+(`POST /v1/studies/{id}/cancel`), waits for `GET .../workflow` to show `execution_status` other
+than `RUNNING` (the workflow stops its activities and records the run's end, a few seconds),
+then archives. An execution that ended any way (completed, cancelled, terminated, timed out,
+failed), or one Temporal no longer knows (retention), is over: the study archives.
+
+Why refuse rather than cancel on the owner's behalf: every transition activity refuses an
+archived study, so an execution left running would fail at its next step, and one left waiting
+at a gate would wait for a decision the API refuses; and a cancel is an explicit, recorded act
+(`study.cancel_requested` with its reason) that a soft delete should not perform silently.
+
+Two edges, both tested on the real workflow and on the routes:
+
+| Case | Answer |
+|---|---|
+| Temporal not configured or unreachable, and the study has a workflow | `503` (as on the workflow routes); a draft still archives, nothing can be running for it |
+| the study is started while the archive is being decided (an engineer's `POST .../start` lands between the route's read and its write) | the archive's compare-and-set (`workflow_id` must still be what the route read) finds the study started and answers `409 workflow-running`; the study stays `processing` with its execution |
+| a decision for an archived study (the execution was cancelled, then the study archived) | `409 stale-state` from the API; the closed execution refuses the update too. Unarchived, the study reads as it was (for example `waiting_review` at the gate) with a closed execution (`runs[].outcome` `cancelled`; the cancel signal ends the execution `COMPLETED` with that outcome, a Temporal-level cancel `CANCELED`): `POST .../restart` runs it again (docs/api/WORKFLOW.md) |
 
 ## 5. Moving the web app's library to the server
 

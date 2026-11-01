@@ -1044,7 +1044,10 @@ class ReportSignature(Base):
     """An engineer's signature on a revision's report (STUDY_REPORT_SPEC 11.13): who signed,
     the name and credentials they attested, the certification version, and the sha256 of the
     export, of the preview they reviewed and of the signed PDF. One per revision; never
-    updated (``forbid_mutation()``)."""
+    updated (``forbid_mutation()``). ``firm_profile_version`` and ``report_answers_version``
+    (migration 0024) are the versions of the two inputs the signed report was rendered with,
+    so ``GET .../report/state`` can say when an input changed after signing; NULL on a
+    signature recorded before they were kept."""
 
     __tablename__ = "report_signatures"
     __table_args__ = (
@@ -1069,6 +1072,8 @@ class ReportSignature(Base):
     reviewed_sha256: Mapped[str]
     pdf_uri: Mapped[str]
     pdf_sha256: Mapped[str]
+    firm_profile_version: Mapped[int | None]
+    report_answers_version: Mapped[int | None]
     created_at: Mapped[datetime] = _created_at()
 
 

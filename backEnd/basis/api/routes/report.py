@@ -275,7 +275,9 @@ async def get_firm_profile(
         "The whole profile (`logo_png` as base64, a PNG of at most 512 KB). "
         "`If-Match` with the `ETag` of the `GET` writes only while it is current (412 "
         "{REPORT_PROFILE_PRECONDITION_FAILED} with the current `ETag` otherwise); `*` only "
-        "over an existing profile. A signed report keeps the profile it was signed with."
+        "over an existing profile. A signed report keeps the profile it was signed with; "
+        "`GET .../report/state` of a signed study then lists `firm` in "
+        "`changed_since_signing`."
     ),
     responses=problems(403, 404, 412),
 )
@@ -334,7 +336,8 @@ async def get_report_answers(
         "visit, or photographs the taxpayer supplied: the report states which), interviews and "
         "prior depreciation. `If-Match` as on the intake "
         "(412 {REPORT_ANSWERS_PRECONDITION_FAILED}). 409 `stale-state` on an archived study. "
-        "A signed revision keeps the answers it was signed with."
+        "A signed revision keeps the answers it was signed with; `GET .../report/state` then "
+        "lists `study` in `changed_since_signing`."
     ),
     responses=problems(403, 404, 409, 412),
 )
@@ -453,6 +456,9 @@ def _signature_out(row: Any) -> SignatureOut:
 @reads.get(
     "/studies/{study_id}/report/state",
     summary="Where the current revision's report stands: exported, missing, signed",
+    description="Viewer role. Once the revision is signed, `changed_since_signing` lists "
+    "the inputs written after the signature (`firm`, `study`): the signed PDF is what was "
+    "signed, and the stored inputs no longer match it (docs/api/REPORT.md).",
     responses=problems(404),
 )
 async def report_state(
@@ -465,9 +471,16 @@ async def report_state(
     signature = await repo.signature(study.id, study.revision)
     inputs = await repo.inputs(study)
     firm = await repo.firm_profile(study.org_id)
+    firm_version = firm.version if firm else 0
     missing = list(missing_for_final(inputs))
+    changed: list[Any] | None = None
     if signature is not None:
         missing = [m for m in missing if m != "signature"]
+        changed = repo.changed_since_signing(
+            signature,
+            firm_profile_version=firm_version,
+            report_answers_version=study.report_answers_version,
+        )
     skipped = report.get("skipped")
     return ReportStateOut(
         study_id=study.id,
@@ -477,8 +490,9 @@ async def report_state(
         files=sorted((report.get("files") or {}).keys()),
         missing_for_final=missing,
         signature=None if signature is None else _signature_out(signature),
-        firm_profile_version=firm.version if firm else 0,
+        firm_profile_version=firm_version,
         report_answers_version=study.report_answers_version,
+        changed_since_signing=changed,
     )
 
 
@@ -550,6 +564,7 @@ async def sign_report(
         )
     export = await _current_export(session, storage, study)
     inputs = await repo.inputs(study)
+    firm = await repo.firm_profile(study.org_id)
     missing = [m for m in missing_for_final(inputs) if m != "signature"]
     if missing:
         raise Conflict(
@@ -600,6 +615,9 @@ async def sign_report(
             reviewed_sha256=body.reviewed_sha256,
             pdf_uri=pdf_uri,
             pdf_sha256=pdf_sha256,
+            # The inputs' versions under the same lock as the render: what was signed.
+            firm_profile_version=firm.version if firm else 0,
+            report_answers_version=study.report_answers_version,
         )
     except ConflictError as exc:  # pragma: no cover - checked above under the same lock
         raise Conflict(str(exc), code=E.REPORT_ALREADY_SIGNED) from exc
@@ -620,6 +638,8 @@ async def sign_report(
             "pdf_sha256": pdf_sha256,
             "pdf_uri": pdf_uri,
             "signer_email": user.user.email,
+            "firm_profile_version": row.firm_profile_version,
+            "report_answers_version": row.report_answers_version,
         },
     )
     return _signature_out(row)

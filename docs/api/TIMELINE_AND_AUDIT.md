@@ -70,8 +70,8 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 
 | `event_type` | Actor | When | Carries |
 |---|---|---|---|
-| `study.created`, `study.intake_set`, `study.archived`, `study.unarchived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md); `unarchived`: `after.status` the status it came back to (docs/api/STUDY_LIBRARY.md) |
-| `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256 |
+| `study.created`, `study.intake_set`, `study.archived`, `study.unarchived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md); `archived` and `unarchived` once per change, decided under the row lock (a repeat or a concurrent request records nothing); `unarchived`: `after.status` the status it came back to (docs/api/STUDY_LIBRARY.md) |
+| `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256. Once per document: of two confirmations at once only the one that set `uploaded_at` records it (EVAL_REPORT 59) |
 | `study.started` | engineer | `POST .../start` moved the study to `extracting` | `detail.workflow_id` |
 | `run.started`, `run.ended` | system | the Temporal execution | `detail.outcome` on the end |
 | `stage.entered` | engineer or system | the study row moved (a decision moves it first; the workflow's `transition` converges) | `before`/`after` stage and revision |

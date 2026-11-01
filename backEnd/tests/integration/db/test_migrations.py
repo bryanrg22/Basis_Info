@@ -104,8 +104,8 @@ from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0023"
-HISTORY = [f"{n:04d}" for n in range(23, 0, -1)]  # "0023" .. "0001"
+HEAD = "0024"
+HISTORY = [f"{n:04d}" for n in range(24, 0, -1)]  # "0024" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}

@@ -7,14 +7,14 @@ Against the real application and a real PostgreSQL container; Firebase is replac
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from apitest_support import COMPLETE_INTAKE, Api, Seed, bearer
-from sqlalchemy import select, text, update
+from dbtest_support import queued_behind_a_lock
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.db.enums import OrgRole, Stage, StudyStatus
@@ -277,19 +277,22 @@ async def test_unknown_sort_is_422(api: Api) -> None:
 # --------------------------------------------------------------------------- unarchive
 
 
-async def unarchived_events(
-    sm: async_sessionmaker[AsyncSession], study_id: str
+async def events_of(
+    sm: async_sessionmaker[AsyncSession], study_id: str, event_type: str
 ) -> list[StudyEvent]:
     async with sm() as session:
         rows = await session.scalars(
             select(StudyEvent)
-            .where(
-                StudyEvent.study_id == uuid.UUID(study_id),
-                StudyEvent.event_type == "study.unarchived",
-            )
+            .where(StudyEvent.study_id == uuid.UUID(study_id), StudyEvent.event_type == event_type)
             .order_by(StudyEvent.seq)
         )
         return list(rows.all())
+
+
+async def unarchived_events(
+    sm: async_sessionmaker[AsyncSession], study_id: str
+) -> list[StudyEvent]:
+    return await events_of(sm, study_id, "study.unarchived")
 
 
 async def test_unarchive_restores_the_status_the_stage_implies(
@@ -334,23 +337,8 @@ async def test_unarchive_is_idempotent_and_records_only_the_change(
     assert len(await unarchived_events(sessionmaker, study["id"])) == 1
 
 
-async def backends(session: AsyncSession) -> list[tuple[Any, ...]]:
-    """The other backends of this database: state, what they wait on, their last query.
-
-    Read fresh each time: PostgreSQL keeps the first activity snapshot of a transaction for
-    the rest of it, and the caller polls from inside the one that holds the row lock."""
-    await session.execute(text("SELECT pg_stat_clear_snapshot()"))
-    rows = await session.execute(
-        text(
-            "SELECT state, wait_event_type, wait_event, left(query, 60) FROM pg_stat_activity "
-            "WHERE datname = current_database() AND pid <> pg_backend_pid()"
-        )
-    )
-    return [tuple(row) for row in rows.all()]
-
-
-def waiting_on_a_lock(rows: list[tuple[Any, ...]]) -> int:
-    return sum(1 for row in rows if row[1] == "Lock")
+def row_lock(study_id: str) -> Any:
+    return select(Study).where(Study.id == uuid.UUID(study_id)).with_for_update()
 
 
 async def test_concurrent_unarchives_record_one_event(
@@ -361,28 +349,38 @@ async def test_concurrent_unarchives_record_one_event(
     The study's row is held locked by this test while the three requests are sent, so all
     three read the study as ``archived`` before any of them can restore it (the interleaving
     that CI hit by chance, 2 of 20 rounds here without the lock); the lock is released once
-    all three wait on it. The guard then has to be the repository's, taken under the lock:
-    one taken from the route's earlier read recorded three events (verified by reverting it).
+    all three wait on it (``queued_behind_a_lock``). The guard then has to be the
+    repository's, taken under the lock: one taken from the route's earlier read recorded
+    three events (verified by reverting it).
     """
     study = await api.create_study("alice")
     await api.delete("alice", f"/v1/studies/{study['id']}")
-    study_id = uuid.UUID(study["id"])
-    async with sessionmaker() as locker:
-        async with locker.begin():
-            await locker.execute(select(Study).where(Study.id == study_id).with_for_update())
-            requests = [
-                asyncio.create_task(api.post("alice", f"/v1/studies/{study['id']}/unarchive"))
-                for _ in range(3)
-            ]
-            deadline = asyncio.get_running_loop().time() + 10
-            while waiting_on_a_lock(rows := await backends(locker)) < 3:
-                assert asyncio.get_running_loop().time() < deadline, f"never blocked: {rows}"
-                await asyncio.sleep(0.02)
-        # The commit released the lock: the three requests now take it one after another.
-        responses = await asyncio.gather(*requests)
+    unarchive = f"/v1/studies/{study['id']}/unarchive"
+    responses = await queued_behind_a_lock(
+        sessionmaker, row_lock(study["id"]), *[lambda: api.post("alice", unarchive)] * 3
+    )
     assert {r.status_code for r in responses} == {200}
     assert {r.json()["status"] for r in responses} == {"draft"}
     assert len(await unarchived_events(sessionmaker, study["id"])) == 1
+
+
+async def test_concurrent_archives_record_one_event(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The mirror of the unarchive race (EVAL_REPORT 59): two archives of one draft at once
+    both answer 200 and the timeline says ``study.archived`` once. Before the repository
+    decided under the row lock, the route recorded an event per request."""
+    study = await api.create_study("alice")
+    archive = f"/v1/studies/{study['id']}"
+    responses = await queued_behind_a_lock(
+        sessionmaker, row_lock(study["id"]), *[lambda: api.delete("alice", archive)] * 2
+    )
+    assert [r.status_code for r in responses] == [200, 200]
+    assert {r.json()["status"] for r in responses} == {"archived"}
+    assert len(await events_of(sessionmaker, study["id"], "study.archived")) == 1
+    # A repeat later records nothing more either.
+    assert (await api.delete("alice", archive)).status_code == 200
+    assert len(await events_of(sessionmaker, study["id"], "study.archived")) == 1
 
 
 @pytest.mark.parametrize("role", [OrgRole.ENGINEER, OrgRole.VIEWER])

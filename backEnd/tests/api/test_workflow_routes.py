@@ -12,8 +12,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from apitest_support import (
+    BASE_URL,
     COMPLETE_INTAKE,
     Api,
     FakeVerifier,
@@ -22,15 +24,18 @@ from apitest_support import (
     bearer,
     build_api_app,
 )
+from dbtest_support import queued_behind_a_lock
 from fastapi import FastAPI
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from workflowtest_support import FakeWorkflowService
 
 from basis.api.errors import PROBLEM_JSON
 from basis.api.idempotency import REPLAYED_HEADER
 from basis.db.enums import OrgRole, Stage, StudyStatus
-from basis.db.models import Run, Study
+from basis.db.models import Run, Study, StudyEvent
 from basis.db.session import session_scope
+from basis.errors.codes import E
 from basis.storage import LocalStorage
 from basis.workflow.contracts import StudyStatusView
 
@@ -594,15 +599,162 @@ async def test_a_failed_study_shows_its_status_and_reason(
 # --------------------------------------------------------------------------- wiring
 
 
+# ------------------------------------------------------------------- archive (EVAL_REPORT 59)
+
+
+async def archived_events(sm: async_sessionmaker[AsyncSession], sid: str) -> int:
+    async with sm() as session:
+        rows = await session.scalars(
+            select(StudyEvent).where(
+                StudyEvent.study_id == uuid.UUID(sid), StudyEvent.event_type == "study.archived"
+            )
+        )
+        return len(rows.all())
+
+
+async def test_archive_is_refused_while_the_execution_runs(
+    api: Api,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    workflows: FakeWorkflowService,
+) -> None:
+    """A started study is archived only once its execution has closed. While Temporal says
+    ``RUNNING`` (in progress, at a gate, or holding a failure for a retry) the answer is
+    409 ``workflow-running`` BASIS-STUDY-030 and nothing changes; after a cancel (or any
+    other end: failed, terminated, timed out, completed) the archive proceeds and is
+    recorded once. Temporal unreachable: 503, nothing changes. Temporal that has forgotten
+    the execution (retention): it is over, the study archives."""
+    sid = await ready_study(api, storage)
+    started = await api.post("alice", f"/v1/studies/{sid}/start")
+    assert started.status_code == 202
+    execution = workflows.executions[started.json()["workflow_id"]]
+    for view in (None, failed_view()):
+        execution.view = view
+        body = problem(await api.delete("alice", f"/v1/studies/{sid}"), 409, "workflow-running")
+        assert body["code"] == E.STUDY_ARCHIVE_WHILE_RUNNING and "cancel" in body["detail"]
+    assert (await load(sessionmaker, sid)).status is StudyStatus.PROCESSING
+    assert await archived_events(sessionmaker, sid) == 0
+
+    workflows.unavailable = True
+    problem(await api.delete("alice", f"/v1/studies/{sid}"), 503, "service-unavailable")
+    workflows.unavailable = False
+    assert (await load(sessionmaker, sid)).status is StudyStatus.PROCESSING
+
+    assert (await api.post("alice", f"/v1/studies/{sid}/cancel")).status_code == 202
+    execution.status = "CANCELED"  # the workflow ended: what the signal leads to
+    archived = await api.delete("alice", f"/v1/studies/{sid}")
+    assert archived.status_code == 200 and archived.json()["status"] == "archived"
+    assert await archived_events(sessionmaker, sid) == 1
+    # Archived already: a repeat does not ask Temporal (even unreachable) and records nothing.
+    workflows.unavailable = True
+    assert (await api.delete("alice", f"/v1/studies/{sid}")).status_code == 200
+    assert await archived_events(sessionmaker, sid) == 1
+    workflows.unavailable = False
+
+    for ended in ("COMPLETED", "FAILED", "TERMINATED", "TIMED_OUT"):
+        other = await ready_study(api, storage)
+        run = await api.post("alice", f"/v1/studies/{other}/start")
+        workflows.executions[run.json()["workflow_id"]].status = ended
+        assert (await api.delete("alice", f"/v1/studies/{other}")).status_code == 200, ended
+    forgotten = await ready_study(api, storage)
+    run = await api.post("alice", f"/v1/studies/{forgotten}/start")
+    del workflows.executions[run.json()["workflow_id"]]
+    assert (await api.delete("alice", f"/v1/studies/{forgotten}")).status_code == 200
+
+
+async def test_archive_of_a_started_study_needs_temporal(
+    database_url: str,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    verifier: FakeVerifier,
+) -> None:
+    """With Temporal not configured a draft still archives (nothing can be running), but a
+    study with a workflow is 503: whether its execution runs cannot be known."""
+    app = build_api_app(api_settings(database_url), sessionmaker, LocalStorage(tmp_path), verifier)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE_URL) as http:
+        api = Api(http)
+        draft = (await api.create_study("alice"))["id"]
+        assert (await api.delete("alice", f"/v1/studies/{draft}")).status_code == 200
+        started = (await api.create_study("alice"))["id"]
+        async with sessionmaker() as session, session.begin():
+            await session.execute(
+                update(Study)
+                .where(Study.id == uuid.UUID(started))
+                .values(workflow_id=f"study-{started}", current_stage=Stage.EXTRACTING)
+            )
+        body = problem(await api.delete("alice", f"/v1/studies/{started}"), 503)
+        assert body["detail"] == "Temporal is not configured."
+        assert (await load(sessionmaker, started)).status is not StudyStatus.ARCHIVED
+
+
+async def test_a_start_and_an_archive_at_once_leave_the_study_running(
+    api: Api,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    workflows: FakeWorkflowService,
+) -> None:
+    """The owner archives a draft while an engineer starts it. Both read the study as a
+    draft with no workflow; held on the row lock with the start first in the queue, the
+    start moves the study and records its workflow, and the archive's compare-and-set
+    (``workflow_id`` still none) finds the study started and refuses: 202 and 409
+    ``workflow-running``, the study ``processing`` with its execution, no ``study.archived``
+    event. Without the compare-and-set (verified by dropping ``expected_workflow_id``) the
+    archive lands on a study whose execution has just begun."""
+    sid = await ready_study(api, storage)
+    lock = select(Study).where(Study.id == uuid.UUID(sid)).with_for_update()
+    started, archived = await queued_behind_a_lock(
+        sessionmaker,
+        lock,
+        lambda: api.post("alice", f"/v1/studies/{sid}/start"),
+        lambda: api.delete("alice", f"/v1/studies/{sid}"),
+    )
+    assert started.status_code == 202, started.text
+    body = problem(archived, 409, "workflow-running")
+    assert body["code"] == E.STUDY_ARCHIVE_WHILE_RUNNING
+    row = await load(sessionmaker, sid)
+    assert (row.status, row.current_stage, row.workflow_id) == (
+        StudyStatus.PROCESSING,
+        Stage.EXTRACTING,
+        started.json()["workflow_id"],
+    )
+    assert len(workflows.executions) == 1
+    assert await archived_events(sessionmaker, sid) == 0
+
+
+async def test_a_start_and_an_intake_write_at_once_leave_the_intake_the_run_read(
+    api: Api,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    workflows: FakeWorkflowService,
+) -> None:
+    """An engineer saves the intake while another starts the study. Both read a draft; with
+    the start first on the row lock, the write finds the study started under the lock and is
+    409 ``intake-locked``: the run prices from the intake it read, and the intake the
+    engineer saw is the one on the row (version unchanged, no event)."""
+    sid = await ready_study(api, storage)
+    lock = select(Study).where(Study.id == uuid.UUID(sid)).with_for_update()
+    changed = {**COMPLETE_INTAKE, "purchase_price": "1.00"}
+    started, written = await queued_behind_a_lock(
+        sessionmaker,
+        lock,
+        lambda: api.post("alice", f"/v1/studies/{sid}/start"),
+        lambda: api.client.put(f"/v1/studies/{sid}/intake", json=changed, headers=bearer("alice")),
+    )
+    assert started.status_code == 202, started.text
+    body = problem(written, 409, "intake-locked")
+    assert body["code"] == E.STUDY_INTAKE_LOCKED
+    read = (await api.get("alice", f"/v1/studies/{sid}/intake")).json()
+    assert read["intake"]["purchase_price"] == COMPLETE_INTAKE["purchase_price"]
+    assert read["intake_version"] == 1
+    assert len(workflows.start_calls) == 1
+
+
 async def test_routes_are_503_when_temporal_is_not_configured(
     database_url: str,
     sessionmaker: async_sessionmaker[AsyncSession],
     tmp_path: Path,
     verifier: FakeVerifier,
 ) -> None:
-    import httpx
-    from apitest_support import BASE_URL
-
     app = build_api_app(api_settings(database_url), sessionmaker, LocalStorage(tmp_path), verifier)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE_URL) as http:
         api = Api(http)

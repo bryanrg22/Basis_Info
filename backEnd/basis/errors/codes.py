@@ -121,6 +121,9 @@ class E:
     STUDY_CORRECTION_REBUILT = "BASIS-STUDY-022"
     STUDY_CORRECTION_LAST_INVENTORY = "BASIS-STUDY-023"
     STUDY_CORRECTION_FIELD_EXISTS = "BASIS-STUDY-024"
+    # 025-029: gate drafts, resumable uploads and restart (docs/api/GATE_DRAFTS_AND_RESUME.md).
+    STUDY_ARCHIVE_WHILE_RUNNING = "BASIS-STUDY-030"
+    STUDY_INTAKE_LOCKED = "BASIS-STUDY-031"
 
     # ---------------------------------------------------------------- photo objects (API)
     OBJECT_LOCALIZATION_PENDING = "BASIS-OBJECT-001"

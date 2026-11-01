@@ -165,7 +165,7 @@
           "studies"
         ],
         "summary": "Set or replace the study's intake (engineer)",
-        "description": "The whole intake, validated as one document (docs/api/STUDY_RESULT.md): a non-capitalizable cost category, a land method without its input, or a use that fails the 80 % test is a 422 naming the rule. `state`/`zip` left out are filled from the appraisal's subject fields. No `Idempotency-Key` is needed. Optimistic concurrency: with `If-Match` (the `ETag` of `GET .../intake`) the write happens only while that tag is current; otherwise 412 `precondition-failed` with the current `ETag`, nothing written (re-read, reapply, retry). `If-Match: *` writes only over an existing intake. Without `If-Match` the write is accepted, unless the deployment requires it (`INTAKE_REQUIRE_IF_MATCH`: 428 `precondition-required`). Every write increments `intake_version`; the response carries the new `ETag`. The result's pricing is checked against the intake version. 409 `stale-state` on an archived study.",
+        "description": "The whole intake, validated as one document (docs/api/STUDY_RESULT.md): a non-capitalizable cost category, a land method without its input, or a use that fails the 80 % test is a 422 naming the rule. `state`/`zip` left out are filled from the appraisal's subject fields. No `Idempotency-Key` is needed. Optimistic concurrency: with `If-Match` (the `ETag` of `GET .../intake`) the write happens only while that tag is current; otherwise 412 `precondition-failed` with the current `ETag`, nothing written (re-read, reapply, retry). `If-Match: *` writes only over an existing intake. Without `If-Match` the write is accepted, unless the deployment requires it (`INTAKE_REQUIRE_IF_MATCH`: 428 `precondition-required`). Every write increments `intake_version`; the response carries the new `ETag`. The result's pricing is checked against the intake version. 409 `stale-state` on an archived study; 409 `intake-locked` once the study has started (the run, the result and the report are priced from the intake: a change is a reopen, not an edit in place).",
         "operationId": "put_intake_v1_studies__study_id__intake_put",
         "security": [
           {
@@ -781,6 +781,7 @@
           "studies"
         ],
         "summary": "Archive a study (soft delete; owner only)",
+        "description": "A study that never started, or whose execution has ended (completed, cancelled, terminated, timed out, failed), is archived and `study.archived` recorded once; archiving an archived study returns it unchanged. While the execution is running (in progress, at a review gate, or waiting for a retry) the answer is 409 `workflow-running`: cancel it first (`POST .../cancel`). A study that is started while the archive is decided is left as it is (the same 409). docs/api/STUDY_LIBRARY.md.",
         "operationId": "archive_study_v1_studies__study_id__delete",
         "security": [
           {
@@ -3182,7 +3183,7 @@
           "report"
         ],
         "summary": "Set or replace the firm's report profile (owner)",
-        "description": "The whole profile (`logo_png` as base64, a PNG of at most 512 KB). `If-Match` with the `ETag` of the `GET` writes only while it is current (412 BASIS-REPORT-011 with the current `ETag` otherwise); `*` only over an existing profile. A signed report keeps the profile it was signed with.",
+        "description": "The whole profile (`logo_png` as base64, a PNG of at most 512 KB). `If-Match` with the `ETag` of the `GET` writes only while it is current (412 BASIS-REPORT-011 with the current `ETag` otherwise); `*` only over an existing profile. A signed report keeps the profile it was signed with; `GET .../report/state` of a signed study then lists `firm` in `changed_since_signing`.",
         "operationId": "put_firm_profile_v1_orgs__org_id__profile_put",
         "security": [
           {
@@ -3440,7 +3441,7 @@
           "report"
         ],
         "summary": "Set or replace the study's answers for the report (engineer)",
-        "description": "The taxpayer, who photographed the property and when (an engineer's site visit, or photographs the taxpayer supplied: the report states which), interviews and prior depreciation. `If-Match` as on the intake (412 BASIS-REPORT-012). 409 `stale-state` on an archived study. A signed revision keeps the answers it was signed with.",
+        "description": "The taxpayer, who photographed the property and when (an engineer's site visit, or photographs the taxpayer supplied: the report states which), interviews and prior depreciation. `If-Match` as on the intake (412 BASIS-REPORT-012). 409 `stale-state` on an archived study. A signed revision keeps the answers it was signed with; `GET .../report/state` then lists `study` in `changed_since_signing`.",
         "operationId": "put_report_answers_v1_studies__study_id__report_answers_put",
         "security": [
           {
@@ -3609,6 +3610,7 @@
           "report"
         ],
         "summary": "Where the current revision's report stands: exported, missing, signed",
+        "description": "Viewer role. Once the revision is signed, `changed_since_signing` lists the inputs written after the signature (`firm`, `study`): the signed PDF is what was signed, and the stored inputs no longer match it (docs/api/REPORT.md).",
         "operationId": "report_state_v1_studies__study_id__report_state_get",
         "security": [
           {
@@ -15577,6 +15579,25 @@
           "report_answers_version": {
             "type": "integer",
             "title": "Report Answers Version"
+          },
+          "changed_since_signing": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "firm",
+                    "study"
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed Since Signing",
+            "description": "Once signed: the inputs written after the signature (`firm`: the firm profile, `study`: the report answers). The signed PDF is unchanged; the stored inputs no longer match it. `[]` when none changed; null while unsigned, or when the signature predates the record of the versions it was signed with."
           }
         },
         "type": "object",
@@ -16518,6 +16539,30 @@
           "pdf_sha256": {
             "type": "string",
             "title": "Pdf Sha256"
+          },
+          "firm_profile_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firm Profile Version",
+            "description": "The firm profile's version the report was signed with (null on a signature recorded before it was kept)."
+          },
+          "report_answers_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Answers Version",
+            "description": "The report answers' version the report was signed with (null as above)."
           }
         },
         "type": "object",
@@ -16531,7 +16576,9 @@
           "statement_version",
           "export_sha256",
           "reviewed_sha256",
-          "pdf_sha256"
+          "pdf_sha256",
+          "firm_profile_version",
+          "report_answers_version"
         ],
         "title": "SignatureOut"
       },

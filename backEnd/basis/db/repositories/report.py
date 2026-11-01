@@ -177,9 +177,12 @@ class ReportRepository:
         reviewed_sha256: str,
         pdf_uri: str,
         pdf_sha256: str,
+        firm_profile_version: int,
+        report_answers_version: int,
     ) -> ReportSignature:
         """Insert the revision's signature. Call under :meth:`lock_study`; a revision that
-        already has one is ``ConflictError``."""
+        already has one is ``ConflictError``. The two versions are the inputs' at signing
+        (:meth:`changed_since_signing` compares them with the current ones)."""
         if await self.signature(study_id, revision) is not None:
             raise ConflictError(f"revision {revision} of study {study_id} is already signed")
         row = ReportSignature(
@@ -194,10 +197,30 @@ class ReportRepository:
             reviewed_sha256=reviewed_sha256,
             pdf_uri=pdf_uri,
             pdf_sha256=pdf_sha256,
+            firm_profile_version=firm_profile_version,
+            report_answers_version=report_answers_version,
         )
         self._session.add(row)
         await self._session.flush()
         return row
+
+    @staticmethod
+    def changed_since_signing(
+        signature: ReportSignature, *, firm_profile_version: int, report_answers_version: int
+    ) -> list[str] | None:
+        """Which inputs were written after the signature: ``firm`` (the firm's profile),
+        ``study`` (the report answers), in that order; ``None`` when the signature predates
+        the record of the versions it was signed with (migration 0024). The signed PDF is
+        unchanged either way; the state tells the engineer that the stored inputs no longer
+        match it (docs/api/REPORT.md, "After signing")."""
+        if signature.firm_profile_version is None or signature.report_answers_version is None:
+            return None
+        changed: list[str] = []
+        if firm_profile_version != signature.firm_profile_version:
+            changed.append("firm")
+        if report_answers_version != signature.report_answers_version:
+            changed.append("study")
+        return changed
 
     # ------------------------------------------------------------------ the inputs
 

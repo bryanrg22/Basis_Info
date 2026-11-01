@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-264 codes in 20 areas.
+266 codes in 20 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -123,6 +123,8 @@ stale).
 | `BASIS-STUDY-022` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | A `component_remove` names a row the rejection rebuilds anyway: an inventory row of a room with a photo flagged for re-analysis (or a merged room), or a row of a flagged photo; corrections of rebuilt rows are not carried. | 422 `validation`, `errors[].type` `correction_rebuilt` at the removal's `entity_id`. (type `validation`) | Drop the removal (or the re-analysis) and remove the row from the next revision. | yes |
 | `BASIS-STUDY-023` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | The decision removes every inventory row of a reconciled room: the room would fall back to its per-photo rows and the room step would rebuild the inventory. | 422 `validation`, `errors[].type` `correction_last_inventory` at each removal of that room. (type `validation`) | Keep at least one inventory row (correct it), or flag the room's photos for re-analysis. | yes |
 | `BASIS-STUDY-024` | refusal | `POST .../decisions`; `basis.api.routes.decisions` | An `extraction_field_add` names a key the extraction already has. | 422 `validation`, `errors[].type` `correction_field_exists` at `after`. (type `validation`) | Correct the existing field with an `extraction_field` correction. | yes |
+| `BASIS-STUDY-030` | refusal | `DELETE /v1/studies/{id}`; `basis.api.routes.studies` | The study's workflow execution is running (in progress, waiting at a review gate, or holding a failed stage for a retry), or the study was started while the archive was being decided. Archiving it would leave an execution working on a study its activities may no longer move (every transition refuses an archived study), so the archive is refused rather than silently stopping or failing the run. | 409 `workflow-running`; the study is unchanged. (type `workflow-running`) | Cancel the study first (`POST /v1/studies/{id}/cancel`); once its execution has closed (`GET .../workflow` `execution_status` not `RUNNING`), archive it. | after fix |
+| `BASIS-STUDY-031` | refusal | `PUT /v1/studies/{id}/intake`; `basis.db.repositories.study` | The study has started: the run read its intake, and the result and the report are priced from it (the cost year, the location factor, the property class, the basis). Replacing it in place would change a result, an export or a signed report after the fact with nothing marking them stale. | 409 `intake-locked`; nothing is written, no event. (type `intake-locked`) | Changing the inputs of a started study is a reopen (a new revision), not an edit in place; the intake can be replaced while the study is `uploading` (docs/api/STUDY_RESULT.md). | no |
 
 ## OBJECT: Photo objects (an engineer's selections)
 

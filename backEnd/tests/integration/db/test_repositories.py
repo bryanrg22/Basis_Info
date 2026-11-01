@@ -156,9 +156,16 @@ async def test_archive_is_idempotent(session: AsyncSession, make: Factory) -> No
     repo = StudyRepository(session)
     first = await repo.archive(study.id)
     second = await repo.archive(study.id)
-    assert first.status is second.status is StudyStatus.ARCHIVED
+    assert first.study.status is second.study.status is StudyStatus.ARCHIVED
+    assert (first.archived, second.archived) == (True, False)
     with pytest.raises(NotVisibleError):
         await repo.archive(uuid.uuid4())
+    # The caller read no workflow; a start that landed since leaves the study alone.
+    started = await make.study(stage=Stage.EXTRACTING)
+    await session.execute(update(Study).where(Study.id == started.id).values(workflow_id="w"))
+    with pytest.raises(StaleStateError, match="started"):
+        await repo.archive(started.id, expected_workflow_id=None)
+    assert (await repo.archive(started.id, expected_workflow_id="w")).archived
 
 
 # --------------------------------------------------------------------- reviews

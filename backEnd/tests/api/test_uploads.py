@@ -12,7 +12,8 @@ from typing import Any
 
 import pytest
 from apitest_support import Api, Seed, sha256_hex
-from sqlalchemy import select
+from dbtest_support import queued_behind_a_lock
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.errors import PROBLEM_JSON
@@ -357,3 +358,70 @@ async def test_non_member_cannot_upload_or_confirm(api: Api, storage: LocalStora
     assert (await api.request_upload("bob", study["id"], b"x")).status_code == 404
     response = await api.post("bob", complete_path(study["id"], ticket["document"]["id"]))
     assert response.status_code == 404
+
+
+# --------------------------------------------------------------------- races (EVAL_REPORT 59)
+
+
+async def document_rows(sm: async_sessionmaker[AsyncSession], study_id: str) -> list[Document]:
+    async with sm() as session:
+        rows = await session.scalars(
+            select(Document).where(Document.study_id == uuid.UUID(study_id))
+        )
+        return list(rows.all())
+
+
+async def test_two_registrations_of_one_sha256_at_once_create_one_document(
+    api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Two tabs register the same file at the same moment. Nothing is locked before the
+    insert, so the race is made real with a table lock both inserts wait on; released, the
+    two inserts are granted together (their own locks do not conflict) and the unique key
+    ``(study_id, sha256)`` arbitrates: one inserts, the other waits on the key until the
+    first commits, then fails inside its savepoint and the route answers 409
+    ``duplicate-document`` naming the winner. Which request wins is the index's choice, so
+    the assertions are order-free. One row; only the winner got an upload URL. Without the
+    unique key (verified by dropping it) both are 201 and two rows exist."""
+    study = await api.create_study("alice")
+    lock = text("LOCK TABLE documents IN SHARE ROW EXCLUSIVE MODE")
+    responses = await queued_behind_a_lock(
+        sessionmaker,
+        lock,
+        lambda: api.request_upload("alice", study["id"], PDF),
+        lambda: api.request_upload("alice", study["id"], PDF),
+    )
+    assert sorted(r.status_code for r in responses) == [201, 409], [r.text for r in responses]
+    created = next(r for r in responses if r.status_code == 201)
+    refused = next(r for r in responses if r.status_code == 409)
+    winner = created.json()["document"]["id"]
+    problem = refused.json()
+    assert problem["type"].endswith("/duplicate-document") and winner in problem["detail"]
+    assert [str(row.id) for row in await document_rows(sessionmaker, study["id"])] == [winner]
+    listed = (await api.get("alice", f"/v1/studies/{study['id']}")).json()["documents"]
+    assert [d["id"] for d in listed] == [winner]
+
+
+async def test_two_confirmations_of_one_upload_at_once_record_one_event(
+    api: Api, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Both confirmations read the document unconfirmed, both verify the object (it is
+    immutable), both reach the compare-and-set; held on the document's row lock until both
+    are there, exactly one sets ``uploaded_at``. Both answer 200 with the same document and
+    the timeline says ``document.uploaded`` once (it said it twice before the route asked
+    the repository which call confirmed; EVAL_REPORT 59)."""
+    study = await api.create_study("alice")
+    ticket = await upload(api, "alice", study["id"])
+    doc_id = ticket["document"]["id"]
+    storage.put_signed(ticket["upload"]["url"], PDF, ticket["upload"]["headers"])
+    path = complete_path(study["id"], doc_id)
+    lock = select(Document).where(Document.id == uuid.UUID(doc_id)).with_for_update()
+    first, second = await queued_behind_a_lock(
+        sessionmaker, lock, lambda: api.post("alice", path), lambda: api.post("alice", path)
+    )
+    assert (first.status_code, second.status_code) == (200, 200), (first.text, second.text)
+    assert first.json() == second.json() and first.json()["uploaded_at"] is not None
+    timeline = await api.get(
+        "alice", f"/v1/studies/{study['id']}/timeline", params={"event_type": "document.uploaded"}
+    )
+    [event] = timeline.json()["items"]
+    assert event["entity_id"] == doc_id

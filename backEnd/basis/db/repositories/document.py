@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass
 from typing import Final
 
 from sqlalchemy import exists, select, update
@@ -17,6 +18,14 @@ from basis.db.models import Document
 
 SHA256_RE: Final = re.compile(r"^[0-9a-f]{64}$")
 _DUPLICATE_CONSTRAINTS: Final = frozenset({"uq_documents_study_id_sha256", "uq_documents_gcs_uri"})
+
+
+@dataclass(frozen=True, slots=True)
+class Confirmed:
+    """What :meth:`DocumentRepository.confirm_upload` did."""
+
+    document: Document
+    confirmed: bool
 
 
 def normalize_sha256(value: str) -> str:
@@ -74,8 +83,12 @@ class DocumentRepository:
         await self._session.refresh(document)
         return document
 
-    async def get(self, study_id: uuid.UUID, document_id: uuid.UUID) -> Document | None:
+    async def get(
+        self, study_id: uuid.UUID, document_id: uuid.UUID, *, populate_existing: bool = False
+    ) -> Document | None:
         stmt = select(Document).where(Document.id == document_id, Document.study_id == study_id)
+        if populate_existing:
+            stmt = stmt.execution_options(populate_existing=True)
         return (await self._session.scalars(stmt)).one_or_none()
 
     async def find_by_sha256(self, study_id: uuid.UUID, sha256: str) -> Document | None:
@@ -105,6 +118,13 @@ class DocumentRepository:
 
     async def mark_uploaded(self, study_id: uuid.UUID, document_id: uuid.UUID) -> Document:
         """Set ``uploaded_at = now()`` once. Idempotent: a second call returns the row as is."""
+        return (await self.confirm_upload(study_id, document_id)).document
+
+    async def confirm_upload(self, study_id: uuid.UUID, document_id: uuid.UUID) -> Confirmed:
+        """:meth:`mark_uploaded`, saying whether this call set ``uploaded_at``: the
+        compare-and-set (``WHERE uploaded_at IS NULL``) decides under the row lock, so of
+        two confirmations at once exactly one is ``confirmed`` and records the upload
+        (both recorded it before this; EVAL_REPORT 59)."""
         stmt = (
             update(Document)
             .where(
@@ -118,8 +138,8 @@ class DocumentRepository:
         )
         document = (await self._session.scalars(stmt)).one_or_none()
         if document is not None:
-            return document
-        existing = await self.get(study_id, document_id)
+            return Confirmed(document, confirmed=True)
+        existing = await self.get(study_id, document_id, populate_existing=True)
         if existing is None:
             raise NotVisibleError(f"document {document_id} not found in study {study_id}")
-        return existing
+        return Confirmed(existing, confirmed=False)
