@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from basis.api.routes import (
+    activity,
     cost_indices,
     decisions,
     documents,
@@ -41,6 +42,7 @@ def api_routers() -> list[APIRouter]:
         report.writes,
         spend.reads,
         timeline.reads,
+        activity.reads,
         objects.reads,
         objects.writes,
         workflow.writes,

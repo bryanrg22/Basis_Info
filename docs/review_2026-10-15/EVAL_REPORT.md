@@ -7783,80 +7783,39 @@ answer, the provenance carries `origin`, and the rationale names the kind of row
 `tests/LEDGER.md`. The test runs' blanket rows are deleted from the dev database and the run 5
 copy.
 
-## 55. Leaving a study and coming back: gate drafts on the server, resumable uploads, restarting a cancelled study (2026-11-01)
+## 55. Per-user activity, the study library on the server, the audit completed, the firm's own history (2026-11-01)
 
-**Question.** An engineer who leaves a study at any stage must be able to come back and continue
-with nothing lost. What is lost today, and what does the backend need so that nothing is?
+**Question.** Can an engineer see what they did, can the library search, filter and sort on the server
+instead of in the browser, does the audit list every engineer action, and is anything that happens to a
+firm (an invitation, a role, a removal) recorded anywhere?
 
-**What was lost, verified in the frontend.** `web/live/live-review.js:24` keeps the corrections
-an engineer adds at a gate in `L.corrections` (a `Map` per stage) until `POST .../decisions`
-sends them; `live-app.js:105,149,215` keeps the upload run in `L.upload`. Both are tab memory:
-a reload, a closed tab or a switch of study drops them. After a reload a draft study showed
-"Ready to start" with no way to add its files, and the upload screen always created a new
-study. A third gap was in the backend itself: `POST .../cancel` ends the execution and nothing
-can start the study again (`start` answers 409 `workflow-closed` for ever, because the one
-workflow id per study is reused with `REJECT_DUPLICATE`), so a cancelled study could only be
-archived and re-created by hand.
+**What was built** (migration `0022`; docs/api/STUDY_LIBRARY.md, docs/api/TIMELINE_AND_AUDIT.md):
 
-**Built** (docs/api/GATE_DRAFTS_AND_RESUME.md; PR this section ships in):
+| Piece | Route | Design decision |
+|---|---|---|
+| Per-user activity | `GET /v1/me/activity` | The caller's own `study_events` rows across the studies of their firms, with the study's id and property name, newest first by `seq`. The cap is two things: 200 rows a page, and a 90-day window when `since` is absent; the response echoes the window it applied so a client pins it on the next page. `since` after `until` is an empty page, not an error. Served by a new `(actor_id, seq DESC)` index. |
+| Library | `GET /v1/studies` | `q` (case-insensitive substring, LIKE wildcards literal), `status` (repeatable), `created_by`, `include_archived`, `sort` (`updated_desc` default, `created_desc`, `name_asc`), `total`. The keyset cursor encodes the sort it was issued under and the row's key, so a cursor replayed under another sort is 422 rather than a wrong page. The default order changed from newest to most recently updated, which is what the web app shows by default. `POST .../unarchive` (owner) restores the status the stage implies, `failed` while a failure is recorded. |
+| Audit | `GET /v1/studies/{id}/audit` | Eight kinds added from the events the routes already write (intake and report answers set, upload confirmed, started, retry, cancel, archived, unarchived, signed). Paginated on `(at, seq, kind, entity_id)`: assembled from four tables, sorted, cut; `seq` keeps several events of one request in order. |
+| Firm history | `GET /v1/orgs/{org_id}/activity` (owner) | `org_events`, append-only like `study_events`, written by the repositories so the operator CLI and the API record alike and a refused request leaves nothing: `org.created`, `invitation.created/accepted/declined/revoked` (with why), `member.role_changed`, `member.removed` (with the invitations it revoked), `profile.set` (the fields changed, never the logo). |
 
-1. *Gate drafts.* `GET`/`PUT`/`DELETE /v1/studies/{id}/drafts/{stage}` (engineer): one
-   document per study, stage and user (`review_drafts`, migration 0022) with the pending
-   `comment` and `corrections`, the `revision` they name rows of, and a `version` that is its
-   `ETag`/`If-Match` exactly as the intake's. The `PUT` runs the decision route's own checks
-   (type for the stage, target in the revision, values, reasons, removals, added fields), so a
-   draft that would be refused at submit time is refused at save time with the same `errors`.
-   A draft whose revision the study has left, or whose stage was decided at that revision, is
-   returned with `stale: true` and the reason, never as current. The decision deletes the
-   submitting engineer's draft in its own transaction (`review.decided` records
-   `draft_discarded`). Two engineers draft apart; `GET` lists whose other drafts exist (who,
-   since when, how many), not their content.
-2. *Resumable uploads.* The registration already survived a reload (`GET /v1/studies/{id}`
-   lists the document with `uploaded_at: null` and its sha256); what was missing was the signed
-   URL, which only the first response carried and which expires in 15 minutes. `POST
-   .../documents/{id}/upload-url` re-issues it for an unconfirmed document (409
-   `upload-complete` for a confirmed one, whose bytes are immutable). A repeated `POST
-   .../documents` for the same bytes stays the 409 `duplicate-document` that names the
-   document: the route is not idempotent on sha256 in the replay sense, and it need not be,
-   since the client matches a re-selected file to its registration by sha256 from the study's
-   document list. The resume sequence is written out for the frontend.
-3. *Cancelled studies.* `POST /v1/studies/{id}/restart` (owner): the execution is described
-   first (RUNNING is 409 `workflow-running`, COMPLETED 409 `study-completed`; cancelled,
-   terminated, timed out, failed before v0.9, or gone after retention proceed); one transaction
-   resets the row to `extracting` on revision + 1 with the failure cleared (`stage.entered`,
-   `study.restarted`); then a new execution starts under the same `study-{id}` with
-   `ALLOW_DUPLICATE_FAILED_ONLY`, so `studies.workflow_id`, the relay's routing, `cancel` and
-   `retry` keep working. The new revision keeps the cancelled run's rows as history and makes
-   every draft for them stale. Two restarts racing, or a 503 after the reset: the row lock
-   serializes the resets and the second reuses the first's (it finds the `study.restarted`
-   event with no `run.started` after it), one start wins, the other is 409 `workflow-running`,
-   and the row is at the revision the running execution was given.
+**Not SQL, on purpose.** The audit page is cut in memory after a four-table assembly. One study's
+engineer actions are bounded by what engineers did to it (tens to low hundreds), not by the pipeline's
+output; a union of four row shapes would buy nothing at that size. `GET /v1/me/activity` and the firm
+history are plain keyset queries.
 
-**Why no `draft.saved` / `draft.discarded` timeline events.** The timeline is the record of
-what happened to the study and the audit trail of the engineer input that changed it. A draft
-changes nothing about the study; its corrections enter the trail as `correction.recorded` when
-the decision is submitted; it is saved on every edit (an append-only row per autosave would
-bury the trail and keep every half-typed value for ever) and deleted when submitted or
-discarded. `review.decided` carries `draft_discarded`; who is drafting since when is on the row.
+**Verified.** 18 library tests (pages under each of the three sorts over colliding names and shuffled
+update times have no gap or repeat and equal the one listing cut; a row inserted between pages is neither
+skipped nor repeated; `%`, `_` and `\` in `q` are literal; archived hidden unless asked; unarchive restores
+each of five statuses and records one event under three concurrent requests), 16 activity tests (own
+events only, a left firm hidden, the 90-day default against events written 80 and 100 days ago, every
+firm action through its real route with who did what, the CLI's rows as `system`, re-inviting after
+expiry, `org_events` refusing UPDATE and DELETE, the last-owner refusal leaving no event), the audit's
+eleven items in order with pages of four, migration `0022` up, constraints, down to the `0021` snapshot
+and up again, `alembic check` clean, the OpenAPI document regenerated and the contract test (Schemathesis
+over every operation, the three new ones included) green, every gate green.
 
-**Verified** (every gate green on the branch; `tests/LEDGER.md`): 20 draft tests (+ 6
-malformed-body cases) including three concurrent first saves and three concurrent saves with
-one tag each ending with exactly one 200; 6 resume tests including the documented sequence end
-to end against the local storage; 7 restart tests on the fake Temporal including the 503 and
-the concurrent double restart; 3 service tests on the id policies; migration 0022 from an
-empty database (the stage check compares the label as text, because `components_review` is a
-new enum value in the same transaction and PostgreSQL refuses an unsafe use of it) and back.
-The OpenAPI document carries the five operations and the Schemathesis contract test runs them
-(the draft `PUT` gets the intake's carve-out: `If-Match` dropped, since a generated tag is
-rightly 412).
-
-**Not verified.** The restart against a real Temporal server and worker (the fake answers the
-id policies as the real one does; the service unit test pins the policies sent). What the new
-execution does with a study whose revision 1 rows exist (ingest's "already published" branch
-and the per-revision unique keys say it writes revision 2 apart, as a rejection does) has not
-been run live. The frontend changes (reading the draft on open, autosaving on edit, the
-"continue this study" upload screen) are Bryan's.
-
-**Open.** Whether a pending registration should be removable (not provided: a pending row
-costs nothing and keeps the duplicate check honest); whether `others` should carry the drafts'
-content for a reviewer role (not now: a colleague's half-finished work is theirs to send).
+**Not verified.** No live run through the stack: the routes are exercised against a real PostgreSQL in
+the tests, not against the staging deployment; the web app is unchanged and still filters in the
+browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeCompare` and `lower()` may
+order accented names differently. The audit's in-memory page is the right size for a study's engineer
+actions; a study with thousands of corrections would want the union query.

@@ -51,6 +51,7 @@ from basis.db.repositories import (
     OrgRepository,
 )
 from basis.db.repositories.invitation import invitation_status, valid_email
+from basis.db.repositories.org_event import OrgEventRepository
 
 PROG: Final = "python -m basis.admin"
 MAX_NAME_LENGTH: Final = 200
@@ -147,6 +148,14 @@ async def create_firm(
             )
         return {"action": "exists", "firm": _firm(org), **state}
     org = await firms.create(name)
+    await OrgEventRepository(session).record(
+        org.id,
+        "org.created",
+        actor_id=None,
+        entity_type="org",
+        entity_id=org.id,
+        after={"name": name},
+    )
     view = await InvitationRepository(session).create(org.id, email, OrgRole.OWNER, None, ttl)
     return {"action": "created", "firm": _firm(org), "owner": _invitation(view)}
 

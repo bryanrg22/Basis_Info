@@ -5,12 +5,15 @@ as the change it records where there is one (a decision, a stage move, a correct
 to a row), so a rollback removes both; the worker's activity timings are written by the
 activity interceptor (``basis.worker.interceptors``) in their own short transaction, since an
 activity's own transaction may never commit. The route ``GET /v1/studies/{id}/timeline`` and
-the export's ``summary.timeline`` read it (docs/api/TIMELINE_AND_AUDIT.md).
+the export's ``summary.timeline`` read it by study; ``GET /v1/me/activity`` reads one user's
+own rows across their studies (:meth:`StudyEventRepository.list_for_actor`)
+(docs/api/TIMELINE_AND_AUDIT.md).
 
 Event vocabulary (``event_type``; the actor in brackets):
 
 * ``study.created`` [engineer], ``study.intake_set`` [engineer] (``detail``: the intake's
-  ``version_before``/``version_after`` and ``if_match``), ``study.archived`` [engineer];
+  ``version_before``/``version_after`` and ``if_match``), ``study.archived`` [engineer],
+  ``study.unarchived`` [engineer] (``after.status`` the status it came back to);
 * ``document.uploaded`` [engineer]: an upload confirmed (``entity_id`` the document);
 * ``study.started`` [engineer]: ``POST .../start`` moved the study to ``extracting``;
 * ``run.started`` / ``run.ended`` [system]: the Temporal execution (``detail.outcome``);
@@ -80,11 +83,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import Stage
-from basis.db.models import StudyEvent
+from basis.db.models import OrgMember, Study, StudyEvent
 from basis.obs.logging import get_context
 
 Actor = Literal["engineer", "model", "system"]
@@ -102,6 +105,24 @@ def request_id() -> str | None:
 class EventPage:
     items: list[StudyEvent]
     next_seq: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ActorEvent:
+    """One of a user's own events with the study it belongs to."""
+
+    event: StudyEvent
+    study_id: uuid.UUID
+    property_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ActorEventPage:
+    items: list[ActorEvent]
+    next_seq: int | None
+
+
+MAX_ACTIVITY_PAGE: Final = 200
 
 
 class StudyEventRepository:
@@ -180,6 +201,51 @@ class StudyEventRepository:
         rows = list((await self._session.scalars(stmt.limit(limit + 1))).all())
         items = rows[:limit]
         return EventPage(items=items, next_seq=items[-1].seq if len(rows) > limit else None)
+
+    async def list_for_actor(
+        self,
+        user_id: uuid.UUID,
+        *,
+        before_seq: int | None = None,
+        limit: int = 50,
+        event_types: Sequence[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> ActorEventPage:
+        """The user's own events (``actor_id``) across every study they can see now (a
+        member of the study's firm), newest first (``seq`` descending), optionally below
+        ``before_seq`` (keyset), between ``since`` and ``until`` (inclusive, on
+        ``created_at``) and of ``event_types``; each with the study's id and property name.
+        ``next_seq`` is the cursor for the next page (None on the last). Served by
+        ``ix_study_events_actor_id_seq`` (migration ``0022``)."""
+        if not 1 <= limit <= MAX_ACTIVITY_PAGE:
+            raise ValueError(f"limit must be between 1 and {MAX_ACTIVITY_PAGE}")
+        stmt = (
+            select(StudyEvent, Study.id, Study.property_name)
+            .join(Study, Study.id == StudyEvent.study_id)
+            .join(
+                OrgMember,
+                and_(OrgMember.org_id == Study.org_id, OrgMember.user_id == user_id),
+            )
+            .where(StudyEvent.actor_id == user_id)
+        )
+        if before_seq is not None:
+            stmt = stmt.where(StudyEvent.seq < before_seq)
+        if event_types:
+            stmt = stmt.where(StudyEvent.event_type.in_(list(event_types)))
+        if since is not None:
+            stmt = stmt.where(StudyEvent.created_at >= since)
+        if until is not None:
+            stmt = stmt.where(StudyEvent.created_at <= until)
+        stmt = stmt.order_by(StudyEvent.seq.desc()).limit(limit + 1)
+        rows = [
+            ActorEvent(event=event, study_id=study_id, property_name=name)
+            for event, study_id, name in (await self._session.execute(stmt)).all()
+        ]
+        items = rows[:limit]
+        return ActorEventPage(
+            items=items, next_seq=items[-1].event.seq if len(rows) > limit else None
+        )
 
     async def for_entities(
         self, study_id: uuid.UUID, entity_ids: Sequence[uuid.UUID]

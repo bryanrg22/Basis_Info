@@ -131,8 +131,9 @@ SPEC_TABLES = {
     "export_sha256 reviewed_sha256 pdf_uri pdf_sha256",
     # The latest heartbeat of each worker and relay process (migration 0021, ops health).
     "service_heartbeats": "id service build_sha state started_at heartbeat_at report",
-    # An engineer's pending corrections at a review gate (migration 0022_review_drafts).
-    "review_drafts": "id study_id stage revision user_id document version created_at updated_at",
+    # The firm's own history (migration 0022_user_activity_org_events).
+    "org_events": "id org_id seq event_type actor_type actor_id subject_user_id entity_type "
+    "entity_id request_id before after detail",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -179,7 +180,6 @@ ENUM_COLUMNS = {
     ("documents", "kind"): "document_kind",
     ("reviews", "stage"): "stage",
     ("reviews", "decision"): "decision",
-    ("review_drafts", "stage"): "stage",
     ("assets", "bucket"): "bucket",
     ("assets", "method"): "classification_method",
     ("outbox", "status"): "outbox_status",
@@ -219,8 +219,6 @@ SPEC_SIMPLE_FKS = {
     ("citations", "chunk_id", "chunks"),
     ("reviews", "study_id", "studies"),
     ("reviews", "reviewer_id", "users"),
-    ("review_drafts", "study_id", "studies"),
-    ("review_drafts", "user_id", "users"),
     ("corrections", "study_id", "studies"),
     ("corrections", "reviewer_id", "users"),
     ("runs", "study_id", "studies"),
@@ -240,6 +238,9 @@ SPEC_SIMPLE_FKS = {
     ("invitations", "revoked_by", "users"),
     ("study_events", "study_id", "studies"),
     ("study_events", "actor_id", "users"),
+    ("org_events", "org_id", "orgs"),
+    ("org_events", "actor_id", "users"),
+    ("org_events", "subject_user_id", "users"),
     ("classification_cache", "org_id", "orgs"),
     ("classification_cache", "study_id", "studies"),
     ("classification_cache", "reviewer_id", "users"),
@@ -263,11 +264,11 @@ SPEC_UNIQUES = {
     ("evidence_tables", ("corpus_version_id", "doc_id", "page", "id")),
     ("reviews", ("study_id", "stage", "revision")),
     ("reviews", ("idempotency_key",)),
-    ("review_drafts", ("study_id", "stage", "user_id")),
     ("runs", ("workflow_id", "run_id")),
     ("activity_results", ("idempotency_key",)),
     ("photo_objects", ("study_id", "id")),
     ("study_events", ("seq",)),
+    ("org_events", ("seq",)),
     ("cost_indices", ("source", "series", "year", "region", "version")),
 }
 
@@ -311,6 +312,7 @@ SPEC_CHECKS = {
     "ck_invitations_one_outcome",
     "ck_study_events_actor_valid",
     "ck_study_events_duration_nonnegative",
+    "ck_org_events_actor_valid",
     "ck_classification_cache_approvals_positive",
     "ck_classification_cache_rule_agreement",
     "ck_assets_convention_from_cache",
@@ -321,10 +323,6 @@ SPEC_CHECKS = {
     "ck_cost_index_runs_actor_valid",
     "ck_cost_index_runs_status_valid",
     "ck_studies_intake_version_not_negative",
-    "ck_review_drafts_stage_is_review",
-    "ck_review_drafts_revision_positive",
-    "ck_review_drafts_version_positive",
-    "ck_review_drafts_document_is_object",
     "ck_cost_index_runs_rows_added_nonnegative",
     "ck_photo_room_answers_room_confidence_range",
 }
@@ -343,7 +341,6 @@ SPEC_NOT_NULL = {
     "chunks": "corpus_version_id doc_id chunk_key text",
     "citations": "chunk_id excerpt",
     "reviews": "stage revision decision reviewer_id idempotency_key",
-    "review_drafts": "study_id stage revision user_id document version",
     "corrections": "entity_type entity_id revision after reviewer_id",
     "runs": "workflow_id run_id workflow_version input_revision",
     "activity_results": "activity idempotency_key status",
@@ -358,6 +355,7 @@ SPEC_NOT_NULL = {
     "object_prompts": "revision label params status returned created_by",
     "invitations": "org_id email role expires_at",
     "study_events": "study_id seq event_type actor_type",
+    "org_events": "org_id seq event_type actor_type",
     "cost_indices": "source series year region value as_of citation version obtained_at "
     "obtained_by_name",
     "cost_index_runs": "source trigger actor_type status started_at finished_at rows_added",
@@ -485,22 +483,20 @@ def test_migration_enum_labels_match_models() -> None:
 
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
-    # 0020 adds firm_profiles to the updated_at tables; 0022 adds review_drafts.
+    # 0020 adds firm_profiles to the updated_at tables.
     report = load_migration(VERSIONS / "0020_report_signing.py")
-    drafts = load_migration(VERSIONS / "0022_review_drafts.py")
-    assert (
-        *migration.UPDATED_AT_TABLES,
-        *report.UPDATED_AT_TABLES,
-        *drafts.UPDATED_AT_TABLES,
-    ) == UPDATED_AT_TABLES
+    assert (*migration.UPDATED_AT_TABLES, *report.UPDATED_AT_TABLES) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
     # 0016 adds the cost index store and its ledger.
     store = load_migration(VERSIONS / "0016_cost_indices.py")
+    # 0022 adds the firm's own history.
+    firm = load_migration(VERSIONS / "0022_user_activity_org_events.py")
     assert (
         *migration.APPEND_ONLY_TABLES,
         *events.APPEND_ONLY_TABLES,
         *store.APPEND_ONLY_TABLES,
+        *firm.APPEND_ONLY_TABLES,
     ) == APPEND_ONLY_TABLES
     with_updated_at = {t.name for t in Base.metadata.sorted_tables if "updated_at" in t.c}
     assert with_updated_at == set(UPDATED_AT_TABLES)
@@ -626,8 +622,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # firm conventions (0014): assets.convention; the run record (0015): eval_runs.manifest;
     # the cost index store (0016): cost_indices.detail, cost_index_runs.years_wanted /
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
-    # ops health (0021): service_heartbeats.report; gate drafts (0022): review_drafts.document
-    assert len(jsonb) == 33
+    # ops health (0021): service_heartbeats.report; the firm's history (0022):
+    # org_events.before/after/detail
+    assert len(jsonb) == 35
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 
@@ -654,6 +651,9 @@ def test_indexes() -> None:
         "photo_objects.revision",
     ]
     assert indexes["ix_invitations_email"] == ["invitations.email"]
+    # 0022: the per-user activity reads one actor's events newest first.
+    assert indexes["ix_study_events_actor_id_seq"] == ["study_events.actor_id", "seq DESC"]
+    assert indexes["ix_org_events_org_id_seq"] == ["org_events.org_id", "org_events.seq"]
     assert indexes["uq_invitations_org_id_email_open"] == [
         "invitations.org_id",
         "invitations.email",
