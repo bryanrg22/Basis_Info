@@ -138,7 +138,14 @@ BODIES: Final[dict[str, Any]] = {
 }
 SCOPE_PARAMS: Final = ("{study_id}", "{org_id}", "{invitation_id}")
 # Path parameters that are not ids: a random UUID would be a 422 before the access check.
-FIXED: Final = {"stage": "appraisal_review"}
+# Path values that are not ids: the drafts' stage and the revision numbers of the revision
+# routes (docs/api/REVISIONS.md), which a random UUID would make 422 instead of the 404.
+FIXED: Final = {
+    "stage": "appraisal_review",
+    "revision": "1",
+    "from_revision": "1",
+    "to_revision": "1",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,10 +186,6 @@ async def firm_of(api: Api, seed: Seed, uid: str) -> Firm:
             "user_id": me.json()["user"]["id"],
             "invitation_id": invitation.json()["id"],
             "asset_id": outputs["asset"],
-            # Revision numbers in paths (docs/api/REVISIONS.md): the study's revision 1.
-            "revision": "1",
-            "from_revision": "1",
-            "to_revision": "1",
         },
     )
 
