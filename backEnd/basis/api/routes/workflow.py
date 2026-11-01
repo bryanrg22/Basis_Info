@@ -35,6 +35,25 @@
   ``workflow-closed`` for an execution that has ended (one that failed before v0.9 cannot
   be resumed: its history ended with the failure).
 
+* ``POST /v1/studies/{id}/restart`` (owner; docs/api/GATE_DRAFTS_AND_RESUME.md): a study
+  whose execution closed without completing (cancelled through ``/cancel``, terminated,
+  timed out, or failed before v0.9) runs again from its uploads. ``start`` cannot do it:
+  the one workflow id per study and ``REJECT_DUPLICATE`` refuse a new execution under an id
+  whose last one closed, so a cancelled study was a dead end. The route describes the
+  execution first (no transaction open): ``RUNNING`` is 409 ``workflow-running`` (cancel
+  first, or ``retry`` a failed stage), ``COMPLETED`` 409 ``study-completed`` (reject a
+  review stage to rework a revision), no record (retention) is allowed. Then one short
+  transaction resets the row (:meth:`StudyRepository.restart`: ``extracting``, ``revision
+  + 1`` so the old rows stay as history and every gate draft for them is stale, the failure
+  cleared, ``stage.entered`` and ``study.restarted`` events), and after it commits a new
+  execution is started under the same id with ``ALLOW_DUPLICATE_FAILED_ONLY``
+  (:meth:`WorkflowService.restart_study`). Two restarts racing: the row lock serializes
+  the resets and the second reuses the first's (no second revision bump); one start wins,
+  the other is 409 ``workflow-running``, and the row is consistent with the one that runs.
+  Temporal unreachable after the reset: 503 with the row reset; the repeat reuses it. The
+  study's intake and documents are read as they are now (the intake may have been edited
+  since; the new revision prices with it). 404 with no workflow; 409 ``study-archived``.
+
 Every route answers 503 when Temporal is not configured or unreachable. Decisions do not
 come through here: ``POST .../decisions`` writes an outbox row that ``basis.relay``
 delivers, so they keep working while Temporal is down.
@@ -52,6 +71,7 @@ from basis.api.routes.common import problems, read_router, write_router
 from basis.api.schemas.workflow import (
     CancelIn,
     CancelRequested,
+    RestartAccepted,
     RetryRequested,
     StudyWorkflowOut,
     WorkflowProgress,
@@ -69,6 +89,8 @@ from basis.domain.intake import missing_for_start
 from basis.errors.codes import E
 from basis.temporal.names import study_workflow_id
 from basis.temporal.service import (
+    ENDED_UNSUCCESSFULLY,
+    RestartRefusedError,
     RetryRefusedError,
     WorkflowNotFoundError,
     WorkflowNotRunningError,
@@ -84,6 +106,7 @@ START_ROLE: Final = OrgRole.ENGINEER
 READ_ROLE: Final = OrgRole.VIEWER
 CANCEL_ROLE: Final = OrgRole.OWNER
 RETRY_ROLE: Final = OrgRole.ENGINEER
+RESTART_ROLE: Final = OrgRole.OWNER
 TEMPORAL_RETRY_AFTER_S: Final = 5
 DETAIL_NOT_CONFIGURED: Final = "Temporal is not configured."
 DETAIL_NO_WORKFLOW: Final = "The study has no workflow; start it first."
@@ -115,6 +138,8 @@ def as_problem(exc: WorkflowServiceError) -> Exception:
         return Conflict(str(exc), type_suffix="workflow-closed")
     if isinstance(exc, RetryRefusedError):
         return Conflict(str(exc), type_suffix="study-not-failed")
+    if isinstance(exc, RestartRefusedError):
+        return restart_refused(exc.status, str(exc))
     if isinstance(exc, WorkflowUnavailableError):
         return ServiceUnavailable(
             str(exc), retry_after=TEMPORAL_RETRY_AFTER_S, code=E.API_TEMPORAL_UNAVAILABLE
@@ -122,6 +147,13 @@ def as_problem(exc: WorkflowServiceError) -> Exception:
     return ServiceUnavailable(  # pragma: no cover
         "Temporal returned an unexpected error.", code=E.API_TEMPORAL_UNAVAILABLE
     )
+
+
+def restart_refused(execution_status: str, detail: str) -> Conflict:
+    """409 for a restart of an execution that is running or completed."""
+    if execution_status == "COMPLETED":
+        return Conflict(detail, type_suffix="study-completed", code=E.STUDY_RESTART_COMPLETED)
+    return Conflict(detail, type_suffix="workflow-running", code=E.STUDY_RESTART_RUNNING)
 
 
 async def existing_workflow(workflows: WorkflowService, workflow_id: str) -> WorkflowRef:
@@ -367,4 +399,75 @@ async def retry_study(
         stage=Stage(accepted.stage),
         revision=accepted.revision,
         already_requested=accepted.already_requested,
+    )
+
+
+@writes.post(
+    "/studies/{study_id}/restart",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run a cancelled study again from its uploads (owner only)",
+    description="For a study whose execution closed without completing (cancelled, terminated, "
+    "timed out, or failed before v0.9): the study goes back to `extracting` on a new revision "
+    "(the old revision's rows stay as history; gate drafts for it become stale) and a new "
+    "execution of its workflow starts under the same `workflow_id`, reading the intake and the "
+    "confirmed documents as they are now. 409 `workflow-running` while the execution runs "
+    "(use `.../cancel` first, or `.../retry` for a failed stage), 409 `study-completed` after "
+    "it completed, 409 `study-archived`, 404 when the study has no workflow. Repeating after a "
+    "503 reuses the reset (docs/api/GATE_DRAFTS_AND_RESUME.md).",
+    responses=problems(403, 404),
+)
+async def restart_study(
+    study_id: StudyIdPath,
+    request: Request,
+    user: CurrentUserDep,
+    sessionmaker: SessionmakerDep,
+    workflows: WorkflowServiceDep,
+) -> RestartAccepted:
+    settings: Settings = request.app.state.settings
+    async with session_scope(sessionmaker) as session:
+        study = (await require_study_access(session, user, study_id, RESTART_ROLE)).study
+        ensure_not_archived(study)
+        if study.workflow_id is None:
+            raise NotFound(DETAIL_NO_WORKFLOW, code=E.STUDY_NO_WORKFLOW)
+        workflow_id = study.workflow_id
+    # The execution's state decides, before anything is written (no transaction open).
+    try:
+        described = await workflows.describe(workflow_id)
+    except WorkflowNotFoundError:
+        described = None  # retention took it: the study is restarted from its uploads
+    except WorkflowServiceError as exc:
+        raise as_problem(exc) from exc
+    if described is not None and described.status not in ENDED_UNSUCCESSFULLY:
+        raise restart_refused(
+            described.status,
+            f"Workflow {workflow_id} is {described.status.lower()}; a study is restarted only "
+            "after its execution was cancelled, terminated, timed out or failed.",
+        )
+    async with session_scope(sessionmaker) as session:
+        record = await StudyRepository(session).restart(study_id, actor_id=user.id)
+        started_input = workflow_input(record.study, settings)
+    try:
+        ref = await workflows.restart_study(started_input)
+    except WorkflowServiceError as exc:
+        logger.warning(
+            "workflow restart failed",
+            extra={"study_id": str(study_id), "exception_type": type(exc).__name__},
+        )
+        raise as_problem(exc) from exc
+    logger.info(
+        "workflow restarted",
+        extra={
+            "study_id": str(study_id),
+            "workflow_id": ref.workflow_id,
+            "run_id": ref.run_id,
+            "revision": record.study.revision,
+            "reused_reset": record.reused,
+        },
+    )
+    return RestartAccepted(
+        workflow_id=ref.workflow_id,
+        run_id=ref.run_id,
+        revision=record.study.revision,
+        from_stage=record.from_stage,
+        from_revision=record.from_revision,
     )

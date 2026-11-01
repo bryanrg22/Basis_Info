@@ -18,6 +18,17 @@ Flow:
    the answer is 422 ``invalid-appraisal`` naming the problem, the object is deleted and the
    document stays unconfirmed (the workflow never sees it; docs/api/UAD36_INTAKE.md).
 
+Resuming (docs/api/GATE_DRAFTS_AND_RESUME.md): the registration and the bytes are two steps,
+so a reload between them leaves a document with ``uploaded_at`` NULL in ``GET
+/v1/studies/{id}`` and a signed URL the client no longer has (or that expired, 15 minutes).
+``POST .../documents/{doc_id}/upload-url`` issues a new signed ``PUT`` for an unconfirmed
+document, the same declared size and content type (the bytes must still hash to the
+registered sha256, which ``complete`` checks); for a confirmed document it is 409
+``upload-complete`` (its bytes are immutable). A client with the file again matches it to the
+registered document by sha256 from the study's document list, re-issues the URL, uploads and
+confirms; the repeated ``POST .../documents`` for the same bytes stays 409
+``duplicate-document`` (naming the document), so nothing is registered twice.
+
 4. ``GET .../documents/{doc_id}/content`` returns a confirmed document's bytes to a viewer
    of the study (the frontend shows photos, their masks and the appraisal PDF from it).
    The bytes are immutable (they hash to the registered sha256), so the response is
@@ -136,6 +147,50 @@ async def request_upload(
     signed = await storage.signed_put_url(uri, body.content_type, body.bytes, UPLOAD_URL_TTL)
     return UploadTicket(
         document=DocumentOut.model_validate(document),
+        upload=SignedUploadOut(
+            url=signed.url,
+            method=signed.method,
+            headers=signed.headers,
+            expires_at=signed.expires_at,
+        ),
+    )
+
+
+@writes.post(
+    "/studies/{study_id}/documents/{document_id}/upload-url",
+    status_code=status.HTTP_201_CREATED,
+    summary="Re-issue the signed upload URL of a registered, unconfirmed document",
+    description="For resuming an upload after a reload or an expired URL: the same document, a "
+    "new 15-minute signed `PUT` for exactly the declared size and content type (the bytes must "
+    "still hash to the registered sha256; `.../complete` checks). 409 `upload-complete` when "
+    "the upload is already confirmed (nothing to resume; its bytes are immutable), 409 "
+    "`study-archived` on an archived study, 404 for a document not in the study "
+    "(docs/api/GATE_DRAFTS_AND_RESUME.md).",
+    responses=problems(403, 404),
+)
+async def reissue_upload_url(
+    document_id: DocumentIdPath,
+    access: Annotated[VisibleStudy, Depends(study_access(UPLOAD_ROLE))],
+    session: SessionDep,
+    storage: StorageDep,
+) -> UploadTicket:
+    study = access.study
+    ensure_not_archived(study)
+    found = await DocumentRepository(session).get(study.id, document_id)
+    if found is None:
+        raise NotFound("Document not found.", code=E.UPLOAD_DOCUMENT_NOT_FOUND)
+    if found.uploaded_at is not None:
+        raise Conflict(
+            "The document's upload is already confirmed; its bytes cannot be replaced. To "
+            "upload a different file, register it as a new document.",
+            type_suffix="upload-complete",
+            code=E.UPLOAD_ALREADY_CONFIRMED,
+        )
+    signed = await storage.signed_put_url(
+        found.gcs_uri, found.content_type, found.bytes, UPLOAD_URL_TTL
+    )
+    return UploadTicket(
+        document=DocumentOut.model_validate(found),
         upload=SignedUploadOut(
             url=signed.url,
             method=signed.method,

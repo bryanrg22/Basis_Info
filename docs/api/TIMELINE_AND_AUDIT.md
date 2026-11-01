@@ -82,13 +82,17 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `stage.failed`, `stage.failure_cleared` | system | `record_failure` | `code`, `detail.reason`, `detail.marked` |
 | `study.stalled`, `review.reminded` | system | the review deadline and reminders | `detail.waiting_days` |
 | `study.retry_requested`, `study.cancel_requested` | engineer | `POST .../retry`, `POST .../cancel` | |
+| `study.restarted` | engineer | `POST .../restart` reset a study whose execution had closed without completing (cancelled, terminated, timed out, failed before v0.9) to `extracting` on a new revision for a new execution (docs/api/GATE_DRAFTS_AND_RESUME.md); a `stage.entered` row goes with it | `before` `{stage, revision, status}` it left, `after` `{stage, revision}`, `detail.workflow_id` |
 | `export.written` | system | the export | `detail.uri`, `sha256`, `assets_csv` |
 | `convention.promoted` | engineer | `promote_conventions` promoted an approved asset's ruling to the firm's conventions | `actor_id` the approving reviewer; `entity_id` the asset; `detail` key, bucket, `agrees_with_rules`, `rule_key`, outcome (`created`, `confirmed`, `replaced`), approvals, method, cited |
 | `convention.replaced` | engineer | the approved answer differed from the firm's convention for the key, which it replaced | `code` `BASIS-ASSETS-013`; `before` the replaced convention, `after` the new one; `detail.key` |
 
 Not recorded per row, on purpose: the model's `photo_objects` (SAM 3 candidates, tens per
 photo) and the rows a model call wrote (components, fields): the activity event carries the
-step, and the rows carry `created_at` and their lineage. Studies that ran before the table
+step, and the rows carry `created_at` and their lineage. Nor an engineer's gate drafts
+(`review_drafts`, docs/api/GATE_DRAFTS_AND_RESUME.md): a draft changes nothing about the study
+and is saved on every edit; its corrections enter the trail as `correction.recorded` when the
+decision is submitted, and `review.decided` carries `detail.draft_discarded`. Studies that ran before the table
 existed have no events; their outputs still get `provenance` and an audit listing, which read
 the tables.
 

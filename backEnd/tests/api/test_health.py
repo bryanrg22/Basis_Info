@@ -124,12 +124,18 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "DELETE /v1/studies/{study_id}",
         "POST /v1/studies/{study_id}/documents",
         "POST /v1/studies/{study_id}/documents/{document_id}/complete",
+        # resumable uploads (tests/api/test_uploads.py, docs/api/GATE_DRAFTS_AND_RESUME.md)
+        "POST /v1/studies/{study_id}/documents/{document_id}/upload-url",
         # the browser frontend's photos and appraisal (tests/api/test_document_content.py)
         "GET /v1/studies/{study_id}/documents/{document_id}/content",
         # UAD 3.6 intake (tests/api/test_uad36_api.py)
         "GET /v1/studies/{study_id}/documents/{document_id}/pdf",
         "GET /v1/studies/{study_id}/extraction",
         "POST /v1/studies/{study_id}/decisions",
+        # gate drafts (tests/api/test_drafts.py, docs/api/GATE_DRAFTS_AND_RESUME.md)
+        "GET /v1/studies/{study_id}/drafts/{stage}",
+        "PUT /v1/studies/{study_id}/drafts/{stage}",
+        "DELETE /v1/studies/{study_id}/drafts/{stage}",
         "GET /v1/studies/{study_id}/evidence",
         # v0.6 (tests/api/test_objects.py)
         "GET /v1/studies/{study_id}/photos/{document_id}/objects",
@@ -140,6 +146,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/workflow",
         "POST /v1/studies/{study_id}/cancel",
         "POST /v1/studies/{study_id}/retry",
+        # a cancelled study runs again (tests/api/test_workflow_routes.py)
+        "POST /v1/studies/{study_id}/restart",
         "GET /v1/studies/{study_id}/fields",
         "GET /v1/studies/{study_id}/rooms",
         "GET /v1/studies/{study_id}/assets",

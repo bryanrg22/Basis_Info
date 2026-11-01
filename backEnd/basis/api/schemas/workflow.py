@@ -115,6 +115,17 @@ class RetryRequested(ResponseModel):
     )
 
 
+class RestartAccepted(ResponseModel):
+    """202: the study is back at `extracting` on a new revision and a new execution of its
+    workflow runs from its uploads (docs/api/GATE_DRAFTS_AND_RESUME.md)."""
+
+    workflow_id: str
+    run_id: str = Field(description="The new execution's run id (the workflow id is unchanged).")
+    revision: int = Field(description="The new revision the execution writes its outputs to.")
+    from_stage: Stage = Field(description="The stage the study was at when restarted.")
+    from_revision: int = Field(description="The revision it was at.")
+
+
 class CancelRequested(ResponseModel):
     """202: the cancel signal was delivered; the workflow records the outcome itself."""
 

@@ -104,6 +104,7 @@ UPDATED_AT_TABLES: Final = (
     "activity_results",
     "classification_cache",
     "firm_profiles",
+    "review_drafts",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -895,6 +896,43 @@ class Correction(Base):
     reason: Mapped[str | None]
     reviewer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = _created_at()
+
+
+class ReviewDraft(Base):
+    """An engineer's pending corrections at a review gate, kept on the server (migration
+    ``0022_review_drafts``; ``GET``/``PUT``/``DELETE /v1/studies/{id}/drafts/{stage}``).
+
+    One row per ``(study, stage, user)``: two engineers draft apart. ``document`` is the
+    pending ``{comment, corrections}`` as one JSON object, validated whole by the draft route
+    with the decision route's own checks; ``revision`` is the revision the corrections name
+    rows of (a draft for a revision that is no longer the study's is stale); ``version`` is
+    the row's entity tag (``If-Match``), incremented by every save. Overwritten by each save,
+    deleted by the decision that submits it or by the engineer: work in progress, not history.
+    """
+
+    __tablename__ = "review_drafts"
+    __table_args__ = (
+        UniqueConstraint("study_id", "stage", "user_id"),
+        # As text: a new enum label cannot be used in the transaction that added it (0009).
+        CheckConstraint(
+            "stage::text IN ('appraisal_review', 'rooms_review', 'components_review', "
+            "'assets_review')",
+            name="stage_is_review",
+        ),
+        CheckConstraint("revision >= 1", name="revision_positive"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("jsonb_typeof(document) = 'object'", name="document_is_object"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    stage: Mapped[Stage] = mapped_column(STAGE_ENUM)
+    revision: Mapped[int]
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    document: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    version: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
 
 
 class Run(Base):
