@@ -10,3 +10,10 @@ b421b0a78127f3b1cd80c8be3bc9c831be97dd29:.secrets.baseline:generic-api-key:174
 # version of this comment, which quoted it.
 3c00e367996229b87619e5b69670e5cef53c975a:backEnd/basis/errors/codes.py:generic-api-key:237
 e9814f3e40886b7ca13e4426a924a33b8b419a51:.gitleaksignore:generic-api-key:9
+# Migration 0019's frozen rule fingerprints: "r1-" plus 16 hex digits of a SHA-256 of public
+# rules-table data (CLASSIFICATION_CONVENTIONS.md 10.3), not credentials.
+146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:229
+146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:407
+146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:441
+146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:624
+146407b454c074093dd4ce6ca178e85170851e37:backEnd/basis/db/alembic/versions/0019_convention_rule_fingerprints.py:generic-api-key:658

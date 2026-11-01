@@ -1,10 +1,14 @@
 """The firm's conventions (``classification_cache``): engineer-approved answers by context.
 
-Key: ``label|material|attachment|room|property_class|rules_version`` with every part
+Key: ``label|material|attachment|room|property_class|rule_fingerprint`` with every part
 normalized like rule labels and the room by :func:`basis.domain.rules.normalize_room_type`
 (``""`` when unknown): the same context the rules table picks a variant by
-(docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 3). Including
-``rules_version`` means a rules change never serves an answer made under older rules.
+(docs/review_2026-10-15/CLASSIFICATION_CONVENTIONS.md section 3). The last part is
+:func:`basis.domain.rules.rule_fingerprint`, the digest of the rules-table row the label
+resolves to (section 10): a ruling is served while that row is unchanged, so a change to
+the row never serves an answer made under the old one, and a release that does not touch
+it keeps the ruling (and its approvals). ``rules_version`` on the row records the table
+release that seeded or last replaced it; it does not decide serving.
 
 Rows are scoped by firm (``org_id``; the primary key is ``(org_id, key)``): one firm's
 rulings never classify another firm's study. They are written only by the
@@ -53,6 +57,7 @@ from basis.domain.rules import (
     check_property_class,
     normalize_label,
     normalize_room_type,
+    rule_fingerprint,
 )
 
 # The ``citation`` member of an uncited convention's provenance (section 5).
@@ -78,18 +83,30 @@ def cache_key(
     attachment: str | None,
     property_class: str,
     room_type: str | None = None,
-    rules_version: str = RULES_VERSION,
+    fingerprint: str | None = None,
 ) -> str:
-    """The context key (six parts, section 3)."""
+    """The context key (six parts, section 3); the last is ``fingerprint``, by default the
+    running table's :func:`~basis.domain.rules.rule_fingerprint` for the label and material
+    (section 10.3)."""
     parts = (
         normalize_label(label),
         normalize_label(material),
         normalize_label(attachment),
         normalize_room_type(room_type),
         check_property_class(property_class),
-        rules_version,
+        rule_fingerprint(label, material) if fingerprint is None else fingerprint,
     )
     return "|".join(parts)
+
+
+def is_current(key: str) -> bool:
+    """Whether a stored key was decided under the running table's row for its label (its
+    last part equals :func:`~basis.domain.rules.rule_fingerprint` of its label and
+    material); a malformed key is not."""
+    parts = key.split("|")
+    if len(parts) != KEY_PARTS:
+        return False
+    return parts[5] == rule_fingerprint(parts[0], parts[1])
 
 
 def tier_key(key: str, tier: Tier) -> str:
@@ -351,11 +368,13 @@ class ClassificationCacheRepository:
         self._session = session
 
     async def get_for_labels(
-        self, org_id: uuid.UUID, labels: set[str], rules_version: str = RULES_VERSION
+        self, org_id: uuid.UUID, labels: set[str]
     ) -> list[CachedClassification]:
-        """The firm's conventions at ``rules_version`` whose label (the key's first part,
-        already normalized) is one of ``labels``: every row a tier of section 9 can serve
-        for components with those labels. Malformed rows are left out."""
+        """The firm's conventions whose label (the key's first part, already normalized) is
+        one of ``labels`` and that are current (:func:`is_current`: decided under the
+        running table's row for that label, section 10.3): every row a tier of section 9
+        can serve for components with those labels. Malformed and stale rows are left out
+        (they stay stored)."""
         wanted = {normalize_label(label) for label in labels} - {""}
         if not wanted:
             return []
@@ -363,13 +382,14 @@ class ClassificationCacheRepository:
             select(ClassificationCacheEntry)
             .where(
                 ClassificationCacheEntry.org_id == org_id,
-                ClassificationCacheEntry.rules_version == rules_version,
                 func.split_part(ClassificationCacheEntry.key, "|", 1).in_(sorted(wanted)),
             )
             .order_by(ClassificationCacheEntry.key)
         )
         found: list[CachedClassification] = []
         for row in rows:
+            if not is_current(row.key):
+                continue
             cached = CachedClassification.from_entry(row)
             if cached is not None:
                 found.append(cached)
@@ -398,6 +418,7 @@ class ClassificationCacheRepository:
         approved_at: datetime,
         rule_key: str | None,
         agrees_with_rules: bool | None,
+        rules_version: str = RULES_VERSION,
     ) -> PutResult:
         """Write one approval of ``result`` for ``(org_id, key)``.
 
@@ -413,7 +434,7 @@ class ClassificationCacheRepository:
             "key": key,
             "result": result,
             "source": source,
-            "rules_version": key.rsplit("|", 1)[-1],
+            "rules_version": rules_version,
             "study_id": study_id,
             "reviewer_id": reviewer_id,
             "approved_at": approved_at,
@@ -491,6 +512,7 @@ __all__ = [
     "Tier",
     "answer_of",
     "cache_key",
+    "is_current",
     "tier_key",
     "tier_keys",
 ]

@@ -49,6 +49,11 @@
 * ``0017_photo_room_answers`` creates the per-photo room answers (one row per document and
   revision analyzed, confidence in range, tenancy through the document), nothing backfilled;
   it downgrades back to ``0016`` exactly;
+* ``0019_convention_rule_fingerprints`` re-keys ``classification_cache`` from the rules version
+  to the fingerprint of the rule each row was made under (CLASSIFICATION_CONVENTIONS.md 10.4):
+  one context across releases merges when the answer agrees, the latest approval keeps the
+  key when it does not, unknown versions and malformed keys are left alone; it downgrades
+  back to the version keys;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -58,9 +63,13 @@ container, so the session-wide test database is never disturbed.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import io
+import json
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
 
 import asyncpg
 import pytest
@@ -71,6 +80,7 @@ from dbtest_support import alembic_config, execute_admin, plain_dsn
 from sqlalchemy import Column, MetaData, Text
 from sqlalchemy.engine import make_url
 
+from basis.classify.cache import answer_of
 from basis.db.models import (
     APPEND_ONLY_TABLES,
     NO_UPDATE_TABLES,
@@ -79,11 +89,12 @@ from basis.db.models import (
     UPDATED_AT_TABLES,
     Base,
 )
+from basis.domain.rules import resolve_fingerprint
 
 pytestmark = pytest.mark.integration
 
-HEAD = "0018"
-HISTORY = [f"{n:04d}" for n in range(18, 0, -1)]  # "0018" .. "0001"
+HEAD = "0019"
+HISTORY = [f"{n:04d}" for n in range(19, 0, -1)]  # "0019" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -264,6 +275,7 @@ def test_offline_sql_rendering() -> None:
         in sql
     )
     assert "CREATE TRIGGER chunks_published_immutable" in sql
+    assert "CREATE TEMPORARY TABLE _fp_rekey AS" in sql  # 0019 is plain SQL
 
 
 # --------------------------------------------------------------------------- 0002
@@ -1205,3 +1217,231 @@ async def test_0017_photo_room_answers_and_downgrade(empty_database_url: str) ->
         await connection.close()
     await downgrade(url, "0016")
     assert await snapshot(url) == at_0016
+
+
+# --------------------------------------------------------------------------- 0019
+
+
+def _migration_0019() -> Any:
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "basis/db/alembic/versions/0019_convention_rule_fingerprints.py"
+    )
+    spec = importlib.util.spec_from_file_location("migration_0019", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _frozen_fingerprint(m: Any, label: str, material: str, version: str) -> str:
+    """The reference: the live resolver over the release's frozen table."""
+    table = m.FROZEN[version]
+    return resolve_fingerprint(
+        label,
+        material,
+        row_digests=table["row_digests"],
+        aliases=table["aliases"],
+        material_rules=table["material_rules"],
+        generic_floors=frozenset(table["generic_floors"]),
+    )
+
+
+async def test_0019_resolves_every_label_and_compares_answers_as_the_live_code(
+    empty_database_url: str,
+) -> None:
+    """Every way into each frozen table (row keys, aliases, plurals, generic floors by
+    material, unknown labels) re-keys to what the live resolver gives over that table; and
+    the merge treats two rulings as one answer exactly when ``answer_of`` does."""
+    url = empty_database_url
+    m = _migration_0019()
+    await upgrade(url, "0018")
+    connection = await asyncpg.connect(plain_dsn(url))
+    expected: dict[str, str] = {}
+    try:
+        study, _, user = await _photo(connection)
+        org = await connection.fetchval("SELECT org_id FROM studies WHERE id = $1", study)
+        insert = (
+            "INSERT INTO classification_cache (org_id, key, result, source, rules_version, "
+            "study_id, reviewer_id, approved_at, rule_key, agrees_with_rules, approvals) "
+            "VALUES ($1, $2, $3::jsonb, 's', $4, $5, $6, "
+            "timestamptz '2026-10-30 00:00+00' + make_interval(secs => $7), NULL, NULL, 1)"
+        )
+        rows: list[tuple[str, str, str]] = []
+        for version, table in sorted(m.FROZEN.items()):
+            names = sorted(set(table["row_digests"]) | set(table["aliases"]))
+            cases = [(n, "") for n in names] + [(f"{n}s", "") for n in names]
+            materials = [*table["material_rules"], "", "cork"]
+            cases += [(f, x) for f in table["generic_floors"] for x in materials]
+            cases += [("other", ""), ("", ""), ("s", ""), ("fireplace", "wood"), ("widget", "x")]
+            for label, material in cases:
+                ctx = f"{label}|{material}||room_{len(rows)}|nonresidential"
+                rows.append((f"{ctx}|{version}", ctx, version))
+                expected[f"{ctx}|{version}"] = (
+                    f"{ctx}|{_frozen_fingerprint(m, label, material, version)}"
+                )
+        result = json.dumps({"bucket": "y5", "category": "c"})
+        for second, (key, _ctx, version) in enumerate(rows):
+            await connection.execute(insert, org, key, result, version, study, user, second)
+        # Answers: pairs in one context (two releases), each merged or not as answer_of says.
+        pairs = [
+            ({"bucket": "y5"}, {"bucket": "y5", "recovery_period": "5"}),
+            ({"bucket": "y5", "recovery_period": "5.0"}, {"bucket": "y5", "recovery_period": 5}),
+            ({"bucket": "y5", "section": "1245"}, {"bucket": "y5", "section": 1245}),
+            ({"bucket": "y5"}, {"bucket": "y5", "recovery_period": "7"}),
+            ({"bucket": "y5", "section": "1245"}, {"bucket": "y5"}),
+            ({"bucket": "y39"}, {"bucket": "y27_5"}),
+            ({"bucket": "y39", "recovery_period": "x"}, {"bucket": "y39", "recovery_period": "y"}),
+        ]
+        for i, (older, newer) in enumerate(pairs):
+            ctx = f"carpet|||pair_{i}|nonresidential"
+            for minute, (version, value) in enumerate(
+                (("2026-10-29.1", older), ("2026-10-31.1", newer))
+            ):
+                await connection.execute(
+                    insert,
+                    org,
+                    f"{ctx}|{version}",
+                    json.dumps({"category": "c", **value}),
+                    version,
+                    study,
+                    user,
+                    10_000 + 60 * minute + i,
+                )
+    finally:
+        await connection.close()
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        stored = {r["key"] for r in await connection.fetch("SELECT key FROM classification_cache")}
+        assert set(expected.values()) <= stored
+        for i, (older, newer) in enumerate(pairs):
+            ctx = f"carpet|||pair_{i}|nonresidential"
+            merged = answer_of(older) == answer_of(newer)
+            assert (f"{ctx}|2026-10-29.1" in stored) is not merged, (older, newer)
+            approvals = await connection.fetchval(
+                "SELECT approvals FROM classification_cache WHERE key = $1",
+                _frozen_fingerprint(m, "carpet", "", "2026-10-31.1").join((f"{ctx}|", "")),
+            )
+            assert approvals == (2 if merged else 1), (older, newer)
+    finally:
+        await connection.close()
+
+
+async def test_0019_rekeys_conventions_to_rule_fingerprints_and_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    m = _migration_0019()
+    await upgrade(url, "0018")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, user = await _photo(connection)
+        org = await connection.fetchval("SELECT org_id FROM studies WHERE id = $1", study)
+        other = await connection.fetchval("INSERT INTO orgs (name) VALUES ('p') RETURNING id")
+        insert = (
+            "INSERT INTO classification_cache (org_id, key, result, source, rules_version, "
+            "study_id, reviewer_id, approved_at, rule_key, agrees_with_rules, approvals, hits) "
+            "VALUES ($1, $2, $3::jsonb, 's', $4, $5, $6, "
+            "timestamptz '2026-10-30 00:00+00' + make_interval(mins => $7), NULL, NULL, $8, $9)"
+        )
+
+        async def put(
+            firm: uuid.UUID,
+            ctx: str,
+            version: str,
+            bucket: str,
+            minute: int,
+            approvals: int = 1,
+            hits: int = 0,
+        ) -> str:
+            key = f"{ctx}|{version}"
+            result = json.dumps({"bucket": bucket, "category": "c", "method": "manual"})
+            await connection.execute(
+                insert, firm, key, result, version, study, user, minute, approvals, hits
+            )
+            return key
+
+        baseboard = "baseboard|wood|permanent|bathroom|nonresidential"
+        hardwood = "hardwood_floor|wood||bedroom|nonresidential"
+        tile = "flooring|tile||kitchen|nonresidential"
+        fireplace = "fireplace|wood|permanent|living_room|nonresidential"
+        # One context over two releases with the same answer: merged.
+        await put(org, baseboard, "2026-10-29.1", "y5", 1, approvals=2, hits=3)
+        await put(org, baseboard, "2026-10-31.1", "y5", 9, hits=1)
+        # The same context at another firm stays that firm's.
+        await put(other, baseboard, "2026-10-29.1", "y39", 2)
+        # Different answers: the latest approval keeps the key, the older stays stranded.
+        stranded = await put(org, hardwood, "2026-10-29.1", "y5", 3, approvals=2)
+        await put(org, hardwood, "2026-10-31.1", "y39", 10)
+        await put(org, tile, "2026-10-30.1", "y39", 4)  # a generic floor, by material
+        await put(org, fireplace, "2026-10-29.1", "y5", 5)  # a label without a row
+        unknown = await put(org, baseboard, "2025-01-01.1", "y5", 6)
+        await connection.execute(insert, org, "k", "{}", "v", study, user, 7, 1, 0)
+        before = await connection.fetchval("SELECT count(*) FROM classification_cache")
+    finally:
+        await connection.close()
+
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        rows = {
+            (r["org_id"], r["key"]): r
+            for r in await connection.fetch(
+                "SELECT org_id, key, result, rules_version, approvals, hits, approved_at "
+                "FROM classification_cache"
+            )
+        }
+
+        def fp(ctx: str, version: str) -> str:
+            label, material = ctx.split("|")[:2]
+            return f"{ctx}|{_frozen_fingerprint(m, label, material, version)}"
+
+        tables = m.FROZEN
+        assert fp(baseboard, "2026-10-29.1") == fp(baseboard, "2026-10-31.1")  # untouched row
+        merged = rows[(org, fp(baseboard, "2026-10-31.1"))]
+        assert (merged["approvals"], merged["hits"], merged["rules_version"]) == (
+            3,
+            4,
+            "2026-10-29.1",  # the earliest ruling stays the seed
+        )
+        assert rows[(other, fp(baseboard, "2026-10-29.1"))]["approvals"] == 1
+        held = rows[(org, fp(hardwood, "2026-10-31.1"))]
+        assert (json.loads(held["result"])["bucket"], held["approvals"]) == ("y39", 1)
+        assert json.loads(rows[(org, stranded)]["result"])["bucket"] == "y5"
+        tile_key = fp(tile, "2026-10-30.1")
+        assert tile_key.endswith(tables["2026-10-30.1"]["row_digests"]["tile"])
+        assert (org, tile_key) in rows
+        assert (org, f"{fireplace}|r1-none") in rows
+        assert (org, unknown) in rows and (org, "k") in rows
+        assert len(rows) == before - 1  # only the merged baseboard row is gone
+        # Rows the downgrade must settle: a version key that a fingerprint row goes back to.
+        # The older one gives way: here the version row (the tile ruling is newer) ...
+        await put(org, tile, "2026-10-30.1", "y5", 0, approvals=5)
+        # ... and here the fingerprint row (this fireplace ruling is newer than it).
+        await put(org, fireplace, "2026-10-29.1", "y39", 50, approvals=7)
+    finally:
+        await connection.close()
+
+    await downgrade(url, "0018")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        keys = {
+            (r["org_id"], r["key"]): r["approvals"]
+            for r in await connection.fetch(
+                "SELECT org_id, key, approvals FROM classification_cache"
+            )
+        }
+        assert keys == {
+            (org, f"{baseboard}|2026-10-29.1"): 3,  # merged rows stay merged
+            (other, f"{baseboard}|2026-10-29.1"): 1,
+            (org, stranded): 2,
+            (org, f"{hardwood}|2026-10-31.1"): 1,
+            (org, f"{tile}|2026-10-30.1"): 1,  # the newer fingerprint row kept it
+            (org, f"{fireplace}|2026-10-29.1"): 7,  # the newer version row kept it
+            (org, unknown): 1,
+            (org, "k"): 1,
+        }
+    finally:
+        await connection.close()
+    await upgrade(url)
