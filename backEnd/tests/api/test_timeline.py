@@ -725,3 +725,19 @@ async def test_audit_lists_the_engineers_other_actions_and_pages(
     assert (
         await api.get("alice", f"/v1/studies/{sid}/audit", params={"limit": 1001})
     ).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    ["a\x00b", "", "x" * 101],
+    ids=["nul", "empty", "too-long"],
+)
+async def test_timeline_event_type_filter_values_are_validated(api: Api, event_type: str) -> None:
+    """A NUL reached PostgreSQL and answered 500 before the filter shared the activity
+    routes' rule (the contract fuzz found it); each is 422 naming the parameter."""
+    sid = (await api.create_study("alice"))["id"]
+    response = await api.get(
+        "alice", f"/v1/studies/{sid}/timeline", params={"event_type": event_type}
+    )
+    assert response.status_code == 422, response.text
+    assert any(error["loc"][:2] == ["query", "event_type"] for error in response.json()["errors"])

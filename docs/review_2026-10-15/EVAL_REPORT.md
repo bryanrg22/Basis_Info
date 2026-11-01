@@ -7888,6 +7888,12 @@ the row locked while the three requests are sent, waits until all three are bloc
 (`pg_stat_activity`), then releases; the old guard fails it every round, the new one passes it 20 of 20
 with the in-memory and the Postgres limiter.
 
+**And one the fuzz found after the merge with main.** `GET .../timeline?event_type=<NUL>` answered 500:
+the timeline's filter was a plain `list[str]`, the NUL reached asyncpg, which refuses it. The activity
+routes had the rule (non-empty, at most 100 characters, no NUL) from the start; it now lives in
+`basis.api.routes.common.EventTypes` and the three routes share it (three new timeline cases, the
+OpenAPI document regenerated).
+
 **Not verified.** No live run through the stack: the routes are exercised against a real PostgreSQL in
 the tests, not against the staging deployment; the web app is unchanged and still filters in the
 browser (STUDY_LIBRARY.md section 5 maps each piece to the request). `localeCompare` and `lower()` may

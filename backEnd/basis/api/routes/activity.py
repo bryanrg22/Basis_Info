@@ -38,9 +38,14 @@ from typing import Annotated, Any, Final
 from fastapi import Depends, Query
 from pydantic import BeforeValidator
 
-from basis.api.routes.common import MAX_SEQ_CURSOR_LENGTH, problems, read_router, seq_cursor
+from basis.api.routes.common import (
+    MAX_SEQ_CURSOR_LENGTH,
+    EventTypes,
+    problems,
+    read_router,
+    seq_cursor,
+)
 from basis.api.schemas.activity import ActivityItemOut, ActivityOut, OrgActivityOut, OrgEventOut
-from basis.api.schemas.common import NO_NUL_PATTERN
 from basis.api.users import CurrentUserDep, org_access
 from basis.audit.timeline import event_json
 from basis.db.enums import OrgRole
@@ -50,7 +55,6 @@ from basis.db.session import SessionDep
 
 DEFAULT_PAGE: Final = 50
 DEFAULT_WINDOW: Final = timedelta(days=90)
-MAX_EVENT_TYPE_LENGTH: Final = 100
 # A date, a T (or a space), a time: what every RFC 3339 date-time starts with and no number does.
 DATE_TIME_PREFIX: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}")
 
@@ -72,15 +76,6 @@ Cursor = Annotated[
         max_length=MAX_SEQ_CURSOR_LENGTH,
         description="Opaque `next_cursor` of the previous page.",
     ),
-]
-EventTypes = Annotated[
-    list[
-        Annotated[
-            str, Query(min_length=1, max_length=MAX_EVENT_TYPE_LENGTH, pattern=NO_NUL_PATTERN)
-        ]
-    ]
-    | None,
-    Query(description="Only these event types (repeat the parameter)."),
 ]
 Since = Annotated[
     DateTime | None,
