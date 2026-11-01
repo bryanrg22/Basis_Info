@@ -47,6 +47,8 @@ from basis.db.repositories import (
 from basis.db.session import create_sessionmaker, session_scope
 from basis.temporal.names import STUDY_WORKFLOW, study_workflow_id
 from basis.temporal.service import (
+    ENDED_UNSUCCESSFULLY,
+    RestartRefusedError,
     RetryAccepted,
     RetryRefusedError,
     WorkflowDescription,
@@ -278,8 +280,13 @@ class FakeWorkflowService:
     def __init__(self) -> None:
         self.executions: dict[str, FakeExecution] = {}
         self.start_calls: list[StudyWorkflowInput] = []
+        self.restart_calls: list[StudyWorkflowInput] = []
+        # Every execution ever started under an id (a restart replaces ``executions[id]``).
+        self.history: dict[str, list[FakeExecution]] = {}
         self.unavailable = False
         self.query_fails = False
+        # Raised by ``restart_study`` alone (Temporal reachable for the describe before it).
+        self.fail_restart: BaseException | None = None
 
     def _check(self) -> None:
         if self.unavailable:
@@ -299,6 +306,28 @@ class FakeWorkflowService:
             workflow_id, FakeExecution(workflow_input=workflow_input, run_id=str(uuid.uuid4()))
         )
         ensure_not_ended_unsuccessfully(await self.describe(workflow_id))  # as the real one
+        return WorkflowRef(workflow_id=workflow_id, run_id=execution.run_id)
+
+    async def restart_study(self, workflow_input: StudyWorkflowInput) -> WorkflowRef:
+        """As ``ALLOW_DUPLICATE_FAILED_ONLY``: a new execution only over none or a closed one
+        that did not complete."""
+        self._check()
+        self.restart_calls.append(workflow_input)
+        if self.fail_restart is not None:
+            raise self.fail_restart
+        workflow_id = study_workflow_id(workflow_input.study_id)
+        previous = self.executions.get(workflow_id)
+        if previous is not None and previous.status not in ENDED_UNSUCCESSFULLY:
+            raise RestartRefusedError(
+                f"Workflow {workflow_id} is {previous.status.lower()}; a study is restarted "
+                "only after its execution was cancelled, terminated, timed out or failed.",
+                status=previous.status,
+            )
+        execution = FakeExecution(workflow_input=workflow_input, run_id=str(uuid.uuid4()))
+        self.executions[workflow_id] = execution
+        self.history.setdefault(workflow_id, [])
+        if previous is not None:
+            self.history[workflow_id].append(previous)
         return WorkflowRef(workflow_id=workflow_id, run_id=execution.run_id)
 
     async def describe(self, workflow_id: str) -> WorkflowDescription:

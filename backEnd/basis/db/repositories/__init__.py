@@ -34,7 +34,8 @@ from basis.db.repositories.review import (
     ReviewRepository,
     decision_target,
 )
-from basis.db.repositories.study import StudyPage, StudyRepository, VisibleStudy
+from basis.db.repositories.review_draft import DraftWrite, OtherDraft, ReviewDraftRepository
+from basis.db.repositories.study import RestartRecord, StudyPage, StudyRepository, VisibleStudy
 from basis.db.repositories.user import UserIdentity, UserRepository
 
 __all__ = [
@@ -48,6 +49,7 @@ __all__ = [
     "CorrectionInput",
     "DecisionRecord",
     "DocumentRepository",
+    "DraftWrite",
     "EmailDelivery",
     "FirmSummary",
     "IdempotencyClaim",
@@ -58,7 +60,10 @@ __all__ = [
     "Member",
     "Membership",
     "OrgRepository",
+    "OtherDraft",
     "OutboxRepository",
+    "RestartRecord",
+    "ReviewDraftRepository",
     "ReviewRepository",
     "StudyPage",
     "StudyRepository",

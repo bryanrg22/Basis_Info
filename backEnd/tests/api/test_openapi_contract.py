@@ -43,6 +43,11 @@ Schemathesis setup, and why:
   method to its input, the use to the 80 % test), which JSON Schema cannot express, so a
   generated body is (correctly) 422. The rules are tested in ``test_studies.py`` and
   ``tests/unit/domain/test_intake.py``.
+* ``PUT .../drafts/{stage}`` (gate drafts, docs/api/GATE_DRAFTS_AND_RESUME.md) gets the
+  intake's treatment: ``If-Match`` dropped (a generated tag is rightly 412) and
+  ``corrections`` emptied (a correction must name a row of the revision, as on the decision);
+  the generated ``revision`` stays, since a wrong one is the documented 409 ``draft-stale``.
+  The rules are tested in ``test_drafts.py``.
 * ``If-Match`` is dropped from ``PUT .../report-answers`` and ``PUT /orgs/{id}/profile``,
   ``logo_png`` from the profile and ``prior_depreciation`` from the answers, as on the
   intake: a generated tag is rightly 412, a base64 string that is not a PNG or a money
@@ -271,6 +276,11 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         # 412 (tests/api/test_studies.py covers the precondition).
         if case.headers:
             case.headers.pop("If-Match", None)
+    if case.path.endswith("/drafts/{stage}") and case.method.upper() in ("PUT", "DELETE"):
+        # The draft's If-Match as on the intake (tests/api/test_drafts.py covers it); its
+        # corrections name rows of the revision, as a decision's do.
+        if case.headers:
+            case.headers.pop("If-Match", None)
     if case.method.upper() == "PUT" and (
         case.path.endswith("/report-answers") or case.path.endswith("/profile")
     ):
@@ -297,8 +307,10 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
 @pytest.mark.integration
 @pytest.mark.slow
 # One test for every operation (40 examples each): its run time grows with the API. With
-# the v0.9 routes (retry, fields, rooms, assets) it no longer fits the suite's 120 s.
-@pytest.mark.timeout(300)
+# the v0.9 routes (retry, fields, rooms, assets) it no longer fits the suite's 120 s; with
+# the gate drafts, upload-url and restart operations (59 in all) it takes 254 s alone and
+# timed out at 300 s on a loaded machine (2026-11-01).
+@pytest.mark.timeout(600)
 @LIVE_SCHEMA.parametrize()
 @hypothesis_settings(
     max_examples=40,
