@@ -167,6 +167,11 @@ async def test_the_study_answers_are_versioned_and_a_timeline_event(api: Api, se
     assert stale.status_code == 412 and stale.json()["code"] == "BASIS-REPORT-012"
     bad = await put(api, "alice", path, {**ANSWERS, "photographs": "drone"})
     assert bad.status_code == 422
+    # NUL cannot be stored in JSONB and a control character never prints: 422, not 500
+    # (found by the contract test).
+    for value in ("Holdings\u0000LLC", "Holdings\u0082", "two\nlines", "   "):
+        refused = await put(api, "alice", path, {**ANSWERS, "taxpayer_name": value})
+        assert refused.status_code == 422, value
     org = await org_of(seed, "alice")
     await seed.member(org, "vic", OrgRole.VIEWER)
     assert (await api.get("vic", path)).json()["report_answers"]["taxpayer_name"]

@@ -19,10 +19,12 @@ from typing import Annotated, Literal
 
 from pydantic import Base64Bytes, BaseModel, ConfigDict, Field, field_validator
 
-from basis.domain.intake import Money
+from basis.domain.intake import TEXT_PATTERN, Money
 
-Text = Annotated[str, Field(min_length=1, max_length=500)]
-LongText = Annotated[str, Field(min_length=1, max_length=4000)]
+# One line, no control characters (the intake's pattern): JSONB cannot store NUL, and the
+# report prints each value on a line.
+Text = Annotated[str, Field(min_length=1, max_length=500, pattern=TEXT_PATTERN)]
+LongText = Annotated[str, Field(min_length=1, max_length=4000, pattern=TEXT_PATTERN)]
 Photographer = Literal["engineer_site_visit", "taxpayer_supplied"]
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # The certification the signer attests to (templates/report.typ, section 10). Bumped when its

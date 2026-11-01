@@ -11268,12 +11268,14 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Name"
           },
           "credentials": {
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Credentials",
             "description": "e.g. 'PE, CCSP'"
           },
@@ -11282,7 +11284,8 @@
               {
                 "type": "string",
                 "maxLength": 500,
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
               },
               {
                 "type": "null"
@@ -11307,7 +11310,8 @@
               {
                 "type": "string",
                 "maxLength": 500,
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
               },
               {
                 "type": "null"
@@ -12063,6 +12067,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Name"
           },
           "address": {
@@ -12070,7 +12075,8 @@
               {
                 "type": "string",
                 "maxLength": 500,
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
               },
               {
                 "type": "null"
@@ -12083,7 +12089,8 @@
               {
                 "type": "string",
                 "maxLength": 500,
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
               },
               {
                 "type": "null"
@@ -12122,7 +12129,8 @@
                 "items": {
                   "type": "string",
                   "maxLength": 4000,
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
                 },
                 "type": "array"
               },
@@ -12250,12 +12258,14 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Name"
           },
           "role": {
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Role"
           },
           "on": {
@@ -12275,7 +12285,8 @@
               {
                 "type": "string",
                 "maxLength": 500,
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
               },
               {
                 "type": "null"
@@ -13738,6 +13749,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Tax Years",
             "description": "e.g. '2022-2024'"
           },
@@ -13759,6 +13771,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Method Used",
             "description": "e.g. '27.5-year SL on the whole building'"
           }
@@ -13779,6 +13792,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Tax Years",
             "description": "e.g. '2022-2024'"
           },
@@ -13791,6 +13805,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Method Used",
             "description": "e.g. '27.5-year SL on the whole building'"
           }
@@ -15544,6 +15559,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Taxpayer Name"
           },
           "photographs": {
@@ -15558,6 +15574,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Photographed By",
             "description": "the person who took the photographs"
           },
@@ -15601,6 +15618,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Taxpayer Name"
           },
           "photographs": {
@@ -15615,6 +15633,7 @@
             "type": "string",
             "maxLength": 500,
             "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
             "title": "Photographed By",
             "description": "the person who took the photographs"
           },
