@@ -1,0 +1,92 @@
+# Frontend backlog: what the API offers that `web/live` does not use yet (2026-11-01)
+
+A brief for the frontend work (Bryan, with Codex). The backend side of each item is built,
+tested and documented; the links are the contracts. `docs/api/openapi.json` is the source
+of truth. Items are in the order they matter for a first firm.
+
+## Rules that apply to every screen
+
+- **Never name a provider.** Nothing a customer or engineer sees says OpenAI, Anthropic,
+  Azure, Replicate or SAM 3. An outage reads as "Basis is temporarily unavailable". The
+  operator page (`web/developer/`, `GET /v1/ops/health`) is the only place with provider
+  names.
+- **Every write is conditional.** The intake, the firm profile, the report answers and the
+  gate drafts carry an `ETag`; send it back as `If-Match` and handle 412 by reloading and
+  asking the user to reapply (`docs/api/STUDY_RESULT.md`, `REPORT.md`).
+- **Every error has a code.** Problem responses carry `code` (`BASIS-<AREA>-<nnn>`,
+  `docs/ERROR_CODES.md`) and `request_id`; show the message, keep the code for support.
+
+## 1. Blocking: nothing can start a study
+
+- **Intake form.** `POST /v1/studies/{id}/start` refuses 422 `intake-required` without a
+  complete intake, and the app never sends one (`live-app.js` creates the study with
+  `property_name` only). Required: purchase price, acquisition costs (may be empty), land
+  method and its value (appraisal site value, land appraisal value, or flat percentage
+  with its source), property use (residential rental needs the 80 % dwelling-unit share),
+  placed-in-service date, state. Optional: acquisition date, zip, appraisal effective
+  date, assessor land and improvement values, transient lodging. Contract:
+  `docs/api/STUDY_RESULT.md`, `GET`/`PUT /v1/studies/{id}/intake`. Once the study starts
+  the intake is locked (409 `intake-locked`); changing it means a reopen.
+
+## 2. Resume and history
+
+- **Gate drafts.** Corrections typed at a gate are lost on reload today. Save them with
+  `PUT /v1/studies/{id}/drafts/{stage}` as the user edits, load on entry, delete on submit
+  (the API deletes the submitter's draft itself). `docs/api/` drafts section.
+- **Resumable uploads.** On a draft study, list documents from `GET /v1/studies/{id}`:
+  an unconfirmed one (`uploaded_at` null) gets a new signed URL from
+  `POST .../documents/{doc}/upload-url`; re-registering the same bytes is a 409 to treat
+  as "already there".
+- **Restart a cancelled study:** `POST .../restart` (owner).
+- **Reopen, history, restore** (`docs/api/REVISIONS.md`): a completed study's
+  "Reopen at…" action with the warning the API returns (what will be recomputed);
+  a Versions panel from `GET .../revisions`; a diff view from
+  `GET .../revisions/{a}/diff/{b}`; "Restore this version".
+- **Per-user activity** (`GET /v1/me/activity`, 90-day default window, paginated) for
+  the user's own history page; **firm activity** (`GET /v1/orgs/{id}/activity`, owners)
+  for the admin page. Both replace the "Mock" tags on `#activity` and `#admin`.
+- **Audit and timeline** for a study (`GET .../audit`, `GET .../timeline`): the
+  `#audit` screen is still the design mock.
+
+## 3. Library
+
+- `GET /v1/studies` now takes `q`, `status` (repeatable), `created_by`,
+  `include_archived`, `sort` and returns `total`; the app downloads everything and
+  filters in the browser. Move search, filters and sort to the server
+  (`docs/api/STUDY_LIBRARY.md`). Add Archive (`DELETE`) and Unarchive (`POST .../unarchive`).
+- Studies carry `created_by_name` and `created_by_email`: show the person, not the id.
+
+## 4. Firm onboarding
+
+- **Create a firm** (`POST /v1/orgs`, any verified sign-in) and **rename**
+  (`PATCH /v1/orgs/{id}`, owner): the "not a member" screen should offer "Create your
+  firm" instead of only "wait for an invitation". `docs/api/FIRMS.md`.
+- **Invitations are emailed** now; the list shows `emailed_at` and the last error. Show
+  it on the Team page.
+- **Firm profile form:** add `limiting_conditions` (editable list) and the engineer's
+  `email`. **Study details form:** add interviews and prior depreciation (look-back
+  studies).
+- **Retention:** the firm's `retention_days` (owners) once #115 lands; show the purge rule.
+
+## 5. Report
+
+- The schedule download has vendor profiles: `GET .../report?format=csv|xlsx&profile=…`
+  (`fixed_assets_cs`, `sage`, `proconnect`, `cch`, `bloomberg`, default `generic`);
+  add a picker next to the download buttons (`docs/api/REPORT.md`).
+- `report/state` now says when the answers or the profile changed after signing; show it.
+
+## 6. Smaller
+
+- Reprice (`GET`/`POST .../assets/reprice`): a "Rebuild prices" action after an intake
+  or cost-index change.
+- Spend (`GET .../spend`, owners): a cost line on the study page.
+- Result (`GET .../result`): the basis worksheet and the reconciliation, today only in
+  the PDF.
+- `room_aliases` is always sent as `{}`.
+
+## Testing
+
+No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper
+modules only; `live-smoke.mjs` walks the API without rendering). A screen-level harness
+(jsdom or Playwright against the local stack, `web/README.md` "Live mode, locally") is
+the gap to close alongside the forms above.
