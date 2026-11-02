@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-288 codes in 23 areas.
+290 codes in 23 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -65,6 +65,8 @@ stale).
 | `BASIS-API-043` | refusal | `GET /v1/ops/health`; `basis.api.routes.ops` | The signed-in account is not a platform operator (its uid is not in `OPS_OPERATOR_UIDS`); a firm role never grants it. | 403 `not-operator`, with no diagnostics. (type `not-operator`) | An operator with deployment access adds the uid to `OPS_OPERATOR_UIDS`. | no |
 | `BASIS-API-044` | error | any request; `basis.api.ratelimit_pg` | The Postgres-backed rate limiter (`RATE_LIMIT_STORE=postgres`, the default in staging and prod) could not reach the database; the request was counted against a per-process budget instead, so the published limit holds per API instance until the database is back. | A warning log line, at most one per minute per process, with `fallbacks` (how many requests used the per-process budget); requests are not refused for it. | Restore the database (the same cause makes every `/v1` route answer 503 `BASIS-API-0xx`); nothing to reset, the shared log resumes on the next request. | yes |
 | `BASIS-API-045` | refusal | `POST /v1/client-errors`; `basis.api.routes.client_errors` | A batch of browser error events is larger than `MAX_BATCH_BYTES` (256 KiB), the route's own cap under the API's 1 MiB body limit; the batch was not read. | 413 `payload-too-large`. (type `payload-too-large`) | The web app's capture module caps each event (stack 16,000 characters, 50 breadcrumbs) and sends at most 20 per batch, so this means a client outside it; send smaller batches. | no |
+| `BASIS-API-046` | refusal | `GET /v1/ops/eval-runs`; `basis.api.routes.eval_runs` | This host has no evaluation run records to list: `BASIS_EVAL_DATA_DIR` is unset (the default on every deployed host), names a directory that does not exist, or the evaluation tooling (`evals`) is not installed in this image. The answer is explicit so that it is never read as "no runs". | 404 `eval-data-unavailable`; the detail says which of the three it is. (type `eval-data-unavailable`) | Run the API where the evaluation data lives, with `BASIS_EVAL_DATA_DIR` set; the data never enters a deployment. | no |
+| `BASIS-API-047` | refusal | `GET /v1/ops/eval-runs/{run_id}/files/{name}`; `basis.api.routes.eval_runs` | The run file (a console log, a ledger) is larger than the route serves (`MAX_FILE_BYTES`, 8 MiB): the file is redacted in memory before it is sent, so the size is bounded. | 413 `payload-too-large`. (type `payload-too-large`) | Read the file from the run directory on the host. | no |
 
 ## FIRM: Firms and membership
 

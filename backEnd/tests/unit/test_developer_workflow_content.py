@@ -12,6 +12,9 @@ source links. Nothing in it is computed at run time, so this test is what keeps 
   ``#fragment`` on a Markdown path is a heading of that file, in GitHub's anchor form);
 * every runtime row names a service id the health contract lists and a model role the
   worker reports;
+* every ``components`` entry (the registry components whose run records the dialog lists
+  from ``GET /v1/ops/eval-runs``) is a released prompt name or a component a harness stands
+  for in ``evals.record.HARNESS_COMPONENTS``, with none for an engineer's review;
 * the shape the renderer relies on holds (three explanation steps, one value per column).
 """
 
@@ -25,7 +28,9 @@ from typing import Any
 
 import pytest
 
+from basis.llm import prompts
 from basis.ops.services import SERVICE_IDS
+from evals import record
 
 REPO = Path(__file__).resolve().parents[3]
 CONTENT = REPO / "web" / "developer" / "workflow-content.json"
@@ -153,6 +158,21 @@ def test_runtime_rows_name_known_services_and_roles(step_id: str) -> None:
         assert row["service"] in SERVICE_IDS, row
         for role in row.get("roles", []):
             assert role in MODEL_SETTINGS and role in content()["roles"], role
+
+
+REVIEW_STEPS = ("appraisal-review", "rooms-review", "components-review", "assets-review")
+
+
+@pytest.mark.parametrize("step_id", STEP_IDS)
+def test_components_are_registry_components(step_id: str) -> None:
+    step = content()["steps"][step_id]
+    components = step["components"]
+    assert isinstance(components, list) and len(components) == len(set(components))
+    known = set(prompts.manifest()) | set(record.HARNESS_COMPONENTS.values())
+    for component in components:
+        assert component in known, component
+    if step_id in REVIEW_STEPS:
+        assert components == [], "a review step has no model call to evaluate"
 
 
 @pytest.mark.parametrize("step_id", STEP_IDS)

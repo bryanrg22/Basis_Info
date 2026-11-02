@@ -83,6 +83,8 @@ async def test_the_intake_put_with_if_match_is_allowed_and_its_etag_exposed(
         h.strip().lower() for h in actual.headers["access-control-expose-headers"].split(",")
     }
     assert "etag" in exposed
+    # The run record files are saved by the developer page under the API's attachment name.
+    assert "content-disposition" in exposed
 
 
 async def test_preflight_from_localhost_is_allowed(client: httpx.AsyncClient) -> None:

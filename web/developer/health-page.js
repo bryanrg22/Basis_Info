@@ -71,21 +71,56 @@
    await Promise.race([BasisAuth.init(C.firebase),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Sign-in did not respond. Check the Firebase service, then reload this page.')),10000))]);
    if(!BasisAuth.user){$('feed-message').textContent='Sign in through Basis first, then connect again. The Basis link above returns to the app.';return}
    connected=true;$('feed-message').textContent='Reading authenticated diagnostics…';await refresh();
+   if(activeStep&&$('architecture-dialog').open)loadRuns(activeStep);
   }catch(error){$('feed-message').textContent=error.message||'Could not connect to sign-in.'}
   finally{$('connect').disabled=false;$('connect').textContent=connected?'Reconnect diagnostics':'Connect diagnostics'}
  });
  let activeStep=null;
  // The explanations and measured results (workflow-content.json) load once; a dialog opened
  // before they arrive shows the runtime table and says the content is not loaded.
- const contentLoaded=BasisArchitecture.load().then(ok=>{if(activeStep&&$('architecture-dialog').open)renderStep(activeStep);return ok});
+ const contentLoaded=BasisArchitecture.load().then(ok=>{if(activeStep&&$('architecture-dialog').open){renderStep(activeStep);loadRuns(activeStep)}return ok});
+ // Run records (GET /v1/ops/eval-runs) per step: read once per dialog opening while
+ // diagnostics are connected; older pages are appended on request.
+ const runs=new Map();
+ function runsState(id){return runs.get(id)||{status:'idle'}}
  function renderStep(id){
   const node=H.FLOW.flat().find(n=>n.id===id);if(!node)return;
   $('architecture-title').textContent=node.title;
-  $('architecture-content').innerHTML=BasisArchitecture.render(node,services,H);
+  $('architecture-content').innerHTML=BasisArchitecture.render(node,services,H,runsState(id));
  }
+ function redrawRuns(id){const block=$('run-records');if(block&&block.dataset.step===id)block.innerHTML=BasisArchitecture.renderRunRecords(BasisArchitecture.componentsOf(id),runsState(id),H)}
+ async function loadRuns(id,cursor=null){
+  const components=BasisArchitecture.componentsOf(id);
+  if(!connected||!components.length)return;
+  const previous=runsState(id);
+  if(previous.status==='loading'||(previous.status==='done'&&!cursor))return;
+  runs.set(id,{...previous,status:'loading'});redrawRuns(id);
+  const result=await client.evalRuns({component:components,limit:50,cursor});
+  const items=cursor&&previous.items?[...previous.items]:[];
+  if(result.status===200&&BasisArchitecture.validRunsPage(result.data))items.push(...result.data.items);
+  runs.set(id,{status:'done',result,items,next:result.status===200&&typeof result.data?.next_cursor==='string'?result.data.next_cursor:null});
+  redrawRuns(id);
+ }
+ async function downloadRunFile(button){
+  const path=button.dataset.runFile,status=$('run-records')?.querySelector('.run-file-status');
+  const say=text=>{if(status)status.textContent=text};
+  button.disabled=true;say('Downloading…');
+  try{
+   const result=await client.evalRunFile(path);
+   if(result.status!==200){say(BasisArchitecture.runsMessage(result)||`The file download returned HTTP ${result.status}.`);return}
+   const blob=new Blob([result.text],{type:result.contentType||'application/octet-stream'});
+   const url=URL.createObjectURL(blob),a=document.createElement('a');
+   a.href=url;a.download=result.filename||BasisArchitecture.fileName(button.dataset.runKind,button.dataset.runName);document.body.append(a);a.click();a.remove();
+   setTimeout(()=>URL.revokeObjectURL(url),1000);say(`Saved ${a.download}.`);
+  }finally{button.disabled=false}
+ }
+ $('architecture-content').addEventListener('click',event=>{
+  const file=event.target.closest('.run-file');if(file){downloadRunFile(file);return}
+  const more=event.target.closest('[data-run-more]');if(more&&activeStep)loadRuns(activeStep,more.dataset.runMore);
+ });
  function openStep(id){
   const node=H.FLOW.flat().find(n=>n.id===id);if(!node)return;
-  activeStep=id;renderStep(id);
+  activeStep=id;runs.delete(id);renderStep(id);loadRuns(id);
   $('architecture-dialog').showModal();$('architecture-dialog').scrollTop=0;
  }
  window.addEventListener('load',()=>contentLoaded.catch(()=>{}));

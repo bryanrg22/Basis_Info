@@ -557,6 +557,13 @@ trusted recipient. Backend operator authorization is required; hiding a link is 
 access control. The page sends read-only GETs, refreshes every 30 seconds, and pauses
 polling while hidden. It does not use provider API keys.
 
+Each workflow step's dialog ends with **Run records**: the evaluation registry's runs for the
+step's components (`developer/workflow-content.json` maps them), read from the operator route
+`GET /v1/ops/eval-runs` (`docs/api/EVAL_RUNS.md`) once diagnostics are connected, one table per
+label file and split, every figure with its source and "Not recorded" for what the files do
+not say, and the manifest, report, ledger and console log downloaded through the authenticated
+client. A host without evaluation data says so; nothing about runs is bundled in `web/`.
+
 `tests/fixtures/developer-health.html` runs the actual page/controller with isolated
 synthetic responses for healthy, partial failure, stale, missing endpoint, denied and
 unreachable states. Its 390px toggle checks the narrow layout. Details and verification

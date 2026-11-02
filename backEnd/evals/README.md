@@ -754,6 +754,15 @@ layout. Runs made before 2026-10-29 are linked in by the backfill.
 | `run.json` | the runner's own summary, unchanged |
 | `scores.jsonl` | appended by `evals.run --predictions DIR`: the label file, version and sha256 of every dataset scored, the scorer's git state and options, every metric and the per-dataset case counts. The latest scoring per dataset is what the registry reports |
 
+The same records are read by the operator API, `GET /v1/ops/eval-runs` (docs/api/EVAL_RUNS.md,
+EVAL_REPORT section 74): the registry's scan over `BASIS_EVAL_DATA_DIR` with the CLI's filters
+and a keyset cursor, every unknown null, each cost and duration with its source (recorded calls
+or the runner's summary; the runner's clock or the backfill's file times), a run's standing
+against the configured pipeline, and the manifest, report, ledger and console log served
+redacted through the operator check (`basis/ops/eval_runs.py`). The developer page's step
+dialogs list them under "Run records". A host without the data answers 404
+`eval-data-unavailable`, never an empty list.
+
 Expected errors (`python -m evals.provoke_errors --out DIR [--dry-run] [--only id ...]`): the
 provider failures the product maps to error codes (`docs/ERROR_CODES.md`), provoked on
 purpose and at no cost: a key the provider did not issue (`BASIS-PROVIDER-001`), a model that

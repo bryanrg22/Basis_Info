@@ -453,3 +453,34 @@ def test_runs_written_inside_the_tree_are_scanned_once_and_links_are_not_doubled
     inside_entry = next(e for e in entries if e.name == "written_here")
     assert inside_entry.path == "verification/photo_countables/v3/written_here"
     assert registry.tree_directories(root) == [inside]
+
+
+def test_the_api_fields_say_where_a_figure_came_from(root: Path) -> None:
+    """The fields the operator API reads (EVAL_REPORT 74): split and repeats, the cost's
+    source, the token totals, the duration's source; None where the files do not say."""
+    by_name = {e.name: e for e in registry.scan(root)}
+    recorded = by_name["countables_v3_sol"]
+    assert (recorded.split, recorded.repeats) == ("dev", 3)
+    assert recorded.cost_source == "ledger" and recorded.tokens is None
+    assert recorded.wall_seconds is None and recorded.duration_source is None
+    assert recorded.settings == {} and recorded.sources == {} and recorded.format == 1
+    backfilled = by_name["countables_v2_sol"]
+    assert backfilled.cost_source == "summary"  # the backfill copies run.json's figure
+    summary_only = by_name["countables_v3_opus"]
+    assert summary_only.cost_source == "summary" and summary_only.split is None
+    assert by_name["stopped"].cost_source == "summary"
+    # A recorded manifest's token totals and wall clock are read as they are.
+    (root / "predictions" / "countables_v3_sol" / "manifest.json").write_text(
+        json.dumps(
+            _manifest(
+                "countables_v3_sol", prompts=[("photo_countables", "v3")], model="gpt-6.1-sol"
+            )
+            | {
+                "wall_seconds": 12.5,
+                "calls": {"count": 52, "cost_usd": 1.5, "input_tokens": 100, "output_tokens": 7},
+            }
+        )
+    )
+    again = {e.name: e for e in registry.scan(root)}["countables_v3_sol"]
+    assert again.tokens == {"input": 100, "output": 7}
+    assert (again.wall_seconds, again.duration_source) == (12.5, "recorded")

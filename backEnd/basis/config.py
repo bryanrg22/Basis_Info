@@ -498,6 +498,14 @@ class Settings(BaseSettings):
     ops_heartbeat_seconds: float = Field(default=15.0, ge=1, le=300)
     ops_provider_probe_seconds: float = Field(default=60.0, ge=0, le=3600)
     ops_probe_localizer: bool = False
+    # Evaluation run records (GET /v1/ops/eval-runs, docs/api/EVAL_RUNS.md, EVAL_REPORT 74):
+    # BASIS_EVAL_DATA_DIR, the private evaluation data directory the harness writes its run
+    # directories under (the same variable `evals.*` reads). Unset, the default on every
+    # deployed host, the routes answer 404 `eval-data-unavailable`; nothing is listed as if
+    # there were no runs. Never a directory inside the repository.
+    eval_data_dir: Path | None = Field(
+        default=None, validation_alias=AliasChoices("eval_data_dir", "BASIS_EVAL_DATA_DIR")
+    )
 
     # Operator alerts (basis.notify, docs/api/RETENTION_AND_ALERTS.md). ALERT_EMAIL_TO: the one
     # address the relay emails when a study fails or a service's heartbeat goes stale; unset,

@@ -209,6 +209,11 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "POST /v1/studies/{study_id}/assets/reprice",
         # Internal system health for platform operators (docs/api/OPS_HEALTH.md)
         "GET /v1/ops/health",
+        # Evaluation run records for platform operators (docs/api/EVAL_RUNS.md,
+        # tests/api/test_eval_runs.py)
+        "GET /v1/ops/eval-runs",
+        "GET /v1/ops/eval-runs/{run_id}",
+        "GET /v1/ops/eval-runs/{run_id}/files/{name}",
     }
 
 

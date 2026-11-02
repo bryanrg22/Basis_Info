@@ -3,6 +3,10 @@
    figure verbatim from EVAL_REPORT.md, every source path real: both are checked by
    backEnd/tests/unit/test_developer_workflow_content.py). The runtime table comes only from
    the health feed (GET /v1/ops/health): a model id, a host or a backup is never typed here.
+   The "Run records" block under Tests & results lists the evaluation registry's runs for the
+   step's components (workflow-content.json maps each step to them) from GET /v1/ops/eval-runs,
+   with the same unavailable, unauthorized and no-data states as the health feed; every figure
+   there is what a run recorded, with its source, and nothing is compared across label files.
    This page is the one customer-adjacent surface that may name a provider. */
 (function(scope){
  'use strict';
@@ -79,12 +83,115 @@
   if(spend.latency)parts.push(`Latency ${H.esc(spend.latency)}${spend.latency_section?` (${sectionLink(spend.latency_section,H)})`:''}`);
   return parts.length?`<p class="spend-line">${parts.join(' · ')}</p>`:'<p class="spend-line">No paid call in this step; no cost or token figure applies.</p>';
  }
+ // ---- Run records (GET /v1/ops/eval-runs) ----
+ const NOT_RECORDED='Not recorded';
+ const SELECTION_LABEL={current:'Current pipeline',alternative:'Alternative',not_in_pipeline:'Not in the pipeline',unknown:'Standing unknown'};
+ function validRunsPage(data){return !!(data&&Array.isArray(data.items)&&typeof data.total==='number'&&data.items.every(r=>r&&typeof r.run_id==='string'&&typeof r.name==='string'))}
+ // One sentence for a feed result that is not a page of runs; null when it is one.
+ function runsMessage(result){
+  if(result.error==='untrusted_origin')return 'Run records require a trusted API origin in deployment configuration.';
+  if(result.error==='auth')return 'The sign-in service could not refresh your session. Reconnect diagnostics to read run records.';
+  if(result.error==='timeout')return 'Run records did not answer in time. Retry when the API is reachable.';
+  if(result.error)return 'Run records unavailable. Retry when the API is reachable.';
+  if(result.status===401)return 'Sign in to Basis, then connect again. Run records require an authenticated session.';
+  if(result.status===403)return 'This account cannot read run records. The backend must grant operator access.';
+  if(result.status===404&&result.data?.code==='BASIS-API-046')return typeof result.data.detail==='string'&&result.data.detail?result.data.detail:'No evaluation data on this host.';
+  if(result.status===404)return 'Run records endpoint unavailable.';
+  if(result.status===429)return 'Run records are rate limited. Wait before opening another step.';
+  if(result.status!==200)return `Run records returned HTTP ${result.status}.`;
+  if(!validRunsPage(result.data))return 'The run records response does not match the supported contract.';
+  return null;
+ }
+ const num=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
+ function metric(value){const v=num(value);return v===null?'null':Math.abs(v)>=100?v.toFixed(1):v.toFixed(3)}
+ function duration(seconds){const s=num(seconds);if(s===null)return NOT_RECORDED;if(s<1)return '< 1 s';if(s<90)return `${Math.round(s)} s`;if(s<5400)return `${(s/60).toFixed(1)} min`;if(s<172800)return `${(s/3600).toFixed(1)} h`;return `${(s/86400).toFixed(1)} days`}
+ function tokens(t,H){
+  if(!t||typeof t!=='object')return NOT_RECORDED;
+  const parts=[`${num(t.input)??'?'} in / ${num(t.output)??'?'} out`];
+  if(num(t.cache_read))parts.push(`${t.cache_read} cached`);
+  if(num(t.cache_creation))parts.push(`${t.cache_creation} cache writes`);
+  if(num(t.reasoning))parts.push(`${t.reasoning} reasoning`);
+  return H.esc(parts.join(' · '));
+ }
+ function cost(spend,H){
+  const usd=num(spend?.cost_usd);if(usd===null)return NOT_RECORDED;
+  const source=spend.cost_source==='ledger'?'recorded calls':spend.cost_source==='summary'?"runner's summary":'source not stated';
+  return `$${usd>=1?usd.toFixed(2):usd.toFixed(3)} <small>${H.esc(source)}</small>`;
+ }
+ function labelsOf(run){
+  const labels=run.labels&&typeof run.labels==='object'?Object.values(run.labels):[];
+  return labels.map(l=>typeof l?.file==='string'?l.file.replace(/\.[a-z]+$/,''):null).filter(Boolean).sort();
+ }
+ function groupKey(run){const stems=labelsOf(run);return stems.length?`${stems.join(', ')}|${run.split||''}`:''}
+ function groupTitle(key,H){
+  if(!key)return 'Unscored runs (no label file recorded)';
+  const [stems,split]=key.split('|');
+  return `Scored against ${H.esc(stems)}${split?` · split ${H.esc(split)}`:' · split not recorded'}`;
+ }
+ function recordCell(run,H){
+  const record=run.record||{};
+  const kind=record.error?'Record unreadable':record.backfilled?'Backfilled manifest':record.manifest?'Recorded manifest':'run.json only';
+  return `${H.esc(kind)}${record.error?`<small>${H.esc(record.error)}</small>`:''}`;
+ }
+ // The file name a download gets when the API's Content-Disposition is not readable (an
+ // origin that does not expose it): the API's own naming, <run>.<file>.
+ const FILE_SUFFIX={manifest:'manifest.json',report:'report.md',ledger:'llm_calls.jsonl',console:'console.log'};
+ function fileName(kind,runName){return `${String(runName||'run').replace(/[^\w.@+-]+/g,'_')}.${FILE_SUFFIX[kind]||'txt'}`}
+ function fileButtons(run,H){
+  const files=run.files&&typeof run.files==='object'?run.files:{};
+  const labels={manifest:'Manifest',report:'Report',ledger:'Ledger',console:'Console log'};
+  const buttons=Object.entries(labels).filter(([name])=>typeof files[name]==='string').map(([name,label])=>`<button type="button" class="run-file" data-run-file="${H.esc(files[name])}" data-run-kind="${name}" data-run-name="${H.esc(run.name)}">${label}</button>`);
+  return buttons.length?buttons.join(''):'<span class="run-none">None</span>';
+ }
+ function runRow(run,H){
+  const git=run.git||{};
+  const code=git.sha?`<code>${H.esc(String(git.sha).slice(0,7))}</code>${git.dirty===true?' <small>dirty tree</small>':git.dirty===null||git.dirty===undefined?' <small>dirty flag unknown</small>':''}${git.release?`<small>${H.esc(git.release)}</small>`:''}`:NOT_RECORDED;
+  const prompts=(Array.isArray(run.prompts)?run.prompts:[]).map(p=>`${p.name}${p.version?` ${p.version}`:' (version not recorded)'}`);
+  const architecture=`${run.component?`<strong>${H.esc(run.component)}</strong>${run.version?` <code>${H.esc(run.version)}</code>`:''}`:NOT_RECORDED}${prompts.length?`<small>${H.esc(prompts.join(', '))}</small>`:''}`;
+  const sel=run.selection&&SELECTION_LABEL[run.selection.status]?run.selection:{status:'unknown',reasons:[]};
+  const selection=`<span class="selection selection-${H.esc(sel.status)}" title="${H.esc((sel.reasons||[]).join(' '))}">${SELECTION_LABEL[sel.status]}</span>`;
+  const models=(Array.isArray(run.models_requested)?run.models_requested:[]);
+  const model=models.length?`${H.esc(models.join(', '))}${Array.isArray(run.reasoning_effort)&&run.reasoning_effort.length?`<small>effort ${H.esc(run.reasoning_effort.join(', '))}</small>`:''}`:NOT_RECORDED;
+  const results=run.results&&typeof run.results==='object'?`${num(run.results.passed)??0} passed / ${num(run.results.failed)??0} failed / ${num(run.results.test_error)??0} test errors`:'No cases recorded';
+  const status=`${run.status?H.esc(run.status):NOT_RECORDED}<small>${H.esc(results)}</small>`;
+  const headline=Array.isArray(run.headline)?run.headline.filter(h=>h&&typeof h.dataset==='string'):[];
+  const metrics=headline.length?headline.map(h=>`<span class="run-metric">${H.esc(h.dataset)} ${H.esc(h.metric)} = <strong>${metric(h.value)}</strong></span>`).join(''):'<span class="run-none">Not scored</span>';
+  const spend=run.spend||{};
+  const when=typeof run.started_at==='string'?H.esc(run.started_at.slice(0,16).replace('T',' ')):NOT_RECORDED;
+  const dur=`${duration(spend.duration_seconds)}${spend.duration_source==='file_times'?' <small>estimated from file times</small>':''}`;
+  return `<tr><th scope="row"><code>${H.esc(run.name)}</code><small>${H.esc(run.kind||'')}${run.harness?` · ${H.esc(String(run.harness).replace(/^evals\./,''))}`:''}</small></th><td>${architecture}${selection}</td><td>${model}</td><td>${code}</td><td>${when}</td><td>${status}</td><td class="run-metrics">${metrics}</td><td>${cost(spend,H)}</td><td>${tokens(spend.tokens,H)}</td><td>${dur}</td><td>${recordCell(run,H)}</td><td class="run-files">${fileButtons(run,H)}</td></tr>`;
+ }
+ function runsTable(title,runs,H){
+  return `<div class="run-group"><h4>${title} <span class="comparison-meta">${runs.length} run${runs.length===1?'':'s'}</span></h4><div class="table-scroll" role="region" tabindex="0" aria-label="${title.replace(/<[^>]+>/g,'')}"><table class="run-records-table"><thead><tr><th>Run</th><th>Architecture</th><th>Model</th><th>Code</th><th>Started</th><th>Status</th><th>Measured</th><th>Cost (USD)</th><th>Tokens</th><th>Duration</th><th>Record</th><th>Files</th></tr></thead><tbody>${runs.map(r=>runRow(r,H)).join('')}</tbody></table></div></div>`;
+ }
+ // `runs`: {status: 'idle'|'loading'|'done', result, items, next} kept by the page per step.
+ function renderRunRecords(components,runs,H){
+  const list=Array.isArray(components)?components:[];
+  const named=list.length?`<code>${list.map(H.esc).join('</code>, <code>')}</code>`:'';
+  const head='<h4 class="run-records-title">Run records</h4>';
+  if(!list.length)return `${head}<p class="detail-note">No evaluation component is filed for this step (an engineer\'s review or a step without a model call), so no run record applies.</p>`;
+  const state=runs||{status:'idle'};
+  if(state.status==='idle')return `${head}<p class="detail-note">Connect diagnostics to list the registry\'s runs for ${named}. Platform operators only; nothing is listed from this page\'s own files.</p>`;
+  if(state.status==='loading')return `${head}<p class="detail-note" role="status">Reading run records for ${named}…</p>`;
+  const result=state.result||{status:0,error:'network'};
+  const message=runsMessage(result);
+  if(message)return `${head}<p class="detail-note run-records-message" role="status">${H.esc(message)}</p>`;
+  const items=Array.isArray(state.items)&&state.items.length?state.items:result.data.items;
+  const total=result.data.total;
+  if(!items.length)return `${head}<p class="detail-note run-records-message" role="status">The registry has no run that names ${named}. Runs of other components exist on this host.</p>`;
+  const groups=new Map();
+  for(const run of items){const key=groupKey(run);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(run)}
+  const ordered=[...groups.entries()].sort((a,b)=>(a[0]===''?1:0)-(b[0]===''?1:0));
+  const tables=ordered.map(([key,rows])=>runsTable(groupTitle(key,H),rows,H)).join('');
+  const more=state.next?`<p class="run-records-more"><button type="button" data-run-more="${H.esc(state.next)}">Load older runs</button> <span class="comparison-meta">${items.length} of ${total} shown</span></p>`:`<p class="comparison-meta">${items.length} of ${total} run${total===1?'':'s'} for ${named}.</p>`;
+  return `${head}${tables}${more}<p class="run-file-status" role="status" aria-live="polite"></p><p class="detail-note">Each table holds runs scored against the same label files and split; the architectures and models differ within a table, and that is the comparison. Every figure is what the run recorded: a cost from recorded calls is the priced sum of its ledger, a cost from the runner\'s summary is its own figure, a duration from file times is the backfill\'s estimate; "Not recorded" is a fact the files do not state. Files download through the API with the operator check.</p>`;
+ }
  function links(entry,H){
   const all=[...(entry.links||[]),{label:'Run record format',path:'backEnd/evals/record.py'},{label:'Run registry',path:'backEnd/evals/registry.py'}];
   const seen=new Set();
   return all.filter(l=>!seen.has(l.path)&&seen.add(l.path)).map(l=>`<a href="${H.esc(REPOSITORY+l.path)}" target="_blank" rel="noopener noreferrer">${H.esc(l.label)} ↗</a>`).join('');
  }
- function render(node,services,H){
+ function render(node,services,H,runs){
   const entry=content?.steps?.[node.id];
   if(!entry){
    const rows=node.services.map(id=>({service:id}));
@@ -95,10 +202,12 @@
   const runtime=`<section><h3>Current runtime</h3><div class="table-scroll" role="region" tabindex="0" aria-label="Current runtime"><table><thead><tr><th>System</th><th>Model</th><th>Hosting / provider</th><th>Adapter</th><th>Backups</th></tr></thead><tbody>${runtimeRows(entry.runtime,services,H)}</tbody></table></div><p class="detail-note">Every row is read from the connected health API: the model ids are what the worker reports it runs, hosting is what each process established about itself, and a backup is a configured fallback route. Service health never says whether a study is signed or completed.</p></section>`;
   const comparisons=(results.comparisons||[]).map((c,i)=>comparisonTable(c,H,i===0)).join('');
   const regression=results.regression?`<p class="regression-line"><strong>Regression:</strong> ${H.esc(results.regression.status)} (${sectionLink(results.regression.section,H)}). ${H.esc(results.regression.detail||'')}</p>`:'';
-  const tests=`<section><h3>Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p></section>`;
+  const records=`<div class="run-records" id="run-records" data-step="${H.esc(node.id)}">${renderRunRecords(entry.components,runs,H)}</div>`;
+  const tests=`<section><h3>Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p>${records}</section>`;
   const note=entry.note?`<p class="detail-note">${H.esc(entry.note)}</p>`:'';
   return how+runtime+note+tests;
  }
- const api={CONTENT_PATH,REPOSITORY,load,setContent,validContent,render,runtimeRows,get content(){return content},get contentError(){return contentError}};
+ function componentsOf(stepId){const list=content?.steps?.[stepId]?.components;return Array.isArray(list)?list.filter(c=>typeof c==='string'):[]}
+ const api={CONTENT_PATH,REPOSITORY,load,setContent,validContent,render,runtimeRows,renderRunRecords,runsMessage,validRunsPage,componentsOf,fileName,duration,get content(){return content},get contentError(){return contentError}};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisArchitecture=api;
 })(globalThis);

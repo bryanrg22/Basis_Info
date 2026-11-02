@@ -9451,3 +9451,169 @@ before; `test_hosting.py` 20 new, `test_services.py` 5 new), `test_developer_wor
 50 passed; `tests/api/test_ops_health.py` extended with the three fields on the real-heartbeat
 document; the full backend suite 6,612 passed, 23 skipped, 76 subtests (21 min 32 s; unit, integration and slow, provider keys unset). Static gates green (`ruff`, `ruff format`, `mypy`, the
 catalogue, the OpenAPI document, the rule fingerprints, the client-data guard).
+
+## 74. Evaluation run records for operators: `GET /v1/ops/eval-runs` and the dialogs' "Run records" (2026-11-02)
+
+**Question.** Section 73 left one piece of the developer page's hand-off open: the figures in
+the step dialogs are the report's, copied and checked, but the evidence behind them, the run
+directories the registry reads (section 43), could be seen only with `python -m evals.registry`
+on the machine that holds the data. Can a platform operator read those records through the API,
+with every field the registry has (component and version, prompts, models, labels and split,
+results, measured metrics, tokens, cost, duration, the tested commit), download the manifest,
+the report, the ledger and the console log, and see them under each step's results, without a
+path, a host name or a key leaving the host, without a run ever being compared to a run scored
+on other labels, and without a host that has no data ever looking like a host with no runs?
+
+**Standard.** The experiment trackers expose a run's record through an authenticated read API
+with the same fields the UI shows and the artifacts as downloads behind the same check: MLflow's
+REST API (`runs/search` with filters and a page token, `runs/get`, artifacts listed and
+downloaded through the tracking server, never as static files), Weights & Biases' run files
+API. Keyset pagination with an opaque cursor is what this API already does for the timeline,
+the activity and the browser errors (sections 41, 55, 65). For the figures, the rule of
+section 43 stands: a backfilled manifest says `unknown` where the files did not say, and the
+API must keep that as null rather than a number; and a figure the registry derives (a cost
+summed from the price table, a duration estimated from file times) has to say so, so the page
+can tell a measurement from an estimate.
+
+**Setup.** Branch `claude/eval-run-records-api`, stacked on `claude/developer-workflow` (section
+73, PR #126). No paid call anywhere. The browser check ran on an isolated stack: this checkout's
+API in `dev` on 8600 with no database (`TEMPORAL_ADDRESS` pointed at a closed port, so the
+health feed is the 503 document), `OPS_OPERATOR_UIDS` set to one account created in the Auth
+emulator already on 9099, `BASIS_EVAL_DATA_DIR` a synthetic directory built by the API test's
+own fixtures (one run recorded by the real `evals.record.EvalRun` with a scripted model, a
+backfilled manifest, a stopped run, an appraisal run with non-finite scores, a run inside the
+verification tree, a manifest that is not JSON and one that is not a run manifest); a second API
+on 8601 without the variable; the web folder served on 3600 from a symlinked copy with a
+`developer/local.html` whose `BASIS_CONFIG_OVERRIDES.apiBase` is 8600. The other sessions'
+ports and the compose stack were untouched. The real registry was read once, read only
+(`python -m evals.registry --json`), to see the shapes the API has to carry: 356 runs, 351
+backfilled, label entries carrying the absolute path of the label file.
+
+### 74.1 What was built
+
+* **Three routes** (`basis/api/routes/eval_runs.py`, `basis/api/schemas/eval_runs.py`,
+  docs/api/EVAL_RUNS.md, OpenAPI regenerated): `GET /v1/ops/eval-runs` (filters `component`,
+  repeated as OR because a step lists several, `model` with the registry's `M*` prefix,
+  `labels`, `dataset`, `split`, `status`, `release`; `limit` 1 to 200; a keyset `cursor`;
+  `total`), `GET /v1/ops/eval-runs/{run_id}` (the item plus settings, environment without the
+  host name, harness options, a backfilled manifest's provenance, notes, error) and
+  `GET /v1/ops/eval-runs/{run_id}/files/{manifest|report|ledger|console}` (attachments through
+  the operator check). The same `require_operator` as the health and browser-error routes, 60
+  reads a minute per operator, no database at all. `run_id` is the directory's relative path
+  as base64url: opaque on the wire, reversible, validated, and looked up only in the cached
+  scan, so the API never opens a path a client named.
+* **The read layer** (`basis/ops/eval_runs.py`) over `evals.registry` (`run_directories`,
+  `tree_directories`, `read_run`: nothing re-implemented): a catalogue scanned at most once
+  per 30 s per process, off the event loop, one scan at a time; a directory the registry
+  cannot read becomes a record with `record.error` instead of failing the list; the projection
+  turns every `unknown` into null, keeps the cost's source (`ledger`: summed from the recorded
+  calls; `summary`: the runner's `run.json` figure, what the backfill copied) and the
+  duration's (`recorded`: the runner's clock; `file_times`: the backfill's estimate, which on
+  the real data runs to 13 days for a 52-photo run), takes token totals only from recorded
+  calls, and drops the label paths. `RunEntry` in the registry gained the fields the API needs
+  (split and repeats from the manifest or the latest scoring, wall seconds, token totals, exit
+  code, settings, environment, options, provenance, notes, format), so the CLI's JSON carries
+  them too.
+* **Availability is a fact, not an empty list.** `BASIS_EVAL_DATA_DIR` is now a setting
+  (`eval_data_dir`, config.py and `.env.example`). Unset (every deployed host), a directory that
+  does not exist, or the evaluation tooling not installed (the production image ships
+  `basis/` alone, so the `evals` import is optional and the module says so): every route answers
+  404 `eval-data-unavailable`, `BASIS-API-046`, with the reason in `detail`. `BASIS-API-047` is
+  a file over the 8 MiB bound.
+* **Redaction before anything leaves.** The detail and the files mask credential-named
+  fields (the logging rule), API-key-shaped strings and credential headers, the host name, and
+  replace the data directory by `<data dir>` and any `/Users/<name>` or `/home/<name>` by `~`
+  in every path (the manifest's command line, the options, the backfilled label paths, the
+  console log). The payload files (prompts, model answers) are never served.
+* **A run's standing against the pipeline, computed, not typed.** `pipeline_prompts(settings)`
+  lists every prompt the configured pipeline runs with its version and the model the setting
+  names, read the way the activities read them (the photo mode, count fusion, the room step
+  and its second look, the room call, surface crops, the grounded reading, the fallback, the
+  classifier); `tests/unit/ops/test_eval_runs.py` holds it to `worker.main.pipeline_models` on
+  four settings variants, so the two readings of the pipeline cannot drift. `selection.status`
+  is `current` when every prompt the run names is that version on a model a pipeline setting
+  names for it, `alternative` when a version, a model or a prompt differs, `not_in_pipeline`
+  when none of its prompts is run, `unknown` when the run names no prompt; `reasons` says which.
+  It is relative to this API process's settings (the deployment's); the worker's effective
+  routes stay on `GET /v1/ops/health`.
+* **The page.** `web/developer/workflow-content.json` maps each step to its registry
+  components (`components`; the four reviews and Upload and Report & sign have none;
+  `test_developer_workflow_content.py` checks each is a released prompt name or a
+  `HARNESS_COMPONENTS` value). `architecture.js` ends "Tests & results" with a "Run records"
+  block: one table per label set and split, never one across them; the standing badge; the
+  headline metric per dataset; cost and duration each with their source; tokens; the code with
+  the dirty flag; results as `passed / failed / test errors`; the record's kind (recorded,
+  backfilled, `run.json` only, unreadable with the error); "Not recorded" for every null; the
+  four file buttons, which fetch through the authenticated client (an `<a href>` cannot carry
+  the token) and save the attachment under the API's name (`Content-Disposition` is now
+  exposed by CORS, with a client-side fallback); "Load older runs" for the next page. Every
+  feed state has its own sentence: not connected, loading, untrusted origin, sign-in failure,
+  timeout, network, 401, 403, 404 with the no-data reason, 404 otherwise, 429, another status, a
+  malformed body, and "the registry has no run that names these components; runs of other
+  components exist on this host". `health-client.js` gained `evalRuns` and `evalRunFile`;
+  `health-page.js` reads once per dialog opening while connected.
+
+### 74.2 Verified
+
+* **API, no database** (`tests/api/test_eval_runs.py`, 23 tests): 401 without a token; a firm
+  owner, and anyone on an empty allowlist, 403 `not-operator` without diagnostics; unset,
+  missing and tooling-absent hosts 404 `BASIS-API-046` with the reason; the list newest first
+  with every field as the fixtures recorded them (the real run: the prompt's released version
+  and sha256, the tested commit of this checkout with its dirty flag, 1,000 input and 20 output
+  tokens, cost from the ledger, duration recorded; the backfilled run: commit, dirty flag and
+  sha256 null, cost from the summary, duration from file times, the label's path gone); the
+  broken manifests listed with their errors; NaN scores null; the tree link not a second run;
+  no local path, home directory, host name or key in any list, detail or file; every filter;
+  pages walking every run once, 422 for the bounds and a bad cursor; eight ids the host did not
+  issue 404; the four files with their media types and names, the manifest's host name `***`
+  and command line paths replaced, the ledger's `api_key` masked and its error text redacted,
+  the console log redacted, the backfilled run's report its `eval.md`; 413 over the bound; the
+  scan cached and refreshed after the TTL; 60 reads a minute then 429.
+* **Browser** (desktop and 390 CSS px): with diagnostics connected, Analyze photos shows two
+  tables, `photo_components_v1 · split dev` (the recorded run, Alternative: gpt-4o-mini is not
+  the pipeline's VISION_MODEL) and `photo_components_v1 · split not recorded` (the backfilled
+  run, cost "$1.10 runner's summary", duration "13.0 days estimated from file times", code "Not
+  recorded"); Build inventory shows the in-tree run as "Current pipeline"; Review appraisal says
+  no run record applies; Produce results says the registry has no run that names
+  `study_export`. The Ledger button saved `countables_v3_mini.llm_calls.jsonl` (the Manifest
+  button `countables_v3_mini.manifest.json` once the header was exposed; before that the
+  fallback name). Reloaded and not connected, the block asks to connect and names the
+  components. Against the API without the variable, the block shows the API's sentence
+  ("BASIS_EVAL_DATA_DIR is not set ..."). Keyboard: Return on a focused step opens its dialog
+  with focus on Close, Escape closes it and focus returns to that step. 390 px: page scroll
+  width 390, dialog 354 wide, the run tables scroll inside their regions (320 of 1,380), the
+  file buttons 44 px. Console: only the health feed's 503 resource messages (this stack has no
+  database), none from the page's scripts.
+* **Real data, read only**: the registry over `~/basis-eval-data` reads 356 runs in under two
+  seconds; the API's redaction was written against what those manifests carry (absolute label
+  paths, `unknown` strings, `hostname` in the environment).
+
+### 74.3 Decisions a reviewer may ask about
+
+* *Why 404 and not 200 with an empty list for a host without data.* The brief asked that an
+  empty host never look like "no runs". A problem with its own type and code is the only
+  answer a client cannot mistake; the page shows the reason.
+* *Why the API process's settings decide "current".* The worker's routes are in its heartbeat,
+  which needs the database; these routes need none and run on the machine with the data. The
+  deployment's settings are the same file; the doc says which it is, and the page labels the
+  badge "Current pipeline" with the reasons as a tooltip.
+* *Why group by label file and split only.* Within one label set, the architectures and models
+  are the comparison the registry exists for; the dataset is what makes two runs comparable.
+  Repeats are shown per run, not used to split tables.
+* *Why serve the manifest with paths replaced rather than verbatim.* The hand-off forbids
+  local file paths through the page; `<data dir>` and `~` keep the file readable and the
+  record's shape intact. The payload files are not served at all: they are the prompts.
+* *Why the registry's `RunEntry` grew instead of the API re-reading manifests.* One reader. The
+  CLI's JSON now carries the same fields, and `test_registry.py` holds them.
+
+### 74.4 Not done
+
+* No filter on the page: the block lists the step's components and lets the API's order stand;
+  the registry CLI keeps `--matrix` and the other filters.
+* The developer page's other open items (section 73.4) are unchanged.
+
+**Measured.** See the test ledger (`backEnd/tests/LEDGER.md`, "Evaluation run records for
+operators"): `tests/unit/ops/test_eval_runs.py` 19, `tests/api/test_eval_runs.py` 23,
+`test_registry.py` 12, `test_developer_workflow_content.py` 62; web 340 node tests pass (331
+before). Static gates green (`ruff`, `ruff format`, `mypy`, the catalogue, the OpenAPI
+document, the rule fingerprints, the client-data guard). Unit suite 5,003 passed, 10 skipped (1 min 49 s); integration and slow suite 1,668 passed, 7 skipped, 79 subtests, one failure (`tests/integration/db/test_retention_purge.py::test_an_object_already_gone_is_reported_not_fatal`, the retention purge from section 54, untouched here; it passed alone right after, so it is an ordering or timing flake of that suite, left for its owner), 19 min 34 s, provider keys unset.

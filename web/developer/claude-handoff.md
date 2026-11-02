@@ -31,11 +31,15 @@ Add safe operator metadata from the effective runtime, not `.env.example` or def
 
 ## Evaluation records
 
-*Partly delivered (EVAL_REPORT 73):* the measured architectures and results of every step are in
+*Delivered (EVAL_REPORT 73 and 74):* the measured architectures and results of every step are in
 `web/developer/workflow-content.json`, every figure verbatim from EVAL_REPORT.md and checked by
 `backEnd/tests/unit/test_developer_workflow_content.py`; the dialogs show them as historical
-results with their section links. The authenticated run-record API below (list, detail,
-download from the verification tree) is still to build.
+results with their section links. The authenticated run-record API is `GET /v1/ops/eval-runs`
+(list with filters and a keyset cursor, detail, the four record files served redacted through
+the operator check; docs/api/EVAL_RUNS.md), read from `backEnd/evals/registry.py` and
+`record.py` over `BASIS_EVAL_DATA_DIR`, and the dialogs' "Run records" block lists it per step
+(`components` in the content file), grouped by label file and split. The paragraphs below are
+the original request, kept for the record.
 
 
 Expose the existing evaluation registry/manifests through an authenticated operator list/detail/download interface. Reuse `evals/record.py`, `evals/registry.py` and the verification tree; do not duplicate the registry or bundle private artifacts in `web/`.

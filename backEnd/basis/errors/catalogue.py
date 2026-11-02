@@ -545,6 +545,34 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "no",
         problem="payload-too-large",
     ),
+    _e(
+        E.API_EVAL_DATA_UNAVAILABLE,
+        "refusal",
+        "`GET /v1/ops/eval-runs`",
+        "basis.api.routes.eval_runs",
+        "This host has no evaluation run records to list: `BASIS_EVAL_DATA_DIR` is unset "
+        "(the default on every deployed host), names a directory that does not exist, or the "
+        "evaluation tooling (`evals`) is not installed in this image. The answer is explicit "
+        'so that it is never read as "no runs".',
+        "404 `eval-data-unavailable`; the detail says which of the three it is.",
+        "Run the API where the evaluation data lives, with `BASIS_EVAL_DATA_DIR` set; the "
+        "data never enters a deployment.",
+        "no",
+        problem="eval-data-unavailable",
+    ),
+    _e(
+        E.API_EVAL_RUN_FILE_TOO_LARGE,
+        "refusal",
+        "`GET /v1/ops/eval-runs/{run_id}/files/{name}`",
+        "basis.api.routes.eval_runs",
+        "The run file (a console log, a ledger) is larger than the route serves "
+        "(`MAX_FILE_BYTES`, 8 MiB): the file is redacted in memory before it is sent, so "
+        "the size is bounded.",
+        "413 `payload-too-large`.",
+        "Read the file from the run directory on the host.",
+        "no",
+        problem="payload-too-large",
+    ),
     # ------------------------------------------------------------------ FIRM
     _e(
         E.FIRM_NO_FIRM,
