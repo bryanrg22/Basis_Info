@@ -9309,8 +9309,8 @@ and sign: "Study completed · Revision 2 is approved and signed…".
   finish only on the next screen (FRONTEND_BACKLOG 9).
 
 **Measured.** Web: 321 node tests pass (296 before; the 25 added are this section's and the
-merged branches'). Backend: `tests/api/test_report_signing.py` 13 passed; unit suite and the
-integration/slow suite in the PR body; every static gate green (`ruff`, `ruff format`, `mypy`,
+merged branches'). Backend: `tests/api/test_report_signing.py` 13 passed; unit suite 2,046 passed, 10 skipped
+(33 s); integration and slow suite 1,669 passed, 7 skipped, 76 subtests (20 min 12 s); every static gate green (`ruff`, `ruff format`, `mypy`,
 the catalogue, the OpenAPI document, the rule fingerprints, the client-data guard: 1,634 files).
 Screenshots stay in the session (synthetic data only); the numbers above are from the API and
 the database of the isolated stack.
