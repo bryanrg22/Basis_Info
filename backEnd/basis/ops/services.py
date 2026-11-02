@@ -75,6 +75,13 @@ PROVIDER_ADAPTER: Final[dict[str, str]] = {
     "azure_openai": "Azure OpenAI",
     "anthropic": "Anthropic API",
 }
+# Where a provider's requests are served: the provider itself (a hosting label, section 2).
+PROVIDER_HOSTING: Final[dict[str, str]] = {
+    "openai": "OpenAI",
+    "azure_openai": "Microsoft Azure",
+    "anthropic": "Anthropic",
+}
+NO_FALLBACK: Final[tuple[str, ...]] = ()  # the code has no fallback for this dependency
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +89,35 @@ class LastInference:
     at: datetime
     model: str
     kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class RouteHop:
+    """One provider a model is routed to: the pool's provider name, its service id and the
+    model or deployment the request is sent to."""
+
+    provider: str
+    service: str
+    target: str
+
+    @property
+    def label(self) -> str:
+        return f"{PROVIDER_ADAPTER.get(self.service, self.provider)} · {self.target}"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRoute:
+    """A model the pipeline calls, by the setting that names it, with its route: the primary
+    provider first, then the fallbacks in order (from the worker's heartbeat report)."""
+
+    setting: str
+    model: str
+    primary: RouteHop | None
+    fallbacks: tuple[RouteHop, ...]
+
+    @property
+    def fallback_labels(self) -> tuple[str, ...]:
+        return tuple(f"{self.model} → {hop.label}" for hop in self.fallbacks)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +133,11 @@ class Service:
     adapter: str | None = None
     model: str | None = None
     last_inference: LastInference | None = None
+    # Section 2: where it runs (None: not established), the ordered backups (None: not known;
+    # empty: the code has none), and the models it calls with their routes.
+    hosting: str | None = None
+    fallbacks: tuple[str, ...] | None = None
+    models: tuple[ModelRoute, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +159,13 @@ class Inputs:
     token_verified_at: datetime
     task_queue: str
     extra: dict[str, Any] = field(default_factory=dict)
+    # Hosting labels the API establishes from its own runtime (basis.ops.hosting); None
+    # when it cannot. The worker's and relay's come from their heartbeat reports.
+    api_hosting: str | None = None
+    db_hosting: str | None = None
+    temporal_hosting: str | None = None
+    storage_hosting: str | None = None
+    firebase_hosting: str | None = None
 
 
 def _ago(now: datetime, then: datetime) -> str:
@@ -177,9 +225,13 @@ def _probe(
     missing: str,
     required: bool = True,
     adapter: str | None = None,
+    hosting: str | None = None,
 ) -> Service:
     if outcome is None:
-        return Service(id, "down" if required else "disabled", "configuration", missing, required)
+        return Service(
+            id, "down" if required else "disabled", "configuration", missing, required,
+            hosting=hosting, fallbacks=NO_FALLBACK,
+        )  # fmt: skip
     if outcome.ok and outcome.value is not False:
         status: Status = "healthy"
         detail = ok_detail
@@ -195,6 +247,8 @@ def _probe(
         expires_at=outcome.checked_at + PROBE_VALID,
         latency_ms=outcome.latency_ms,
         adapter=adapter,
+        hosting=hosting,
+        fallbacks=NO_FALLBACK,
     )
 
 
@@ -218,6 +272,23 @@ def select_workers(inputs: Inputs) -> Workers:
     newest = ordered[0] if ordered else None
     report = newest.report if newest is not None and newest.report.get("build") else None
     return Workers(fresh, newest, report)
+
+
+def _reported_hosting(section: dict[str, Any] | None) -> str | None:
+    """The hosting label a process reported for itself (a string, else None)."""
+    value = (section or {}).get("hosting")
+    return value if isinstance(value, str) and value else None
+
+
+def _worker_hosting(report: dict[str, Any] | None) -> str | None:
+    """The hosting label the worker reported for itself (``build.hosting``)."""
+    return _reported_hosting(_section(report, "build"))
+
+
+def _in_worker(report: dict[str, Any] | None) -> str:
+    """Hosting of a step that runs inside the worker process."""
+    where = _worker_hosting(report)
+    return f"Study worker ({where})" if where else "Study worker"
 
 
 def worker_service(inputs: Inputs, workers: Workers) -> Service:
@@ -266,6 +337,8 @@ def worker_service(inputs: Inputs, workers: Workers) -> Service:
             expires_at=newest.heartbeat_at + newest.valid_for,
             adapter="temporal worker",
             model=f"build {newest.build_sha[:12]}",
+            hosting=_worker_hosting(report),
+            fallbacks=NO_FALLBACK,
         )
     if starting:
         newest = max(starting, key=lambda h: h.heartbeat_at)
@@ -283,6 +356,8 @@ def worker_service(inputs: Inputs, workers: Workers) -> Service:
             expires_at=newest.heartbeat_at + newest.valid_for,
             adapter="temporal worker",
             model=f"build {newest.build_sha[:12]}",
+            hosting=_worker_hosting(newest.report),
+            fallbacks=NO_FALLBACK,
         )
     checked_at = inputs.state.checked_at
     rows = inputs.state.value.heartbeats if inputs.state.value is not None else []
@@ -380,6 +455,8 @@ def relay_service(inputs: Inputs) -> Service:
         checked_at=min(newest.heartbeat_at, inputs.state.checked_at),
         expires_at=newest.heartbeat_at + newest.valid_for,
         adapter="outbox relay",
+        hosting=_reported_hosting(newest.report),  # the relay reports it at the top level
+        fallbacks=NO_FALLBACK,
     )
 
 
@@ -418,6 +495,9 @@ def _from_probe(
     adapter: str | None,
     model: str | None,
     last: LastInference | None,
+    hosting: str | None = None,
+    fallbacks: tuple[str, ...] | None = NO_FALLBACK,
+    models: tuple[ModelRoute, ...] = (),
 ) -> Service:
     entry = _probe_entry(report, target)
     if entry is None:
@@ -430,6 +510,7 @@ def _from_probe(
         return Service(
             id, "unknown", "probe", f"{why} {context}".strip(), required,
             adapter=adapter, model=model, last_inference=last,
+            hosting=hosting, fallbacks=fallbacks, models=models,
         )  # fmt: skip
     checked = _stamp(entry.get("checked_at"))
     status = entry.get("status") if entry.get("status") in ("healthy", "degraded", "down") else None
@@ -447,6 +528,9 @@ def _from_probe(
         adapter=adapter,
         model=model,
         last_inference=last,
+        hosting=hosting,
+        fallbacks=fallbacks,
+        models=models,
     )
 
 
@@ -479,8 +563,11 @@ def provider_service(
 ) -> Service:
     ledger_name = PROVIDER_LEDGER_NAME[id]
     last = _last(ledger, providers=(ledger_name,), kinds=("chat",))
+    hosting = PROVIDER_HOSTING[id]
     if report is None:
-        return Service(id, "unknown", "heartbeat", NO_WORKER, False, last_inference=last)
+        return Service(
+            id, "unknown", "heartbeat", NO_WORKER, False, last_inference=last, hosting=hosting
+        )
     configured = report.get("providers_configured") or []
     routes = _routes(report)
     routed = [
@@ -497,6 +584,8 @@ def provider_service(
             "Not configured in the worker; no pipeline model is routed to it.",
             False,
             last_inference=last,
+            hosting=hosting,
+            fallbacks=NO_FALLBACK,
         )
     primary = sorted({m for m, _, first in routed if first})
     models = ", ".join(
@@ -507,6 +596,13 @@ def provider_service(
         if primary
         else "Fallback only (no pipeline model has it first)."
     )
+    # The routes this provider serves first, and what each falls back to (section 2).
+    served = tuple(
+        route
+        for route in _model_routes(report)
+        if route.primary is not None and route.primary.service == id
+    )
+    fallbacks = tuple(dict.fromkeys(label for route in served for label in route.fallback_labels))
     return _from_probe(
         id,
         report,
@@ -516,6 +612,9 @@ def provider_service(
         adapter=PROVIDER_ADAPTER[id],
         model=models or None,
         last=last,
+        hosting=hosting,
+        fallbacks=fallbacks,
+        models=served,
     )
 
 
@@ -524,7 +623,10 @@ def replicate_service(
 ) -> Service:
     last = _last(ledger, providers=("replicate",))
     if report is None:
-        return Service("replicate", "unknown", "heartbeat", NO_WORKER, False, last_inference=last)
+        return Service(
+            "replicate", "unknown", "heartbeat", NO_WORKER, False,
+            last_inference=last, hosting="Replicate",
+        )  # fmt: skip
     uses = [
         name
         for name, key in (("SAM 3", "localizer"), ("Mask2Former", "segmenter"))
@@ -538,6 +640,8 @@ def replicate_service(
             "Not used: neither SAM 3 nor Mask2Former runs on Replicate in this worker.",
             False,
             last_inference=last,
+            hosting="Replicate",
+            fallbacks=NO_FALLBACK,
         )
     return _from_probe(
         "replicate",
@@ -548,6 +652,7 @@ def replicate_service(
         adapter="Replicate API",
         model=None,
         last=last,
+        hosting="Replicate",
     )
 
 
@@ -563,8 +668,12 @@ def aggregate(
     adapter: str | None = None,
     model: str | None = None,
     last: LastInference | None = None,
+    hosting: str | None = None,
+    fallbacks: tuple[str, ...] | None = None,
+    models: tuple[ModelRoute, ...] = (),
 ) -> Service:
-    """A capability from the services it uses: ``(service, required_for_it)``."""
+    """A capability from the services it uses: ``(service, required_for_it)``. Its backups
+    are its models' fallback routes (``None``: not known; the routes' union otherwise)."""
     status: Status = "healthy"
     problems = []
     for dep, needed in deps:
@@ -594,6 +703,13 @@ def aggregate(
         adapter=adapter,
         model=model,
         last_inference=last,
+        hosting=hosting,
+        fallbacks=(
+            tuple(dict.fromkeys(label for r in models for label in r.fallback_labels))
+            if fallbacks is None and models
+            else fallbacks
+        ),
+        models=models,
     )
 
 
@@ -604,47 +720,76 @@ def _route_for(report: dict[str, Any], setting: str) -> dict[str, Any] | None:
     return None
 
 
+def _hops(route: dict[str, Any]) -> list[RouteHop]:
+    return [
+        RouteHop(str(p.get("provider")), str(p.get("service")), str(p.get("target")))
+        for p in route.get("route") or []
+        if isinstance(p, dict)
+    ]
+
+
+def _model_routes(report: dict[str, Any]) -> list[ModelRoute]:
+    """Every model the worker reported, once per setting that names it, in pipeline order."""
+    routes: list[ModelRoute] = []
+    for route in _routes(report):
+        hops = _hops(route)
+        for setting in route.get("settings") or []:
+            routes.append(
+                ModelRoute(
+                    str(setting),
+                    str(route.get("model")),
+                    hops[0] if hops else None,
+                    tuple(hops[1:]),
+                )
+            )
+    return routes
+
+
 def _model_dep(
     report: dict[str, Any], setting: str, by_id: dict[str, Service]
-) -> tuple[Service, str] | None:
-    """The primary provider service of the model ``setting`` names, and the route text."""
+) -> tuple[Service, str, ModelRoute] | None:
+    """The primary provider service of the model ``setting`` names, the route text, and the
+    structured route."""
     route = _route_for(report, setting)
     if route is None:
         return None
-    path = [p for p in route.get("route") or [] if isinstance(p, dict)]
+    hops = _hops(route)
     model = str(route.get("model"))
-    if not path:
+    structured = ModelRoute(setting, model, hops[0] if hops else None, tuple(hops[1:]))
+    if not hops:
         return (
             Service(
                 f"{setting.lower()}", "down", "configuration", f"no provider serves {model}", True
             ),
             f"{model} (no provider)",
+            structured,
         )
-    first = path[0]
-    service = by_id.get(str(first.get("service")))
-    target = first.get("target")
-    text = f"{model} via {first.get('provider')}" + (
-        f" ({target})" if target and target != model else ""
+    first = hops[0]
+    service = by_id.get(first.service)
+    text = f"{model} via {first.provider}" + (
+        f" ({first.target})" if first.target and first.target != model else ""
     )
     if service is None:
         return None
-    return service, text
+    return service, text, structured
 
 
 def _uses(
     report: dict[str, Any], settings: Iterable[str], by_id: dict[str, Service]
-) -> tuple[list[tuple[Service, bool]], list[str]]:
+) -> tuple[list[tuple[Service, bool]], list[str], tuple[ModelRoute, ...]]:
     deps: list[tuple[Service, bool]] = []
     texts: list[str] = []
+    routes: list[ModelRoute] = []
     for setting in settings:
         found = _model_dep(report, setting, by_id)
         if found is None:
             continue
-        service, text = found
+        service, text, route = found
         if all(service is not d for d, _ in deps):
             deps.append((service, True))
         texts.append(text)
-    return deps, texts
+        routes.append(route)
+    return deps, texts, tuple(routes)
 
 
 def compose(inputs: Inputs) -> list[Service]:
@@ -679,6 +824,8 @@ def compose(inputs: Inputs) -> list[Service]:
             checked_at=now,
             expires_at=now + PROBE_VALID,
             adapter="FastAPI",
+            hosting=inputs.api_hosting,
+            fallbacks=NO_FALLBACK,
         )
     )
     add(
@@ -688,6 +835,7 @@ def compose(inputs: Inputs) -> list[Service]:
             ok_detail="SELECT 1 on a pooled connection answered.",
             missing="No database configured in the API.",
             adapter="PostgreSQL",
+            hosting=inputs.db_hosting,
         )
     )
     add(
@@ -697,6 +845,7 @@ def compose(inputs: Inputs) -> list[Service]:
             ok_detail="DescribeNamespace answered. This does not verify workers or the relay.",
             missing="Temporal is not configured in the API: studies cannot start.",
             adapter="Temporal",
+            hosting=inputs.temporal_hosting,
         )
     )
     report = workers.report
@@ -711,6 +860,7 @@ def compose(inputs: Inputs) -> list[Service]:
             f"{inputs.storage.value or ''}. No study's files were read.",
             missing="",
             adapter=inputs.storage_adapter,
+            hosting=inputs.storage_hosting,
         )
     )
     add(
@@ -725,6 +875,8 @@ def compose(inputs: Inputs) -> list[Service]:
             checked_at=inputs.token_verified_at,
             expires_at=inputs.token_verified_at + PROBE_VALID,
             adapter=inputs.firebase_adapter,
+            hosting=inputs.firebase_hosting,
+            fallbacks=NO_FALLBACK,
         )
     )
     for id in ("openai", "azure_openai", "anthropic"):
@@ -762,6 +914,7 @@ def compose(inputs: Inputs) -> list[Service]:
                 adapter="prebuilt-layout",
                 model=None,
                 last=di_last,
+                hosting="Microsoft Azure",
             )
         )
     else:
@@ -774,13 +927,15 @@ def compose(inputs: Inputs) -> list[Service]:
                 "and the grounded reading cannot run (it needs page geometry).",
                 False,
                 last_inference=di_last,
+                hosting="Microsoft Azure",
+                fallbacks=NO_FALLBACK,
             )
         )
 
     # Appraisal extraction.
     grounded = steps.get("extraction_method") == "grounded"
     settings = (["EXTRACTION_GROUNDED_MODEL"] if grounded else []) + ["TEXT_MODEL"]
-    deps, texts = _uses(report, settings, by_id)
+    deps, texts, routes = _uses(report, settings, by_id)
     if grounded and deps and report.get("routes"):
         # The text model is the fallback of a failed grounded reading: optional then.
         deps = [(d, i == 0) for i, (d, _) in enumerate(deps)]
@@ -798,6 +953,8 @@ def compose(inputs: Inputs) -> list[Service]:
             adapter=str(steps.get("extraction_method")),
             model=" · ".join(texts) or None,
             last=_last(ledger, kinds=("chat",), activities=("ingest_appraisal", "extract_fields")),
+            hosting=_in_worker(report),
+            models=routes,
         )
     )
 
@@ -805,7 +962,7 @@ def compose(inputs: Inputs) -> list[Service]:
     vision_settings = ["VISION_MODEL", "VISION_SURFACES_MODEL"]
     if steps.get("count_fusion_active"):
         vision_settings.append("VISION_FUSION_MODEL")
-    deps, texts = _uses(report, vision_settings, by_id)
+    deps, texts, routes = _uses(report, vision_settings, by_id)
     vision_last = _last(ledger, kinds=("chat",), activities=("analyze_photo",))
     add(
         aggregate(
@@ -819,6 +976,8 @@ def compose(inputs: Inputs) -> list[Service]:
             + (" + count fusion" if steps.get("count_fusion_active") else ""),
             model=" · ".join(texts) or None,
             last=vision_last,
+            hosting=_in_worker(report),
+            models=routes,
         )
     )
 
@@ -837,6 +996,7 @@ def compose(inputs: Inputs) -> list[Service]:
                 "outlines are skipped.",
                 False,
                 last_inference=sam_last,
+                fallbacks=NO_FALLBACK,
             )
         )
     elif adapter == "self-hosted":
@@ -849,18 +1009,20 @@ def compose(inputs: Inputs) -> list[Service]:
         own = _from_probe(
             "sam3", report, "sam3", required=sam_required, context=context,
             adapter="self-hosted", model="SAM 3", last=sam_last,
+            hosting=localizer.get("hosting") or "Self-hosted server",
         )  # fmt: skip
         if not localizer.get("probed"):
             own = replace(own, detail=" ".join(context.split()))
         add(aggregate("sam3", [alive, (own, True)], required=sam_required, detail=own.detail,
-                      adapter="self-hosted", model="SAM 3", last=sam_last))  # fmt: skip
+                      adapter="self-hosted", model="SAM 3", last=sam_last,
+                      hosting=own.hosting, fallbacks=NO_FALLBACK))  # fmt: skip
     else:
         version = _from_probe(
             "sam3", report, "sam3", required=sam_required,
             context=f"On Replicate (vufinder/sam3@{localizer.get('version')}). "
             + _last_note(now, sam_last),
             adapter="replicate", model=f"SAM 3 (vufinder/sam3@{localizer.get('version')})",
-            last=sam_last,
+            last=sam_last, hosting="Replicate",
         )  # fmt: skip
         add(
             aggregate(
@@ -871,6 +1033,8 @@ def compose(inputs: Inputs) -> list[Service]:
                 adapter="replicate",
                 model=version.model,
                 last=sam_last,
+                hosting="Replicate",
+                fallbacks=NO_FALLBACK,
             )
         )
 
@@ -887,6 +1051,7 @@ def compose(inputs: Inputs) -> list[Service]:
                 "Not used: MATERIALS_SECOND_LOOK is not surface_crops (or the room step is off).",
                 False,
                 last_inference=seg_last,
+                fallbacks=NO_FALLBACK,
             )
         )
     elif seg_adapter == "local":
@@ -906,17 +1071,20 @@ def compose(inputs: Inputs) -> list[Service]:
                 adapter="local",
                 model="Mask2Former Swin-L ADE20K",
                 last_inference=seg_last,
+                hosting=_in_worker(report),
+                fallbacks=NO_FALLBACK,
             )
         )
     else:
         version = _from_probe(
             "mask2former", report, "mask2former", required=False,
             context=_last_note(now, seg_last), adapter="replicate",
-            model="Mask2Former (oitoito/mask2former)", last=seg_last,
+            model="Mask2Former (oitoito/mask2former)", last=seg_last, hosting="Replicate",
         )  # fmt: skip
         add(aggregate("mask2former", [alive, (by_id["replicate"], True), (version, True)],
                       required=False, detail=version.detail, adapter="replicate",
-                      model=version.model, last=seg_last))  # fmt: skip
+                      model=version.model, last=seg_last, hosting="Replicate",
+                      fallbacks=NO_FALLBACK))  # fmt: skip
 
     # Embeddings.
     embedder = _section(report, "embedder")
@@ -939,17 +1107,19 @@ def compose(inputs: Inputs) -> list[Service]:
                 f"Warm in the worker: {how}; the worker heartbeat says it is still running.",
                 True, checked_at=beat[0], expires_at=beat[1],
                 adapter="hash" if name.startswith("hash") else "sentence-transformers (CPU)",
-                model=model_text or None,
+                model=model_text or None, hosting=_in_worker(report), fallbacks=NO_FALLBACK,
             )
         )  # fmt: skip
     elif emb_status == "warming":
         add(Service("embeddings", "degraded", "heartbeat", "Warming: the worker is loading the "
                     "model and is not polling yet.", True, checked_at=beat[0], expires_at=beat[1],
-                    model=model_text or None))  # fmt: skip
+                    model=model_text or None, hosting=_in_worker(report),
+                    fallbacks=NO_FALLBACK))  # fmt: skip
     elif emb_status == "failed":
         add(Service("embeddings", "down", "heartbeat", "The model failed to load; the worker "
                     "will not start.", True, checked_at=beat[0], expires_at=beat[1],
-                    model=model_text or None))  # fmt: skip
+                    model=model_text or None, hosting=_in_worker(report),
+                    fallbacks=NO_FALLBACK))  # fmt: skip
     else:
         add(Service("embeddings", "unknown", "heartbeat", "Warm-up not reported yet.", True,
                     model=model_text or None))  # fmt: skip
@@ -959,9 +1129,10 @@ def compose(inputs: Inputs) -> list[Service]:
     # Room inventory.
     if not steps.get("room_reconcile"):
         add(Service("room_inventory", "disabled", "configuration", "ROOM_RECONCILE is off: assets "
-                    "come from the per-photo components.", False))  # fmt: skip
+                    "come from the per-photo components.", False,
+                    hosting=_in_worker(report), fallbacks=NO_FALLBACK))  # fmt: skip
     else:
-        deps, texts = _uses(
+        deps, texts, routes = _uses(
             report,
             ["ROOM_MODEL", "ROOM_MATERIALS_MODEL", "ROOM_CALL_MODEL", "SURFACE_CROP_MODEL"],
             by_id,
@@ -981,11 +1152,13 @@ def compose(inputs: Inputs) -> list[Service]:
                 adapter=str(steps.get("room_step_mode")),
                 model=" · ".join(texts) or None,
                 last=room_last,
+                hosting=_in_worker(report),
+                models=routes,
             )
         )
 
     # Classification.
-    deps, texts = _uses(report, ["CLASSIFY_MODEL"], by_id)
+    deps, texts, routes = _uses(report, ["CLASSIFY_MODEL"], by_id)
     class_last = _last(ledger, kinds=("chat",), activities=("process_assets",))
     add(
         aggregate(
@@ -997,6 +1170,8 @@ def compose(inputs: Inputs) -> list[Service]:
             adapter=f"rules + model ({steps.get('retrieval_search')} search)",
             model=" · ".join(texts) or None,
             last=class_last,
+            hosting=_in_worker(report),
+            models=routes,
         )
     )
     add(
@@ -1007,11 +1182,14 @@ def compose(inputs: Inputs) -> list[Service]:
             detail=f"Deterministic step in the worker (TAKEOFF_AREAS={steps.get('takeoff_areas')});"
             " no external dependency, so the evidence is the worker heartbeat.",
             adapter=str(steps.get("takeoff_areas")),
+            hosting=_in_worker(report),
+            fallbacks=NO_FALLBACK,
         )
     )
     if steps.get("structure_step") == "off":
         add(Service("structure", "disabled", "configuration", "STRUCTURE_STEP is off: the "
-                    "schedule comes from the photographs only.", False))  # fmt: skip
+                    "schedule comes from the photographs only.", False,
+                    hosting=_in_worker(report), fallbacks=NO_FALLBACK))  # fmt: skip
     else:
         add(
             aggregate(
@@ -1021,6 +1199,8 @@ def compose(inputs: Inputs) -> list[Service]:
                 detail="Concealed building systems from the RSMeans square-foot model or the "
                 "appraisal's cost approach, in the worker.",
                 adapter="square-foot model",
+                hosting=_in_worker(report),
+                fallbacks=NO_FALLBACK,
             )
         )
     add(
@@ -1030,9 +1210,16 @@ def compose(inputs: Inputs) -> list[Service]:
             required=True,
             detail="The approved revision to JSON and CSV in storage, written by the worker.",
             adapter="JSON / CSV",
+            hosting=_in_worker(report),
+            fallbacks=NO_FALLBACK,
         )
     )
     return [by_id[id] for id in SERVICE_IDS]
+
+
+def _store_hosting(inputs: Inputs) -> str:
+    """A store in the database: PostgreSQL, where the API established it runs."""
+    return f"PostgreSQL ({inputs.db_hosting})" if inputs.db_hosting else "PostgreSQL"
 
 
 def _data_services(
@@ -1059,6 +1246,7 @@ def _data_services(
                     "classifier's search finds nothing. Missing reference data, not a provider "
                     "outage: ingest and publish the reference corpus.",
                     True, checked_at=checked, expires_at=expires,
+                    hosting=_store_hosting(inputs), fallbacks=NO_FALLBACK,
                 )
             )  # fmt: skip
         else:
@@ -1081,7 +1269,8 @@ def _data_services(
                     + (f" {_sentence(notes)}." if notes else ""),
                     True, checked_at=checked, expires_at=expires,
                     adapter=str(_section(report, "steps").get("retrieval_search") or "bm25"),
-                    model=reference.embedding_model,
+                    model=reference.embedding_model, hosting=_store_hosting(inputs),
+                    fallbacks=NO_FALLBACK,
                 )
             )  # fmt: skip
         cost = state.cost_indices
@@ -1093,6 +1282,7 @@ def _data_services(
                     "cost_indices", "down", "probe",
                     f"The cost index store is empty: run `{REFRESH_CLI} seed`. Missing data, "
                     "not a provider outage.", True, checked_at=checked, expires_at=expires,
+                    hosting=_store_hosting(inputs), fallbacks=NO_FALLBACK,
                 )
             )  # fmt: skip
         else:
@@ -1114,7 +1304,8 @@ def _data_services(
                 Service(
                     "cost_indices", status, "probe", "; ".join(notes) + ".", True,
                     checked_at=checked, expires_at=expires, adapter="cost index store",
-                    model="RSMeans Historical Cost Index",
+                    model="RSMeans Historical Cost Index", hosting=_store_hosting(inputs),
+                    fallbacks=NO_FALLBACK,
                 )
             )  # fmt: skip
     if report is None:
@@ -1130,7 +1321,8 @@ def _data_services(
                 f"Licensed unit-cost table loaded in the worker: {table.get('name')}, "
                 f"{table.get('rows')} rows, base year {table.get('base_year')}.",
                 True, checked_at=beat_at, expires_at=beat_until, adapter="cost table",
-                model=str(table.get("name")),
+                model=str(table.get("name")), hosting=_in_worker(report),
+                fallbacks=NO_FALLBACK,
             )
         )  # fmt: skip
     else:
@@ -1140,6 +1332,7 @@ def _data_services(
                 "No licensed RSMeans unit-cost table in the worker (COST_TABLE_PATH unset): "
                 "only the six legacy rows price assets. Missing licensed data, not a provider "
                 "outage.", True, checked_at=beat_at, expires_at=beat_until,
+                hosting=_in_worker(report), fallbacks=NO_FALLBACK,
             )
         )  # fmt: skip
 

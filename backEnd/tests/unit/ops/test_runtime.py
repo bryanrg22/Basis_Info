@@ -134,7 +134,9 @@ def test_the_report_carries_no_secret_endpoint_or_host(settings: Settings) -> No
         "adapter": "self-hosted",
         "version": settings.sam3_replicate_version[:12],
         "probed": False,
+        "hosting": "Google Cloud Run",  # a label for the run.app host, never the URL
     }
+    assert report["build"]["hosting"] in ("Local process", "Docker container", "Google Cloud Run")
     assert report["embedder"]["status"] == "ready" and report["embedder"]["source"] == "cache"
     assert report["reference_index"]["status"] == "no_corpus"
     assert report["build"]["git_sha"] == "0123456789abcdef"

@@ -14,6 +14,12 @@ The browser must not create an error-reporting loop when telemetry itself fails.
 
 ## Runtime architecture
 
+*Delivered (EVAL_REPORT 73, `claude/developer-workflow`):* `/v1/ops/health` now carries `hosting`,
+`fallbacks` and `models` per service (OPS_HEALTH.md section 2), and the step dialogs render one
+runtime row per model role from `models` with the provider's logo and the exact model id or
+deployment. The paragraphs below are the original request, kept for the record.
+
+
 Extend the existing `/v1/ops/health` response additively. `model`, `adapter` and `last_inference` already exist. The frontend now preserves them even when `/health` provides a more recent API/database/Temporal check.
 
 Add safe operator metadata from the effective runtime, not `.env.example` or defaults:
@@ -24,6 +30,13 @@ Add safe operator metadata from the effective runtime, not `.env.example` or def
 - Make clear which model is doing countables, surfaces, fusion and room reconciliation. A brand logo is not proof a service is in use.
 
 ## Evaluation records
+
+*Partly delivered (EVAL_REPORT 73):* the measured architectures and results of every step are in
+`web/developer/workflow-content.json`, every figure verbatim from EVAL_REPORT.md and checked by
+`backEnd/tests/unit/test_developer_workflow_content.py`; the dialogs show them as historical
+results with their section links. The authenticated run-record API below (list, detail,
+download from the verification tree) is still to build.
+
 
 Expose the existing evaluation registry/manifests through an authenticated operator list/detail/download interface. Reuse `evals/record.py`, `evals/registry.py` and the verification tree; do not duplicate the registry or bundle private artifacts in `web/`.
 

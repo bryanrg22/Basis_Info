@@ -286,6 +286,27 @@ async def test_an_operator_reads_every_service_from_real_heartbeats(
     for item in s.values():
         if item["status"] != "unknown" and item["status"] != "disabled":
             assert item["checked_at"] and item["expires_at"], item["id"]
+    # Section 2 additions: hosting labels, backups and structured model routes.
+    assert s["api"]["hosting"] in ("Local process", "Docker container", "Google Cloud Run")
+    assert s["worker"]["hosting"] == s["api"]["hosting"]  # the same host ran both here
+    assert s["db"]["hosting"] == "Local PostgreSQL" and s["storage"]["hosting"] == "Local disk"
+    # The test app verifies tokens with a fake, so the adapter is the live one, not the emulator.
+    assert s["firebase"]["hosting"] == {"emulator": "Firebase Auth emulator"}.get(
+        s["firebase"]["adapter"], "Firebase Auth"
+    )
+    assert s["openai"]["hosting"] == "OpenAI" and s["sam3"]["hosting"] == "Replicate"
+    assert s["vision"]["hosting"] == f"Study worker ({s['api']['hosting']})"
+    routes = {r["setting"]: r for r in s["vision"]["models"]}
+    assert routes["VISION_MODEL"]["model"] == "gpt-6.1-sol"
+    assert routes["VISION_MODEL"]["primary"] == {
+        "provider": "openai",
+        "service": "openai",
+        "target": "gpt-6.1-sol",
+    }
+    assert routes["VISION_FUSION_MODEL"]["primary"]["service"] == "anthropic"
+    assert s["vision"]["fallbacks"] == []  # one route per model in this worker
+    assert s["sam3"]["fallbacks"] == [] and s["sam3"]["models"] == []
+    assert s["openai"]["models"] and s["openai"]["fallbacks"] == []
 
 
 async def test_the_document_carries_no_secret_or_address(

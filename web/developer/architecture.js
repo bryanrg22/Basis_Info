@@ -1,33 +1,104 @@
-/* Explanations from source at 15cd291. Runtime choices come only from health evidence. */
+/* Step dialogs of the Cost Segregation Workflow: what each step runs, on which systems, and
+   what was measured. The text and the figures come from workflow-content.json (every
+   figure verbatim from EVAL_REPORT.md, every source path real: both are checked by
+   backEnd/tests/unit/test_developer_workflow_content.py). The runtime table comes only from
+   the health feed (GET /v1/ops/health): a model id, a host or a backup is never typed here.
+   This page is the one customer-adjacent surface that may name a provider. */
 (function(scope){
  'use strict';
- const source='https://github.com/bryanrg22/Basis_Info/blob/15cd291/';
- const report='docs/review_2026-10-15/EVAL_REPORT.md';
- const STEPS={
-  upload:{steps:[['Upload','Receive the appraisal and property photos.'],['Save','Store the files and create the study record.'],['Start','Temporal schedules the appraisal and photo tasks. A worker runs them.']],test:'Lifecycle tests restart a worker and check that the study resumes without duplicating completed work.',links:[['Restart tests','backEnd/tests/lifecycle/test_restart_recovery.py'],['Workflow contract','docs/api/WORKFLOW.md']]},
-  extract:{steps:[['Read','Read structured appraisal data, or extract the PDF text and page locations.'],['Extract','Use the configured extraction path to produce property fields.'],['Validate','Check values and preserve their sources. Flag missing or conflicting information for review.']],test:'Appraisal evaluations compare extracted values with labeled fields and check that reported sources support them.',links:[['Appraisal evaluations','backEnd/evals/appraisal/SPEC.md'],['Extraction results',report+'#17-text-steps-on-current-models-2026-10-16']]},
-  photos:{steps:[['Find objects and surfaces','The vision model identifies room features, such as windows, cabinets, walls and flooring.'],['Check counts','When enabled, a second model checks selected object counts. The stored result records which model supplied each count.'],['Locate objects','SAM 3 creates pixel masks, outlines and bounding boxes so you can inspect each object in the photo.']],test:'The photo comparison measures counts against labeled objects; leave-one-photo-out scoring holds each photo out when choosing its count source.',links:[['Photo comparison',report+'#151-every-variant-against-the-current-best'],['Count fusion tests','backEnd/tests/unit/vision/test_count_fusion.py'],['SAM 3 tests','backEnd/tests/unit/vision/test_localize.py']]},
-  'photo-results':{steps:[['Read room clues','Use photo names and analysis to identify the room, type and floor.'],['Group views','Place photos that describe the same room together.'],['Flag uncertainty','Keep uncertain assignments visible for the engineer to resolve.']],test:'Room metadata checks cover names, room types, floors, conflicting votes and unknown values.',links:[['Room metadata results',report+'#48-rooms-open-named-typed-and-floored-the-names-words-first-then-every-photos-vote-2026-10-30']]},
-  inventory:{steps:[['Combine views','Read the approved photos and component observations for each room.'],['Count once','Reconcile multiple views so an object visible in two photos is not counted twice.'],['Check materials','Run the configured material checks and flag uncertain answers for review.']],test:'Room replays run the configured inventory path on saved photo outputs and compare counts and materials with labeled rooms.',links:[['Room replay','backEnd/evals/replay_rooms.py'],['Room path tests','backEnd/tests/unit/vision/test_room_step.py'],['Recorded results',report+'#16-per-room-accuracy-duplicates-conventions-materials-2026-10-16']]},
-  assets:{steps:[['Classify','Apply the classification rules and the firm’s approved rulings; use the model path where needed. Keep citations.'],['Measure and price','Calculate quantity × unit cost × year index × location index using the available evidence.'],['Reconcile','Compare allocated costs with the study basis. Flag gaps and withhold unsupported allocation.']],test:'Classification evaluations check recovery classes and citation support; cost tests check quantities, source factors and reconciliation.',links:[['Classification implementation','backEnd/basis/classify/router.py'],['Evaluation results',report+'#17-text-steps-on-current-models-2026-10-16'],['Result contract','docs/api/STUDY_RESULT.md']]},
-  output:{steps:[['Read approved data','Build the result from the approved study revision.'],['Prepare documents','Create the draft client report, depreciation schedule and supporting exports.'],['Open Report & sign','The results are ready for the final report step. Exporting files does not complete the study.']],test:'Export tests check that the same approved revision produces deterministic output. Report tests verify the exported files and download access.',links:[['Report contract','docs/api/REPORT.md'],['Report tests','backEnd/tests/api/test_study_report.py'],['Export tests','backEnd/tests/node/test_export_report.py']]},
-  'report-sign':{steps:[['Complete details','Save the firm profile and study details required for the report.'],['Preview and sign','An authorized engineer or owner reviews the current PDF, confirms the attestation, and signs. The API refuses a changed preview or revision.'],['Verify completion','Confirm the signed report matches the current study and revision, the report is exported, and no required details or changes since signing remain. Otherwise keep the study incomplete.']],test:'Signing tests cover permissions, stale previews, revision conflicts, duplicate signing and immutable signed PDFs. Completion checks also cover missing details, changed inputs and unavailable or untracked signature state.',links:[['Signing contract','docs/api/REPORT.md#signing'],['After signing','docs/api/REPORT.md#after-signing'],['Signing API tests','backEnd/tests/api/test_report_signing.py']],note:'Service health does not prove a study is signed. The completion rule uses the current report state; missing or unknown evidence stays incomplete.'},
- };
- const REVIEWS={
-  'appraisal-review':['Compare fields','Compare the extracted values with their sources in the appraisal.','Correct values','Save field corrections and resolve flagged information.'],
-  'rooms-review':['Organize photos','Move every photo into its room; check room names, types and floors.','Correct rooms','Create, edit or remove rooms as needed. Resolve unassigned photos.'],
-  'components-review':['Inspect evidence','Review the room inventory and the objects outlined in each photo.','Correct components','Fix counts, materials and missing or incorrect components.'],
-  'assets-review':['Check assets','Review recovery classes, quantities, prices and cited evidence.','Resolve issues','Correct unsupported values and review the reconciliation.'],
- };
- for(const [id,[a,b,c,d]] of Object.entries(REVIEWS))STEPS[id]={steps:[[a,b],[c,d],['Approve','Record the engineer’s decision for this revision. Corrections rerun the affected work.']],test:'Gate tests check approvals, corrections, revision conflicts and resuming a study.',links:[['Workflow contract','docs/api/WORKFLOW.md'],['Review history','docs/api/TIMELINE_AND_AUDIT.md']]};
- const PHOTO_ROWS=[{"name": "4c. sol low + Opus medium per class, leave-one-photo-out", "error": "0.124", "exact": "0.899", "cost": "$2.20", "seconds": "11.1", "selected": true}, {"name": "Baseline: sol, decomposed, low", "error": "0.180", "exact": "0.865", "cost": "$0.79", "seconds": "11.1", "selected": false}, {"name": "1a. sol, countables at medium", "error": "0.176", "exact": "0.865", "cost": "$0.90", "seconds": "21.2", "selected": false}, {"name": "1b. Opus 5.5 decomposed, low (sec. 14)", "error": "0.166", "exact": "0.876", "cost": "$2.23", "seconds": "4.7", "selected": false}, {"name": "1c. Opus 5.5, countables at medium", "error": "0.150", "exact": "0.889", "cost": "$2.40", "seconds": "7.4", "selected": false}, {"name": "1d. Opus 5.5, countables at high", "error": "0.144", "exact": "0.893", "cost": "$2.54", "seconds": "9.0", "selected": false}, {"name": "2a. 2 x 2 parts, separate calls, summed", "error": "0.265", "exact": "0.807", "cost": "$1.82", "seconds": "13.2", "selected": false}, {"name": "2b. photo + 4 parts in one call", "error": "0.191", "exact": "0.866", "cost": "$1.04", "seconds": "11.1", "selected": false}, {"name": "3a. sol, median of its 3 repeats", "error": "0.170", "exact": "0.872", "cost": "$1.73", "seconds": "11.1", "selected": false}, {"name": "3b. sol + Opus low, repeat by repeat (median of 2 = min)", "error": "0.166", "exact": "0.878", "cost": "$3.02", "seconds": "11.1", "selected": false}, {"name": "3c. sol + Opus low, median of all 6 samples", "error": "0.147", "exact": "0.888", "cost": "$5.42", "seconds": "11.1", "selected": false}, {"name": "4a. sol + SAM 3 per class, fitted in-sample", "error": "0.129", "exact": "0.903", "cost": "$0.99", "seconds": "11.1", "selected": false}, {"name": "4b. the same, leave-one-photo-out", "error": "0.167", "exact": "0.880", "cost": "$0.99", "seconds": "11.1", "selected": false}, {"name": "4d. the same with Opus high", "error": "0.125", "exact": "0.900", "cost": "$2.34", "seconds": "11.1", "selected": false}, {"name": "4e. 4c plus SAM 3 as a further source", "error": "0.155", "exact": "0.879", "cost": "$2.40", "seconds": "11.1", "selected": false}, {"name": "5a. SAM 3 detections confirmed by sol, alone", "error": "0.373", "exact": "0.798", "cost": "$1.77", "seconds": "not measured", "selected": false}, {"name": "5b. sol + confirmed detections per class", "error": "0.184", "exact": "0.863", "cost": "$1.77", "seconds": "Not measured", "selected": false}, {"name": "5c. 4c plus confirmed detections", "error": "0.126", "exact": "0.895", "cost": "$3.18", "seconds": "Not measured", "selected": false}, {"name": "6. 4c plus the lighting prompt on both models", "error": "0.134", "exact": "0.892", "cost": "$3.61", "seconds": "11.1", "selected": false}, {"name": "3+4. 4c on each model's median of 3 repeats", "error": "0.103", "exact": "0.917", "cost": "$5.93", "seconds": "11.1", "selected": false}, {"name": "SAM 3 alone, v2 phrases, score 0.5 (sec. 10)", "error": "0.587", "exact": "0.734", "cost": "$0.20", "seconds": "Not measured", "selected": false}];
- function render(node,services,H){
-  const entry=STEPS[node.id],esc=H.esc;
-  if(!entry)return '';
-  const deps=node.services.map(id=>services.find(s=>s.id===id)).filter(Boolean);
-  const runtime=deps.map(s=>`<tr><th scope="row">${H.serviceLogos(s)} ${esc(s.name)}</th><td>${esc(s.model||'Not reported')}</td><td>${esc(H.hostLabel(s))}</td><td>${esc(s.adapter||'Not reported')}</td><td>${esc(s.fallbacks===null?'Not reported':s.fallbacks?.length?s.fallbacks.join(' → '):'None configured')}</td></tr>`).join('');
-  const comparison=node.id==='photos'?`<section><h3>Recorded architecture comparison</h3><p>Photo-count evaluation · 52 photos · 2026-10-16. The selected approach is first. These are historical results, not a live benchmark.</p><div class="table-scroll" role="region" tabindex="0" aria-label="Photo architecture comparison"><table><thead><tr><th>Architecture</th><th>Count error ↓</th><th>Exact counts</th><th>Cost / 52 photos</th><th>Seconds / photo</th></tr></thead><tbody>${PHOTO_ROWS.map(r=>`<tr${r.selected?' class="selected-architecture"':''}><th scope="row">${r.selected?'<span class="selection-label">Selected in this evaluation</span>':''}${esc(r.name)}</th><td>${esc(r.error)}</td><td>${esc(r.exact)}</td><td>${esc(r.cost)}</td><td>${esc(r.seconds)}</td></tr>`).join('')}</tbody></table></div><p class="detail-note">Token totals are not included in this comparison. Full run records need an authenticated results connection.</p></section>`:'';
-  return `<section><h3>How it works</h3><ol class="step-sequence">${entry.steps.map(([title,detail],i)=>`<li><span class="step-number">${i+1}</span><div><strong>${esc(title)}</strong><p>${esc(detail)}</p></div></li>`).join('')}</ol></section><section><h3>Current runtime</h3><div class="table-scroll" role="region" tabindex="0" aria-label="Current runtime"><table><thead><tr><th>System</th><th>Model</th><th>Hosting / provider</th><th>Adapter</th><th>Backups</th></tr></thead><tbody>${runtime}</tbody></table></div></section>${comparison}${entry.note?`<p class="detail-note">${esc(entry.note)}</p>`:''}<section><h3>Tests & results</h3><p>${esc(entry.test)}</p><div class="source-links">${entry.links.map(([label,path])=>`<a href="${source+path}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`).join('')}<a href="${source+'backEnd/evals/record.py'}" target="_blank" rel="noopener noreferrer">Run record format ↗</a></div><p class="detail-note">${node.id==='report-sign'||node.id==='output'?'Report contract: 15cd291. Completion rule: current frontend.':'Explanation source: 15cd291.'} Runtime fields above come from the connected health API.</p></section>`;
+ const REPOSITORY='https://github.com/bryanrg22/Basis_Info/blob/main/';
+ const CONTENT_PATH='workflow-content.json';
+ const NOT_REPORTED='Not reported';
+ const PROVIDER_BRAND={openai:'openai',azure_openai:'azure',anthropic:'claude',replicate:'replicate'};
+ let content=null,contentError=null;
+ function validContent(data){return !!(data&&data.schema_version===1&&data.steps&&typeof data.steps==='object'&&data.roles&&typeof data.roles==='object')}
+ function setContent(data){if(!validContent(data)){content=null;contentError='The workflow content file does not match the supported shape.';return false}content=data;contentError=null;return true}
+ async function load(fetchImpl=globalThis.fetch){
+  try{const response=await fetchImpl(CONTENT_PATH,{cache:'no-store'});if(!response.ok){contentError=`The workflow content file answered HTTP ${response.status}.`;content=null;return false}return setContent(await response.json())}
+  catch{contentError='The workflow content file could not be loaded.';content=null;return false}
  }
- const api={STEPS,PHOTO_ROWS,render};if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisArchitecture=api;
+ function sectionLink(section,H){
+  const entry=content?.sections?.[section];
+  const label=`section ${section}`;
+  if(!entry||!content?.source?.report)return H.esc(label);
+  return `<a href="${H.esc(REPOSITORY+content.source.report+'#'+entry.anchor)}" target="_blank" rel="noopener noreferrer" title="${H.esc(entry.title)}">${H.esc(label)} ↗</a>`;
+ }
+ function hopLabel(hop,byId,H){
+  if(!hop)return 'no provider';
+  const provider=byId.get(hop.service);
+  return `${H.esc(provider?.adapter||hop.provider)} · ${H.esc(hop.target)}`;
+ }
+ function backups(list,H){return list===null||list===undefined?NOT_REPORTED:list.length?list.map(H.esc).join(' → '):'None configured'}
+ function serviceRow(s,H){
+  return `<tr class="runtime-service"><th scope="row"><span class="runtime-system">${H.serviceLogos(s)}<span><span class="runtime-name">${H.esc(s.name)}</span>${H.badge(s.status)}</span></span></th><td>${H.esc(s.model||NOT_REPORTED)}</td><td>${H.esc(H.hostLabel(s))}</td><td>${H.esc(s.adapter||NOT_REPORTED)}</td><td>${backups(s.fallbacks,H)}</td></tr>`;
+ }
+ function routeRow(route,role,byId,H){
+  const primary=route?.primary||null,provider=primary?byId.get(primary.service):null;
+  const brand=primary?PROVIDER_BRAND[primary.service]:null;
+  const logo=brand?H.logo(brand):'<span class="provider-logo-placeholder" aria-hidden="true"></span>';
+  const title=content?.roles?.[role]||role;
+  const model=!route?NOT_REPORTED:!primary?`${H.esc(route.model)} (no configured provider)`:primary.target&&primary.target!==route.model?`${H.esc(route.model)} → ${H.esc(primary.target)}`:H.esc(route.model);
+  const hosting=provider?.hosting||(provider?H.hostLabel(provider):NOT_REPORTED);
+  const adapter=provider?.adapter||NOT_REPORTED;
+  const fallbacks=!route?null:route.fallbacks.map(h=>`${route.model} → ${hopLabel(h,byId,H).replace(/&[a-z#0-9]+;/g,m=>({'&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&#39;':"'"}[m]||m))}`);
+  return `<tr class="runtime-route"><th scope="row"><span class="runtime-system">${logo}<span><span class="runtime-name">${H.esc(title)}</span><small><code>${H.esc(role)}</code></small></span></span></th><td>${model}</td><td>${H.esc(hosting)}</td><td>${H.esc(adapter)}</td><td>${backups(fallbacks,H)}</td></tr>`;
+ }
+ function runtimeRows(rows,services,H){
+  const byId=new Map(services.map(s=>[s.id,s]));
+  return rows.map(({service:id,roles})=>{
+   const s=byId.get(id);
+   if(!s)return '';
+   let html=serviceRow(s,H);
+   const routes=Array.isArray(s.models)?s.models:[];
+   const wanted=Array.isArray(roles)&&roles.length?roles:routes.map(r=>r.setting);
+   for(const role of wanted){
+    const route=routes.find(r=>r.setting===role)||null;
+    // A role the worker does not run under its effective settings (for example the room
+    // call, off by default) is listed only when the feed reports it; the roles a step
+    // always runs show "Not reported" until the feed is connected.
+    if(!route&&routes.length)continue;
+    html+=routeRow(route,role,byId,H);
+   }
+   return html;
+  }).join('');
+ }
+ function comparisonTable(c,H,open){
+  const rows=c.rows.map(r=>`<tr${r.selected?' class="selected-architecture"':''}><th scope="row">${r.selected?'<span class="selection-label">Selected</span>':''}${H.esc(r.name)}</th>${r.values.map(v=>`<td>${H.esc(v)}</td>`).join('')}</tr>`).join('');
+  const meta=[c.dataset,c.date].filter(Boolean).map(H.esc).join(' · ');
+  return `<details class="comparison"${open?' open':''}><summary><strong>${H.esc(c.title)}</strong> <span class="comparison-meta">${meta}${meta?' · ':''}${sectionLink(c.section,H)}</span></summary><div class="table-scroll" role="region" tabindex="0" aria-label="${H.esc(c.title)}"><table><thead><tr>${c.columns.map(h=>`<th>${H.esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>${c.winner?`<p class="comparison-why"><strong>Chosen:</strong> ${H.esc(c.winner)}.${c.why?' '+H.esc(c.why):''}</p>`:''}</details>`;
+ }
+ function metricsTable(metrics,H){
+  if(!metrics?.length)return '';
+  return `<div class="table-scroll" role="region" tabindex="0" aria-label="Measured results"><table class="metrics"><thead><tr><th>Measure</th><th>Value</th><th>Source</th></tr></thead><tbody>${metrics.map(m=>`<tr><th scope="row">${H.esc(m.label)}${m.note?`<small>${H.esc(m.note)}</small>`:''}</th><td class="metric-value">${H.esc(m.value)}</td><td>${sectionLink(m.section,H)}</td></tr>`).join('')}</tbody></table></div>`;
+ }
+ function spendLine(spend,H){
+  if(!spend)return '';
+  const parts=[];
+  if(spend.cost_per_study)parts.push(`Cost ${H.esc(spend.cost_per_study)}${spend.cost_section?` (${sectionLink(spend.cost_section,H)})`:''}`);
+  if(spend.input_tokens||spend.output_tokens)parts.push(`Tokens ${H.esc(spend.input_tokens||'Not measured')} in / ${H.esc(spend.output_tokens||'Not measured')} out${spend.tokens_section?` (${sectionLink(spend.tokens_section,H)})`:''}`);
+  if(spend.latency)parts.push(`Latency ${H.esc(spend.latency)}${spend.latency_section?` (${sectionLink(spend.latency_section,H)})`:''}`);
+  return parts.length?`<p class="spend-line">${parts.join(' · ')}</p>`:'<p class="spend-line">No paid call in this step; no cost or token figure applies.</p>';
+ }
+ function links(entry,H){
+  const all=[...(entry.links||[]),{label:'Run record format',path:'backEnd/evals/record.py'},{label:'Run registry',path:'backEnd/evals/registry.py'}];
+  const seen=new Set();
+  return all.filter(l=>!seen.has(l.path)&&seen.add(l.path)).map(l=>`<a href="${H.esc(REPOSITORY+l.path)}" target="_blank" rel="noopener noreferrer">${H.esc(l.label)} ↗</a>`).join('');
+ }
+ function render(node,services,H){
+  const entry=content?.steps?.[node.id];
+  if(!entry){
+   const rows=node.services.map(id=>({service:id}));
+   return `<section><h3>How it works</h3><p class="detail-note">${H.esc(contentError||'The workflow content has not loaded yet.')} Explanations and measured results are in ${H.esc(CONTENT_PATH)}.</p></section><section><h3>Current runtime</h3><div class="table-scroll" role="region" tabindex="0" aria-label="Current runtime"><table><thead><tr><th>System</th><th>Model</th><th>Hosting / provider</th><th>Adapter</th><th>Backups</th></tr></thead><tbody>${runtimeRows(rows,services,H)}</tbody></table></div><p class="detail-note">Runtime fields come from the connected health API. Service health never says whether a study is signed or completed.</p></section>`;
+  }
+  const results=entry.results||{};
+  const how=`<section><h3>How it works</h3><ol class="step-sequence">${entry.how.map((step,i)=>`<li><span class="step-number">${i+1}</span><div><strong>${H.esc(step.title)}</strong><p>${H.esc(step.detail)}</p><a class="source-ref" href="${H.esc(REPOSITORY+step.source)}" target="_blank" rel="noopener noreferrer">${H.esc(step.source.split('/').pop())} ↗</a></div></li>`).join('')}</ol></section>`;
+  const runtime=`<section><h3>Current runtime</h3><div class="table-scroll" role="region" tabindex="0" aria-label="Current runtime"><table><thead><tr><th>System</th><th>Model</th><th>Hosting / provider</th><th>Adapter</th><th>Backups</th></tr></thead><tbody>${runtimeRows(entry.runtime,services,H)}</tbody></table></div><p class="detail-note">Every row is read from the connected health API: the model ids are what the worker reports it runs, hosting is what each process established about itself, and a backup is a configured fallback route. Service health never says whether a study is signed or completed.</p></section>`;
+  const comparisons=(results.comparisons||[]).map((c,i)=>comparisonTable(c,H,i===0)).join('');
+  const regression=results.regression?`<p class="regression-line"><strong>Regression:</strong> ${H.esc(results.regression.status)} (${sectionLink(results.regression.section,H)}). ${H.esc(results.regression.detail||'')}</p>`:'';
+  const tests=`<section><h3>Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p></section>`;
+  const note=entry.note?`<p class="detail-note">${H.esc(entry.note)}</p>`:'';
+  return how+runtime+note+tests;
+ }
+ const api={CONTENT_PATH,REPOSITORY,load,setContent,validContent,render,runtimeRows,get content(){return content},get contentError(){return contentError}};
+ if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisArchitecture=api;
 })(globalThis);

@@ -75,12 +75,20 @@
   finally{$('connect').disabled=false;$('connect').textContent=connected?'Reconnect diagnostics':'Connect diagnostics'}
  });
  let activeStep=null;
+ // The explanations and measured results (workflow-content.json) load once; a dialog opened
+ // before they arrive shows the runtime table and says the content is not loaded.
+ const contentLoaded=BasisArchitecture.load().then(ok=>{if(activeStep&&$('architecture-dialog').open)renderStep(activeStep);return ok});
+ function renderStep(id){
+  const node=H.FLOW.flat().find(n=>n.id===id);if(!node)return;
+  $('architecture-title').textContent=node.title;
+  $('architecture-content').innerHTML=BasisArchitecture.render(node,services,H);
+ }
  function openStep(id){
   const node=H.FLOW.flat().find(n=>n.id===id);if(!node)return;
-  activeStep=id;$('architecture-title').textContent=node.title;
-  $('architecture-content').innerHTML=BasisArchitecture.render(node,services,H);
+  activeStep=id;renderStep(id);
   $('architecture-dialog').showModal();$('architecture-dialog').scrollTop=0;
  }
+ window.addEventListener('load',()=>contentLoaded.catch(()=>{}));
  $('close-architecture').addEventListener('click',()=>$('architecture-dialog').close());
  $('architecture-dialog').addEventListener('close',()=>document.querySelector(`[data-step="${activeStep}"]`)?.focus({preventScroll:true}));
  $('flow').addEventListener('click',event=>{

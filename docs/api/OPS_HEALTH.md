@@ -46,7 +46,28 @@ and fails closed.
       "detail": "Metadata probe: vufinder/sam3@1bf97763d5df: answered. The vufinder/sam3 version is visible to the token (version lookup). No prediction was run ...",
       "adapter": "replicate",
       "model": "SAM 3 (vufinder/sam3@1bf97763d5df)",
-      "last_inference": {"at": "2026-10-30T18:22:10Z", "model": "vufinder/sam3", "kind": "localization"}
+      "last_inference": {"at": "2026-10-30T18:22:10Z", "model": "vufinder/sam3", "kind": "localization"},
+      "hosting": "Replicate",
+      "fallbacks": [],
+      "models": []
+    },
+    {
+      "id": "vision",
+      "status": "healthy",
+      "...": "...",
+      "adapter": "decomposed + count fusion",
+      "model": "gpt-6.1-sol via azure (basis-vision) · gpt-6-luna via azure (basis-default) · claude-opus-5-5 via anthropic",
+      "hosting": "Study worker (Google Cloud Run)",
+      "fallbacks": ["gpt-6.1-sol → OpenAI API · gpt-6.1-sol", "gpt-6-luna → OpenAI API · gpt-6-luna"],
+      "models": [
+        {"setting": "VISION_MODEL", "model": "gpt-6.1-sol",
+         "primary": {"provider": "azure", "service": "azure_openai", "target": "basis-vision"},
+         "fallbacks": [{"provider": "openai", "service": "openai", "target": "gpt-6.1-sol"}]},
+        {"setting": "VISION_SURFACES_MODEL", "model": "gpt-6-luna", "primary": {"...": "..."}, "fallbacks": ["..."]},
+        {"setting": "VISION_FUSION_MODEL", "model": "claude-opus-5-5",
+         "primary": {"provider": "anthropic", "service": "anthropic", "target": "claude-opus-5-5"},
+         "fallbacks": []}
+      ]
     }
   ]
 }
@@ -75,6 +96,36 @@ and fails closed.
   evidence of inference, kept separate from the metadata probe that sets `status`.
 * `detail` says what the check established. It never contains a key, connection string,
   endpoint, host, document content, prompt or provider error text.
+* `hosting` (additive; clients may ignore it) is where the service runs, as a display label
+  the runtime establishes: a provider (`OpenAI`, `Microsoft Azure`, `Anthropic`,
+  `Replicate`); for a process, what it read about itself (`Google Cloud Run` from
+  `K_SERVICE`, `Docker container` from `/.dockerenv`, else `Local process`), the worker's and
+  the relay's from their heartbeat reports (`build.hosting`, `hosting`); for a step that runs
+  inside the worker, `Study worker (<the worker's label>)`; for the database and Temporal,
+  what the API's own settings establish (`Google Cloud SQL`, `Local PostgreSQL`, `Self-hosted
+  PostgreSQL`; `Temporal Cloud` from the address or an API key, `Local Temporal server`,
+  `Self-hosted Temporal`); for storage and sign-in, the adapter in effect; for a self-hosted
+  SAM 3 server, `Google Cloud Run` (a `run.app` host), `Local server` or `Self-hosted server`.
+  **Null when the runtime does not establish it**: a label is never guessed from a service's
+  name (`temporal` alone does not mean Temporal Cloud), and never a host name, address or
+  path (`basis.ops.hosting`).
+* `fallbacks` (additive) is the ordered list of backups as display labels, one per fallback
+  route of each model the service calls first (`<model> → <adapter> · <target>`, the Azure
+  deployment included). **Empty means the code has no fallback for it** (SAM 3, the stores,
+  the infrastructure, a model with one route); **null means not known** (no current worker
+  report).
+* `models` (additive) is the structured form of `model` for the services that call chat
+  models: one entry per worker setting that names a model (`VISION_MODEL`,
+  `VISION_SURFACES_MODEL`, `VISION_FUSION_MODEL`, `ROOM_MODEL`, `ROOM_MATERIALS_MODEL`,
+  `ROOM_CALL_MODEL`, `SURFACE_CROP_MODEL`, `EXTRACTION_GROUNDED_MODEL`, `TEXT_MODEL`,
+  `CLASSIFY_MODEL`), with the model id, its `primary` route (`provider`: the pool's name;
+  `service`: that provider's id in this document; `target`: the model or Azure deployment the
+  request is sent to; null when no configured provider serves it) and its `fallbacks` in
+  order. A capability (`vision`, `room_inventory`, `appraisal`, `classification`) lists the
+  settings it runs under the worker's effective switches; a provider lists the routes it
+  serves first. The developer page's step dialogs render one row per entry, with the
+  provider's logo and the exact model id, so a combination such as SAM 3 plus a model is two
+  rows with two logos.
 
 ## 3. Where the evidence comes from
 

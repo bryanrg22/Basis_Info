@@ -48,6 +48,7 @@ from basis.db.session import create_sessionmaker
 from basis.email import build_email_sender
 from basis.notify.heartbeats import HeartbeatMonitor
 from basis.obs.logging import configure_logging
+from basis.ops import hosting
 from basis.ops.heartbeat import HeartbeatWriter
 from basis.relay.delivery import Relay, TemporalWorkflowGateway
 from basis.temporal.client import connect
@@ -109,6 +110,7 @@ def relay_heartbeat(
     """The relay's ``service_heartbeats`` row (``GET /v1/ops/health``): its poll interval and
     how long ago it last reached the database."""
     started = time.monotonic()
+    where = hosting.process_hosting()  # a label, read once (docs/api/OPS_HEALTH.md section 2)
 
     def report() -> dict[str, Any]:
         last = relay.last_poll
@@ -116,6 +118,7 @@ def relay_heartbeat(
             "poll_seconds": relay.poll_seconds,
             "last_poll_age_s": None if last is None else round(time.monotonic() - last, 2),
             "healthy": healthy(relay, started),
+            "hosting": where,
         }
 
     return HeartbeatWriter(

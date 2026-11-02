@@ -73,21 +73,25 @@ test('hosting and backups distinguish unknowns from configured adapters and empt
 });
 test('every workflow box has a simple three-step explanation and source links',()=>{
  const A=require('../developer/architecture.js');
+ const CONTENT=JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname,'..','developer','workflow-content.json'),'utf8'));
+ assert.ok(A.setContent(CONTENT));
  const services=H.snapshot(basic,null,now);
  for(const node of H.FLOW.flat()){
-  assert.equal(A.STEPS[node.id].steps.length,3);
+  assert.equal(CONTENT.steps[node.id].how.length,3);
   const html=A.render(node,services,H);
-  assert.ok(html.includes('How it works'));assert.ok(html.includes('Current runtime'));assert.ok(html.includes('https://github.com/bryanrg22/Basis_Info/blob/15cd291/'));
+  assert.ok(html.includes('How it works'));assert.ok(html.includes('Current runtime'));assert.ok(html.includes('https://github.com/bryanrg22/Basis_Info/blob/main/'));
  }
- assert.equal(A.PHOTO_ROWS[0].selected,true);
- assert.equal(A.PHOTO_ROWS[0].error,'0.124');assert.equal(A.PHOTO_ROWS[0].cost,'$2.20');
- assert.ok(A.PHOTO_ROWS.some(r=>r.seconds==='Not measured'));
+ const rows=CONTENT.steps.photos.results.comparisons[0].rows;
+ assert.equal(rows[0].selected,true);
+ assert.ok(rows[0].values.includes('0.124')&&rows[0].values.includes('$2.20'));
+ assert.ok(rows.some(r=>r.values.includes('Not measured')));
  const photos=A.render(H.FLOW.flat().find(n=>n.id==='photos'),services,H);
- assert.ok(photos.includes('pixel masks, outlines and bounding boxes'));
- assert.ok(photos.includes('historical results, not a live benchmark'));
+ assert.ok(photos.includes('stored as box and mask'));
+ assert.ok(photos.includes('historical measurements, not a live benchmark'));
 });
 test('workflow detail escapes runtime metadata and exposes keyboard dialog controls',()=>{
  const A=require('../developer/architecture.js');
+ A.setContent(JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname,'..','developer','workflow-content.json'),'utf8')));
  const services=H.snapshot(basic,{schema_version:1,services:[{id:'vision',...ok,model:'<img src=x onerror=alert(1)>',hosting:'<script>host</script>',fallbacks:['<script>backup</script>']}]},now);
  const html=A.render(H.FLOW.flat().find(n=>n.id==='photos'),services,H);
  assert.ok(!html.includes('<img src=x'));assert.ok(!html.includes('<script>'));
@@ -125,6 +129,7 @@ test('workflow connections preserve split, join and vertical review edges',()=>{
 
 test('report signing follows export and stays distinct from the four review gates',()=>{
  const A=require('../developer/architecture.js'),nodes=H.FLOW.flat(),last=nodes.at(-1);
+ A.setContent(JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname,'..','developer','workflow-content.json'),'utf8')));
  assert.equal(last.id,'report-sign');assert.equal(last.signing,true);
  assert.equal(H.PHASES.at(-1),'Report & sign');
  assert.deepEqual(H.EDGES.filter(([from])=>from==='output'),[['output','report-sign']]);
