@@ -8549,3 +8549,75 @@ client gives up is still billed). Low priority.
 (35/35, 39-year share within 0.07 points of the engineer's). Spend for the two studies: 5.67.
 Open: the unplaced-photos view; failed calls in the ledger; Access Control in the structure model;
 a second property, scored blind.
+
+## 66. `POST /v1/orgs` answered 500 at `LOG_LEVEL=INFO`: a reserved `extra=` key, and a guard for the class (2026-11-01)
+
+**Question.** Found during the browser error capture work (section 65.5): every deployed stack
+runs the API at `LOG_LEVEL=INFO`, and there creating a firm answered an opaque 500
+(`BASIS-API-024`). Why, why did no test see it, and how is the next one caught?
+
+**Standard.** The stdlib documents that the keys passed in `extra` must not clash with the
+logging system's own; `logging.Logger.makeRecord` enforces it by raising
+`KeyError("Attempt to overwrite %r in LogRecord")` for `message`, `asctime` and any attribute
+the record already carries (`name`, `msg`, `args`, `module`, `lineno`, `taskName`...). The
+established check is the flake8-logging-format rule G101 (`logging-extra-attr-clash`), which
+ruff implements; this repository did not select it (`select = ["E", "F", "I", "UP", "B"]`).
+G101 finds loggers by a name heuristic (`logging.*`, names starting `log` or ending `logger`
+defined in the same file) plus the `logger-objects` setting.
+
+**The bug.** `api/routes/orgs.py` logged `firm created` and `firm renamed` with
+`extra={..., "name": org.name}`. `name` is the logger's name on every record, so building the
+record raised, the exception left the route, and the request answered 500. Both routes: the
+rename was broken the same way. The request's transaction rolls back on an exception
+(`db/session.py` `session_scope`), and a probe on the old code confirmed it: after the 500 the
+database held 0 firms, 0 members and 0 firm events, so a retry was safe and nothing needs
+cleaning up.
+
+**Why the suite missed it.** A record is built only when its level is enabled. The test suite's
+root logger sits at WARNING, so `logger.info(...)` returned before `makeRecord`, and the 64
+tests in `test_firms.py` that create and rename firms all passed. The health tests install the
+Basis handler at DEBUG (`log_stream`), but only around `/health`.
+
+**Fix.** The key is `firm_name` in both calls (`docs/api/FIRMS.md` lists it). Neither check
+below finds another collision in the backend.
+
+**Measured: G101 against an `ast` walk.** A scratch copy of `basis/` with a `"name"` key
+inserted into every one of the 61 `extra={...}` literals on a logger method (a 62nd `extra=`
+is not a literal):
+
+| Check | Injected keys caught | Misses |
+|---|---|---|
+| G101, default settings | 53 / 61 | all 8 `workflow.logger.*` calls in `workflow/study_workflow.py` (an imported logger; a raise there fails the workflow task, not one request) |
+| G101 with `logger-objects = ["temporalio.workflow.logger", "temporalio.activity.logger"]` | 61 / 61 | a reserved key reached through `{**fields}` or `extra=fields` (synthetic source: neither flagged) |
+| the `ast` walk (`test_log_extra_keys.py`) | 61 / 61 | nothing in the synthetic cases; an `extra=` it cannot read is listed by hand |
+
+**Guard.** Both, since each covers what the other does not:
+
+* G101 is selected in `backEnd/pyproject.toml` with the two Temporal loggers named. It runs in
+  the editor, the pre-commit hook (ruff v0.17.0, the locked version, reading the same file)
+  and CI's `ruff check .`, over `basis/`, `tests/` and `evals/`.
+* `tests/unit/obs/test_log_extra_keys.py`, no database: walks every `basis/**/*.py` with `ast`,
+  finds each `extra=` on a logger method (`debug` ... `critical`, `exception`, `log`, on any
+  receiver), and checks its keys against the running interpreter's reserved set (the record's
+  attributes plus `message` and `asctime`, the exact `makeRecord` test, verified key by key).
+  It reads `{...}` and `dict(...)`, and follows a `**spread` or bare name whose source is a
+  mapping assigned once in the same function, which resolves every relay call. Of the 62
+  calls, one is not readable (`retrieval/ingest.py` `write_prepared`,
+  `IngestResult.summary()`, whose eleven keys were read by hand); it is listed, and any new
+  unreadable `extra=` fails until it is read and listed too. 8 tests.
+* `tests/api/test_firm_logging.py`, `integration`: the real routes with the Basis handler on
+  the root logger at DEBUG. `POST /v1/orgs` answers 201 and its log line carries `firm_name`;
+  `PATCH /v1/orgs/{id}` on a seeded firm (so it fails on the rename alone) answers 200. 2 tests.
+
+**Proof.** Against main ac24943 (the old `orgs.py`): `ruff check .` reports G101 at
+`orgs.py:131` and `:150`; both API tests answer 500 with
+`KeyError: "Attempt to overwrite 'name' in LogRecord"`; the walk names `api/routes/orgs.py:130`
+and `:149` (the call's line). With the fix: ruff clean, 10 of 10 pass; `test_firms.py`,
+`test_health.py` and `tests/unit/obs` 149 passed before the last test was added; unit suite
+unit suite 4851 passed, 10 skipped (private eval data), 0 failed in 87 s; format, mypy, catalogue, OpenAPI, rule fingerprints and the client-data guard
+green; provider keys unset.
+
+**Not covered.** The walk reads `basis/` only (G101 covers the literals in `tests/` and
+`evals/`); an `extra=` built in another function and passed in is listed by hand, not
+checked. The suite still runs at WARNING: raising the whole suite to INFO would catch more
+than this class, but changes every test's captured output and is left as a separate decision.

@@ -29,7 +29,7 @@ Both are on the firm's history (`org_events`, `GET /v1/orgs/{org_id}/activity`,
 docs/api/TIMELINE_AND_AUDIT.md "Firm activity"): `org.created` by the creator (by the
 system when the operator CLI created the firm) and `org.renamed` with the name before and
 after; renaming to the current name records nothing. Both are also logged (`firm created`,
-`firm renamed`, with `org_id` and `user_id`).
+`firm renamed`, with `org_id`, `user_id` and `firm_name`).
 
 ## 2. The routes
 

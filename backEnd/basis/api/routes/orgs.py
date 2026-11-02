@@ -128,7 +128,8 @@ async def create_firm(
         )
     org = await OrgRepository(session).create(body.name, owner_id=user.id)
     logger.info(
-        "firm created", extra={"org_id": str(org.id), "user_id": str(user.id), "name": org.name}
+        "firm created",
+        extra={"org_id": str(org.id), "user_id": str(user.id), "firm_name": org.name},
     )
     response.headers["Location"] = f"/v1/orgs/{org.id}"
     return FirmOut.of(org, OrgRole.OWNER)
@@ -147,7 +148,8 @@ async def rename_firm(
     await lock_as_owner(session, user, org_id)
     org = await OrgRepository(session).rename(org_id, body.name, renamed_by=user.id)
     logger.info(
-        "firm renamed", extra={"org_id": str(org.id), "user_id": str(user.id), "name": org.name}
+        "firm renamed",
+        extra={"org_id": str(org.id), "user_id": str(user.id), "firm_name": org.name},
     )
     return FirmOut.of(org, OrgRole.OWNER)
 
