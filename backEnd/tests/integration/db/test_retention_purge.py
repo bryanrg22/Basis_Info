@@ -274,7 +274,9 @@ async def test_an_object_already_gone_is_reported_not_fatal(
     study = await finished_study(make, session)
     await set_rule(session, study.org_id, 30)
     objects = await populate(session, storage, study)
-    gone = objects["client"][0]
+    # A document's object, chosen by name: the sorted list starts with a non-document path
+    # whenever both random document ids sort after "analyses/" (about one run in ten).
+    gone = next(uri for uri in objects["client"] if uri.endswith("/appraisal.pdf"))
     await storage.delete(gone)
     (candidate,) = await select_candidates(session, now=LATER)
 
