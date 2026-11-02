@@ -4,7 +4,8 @@
   "report": "docs/review_2026-10-15/EVAL_REPORT.md",
   "repository": "https://github.com/bryanrg22/Basis_Info/blob/main/",
   "written": "2026-11-02",
-  "note": "Explanations are read from the activities named as each step's source. Every figure is copied verbatim from the section of EVAL_REPORT.md it cites; backEnd/tests/unit/test_developer_workflow_content.py fails when a figure, heading or path no longer matches."
+  "note": "Explanations are read from the activities named as each step's source. Every figure is copied verbatim from the section of EVAL_REPORT.md it cites; backEnd/tests/unit/test_developer_workflow_content.py fails when a figure, heading or path no longer matches.",
+  "components_note": "Each step's `components` are the registry components (basis/prompts names, or what a harness stands for in backEnd/evals/record.py HARNESS_COMPONENTS) whose run records the dialog lists from GET /v1/ops/eval-runs; a review step lists none."
  },
  "roles": {
   "VISION_MODEL": "Countable objects, one call per photo",
@@ -57,6 +58,7 @@
      "service": "worker"
     }
    ],
+   "components": [],
    "results": {
     "summary": "An engineer registers each document, uploads it to a signed URL and confirms it; start is refused without the intake and the appraisal (37.1), and a fresh worker now loads the embedding model before it polls so the first appraisal ingest cannot miss its heartbeat (39). Capacity was load-tested per worker process (32): about 6.6 studies an hour at the defaults, 104.0 with the launch settings.",
     "comparisons": [
@@ -384,6 +386,14 @@
     {
      "service": "azure_di"
     }
+   ],
+   "components": [
+    "appraisal_fields",
+    "appraisal_fields_grounded",
+    "appraisal_field_fallback",
+    "appraisal_field_fallback_marks",
+    "appraisal_field_fallback_uad36",
+    "appraisal_fields_reask"
    ],
    "results": {
     "summary": "Appraisal reading was compared across Azure DI's own key-value pairs and 1004 model, the Azure DI pipeline with a model fallback, grounded one-call readings on five models and two-model votes (33.5). Production reads a PDF with one grounded call on gpt-6.1-sol (EXTRACTION_METHOD=grounded, 33.12), falls back to the Azure DI pipeline with gpt-6-luna when that call cannot run (17.3, 18), and reads a UAD 3.6 XML or ZIP with the MISMO reader (33.7).",
@@ -774,6 +784,20 @@
     {
      "service": "sam3"
     }
+   ],
+   "components": [
+    "photo_analysis",
+    "photo_countables",
+    "photo_surfaces",
+    "photo_counts",
+    "detection",
+    "photo_marks",
+    "photo_points",
+    "photo_overlap",
+    "photo_verify_box",
+    "photo_countables_joint",
+    "photo_countables_tile",
+    "photo_lighting_electrical"
    ],
    "results": {
     "summary": "Each photo gets narrow calls instead of one call for everything: countables on gpt-6.1-sol at low effort, with a second countables call on claude-opus-5-5 at medium effort fused per class (15.4), and surfaces and room type on gpt-6-luna (28.1). The decomposed step beat the one-pass prompt (11, 12.1), detectors and segmenters did not beat the model counts (21.6, 26.2), and SAM 3 runs after the model only to draw highlight masks (19, 30).",
@@ -1228,6 +1252,10 @@
      "service": "worker"
     }
    ],
+   "components": [
+    "photo_analysis",
+    "photo_surfaces"
+   ],
    "results": {
     "summary": "Photos are grouped into rooms by file name plus the engineer's room aliases, with the model's room identity only as a fallback, because the model's grouping merged distinct rooms and the no-alias grouping counted views of one room twice (23.3, 27.1). Each room is then named from its file name without the floor, typed from the name's words first and the photos' vote second, and floored from the file name first; this makes no model call (48.4).",
     "comparisons": [
@@ -1535,6 +1563,13 @@
     {
      "service": "sam3"
     }
+   ],
+   "components": [
+    "room_inventory",
+    "room_photos_inventory",
+    "surface_material",
+    "surface_crop_material",
+    "house_inventory"
    ],
    "results": {
     "summary": "One-photo rooms take their photo's analysis as the inventory; each multi-photo room gets one reconcile_rooms call (room_inventory/v3) that counts every object once across the room's photos, then a material second look on wainscoting, wall finish and tile on claude-sonnet-5-5 (16.5). The reconciliation moved from Sonnet 5.5 to gpt-6-luna at the same accuracy for less than half the cost (28.2, 31); one call per room with all its photos counted better but ships off by default until a second property confirms it (26.10, 29).",
@@ -2064,6 +2099,10 @@
      "service": "structure"
     }
    ],
+   "components": [
+    "classify",
+    "house_schedule"
+   ],
    "results": {
     "summary": "Each asset is classified by the firm's rulings first, then the IRS rules table, then the residual classifier on claude-sonnet-5-5 at low effort with BM25 search over the reference corpus, kept because no cheaper model matched (17.3, 28.3) and the hybrid search only tied (25.2). Dollars come from the RSMeans cost table with a cited year index and location factor (45, 47), the RSMeans square-foot structure model with the carve-out for the concealed systems (44), and four sourced method corrections that make the depreciated total reconcile to the purchase price less land (49).",
     "comparisons": [
@@ -2479,6 +2518,9 @@
      "service": "worker"
     }
    ],
+   "components": [
+    "study_export"
+   ],
    "results": {
     "summary": "The results step exports the approved revision (canonical JSON, CSV, evidence pack, spend rollup, draft report and the preparer's schedule); across the live runs the corrected study on the final build is the best result so far, and the printed report reproduces the export to the cent (63). Every paid call is in the study's ledger with its tokens and dollars (40).",
     "comparisons": [
@@ -2745,6 +2787,7 @@
      "service": "exports"
     }
    ],
+   "components": [],
    "results": {
     "summary": "Typst was chosen to render the study report because only it was byte-identical between the Mac and the Linux worker image, and faster (51.2); the engineer signs the preview they opened, re-rendered and compared by sha256 so a stale preview is refused (52), and the whole step, including a new revision after a signature, was verified end to end on an isolated stack (72).",
     "comparisons": [
@@ -2932,6 +2975,7 @@
      "service": "temporal"
     }
    ],
+   "components": [],
    "results": {
     "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
     "comparisons": [
@@ -3208,6 +3252,7 @@
      "service": "temporal"
     }
    ],
+   "components": [],
    "results": {
     "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
     "comparisons": [
@@ -3484,6 +3529,7 @@
      "service": "temporal"
     }
    ],
+   "components": [],
    "results": {
     "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
     "comparisons": [
@@ -3760,6 +3806,7 @@
      "service": "temporal"
     }
    ],
+   "components": [],
    "results": {
     "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
     "comparisons": [

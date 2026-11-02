@@ -65,6 +65,7 @@ from basis.api.preconditions import ETAG_HEADER, IF_MATCH_HEADER
 from basis.api.ratelimit import InMemoryRateLimiter
 from basis.api.ratelimit_pg import PostgresRateLimiter
 from basis.api.routes import api_routers
+from basis.api.routes import eval_runs as eval_runs_route
 from basis.api.routes import ops as ops_route
 from basis.auth.firebase import FirebaseTokenVerifier
 from basis.config import ConfigError, Settings
@@ -98,6 +99,9 @@ CORS_EXPOSE_HEADERS: Final = (
     "Location",
     "Retry-After",
     ETAG_HEADER,
+    # The run record files (GET /v1/ops/eval-runs/{run_id}/files/{name}) are fetched with the
+    # bearer token and saved by the page under the name the API gives them.
+    "Content-Disposition",
 )
 CORS_MAX_AGE_S: Final = 600
 
@@ -259,6 +263,8 @@ def create_app(
     # Mounted apart from api_routers: it reuses the /health checks (basis.api.health imports
     # the routes package) and needs no database user.
     app.include_router(ops_route.router)
+    # The run records read files, not the database, under the same operator check.
+    app.include_router(eval_runs_route.router)
 
     app.openapi = lambda: build_openapi(app)  # type: ignore[method-assign]
     return app

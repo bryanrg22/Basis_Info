@@ -10513,6 +10513,483 @@
           }
         ]
       }
+    },
+    "/v1/ops/eval-runs": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Evaluation run records, newest first (platform operators)",
+        "description": "Every evaluation run directory under the host's `BASIS_EVAL_DATA_DIR` as the registry (`python -m evals.registry`) reads it: component and version, prompts, models, labels and split, results, measured metrics, tokens, cost and duration with their sources, the tested commit, and the record files. Filters combine with AND (`component` repeats as OR); `next_cursor` continues with older runs. A host without evaluation data answers 404 `eval-data-unavailable`, never an empty list. Operators only (`OPS_OPERATOR_UIDS`). See docs/api/EVAL_RUNS.md.",
+        "operationId": "list_eval_runs_v1_ops_eval_runs_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Runs per page.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Runs per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "component",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A component: a prompt name or `name/vN`, `detector:x`, or the tree component (`room_inventory`, `room_inventory/v3`). Repeat for several (OR).",
+              "title": "Component"
+            },
+            "description": "A component: a prompt name or `name/vN`, `detector:x`, or the tree component (`room_inventory`, `room_inventory/v3`). Repeat for several (OR)."
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "labels",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Labels"
+            }
+          },
+          {
+            "name": "dataset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset"
+            }
+          },
+          {
+            "name": "split",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Split"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(ok|stopped|error|unknown)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "release",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Release"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalRunPageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/eval-runs/{run_id}": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "One evaluation run record (platform operators)",
+        "description": "The list's fields plus the recorded settings, environment, harness options, a backfilled manifest's provenance and the run's error text. 404 for an id this host did not issue.",
+        "operationId": "get_eval_run_v1_ops_eval_runs__run_id__get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalRunDetailOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/eval-runs/{run_id}/files/{name}": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "A run's record file: manifest, report, redacted ledger or console log (operators)",
+        "description": "Served through the API with the operator check, never as a static file. Credential-named fields and API-key-shaped strings are masked, the data directory and any home directory are replaced in paths, the host name is withheld. The payload files (prompts and model answers) are never served. 404 when the run has no such file; 413 over 8 MiB.",
+        "operationId": "get_eval_run_file_v1_ops_eval_runs__run_id__files__name__get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "manifest",
+                "report",
+                "ledger",
+                "console"
+              ],
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file as an attachment: `application/json` (manifest), `text/markdown` (report), `application/x-ndjson` (ledger), `text/plain` (console).",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "text/markdown": {},
+              "application/x-ndjson": {},
+              "text/plain": {}
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -16814,6 +17291,641 @@
         ],
         "title": "Engineer"
       },
+      "EvalRunDetailOut": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id",
+            "description": "Opaque; the path parameter of the detail and file routes."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "The run directory, relative to the evaluation data directory."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "predictions",
+              "appraisal"
+            ],
+            "title": "Kind"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component",
+            "description": "Where the run files in the verification tree (`photo_countables`, `detection`, ...)."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness",
+            "description": "The runner module, e.g. `evals.predict_photos`."
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "As recorded (ISO 8601 with offset)."
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "stopped",
+                  "error"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "results": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results",
+            "description": "`passed`, `failed`, `test_error` case counts from results.json; null when the run recorded no cases."
+          },
+          "git": {
+            "$ref": "#/components/schemas/GitOut"
+          },
+          "prompts": {
+            "items": {
+              "$ref": "#/components/schemas/PromptUseOut"
+            },
+            "type": "array",
+            "title": "Prompts"
+          },
+          "components": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Components",
+            "description": "Every component id the run exercised: prompt version ids, `detector:x`, `embedder:x`."
+          },
+          "models_requested": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models Requested"
+          },
+          "models_answered": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models Answered"
+          },
+          "reasoning_effort": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasoning Effort"
+          },
+          "labels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LabelOut"
+            },
+            "type": "object",
+            "title": "Labels"
+          },
+          "split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split"
+          },
+          "repeats": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeats"
+          },
+          "scores": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Scores",
+            "description": "Measured metrics per dataset (the latest scoring of the run's own predictions). Runs scored against different labels or splits are not comparable."
+          },
+          "headline": {
+            "items": {
+              "$ref": "#/components/schemas/HeadlineOut"
+            },
+            "type": "array",
+            "title": "Headline"
+          },
+          "spend": {
+            "$ref": "#/components/schemas/SpendOut"
+          },
+          "record": {
+            "$ref": "#/components/schemas/RecordOut"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SelectionOut"
+          },
+          "report_sections": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Report Sections",
+            "description": "EVAL_REPORT sections that cite the run."
+          },
+          "files": {
+            "$ref": "#/components/schemas/FilesOut"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settings",
+            "description": "The evaluated system's settings as the manifest recorded them (model, effort, prompt, threshold and version fields; never a credential or an address)."
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment",
+            "description": "Basis version, price table, rules table, embedder, cost table; the host name is withheld."
+          },
+          "options": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options",
+            "description": "The harness's command-line options."
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources",
+            "description": "A backfilled manifest's provenance: where each field came from."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "The run's error text, redacted, when it failed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "name",
+          "path",
+          "kind",
+          "component",
+          "version",
+          "harness",
+          "started_at",
+          "finished_at",
+          "status",
+          "results",
+          "git",
+          "prompts",
+          "components",
+          "models_requested",
+          "models_answered",
+          "reasoning_effort",
+          "labels",
+          "split",
+          "repeats",
+          "scores",
+          "headline",
+          "spend",
+          "record",
+          "selection",
+          "report_sections",
+          "files",
+          "settings",
+          "environment",
+          "options",
+          "sources",
+          "notes",
+          "error"
+        ],
+        "title": "EvalRunDetailOut"
+      },
+      "EvalRunOut": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id",
+            "description": "Opaque; the path parameter of the detail and file routes."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "The run directory, relative to the evaluation data directory."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "predictions",
+              "appraisal"
+            ],
+            "title": "Kind"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component",
+            "description": "Where the run files in the verification tree (`photo_countables`, `detection`, ...)."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness",
+            "description": "The runner module, e.g. `evals.predict_photos`."
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "As recorded (ISO 8601 with offset)."
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "stopped",
+                  "error"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "results": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results",
+            "description": "`passed`, `failed`, `test_error` case counts from results.json; null when the run recorded no cases."
+          },
+          "git": {
+            "$ref": "#/components/schemas/GitOut"
+          },
+          "prompts": {
+            "items": {
+              "$ref": "#/components/schemas/PromptUseOut"
+            },
+            "type": "array",
+            "title": "Prompts"
+          },
+          "components": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Components",
+            "description": "Every component id the run exercised: prompt version ids, `detector:x`, `embedder:x`."
+          },
+          "models_requested": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models Requested"
+          },
+          "models_answered": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models Answered"
+          },
+          "reasoning_effort": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasoning Effort"
+          },
+          "labels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LabelOut"
+            },
+            "type": "object",
+            "title": "Labels"
+          },
+          "split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split"
+          },
+          "repeats": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeats"
+          },
+          "scores": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Scores",
+            "description": "Measured metrics per dataset (the latest scoring of the run's own predictions). Runs scored against different labels or splits are not comparable."
+          },
+          "headline": {
+            "items": {
+              "$ref": "#/components/schemas/HeadlineOut"
+            },
+            "type": "array",
+            "title": "Headline"
+          },
+          "spend": {
+            "$ref": "#/components/schemas/SpendOut"
+          },
+          "record": {
+            "$ref": "#/components/schemas/RecordOut"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SelectionOut"
+          },
+          "report_sections": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Report Sections",
+            "description": "EVAL_REPORT sections that cite the run."
+          },
+          "files": {
+            "$ref": "#/components/schemas/FilesOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "name",
+          "path",
+          "kind",
+          "component",
+          "version",
+          "harness",
+          "started_at",
+          "finished_at",
+          "status",
+          "results",
+          "git",
+          "prompts",
+          "components",
+          "models_requested",
+          "models_answered",
+          "reasoning_effort",
+          "labels",
+          "split",
+          "repeats",
+          "scores",
+          "headline",
+          "spend",
+          "record",
+          "selection",
+          "report_sections",
+          "files"
+        ],
+        "title": "EvalRunOut"
+      },
+      "EvalRunPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvalRunOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` for the next (older) page; null on the last page."
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Runs matching the filters, across every page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor",
+          "total"
+        ],
+        "title": "EvalRunPageOut"
+      },
       "EventOut": {
         "properties": {
           "seq": {
@@ -17563,6 +18675,63 @@
         ],
         "title": "FieldRegionOut"
       },
+      "FilesOut": {
+        "properties": {
+          "manifest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report"
+          },
+          "ledger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger"
+          },
+          "console": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Console"
+          }
+        },
+        "type": "object",
+        "required": [
+          "manifest",
+          "report",
+          "ledger",
+          "console"
+        ],
+        "title": "FilesOut",
+        "description": "Download paths (relative to the API origin), served with the operator check; null when\nthe run has no such file."
+      },
       "FirmCreate": {
         "properties": {
           "name": {
@@ -17788,6 +18957,84 @@
             "name": "Harbor Cost Seg LLC"
           }
         ]
+      },
+      "GitOut": {
+        "properties": {
+          "sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha",
+            "description": "The tested commit; null for an old run (not recoverable)."
+          },
+          "dirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dirty",
+            "description": "Tracked files modified at run time; null unknown."
+          },
+          "release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release",
+            "description": "The nearest release tag reachable at run time."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha",
+          "dirty",
+          "release"
+        ],
+        "title": "GitOut"
+      },
+      "HeadlineOut": {
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "title": "Dataset"
+          },
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataset",
+          "metric",
+          "value"
+        ],
+        "title": "HeadlineOut",
+        "description": "The one metric per scored dataset the registry's table shows."
       },
       "Health": {
         "properties": {
@@ -18574,6 +19821,65 @@
         ],
         "title": "IssueStatusIn",
         "description": "A person's call on an issue (docs/api/CLIENT_ERRORS.md section 5.2)."
+      },
+      "LabelOut": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File",
+            "description": "The file's name only, never its path."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256",
+            "description": "At scoring time; null when it was not recorded."
+          },
+          "scored_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "version",
+          "sha256",
+          "scored_at"
+        ],
+        "title": "LabelOut",
+        "description": "The label file a dataset was scored against (the version is in the file's name)."
       },
       "LandMethod": {
         "type": "string",
@@ -20051,6 +21357,58 @@
         "title": "PriorDepreciation",
         "description": "A look-back study: what was claimed on the property before (Form 3115, DCN 7)."
       },
+      "PromptUseOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "Null when the files do not say."
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "calls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calls",
+            "description": "Calls on this version; null for a backfilled run."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "sha256",
+          "calls"
+        ],
+        "title": "PromptUseOut",
+        "description": "A prompt the run called, as its manifest records it."
+      },
       "PropertyUse": {
         "type": "string",
         "enum": [
@@ -20414,6 +21772,52 @@
           "missing"
         ],
         "title": "ReconciliationSummaryOut"
+      },
+      "RecordOut": {
+        "properties": {
+          "manifest": {
+            "type": "boolean",
+            "title": "Manifest",
+            "description": "A manifest.json exists."
+          },
+          "backfilled": {
+            "type": "boolean",
+            "title": "Backfilled",
+            "description": "The manifest was reconstructed from the directory's files after the run (`evals.backfill_manifests`): its fields are what the files said, `unknown` where they did not."
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Why the registry could not read the directory (a malformed manifest); the other fields are then null."
+          }
+        },
+        "type": "object",
+        "required": [
+          "manifest",
+          "backfilled",
+          "format",
+          "error"
+        ],
+        "title": "RecordOut",
+        "description": "How the record came to be."
       },
       "ReopenIn": {
         "properties": {
@@ -21958,6 +23362,34 @@
         "title": "ScheduleOut",
         "description": "The revision's replacement-cost schedule, with or without an intake."
       },
+      "SelectionOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "alternative",
+              "not_in_pipeline",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "reasons"
+        ],
+        "title": "SelectionOut",
+        "description": "The run's standing against the pipeline this API process is configured for."
+      },
       "ServiceHealthOut": {
         "properties": {
           "id": {
@@ -22498,6 +23930,97 @@
         ],
         "title": "SpendLineOut",
         "description": "One line of a rollup: the group's key and what it spent."
+      },
+      "SpendOut": {
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "cost_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ledger",
+                  "summary"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Source",
+            "description": "`ledger`: summed from the run's recorded, priced calls (measured by the price table of the day); `summary`: the runner's own run.json figure, what a backfilled manifest copies; null with no cost."
+          },
+          "calls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calls"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TokensOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the recorded calls (chat kind); null when the record has no totals."
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "duration_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "recorded",
+                  "file_times"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Source",
+            "description": "`recorded`: the runner's clock at finish; `file_times`: the backfill's estimate from the directory's file birth and modification times, which can span days."
+          }
+        },
+        "type": "object",
+        "required": [
+          "cost_usd",
+          "cost_source",
+          "calls",
+          "tokens",
+          "duration_seconds",
+          "duration_source"
+        ],
+        "title": "SpendOut",
+        "description": "What the run cost, with the source of each figure."
       },
       "Stage": {
         "type": "string",
@@ -24479,6 +26002,67 @@
           "stages"
         ],
         "title": "TimelineStepsOut"
+      },
+      "TokensOut": {
+        "properties": {
+          "input": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "cache_read": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Read"
+          },
+          "cache_creation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Creation"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          }
+        },
+        "type": "object",
+        "title": "TokensOut"
       },
       "UnplacedPhotoOut": {
         "properties": {

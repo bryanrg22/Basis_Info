@@ -119,6 +119,26 @@ class RunEntry:
     report_sections: list[int] = field(default_factory=list)
     files: dict[str, str | None] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
+    # The fields the operator API (basis.ops.eval_runs) reads beyond the table above; every
+    # one is None when the files do not say (a backfilled manifest writes "unknown").
+    split: str | None = None
+    repeats: int | None = None
+    wall_seconds: float | None = None
+    # "recorded": the runner's own clock (manifest written at finish); "file_times": the
+    # backfill's estimate from the directory's birth and modification times.
+    duration_source: str | None = None
+    # "ledger": summed from the run's recorded calls; "summary": the runner's run.json
+    # figure (what a backfilled manifest copies).
+    cost_source: str | None = None
+    tokens: dict[str, int] | None = None  # input, output, cache_read, cache_creation, reasoning
+    exit_code: int | None = None
+    error: str | None = None
+    settings: dict[str, Any] = field(default_factory=dict)
+    environment: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
+    sources: dict[str, Any] = field(default_factory=dict)  # a backfilled manifest's provenance
+    notes: dict[str, Any] = field(default_factory=dict)
+    format: int | None = None
 
     @property
     def label_stems(self) -> set[str]:
@@ -223,6 +243,20 @@ def _as_list(value: Any) -> list[str]:
     return [str(v) for v in value if v]
 
 
+def _dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+# The manifest's ``calls`` token totals, by the name the API reports them under.
+_TOKEN_COLUMNS: Final[dict[str, str]] = {
+    "input": "input_tokens",
+    "output": "output_tokens",
+    "cache_read": "cache_read_input_tokens",
+    "cache_creation": "cache_creation_input_tokens",
+    "reasoning": "reasoning_output_tokens",
+}
+
+
 def _prompts_from_summary(summary: Mapping[str, Any]) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     for version_id in _as_list(summary.get("prompt")) + _as_list(summary.get("prompts")):
@@ -286,8 +320,30 @@ def read_run(directory: Path, root: Path) -> RunEntry:
         labels.setdefault(dataset_entry.get("name", "?"), dict(dataset_entry))
     calls = (manifest or {}).get("calls") or {}
     cost = calls.get("cost_usd")
-    if cost is None:
+    backfilled = bool((manifest or {}).get("backfilled"))
+    cost_source: str | None = None if cost in (None, UNKNOWN) else "ledger"
+    if cost in (None, UNKNOWN):
         cost = summary.get("spent_usd", summary.get("cost_usd"))
+        cost_source = None if cost in (None, UNKNOWN) else "summary"
+    if backfilled and cost_source is not None:
+        cost_source = "summary"  # the backfill copies run.json's figure into calls.cost_usd
+    tokens = {
+        key: int(calls[column])
+        for key, column in _TOKEN_COLUMNS.items()
+        if isinstance(calls.get(column), int) and not isinstance(calls.get(column), bool)
+    }
+    wall = (manifest or {}).get("wall_seconds")
+    exit_code = (manifest or {}).get("exit_code")
+    split = data.get("split")
+    repeats = data.get("repeats")
+    if split in (None, UNKNOWN) or repeats in (None, UNKNOWN):
+        # The scorer records the split and repeats it scored with; the latest scoring stands.
+        for entry in record.read_scores(directory):
+            scored = entry.get("data") or {}
+            if split in (None, UNKNOWN) and scored.get("split"):
+                split = scored["split"]
+            if repeats in (None, UNKNOWN) and scored.get("repeats") is not None:
+                repeats = scored["repeats"]
     efforts = (components.get("request_params") or {}).get("reasoning_effort")
     if not efforts:
         efforts = _as_list(summary.get("reasoning_effort"))
@@ -328,10 +384,34 @@ def read_run(directory: Path, root: Path) -> RunEntry:
         if calls.get("count") not in (None, UNKNOWN)
         else summary.get("calls"),
         manifest=manifest is not None,
-        backfilled=bool((manifest or {}).get("backfilled")),
+        backfilled=backfilled,
         report_sections=list((manifest or {}).get("report_sections") or []),
         files=dict((manifest or {}).get("files") or {}),
         summary=summary,
+        split=None if split in (None, UNKNOWN) else str(split),
+        repeats=int(repeats)
+        if isinstance(repeats, int) and not isinstance(repeats, bool)
+        else None,
+        wall_seconds=float(wall)
+        if isinstance(wall, int | float) and not isinstance(wall, bool)
+        else None,
+        duration_source=None
+        if not isinstance(wall, int | float) or isinstance(wall, bool)
+        else ("file_times" if backfilled else "recorded"),
+        cost_source=cost_source,
+        tokens=tokens or None,
+        exit_code=exit_code
+        if isinstance(exit_code, int) and not isinstance(exit_code, bool)
+        else None,
+        error=_known((manifest or {}).get("error")),
+        settings=_dict((manifest or {}).get("settings")),
+        environment=_dict((manifest or {}).get("environment")),
+        options=_dict(((manifest or {}).get("harness") or {}).get("options")),
+        sources=_dict((manifest or {}).get("sources")),
+        notes=_dict((manifest or {}).get("notes")),
+        format=(manifest or {}).get("format")
+        if isinstance((manifest or {}).get("format"), int)
+        else None,
     )
 
 

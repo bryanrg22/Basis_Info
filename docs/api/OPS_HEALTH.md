@@ -2,7 +2,8 @@
 
 For platform operators and the developer page (`web/developer/`, served at `/developer/`).
 The same operator allowlist serves the browser error records, `GET /v1/ops/client-errors`
-(docs/api/CLIENT_ERRORS.md).
+(docs/api/CLIENT_ERRORS.md), and the evaluation run records, `GET /v1/ops/eval-runs`
+(docs/api/EVAL_RUNS.md).
 It is separate from customer study screens and from `GET /health`, which keeps its
 semantics: unauthenticated, 200 while Temporal fails, 503 with `checks` when the database
 fails.

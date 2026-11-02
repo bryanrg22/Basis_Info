@@ -73,6 +73,8 @@ class E:
     API_NOT_OPERATOR = "BASIS-API-043"
     API_RATE_LIMIT_STORE_UNAVAILABLE = "BASIS-API-044"
     API_CLIENT_ERROR_BATCH_TOO_LARGE = "BASIS-API-045"
+    API_EVAL_DATA_UNAVAILABLE = "BASIS-API-046"
+    API_EVAL_RUN_FILE_TOO_LARGE = "BASIS-API-047"
 
     # ---------------------------------------------------------------- firms and membership
     FIRM_NO_FIRM = "BASIS-FIRM-001"
