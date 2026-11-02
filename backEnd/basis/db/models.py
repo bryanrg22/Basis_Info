@@ -105,6 +105,7 @@ UPDATED_AT_TABLES: Final = (
     "classification_cache",
     "firm_profiles",
     "review_drafts",
+    "client_error_issues",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -117,7 +118,9 @@ APPEND_ONLY_TABLES: Final = (
 )
 # Tables whose rows are never updated once written (forbid_mutation() on UPDATE only;
 # migration 0018): a priced row's takeoff and cost, so the recorded trail cannot change.
-NO_UPDATE_TABLES: Final = ("takeoffs", "cost_estimates", "report_signatures")
+# ``client_errors`` (migration 0028) is a record of what a user saw: never edited, deleted
+# only by the client-error retention purge.
+NO_UPDATE_TABLES: Final = ("takeoffs", "cost_estimates", "report_signatures", "client_errors")
 # Tables whose rows cannot be inserted or updated once their corpus version is published.
 PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
 
@@ -1522,3 +1525,130 @@ class Alert(Base):
     outbox_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("outbox.id"))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
+
+
+# The kinds of browser error the web app reports (docs/api/CLIENT_ERRORS.md section 2).
+CLIENT_ERROR_KINDS: Final = (
+    "error",  # window.onerror: an uncaught exception
+    "unhandledrejection",  # a promise nobody caught
+    "api",  # a /v1 request that failed (status >= 400, or no response)
+    "console",  # console.error
+    "resource",  # a script, stylesheet or image that failed to load
+    "report",  # Basis.reportError(err, context) from a screen
+)
+
+
+class ClientError(Base):
+    """One error a user hit in the browser, as the web app reported it (migration
+    ``0028_client_errors``, docs/api/CLIENT_ERRORS.md).
+
+    The columns are what an operator filters on: when (``occurred_at`` by the client's clock,
+    ``created_at`` by the database's when it was received), who (``user_id`` the reporter,
+    ``org_id`` the firm, both verified against the memberships, so a claim the reporter cannot
+    make is stored only inside ``event``), where (``study_id`` when the reporter can see the
+    study, else NULL; ``route`` the hash route, ``screen``), what (``kind``, ``error_type``,
+    ``message``, the ``code`` and ``http_status`` and ``request_id`` of a failed request),
+    which build (``build_sha``: the API's git sha the client saw at ``/health``;
+    ``web_version``: the capture module's asset version) and which browser
+    (``user_agent``). ``event`` is the whole event as sent, after redaction of any key that
+    looks like a secret, so nothing the client knew is lost: the breadcrumbs, the stack with
+    its source location, the viewport, the language, the time since page load.
+
+    ``event_id`` is the client's own id (minted when the error happened), unique, so a batch
+    the client retried after a lost response stores each event once. ``seq`` orders the
+    records for the operator listing's keyset cursor. Rows are never updated
+    (``forbid_mutation()`` on UPDATE) and are deleted only by the retention purge.
+    """
+
+    __tablename__ = "client_errors"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('error', 'unhandledrejection', 'api', 'console', 'resource', 'report')",
+            name="kind_valid",
+        ),
+        CheckConstraint(
+            "http_status IS NULL OR (http_status >= 0 AND http_status <= 999)",
+            name="http_status_range",
+        ),
+        UniqueConstraint("event_id"),
+        UniqueConstraint("seq"),
+        Index(None, "org_id", "seq"),
+        Index(None, "user_id", "seq"),
+        Index(None, "study_id", "seq"),
+        Index(None, "code"),
+        Index(None, "request_id"),
+        Index(None, "created_at"),
+        Index(None, "fingerprint", "seq"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    event_id: Mapped[uuid.UUID]
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("orgs.id"))
+    study_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("studies.id"))
+    revision: Mapped[int | None]
+    stage: Mapped[str | None]
+    route: Mapped[str | None]
+    screen: Mapped[str | None]
+    kind: Mapped[str]
+    error_type: Mapped[str | None]
+    message: Mapped[str]
+    code: Mapped[str | None]
+    http_status: Mapped[int | None]
+    request_id: Mapped[str | None]
+    build_sha: Mapped[str | None]
+    web_version: Mapped[str | None]
+    user_agent: Mapped[str | None]
+    # The issue this record belongs to (``client_error_issues.fingerprint``): the same bug seen
+    # again gets the same fingerprint (kind, type, the message with numbers and ids normalized,
+    # the top frame's file and function, the route and status of a failed call).
+    fingerprint: Mapped[str] = mapped_column(ForeignKey("client_error_issues.fingerprint"))
+    event: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
+
+
+CLIENT_ERROR_ISSUE_STATUSES: Final = ("open", "in_progress", "resolved", "ignored", "regressed")
+
+
+class ClientErrorIssue(Base):
+    """One bug as the operators track it: every ``client_errors`` record with the same
+    ``fingerprint`` (docs/api/CLIENT_ERRORS.md section 5.2). The counts and the first/last
+    seen are kept by the ingest; the status is a person's call (``open`` when first seen,
+    ``in_progress``, ``resolved``, ``ignored``) with a note and who set it when; the one
+    automatic transition is ``resolved`` -> ``regressed`` when a new occurrence arrives on a
+    build other than the one it was resolved on (``status_build_sha``: the newest build the
+    issue had been seen on when the status was set), Sentry's regression rule. Mutable:
+    ``set_updated_at()`` maintains ``updated_at``.
+    """
+
+    __tablename__ = "client_error_issues"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'in_progress', 'resolved', 'ignored', 'regressed')",
+            name="status_valid",
+        ),
+        CheckConstraint("occurrences >= 1", name="occurrences_positive"),
+        Index(None, "status", "last_seen_at"),
+        Index(None, "last_seen_at"),
+    )
+
+    fingerprint: Mapped[str] = mapped_column(primary_key=True)
+    kind: Mapped[str]
+    error_type: Mapped[str | None]
+    title: Mapped[str]
+    route: Mapped[str | None]
+    code: Mapped[str | None]
+    http_status: Mapped[int | None]
+    status: Mapped[str] = mapped_column(server_default=text("'open'"), default="open")
+    note: Mapped[str | None]
+    status_set_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    status_set_at: Mapped[datetime | None]
+    status_build_sha: Mapped[str | None]
+    occurrences: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    first_seen_at: Mapped[datetime]
+    last_seen_at: Mapped[datetime]
+    last_build_sha: Mapped[str | None]
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()

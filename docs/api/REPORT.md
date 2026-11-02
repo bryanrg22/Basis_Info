@@ -157,3 +157,12 @@ match it:
 A client shows a signed report with `changed_since_signing` non-empty as "signed with earlier
 inputs"; the change reaches a report only through a new revision, signed on its own. The
 preview follows the inputs (its `ETag` changes); the signed file does not.
+
+The web app's Report & sign step offers that path to engineers and owners of a `completed`
+study as "Start a new revision": `POST /v1/studies/{id}/reopen` with `stage: assets_review`
+(docs/api/REVISIONS.md section 2; the plan is read with `dry_run` first and shown). The
+approved assets are carried, only the export reruns, and the new revision's report carries the
+stored profile and answers; the engineer previews and signs it on its own. Every earlier
+revision's signed PDF stays what it was and is served by number
+(`GET .../report?format=pdf&revision=n`); the step lists them from `GET .../revisions`
+(EVAL_REPORT 72).

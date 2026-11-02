@@ -16,6 +16,12 @@ of truth. Items are in the order they matter for a first firm.
 - **Every error has a code.** Problem responses carry `code` (`BASIS-<AREA>-<nnn>`,
   `docs/ERROR_CODES.md`) and `request_id`; show the message, keep the code for support.
 
+- **Errors are recorded.** `live/errors.js` (loaded first) reports every error a user hits
+  to `POST /v1/client-errors` with the user, firm, study, screen, last actions, stack and
+  the failed request; a screen reports its own with `Basis.reportError(err, context)`
+  (`docs/api/CLIENT_ERRORS.md`). The operator page `developer/client-errors.html` lists
+  them; the system-health page (not in the repository yet) should link to it.
+
 ## 1. Blocking: nothing can start a study
 
 - **Intake form.** `POST /v1/studies/{id}/start` refuses 422 `intake-required` without a
@@ -123,6 +129,21 @@ Plain bugs an engineer would hit on the first day, in the order they bite:
 - **Report preview header** says "Local PDF · not uploaded" for an API-rendered preview.
 - **Schedule table**: unpriced assets print "0.0000 SF  $0.00" on some rows and "—" on
   others; one presentation for "not priced".
+
+## 9. Found by the Report & sign verification (EVAL_REPORT 72)
+
+- **The results page does not follow the export**: approving the assets review sends the
+  engineer to Results, which does not poll (only the progress page does), so the step stays
+  "In progress" and the report step "Not started" until they open another screen. Poll
+  `GET .../workflow` on Results while the study is `processing`, or send the approval to the
+  progress page as the other gates do.
+- ~~No way to make the new revision a changed signed report needs~~: fixed with EVAL_REPORT 72
+  (Report & sign offers "Start a new revision", `POST .../reopen` at the assets review, and
+  lists every earlier revision's signed PDF).
+- ~~The firm profile's expected 404 before the owner saves it was recorded as a client error on
+  every Report & sign load~~: fixed with EVAL_REPORT 72 (`api.request(..., {expect:[404]})`).
+- **Rail on narrow screens**: the sidebar rail stays at 320 px and takes a fifth of the width
+  (Codex noted it in EVAL_REPORT 67); the report step itself fits with no horizontal scroll.
 
 ## Testing
 

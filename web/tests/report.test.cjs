@@ -14,6 +14,8 @@ test('the status follows the state: signed, not exported, skipped, draft',()=>{
 test('the checklist marks each input of a final report',()=>{
  const items=R.checklist(state({missing_for_final:['firm','study','signature']}));
  assert.deepEqual(items.map(i=>[i.key,i.done]),[['firm',false],['study',false],['signature',false]]);
+ assert.equal(items[2].hint,'Preview the report, then sign in Basis.');
+ assert.equal(R.checklist(state({signature:{id:'x'}}))[2].hint,'Signed in Basis after reviewing the preview.');
  assert.deepEqual(R.checklist(state({missing_for_final:[],signature:{id:'x'}})).map(i=>i.done),[true,true,true]);
 });
 
@@ -57,4 +59,24 @@ test('the profile form keeps the logo, upper-cases the state and refuses a bad o
  assert.deepEqual(body,{name:'Example Engineering',address:null,phone:'555',logo_png:'iVBORw0KGgo=',engineer:{name:'A. Engineer',credentials:'PE',license_number:'123',license_state:'NY'}});
  assert.equal(R.profileBody({name:'x',engineer_name:'y',credentials:'PE',license_state:'New York'}).problems.length,1);
  assert.equal(R.profileBody({}).problems.length,3);
+});
+
+test('signed reports distinguish changed inputs, unchanged inputs and unknown historical versions',()=>{
+ assert.equal(R.changeNotice(state()),'');
+ assert.equal(R.changeNotice(state({signature:{id:'s'},changed_since_signing:[]})),'');
+ assert.match(R.changeNotice(state({signature:{id:'s'},changed_since_signing:['firm','study']})),/firm profile and study details changed/);
+ assert.match(R.changeNotice(state({signature:{id:'s'},changed_since_signing:null})),/not recorded/);
+});
+
+
+test('report summary never equates study completion with a signed deliverable',()=>{
+ assert.equal(R.summary(null).title,'Report status unavailable');
+ assert.equal(R.summary({exported:false}).title,'Report not generated');
+ assert.equal(R.summary({exported:true,skipped:{message:'Missing model'}}).detail,'Missing model');
+ assert.match(R.summary({exported:true,missing_for_final:['firm','study','signature']}).detail,/firm profile and study details/);
+ assert.match(R.summary({exported:true,missing_for_final:['signature']}).title,/Draft report/);
+ const signed={signature:{},changed_since_signing:[]};
+ assert.equal(R.summary(signed).title,'Report signed');
+ assert.match(R.summary({...signed,changed_since_signing:['study']}).title,/inputs changed/);
+ assert.match(R.summary({...signed,changed_since_signing:null}).title,/unverified/);
 });

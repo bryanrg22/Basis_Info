@@ -1,7 +1,8 @@
 """Structured-logging context and the timeline's step timings for activities.
 
 Every log record emitted while an activity runs carries ``workflow_id``, ``run_id``,
-``activity`` (type), ``activity_id`` and ``attempt``, bound through
+``activity`` (type), ``activity_id``, ``attempt`` and the ``study_id`` of the activity's
+input, bound through
 ``basis.obs.logging.bound`` (a ``ContextVar``, so concurrent activities never see each
 other's fields). Workflow code logs through ``workflow.logger``, which the SDK already
 enriches with the workflow id, run id and type and suppresses during replay.
@@ -58,7 +59,7 @@ class LoggingInterceptor(Interceptor):
 
 def study_id_of(input: ExecuteActivityInput) -> uuid.UUID | None:
     """The ``study_id`` of the activity's (pydantic) input, when it has one."""
-    for arg in input.args:
+    for arg in getattr(input, "args", None) or ():
         value = getattr(arg, "study_id", None)
         if isinstance(value, str):
             try:
@@ -79,18 +80,21 @@ class _ActivityLogging(ActivityInboundInterceptor):
 
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
         info = activity.info()
+        study_id = study_id_of(input)
         with bound(
             workflow_id=info.workflow_id,
             run_id=info.workflow_run_id,
             activity=info.activity_type,
             activity_id=info.activity_id,
             attempt=info.attempt,
+            **({} if study_id is None else {"study_id": str(study_id)}),
         ):
             started_at = datetime.now(UTC)
             clock = time.monotonic()
             try:
                 result = await self.next.execute_activity(input)
             except asyncio.CancelledError:
+                logger.warning("activity cancelled", extra={"error_code": E.WF_ACTIVITY_CANCELLED})
                 await self._record(
                     input, "activity.cancelled", started_at, clock, code=E.WF_ACTIVITY_CANCELLED
                 )
@@ -99,6 +103,18 @@ class _ActivityLogging(ActivityInboundInterceptor):
                 message = str(exc)
                 code = code_in(message) or E.WF_UNEXPECTED_ERROR
                 error = f"{type(exc).__name__}: {message}"[:MAX_ERROR_CHARS]
+                # The one line with the traceback and every correlation field (the study,
+                # the execution, the attempt, the code): the SDK's own failure log runs after
+                # this interceptor returns, outside the bound context.
+                logger.error(
+                    "activity failed",
+                    extra={
+                        "error_code": code,
+                        "exception_type": type(exc).__qualname__,
+                        "exception_message": message[:MAX_ERROR_CHARS],
+                    },
+                    exc_info=True,
+                )
                 await self._record(input, "activity.failed", started_at, clock, code, error)
                 raise
             await self._record(input, "activity.completed", started_at, clock)

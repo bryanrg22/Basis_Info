@@ -1,0 +1,344 @@
+{
+ "events": [
+  {
+   "event_id": "00000000-0000-4000-8000-000000000001",
+   "occurred_at": "2023-11-14T17:13:20.000-05:00",
+   "since_load_ms": 1000,
+   "kind": "api",
+   "level": "warning",
+   "message": "POST /v1/studies/{id}/decisions failed with 409 (BASIS-STUDY-003): revision 1 is stale",
+   "error_type": "ApiError",
+   "stack": null,
+   "source": null,
+   "page": {
+    "hash": "#rooms/{id}",
+    "screen": "rooms",
+    "path": "/"
+   },
+   "user": {
+    "uid": "u1",
+    "email": "eng@firm.test",
+    "role": "engineer"
+   },
+   "firm": {
+    "org_id": "0b8f0f5e-0000-4000-8000-000000000001",
+    "org_name": "Acme Engineering"
+   },
+   "study": {
+    "study_id": "3f2c1a2b-1234-4bcd-8ef0-123456789abc",
+    "revision": 2,
+    "stage": "rooms_review",
+    "status": "waiting_review"
+   },
+   "http": {
+    "method": "POST",
+    "route": "/v1/studies/{id}/decisions",
+    "status": 409,
+    "code": "BASIS-STUDY-003",
+    "request_id": "r-2",
+    "problem_type": "https://basis.invalid/problems/stale-state",
+    "problem_title": "Conflict",
+    "problem_detail": "revision 1 is stale",
+    "latency_ms": 12,
+    "attempt": 1,
+    "retry": false,
+    "body_fields": [
+     "stage",
+     "revision",
+     "decision"
+    ]
+   },
+   "breadcrumbs": [
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "navigation",
+     "message": "load #rooms/{id}",
+     "data": null
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "click",
+     "message": "approve rooms_review",
+     "data": {
+      "action": "approve"
+     }
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "api",
+     "message": "GET /v1/studies/{id}/rooms?revision=… → 200",
+     "data": {
+      "status": 200,
+      "request_id": "r-1",
+      "code": null,
+      "latency_ms": 41,
+      "attempt": 1
+     }
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "api",
+     "message": "POST /v1/studies/{id}/decisions → 409",
+     "data": {
+      "status": 409,
+      "request_id": "r-2",
+      "code": "BASIS-STUDY-003",
+      "latency_ms": 12,
+      "attempt": 1
+     }
+    }
+   ],
+   "build": {
+    "api_git_sha": null,
+    "web_version": "live-16"
+   },
+   "client": {
+    "user_agent": "TestBrowser/1.0",
+    "platform": "MacIntel",
+    "language": "en-US",
+    "languages": [
+     "en-US",
+     "es"
+    ],
+    "viewport": {
+     "width": 1280,
+     "height": 720
+    },
+    "device_pixel_ratio": 2,
+    "online": true,
+    "timezone": "America/New_York",
+    "connection": "4g",
+    "visibility": "visible",
+    "cookies_enabled": true
+   },
+   "context": null,
+   "repeats": 1,
+   "dropped": 0,
+   "capture_version": "client-errors-1"
+  },
+  {
+   "event_id": "00000000-0000-4000-8000-000000000002",
+   "occurred_at": "2023-11-14T17:13:20.000-05:00",
+   "since_load_ms": 1000,
+   "kind": "error",
+   "level": "error",
+   "message": "Cannot read properties of undefined (reading \"rooms\")",
+   "error_type": "TypeError",
+   "stack": "TypeError: Cannot read properties of undefined (reading \"rooms\")\n    at render (http://127.0.0.1:3100/live/live-app.js?v=live-16:120:9)",
+   "source": {
+    "file": "http://127.0.0.1:3100/live/live-app.js?v=…",
+    "line": 120,
+    "column": 9,
+    "function": null
+   },
+   "page": {
+    "hash": "#rooms/{id}",
+    "screen": "rooms",
+    "path": "/"
+   },
+   "user": {
+    "uid": "u1",
+    "email": "eng@firm.test",
+    "role": "engineer"
+   },
+   "firm": {
+    "org_id": "0b8f0f5e-0000-4000-8000-000000000001",
+    "org_name": "Acme Engineering"
+   },
+   "study": {
+    "study_id": "3f2c1a2b-1234-4bcd-8ef0-123456789abc",
+    "revision": 2,
+    "stage": "rooms_review",
+    "status": "waiting_review"
+   },
+   "http": null,
+   "breadcrumbs": [
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "navigation",
+     "message": "load #rooms/{id}",
+     "data": null
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "click",
+     "message": "approve rooms_review",
+     "data": {
+      "action": "approve"
+     }
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "api",
+     "message": "GET /v1/studies/{id}/rooms?revision=… → 200",
+     "data": {
+      "status": 200,
+      "request_id": "r-1",
+      "code": null,
+      "latency_ms": 41,
+      "attempt": 1
+     }
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "api",
+     "message": "POST /v1/studies/{id}/decisions → 409",
+     "data": {
+      "status": 409,
+      "request_id": "r-2",
+      "code": "BASIS-STUDY-003",
+      "latency_ms": 12,
+      "attempt": 1
+     }
+    }
+   ],
+   "build": {
+    "api_git_sha": null,
+    "web_version": "live-16"
+   },
+   "client": {
+    "user_agent": "TestBrowser/1.0",
+    "platform": "MacIntel",
+    "language": "en-US",
+    "languages": [
+     "en-US",
+     "es"
+    ],
+    "viewport": {
+     "width": 1280,
+     "height": 720
+    },
+    "device_pixel_ratio": 2,
+    "online": true,
+    "timezone": "America/New_York",
+    "connection": "4g",
+    "visibility": "visible",
+    "cookies_enabled": true
+   },
+   "context": null,
+   "repeats": 1,
+   "dropped": 0,
+   "capture_version": "client-errors-1"
+  },
+  {
+   "event_id": "00000000-0000-4000-8000-000000000003",
+   "occurred_at": "2023-11-14T17:13:20.000-05:00",
+   "since_load_ms": 1000,
+   "kind": "report",
+   "level": "error",
+   "message": "from a screen",
+   "error_type": "Error",
+   "stack": "Error: from a screen\n    at movePhoto (http://127.0.0.1:3100/live/live-review.js?v=live-16:137:21)",
+   "source": {
+    "function": "movePhoto",
+    "file": "http://127.0.0.1:3100/live/live-review.js?v=…",
+    "line": 137,
+    "column": 21
+   },
+   "page": {
+    "hash": "#rooms/{id}",
+    "screen": "rooms",
+    "path": "/"
+   },
+   "user": {
+    "uid": "u1",
+    "email": "eng@firm.test",
+    "role": "engineer"
+   },
+   "firm": {
+    "org_id": "0b8f0f5e-0000-4000-8000-000000000001",
+    "org_name": "Acme Engineering"
+   },
+   "study": {
+    "study_id": "3f2c1a2b-1234-4bcd-8ef0-123456789abc",
+    "revision": 2,
+    "stage": "rooms_review",
+    "status": "waiting_review"
+   },
+   "http": null,
+   "breadcrumbs": [
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "navigation",
+     "message": "load #rooms/{id}",
+     "data": null
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "click",
+     "message": "approve rooms_review",
+     "data": {
+      "action": "approve"
+     }
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "api",
+     "message": "GET /v1/studies/{id}/rooms?revision=… → 200",
+     "data": {
+      "status": 200,
+      "request_id": "r-1",
+      "code": null,
+      "latency_ms": 41,
+      "attempt": 1
+     }
+    },
+    {
+     "at": "2023-11-14T17:13:20.000-05:00",
+     "since_load_ms": 1000,
+     "kind": "api",
+     "message": "POST /v1/studies/{id}/decisions → 409",
+     "data": {
+      "status": 409,
+      "request_id": "r-2",
+      "code": "BASIS-STUDY-003",
+      "latency_ms": 12,
+      "attempt": 1
+     }
+    }
+   ],
+   "build": {
+    "api_git_sha": null,
+    "web_version": "live-16"
+   },
+   "client": {
+    "user_agent": "TestBrowser/1.0",
+    "platform": "MacIntel",
+    "language": "en-US",
+    "languages": [
+     "en-US",
+     "es"
+    ],
+    "viewport": {
+     "width": 1280,
+     "height": 720
+    },
+    "device_pixel_ratio": 2,
+    "online": true,
+    "timezone": "America/New_York",
+    "connection": "4g",
+    "visibility": "visible",
+    "cookies_enabled": true
+   },
+   "context": {
+    "action": "move-photo",
+    "apiKey": "***"
+   },
+   "repeats": 1,
+   "dropped": 0,
+   "capture_version": "client-errors-1"
+  }
+ ],
+ "sent_at": "2023-11-14T17:13:20.000-05:00"
+}

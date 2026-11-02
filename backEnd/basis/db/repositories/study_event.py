@@ -73,6 +73,12 @@ Event vocabulary (``event_type``; the actor in brackets):
 * ``report.signed`` [engineer]: the engineer signed the revision's report (``entity_id`` the
   signature; ``detail``: the attested engineer, the certification version, the sha256 of the
   export, the reviewed preview and the signed PDF, its uri);
+* ``client.error`` [engineer]: the web app reported an error this user hit in the browser
+  while on this study (docs/api/CLIENT_ERRORS.md): ``entity_id`` the ``client_errors`` record
+  (the whole event), ``code`` the failed request's catalogue code, ``request_id`` the report's
+  own request, ``detail`` the kind, type, message, screen, route, the failed request's method,
+  route, status and request id, the build and the client's event id; written only when the
+  reporter can see the study;
 * ``convention.promoted`` [engineer]: ``promote_conventions`` promoted an approved asset's
   ruling to the firm's conventions (``entity_id`` the asset; ``detail`` key, bucket,
   ``agrees_with_rules``, outcome, approvals); ``convention.replaced`` [engineer]: the

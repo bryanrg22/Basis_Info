@@ -94,7 +94,12 @@ target-version = "py312"
 extend-exclude = ["files"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+# G101: an ``extra=`` key that a LogRecord already has raises KeyError once the level is
+# enabled (POST /v1/orgs answered 500 at INFO, EVAL_REPORT 66). Temporal's loggers are named
+# so G101 reads the workflow's calls too; tests/unit/obs/test_log_extra_keys.py covers the
+# spreads and variables G101 does not follow.
+select = ["E", "F", "I", "UP", "B", "G101"]
+logger-objects = ["temporalio.workflow.logger", "temporalio.activity.logger"]
 
 [tool.ruff.lint.per-file-ignores]
 # Generated (evals/appraisal/uad36_spec.py): the MISMO xPaths are longer than a line.

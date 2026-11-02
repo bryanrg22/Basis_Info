@@ -563,7 +563,14 @@ def test_review_display_mirrors_live_review_js() -> None:
         "const fieldValue=f=>f.value_text??(f.value_num!==null&&f.value_num!==undefined?"
         "Number(f.value_num).toLocaleString('en-US'):null)??f.value_date??'—';"
     ) in source
-    assert f"f.confidence<{UI_LOW_CONFIDENCE}" in source
+    # The low-confidence threshold moved with the field grouping to review-organization.js
+    # (the primary frontend, EVAL_REPORT 67); JavaScript may print 0.7 as .7.
+    organization = (REPO / "web/review-organization.js").read_text()
+    assert any(
+        f"f.confidence<{form}" in text
+        for text in (source, organization)
+        for form in (UI_LOW_CONFIDENCE, str(UI_LOW_CONFIDENCE).lstrip("0"))
+    )
     assert review_display(Columns("$85,000", Decimal(85000), None)) == "$85,000"
     assert review_display(Columns("", Decimal(85000), None)) == ""  # ?? keeps ""
     assert review_display(Columns(None, Decimal("85000.00"), None)) == "85,000"

@@ -71,7 +71,22 @@
 .live-team-policy{grid-template-columns:repeat(3,1fr)}
 @media(max-width:850px){.live-team-policy{grid-template-columns:1fr}}
 .live-members .select-field{min-width:120px}
-/* The client report on the Schedule screen (live/live-report.js) */
+
+/* Fill the card with the top of the actual first page, preserving its proportions. */
+.file-document-thumbnail.live-pdf-thumbnail{position:relative;overflow:hidden;aspect-ratio:1.5;background:#e7eeea;gap:0;padding:24px}
+.live-pdf-thumbnail>img{position:absolute;top:16px;left:16px;transform:none;height:auto;max-width:none;width:calc(100% - 32px);object-fit:contain;background:#fff;box-shadow:0 2px 9px #243b2c20;border:1px solid #cbd6ce;border-radius:1px}
+.live-pdf-thumbnail .live-pdf-thumbnail-status{display:flex;align-items:center;justify-content:center;gap:10px;max-width:240px;text-align:center;font-size:12px;line-height:1.6;letter-spacing:0;color:#52675a;border:0;background:none;padding:0}
+.live-pdf-thumbnail .live-pdf-thumbnail-badge{position:absolute;left:14px;bottom:12px;font-size:11px;line-height:18px;font-weight:500;color:#3b5a43;background:#fffffff2;border:1px solid #d6e0d9;border-radius:6px;padding:4px 8px;box-shadow:0 1px 5px #243b2c12}
+.live-pdf-thumbnail[data-failed=true]{background:#f0f4f1}
+
+/* Component thumbnails reuse the viewer's real mask layer. Clip both image and
+   canvas together so cropped previews remain aligned at every card size. */
+.component-mask-preview{position:relative;display:block;overflow:hidden}
+.component-mask-preview>img{display:block;width:100%;height:100%;object-fit:cover}
+.component-preview-status{position:absolute;bottom:6px;left:6px;max-width:calc(100% - 12px);padding:3px 6px;border-radius:4px;background:rgba(255,255,255,.9);color:#355047;font-size:11px;line-height:1.4}
+.room-summary-thumb .component-preview-status{display:none}
+
+/* The final report step (live/live-report.js) */
 .live-report{margin-top:18px}
 .live-report-checklist{list-style:none;margin:14px 0;padding:0;display:grid;gap:10px}
 .live-report-checklist li{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
@@ -83,6 +98,12 @@
 .live-report-why{margin-top:8px}
 .live-report-signature{margin:0 0 14px;padding:10px 12px;border-left:3px solid var(--forest);background:var(--wash,#f3f5f2);border-radius:6px}
 .live-report-signature p{margin:4px 0 0}
+.live-report-revise{margin-top:14px;padding-top:12px;border-top:1px solid var(--line,#e3e8e3)}
+.live-report-revise p{margin:0 0 8px}
+.live-report-earlier{margin-top:14px;padding-top:12px;border-top:1px solid var(--line,#e3e8e3)}
+.live-report-earlier h3{margin:0 0 4px;font-size:15px}
+.live-report-earlier ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.live-report-earlier li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .live-report-cert{margin-top:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px}
 .live-report-cert ul{margin:6px 0 0;padding-left:18px;display:grid;gap:4px}
 .live-report-radios{border:0;padding:0;margin:12px 0 0}
@@ -90,3 +111,48 @@
 .live-report-radio,.live-report-attest{display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:400;cursor:pointer}
 .live-report-radio input,.live-report-attest input{flex:none;width:auto;height:auto;margin:0}
 .live-report-attest{margin-top:14px;font-weight:600}
+
+/* Study context sits above the step navigation; metrics keep their quieter styling. */
+.study-status{display:flex;align-items:center;gap:16px;padding:22px 24px;margin:0 0 20px;border:1px solid #c9d8d0;border-radius:14px;background:#eef3f0;color:#243f33}
+.study-status--complete{background:#285342;border-color:#285342;color:#fff}
+.study-status--attention{background:#fff3df;border-color:#c79c55;color:#654516}
+.study-status-symbol{display:grid;place-items:center;flex:none;width:44px;height:44px;border:1px solid currentColor;border-radius:50%}
+.study-status-copy{min-width:0;flex:1}
+.study-status-title{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#app .workspace .content section.study-status h2{font-size:24px;line-height:1.2;letter-spacing:-.025em;margin:0;color:inherit}
+.study-status p{font-size:14px;line-height:1.6;margin:7px 0 0;color:inherit}
+.study-access{display:inline-flex;align-items:center;gap:6px;border:1px solid currentColor;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:600;line-height:1.3}
+.study-status .study-status-action{background:#fff;border-color:#fff;color:#285342;flex:none;min-height:44px}
+.study-status--neutral .study-status-action{border-color:#b8cbc0}
+.report-status{display:flex;align-items:center;gap:14px;padding:18px 22px;border:1px solid #c9d8d0;border-left:4px solid #61796b;border-radius:10px;margin:0 0 24px;background:#f0f4f1;color:#304c3f}
+.report-status--attention{background:#fff5e5;border-color:#d9b57b;border-left-color:#94621e;color:#694916}
+.report-status--signed{border-left-color:#3e765b}
+.report-status-symbol{flex:none}
+.report-status>div{flex:1;min-width:0}
+#app .workspace .content section.report-status h2{margin:0;font-size:18px;line-height:1.35;color:inherit}
+.report-status p{margin:4px 0 0;font-size:14px;line-height:1.6;color:inherit}
+.report-status .button{flex:none;min-height:44px;background:#fff;color:#304c3f}
+.study-status a:focus-visible,.report-status .button:focus-visible{outline:3px solid #dfb641;outline-offset:4px}
+#app .workspace .content .review-decision.is-attention{background:#fff5e5;border-color:#d9b57b!important;border-top:3px solid #94621e!important}
+#app .workspace .content .review-decision.is-attention strong{color:#694916;font-size:16px}
+#app .workspace .content .review-decision.is-attention p{color:#694916}
+@media(max-width:700px){
+ .study-status{padding:18px;gap:12px;align-items:flex-start;flex-wrap:wrap}
+ #app .workspace .content section.study-status h2{font-size:22px}.study-status-symbol{width:34px;height:34px}.study-status-title{gap:8px}
+ .study-status-copy{flex-basis:calc(100% - 50px)}.study-status .study-status-action{width:100%;justify-content:center}
+ .report-status{flex-wrap:wrap;padding:16px;gap:10px;align-items:flex-start}.report-status>div{flex-basis:calc(100% - 36px)}.report-status .button{width:100%;justify-content:center}
+}
+/* The photo workbench owns the remaining viewport below the study status. */
+.vision-screen .main>.content{display:flex;flex-direction:column}
+.vision-screen .content>.study-status{flex:none}
+.vision-screen .content>.vision-workspace{flex:1;min-height:0;height:auto}
+@media(max-width:600px){.vision-screen #app .main>.content{overflow:auto}.vision-screen .content>.vision-workspace{flex:none;min-height:560px;height:75vh}}
+
+#app .workspace .content .note.asset-review-warning{background:#fff5e5;border:1px solid #d9b57b;border-left:4px solid #94621e;color:#694916}
+#app .workspace .content .note.asset-review-warning h3{color:#694916;font-size:17px}
+@media(max-width:700px){#app .workspace .heading>.row>.row{flex-wrap:wrap;min-width:0;max-width:100%}}
+
+/* Final report actions remain usable at touch sizes. */
+#app .workspace[data-screen="report"] .live-report .button,#app .workspace[data-screen="report"] .live-report .button.small{min-height:44px}
+.live-report-actions{flex-wrap:wrap}
+@media(max-width:700px){.live-report-checklist li{flex-wrap:wrap}.live-report-checklist li>div{flex-basis:calc(100% - 34px)}.live-report-checklist li>.button{margin-left:34px}.live-report-actions>.button{justify-content:center}.live-report-signature{overflow-wrap:anywhere}}

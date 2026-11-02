@@ -96,6 +96,13 @@ a crash after the commit cannot leave objects behind. Deleting is idempotent.
 Scheduling is documented, not enabled (RUNBOOK.md 3.1): a Cloud Run job run daily by Cloud
 Scheduler after the backup window, or a cron line on a local stack.
 
+### 1.5 Not under the firm's rule: browser error records
+
+`client_errors` (docs/api/CLIENT_ERRORS.md section 6) is operational data about the
+application, not a client file: it names a user, a firm and a study id, never a document or
+a price. It is kept a fixed `CLIENT_ERRORS_RETENTION_DAYS` (180) and deleted by
+`python -m basis.retention purge-client-errors`, run on the same schedule as the purge.
+
 ## 2. Alerts
 
 ### 2.1 What raises one

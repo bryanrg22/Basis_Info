@@ -35,6 +35,13 @@ is stored and replayed like any other deliberate 4xx).
 
 Unexpected exceptions never reach the client: :class:`UnhandledErrorMiddleware` logs
 them with ``stack_trace`` and the request id, and answers a generic 500.
+
+Correlation (docs/api/CLIENT_ERRORS.md): every problem's log line and every unhandled
+exception's carries ``request_id`` (the context), the caller's ``uid`` and ``user_id``, the
+``study_id``, ``org_id`` and ``role`` when the route resolved them (bound by
+:mod:`basis.api.auth` and :mod:`basis.api.users`), the method, path and ``route`` template,
+the status, the catalogue ``error_code`` and the exception's type, so the ``request_id`` a
+browser's error record quotes finds one server line with everything about that request.
 """
 
 from __future__ import annotations
@@ -374,9 +381,21 @@ def problem_response(
     )
 
 
+def route_template(scope: Mapping[str, Any]) -> str | None:
+    """The matched route's path template (``/v1/studies/{study_id}``), when one matched."""
+    route = scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) else None
+
+
 def api_error_response(request: Request, exc: ApiError) -> Response:
     code = exc.code_value
-    logger.info(
+    # A 5xx is the server's fault and is logged as a warning with the cause's type; a 4xx is
+    # the client's and stays informational. Both carry the correlation fields a browser's
+    # error record names (docs/api/CLIENT_ERRORS.md): the request id, uid, user, study and
+    # firm are in the logging context; the route template and status are here.
+    logger.log(
+        logging.WARNING if exc.status >= 500 else logging.INFO,
         "problem",
         extra={
             "error_code": code,
@@ -384,6 +403,8 @@ def api_error_response(request: Request, exc: ApiError) -> Response:
             "problem_type": exc.type_suffix or ABOUT_BLANK,
             "http_method": request.method,
             "path": request.url.path,
+            "route": route_template(request.scope),
+            "exception_type": type(exc.__cause__).__name__ if exc.__cause__ else None,
         },
     )
     return problem_response(
@@ -603,7 +624,10 @@ class UnhandledErrorMiddleware:
                 extra={
                     "http_method": scope.get("method"),
                     "path": scope.get("path"),
+                    "route": route_template(scope),
+                    "status": 500,
                     "exception_type": type(exc).__qualname__,
+                    "exception_message": str(exc)[:2000],
                     "error_code": E.API_INTERNAL_ERROR,
                 },
             )

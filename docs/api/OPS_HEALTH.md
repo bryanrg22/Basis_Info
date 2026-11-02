@@ -1,7 +1,8 @@
 # Internal system health: `GET /v1/ops/health`
 
-For platform operators. The developer page that would show it (`web/developer/`, served at
-`/developer/`) is not built yet; until it is, operators read the route directly (EVAL_REPORT 64).
+For platform operators and the developer page (`web/developer/`, served at `/developer/`).
+The same operator allowlist serves the browser error records, `GET /v1/ops/client-errors`
+(docs/api/CLIENT_ERRORS.md).
 It is separate from customer study screens and from `GET /health`, which keeps its
 semantics: unauthenticated, 200 while Temporal fails, 503 with `checks` when the database
 fails.

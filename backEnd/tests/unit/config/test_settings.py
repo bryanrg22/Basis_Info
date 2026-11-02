@@ -455,3 +455,15 @@ def test_takeoff_and_cost_index_settings(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("TAKEOFF_AREAS", "sketch")
     with pytest.raises(ValidationError):
         load_settings()
+
+
+def test_client_errors_retention_defaults_to_180_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Browser error records are operational data under a fixed period, not the firm's
+    rule (docs/api/CLIENT_ERRORS.md section 6); 1 to 3650 days."""
+    monkeypatch.setenv("BASIS_ENV", "test")
+    assert load_settings().client_errors_retention_days == 180
+    monkeypatch.setenv("CLIENT_ERRORS_RETENTION_DAYS", "30")
+    assert load_settings().client_errors_retention_days == 30
+    monkeypatch.setenv("CLIENT_ERRORS_RETENTION_DAYS", "0")
+    with pytest.raises(ValidationError):
+        load_settings()

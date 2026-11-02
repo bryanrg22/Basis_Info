@@ -1,0 +1,25 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Report completion · synthetic checks</title><style>body{margin:0;font:14px system-ui;background:#e9efeb}header{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:#223e31;color:white}select,button{font:inherit;padding:7px}iframe{display:block;width:100%;height:calc(100vh - 60px);border:0;margin:auto;background:white}</style></head><body><header><strong>Synthetic report states · no live requests or signing</strong><label>Report state <select id="scenario"><option value="unsigned">Awaiting signature</option><option value="signed">Signed and current</option><option value="changed">Changed after signing</option><option value="untracked">Signature unverified</option><option value="offline">Status unavailable</option></select></label><label>Viewport <select id="width"><option value="full">Full width</option><option>320</option><option>390</option><option>768</option></select></label><button id="measure">Measure layout</button><output id="layout"></output></header><iframe id="preview" title="Report completion preview"></iframe><script>
+const frame=document.getElementById('preview');
+function bootstrap(){
+ const study={id:'fixture-study',revision:3,org_id:'fixture-firm',property_name:'Example study',status:'completed',current_stage:'completed',components_gate:true,documents:[]};
+ const profile={name:'Example Engineering',engineer:{name:'Example Engineer',credentials:'PE'}},answers={taxpayer_name:'Example Owner',photographs:'taxpayer_supplied'};
+ const state=()=>{const mode=parent.document.getElementById('scenario').value;return {study_id:study.id,revision:3,exported:true,skipped:null,files:['report.pdf','schedule.csv','schedule.xlsx'],missing_for_final:mode==='unsigned'?['signature']:[],signature:mode==='unsigned'?null:{id:'synthetic-signature',study_id:study.id,revision:3,engineer:profile.engineer,signed_at:'2026-11-01T12:00:00Z',pdf_sha256:'0'.repeat(64)},changed_since_signing:mode==='changed'?['study']:mode==='untracked'?null:[]}};
+ const request=async(method,path)=>{
+  if(method!=='GET')throw Error('Synthetic preview: all writes and signing are blocked.');
+  if(path.endsWith('/report/state')){if(parent.document.getElementById('scenario').value==='offline')throw Error('Synthetic network error');return state()}
+  if(path.endsWith('/report-answers'))return {report_answers:answers,report_answers_version:1};
+  if(path.endsWith('/profile'))return {profile,version:1};
+  throw Error('Synthetic preview blocked an unexpected request.');
+ };
+ window.BASIS_CONFIG={mode:'live',apiBase:'synthetic',firebase:{}};
+ window.BasisAuth={user:{uid:'fixture-user',email:'engineer@example.test'},init:async()=>{},onChange(){},getToken:async()=>{throw Error('No real credentials in this fixture')}};
+ window.BasisApi={createClient:()=>({request,getStudy:async()=>study,me:async()=>({user:{id:'fixture-user',email:'engineer@example.test'},memberships:[{org_id:'fixture-firm',org_name:'Example firm',role:'owner'}],pending_invitations:[]})})};
+ window.fetch=async()=>{throw Error('Synthetic preview blocks network requests')};
+ location.hash='report/fixture-study';
+ window.addEventListener('message',event=>{if(event.source===parent&&event.origin===parent.location.origin&&event.data?.type==='scenario'){BasisLive.invalidate('report-state:');BasisLive.render()}});
+}
+async function load(){let html=await (await fetch('../../index.html')).text();html=html.replace('<head>','<head><base href="'+new URL('../../',location.href).href+'">').replace(/<script src="public-entry.js[^\"]*"><\/script>/,'').replace(/<script src="live\/(config|api-client|auth).js[^\"]*"><\/script>/g,'');html=html.replace('<script src="live/rle.js','<script>('+bootstrap.toString()+')();</'+'script><script src="live/rle.js');frame.onload=()=>{frame.onload=null;const doc=frame.contentDocument;doc.open();doc.write(html);doc.close()};frame.src='report-completion.html?preview'}
+document.getElementById('scenario').onchange=()=>frame.contentWindow.postMessage({type:'scenario'},location.origin);
+document.getElementById('width').onchange=e=>{frame.style.width=e.target.value==='full'?'100%':e.target.value+'px';frame.style.maxWidth='100%'};
+document.getElementById('measure').onclick=()=>{const doc=frame.contentDocument;const controls=[...doc.querySelectorAll('.live-report .button,.study-navigation a')].filter(el=>el.getBoundingClientRect().width);document.getElementById('layout').textContent=`Viewport ${doc.documentElement.clientWidth}px · Page ${doc.documentElement.scrollWidth}px · Smallest report/navigation control ${Math.round(Math.min(...controls.map(el=>el.getBoundingClientRect().height)))}px`};if(!new URLSearchParams(location.search).has('preview'))load();
+</script></body></html>

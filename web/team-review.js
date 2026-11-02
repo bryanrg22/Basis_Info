@@ -74,7 +74,9 @@ function scheduleSidebarClose(){
  if(document.getElementById('account-popover'))return;
  sidebarCloseTimer=setTimeout(()=>{
   const sidebar=root.querySelector('.sidebar');
-  if(!state.sidebarExpanded&&sidebar&&!sidebar.matches(':hover')&&!sidebar.contains(document.activeElement)){
+  // Mouse clicks leave DOM focus behind; only keyboard focus should hold a preview open.
+  const keyboardFocus=sidebar?.contains(document.activeElement)&&document.activeElement.matches(':focus-visible');
+  if(!state.sidebarExpanded&&sidebar&&!sidebar.matches(':hover')&&!keyboardFocus){
    state.sidebarPeek=false;updateSidebarAppearance();
   }
  },180);
@@ -82,13 +84,28 @@ function scheduleSidebarClose(){
 root.addEventListener('pointerenter',e=>{
  if(!e.target.matches?.('.sidebar')||e.pointerType!=='mouse'||!matchMedia('(hover:hover) and (pointer:fine) and (min-width:581px)').matches)return;
  clearSidebarHoverTimers();
- if(!state.sidebarExpanded)sidebarOpenTimer=setTimeout(()=>{state.sidebarPeek=true;updateSidebarAppearance()},120);
+ const sidebar=e.target;
+ if(!state.sidebarExpanded)sidebarOpenTimer=setTimeout(()=>{
+  if(document.hidden||!sidebar.isConnected||!sidebar.matches(':hover'))return;
+  state.sidebarPeek=true;updateSidebarAppearance();
+ },120);
 },true);
 root.addEventListener('pointerleave',e=>{if(e.target.matches?.('.sidebar'))scheduleSidebarClose()},true);
+root.addEventListener('focusin',e=>{
+ if(!state.sidebarExpanded&&e.target.closest('.sidebar')&&!e.target.matches('.sidebar-toggle')&&e.target.matches(':focus-visible')){
+  clearSidebarHoverTimers();state.sidebarPeek=true;updateSidebarAppearance();
+ }
+});
 root.addEventListener('focusout',e=>{const sidebar=e.target.closest('.sidebar');if(sidebar&&!sidebar.contains(e.relatedTarget))scheduleSidebarClose()});
 root.addEventListener('keydown',e=>{if(e.key==='Escape'&&(state.sidebarExpanded||state.sidebarPeek)&&!document.querySelector('.modal-backdrop')){e.preventDefault();closeSidebar()}});
+// A hover preview belongs to the active page, not a previous tab or window.
+// Keep an explicitly pinned sidebar open and never move the user's focus here.
+function resetSidebarPreview(){clearSidebarHoverTimers();state.sidebarPeek=false;updateSidebarAppearance()}
+window.addEventListener('blur',resetSidebarPreview);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)resetSidebarPreview()});
+root.addEventListener('pointercancel',resetSidebarPreview,true);
 // A breakpoint change must not strand a hover-only drawer on a touch layout.
-matchMedia('(min-width:581px)').addEventListener('change',()=>{clearSidebarHoverTimers();state.sidebarPeek=false;updateSidebarAppearance()});
+matchMedia('(min-width:581px)').addEventListener('change',resetSidebarPreview);
 const originalRender=render;
 render=function(){clearSidebarHoverTimers();state.sidebarPeek=false;originalRender();if(blockedEdit()&&['appraisal','rooms','viewer','assets','asset-detail','verification'].includes(state.screen)){for(const b of root.querySelectorAll('[data-action]'))if(protectedActions.has(b.dataset.action)||(b.dataset.action==='future'&&b.textContent.includes('Save draft'))){b.disabled=true;b.title='Read-only while another editing session or unconfirmed status is active.'}for(const field of root.querySelectorAll('.asset-main input,.asset-main textarea,.asset-main select,.photo-group'))field.disabled=true;}document.body.dataset.previewRole=state.role};
 render();

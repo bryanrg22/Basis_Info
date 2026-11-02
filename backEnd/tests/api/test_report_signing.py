@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -25,7 +26,7 @@ from typing import Any
 import pymupdf
 import pytest
 from apitest_support import Api, Seed, bearer, sha256_hex
-from dbtest_support import queued_behind_a_lock
+from dbtest_support import backends, queued_behind_a_lock, waiting_on_a_lock
 from PIL import Image
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
@@ -487,3 +488,181 @@ async def test_inputs_written_after_signing_are_reported_not_rendered(
         await session.execute(text("ALTER TABLE report_signatures ENABLE TRIGGER USER"))
     state = (await api.get("alice", state_path)).json()
     assert state["changed_since_signing"] is None and state["signature"]["id"] == signature["id"]
+
+
+# ------------------------------------------------- the step verified end to end (EVAL_REPORT 72)
+
+
+async def signed(
+    api: Api, seed: Seed, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> tuple[str, uuid.UUID, dict[str, Any]]:
+    """A study whose revision 1 is signed: ``(study id, org id, the signature)``."""
+    sid, org, tag = await signable(api, seed, storage, sessionmaker)
+    response = await api.post("alice", f"/v1/studies/{sid}/report/sign", sign_body(tag))
+    assert response.status_code == 201, response.text
+    signature: dict[str, Any] = response.json()
+    return sid, org, signature
+
+
+async def test_a_retried_or_double_submitted_signing_records_one_signature(
+    api: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """The web client sends one ``Idempotency-Key`` per signing and keeps it on a retry. The
+    same key while the first request is still inside the handler (held here on the study's
+    row lock) is refused at once (409 ``idempotency-key-in-flight``) without running the
+    handler; after the first completes, the same key replays its 201 (``Idempotent-Replayed``)
+    and a different body under the key is 422. One row, one PDF, one event throughout."""
+    sid, _org, tag = await signable(api, seed, storage, sessionmaker)
+    sign, key = f"/v1/studies/{sid}/report/sign", "sign-once"
+    # Hold the study's row lock: the first request reserves its key, then waits inside the
+    # handler; the double submit under the same key is answered without waiting on anything.
+    async with sessionmaker() as locker, locker.begin():
+        await locker.execute(study_lock(sid))
+        pending = asyncio.create_task(api.post("alice", sign, sign_body(tag), key=key))
+        deadline = asyncio.get_running_loop().time() + 10
+        while waiting_on_a_lock(await backends(locker)) < 1:
+            assert asyncio.get_running_loop().time() < deadline, "the signing never took the lock"
+            await asyncio.sleep(0.02)
+        during = await api.post("alice", sign, sign_body(tag), key=key)
+    first = await pending
+    assert (first.status_code, during.status_code) == (201, 409), (first.text, during.text)
+    assert during.json()["type"].endswith("/idempotency-key-in-flight")
+    replay = await api.post("alice", sign, sign_body(tag), key=key)
+    assert replay.status_code == 201 and replay.headers.get("idempotent-replayed") == "true"
+    assert replay.json()["id"] == first.json()["id"]
+    other = await api.post(
+        "alice", sign, {**sign_body(tag), "engineer": {**SIGNER, "name": "B"}}, key=key
+    )
+    assert other.status_code == 422, other.text
+    # A fresh key after the signature: the ordinary refusal, nothing written.
+    again = await api.post("alice", sign, sign_body(tag))
+    assert again.status_code == 409 and again.json()["code"] == "BASIS-REPORT-009"
+    [row] = await signatures(sessionmaker, sid)
+    assert str(row.id) == first.json()["id"]
+    assert len(list((tmp_path / "objects").rglob("rev-1.report.signed.*.pdf"))) == 1
+    timeline = await api.get(
+        "alice", f"/v1/studies/{sid}/timeline", params={"event_type": "report.signed"}
+    )
+    assert len(timeline.json()["items"]) == 1
+
+
+async def test_another_firm_cannot_see_preview_sign_or_fetch_the_report(
+    api: Api, seed: Seed, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Firm isolation on every report route: a member of another firm gets 404 on the state,
+    the preview, the files and the signing, nothing is written; a viewer of the firm reads
+    the state, the preview and the signed file but may not sign (403); an engineer of the
+    firm may."""
+    sid, org, signature = await signed(api, seed, storage, sessionmaker)
+    base = f"/v1/studies/{sid}/report"
+    for path in (f"{base}/state", f"{base}/preview", base):
+        response = await api.get("mallory", path)
+        assert response.status_code == 404, (path, response.text)
+    refused = await api.post("mallory", f"{base}/sign", sign_body("0" * 64))
+    assert refused.status_code == 404
+    await seed.member(org, "vic", OrgRole.VIEWER)
+    state = await api.get("vic", f"{base}/state")
+    assert state.status_code == 200 and state.json()["signature"]["id"] == signature["id"]
+    assert (await api.get("vic", f"{base}/preview")).status_code == 200
+    final = await api.get("vic", base)
+    assert final.status_code == 200 and sha256_hex(final.content) == signature["pdf_sha256"]
+    assert (await api.post("vic", f"{base}/sign", sign_body("0" * 64))).status_code == 403
+    assert len(await signatures(sessionmaker, sid)) == 1
+
+
+async def test_an_archived_study_keeps_its_signed_report_and_cannot_be_signed(
+    api: Api, seed: Seed, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Archiving neither hides nor changes a signed report: the state and the signed PDF still
+    read. An archived unsigned study cannot be previewed or signed (409 BASIS-REPORT-007),
+    and its answers cannot change (409 ``stale-state``); nothing is written."""
+    sid, _org, signature = await signed(api, seed, storage, sessionmaker)
+    assert (await api.delete("alice", f"/v1/studies/{sid}")).status_code == 200
+    state = (await api.get("alice", f"/v1/studies/{sid}/report/state")).json()
+    assert state["signature"]["id"] == signature["id"] and state["changed_since_signing"] == []
+    final = await api.get("alice", f"/v1/studies/{sid}/report")
+    assert final.status_code == 200 and sha256_hex(final.content) == signature["pdf_sha256"]
+
+    other, _org2, tag = await signable(api, seed, storage, sessionmaker)
+    assert (await api.delete("alice", f"/v1/studies/{other}")).status_code == 200
+    preview = await api.get("alice", f"/v1/studies/{other}/report/preview")
+    assert preview.status_code == 409 and preview.json()["code"] == "BASIS-REPORT-007"
+    refused = await api.post("alice", f"/v1/studies/{other}/report/sign", sign_body(tag))
+    assert refused.status_code == 409 and refused.json()["code"] == "BASIS-REPORT-007"
+    answers = await put(api, "alice", f"/v1/studies/{other}/report-answers", ANSWERS)
+    assert answers.status_code == 409 and answers.json()["code"] == "BASIS-STUDY-004"
+    assert await signatures(sessionmaker, other) == []
+    state = (await api.get("alice", f"/v1/studies/{other}/report/state")).json()
+    assert state["signature"] is None and state["exported"]
+
+
+async def test_a_new_revision_is_signed_on_its_own_and_the_earlier_signed_pdf_stays(
+    api: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """The recovery path after an input changed following the signature: the study moves to
+    revision 2 (a reopen at the assets review; ``tests/lifecycle/test_reopen.py`` runs the
+    workflow, this test places the rows the way it leaves them) and revision 2 is exported.
+    Then: the state is revision 2's (unsigned, nothing missing but the signature, no
+    ``changed_since_signing``), signing revision 1 is refused as not current (409
+    BASIS-REPORT-007), ``GET .../report`` serves revision 2's draft by default and revision
+    1's signed PDF by number, unchanged; revision 2 is signed with its own preview, and both
+    signed files then serve, each with its own sha256; the revision history lists both."""
+    sid, _org, first = await signed(api, seed, storage, sessionmaker)
+    rev1_pdf = (await api.get("alice", f"/v1/studies/{sid}/report")).content
+    assert sha256_hex(rev1_pdf) == first["pdf_sha256"]
+    await put(api, "alice", f"/v1/studies/{sid}/report-answers", {**ANSWERS, "taxpayer_name": "B"})
+    assert (await api.get("alice", f"/v1/studies/{sid}/report/state")).json()[
+        "changed_since_signing"
+    ] == ["study"]
+    async with sessionmaker() as session, session.begin():
+        await session.execute(
+            text(
+                "UPDATE studies SET revision = 2, current_stage = 'completed', "
+                "status = 'completed' WHERE id = :id"
+            ),
+            {"id": uuid.UUID(sid)},
+        )
+    await exported(sessionmaker, storage, sid, revision=2)
+
+    state = (await api.get("alice", f"/v1/studies/{sid}/report/state")).json()
+    assert (state["revision"], state["signature"]) == (2, None)
+    assert state["changed_since_signing"] is None
+    assert state["missing_for_final"] == ["signature"] and state["exported"]
+    stale = await api.post("alice", f"/v1/studies/{sid}/report/sign", sign_body("0" * 64, 1))
+    assert stale.status_code == 409 and stale.json()["code"] == "BASIS-REPORT-007"
+    latest = await api.get("alice", f"/v1/studies/{sid}/report")
+    assert latest.headers["content-disposition"].endswith('rev-2-report.pdf"')
+    assert "DRAFT" in text_of(latest.content) and "B" in text_of(latest.content)
+    earlier = await api.get("alice", f"/v1/studies/{sid}/report", params={"revision": 1})
+    assert earlier.headers["content-disposition"].endswith('rev-1-report-signed.pdf"')
+    assert earlier.content == rev1_pdf
+
+    tag = await preview_tag(api, "alice", sid)
+    second = await api.post("alice", f"/v1/studies/{sid}/report/sign", sign_body(tag, 2))
+    assert second.status_code == 201, second.text
+    assert second.json()["revision"] == 2 and second.json()["id"] != first["id"]
+    assert second.json()["pdf_sha256"] != first["pdf_sha256"]
+    state = (await api.get("alice", f"/v1/studies/{sid}/report/state")).json()
+    assert state["signature"]["id"] == second.json()["id"]
+    assert state["changed_since_signing"] == [] and state["missing_for_final"] == []
+    now_latest = await api.get("alice", f"/v1/studies/{sid}/report")
+    assert now_latest.headers["content-disposition"].endswith('rev-2-report-signed.pdf"')
+    assert sha256_hex(now_latest.content) == second.json()["pdf_sha256"]
+    assert (
+        await api.get("alice", f"/v1/studies/{sid}/report", params={"revision": 1})
+    ).content == rev1_pdf
+    assert len(list((tmp_path / "objects").rglob("rev-1.report.signed.*.pdf"))) == 1
+    assert len(list((tmp_path / "objects").rglob("rev-2.report.signed.*.pdf"))) == 1
+    history = (await api.get("alice", f"/v1/studies/{sid}/revisions")).json()
+    by_revision = {item["revision"]: item for item in history["items"]}
+    assert by_revision[1]["signature"]["id"] == first["id"]
+    assert by_revision[2]["signature"]["id"] == second.json()["id"]
+    assert [r["revision"] for r in history["items"] if r["current"]] == [2]

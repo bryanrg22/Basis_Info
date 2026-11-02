@@ -1,0 +1,417 @@
+/* Shared working surfaces. The approved rail and fitted vision workspace own their layout. */
+:root{--ui-ink:#213b30;--ui-muted:#53675d;--ui-accent:#3c6b54;--ui-line:#d5dfd8;--ui-wash:#f2f6f3;--ui-paper:#fff;--ui-radius:16px;--ui-control:10px;--ui-shadow:0 8px 24px #213b3008;--ui-motion:180ms;--ui-bar-height:44px;--ui-space:24px}
+html[data-basis-mode="live"] #app .draft-status{display:none!important}
+#app .workspace:not([data-screen="viewer"]){--ink:var(--ui-ink);--muted:var(--ui-muted);--line:var(--ui-line)}
+#app .workspace:not([data-screen="viewer"]) .main{background:#f7f9f7;color:var(--ui-ink);border-color:#fff;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) .content{max-width:1600px;width:100%;margin-inline:auto;padding:var(--ui-space) 32px 32px}
+#app .workspace:not([data-screen="viewer"]) .content :is(h1,.desk-heading h1){font-size:30px;line-height:1.2;letter-spacing:-.9px;font-weight:600;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) .content :is(h2,h3){color:var(--ui-ink);font-weight:600}
+#app .workspace:not([data-screen="viewer"]) .content h2{font-size:18px}
+#app .workspace:not([data-screen="viewer"]) .content h3{font-size:14px}
+#app .workspace:not([data-screen="viewer"]) :is(.heading,.desk-heading,.review-heading,.collection-header){margin-bottom:24px;gap:24px}
+#app .workspace:not([data-screen="viewer"]) :is(.heading p,.desk-heading p,.review-heading>div>div,.collection-header p){font-size:13px;line-height:1.6;color:var(--ui-muted);margin-top:8px;max-width:72ch}
+#app .workspace:not([data-screen="viewer"]) .topbar{height:48px;padding:0 24px;background:#fff;border-color:var(--ui-line);font-size:12px;backdrop-filter:none}
+#app .workspace:not([data-screen="viewer"]) :is(.small,.muted,.footnote){color:var(--ui-muted)}
+#app .workspace:not([data-screen="viewer"]) .panel{border:1px solid var(--ui-line);border-radius:var(--ui-radius);background:var(--ui-paper);box-shadow:none;min-width:0}
+#app .workspace:not([data-screen="viewer"]) .panel-head{padding:16px 20px;background:var(--ui-paper);border-color:var(--ui-line);gap:16px}
+#app .workspace:not([data-screen="viewer"]) .panel-head h2{font-size:15px!important}
+#app .workspace:not([data-screen="viewer"]) .panel-body{padding:24px}
+#app .workspace:not([data-screen="viewer"]) :is(.button,.collection-create),#app :is(.marketing,.login,.modal:not(.pdf-modal)) .button{border:1px solid var(--ui-line);border-radius:var(--ui-control);background:#fff;color:var(--ui-ink);box-shadow:none;min-height:40px;padding:9px 14px;font-size:13px;font-weight:500;line-height:20px;transition:background var(--ui-motion),border-color var(--ui-motion);transform:none}
+#app .workspace:not([data-screen="viewer"]) .button:hover,#app :is(.marketing,.login,.modal:not(.pdf-modal)) .button:hover{background:var(--ui-wash);border-color:#a5baac;transform:none}
+#app .workspace:not([data-screen="viewer"]) :is(.button.primary,.collection-create,.desk-new-study),#app :is(.marketing,.login,.modal:not(.pdf-modal)) .button.primary{background:var(--ui-accent);border-color:var(--ui-accent);color:#fff;box-shadow:inset 0 1px 0 #ffffff1f}
+#app .workspace:not([data-screen="viewer"]) :is(.button.primary,.collection-create):hover,#app :is(.marketing,.login,.modal:not(.pdf-modal)) .button.primary:hover{background:#305a45;border-color:#305a45}
+#app .workspace:not([data-screen="viewer"]) .button.quiet{background:transparent;border-color:transparent;color:var(--ui-muted)}
+#app .workspace:not([data-screen="viewer"]) .button.small{min-height:34px;font-size:12px;padding:6px 10px;border-radius:8px}
+#app .workspace:not([data-screen="viewer"]) .button:disabled{color:#65736b;background:#edf1ee;border-color:#d5dfd8;box-shadow:none;opacity:1}
+#app .workspace:not([data-screen="viewer"]) .button.danger{color:#934938;background:#fff8f5;border-color:#e5cfc6}
+#app .workspace:not([data-screen="viewer"]) :is(button,a,input,select,textarea):focus-visible,#app :is(.marketing,.login,.modal) :is(button,a,input,select,textarea):focus-visible{outline:2px solid var(--ui-accent);outline-offset:3px}
+#app .workspace:not([data-screen="viewer"]) :is(.field input,.field textarea,.field select){border:1px solid #bccdc1;border-radius:var(--ui-control);background:#fff;box-shadow:none;color:var(--ui-ink);font-size:14px;line-height:22px;padding:10px 12px;min-height:44px}
+#app .workspace:not([data-screen="viewer"]) .field label{font-size:12px;font-weight:600;color:var(--ui-ink);margin-bottom:8px}
+#app .workspace:not([data-screen="viewer"]) :is(input,textarea)::placeholder{color:#62766a;opacity:1}
+#app .workspace:not([data-screen="viewer"]) .field :is(input,textarea):focus{border-color:var(--ui-accent);box-shadow:0 0 0 3px #3c6b5412}
+#app .workspace:not([data-screen="viewer"]) :is(.product-select,.collection-menu-trigger){background:#fff;border:1px solid var(--ui-line);color:var(--ui-ink);border-radius:8px;box-shadow:none;font-size:12px;min-height:36px}
+#app .workspace:not([data-screen="viewer"]) .main .library-sort{display:inline-flex;align-items:center;gap:8px;min-width:0}
+#app :is(.product-choice-list,.collection-menu,.address-suggestions){background:#fff;color:var(--ui-ink);border:1px solid var(--ui-line);box-shadow:0 12px 32px #213b3020;border-radius:12px;backdrop-filter:none}
+#app :is(.product-choice-list [role="option"],.address-suggestions [role="option"]){color:var(--ui-ink);min-height:40px;border-radius:8px}
+#app :is(.product-choice-list [role="option"].is-active,.address-suggestions [role="option"].is-active){background:#eaf2ed;border-color:#d1dfd5}
+#app .workspace:not([data-screen="viewer"]) .badge{border-radius:6px;padding:4px 8px;font-size:11px;font-weight:500;background:#eef2ef;border:1px solid #dce5df;color:#465f50}
+#app .workspace:not([data-screen="viewer"]) .badge.review{background:#faf2e4;color:#80541e;border-color:#ebdcc1}
+#app .workspace:not([data-screen="viewer"]) .badge.complete{background:#e9f3ec;color:#315f43;border-color:#cfe1d4}
+#app .workspace:not([data-screen="viewer"]) .badge.processing{background:#eaf1f7;color:#365f7a;border-color:#d2e0ec}
+#app .workspace:not([data-screen="viewer"]) :is(.tabs,.library-status-tabs,.activity-kind){background:transparent;border:0;border-bottom:1px solid var(--ui-line);border-radius:0;padding:0 0 12px;gap:4px}
+#app .workspace:not([data-screen="viewer"]) :is(.tabs,.library-status-tabs,.activity-kind) button{background:transparent;border:1px solid transparent;color:var(--ui-muted);border-radius:8px;min-height:36px;padding:7px 12px;font-size:12px;box-shadow:none;white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) :is(.tabs,.library-status-tabs,.activity-kind) button.active{background:#e6efe8;color:#2d543c;border-color:#d2e0d5;font-weight:600;box-shadow:none}
+/* One compact study trail instead of stacked banners and large pills. */
+#app .workspace:not([data-screen="viewer"]) .study-presence{background:#edf3ef;border:1px solid var(--ui-line);border-radius:10px;min-height:38px;padding:6px 12px;margin-bottom:16px;font-size:12px}
+#app .workspace:not([data-screen="viewer"]) .study-presence.is-occupied{background:#faf3e7;border-color:#e7d5b3}
+#app .workspace:not([data-screen="viewer"]) .steps{display:flex;gap:8px;margin:0 0 20px;padding:0 0 12px;border-bottom:1px solid var(--ui-line);overflow-x:auto;flex-shrink:0}
+#app .workspace:not([data-screen="viewer"]) .steps .step{flex:1;padding:6px 8px;min-width:100px;min-height:36px;font-size:12px;background:transparent;border:0;color:var(--ui-muted);border-radius:8px}
+#app .workspace:not([data-screen="viewer"]) .steps .step span{width:22px;height:22px;font-size:11px;background:#fff;border:1px solid var(--ui-line);color:var(--ui-muted)}
+#app .workspace:not([data-screen="viewer"]) .steps .step.active{color:#2d543c;background:#e6efe8}
+#app .workspace:not([data-screen="viewer"]) .steps .step.active span{background:var(--ui-accent);color:#fff;border-color:var(--ui-accent)}
+#app .workspace:not([data-screen="viewer"]) .steps .step.done span{background:#edf4ef;color:#356247}
+#app .workspace:not([data-screen="viewer"]) :is(.audit-banner,.note){background:#edf3ef;border:1px solid var(--ui-line);padding:16px 20px;border-radius:12px;color:var(--ui-muted);font-size:13px}
+#app .workspace:not([data-screen="viewer"]) .note h3{font-size:13px!important}
+#app .workspace:not([data-screen="viewer"]) .review-decision{position:sticky;bottom:16px;display:flex;justify-content:space-between;align-items:center;padding:16px 20px!important;margin-top:24px;border:1px solid #becfc3!important;border-radius:12px;background:#fff;box-shadow:0 6px 24px #213b3010;backdrop-filter:none;z-index:8}
+#app .workspace:not([data-screen="viewer"]) .review-decision strong{font-size:13px;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) .review-decision p{font-size:12px;margin-top:4px;color:var(--ui-muted)}
+/* A register is scanable working data, not a wall of equal cards. */
+#app .workspace:not([data-screen="viewer"]) :is(.collection-panel,.desk-studies,.activity-journal,.profile-settings-pane){background:#fff;border:1px solid var(--ui-line);border-radius:var(--ui-radius);box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-entry strong,.desk-property strong){color:var(--ui-ink);font-size:14px;font-weight:600;line-height:1.4}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-address,.collection-client-name,.desk-property>span>span,.desk-client-name){color:var(--ui-muted);font-size:12px}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-entry img,.desk-property img){width:56px;height:64px;border-radius:8px;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-table,.desk-table) :is(th,td){border-color:#e1e8e3}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-table,.desk-table) th{background:#f4f7f4;font-size:11px;font-weight:500;color:var(--ui-muted);padding:12px 20px}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-table,.desk-table) td{padding:20px;font-size:12px;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-table,.desk-table) tbody tr:hover{background:#f4f8f5}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-open,.desk-row-actions a,.desk-row-actions button,.study-resources a,.study-resources button,.collection-pagination button){min-height:32px;display:inline-flex;align-items:center}
+#app .workspace:not([data-screen="viewer"]) .review-spotlight{background:#e6eee4;border:1px solid #d0ddcc;border-radius:var(--ui-radius);padding:24px;min-height:220px;box-shadow:none;margin-bottom:24px}
+#app .workspace:not([data-screen="viewer"]) .review-spotlight h2{font-size:28px!important;letter-spacing:-.6px}
+#app .workspace:not([data-screen="viewer"]) .review-property-image{width:220px;max-height:220px;border:4px solid #fff;border-radius:12px;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-toolbar,.library-topline){padding:20px 24px;gap:16px}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-search-field,.desk-search,.search){background:#fff;border:1px solid #c4d3c8;border-radius:10px;box-shadow:none;min-height:44px}
+#app .workspace:not([data-screen="viewer"]) .collection-search-field{padding-inline:16px;min-height:52px}
+#app .workspace:not([data-screen="viewer"]) .collection-search-field input{padding:14px 0;font-size:14px;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) .collection-status-filters button{border-radius:8px;min-height:36px;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) :is(.collection-pagination,.library-pagination){border-color:var(--ui-line);background:#fbfcfb;padding:16px 24px;color:var(--ui-muted);font-size:12px}
+#app .workspace:not([data-screen="viewer"]) .attention{background:#edf3ef;border:1px solid var(--ui-line);border-left:3px solid var(--ui-accent);border-radius:12px;padding:16px 20px;margin:0 0 24px;box-shadow:none;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) .attention p{color:var(--ui-muted);font-size:12px}
+#app .workspace:not([data-screen="viewer"]) .attention .strong{color:var(--ui-ink);font-size:13px}
+/* Source intake: one quiet form and a distinct drop target. */
+#app .workspace[data-screen="upload"] .two-col{grid-template-columns:minmax(0,1fr) 280px;gap:24px}
+#app .workspace[data-screen="upload"] .two-col>aside .panel{background:transparent;border:0;box-shadow:none}
+#app .workspace[data-screen="upload"] .two-col>aside .panel-body{padding:4px 0 0 8px}
+#app .workspace[data-screen="upload"] .two-col>aside .note{background:transparent;border:0;border-top:1px solid var(--ui-line);border-radius:0;padding:20px 8px}
+#app .workspace[data-screen="upload"] .study-identity-fields{gap:20px}
+#app .workspace[data-screen="upload"] :is(.unified-dropzone,.dropzone){border:1px dashed #91ac99;border-radius:12px;background:#f5f8f5;min-height:192px;box-shadow:none}
+#app .workspace[data-screen="upload"] .unified-dropzone:hover,#app .workspace[data-screen="upload"] .unified-dropzone.is-dragging{border-color:var(--ui-accent);background:#eaf2ec}
+#app .workspace[data-screen="upload"] .unified-dropzone strong{font-size:16px;color:var(--ui-ink)}
+#app .workspace[data-screen="upload"] .address-input-wrap{background:#fff;border:1px solid #bccdc1;box-shadow:none;border-radius:10px}
+#app .workspace[data-screen="upload"] .address-input-wrap input{background:none!important;border:0!important;box-shadow:none!important}
+#app .workspace[data-screen="upload"] .actionbar{margin-top:24px;padding-top:20px}
+/* Appraisal evidence: headers and decisions remain in view, fields and PDF scroll separately. */
+#app .workspace[data-screen="appraisal"] .appraisal-workbench{grid-template-columns:minmax(300px,.9fr) minmax(360px,1.1fr);gap:20px}
+#app .workspace[data-screen="appraisal"] .appraisal-details{display:flex;flex-direction:column;overflow:hidden}
+#app .workspace[data-screen="appraisal"] .ui-field-scroll{overflow:auto;overscroll-behavior:contain;min-height:0;flex:1}
+#app .workspace[data-screen="appraisal"] :is(.appraisal-table-head,.field-row){grid-template-columns:minmax(130px,1fr) minmax(140px,1.15fr) 44px;gap:12px;padding:14px 20px}
+#app .workspace[data-screen="appraisal"] .appraisal-table-head{background:#f4f7f4;border-color:var(--ui-line);font-size:11px;flex-shrink:0}
+#app .workspace[data-screen="appraisal"] .field-row{min-height:60px;border:0;border-bottom:1px solid #e1e8e3;background:#fff;text-align:left;box-shadow:inset 3px 0 transparent;border-radius:0}
+#app .workspace[data-screen="appraisal"] .field-row:hover{background:#f5f8f5}
+#app .workspace[data-screen="appraisal"] .field-row.selected{background:#eaf2ec;box-shadow:inset 3px 0 var(--ui-accent)}
+#app .workspace[data-screen="appraisal"] .field-label{font-size:12px;color:var(--ui-muted)}
+#app .workspace[data-screen="appraisal"] .field-row strong{font-size:13px;font-weight:600;color:var(--ui-ink);overflow-wrap:anywhere}
+#app .workspace[data-screen="appraisal"] .field-review-actions{border-top:1px solid var(--ui-line);padding:14px 20px;background:#fff;flex-shrink:0;gap:16px}
+#app .workspace[data-screen="appraisal"] .source-panel{display:flex;flex-direction:column;overflow:hidden;min-height:0}
+#app .workspace[data-screen="appraisal"] .document-canvas{padding:20px;background:#e4ebe6;overflow:auto;min-height:0;flex:1;overscroll-behavior:contain}
+#app .workspace[data-screen="appraisal"] :is(.sourcepaper,#live-pdf-canvas){background:#fff;box-shadow:0 4px 18px #24382f16;border:1px solid #cbd6ce;margin:auto}
+#app .workspace[data-screen="appraisal"] .sourcepaper{padding:32px;min-height:540px;color:#33483a}
+#app .workspace[data-screen="appraisal"] .source-page{background:#f3f7f4;border:1px solid var(--ui-line);color:var(--ui-ink);border-radius:8px;min-height:36px}
+#app .workspace[data-screen="appraisal"] .review-heading-progress strong{font-size:24px;color:var(--ui-ink)}
+/* Rooms keep their own sections; the inventory reads as a deliberate table. */
+#app .workspace:not([data-screen="viewer"]) .room-section{background:#fff;border:1px solid var(--ui-line);border-radius:var(--ui-radius);box-shadow:none;padding:20px}
+#app .workspace:not([data-screen="viewer"]) .room-section-heading>button{background:transparent;border:0;box-shadow:none;padding:0 0 16px;border-bottom:1px solid var(--ui-line);border-radius:0;min-height:48px}
+#app .workspace:not([data-screen="viewer"]) .room-title{font-size:18px;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) .room-sections{gap:24px}
+#app .workspace:not([data-screen="viewer"]) .room-photo-grid{gap:12px}
+#app .workspace:not([data-screen="viewer"]) .room-photo-grid .photo{aspect-ratio:1.6}
+#app .workspace:not([data-screen="viewer"]) .photo-card{border:1px solid var(--ui-line);border-radius:12px;box-shadow:none;background:#fff}
+#app .workspace:not([data-screen="viewer"]) .photo-meta{padding:16px}
+#app .workspace:not([data-screen="viewer"]) .photo-meta h3{font-size:13px;overflow-wrap:anywhere}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory,.ui-table-scroll){overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;overscroll-behavior-y:auto;scrollbar-width:thin}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) table{font-size:12px;width:100%;border-collapse:collapse}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) th{background:#f4f7f4;color:var(--ui-muted);font-size:11px;font-weight:500;text-align:left;padding:12px 16px;border-bottom:1px solid var(--ui-line);white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) td{padding:16px;vertical-align:top;border-bottom:1px solid #e2e9e4;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) td b{font-weight:600}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) tr:last-child td{border-bottom:0}
+#app .workspace:not([data-screen="viewer"]) .live-suggest{background:#f1f6f2;color:#365742;border:1px solid #d4e2d8;border-radius:8px;padding:12px;font-size:12px;line-height:1.6}
+/* Assets: numerical columns align, evidence has a stable paper surface. */
+#app .workspace:not([data-screen="viewer"]) .metrics{background:transparent;border:0;border-bottom:1px solid var(--ui-line);border-radius:0;box-shadow:none;margin:0 0 24px;padding:0 0 20px;gap:0}
+#app .workspace:not([data-screen="viewer"]) .metric{padding:0 24px;border-color:var(--ui-line)}
+#app .workspace:not([data-screen="viewer"]) .metric:first-child{padding-left:0}
+#app .workspace:not([data-screen="viewer"]) .metric .value{font-size:26px;font-weight:600;letter-spacing:-.7px;color:var(--ui-ink);margin-top:6px}
+#app .workspace:not([data-screen="viewer"]) .metric p{font-size:12px;color:var(--ui-muted)}
+#app .workspace:not([data-screen="viewer"]) .asset-layout{background:#fff;border:1px solid var(--ui-line);border-radius:var(--ui-radius);box-shadow:none;grid-template-columns:180px minmax(300px,1fr) 280px}
+#app .workspace:not([data-screen="viewer"]) .asset-nav{background:#f4f7f4;border-color:var(--ui-line);padding:12px}
+#app .workspace:not([data-screen="viewer"]) .asset-nav a{padding:10px 12px;font-size:12px;color:var(--ui-muted);min-height:40px;border-radius:8px}
+#app .workspace:not([data-screen="viewer"]) .asset-nav a.active{background:#e1ebe4;color:#2d543c}
+#app .workspace:not([data-screen="viewer"]) .asset-main{padding:24px;min-width:0}
+#app .workspace:not([data-screen="viewer"]) .line-item{border-color:#e1e8e3;padding:16px 0;gap:24px;font-size:13px}
+#app .workspace:not([data-screen="viewer"]) .line-item strong{font-size:14px;color:var(--ui-ink);overflow-wrap:anywhere;text-align:right}
+#app .workspace:not([data-screen="viewer"]) .reference-panel{background:#f8faf8;border-color:var(--ui-line);padding:24px;color:var(--ui-muted);font-size:12px;min-width:0}
+#app .workspace:not([data-screen="viewer"]) .report-cover{background:#e7efe8;border:1px solid #d0ded3;border-radius:var(--ui-radius);padding:24px;color:var(--ui-ink);margin-bottom:24px}
+#app .workspace:not([data-screen="viewer"]) .report-cover h2{font-size:28px!important;letter-spacing:-.6px}
+/* Files, activity and settings share the same evidence-first typography. */
+#app .workspace:not([data-screen="viewer"]) .study-file-grid{gap:20px}
+#app .workspace:not([data-screen="viewer"]) .study-file-card{background:#fff;border:1px solid var(--ui-line);border-radius:12px;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) .study-file-meta{padding:20px}
+#app .workspace:not([data-screen="viewer"]) .study-file-meta>strong{font-size:13px;line-height:1.5;color:var(--ui-ink);overflow-wrap:anywhere}
+/* Documents stay larger than photo tiles without filling a desktop grid column. */
+#app .workspace:not([data-screen="viewer"]) .study-file-grid[data-file-kind="appraisal"]{grid-template-columns:repeat(auto-fill,minmax(0,min(100%,340px)))}
+#app .workspace:not([data-screen="viewer"]) .study-file-grid[data-file-kind="appraisal"] .study-file-meta{padding:16px}
+/* Keep photo collections compact. */
+#app .workspace:not([data-screen="viewer"]) .study-file-grid[data-file-kind="photo"]{grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr));gap:14px}
+#app .workspace:not([data-screen="viewer"]) .study-file-grid[data-file-kind="photo"] .study-file-meta{padding:12px}
+#app .workspace:not([data-screen="viewer"]) .study-file-grid[data-file-kind="photo"] .study-file-meta>strong{font-size:12px;min-height:36px}
+#app .workspace:not([data-screen="viewer"]) .study-file-grid[data-file-kind="photo"] .study-file-meta>div{padding-top:8px;margin-top:8px;gap:8px}
+#app .workspace:not([data-screen="viewer"]) .study-file-grid[data-file-kind="photo"] .study-file-meta>div>button{min-height:32px;font-size:12px}
+
+#app .workspace:not([data-screen="viewer"]) .archive-summary{background:#fff;border:1px solid var(--ui-line);border-radius:var(--ui-radius);padding:24px;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) .activity-controls{background:transparent;border:0;border-radius:0;padding:0 0 20px;border-bottom:1px solid var(--ui-line);margin-bottom:20px}
+#app .workspace:not([data-screen="viewer"]) .activity-journal{padding:8px 24px 24px}
+#app .workspace:not([data-screen="viewer"]) .activity-event{padding:24px 0;border-color:var(--ui-line)}
+#app .workspace:not([data-screen="viewer"]) .activity-event-top p{font-size:14px;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) .activity-diff{background:#f4f7f4;border-color:var(--ui-line);border-radius:10px}
+#app .workspace:not([data-screen="viewer"]) .settings-layout{grid-template-columns:180px minmax(0,1fr);gap:32px}
+#app .workspace:not([data-screen="viewer"]) .settings-sections button[aria-current="page"]{background:#e6efe8;border:1px solid #d2e0d5;color:#2d543c;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) .settings-sections :is(button,a){color:var(--ui-muted);min-height:40px}
+#app .workspace:not([data-screen="viewer"]) .profile-settings-pane{padding:24px}
+#app .workspace:not([data-screen="viewer"]) .profile-field-row{border-color:var(--ui-line);padding:24px 0}
+#app .workspace:not([data-screen="viewer"]) .profile-photo{background:#e6efe8;border:1px solid #cfdfd3;color:#365c42;box-shadow:none}
+/* Dialogs are legible working surfaces; glass belongs to navigation. */
+#app .modal-backdrop:not(.photo-review-backdrop){background:#162e255c;backdrop-filter:blur(3px);padding:24px}
+@media(max-width:680px){#app .modal-backdrop:has(.pdf-modal){padding:0}}
+#app .modal:not(.pdf-modal){background:#fff;border:1px solid var(--ui-line);border-radius:20px;box-shadow:0 24px 80px #14281e33;padding:28px;max-height:calc(100dvh - 48px);overflow:auto;backdrop-filter:none}
+#app .modal:not(.pdf-modal) h2{font-size:22px;letter-spacing:-.5px;color:var(--ui-ink);line-height:1.3}
+#app .modal:not(.pdf-modal) p{color:var(--ui-muted);font-size:13px;line-height:1.65}
+#app .modal:not(.pdf-modal) .actions{border-color:var(--ui-line);gap:10px}
+#app .draft-dialog .modal{padding:28px!important;max-width:500px}
+#app .draft-dialog .modal .actions{padding-top:20px;margin-top:24px}
+#app .draft-dialog-top>img{background:transparent;border:0;box-shadow:none;padding:0;width:88px}
+/* The public navigation clears the review bar at every scroll position. */
+#app .marketing{background:#f6f9f5;color:var(--ui-ink);overflow:visible}
+#app .marketing-nav{top:calc(var(--ui-bar-height) + 12px);height:64px;max-width:1240px;margin:16px auto 0;padding:0 20px;border:1px solid #ffffffed;border-radius:18px;background:#ffffffd9;box-shadow:0 0 0 1px #d5dfd8a3,0 8px 24px #213b300b;backdrop-filter:blur(24px);z-index:30}
+#app .marketing-nav .logo-full{width:116px}
+#app .marketing-nav .links{font-size:12px;gap:8px}
+#app .marketing-nav .links a{padding:8px 12px;border-radius:8px;color:var(--ui-muted);min-height:36px;display:flex;align-items:center}
+#app .marketing-nav .links a:hover{background:#eaf1eb;color:var(--ui-ink)}
+#app .marketing .hero{max-width:1304px;margin:auto;gap:64px;padding:80px 32px;min-height:640px;grid-template-columns:.9fr 1.1fr}
+#app .marketing .hero h1{font-size:clamp(44px,4.6vw,64px);font-weight:550;letter-spacing:-2px;line-height:1.05;color:#284a35}
+#app .marketing .hero p{font-size:15px;line-height:1.8;max-width:45ch;color:var(--ui-muted);margin-top:24px}
+#app .marketing .hero .row{margin-top:28px}
+#app .marketing .hero-note{font-size:11px;color:var(--ui-muted);margin-top:20px}
+#app .marketing .hero-preview{border:1px solid #cbdace;background:#e4eee3;border-radius:24px;padding:16px;box-shadow:0 16px 40px #2b493711}
+#app .marketing .mini-product{border-radius:14px;border:1px solid var(--ui-line);background:#fff;box-shadow:none}
+#app .marketing :is(.mini-head,.mini-foot){background:#fff;color:var(--ui-ink)}
+#app .marketing .marketing-strip{max-width:1240px;margin:0 auto;padding:24px 0;border-color:var(--ui-line);font-size:12px;color:var(--ui-muted)}
+#app .marketing .marketing-section{max-width:1304px;padding:64px 32px;margin:auto;scroll-margin-top:calc(var(--ui-bar-height) + 100px)}
+#app .marketing .marketing-section h2{font-size:34px;letter-spacing:-1px;line-height:1.2;color:var(--ui-ink);font-weight:550}
+#app .marketing .enterprise-grid{gap:0;border-top:1px solid var(--ui-line)}
+#app .marketing .enterprise-grid article{border:0;border-bottom:1px solid var(--ui-line);border-radius:0;padding:28px 24px 28px 0;background:transparent;box-shadow:none}
+#app .marketing .enterprise-grid article h3{font-size:16px}
+#app .marketing .enterprise-grid article p{font-size:14px;line-height:1.8;color:var(--ui-muted)}
+#app .marketing .workflow-columns{gap:24px}
+#app .marketing .workflow-columns:not(.pricing-columns) article{border-top:1px solid var(--ui-line);padding-top:24px}
+#app .marketing .pricing-columns article{border:1px solid var(--ui-line);border-radius:16px;background:#fff;box-shadow:none;padding:28px}
+#app .marketing .pricing-columns article:nth-child(2){border-color:#8eaa95;background:#edf4ed}
+#app .marketing .pricing-benefits{font-size:13px;color:var(--ui-muted);line-height:1.8}
+#app .marketing #faqs details{padding:22px 0!important;border-color:var(--ui-line)!important}
+#app .marketing #faqs summary{list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:32px;font-size:15px}
+#app .marketing #faqs summary::after{content:'+';font-size:22px;font-weight:400;color:var(--ui-muted)}
+#app .marketing #faqs details[open] summary::after{content:'−'}
+#app .marketing-footer{border-top:1px solid var(--ui-line);background:#eaf1e9;color:var(--ui-muted)}
+#app .login{background:#fff;color:var(--ui-ink)}
+#app .login-story{background:#e6eee3;border-color:var(--ui-line)}
+#app .login-story h2{font-size:44px;letter-spacing:-1.5px;line-height:1.15;color:#284a35}
+#app .login-story p,#app .login-form p{color:var(--ui-muted);font-size:14px;line-height:1.7}
+#app .login-form-inner{max-width:360px;width:100%}
+#app .login-form h1{font-size:28px;letter-spacing:-.7px;color:var(--ui-ink)}
+@media(min-width:1000px) and (min-height:680px){
+ #app .workspace[data-screen="appraisal"]{height:calc(100dvh - var(--ui-bar-height));min-height:0;overflow:hidden}
+ #app .workspace[data-screen="appraisal"] .main{display:flex;flex-direction:column;min-height:0}
+ #app .workspace[data-screen="appraisal"] .content{flex:1;min-height:0;display:flex;flex-direction:column;padding:20px 24px}
+ #app .workspace[data-screen="appraisal"] .content>.study-presence{flex-shrink:0;margin-bottom:12px}
+ #app .workspace[data-screen="appraisal"] .main .content>.steps{margin-bottom:12px;padding-bottom:8px}
+ #app .workspace[data-screen="appraisal"] .main .content>:is(.heading,.review-heading){margin-bottom:16px;flex-shrink:0}
+ #app .workspace[data-screen="appraisal"] .review-heading>div>p{display:none}
+ #app .workspace[data-screen="appraisal"] .appraisal-workbench{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);align-items:stretch}
+ #app .workspace[data-screen="appraisal"] .appraisal-workbench>.panel{height:100%;min-height:0}
+ #app .workspace[data-screen="appraisal"] .main .content>.review-decision{position:static;flex-shrink:0;margin-top:16px;padding:12px 16px!important}
+ #app .workspace[data-screen="appraisal"] .main .appraisal-table-head{padding-block:10px}
+ #app .workspace[data-screen="appraisal"] .main .field-review-actions{padding-block:10px;min-height:56px}
+ #app .workspace[data-screen="appraisal"] .field-review-actions>div:first-child>span:first-child{display:none}
+ #app .workspace[data-screen="appraisal"] .content>.audit-banner{flex-shrink:0;margin-bottom:12px;padding:10px 16px}
+}
+@media(max-width:1200px){#app .workspace:not([data-screen="viewer"]) .asset-layout{grid-template-columns:160px minmax(0,1fr)}#app .workspace:not([data-screen="viewer"]) .reference-panel{grid-column:1/-1;border-left:0;border-top:1px solid var(--ui-line)}#app .marketing-nav{margin-inline:24px}#app .marketing .hero{gap:32px}#app .marketing .marketing-strip{margin-inline:32px}}
+@media(max-width:999px){#app .workspace:not([data-screen="viewer"]) .content{padding:24px}#app .workspace[data-screen="upload"] .two-col{grid-template-columns:minmax(0,1fr)}#app .workspace[data-screen="upload"] .two-col>aside{display:none}#app .workspace[data-screen="appraisal"] .appraisal-workbench{grid-template-columns:1fr}#app .workspace[data-screen="appraisal"] .ui-field-scroll{max-height:440px}#app .workspace[data-screen="appraisal"] .document-canvas{max-height:560px;min-height:360px}#app .workspace:not([data-screen="viewer"]) .room-sections{grid-template-columns:1fr}#app .marketing .hero{grid-template-columns:1fr;padding:64px 32px;gap:40px}#app .marketing .hero h1{font-size:56px}#app .marketing .hero-preview{max-width:680px}#app .marketing-nav .links{display:none}}
+@media(max-width:999px){#app .workspace[data-screen="appraisal"] .review-decision{position:static}}
+@media(max-width:600px){
+ #app .workspace:not([data-screen="viewer"]) .content{padding:20px 16px 24px}
+ #app .workspace:not([data-screen="viewer"]) .content :is(h1,.desk-heading h1){font-size:26px;letter-spacing:-.7px}
+ #app .workspace:not([data-screen="viewer"]) .topbar{padding:12px 16px;height:auto;min-height:48px}
+ #app .workspace:not([data-screen="viewer"]) :is(.heading,.desk-heading,.review-heading,.collection-header){gap:16px;margin-bottom:20px}
+ #app .workspace:not([data-screen="viewer"]) .panel-body{padding:20px}
+ #app .workspace:not([data-screen="viewer"]) .review-decision{position:static;flex-direction:column;align-items:stretch;gap:16px;padding:16px!important}
+ #app .workspace:not([data-screen="viewer"]) .review-decision>.row{width:100%;flex-wrap:wrap;justify-content:flex-end}
+ #app .workspace:not([data-screen="viewer"]) .steps .step{min-width:94px;font-size:11px}
+ #app .workspace[data-screen="appraisal"] :is(.field-row,.appraisal-table-head){grid-template-columns:minmax(85px,1fr) minmax(100px,1.1fr) 32px;padding:14px 12px;gap:8px}
+ #app .workspace[data-screen="appraisal"] .field-row strong{font-size:12px}
+ #app .workspace[data-screen="appraisal"] .sourcepaper{padding:24px}
+ #app .workspace:not([data-screen="viewer"]) .room-section{padding:16px}
+ #app .workspace:not([data-screen="viewer"]) .room-photo-grid{grid-template-columns:1fr}
+ #app .workspace:not([data-screen="viewer"]) :is(.collection-table,.desk-table) td{padding:0}
+ #app .workspace:not([data-screen="viewer"]) .collection-create{font-size:0;width:40px;height:40px;padding:10px;flex-shrink:0}
+ #app .workspace:not([data-screen="viewer"]) .collection-header>div{min-width:0;flex:1}
+ #app .workspace:not([data-screen="viewer"]) .collection-header p{max-width:none}
+ #app .workspace:not([data-screen="viewer"]) .review-spotlight{min-height:210px;padding:20px}
+ #app .workspace:not([data-screen="viewer"]) .review-spotlight h2{font-size:25px!important}
+ #app .workspace:not([data-screen="viewer"]) .metric{padding:12px!important}
+ #app .workspace:not([data-screen="viewer"]) .metric .value{font-size:22px}
+ #app .workspace:not([data-screen="viewer"]) .asset-layout{display:block}
+ #app .workspace:not([data-screen="viewer"]) .asset-nav{display:flex;overflow:auto;border-right:0;border-bottom:1px solid var(--ui-line)}
+ #app .workspace:not([data-screen="viewer"]) .asset-nav a{white-space:nowrap}
+ #app .workspace:not([data-screen="viewer"]) .asset-main{padding:20px}
+ #app .workspace:not([data-screen="viewer"]) .settings-layout{display:block}
+ #app .workspace:not([data-screen="viewer"]) .profile-settings-pane{padding:20px}
+ #app .workspace:not([data-screen="viewer"]) .activity-journal{padding:4px 16px 20px}
+ #app .modal:not(.pdf-modal){padding:24px;max-height:calc(100dvh - 32px)}
+ #app .marketing-nav{top:calc(var(--ui-bar-height) + 8px);height:60px;margin:12px 12px 0;padding:0 14px;border-radius:16px}
+ #app .marketing-nav .logo-full{width:100px}
+ #app .marketing-nav .button{font-size:11px;min-height:36px;padding:8px 10px}
+ #app .marketing-nav .row .button:last-child{display:none}
+ #app .marketing .hero{padding:48px 24px;gap:32px;min-height:0}
+ #app .marketing .hero h1{font-size:44px;letter-spacing:-1.4px}
+ #app .marketing .hero p{font-size:14px}
+ #app .marketing .hero-preview{padding:10px;border-radius:18px}
+ #app .marketing .marketing-strip{margin-inline:24px;gap:20px;display:grid;grid-template-columns:1fr 1fr;font-size:11px}
+ #app .marketing .marketing-section{padding:48px 24px}
+ #app .marketing .marketing-section h2{font-size:29px}
+ #app .marketing .pricing-columns{grid-template-columns:1fr}
+ #app .login-story{padding:24px;display:none}
+ #app .login-form{min-height:calc(100dvh - var(--ui-bar-height));padding:32px 24px}
+}
+@media(prefers-reduced-motion:reduce){#app :is(.workspace:not([data-screen="viewer"]) .main,.marketing,.login,.modal) *{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+
+/* The public photo preview shares the product's canvas overlay, without a second SVG. */
+#app .product-preview .mini-photo{position:relative;isolation:isolate;overflow:hidden;background:#26392f}
+#app .product-preview .mini-photo img{display:block;width:100%;height:auto;aspect-ratio:1.5;object-fit:contain}
+#app .product-preview .mini-topbar{padding:16px 18px;font-size:11px;gap:12px}
+#app .product-preview .mini-example{color:var(--ui-muted);font-size:10px;white-space:nowrap}
+#app .product-preview .mini-components{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:14px 14px 10px;background:#fff;border-top:1px solid var(--ui-line)}
+#app .product-preview .mini-components button{border:1px solid transparent;background:transparent;color:var(--ui-muted);padding:8px 10px;min-height:36px;border-radius:7px;font-size:11px;line-height:1.3;transition:background .16s,color .16s}
+#app .product-preview .mini-components button:hover{background:#f2f6f3;color:var(--ui-ink)}
+#app .product-preview .mini-components button[aria-pressed="true"]{background:#e8efea;color:#284b39;border-color:#d6e1d9}
+#app .product-preview .mini-review-line{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:2px 18px 16px;background:#fff;font-size:10px;color:var(--ui-muted)}
+#app .product-preview .mini-review-line a{display:inline-flex;align-items:center;gap:7px;font-weight:550;color:#315a44;padding-block:6px}
+#app .product-preview .mini-review-line a:hover{text-decoration:underline}
+@media(max-width:600px){#app .product-preview .mini-topbar{padding:12px;font-size:10px}#app .product-preview .mini-components{padding:10px 8px 6px;gap:2px}#app .product-preview .mini-components button{padding:8px;font-size:10px}#app .product-preview .mini-review-line{padding:0 12px 12px;font-size:10px}}
+
+/* Page selection remains visible when revisiting an approved study step. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step{gap:10px;align-items:center;min-width:130px;min-height:58px;padding:10px 12px;border:1px solid transparent;text-decoration:none;transition:background .15s,border-color .15s}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-marker{flex-shrink:0}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-copy{display:grid;gap:4px;min-width:0;line-height:1.2}
+#app .workspace:not([data-screen="viewer"]) .study-navigation strong{font-size:12px;font-weight:600;color:var(--ui-ink)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation small{font-size:11px;font-weight:400;color:var(--ui-muted);white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .is-selected{background:#fff;border-color:var(--ui-accent);box-shadow:inset 0 -2px var(--ui-accent)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation a:hover{background:#edf3ef;border-color:#a9bdb0}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .workflow-current small{color:#885b20;font-weight:600}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .workflow-current .step-marker{background:var(--ui-accent);color:#fff;border-color:var(--ui-accent)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation [aria-disabled="true"]{opacity:.65;cursor:default}
+#app .workspace:not([data-screen="viewer"]) .study-navigation a:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
+
+#app .workspace[data-screen="appraisal"] .source-focus{padding:12px 20px;border-bottom:1px solid var(--ui-line);background:#fff;display:grid;grid-template-columns:1fr auto;gap:4px 12px;flex-shrink:0}
+#app .workspace[data-screen="appraisal"] .source-focus>strong{font-size:12px;color:var(--ui-ink);overflow-wrap:anywhere}
+#app .workspace[data-screen="appraisal"] .source-focus>span{font-size:12px;color:var(--ui-ink);font-weight:600;overflow-wrap:anywhere;max-width:220px}
+#app .workspace[data-screen="appraisal"] .live-pdf-status{grid-column:1/-1;font-size:11px;line-height:1.45;margin:0;color:var(--ui-muted)}
+#app .workspace[data-screen="appraisal"] .live-pdf-paper{position:relative;flex:none;margin:0 auto;background:#fff}
+#app .workspace[data-screen="appraisal"] #live-pdf-canvas{display:block;border:0;margin:0;max-width:none}
+/* PDF.js TextLayer geometry (Mozilla, Apache-2.0); transparent text keeps native selection. */
+.live-pdf-text{position:absolute;inset:0;text-align:initial;overflow:clip;line-height:1;letter-spacing:normal;word-spacing:normal;text-size-adjust:none;transform-origin:0 0;--min-font-size:1;--text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size));--min-font-size-inv:calc(1 / var(--min-font-size))}
+.live-pdf-text :is(span,br){color:transparent;position:absolute;white-space:pre;transform-origin:0% 0%;user-select:text}
+.live-pdf-text>span,.live-pdf-text .markedContent span{--font-height:0;--scale-x:1;--rotate:0deg;font-size:calc(var(--text-scale-factor) * var(--font-height));transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv))}
+.live-pdf-text .markedContent{display:contents}
+.live-pdf-text mark{color:transparent;background:rgba(255,201,63,.38);outline:1px solid rgba(180,119,0,.65);border-radius:2px;padding:1px 0}
+.live-pdf-text::selection,.live-pdf-text ::selection{color:transparent;background:#86baff66}
+#app .workspace[data-screen="appraisal"] .source-panel{scroll-margin-top:90px}
+
+.live-pdf-text[data-main-rotation="90"]{transform:rotate(90deg) translateY(-100%)}
+.live-pdf-text[data-main-rotation="180"]{transform:rotate(180deg) translate(-100%,-100%)}
+.live-pdf-text[data-main-rotation="270"]{transform:rotate(270deg) translateX(-100%)}
+#app .workspace .field-review-actions [hidden]{display:none!important}
+@media(max-width:600px){
+ #app .workspace[data-screen="appraisal"] .source-panel>.panel-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:16px}
+ #app .workspace[data-screen="appraisal"] .source-panel .panel-head .row{min-width:0;gap:8px}
+ #app .workspace[data-screen="appraisal"] .source-panel .panel-head .row>div{min-width:0}
+ #app .workspace[data-screen="appraisal"] .source-panel .panel-head strong{overflow-wrap:anywhere}
+ #app .workspace[data-screen="appraisal"] .source-page{white-space:nowrap;font-size:11px;padding:8px}
+ #app .workspace[data-screen="appraisal"] .source-focus{padding:12px 16px;grid-template-columns:1fr}
+ #app .workspace[data-screen="appraisal"] .source-focus>span{max-width:none}
+}
+
+/* Compact room summaries; the document remains the vertical scroll surface. */
+#app .workspace .room-quick-stats{display:flex;flex-wrap:wrap;gap:24px 40px;padding:0 0 22px;margin:0 0 24px;border-bottom:1px solid var(--ui-line)}
+#app .workspace .room-quick-stats>div{display:flex;align-items:baseline;gap:8px;color:var(--ui-muted);font-size:13px}
+#app .workspace .room-quick-stats strong{color:var(--ui-ink);font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+#app .workspace:not([data-screen="viewer"]) .room-summary-card .room-section-heading>button{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px 12px;padding:0;border:0;min-height:0}
+#app .workspace .room-summary-info{min-width:0;display:grid;gap:3px}
+#app .workspace .room-summary-info .room-title{overflow-wrap:anywhere;line-height:1.3}
+#app .workspace .room-summary-type{font-size:12px;font-weight:400;letter-spacing:0;color:var(--ui-muted)}
+#app .workspace .room-summary-chevron{align-self:start;padding-top:4px;color:var(--ui-muted)}
+#app .workspace .room-summary-chevron svg{transition:transform .16s}
+#app .workspace [aria-expanded="false"]>.room-summary-chevron svg{transform:rotate(-90deg)}
+#app .workspace .room-summary-previews{display:flex;align-items:center;gap:6px;min-width:0}
+#app .workspace .room-summary-thumb,#app .workspace .room-summary-previews .live-photo-missing{width:64px;height:48px;object-fit:cover;border-radius:7px;display:block;background:#e9eeeb;color:var(--ui-muted);font-size:9px;font-weight:400}
+#app .workspace .room-preview-more{font-size:12px;font-weight:500;color:var(--ui-muted);padding-left:4px}
+#app .workspace .room-preview-empty{font-size:12px;font-weight:400;color:var(--ui-muted)}
+#app .workspace .room-summary-stats{display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:3px;font-size:12px;line-height:1.4;font-weight:400;letter-spacing:0;color:var(--ui-muted)}
+#app .workspace .room-summary-categories{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;line-height:1.5;font-weight:400;letter-spacing:0;color:var(--ui-muted)}
+#app .workspace .room-category-stat{display:inline-flex;align-items:baseline;gap:7px;padding:4px 8px;border-radius:5px;background:#f0f4f1}
+#app .workspace .room-category-stat strong{font-weight:600;font-variant-numeric:tabular-nums;color:var(--ui-ink)}
+#app .workspace .room-category-more{padding:4px 2px;margin-left:3px}
+#app .workspace [aria-expanded="true"]>.room-summary-categories{display:none}
+#app .workspace .room-needs-review{color:#875820}
+#app .workspace .room-summary-card .room-section-heading:has([aria-expanded="true"]){padding-bottom:18px;border-bottom:1px solid var(--ui-line)}
+#app .workspace [aria-expanded="true"]>.room-summary-previews{display:none}
+#app .workspace [aria-expanded="true"]>.room-summary-stats{grid-column:1/-1;flex-direction:row;justify-content:flex-start;gap:16px}
+#app .workspace .live-room-tools:empty{display:none}
+#app .workspace:not([data-screen="viewer"]) .live-inventory{max-height:none;height:auto;overflow:visible;overscroll-behavior:auto;box-shadow:none}
+#app .workspace:not([data-screen="viewer"]) .live-inventory table{table-layout:fixed;white-space:normal}
+#app .workspace:not([data-screen="viewer"]) .live-inventory :is(td,th){overflow-wrap:anywhere;white-space:normal;padding:14px 10px}
+#app .workspace .live-inventory th:first-child{width:26%}
+#app .workspace .live-inventory th:nth-child(2){width:17%}
+#app .workspace .live-inventory th:last-child{width:60px}
+#app .workspace .live-inventory .button{white-space:normal}
+@media(max-width:580px){#app .live-bar>.row{flex-wrap:wrap;max-width:100%}#app .workspace .room-summary-previews{grid-column:1/-1}#app .workspace .room-summary-stats{grid-column:1/-1;flex-direction:row;justify-content:flex-start;gap:12px;flex-wrap:wrap}#app .workspace .room-quick-stats{gap:16px 24px}#app .workspace .room-summary-thumb{width:54px;height:42px}#app .workspace:not([data-screen="viewer"]) .live-inventory :is(td,th){padding:12px 5px;font-size:11px}#app .workspace .live-inventory th:last-child{width:48px}}
+@media(prefers-reduced-motion:reduce){#app .workspace .room-summary-chevron svg{transition:none}}
+
+/* PDF.js continuous layout needs an absolute scroll container inside a flex frame. */
+#app .basis-pdf-frame{position:relative;flex:1;min-height:0;overflow:hidden;background:#e4ebe6}
+#app .basis-pdf-scroll{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;padding:0;display:block}
+#app .workspace[data-screen="appraisal"] .basis-pdf-scroll{padding:0;max-height:none;min-height:0}
+#app .basis-pdf-pages{padding:20px 0;--page-bg-color:#fff;--page-margin:0 auto 20px;--page-border:0}
+#app .basis-pdf-pages>.page{margin:0 auto 20px;box-shadow:0 3px 14px #243b2c24}
+#app .basis-pdf-pages .canvasWrapper canvas{max-width:none;border:0;border-radius:0;box-shadow:none}
+#app .basis-pdf-pages .textLayer mark{color:transparent;background:#ffc93f61;outline:1px solid #b47700a6;border-radius:2px;padding:0}
+@media(max-width:999px){#app .workspace[data-screen="appraisal"] .basis-pdf-frame{flex:none;height:560px}}
+
+/* Shared, static totals and explicit disclosure controls across study pages. */
+#app .study-summary{display:flex;flex-wrap:wrap;gap:20px 32px;margin:24px 0 28px;padding:16px 20px;background:#edf3ef;border-left:3px solid #8caf9a;color:var(--ui-ink)}
+#app .study-summary>div{min-width:120px}
+#app .study-summary>div+div{padding-left:32px;border-left:1px solid #cddcd2}
+#app .study-summary dt{font-size:12px;line-height:1.5;color:var(--ui-muted)}
+#app .study-summary dd{margin:4px 0 0;font-size:28px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+#app .component-room-summary{display:grid;gap:16px}
+#app .workspace .component-room-heading h2{margin:0;font-size:18px;line-height:1.35;overflow-wrap:anywhere}
+#app .component-room-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;margin-top:8px;font-size:12px;color:var(--ui-muted)}
+#app .component-room-meta strong{margin-left:4px;font-weight:500;color:var(--ui-ink)}
+#app .component-room-meta>span+span{padding-left:16px;border-left:1px solid var(--ui-line)}
+#app .component-room-counts{display:flex;gap:8px 18px;flex-wrap:wrap;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ui-muted)}
+#app .component-room-preview{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+#app .workspace:not([data-screen="viewer"]) .component-room-toggle{margin-left:auto;min-height:40px;padding:8px 12px;gap:10px;background:#f0f6f2;border-color:#c7d9cd;color:#315b45;font-size:12px;white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .component-room-toggle:hover{background:#e4eee7;border-color:#8eae99}
+#app .component-room-toggle>svg{flex:none;transition:transform .15s}
+#app .component-room-toggle[aria-expanded=true]>svg{transform:rotate(180deg)}
+#app .component-room-toggle[aria-expanded=false] .when-open,#app .component-room-toggle[aria-expanded=true] .when-closed{display:none}
+#app .component-room-summary:has([aria-expanded=true]) .room-summary-categories{display:none}
+#app .component-room-summary:has([aria-expanded=true]){padding-bottom:20px;border-bottom:1px solid var(--ui-line);margin-bottom:20px}
+#app .component-room-card .photo-meta>.row{flex-wrap:wrap;gap:8px}
+#app .product-select>svg{flex:none}
+@media(max-width:600px){
+ #app .study-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;padding:16px}
+ #app .study-summary>div{min-width:0}
+ #app .study-summary>div+div{padding-left:0;border-left:0}
+ #app .study-summary dd{font-size:25px}
+ #app .component-room-toggle{white-space:normal}
+}
+@media(prefers-reduced-motion:reduce){#app .component-room-toggle>svg{transition:none}}
+
+@media(max-width:700px){#app .workspace .sidebar{top:calc(var(--ui-bar-height) + 8px)}}

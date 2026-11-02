@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from basis.api.routes import (
     activity,
+    client_errors,
     cost_indices,
     decisions,
     documents,
@@ -47,6 +48,8 @@ def api_routers() -> list[APIRouter]:
         revisions.reads,
         revisions.writes,
         activity.reads,
+        client_errors.writes,
+        client_errors.reads,
         objects.reads,
         objects.writes,
         workflow.writes,

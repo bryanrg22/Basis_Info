@@ -8633,3 +8633,684 @@ report flow end to end, including signing. What fails is honesty at the edges: t
 show mock data in live mode, flagged photos have no home, and three places name the layers.
 None of it is a backend defect; the one backend gap (the rooms view hiding unplaced photos) is
 closed in this section's PR.
+
+
+## 65. Browser error capture: every error a user hits, recorded in detail and diagnosable from the record (2026-11-01)
+
+**Question.** Bryan asked that every error a user hits be saved "in extreme detail (firm, user,
+page, action, time, everything) whenever they occur on a user end so we can work on fixing those
+bugs whenever they occur". Before this section the API logged its own failures with a request id,
+and the browser showed a toast with the message and the request id; what the user did before, on
+which screen, in which build and browser, and the errors that never reached the API (an uncaught
+exception, a rejected promise, a resource that failed to load) were lost when the tab closed. This
+section designs the capture against how the established tools do it, builds the browser module,
+the ingest route, the store, the timeline link, the operator reads and the operator page, tests
+every path, and proves it on a live stack by breaking the page on purpose. Contract:
+docs/api/CLIENT_ERRORS.md; code: `web/live/errors.js`, `basis/api/routes/client_errors.py`,
+migration `0028_client_errors`, `web/developer/client-errors.html`.
+
+### 65.1 The standard: Sentry, OpenTelemetry, Google Cloud Error Reporting
+
+Read before designing (the pages are linked from the design's docstrings and the contract):
+
+| Source | What it names | Taken |
+|---|---|---|
+| Sentry event payload (`develop.sentry.dev/sdk/.../event-payloads`) | required `event_id` (a UUID the SDK mints), `timestamp`, `platform`; optional `level` (fatal/error/warning/info/debug, default error), `logger`, `transaction` (the route), `release` (a git sha), `environment`, `tags`, `extra`, `fingerprint`; interfaces `exception` (type, value, stacktrace with frames: filename, function, lineno, colno), `breadcrumbs` (timestamp, type, category, message, data), `user` (id, email, ip), `request` (method, url, headers with bodies capped at 8 kB), `contexts` (browser, os, device; each capped at 8 kB), `sdk` | `event_id`, `occurred_at`, `level`, the exception's type/message/stack/source, `breadcrumbs`, `user`, `build` as the release, `http` as the request, `client` as the contexts, `capture_version` as the sdk |
+| Sentry browser SDK options (`docs.sentry.io/platforms/javascript/configuration/options`) and Dedupe integration | `maxBreadcrumbs` default 100; `sampleRate` 1.0; `normalizeDepth` 3; `attachStacktrace`; `beforeSend`/`beforeBreadcrumb` to scrub; a `fetch` transport by default, dropping events when offline; Dedupe (on by default) drops an event identical to the previous one by stack and fingerprint; client reports count dropped events by reason | 50 breadcrumbs (a Basis session is short and an event is at most about 40 KB), depth 3 for context, dedupe within 5 s with `repeats`, `dropped` counted per cap; no sampling: every error is wanted |
+| OpenTelemetry exception semantic conventions (logs) and browser/user-agent attributes | `exception.type` (dynamic class name), `exception.message` (may hold sensitive data), `exception.stacktrace` (the runtime's natural string); record handled exceptions at WARN and unhandled at ERROR; `browser.language` from `navigator.language`, `browser.platform` from `userAgentData.platform` (else unset), `browser.mobile`, `user_agent.original`; `http.request.method`, `http.response.status_code`; the log data model's `Timestamp` (when it happened) beside `ObservedTimestamp` (when it was collected) | `error_type`/`message`/`stack`; `level` warning for a 4xx and error for a 5xx or no response; `client.language`/`platform`/`user_agent`; `http.method`/`status`; `occurred_at` (the browser) beside `received_at` (the database) with `clock_offset_ms` between them |
+| Google Cloud Error Reporting (`ReportedErrorEvent`, "formatting error messages") | `eventTime`, `serviceContext` {service, version}, `message` with a stack trace or `context.reportLocation` {filePath, lineNumber, functionName}, `context.httpRequest` {method, url, userAgent, referrer, responseStatusCode, remoteIp}, `context.user`; grouped by stack | `source` {file, line, column, function} when the stack is empty (a resource failure, a cross-origin `Script error.`), `build.api_git_sha` as the version, `_server.remote_addr`; the API's own log lines already carry `stack_trace` and are what Error Reporting would group |
+
+What Basis adds that none of them has, because Basis has it: the firm (`org_id`), the study with
+its revision and stage, the screen (the hash route and the app's screen name), the gate decision
+breadcrumbs, the problem's catalogue `code` and `request_id` on a failed call (so the browser's
+record and the server's log line meet on one id), the attempt under the idempotency key (a retry
+is not a new error), and the field names of a request body (never the values: the intake and the
+corrections are client data).
+
+### 65.2 Design against the seams we have
+
+* **The browser** (`web/live/errors.js`, loaded first on `index.html`, 290 lines, no
+  dependencies at install): hooks `window` `error` (exceptions and resource failures),
+  `unhandledrejection`, `console.error`, the API client's new `observe` hook (every request:
+  method, path, status, duration, request id, code, attempt, body object), `Basis.reportError`;
+  breadcrumbs for `data-live`/`data-action` clicks, hash navigation, every API call, gate
+  decisions (`live-review.js`), console errors. The live app passes the hook to `createClient`,
+  reports a failed action (`guarded`) and a failed loader that was not an API refusal, and exposes
+  `Live.screen()`. Context is read lazily from `BasisAuth.user`, `BasisLive.firm()` and
+  `BasisLive.state`, so the module needs nothing at load and an error before sign-in still
+  records the page.
+* **Transport:** `fetch` with `keepalive: true` (survives unload; `sendBeacon` cannot carry the
+  bearer token, and the route is authenticated like every other), batches of 20 at most once
+  every 5 s, one `Idempotency-Key` per batch kept across retries (429/5xx/no response: 2 s, 8 s,
+  32 s, then dropped; any other 4xx dropped at once), a queue of 50, 30 events a minute (`dropped`
+  counts the rest on the next event), identical errors within 5 s folded (`repeats`), flush on
+  `pagehide` and `visibilitychange: hidden`, events queued while nobody is signed in and sent after
+  sign-in. The module's own route and its own console use cannot produce an event.
+* **Redaction** on the client and again on the server: ids in paths and routes become `{id}`
+  (UUIDs, long hex, long numbers), query values go (`?limit=…`), `Bearer …` and JWT-shaped strings
+  are masked in free text, a request body is reduced to its field names, any key matching the
+  logging redaction pattern (key, token, secret, password, authorization; the client adds cookie
+  and session) is `***` to depth 3; strings are bounded (message 4,000, stack 16,000, others 500);
+  the server masks the whole event with `basis.obs.logging.redact` before storing. NUL is refused
+  (PostgreSQL text), so no event can turn into a 500.
+* **The route** `POST /v1/client-errors` is a `write_router` route (token, any firm role, a user
+  with no firm too, the mutation rate limit, the idempotency key the contract test requires on
+  every POST), with its own 256 KiB cap checked in a dependency before the body is parsed (413
+  `BASIS-API-045`; a junk body over the cap is 413, under it 422) and 30 batches a minute per
+  user. 202 with `stored`/`duplicates`/`ids`.
+* **Verified, not trusted:** the reporter is the token's user; `org_id` is set only when the
+  reporter belongs to the claimed firm (or to exactly one firm when none is claimed); `study_id`
+  only when `StudyRepository.get_visible` says the reporter can see it. The claims stay inside the
+  event with `_server.org_verified`/`study_visible`. So a browser cannot write a timeline row into
+  another firm's study (the tenancy rule of `test_tenancy.py`, kept).
+* **The timeline:** an event on a visible study appends `client.error` in the same transaction
+  (`StudyEventRepository.record`: actor engineer, `request_id` from the logging context, `code`,
+  `entity_type` `client_error`, `entity_id` the record, `stage`/`revision` the row's, the claim in
+  `detail`). It shows in `GET .../timeline` and `GET /v1/me/activity`; the audit lists engineer
+  actions and an error is not one, so it is unchanged.
+* **The store:** `client_errors` (migration 0028): `seq` identity for the keyset cursor, the
+  client's `event_id` unique (`INSERT ... ON CONFLICT DO NOTHING`, so a retried batch stores each
+  event once), the filter columns indexed by (`org_id`, `seq`), (`user_id`, `seq`), (`study_id`,
+  `seq`), `code`, `request_id`, `created_at`; `event` JSONB with `_server` {received_at, sent_at,
+  clock_offset_ms, api_request_id, api_git_sha, api_env, reporter, org_verified, study_visible,
+  remote_addr}; `forbid_mutation()` on UPDATE (the `takeoffs` rule); deleted only by the purge.
+* **Operators:** `GET /v1/ops/client-errors` (filters org, user, study, code, kind, request id,
+  since/until on the time received; newest first; cursor) and `GET .../{id}` (the whole event),
+  behind the same allowlist as `GET /v1/ops/health` (`require_operator`, moved to
+  `basis/api/operators.py` because a route module importing `routes.ops` imports `api.health`,
+  which imports the routes package: a cycle). `web/developer/client-errors.html` (with
+  `client-errors-model.js`, node-tested) is the list with the filters and a detail view of every
+  fact, the stack, the context, the last actions and the whole event; it signs in with the app's
+  Firebase session through the app's API client.
+* **Retention:** a fixed `CLIENT_ERRORS_RETENTION_DAYS` (180), `python -m basis.retention
+  purge-client-errors` (dry run counts; batches of 1,000), not the firm's rule: the records are
+  operational data about the application that name a user, a firm and a study id, never a
+  document or a price; the firm's rule purges a study's uploads; a bug reported a quarter late
+  still needs its record (Sentry keeps 90 days). The `client.error` timeline rows stay.
+* **Correlation on the server** (the gaps the task asked to fill): the verified `uid` is bound
+  into the logging context by `get_optional_principal`, the database `user_id` by
+  `get_current_user`, `study_id`/`org_id`/`role` by `require_study_access` and
+  `require_org_role`; every problem's log line and the unhandled-exception line carry the matched
+  `route` template, `status`, `error_code`, the exception's type and message (a 5xx problem logs
+  at WARNING); the worker's activity interceptor binds `study_id` and writes one `activity failed`
+  line at ERROR with the code, the exception type and the traceback (the SDK's own failure log
+  runs after the interceptor returns, outside the bound context). So `event.http.request_id`
+  finds one server line with everything about the request that failed.
+
+### 65.3 What a stored event holds
+
+The uncaught `TypeError` from the live check (65.5), as `GET /v1/ops/client-errors/{id}`
+returned it (ids shortened):
+
+| Where | What |
+|---|---|
+| columns | `kind` error, `error_type` TypeError, `message` "Cannot read properties of undefined (reading 'rooms')", `occurred_at` (browser) and `received_at` (database), `user_id`, `org_id` (verified), `study_id` (visible), `revision` 1, `stage` uploading, `route` `#processing/{id}`, `screen` processing, `code` null, `http_status` null, `request_id` null, `build_sha` `15cd291-dirty`, `web_version` `live-16`, `user_agent` |
+| `event.source` / `stack` | `{file, line 5, column 49, function}`; the stack as the browser gave it |
+| `event.user` / `firm` / `study` / `page` | uid, email, role owner; the firm's id and name; study id, revision, stage, status; hash route, screen, path |
+| `event.breadcrumbs` (10) | `load #login` → click Sign in → `GET /v1/me → 0` (the CORS failure of the first attempt, 8 ms) → click reload-me → `GET /v1/me → 200` (134 ms, request id) → `GET /v1/studies?limit=… → 200` → `#dashboard → #processing/{id}` → `GET /v1/studies/{id} → 200` → `POST /v1/studies/{id}/start → 422 BASIS-STUDY-001` (57 ms, request id) → the console error, each with the client's clock and `since_load_ms` |
+| `event.client` | user agent, platform macOS, en-US, viewport 1024×768 @2x, online, time zone, connection 4g, visible, cookies |
+| `event.build` | API git sha from `/health`, web asset version |
+| `event._server` | received_at, sent_at, clock_offset_ms, the report's own request id, the API's sha and env, the reporter's uid and user id, `org_verified` true, `study_visible` true, remote address |
+| timeline | `client.error`, actor engineer, `entity_id` the record, `request_id` the report's, `detail` kind/message/screen/route/http/build/event id; listed under `GET /v1/me/activity` |
+| API log | `client error recorded` with `error_code BASIS-CLIENT-001`, `client_error_id`, `kind`, `client_code`, `client_request_id`, `uid`, `user_id`, `request_id`; and for the failed start, the `problem` line with `request_id f6b17ca4…`, `uid`, `user_id`, `study_id`, `org_id`, `role owner`, `route /v1/studies/{study_id}/start`, `status 422`, `error_code BASIS-STUDY-001` |
+
+The `api` event for the failed start additionally holds `http`: method, route, status 422, code
+`BASIS-STUDY-001`, the request id, the problem type, title and detail, latency 57 ms, attempt 1,
+`body_fields` null; the `report` event holds the context with `apiKey` masked to `***` and `note`
+kept.
+
+### 65.4 Tests
+
+| Suite | Count | What it protects |
+|---|---|---|
+| `web/tests/errors.test.cjs` (node) | 17 | redaction (ids, query values, bearer and JWT text, body field names, secret keys, NUL); stack parsing (V8, Firefox, bare); every field of an event; the API build read once and filled in; each kind; the `observe` hook (attempt under the key, no token, a broken observer never breaks a request); breadcrumbs (click, navigation, decision; ring of 50); dedupe with `repeats`; 30 a minute with `dropped`; a throwing render loop sends one batch of at most 20; batching with the bearer token, keepalive and the key kept across retries; three retries then dropped; a 4xx dropped at once; queued without a token and sent after sign-in; mock mode sends nothing; flush on hide without retry; a broken context getter and a logging listener cannot recurse; the client clock stamp is the same instant as `Date.now()` (added after the live check, 65.5); the sample fixture is what the module produces |
+| `web/tests/client-errors-page.test.cjs` (node) | 6 | the operator page's query, rows, issues table, status form, the copy brief, detail and tree, escaped |
+| `tests/api/test_client_errors.py` (integration) | 41 (14 parametrized malformed bodies, 8 bad parameters) | the sample fixture is accepted (client shape = server schema); every detail stored and the timeline row with provenance, the activity listing, the audit unchanged; a viewer posts and gets their one firm; claims the reporter cannot make stay inside the event with no timeline row; no study, no row; a non-catalogue code not indexed; one store per `event_id` across batches and a replay; secrets masked anywhere; 422 naming the field; 413 before validation and 422 under the cap; 429 after 30 batches, per user; 401 without a token, 202 without a firm; operators list newest first with every filter and a cursor, 422 for bad parameters, read one record with `_server`, 404 unknown; a firm owner is 403 `not-operator`; the correlation log lines (unhandled exception: request id, uid, user id, route, status, exception type and message, stack trace, ERROR; a study problem: study id, firm, role, route, code; a 404: study id only; the recorded line); the schema's kinds are the table's |
+| `tests/integration/db/test_client_error_records.py` | 9 | the repository's insert once per `event_id`, the never-updated trigger, the check constraints, listing with every filter and the cursor, the purge in batches with a dry run, `cutoff_for`, the CLI's summary line and arguments |
+| `tests/unit/worker/test_worker_parts.py` | +1 | a failed activity's one ERROR line with the study, the code, the exception type and message and the traceback, the context unbound afterwards |
+| `tests/unit/config/test_settings.py` | +1 | `CLIENT_ERRORS_RETENTION_DAYS` default 180, 1 to 3650 |
+| existing walks | | `test_health.py` known routes (+3), `test_auth.py` (401 on all three), `test_openapi_contract.py` (Schemathesis on all three; the idempotency key required on the POST), `test_models_metadata.py` (`client_errors` columns, the no-update tables), `test_migrations.py` (head 0028, 28 revisions, downgrade and up) |
+
+Mutation checks done while writing: the clock stamp test fails against the first `stamp()`
+(65.5); the dedupe test fails with `dedupeMs: 0`; the 413 test fails with the size dependency
+removed (the junk body becomes 422); the claims test fails with `get_visible` replaced by `get`
+(the other firm's study gets a timeline row); the correlation test fails without the `bind`
+calls (no `uid`, no `study_id` on the lines).
+
+### 65.5 The live check
+
+A stack built from this branch: Postgres in its own container (`client-errors-pg`, port 55433),
+migrations to 0028, the API on port 8200 with `BASIS_ENV=dev`, the Auth emulator the walkthrough
+session already ran, `OPS_OPERATOR_UIDS` set to a test account created in the emulator for this
+check, the web app served from this worktree on port 3300; nothing paid, the Docker stack of the
+walkthrough session untouched. Then, signed in as that account in a firm created by the admin
+CLI, on the processing screen of a draft study: `POST .../start` (422 `intake-required`), a
+`console.error` with a `RangeError`, an unhandled rejection, `Basis.reportError` with a context
+holding `apiKey`, and an uncaught `TypeError` from a timer; before that, the first sign-in had hit
+a CORS failure (the API started with the wrong origin), which the module recorded as a `status 0`
+event and delivered after three retries once the API was restarted.
+
+Results: 6 records stored, one batch of 5 plus the retried one; every column and every member of
+65.3 filled; the five study events on the study's timeline and under `/me/activity`; the API log
+lines with `BASIS-CLIENT-001`; the operator page lists them with the filters and the detail shows
+every fact, the stack, the ten breadcrumbs and the whole event (screenshots in the session). Two
+defects found by the check and fixed before the PR, neither visible to the unit tests because
+their expected values came from the code:
+
+1. **The client clock was 7 hours off.** `occurred_at` was the UTC time with the local offset
+   appended (`00:19:49-07:00` for an event at `00:19:49Z`), so `clock_offset_ms` read 25,199,976.
+   Fixed to shift the time into the zone; a node test now asserts `Date.parse(occurred_at)`
+   equals the fake clock. Verified live after the fix: `2026-11-01T17:21:50.223-07:00` for a
+   record received at `00:21:50Z`, offset under a second.
+2. **`screen` was null.** The module read `window.state.screen`, but the design's `state` is a
+   script-scoped binding, not a window property. The live app now exposes `Live.screen()`.
+   Verified live: `processing`.
+
+Found in passing, not this change's: `POST /v1/orgs` answers 500 whenever the API log level
+is INFO, because `routes/orgs.py` logs `extra={"name": ...}` and `name` is a reserved
+`LogRecord` attribute (`KeyError: Attempt to overwrite 'name'`); the test suite runs at WARNING,
+so it never saw it. The new correlation line showed it at once (`exception_type=KeyError`,
+`route=/v1/orgs`, the uid and user id). Reported to Bryan as a one-line follow-up.
+
+### 65.6 Limits (what cannot be captured)
+
+Cross-origin scripts report `Script error.` without a stack (the Firebase SDK on `gstatic.com`
+is one; the page, user and breadcrumbs still come through); a tab crash or a navigation before
+the keepalive request leaves may lose the last batch (browsers cap keepalive bodies at 64 KB in
+flight per origin); an error before the module loads, and errors while signed out that are never
+followed by a sign-in on that page, are lost; the text a user typed is never recorded, by design;
+if the app ever ships minified, stacks need source maps; events beyond the caps are counted, not
+kept; the server's own view is not copied into the record but found by the request id in the API
+and worker logs, which have their own retention.
+
+### 65.7 Issues, status and the copy brief (added the same day)
+
+Bryan's follow-up: a record should be copyable into a coding agent's prompt in one go, and a
+developer should be able to mark a bug resolved, in progress or still open; he expected the
+status to be manual and asked whether anything could be automatic. The answer, from how
+Sentry and every tracker do it: the status is a person's call, but two things are not.
+Records are grouped into **issues** by a fingerprint (kind, error type, the message with
+numbers and ids normalized, the top frame's file and function, the route and status of a
+failed call: the same bug on two firms is one issue, a different frame is another), and the
+ingest keeps each issue's `occurrences`, `first_seen_at`, `last_seen_at` and `last_build_sha`.
+The status (`open` on first sight, then `in_progress`, `resolved`, `ignored`, set by an
+operator with a note, who and when) records `status_build_sha`, the build the issue had last
+been seen on; the one automatic transition is `resolved` -> `regressed` when a new
+occurrence arrives on a different build (same build: the fix is not deployed yet, the issue
+stays resolved and the count moves). Nothing can detect that a bug is fixed; the system can
+detect that it came back, and that is what it automates (Sentry's "resolved in the next
+release" and regression rule).
+
+Built: `client_error_issues` (in migration 0028, with `set_updated_at()`),
+`client_errors.fingerprint`, the upsert in `ClientErrorRepository.record` (a duplicate event
+id counts nothing), `GET /v1/ops/client-errors/issues[/{fingerprint}]`,
+`PUT .../issues/{fingerprint}/status`, `status`/`fingerprint` filters and `issue_status` on
+the records, the issues table and status controls on the developer page, and **Copy for an
+agent**: one plain-text brief with every fact of the record (both clocks and the offset,
+user, firm, study, screen, request with its code and request id, source, build, browser,
+stack, context, the breadcrumbs with their times) and where to look next (the server log
+line by request id, the record's URL, the study's timeline, the contract), plus **Copy
+JSON**. Tests: three API tests (one issue across users and firms with its counts and build;
+a person's status with who/when/build, the regression on another build and not on the same,
+the records filtered by status, every refusal; the issues page with its cursor), two
+repository tests (the fingerprint names the bug not the occurrence; the counts, the duplicate,
+the regression rule, the cursor), two node tests (the issues table and status form; the
+brief's every line and its plain-text form). Verified live on the stack of 65.5 after the
+change (the database rebuilt at the final 0028, which also caught a foreign key the first
+draft of the migration lacked; `alembic check` and the up/down/up of `test_migrations.py`
+pass on it): the same uncaught `TypeError` raised twice was one issue with count 2 beside
+the 422 start and a report; `resolved` with a note set from the page recorded who, when and
+the build; the same error re-posted with another build sha turned the issue `regressed`
+with count 3 and `last_build_sha` the new build; the brief came back as one plain-text block
+with every fact, the stack, the four breadcrumbs and the four places to look next.
+
+### 65.8 Verdict and open items
+
+Done as asked: the module, the route, the table, the timeline link, the operator reads and page,
+the issues with their status and the copy brief, the retention rule, the correlation fields,
+the tests, the live proof. Open: the system-health
+developer page (Codex, not in the repository) should link to the client-errors page; the Cloud
+Scheduler line for `purge-client-errors` is documented with the retention purge, not enabled
+(nothing is deployed); `browser.mobile` and `userAgentData.brands` are not recorded (the user
+agent string carries them); the `orgs.py` log bug above.
+
+## 66. `POST /v1/orgs` answered 500 at `LOG_LEVEL=INFO`: a reserved `extra=` key, and a guard for the class (2026-11-01)
+
+**Question.** Found during the browser error capture work (section 65.5): every deployed stack
+runs the API at `LOG_LEVEL=INFO`, and there creating a firm answered an opaque 500
+(`BASIS-API-024`). Why, why did no test see it, and how is the next one caught?
+
+**Standard.** The stdlib documents that the keys passed in `extra` must not clash with the
+logging system's own; `logging.Logger.makeRecord` enforces it by raising
+`KeyError("Attempt to overwrite %r in LogRecord")` for `message`, `asctime` and any attribute
+the record already carries (`name`, `msg`, `args`, `module`, `lineno`, `taskName`...). The
+established check is the flake8-logging-format rule G101 (`logging-extra-attr-clash`), which
+ruff implements; this repository did not select it (`select = ["E", "F", "I", "UP", "B"]`).
+G101 finds loggers by a name heuristic (`logging.*`, names starting `log` or ending `logger`
+defined in the same file) plus the `logger-objects` setting.
+
+**The bug.** `api/routes/orgs.py` logged `firm created` and `firm renamed` with
+`extra={..., "name": org.name}`. `name` is the logger's name on every record, so building the
+record raised, the exception left the route, and the request answered 500. Both routes: the
+rename was broken the same way. The request's transaction rolls back on an exception
+(`db/session.py` `session_scope`), and a probe on the old code confirmed it: after the 500 the
+database held 0 firms, 0 members and 0 firm events, so a retry was safe and nothing needs
+cleaning up.
+
+**Why the suite missed it.** A record is built only when its level is enabled. The test suite's
+root logger sits at WARNING, so `logger.info(...)` returned before `makeRecord`, and the 64
+tests in `test_firms.py` that create and rename firms all passed. The health tests install the
+Basis handler at DEBUG (`log_stream`), but only around `/health`.
+
+**Fix.** The key is `firm_name` in both calls (`docs/api/FIRMS.md` lists it). Neither check
+below finds another collision in the backend.
+
+**Measured: G101 against an `ast` walk.** A scratch copy of `basis/` with a `"name"` key
+inserted into every one of the 61 `extra={...}` literals on a logger method (a 62nd `extra=`
+is not a literal):
+
+| Check | Injected keys caught | Misses |
+|---|---|---|
+| G101, default settings | 53 / 61 | all 8 `workflow.logger.*` calls in `workflow/study_workflow.py` (an imported logger; a raise there fails the workflow task, not one request) |
+| G101 with `logger-objects = ["temporalio.workflow.logger", "temporalio.activity.logger"]` | 61 / 61 | a reserved key reached through `{**fields}` or `extra=fields` (synthetic source: neither flagged) |
+| the `ast` walk (`test_log_extra_keys.py`) | 61 / 61 | nothing in the synthetic cases; an `extra=` it cannot read is listed by hand |
+
+**Guard.** Both, since each covers what the other does not:
+
+* G101 is selected in `backEnd/pyproject.toml` with the two Temporal loggers named. It runs in
+  the editor, the pre-commit hook (ruff v0.17.0, the locked version, reading the same file)
+  and CI's `ruff check .`, over `basis/`, `tests/` and `evals/`.
+* `tests/unit/obs/test_log_extra_keys.py`, no database: walks every `basis/**/*.py` with `ast`,
+  finds each `extra=` on a logger method (`debug` ... `critical`, `exception`, `log`, on any
+  receiver), and checks its keys against the running interpreter's reserved set (the record's
+  attributes plus `message` and `asctime`, the exact `makeRecord` test, verified key by key).
+  It reads `{...}` and `dict(...)`, and follows a `**spread` or bare name whose source is a
+  mapping assigned once in the same function, which resolves every relay call. Of the 62
+  calls, one is not readable (`retrieval/ingest.py` `write_prepared`,
+  `IngestResult.summary()`, whose eleven keys were read by hand); it is listed, and any new
+  unreadable `extra=` fails until it is read and listed too. 8 tests.
+* `tests/api/test_firm_logging.py`, `integration`: the real routes with the Basis handler on
+  the root logger at DEBUG. `POST /v1/orgs` answers 201 and its log line carries `firm_name`;
+  `PATCH /v1/orgs/{id}` on a seeded firm (so it fails on the rename alone) answers 200. 2 tests.
+
+**Proof.** Against main ac24943 (the old `orgs.py`): `ruff check .` reports G101 at
+`orgs.py:131` and `:150`; both API tests answer 500 with
+`KeyError: "Attempt to overwrite 'name' in LogRecord"`; the walk names `api/routes/orgs.py:130`
+and `:149` (the call's line). With the fix: ruff clean, 10 of 10 pass; `test_firms.py`,
+`test_health.py` and `tests/unit/obs` 149 passed before the last test was added; unit suite
+unit suite 4851 passed, 10 skipped (private eval data), 0 failed in 87 s; format, mypy, catalogue, OpenAPI, rule fingerprints and the client-data guard
+green; provider keys unset.
+
+**Not covered.** The walk reads `basis/` only (G101 covers the literals in `tests/` and
+`evals/`); an `extra=` built in another function and passed in is listed by hand, not
+checked. The suite still runs at WARNING: raising the whole suite to INFO would catch more
+than this class, but changes every test's captured output and is left as a separate decision.
+
+
+## 67. Recover the primary frontend and repeat the workflow review (2026-11-01)
+
+**Problem.** The local web server served the walkthrough worktree rather than the
+approved redesign. The redesign's source remained intact. Recover it without
+overwriting concurrent backend work or losing the newer report controls.
+
+**Method.** Preserve and hash the source archive; restore the web source into a
+separate primary checkout based on the walkthrough commit. Keep the report
+controller as a wrapper around the recovered results screen, adapt both room
+response shapes, and serve the checkout explicitly with no stale dev caches.
+Follow the existing static-client contract and source/report APIs; do not replace
+them with a new frontend framework. See `web/PRIMARY_FRONTEND_QA.md`.
+
+**Measured.** 283 frontend tests pass. The added regressions verify actual local
+HTTP serving from another cwd, cache handling, script dependencies, result/report
+coexistence, signed-report change notices and room photo deduplication. Browser
+review covers the workflow and auxiliary result screens, including a rendered
+draft PDF and existing signed state. Four screens were inspected at a measured
+390 CSS px. Source syntax, whitespace and staged client-data checks pass.
+
+**Limits.** This is read-only live browsing plus local automated tests. No paid
+calls, uploads, study corrections, approvals, intake saves, repricing or signing.
+No backend processes were restarted and no release or merge was performed.
+The running API still lacks unplaced-photo output. Intake-before-start, conditional
+intake saves/reopen and the separate room-management backend remain integration
+gaps. These are explicitly recorded instead of claiming full workflow completion.
+
+**Review artifact.** Fresh screenshots with numbered red boxes document proposed
+changes to the restored interface. They contain local study information and are
+kept outside the repository. Mobile issues include the persistent rail, cramped
+appraisal fields and wrapped amounts. No proposed visual redesign was applied.
+
+
+## 68. Study status, access and report-state emphasis (2026-11-01)
+
+**Problem.** Completed and read-only notices looked like ordinary metrics and sat
+below the workflow navigation. A completed review could be mistaken for a signed
+client deliverable. Pending room corrections and review findings lacked emphasis.
+
+**Standard.** Autodesk Docs places workflow status next to review context
+(https://help.autodesk.com/cloudhelp/ENG/Docs-Reviews/files/Reviews_Review_and_Approve.html).
+Carbon notification guidance calls for persistent, scoped messages with explicit
+text and severity cues
+(https://www.carbondesignsystem.com/building-blocks/core/components/notification/guidelines).
+Keep the existing visual system; use a shared top status, an access label scoped
+to closed review pages, and a separate report state. Color is supported by words
+and icons rather than being the sole signal.
+
+**Change.** Completed status now precedes the step navigation across study
+progress, appraisal, rooms, components, assets/details, results, files and
+concealed systems, and appears above both photo viewers. Closed reviews carry
+Read-only review; current gates remain editable. Earlier reviews say Review not
+open. Duplicate notices and edit instructions on closed reviews are removed.
+Progress and Results expose draft, signed, changed-input, skipped, unavailable
+and loading report states using the existing report endpoint. Report navigation
+opens the existing panel. Pending corrections, unplaced room photos and asset
+review reasons use amber emphasis. Mobile result actions wrap, and the photo
+viewer retains reachable controls below the banner.
+
+**Measured.** 287/287 frontend tests pass. The regression suite covers all review
+routes, active and earlier gates, draft/processing/failed/stalled/archived states,
+legacy single-gate studies, report-state variants, escaping, loading/error paths,
+report navigation and read-only mutation guards. The server test needs loopback
+permissions; the sandbox run failed to start its server, then the same full suite
+passed with loopback access. JavaScript syntax, whitespace and client-data checks
+were run separately.
+
+Browser verification used existing local completed and in-progress studies,
+including a draft report and a signed report with changed inputs. Checked the
+report jump target, rendered source PDF, shared banner before navigation,
+page-specific access text and both photo viewers. At a measured 390 CSS px,
+Components and Results fit the page width and the photo footer is reachable by
+scrolling. No errors were recorded in the review tab's console. Synthetic room
+placement verification showed disabled approval for an unplaced photo, then an
+amber unsaved-changes state after a local move. No study/API writes were made.
+
+**Limits.** Presentation changes only: no provider calls, backend restarts, cost
+refresh changes, repricing, saving/signing a report, deployment or merge. A
+completed review is not a claim that every recorded asset is priced or that the
+report is signed. This pass does not resolve the separate integration gaps in
+section 65 or replace full release-gate testing. Screenshots containing local
+study information and the approval PDF are kept outside the repository.
+
+
+## 69. Developer workflow hierarchy and health emphasis (2026-11-01)
+
+**Problem.** Phase labels, status indicators and connecting arrows were too weak
+in the developer workflow. The local port 3101 preview also served an older
+checkout rather than the restored primary frontend.
+
+**Standard.** Carbon's status-indicator pattern combines distinct shape, text and
+color (https://www.carbondesignsystem.com/building-blocks/core/patterns/status-indicators).
+WCAG non-text contrast calls for discernible meaningful graphical objects
+(https://www.w3.org/WAI/WCAG21/understanding/non-text-contrast.html). Keep the
+existing green/blue palette while separating phase, health and review-gate cues.
+
+**Change.** Seven numbered phase headers now use a strong dark-green band. Every
+workflow node puts observed health above its title, including engineer-review
+nodes. The legend and system totals use labeled icons and stronger color
+contrast. Boxed chevrons indicate step details; labeled Previous/Next controls
+are disabled at the scroll boundaries. Orthogonal four-pixel connectors have
+larger arrowheads, shared fork stems and separate room-review entry points.
+The three-step detail sequence also has stronger arrows. Mobile phases retain
+horizontal scrolling, with matching scroll padding and touch-sized controls.
+
+**Measured.** 290/290 frontend tests pass, including 28 developer tests. New
+coverage verifies phase numbering, health placement, distinct status symbols,
+count reconciliation, valid graph edges and split/join/vertical geometry.
+JavaScript syntax, whitespace and the client-data guard pass (1,608 tracked
+files checked). Calculated text contrast is 6.76:1 for healthy, 6.87:1 for failed,
+7.29:1 for amber, 7.86:1 for unknown, and 9.41:1 for phase headers; connectors
+against white also measure 9.41:1.
+
+Browser inspection verified the real local port 3101 page, both halves of the
+workflow, step detail open/close, and end-of-scroll controls. Isolated synthetic
+fixtures verified healthy, partial-outage and stale responses: four failed
+systems lead the outage list; stale provider evidence is not green. At measured
+320 and 390 CSS px, the fixture reported zero page overflow, zero broken logos
+and minimum 44 px controls. The 390 px Next action visibly advances to phase 2.
+An observed four-pixel mobile snap offset was corrected and rechecked at zero,
+with Previous disabled at the first phase. Actual browser screenshots, rather
+than design mockups, are saved outside the repository for approval.
+
+**Limits.** UI changes only. Port 3101's existing read-only preview was repointed
+to the primary checkout and only that static preview process was restarted.
+The local public feed still reports three healthy services and 22 unchecked;
+this does not establish provider or worker readiness. No backend integration,
+provider calls, study writes, deployment or merge was performed in this pass.
+
+## 70. Completion requires the current signed report (2026-11-01)
+
+**Correction to section 68.** A backend `completed` study has finished its review
+workflow; it may still have an unsigned report or inputs changed after signing.
+Calling that study completed was premature. The user requires completed to mean
+approved, signed, current and ready to deliver.
+
+**Standard.** Docusign distinguishes individual signing from overall completion:
+https://www.docusign.com/blog/developers/dsdev-has-my-envelope-been-signed.
+The existing Basis report contract (`docs/api/REPORT.md`, `ReportStateOut` and
+`GET .../report/state`) provides the current revision, export/skip state, missing
+inputs, signature and input changes since signing. The UI uses that evidence;
+it does not infer a signature from the workflow status or create a new backend
+stage.
+
+**Change.** Report & sign is now a separate final navigation step after Results,
+with the existing details forms, preview, signing controls and downloads. A
+study is displayed as completed only when the backend reviews are complete,
+report and signature match the study and revision, export is present and not
+skipped, no required inputs are missing, and tracked changes since signing are
+explicitly empty. Unsigned, outdated, unknown, unavailable and loading states
+cannot receive the green completed banner. Closed reviews retain a separate
+Read-only review label. Results and progress use the same status above their
+navigation; progress remains at six of seven steps until the final check passes.
+Report evidence is cached by revision and refreshed when entering study screens.
+Home/Library describe the backend-only status as Reviews approved.
+
+Signed report instructions no longer ask the user to sign again or say an
+outdated PDF is the one to deliver. The old signed PDF remains downloadable and
+immutable. Touch targets in the final report are at least 44 px, checklist rows
+wrap on narrow screens, and navigation keeps the selected step visible after a
+resize. Custom live routes now receive the screen attribute used by their styles.
+
+**Measured.** 295/295 frontend tests pass. Added completion cases cover missing
+signature/details, changed firm/study/both, untracked changes, unexported/skipped
+reports, missing checklist, mismatched study/revision, pending/error/missing
+responses and non-completed workflow states. Existing gates and legacy studies
+retain their review access. Controller tests verify the dedicated final route,
+no writes on render, correct study/revision cache keys, signed downloads and
+retained preview/sign handlers. Existing signing tests retain ETag, permission,
+input and signature guards.
+
+Browser checks verified an existing unsigned local study and the signed study
+with changed inputs from the user's screenshot. The latter now shows Report
+needs updating and six of seven steps complete. No warnings/errors were recorded
+in the live review tab. The isolated report-completion fixture verifies awaiting
+signature, signed/current, untracked signature and failed status loading without
+live API calls. At 320 and 390 CSS px it measures page width equal to viewport
+width and report/navigation controls of at least 44 px. The selected final step,
+wrapped checklist and lower downloads were visually inspected.
+
+**Limits.** No backend state or signing contract changed. No live signature,
+report input save, study write, paid provider request, deployment or merge was
+performed. The green completion screenshot is explicitly synthetic; it does
+not attest or sign an existing study. Revision creation and re-signing remain
+subject to the existing backend workflow. Screenshots are outside the repository.
+
+The signature checklist also distinguishes the next action (preview, then sign) from an already recorded signature; both wording branches are asserted in `web/tests/report.test.cjs`.
+
+
+## 71. Developer workflow includes report signing (2026-11-01)
+
+The existing report contract separates export, preview, signature and immutable
+signed files. Docusign likewise recommends authoritative completion state rather
+than inferring completion from a client action:
+https://www.docusign.com/blog/developers/dsdev-has-my-envelope-been-signed.
+
+Added Report & sign after Produce results in the developer architecture map,
+with an explicit connecting edge, numbered phase, Engineer signature marker and
+three-step explanation. Results now describes draft report generation. The
+four workflow review gates remain unchanged. The final node reports its existing
+API, identity, database, storage and export health dependencies; it neither
+creates a new probe nor asserts that any study has been signed. The details link
+to the signing contract and existing API tests and explain the completion rule.
+
+Validation: 296/296 frontend tests passed, including new final-edge, gate-count,
+signing explanation and healthy/down/unknown/stale dependency checks. Observed
+the actual developer map and opened/closed its dialog. At 390 CSS px the
+synthetic fixture measured page width 390, zero overflow, minimum control height
+44 px and zero broken logos; the final card and dialog were visually inspected.
+No report signing, provider calls, backend changes or deployment occurred.
+The separate verification prompt requests isolated end-to-end backend testing.
+
+
+## 72. Report & sign verified end to end: the live stack, the recovery path, the gaps (2026-11-01)
+
+**Question.** Does "Study completed" hold only when every review is approved *and* the current
+revision's report is exported, signed for this study and revision, lacks no required input and
+has no change since signing (sections 70 and 71 made that the rule in the web app); and does the
+whole step work against the real API, worker and storage, including after the inputs change
+following a signature?
+
+**Standard.** DocuSign's guidance separates "a recipient signed" from "the envelope is
+completed" and reads completion from the authoritative envelope status, never from the client
+action (https://www.docusign.com/blog/developers/dsdev-has-my-envelope-been-signed). ESIGN/UETA
+elements and what the Basis signature is and is not: STUDY_REPORT_SPEC 11.13. The append-only
+revision model (git revert, Wikipedia undo): REVISIONS.md section 1. The web app's completion
+rule reads `GET .../report/state` (REPORT.md "Signing", "After signing") and nothing else.
+
+**Setup (all isolated, nothing shared with the `basis-web` stack or any client file).** The
+tree is main ac24943 with PR #122, the Codex `codex/frontend-primary` working tree (committed
+verbatim, its sections renumbered 67-71 because #123 is 65 and #124 is 66), PR #123 and
+PR #124 merged. A fresh Postgres (`pgvector/pgvector:pg16`, container `report-sign-pg`,
+port 55434, migrated to 0028), a Temporal dev server on 7434, the API on 8400
+(`BASIS_ENV=dev`, `TMPDIR` under the session scratchpad so `LOCAL_STORAGE_DIR` is its own),
+the outbox relay, a worker on the API's task queue built from the lifecycle suite's offline
+providers (`FixtureVisionProvider`, `FixtureAzureDi`, the scripted classifier, the published
+test reference corpus: no provider key in the process, no paid call possible), the web app
+from this worktree on 3400, and the Firebase Auth emulator already running on 9099 (two new
+accounts, `report-sign-owner` and `report-sign-viewer`, in the demo project). Studies are the
+lifecycle suite's synthetic study (the synthetic URAR appraisal, three fixture photos), started
+and approved through the real API and relay. One synthetic 2025 historical cost index row was
+entered with the refresh CLI (`source manual`, citation says it is synthetic); the first study
+(purchase price 650,000) withheld its allocation at reconciliation (+36.8 % against RCNLD,
+outside 10 %) and its export skipped the report (`BASIS-REPORT-002`), which became the
+"skipped" case below; the study used for signing was priced at 445,000 (gap 0.3 %) and
+exported a report (11 pages, DRAFT watermark, Exhibits A-C).
+
+### 72.1 The step, end to end, in the browser against the real API
+
+Owner account, desktop viewport, every screen read after each action (banner, step bar,
+progress count, badge, console, network):
+
+| Step | Observed | Backend check |
+|---|---|---|
+| Study completed by the workflow, no inputs | banner "Report details needed", step 7 "Needs details", progress "6 of 7 complete"; Home counts it under "Reviews approved", never "completed" | `report/state`: exported, `missing_for_final` firm, study, signature |
+| Firm profile saved (modal, If-Match) | checklist ticks, toast; banner unchanged | `PUT /orgs/{id}/profile` 200, version 1 |
+| Study details saved | banner "Awaiting signature", step "Needs signature", Sign disabled with the reason "Open the preview first" | `PUT .../report-answers` 200, version 1 |
+| Open the preview | PDF modal, 11 pages, DRAFT, letterhead and taxpayer from the saved inputs; Sign enabled | `GET .../report/preview` 200, `ETag` exposed through CORS and kept as `reviewed_sha256` |
+| Sign without the attestation box | refused in the client: "Check the box…", no request | no `POST .../sign` |
+| An answer changed from another client, then Sign | 412 handled: toast "The report changed since you opened the preview…", page refreshed, Sign disabled again | `BASIS-REPORT-010`, 0 signatures, 0 events, 0 files |
+| Preview again, Sign; the modal's Sign button clicked three times at once | one request (`Live.guarded`), toast "Report signed", banner "Study completed · Revision 1 is approved and signed…", step 7 "Signed", badge Signed, signature block with id and PDF sha256, downloads Signed report (PDF), Schedule (CSV, XLSX) | one `report_signatures` row (versions 1/2), one `report.signed` event with the same id and `pdf_sha256`, one `rev-1.report.signed.<id>.pdf` in storage, `GET .../report` serves it with `ETag` = sha256 of the bytes = the row's `pdf_sha256` and the name `…-rev-1-report-signed.pdf`; `variant=draft` is a different file |
+| Reload; direct link `#report/<id>`; `#complete`, `#processing` ("7 of 7 complete"), `#appraisal`, `#assets`, `#components` (each "Read-only review"); back, back, forward | "Study completed" on every screen, the right step selected each time | `report/state` re-read on every screen entry (cache key study:revision) |
+| Switch to the skipped study and back | "Report not ready · Blocked · No report" there, "Study completed" here; the cache holds one entry per study and revision, the preview tag is per study and revision | |
+| Viewer account on the signed study | "Study completed", downloads only: no Sign, no Edit, no new-revision control | `report/state` 200, `POST .../sign` 403 |
+| An unknown study id | the API's 404 problem, no banner, no "completed" anywhere | `BASIS-STUDY-017` |
+| Another firm's account (its own firm, no membership) | | `state`, `preview`, `report`, `sign`: all 404 `BASIS-STUDY-017` |
+| 320 px and 390 px | no horizontal scroll (`scrollWidth` = viewport), every report and step control at least 44 px high, the checklist rows wrap, the step bar scrolls; the sidebar rail stays (FRONTEND_BACKLOG 9) | |
+| Keyboard | tab order: status banner action, the seven steps, Edit firm profile, Edit study details, the three downloads, Start a new revision, the earlier revision's PDF; `:focus-visible` outlines on buttons, links and the step bar | |
+
+Client-error capture (PR #123) during the walkthrough: the 412 was recorded as one `api`
+warning with the code and route; two more warnings were the firm profile's expected 404
+before the owner saved it (fixed, 72.3).
+
+### 72.2 The recovery path after a signature, exercised live
+
+After signing, the study details were edited in the app: banner "Report needs updating ·
+Details changed after signing. The previous signed PDF is preserved; an updated revision must
+be reviewed and signed before delivery", step "Update required", badge "Signed earlier",
+`changed_since_signing` `["study"]`. **There was no way to make that revision in the app**: a
+dead end (the wording was right, the action missing). The documented path is a reopen at the
+assets review (REVISIONS.md section 2: the approved assets carried, only the export reruns, the
+new report carries the stored inputs). Added to the step, for engineers and owners of a
+`completed` study with a signature: "Start a new revision" reads the plan (`POST .../reopen`
+with `dry_run`), shows it ("Revision 2 opens at the assets review with the assets of revision 1
+as they were approved… The signed report of revision 1 is kept"), and on confirmation reopens.
+
+Live: 202, the progress page followed the new execution ("Assets review is ready", "4 of 7
+complete", revision 2; timeline `stage.entered`, `study.reopened`, `run.started`,
+`revision.carried` with 18 assets, 10 components, 2 rooms, `gate.opened`), the assets review
+showed the 18 carried assets ($410,483) and was approved in the app (decision through the
+relay), the export ran (the Results page landed on does not poll: FRONTEND_BACKLOG 9), and
+Report & sign read revision 2: "Awaiting signature", badge Draft, Sign disabled until the
+preview, and a new section "Earlier signed reports · Revision 1 · signed Nov 1, 8:50 PM" with
+its own download (`GET .../report?format=pdf&revision=1`, from `GET .../revisions`). Preview
+and sign: "Study completed · Revision 2 is approved and signed…".
+
+| | revision 1 | revision 2 |
+|---|---|---|
+| `report_signatures` row | sha256 `6f4f64c6…`, versions 1 / 2 | sha256 `234b8bba…`, versions 1 / 3 |
+| `report.signed` event | 1, same sha256 | 1, same sha256 |
+| signed file in storage | 1 | 1 |
+| `GET .../report?revision=n` | `…-rev-1-report-signed.pdf`, bytes identical to the download taken before the reopen | `…-rev-2-report-signed.pdf` (the default) |
+| `GET .../revisions` | origin start, exported, signed, not current | origin reopen, exported, signed, current |
+
+### 72.3 Defects found and fixed (each with a test)
+
+1. **Dead end after a changed signature** (72.2): the Report & sign step now offers the new
+   revision and lists earlier signed PDFs (`web/live/live-report.js`; `web/tests/
+   primary-frontend.test.cjs`: the control appears for engineers and owners of a completed
+   signed study only, the dry run is read first and the reopen happens only on confirmation,
+   earlier signed revisions are listed by number with the current one and unsigned ones left
+   out, a failed history says so without hiding the report). REPORT.md "After signing" names
+   the path.
+2. **A refusal the client expects was a client error**: the firm profile's 404 before the
+   owner saves it was captured as a warning on every load of the step (two records in the
+   walkthrough). `api.request(path, {expect: [404]})` marks it; the capture keeps the
+   breadcrumb and files no event (`web/live/api-client.js`, `web/live/errors.js`;
+   `web/tests/errors.test.cjs`).
+3. **The merged tree threw on any failed action in a harness**: `guarded` and `load` tested
+   `e instanceof BasisApi.ApiError`, and the Codex test harness and the synthetic fixture stub
+   `BasisApi` without it (`TypeError: Right-hand side of 'instanceof' is not an object`, one web
+   test failing after the merge). `apiRefusal()` checks the class exists first
+   (`web/live/live-app.js`).
+4. **A backend unit test mirrored a line the primary frontend moved**:
+   `test_review_display_mirrors_live_review_js` looked for `f.confidence<0.7` in
+   `live-review.js`; the rule lives in `web/review-organization.js` as `.7` now. The test reads
+   both files and both spellings.
+5. **The developer page had no way to the client-errors page**: nav link and the "Recent
+   errors" section now point at `client-errors.html` (PR #123's page); both surfaces kept.
+
+### 72.4 Backend round trips added (`tests/api/test_report_signing.py`, 13 tests in all)
+
+* A retried or double-submitted signing: the same `Idempotency-Key` while the first request
+  holds the study's row lock is 409 `idempotency-key-in-flight` at once; after it completes the
+  key replays the 201 with `Idempotent-Replayed: true` and the same signature id; the same key
+  with another body is 422; a fresh key is 409 `BASIS-REPORT-009`. One row, one PDF, one event.
+* Firm isolation on every report route (404 for another firm's member on state, preview,
+  files and sign; a viewer reads all three and gets 403 on sign).
+* An archived study keeps and serves its signed report and state; an archived unsigned study
+  cannot be previewed or signed (409 `BASIS-REPORT-007`) and its answers cannot change (409
+  `BASIS-STUDY-004`).
+* The new-revision path at the API level: the study at revision 2 with its export (the rows a
+  reopen leaves), state is revision 2's (unsigned, `changed_since_signing` null), signing
+  revision 1 is 409 `BASIS-REPORT-007`, `GET .../report` serves revision 2's draft by default and
+  revision 1's signed PDF by number, revision 2 is signed on its own preview, both signed files
+  then serve with their own sha256, the history lists both.
+
+### 72.5 What this does not prove
+
+* The live walkthrough used the lifecycle suite's offline providers and a synthetic index value
+  (330.0 for 2025, labelled synthetic): the report's figures are not a study's, and the
+  workflow's model steps were not exercised here (sections 6-50 did that).
+* Sign-in token expiry (401 mid-session) and a request timeout were not simulated in the
+  browser; the client's handlers (toast on 401, "Completion not verified" with retry on any
+  failed state read) are covered by the node tests and the synthetic fixture
+  (`web/tests/fixtures/report-completion.html`: unsigned, signed, changed, untracked, offline).
+* The reopen's concurrency rule (two reopens, reopen while running) is #117's evidence
+  (section 61); this section drove one reopen through the app.
+* The Results page does not poll, so after the assets approval the engineer sees the export
+  finish only on the next screen (FRONTEND_BACKLOG 9).
+
+**Measured.** Web: 321 node tests pass (296 before; the 25 added are this section's and the
+merged branches'). Backend: `tests/api/test_report_signing.py` 13 passed; unit suite 2,046 passed, 10 skipped
+(33 s); integration and slow suite 1,669 passed, 7 skipped, 76 subtests (20 min 12 s); every static gate green (`ruff`, `ruff format`, `mypy`,
+the catalogue, the OpenAPI document, the rule fingerprints, the client-data guard: 1,634 files).
+Screenshots stay in the session (synthetic data only); the numbers above are from the API and
+the database of the isolated stack.

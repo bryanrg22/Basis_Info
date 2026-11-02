@@ -67,6 +67,7 @@ AREA_TITLES: Final[dict[str, str]] = {
     "INF": "Infrastructure: worker start-up and the outbox relay",
     "RETENTION": "Client-data retention: the purge job (basis.retention)",
     "ALERT": "Operator alerts: a failed study, a stale heartbeat (basis.notify)",
+    "CLIENT": "Browser error capture: `POST /v1/client-errors` (docs/api/CLIENT_ERRORS.md)",
 }
 
 
@@ -529,6 +530,20 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Restore the database (the same cause makes every `/v1` route answer 503 "
         "`BASIS-API-0xx`); nothing to reset, the shared log resumes on the next request.",
         "yes",
+    ),
+    _e(
+        E.API_CLIENT_ERROR_BATCH_TOO_LARGE,
+        "refusal",
+        "`POST /v1/client-errors`",
+        "basis.api.routes.client_errors",
+        "A batch of browser error events is larger than `MAX_BATCH_BYTES` (256 KiB), the "
+        "route's own cap under the API's 1 MiB body limit; the batch was not read.",
+        "413 `payload-too-large`.",
+        "The web app's capture module caps each event (stack 16,000 characters, 50 "
+        "breadcrumbs) and sends at most 20 per batch, so this means a client outside it; "
+        "send smaller batches.",
+        "no",
+        problem="payload-too-large",
     ),
     # ------------------------------------------------------------------ FIRM
     _e(
@@ -3464,6 +3479,39 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "and the outbox row marked delivered. Nobody was emailed.",
         "Relay log line `alert (no ALERT_EMAIL_TO)` with the subject and text.",
         "Set `ALERT_EMAIL_TO` on the relay so alerts reach someone.",
+        "no",
+    ),
+    # ------------------------------------------------------------------ CLIENT
+    _e(
+        E.CLIENT_ERROR_RECORDED,
+        "outcome",
+        "`POST /v1/client-errors`",
+        "basis.api.routes.client_errors",
+        "The web app reported an error a user hit in the browser (an uncaught exception, a "
+        "rejected promise, a failed API call, a `console.error`, an explicit report) and the "
+        "API stored it with everything the client knew: the user, firm, study, screen, the "
+        "last actions, the stack, the failed request's status, code and request id, the build "
+        "and the browser (docs/api/CLIENT_ERRORS.md).",
+        "A `client_errors` row (`GET /v1/ops/client-errors`, operators); a `client.error` "
+        "timeline event when the error names a study the reporter can see; the API log line "
+        "`client error recorded` with `client_error_id`, `kind`, the client's `error_code` and "
+        "`client_request_id`.",
+        "Diagnose from the record: the event's `http.request_id` finds the server log of the "
+        "failed request, the breadcrumbs say what the user did, the stack says where. Fix the "
+        "bug; the record stays until the client-error retention purge.",
+        "no",
+    ),
+    _e(
+        E.CLIENT_ERROR_PURGED,
+        "outcome",
+        "`python -m basis.retention purge-client-errors`",
+        "basis.retention.client_errors",
+        "Browser error records older than `CLIENT_ERRORS_RETENTION_DAYS` (180) were deleted: "
+        "they are operational data about the application, kept long enough to diagnose a bug "
+        "a firm reports late, not client files, so the firm's retention rule does not apply.",
+        "The purge's JSON summary line (`deleted`, `cutoff`); the `client.error` timeline "
+        "events stay (the timeline is append-only).",
+        "Nothing; raise `CLIENT_ERRORS_RETENTION_DAYS` on the job if records are needed longer.",
         "no",
     ),
     _e(

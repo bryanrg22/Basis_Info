@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Basis · Client errors</title><link rel="icon" href="../assets/basis-mark.png"><link rel="stylesheet" href="client-errors.css?v=1"></head>
+<body>
+ <header class="site-header"><a class="brand" id="app-link" href="../?mode=live#dashboard"><img src="../assets/basis-mark.png" width="28" height="28" alt="">Basis <span>Developer</span></a><nav aria-label="Developer pages"><a href="index.html">System health</a><a href="client-errors.html" aria-current="page">Client errors</a></nav><span class="internal">Internal tools · <span id="who">not signed in</span></span></header>
+ <main>
+  <div class="page-heading"><div><h1>Client errors</h1><p>Every error a user hit in the browser, as the web app reported it: who, where, what they did last, the stack, the failed request. Platform operators only.</p></div><span class="connection">API <code id="api-origin"></code></span></div>
+  <form id="filters" class="filters" autocomplete="off">
+   <label>Firm <input id="org_id" placeholder="org id"></label>
+   <label>User <input id="user_id" placeholder="user id"></label>
+   <label>Study <input id="study_id" placeholder="study id"></label>
+   <label>Code <input id="code" placeholder="BASIS-AREA-nnn" pattern="BASIS-[A-Z]+-[0-9]{3}"></label>
+   <label>Kind <select id="kind"><option value="">any</option></select></label>
+   <label>Status <select id="status"><option value="">any</option></select></label>
+   <label>Issue <input id="fingerprint" placeholder="fingerprint"></label>
+   <label>Request id <input id="request_id" placeholder="X-Request-Id"></label>
+   <label>Since <input id="since" type="date"></label>
+   <label>Until <input id="until" type="date"></label>
+   <label>Per page <input id="limit" type="number" min="1" max="200" value="50"></label>
+   <button type="submit" class="primary">Search</button><button type="button" id="reset" class="quiet">Clear</button>
+  </form>
+  <h2 class="section">Issues <span id="issue-count" class="muted"></span></h2>
+  <p class="muted">The same error seen again is one issue. A person sets the status; Basis counts the occurrences and marks a resolved issue <em>regressed</em> when it comes back on another build.</p>
+  <div class="table-wrap"><table class="records issues"><thead><tr><th>Kind</th><th>Issue</th><th>Count</th><th>Seen</th><th>Last build</th><th>Status</th></tr></thead><tbody id="issue-rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>
+  <h2 class="section">Records</h2>
+  <div class="toolbar"><span id="list-status" role="status" aria-live="polite">Connecting…</span><span class="paging"><button type="button" id="newer" disabled>Newer</button><button type="button" id="older" disabled>Older</button></span></div>
+  <div class="table-wrap"><table class="records"><thead><tr><th>Received</th><th>Kind</th><th>Message · page</th><th>HTTP · code</th><th>Who · where</th><th>Build</th></tr></thead><tbody id="rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>
+  <div id="detail" class="detail-wrap" hidden></div>
+  <footer>Read-only. Records are kept <code>CLIENT_ERRORS_RETENTION_DAYS</code> (180) days. Contract: <code>docs/api/CLIENT_ERRORS.md</code>.</footer>
+ </main>
+ <script src="../live/config.js?v=live-10"></script><script src="../live/api-client.js?v=live-16"></script><script src="../live/auth.js?v=live-10"></script><script src="client-errors-model.js?v=1"></script><script src="client-errors.js?v=1"></script>
+</body></html>
