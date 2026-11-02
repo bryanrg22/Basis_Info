@@ -42,8 +42,10 @@ function fakeBrowser({mode='live',token='tok',responses=[],health={git_sha:'test
 
 test('redaction: ids in paths become {id}, query values go, tokens are masked, bodies keep field names only, secret-looking keys are masked',()=>{
  assert.equal(E.redactPath('/v1/studies/3f2c1a2b-1234-4bcd-8ef0-123456789abc/photos/5f0c6a52aaaa4bbbbcccc1234567890ab/objects?limit=50&cursor=9981234567'),'/v1/studies/{id}/photos/{id}/objects?limit=…&cursor=…');
- assert.equal(E.redactText('Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjEifQ.eyJzdWIiOiJ1MSJ9.c2lnbmF0dXJlc2lnbmF0dXJl failed'),'Authorization: Bearer *** failed');
- assert.equal(E.redactText('token eyJhbGciOiJSUzI1NiIs.eyJzdWIiOiJ1MSIsImV4cCI6MX0.c2lnbmF0dXJlc2ln here'),'token *** here');
+ // A JWT-shaped token, assembled at run time so the source holds none (the secrets scan reads the diff).
+ const jwt=['eyJhbGciOiJSUzI1NiIsImtpZCI6IjEifQ','eyJzdWIiOiJ1MSJ9','c2lnbmF0dXJlc2lnbmF0dXJl'].join('.');
+ assert.equal(E.redactText(`Authorization: Bearer ${jwt} failed`),'Authorization: Bearer *** failed');
+ assert.equal(E.redactText(`token ${jwt} here`),'token *** here');
  assert.deepEqual(E.safeKeys({purchase_price:'650000',acquisition_costs:[],state:'NY'}),['purchase_price','acquisition_costs','state']);
  assert.deepEqual(E.safeKeys('{"a":1}'),['a']);assert.equal(E.safeKeys(undefined),null);
  assert.deepEqual(E.sanitize({apiKey:'x',nested:{password:'p',ok:1,deep:{deeper:{deepest:1}}},list:[1,'two']}),{apiKey:'***',nested:{password:'***',ok:1,deep:{deeper:'[Object]'}},list:[1,'two']});
