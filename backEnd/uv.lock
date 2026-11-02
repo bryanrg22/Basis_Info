@@ -320,12 +320,12 @@ dev = [
     { name = "mypy", specifier = ">=2.4.0" },
     { name = "pillow", specifier = ">=13.0.0" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "pytest-asyncio", specifier = ">=1.4.1" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "reportlab", specifier = ">=5.1.0" },
     { name = "ruff", specifier = ">=0.17.2" },
-    { name = "schemathesis", specifier = ">=4.32.4" },
+    { name = "schemathesis", specifier = ">=4.32.5" },
     { name = "testcontainers", extras = ["postgres"], specifier = ">=4.15.0" },
 ]
 load = [{ name = "locust", specifier = ">=2.47.0" }]
@@ -1916,15 +1916,15 @@ wheels = [
 
 [[package]]
 name = "pytest-asyncio"
-version = "1.4.0"
+version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/7c/d36d04db312ecf4298932ef77e6e4a9e8ad017906e24e34f0b0c361a2473/pytest_asyncio-1.4.0.tar.gz", hash = "sha256:c6c0d2259945122819f171a32ecea2c349ead889ee28176caaf492143424be42", size = 58514, upload-time = "2026-05-26T09:56:04.083Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/9a/887535e477847f5159377ab35303923644840b13c0ca03c0a467f84d4680/pytest_asyncio-1.4.1.tar.gz", hash = "sha256:e8266eb094e5ee9ffdb2068c9836f33e209ea77a970eb846933d416b5602669b", size = 145237, upload-time = "2026-10-25T21:05:37.135Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/e2/08a497ef684b88559c9cc5f4ad53a37e7b99e727094a86d6ea32536d5d3c/pytest_asyncio-1.4.0-py3-none-any.whl", hash = "sha256:933ca923a23075a87fb7070c0ec272a6848489824d887c85c812670932835aa1", size = 16930, upload-time = "2026-05-26T09:56:02.576Z" },
+    { url = "https://files.pythonhosted.org/packages/46/d7/cd9e2708afdbf059658adaf08bdb0792ca52489871051d6ce7d498b51277/pytest_asyncio-1.4.1-py3-none-any.whl", hash = "sha256:507afa78ec77c6661164ef1a2368bc7820383fd1a14b2a7f813de8b5a92949cc", size = 17061, upload-time = "2026-10-25T21:05:35.473Z" },
 ]
 
 [[package]]
@@ -2171,7 +2171,7 @@ wheels = [
 
 [[package]]
 name = "schemathesis"
-version = "4.32.4"
+version = "4.32.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2188,9 +2188,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "werkzeug" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/01/f9/cf39b47702bca657c37c76e502da6974a1088bbad295525353406e0d0d20/schemathesis-4.32.4.tar.gz", hash = "sha256:13faf4cc8a0f39f7a5c4b498cc656fa756205f2c1bc5d21d892323a85c3a0165", size = 3805255, upload-time = "2026-10-22T17:51:47.985Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/50/0149a7be4db5a5b7fab41e3781aabbee0e5f9d72ad57d87243b6db9fa627/schemathesis-4.32.5.tar.gz", hash = "sha256:641fddfef22120f263b60616935f125fa9b71bd32cb3175c6210f38e5ed1cb2f", size = 3805283, upload-time = "2026-10-25T23:01:17.5Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/52/04/d21a6dccdc8146b1c29c2274de5408067ed18ade77cf48dbd3a1a3688b07/schemathesis-4.32.4-py3-none-any.whl", hash = "sha256:61e3c4868e6385da0ae49acb55519527a8025172ae405ef5f87ccc4c1dc539ec", size = 1167246, upload-time = "2026-10-22T17:51:45.851Z" },
+    { url = "https://files.pythonhosted.org/packages/52/cd/e603f5243e5016c960974b8f0c6105407bc18a20fed08af58c7466308c41/schemathesis-4.32.5-py3-none-any.whl", hash = "sha256:5ec7e532ebdf9b0e0239a943df2a565174aecda513b61e564d8ad2a3ac801f22", size = 1168235, upload-time = "2026-10-25T23:01:15.163Z" },
 ]
 
 [[package]]
