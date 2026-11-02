@@ -5,9 +5,9 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 ``PROVIDER``, ``BUDGET``, ``INGEST``, ``EXTRACT``, ``PHOTO``, ``LOCALIZE``, ``ROOMS``,
 ``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
 the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
-purge, ``ALERT`` for the operator alerts) and the number is
-stable once published: a code is never renumbered or reused, a retired one is marked retired
-in the catalogue.
+purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture) and the
+number is stable once published: a code is never renumbered or reused, a retired one is
+marked retired in the catalogue.
 
 How the code travels: the API carries it as the ``code`` member of the problem response next
 to ``type``; an activity appends `` [BASIS-...]`` to its error message (:func:`tag`), so the
@@ -72,6 +72,7 @@ class E:
     API_REPRICE_NOT_AT_REVIEW = "BASIS-API-042"
     API_NOT_OPERATOR = "BASIS-API-043"
     API_RATE_LIMIT_STORE_UNAVAILABLE = "BASIS-API-044"
+    API_CLIENT_ERROR_BATCH_TOO_LARGE = "BASIS-API-045"
 
     # ---------------------------------------------------------------- firms and membership
     FIRM_NO_FIRM = "BASIS-FIRM-001"
@@ -363,6 +364,10 @@ class E:
     ALERT_HEARTBEAT_STALE = "BASIS-ALERT-002"
     ALERT_EMAIL_FAILED = "BASIS-ALERT-003"
     ALERT_NO_RECIPIENT = "BASIS-ALERT-004"
+
+    # ---------------------------------------------------------------- browser error capture
+    CLIENT_ERROR_RECORDED = "BASIS-CLIENT-001"
+    CLIENT_ERROR_PURGED = "BASIS-CLIENT-002"
 
 
 def tag(code: str, message: str) -> str:

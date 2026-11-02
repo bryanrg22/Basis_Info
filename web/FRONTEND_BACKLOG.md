@@ -16,6 +16,12 @@ of truth. Items are in the order they matter for a first firm.
 - **Every error has a code.** Problem responses carry `code` (`BASIS-<AREA>-<nnn>`,
   `docs/ERROR_CODES.md`) and `request_id`; show the message, keep the code for support.
 
+- **Errors are recorded.** `live/errors.js` (loaded first) reports every error a user hits
+  to `POST /v1/client-errors` with the user, firm, study, screen, last actions, stack and
+  the failed request; a screen reports its own with `Basis.reportError(err, context)`
+  (`docs/api/CLIENT_ERRORS.md`). The operator page `developer/client-errors.html` lists
+  them; the system-health page (not in the repository yet) should link to it.
+
 ## 1. Blocking: nothing can start a study
 
 - **Intake form.** `POST /v1/studies/{id}/start` refuses 422 `intake-required` without a

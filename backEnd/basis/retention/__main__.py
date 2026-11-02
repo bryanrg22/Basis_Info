@@ -6,6 +6,7 @@
     python -m basis.retention purge --dry-run            # what would be purged; nothing changes
     python -m basis.retention purge                      # purge it
     python -m basis.retention purge --org-id UUID --limit 20
+    python -m basis.retention purge-client-errors [--dry-run] [--days 180]   # browser error records
 
 Reads ``BASIS_ENV``, ``DATABASE_URL`` (or ``CLOUD_SQL_INSTANCE``) and ``GCS_BUCKET`` like
 every process; without ``GCS_BUCKET`` it uses the local storage directory the API uses in
@@ -35,6 +36,7 @@ from basis.config import Settings, get_settings
 from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker, session_scope
 from basis.obs.logging import configure_logging
+from basis.retention.client_errors import cutoff_for, purge_client_errors
 from basis.retention.purge import DEFAULT_LIMIT, purge_study, select_candidates
 from basis.storage import Storage
 
@@ -106,9 +108,43 @@ async def run_purge(
     return 1 if failed else 0
 
 
+async def run_client_error_purge(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    *,
+    days: int,
+    dry_run: bool,
+    out: Any = None,
+    now: datetime | None = None,
+) -> int:
+    """Delete the browser error records older than ``days`` (one JSON summary line); 0."""
+    out = out or sys.stdout
+    cutoff = cutoff_for(days, now)
+    async with session_scope(sessionmaker) as session:
+        count = await purge_client_errors(session, cutoff=cutoff, dry_run=dry_run)
+    print(
+        json.dumps(
+            {
+                "summary": True,
+                "dry_run": dry_run,
+                "cutoff": cutoff.isoformat(),
+                "retention_days": days,
+                "deleted" if not dry_run else "would_delete": count,
+            }
+        ),
+        file=out,
+    )
+    return 0
+
+
 async def _main(args: argparse.Namespace, settings: Settings) -> int:
     engine = create_engine(settings)
     try:
+        if args.command == "purge-client-errors":
+            return await run_client_error_purge(
+                create_sessionmaker(engine),
+                days=args.days or settings.client_errors_retention_days,
+                dry_run=args.dry_run,
+            )
         storage, bucket = default_storage(settings)
         return await run_purge(
             create_sessionmaker(engine),
@@ -129,13 +165,24 @@ def build_parser() -> argparse.ArgumentParser:
     purge.add_argument("--dry-run", action="store_true", help="list; change nothing")
     purge.add_argument("--org-id", type=uuid.UUID, default=None, help="one firm only")
     purge.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="studies per run")
+    errors = sub.add_parser(
+        "purge-client-errors",
+        help="delete browser error records older than CLIENT_ERRORS_RETENTION_DAYS",
+    )
+    errors.add_argument("--dry-run", action="store_true", help="count; change nothing")
+    errors.add_argument(
+        "--days", type=int, default=None, help="override CLIENT_ERRORS_RETENTION_DAYS"
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.limit < 1:
+    if args.command == "purge" and args.limit < 1:
         print("--limit must be positive", file=sys.stderr)
+        return 2
+    if args.command == "purge-client-errors" and args.days is not None and args.days < 1:
+        print("--days must be positive", file=sys.stderr)
         return 2
     settings = get_settings()
     configure_logging(settings.log_level, json=settings.env != "dev")

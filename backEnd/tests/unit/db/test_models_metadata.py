@@ -37,6 +37,10 @@ MIGRATION = VERSIONS / "0001_initial.py"
 SPEC_TABLES = {
     # Retention (migration 0026_retention_alerts): orgs.retention_days, studies.purged_at.
     "orgs": "id name retention_days created_at",
+    # Browser error capture (migration 0028_client_errors, docs/api/CLIENT_ERRORS.md).
+    "client_errors": "id seq event_id occurred_at user_id org_id study_id revision stage route "
+    "screen kind error_type message code http_status request_id build_sha web_version "
+    "user_agent event created_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
@@ -653,8 +657,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
     # ops health (0021): service_heartbeats.report; the firm's history (0022):
     # org_events.before/after/detail; gate drafts (0024): review_drafts.document;
-    # alerts (0026): alerts.payload
-    assert len(jsonb) == 37
+    # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event
+    assert len(jsonb) == 38
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

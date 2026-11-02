@@ -4,7 +4,9 @@ composition root's check of the per-photo vision prompts."""
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -126,6 +128,50 @@ async def test_activity_logs_carry_run_and_activity() -> None:
         "attempt": 1,
     }
     assert get_context() == {}  # unbound afterwards
+
+
+async def test_a_failed_activity_logs_one_line_with_the_study_the_code_and_the_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The correlation line (docs/api/CLIENT_ERRORS.md): the SDK's own failure log runs
+    outside the bound context, so the interceptor writes the line that carries the study,
+    the execution, the attempt, the code, the exception type and the traceback."""
+    sid = uuid.uuid4()
+
+    class Input:
+        study_id = str(sid)
+
+    seen: dict[str, Any] = {}
+
+    class Next(ActivityInboundInterceptor):
+        def __init__(self) -> None:
+            pass
+
+        async def execute_activity(self, input: ExecuteActivityInput) -> Any:
+            seen.update(get_context())
+            raise RuntimeError("provider said no [BASIS-PROVIDER-001]")
+
+    interceptor = LoggingInterceptor().intercept_activity(Next())
+    env = ActivityEnvironment()
+
+    async def call() -> Any:
+        return await interceptor.execute_activity(
+            ExecuteActivityInput(fn=lambda: None, args=[Input()], executor=None, headers={})
+        )
+
+    with (
+        caplog.at_level(logging.ERROR, logger="basis.worker.interceptors"),
+        pytest.raises(RuntimeError),
+    ):
+        await env.run(call)
+    assert seen["study_id"] == str(sid)
+    (record,) = [r for r in caplog.records if r.getMessage() == "activity failed"]
+    assert record.error_code == "BASIS-PROVIDER-001"  # type: ignore[attr-defined]
+    assert record.exception_type == "RuntimeError"  # type: ignore[attr-defined]
+    assert record.exception_message == "provider said no [BASIS-PROVIDER-001]"  # type: ignore[attr-defined]
+    assert record.exc_info is not None and record.exc_info[0] is RuntimeError
+    assert seen["activity_id"] == "test"
+    assert get_context() == {}
 
 
 async def test_a_garbage_request_line_is_a_404() -> None:

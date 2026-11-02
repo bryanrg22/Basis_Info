@@ -34,6 +34,7 @@
   const corrections=decision==='reject'?[...pending(stage).values()].map(({entity_type,entity_id,before,after,reason})=>({entity_type,entity_id,before,after,reason})):[];
   const key=`${stage}:${L.study.revision}:${decision}`;L.decisionKeys||={};L.decisionKeys[key]||=BasisApi.newKey();
   try{
+   globalThis.BasisErrors?.breadcrumb('decision',`${decision} ${stage}`,{stage,decision,revision:L.study.revision,corrections:corrections.length});
    const r=await api.decide(L.studyId,{stage,revision:L.study.revision,decision,comment:comment||null,corrections},L.decisionKeys[key]);
    pending(stage).clear();L.workflow=null;Live.stopPolling();toast(decision==='approve'?`${Live.STAGE[stage]} approved.`:`Sent ${r.corrections_recorded} ${r.corrections_recorded===1?'correction':'corrections'}. Basis is re-running this stage.`);
    Live.invalidate('studies');Live.invalidate(`fields:${L.studyId}`);Live.invalidate(`rooms:${L.studyId}`);Live.invalidate(`assets:${L.studyId}`);Live.invalidate(`objects:${L.studyId}`);

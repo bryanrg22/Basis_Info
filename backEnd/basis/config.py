@@ -509,6 +509,13 @@ class Settings(BaseSettings):
     alert_heartbeat_stale_seconds: float = Field(default=300.0, ge=60, le=86400)
     alert_check_seconds: float = Field(default=60.0, ge=5, le=3600)
 
+    # Browser error capture (POST /v1/client-errors, docs/api/CLIENT_ERRORS.md). The records
+    # are operational data about the application (not client files), kept
+    # CLIENT_ERRORS_RETENTION_DAYS (180: long enough to diagnose a bug a firm reports a
+    # quarter late) and deleted by `python -m basis.retention purge-client-errors`
+    # (EVAL_REPORT section 65).
+    client_errors_retention_days: int = Field(default=180, ge=1, le=3650)
+
     @property
     def vision_output_budget(self) -> int:
         """The per-photo calls' output budget: ``VISION_MAX_TOKENS`` when set, else the

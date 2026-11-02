@@ -32,6 +32,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.activities.deps import Deps
+from basis.api.operators import DETAIL_NOT_OPERATOR
 from basis.api.routes import ops as ops_route
 from basis.config import Settings
 from basis.db.engine import create_engine
@@ -220,7 +221,7 @@ async def test_a_firm_owner_is_not_an_operator(client: httpx.AsyncClient) -> Non
     assert response.status_code == 403
     body = response.json()
     assert body["type"].endswith("/not-operator") and body["code"] == E.API_NOT_OPERATOR
-    assert body["detail"] == ops_route.DETAIL_NOT_OPERATOR
+    assert body["detail"] == DETAIL_NOT_OPERATOR
     assert "services" not in body
     text = response.text.lower()
     for leak in ("worker", "database", "temporal", "openai"):

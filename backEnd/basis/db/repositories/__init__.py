@@ -4,6 +4,12 @@ Each repository wraps one ``AsyncSession`` and never commits; the caller owns th
 transaction (``basis.db.session.get_session`` commits once per request).
 """
 
+from basis.db.repositories.client_error import (
+    ClientErrorFilters,
+    ClientErrorPage,
+    ClientErrorRepository,
+    NewClientError,
+)
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.idempotency import IdempotencyClaim, IdempotencyRepository, scoped_key
 from basis.db.repositories.invitation import (
@@ -46,6 +52,9 @@ __all__ = [
     "SINGLE_ROOMS_GATE_TRANSITIONS",
     "WORKFLOW_SIGNAL",
     "Answer",
+    "ClientErrorFilters",
+    "ClientErrorPage",
+    "ClientErrorRepository",
     "CorrectionInput",
     "DecisionRecord",
     "DocumentRepository",
@@ -59,6 +68,7 @@ __all__ = [
     "InvitationView",
     "Member",
     "Membership",
+    "NewClientError",
     "OrgRepository",
     "OtherDraft",
     "OutboxRepository",

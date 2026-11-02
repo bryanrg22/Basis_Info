@@ -1,0 +1,26 @@
+/* The operator's client-errors page: plain, dense, readable. Shares nothing with the app's
+   design files so it stands alone under /developer/. */
+:root{--ink:#1b2420;--muted:#5d6b64;--line:#d9e0dc;--paper:#fff;--wash:#f3f6f4;--forest:#1f4d3a;--red:#a33a2a;--amber:#875820;--radius:10px;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--wash);color:var(--ink);font-size:14px;line-height:1.45}
+.site-header{display:flex;align-items:center;gap:20px;padding:12px 24px;background:var(--paper);border-bottom:1px solid var(--line)}
+.brand{display:inline-flex;align-items:center;gap:10px;font-weight:700;color:var(--ink);text-decoration:none}.brand span{font-weight:400;color:var(--muted)}
+.site-header nav{display:flex;gap:14px}.site-header nav a{color:var(--muted);text-decoration:none}.site-header nav a[aria-current]{color:var(--forest);font-weight:600}
+.internal{margin-left:auto;font-size:12px;color:var(--muted)}
+main{max-width:1400px;margin:0 auto;padding:20px 24px 60px}
+.page-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap}.page-heading h1{margin:0 0 4px;font-size:24px}.page-heading p{margin:0;color:var(--muted);max-width:70ch}
+.connection{font-size:12px;color:var(--muted)}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;margin:18px 0 10px;padding:14px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius)}
+.filters label{display:grid;gap:4px;font-size:12px;color:var(--muted)}.filters input,.filters select{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:13px;color:var(--ink);background:#fff;min-width:0}
+button{padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;font:inherit;font-size:13px;cursor:pointer}button.primary{background:var(--forest);color:#fff;border-color:var(--forest)}button.quiet{background:transparent}button:disabled{opacity:.5;cursor:default}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin:8px 0;color:var(--muted);font-size:13px}.paging{display:flex;gap:6px}
+.table-wrap{overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius)}
+table.records{width:100%;border-collapse:collapse}table.records th{text-align:left;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.records td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}table.records tr:hover td{background:var(--wash)}
+table.records small{display:block;color:var(--muted);font-size:11px;white-space:nowrap}td.msg a{color:var(--ink);text-decoration:none;font-weight:600}td.msg a:hover{text-decoration:underline}td.empty{text-align:center;color:var(--muted);padding:30px}
+.kind{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:var(--wash);color:var(--muted)}.kind-error,.kind-unhandledrejection{background:#f7e3df;color:var(--red)}.kind-api{background:#fbf1e1;color:var(--amber)}.kind-report{background:#e2eee8;color:var(--forest)}
+.detail-wrap{margin-top:18px;padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius)}.detail h2{margin:8px 0 14px;font-size:18px;word-break:break-word}.detail h3{margin:22px 0 8px;font-size:14px}
+dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}dl.facts dt{color:var(--muted);font-size:12px}dl.facts dd{margin:0;word-break:break-word}
+pre{margin:0;padding:10px;background:var(--wash);border-radius:6px;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto}pre.stack{color:var(--red)}
+table.crumbs{width:100%;border-collapse:collapse;font-size:12px}table.crumbs th,table.crumbs td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}table.crumbs td code{word-break:break-all}
+.detail dl:not(.facts){margin:4px 0 4px 14px;border-left:2px solid var(--line);padding-left:10px}.detail dl:not(.facts) dt{font-size:12px;color:var(--muted);margin-top:4px}.detail dl:not(.facts) dd{margin:0 0 0 8px}.detail ol{margin:4px 0 4px 14px;padding-left:20px}.detail i{color:var(--muted)}
+.muted{color:var(--muted)}.error{color:var(--red)}footer{margin-top:30px;font-size:12px;color:var(--muted)}

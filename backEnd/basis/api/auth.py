@@ -6,7 +6,10 @@
 
 ``get_principal`` depends on ``get_optional_principal``, and FastAPI caches a
 dependency's result per request, so a route that also uses the rate limiter (which
-reads the optional principal) verifies the token once.
+reads the optional principal) verifies the token once. A verified principal's ``uid`` is
+bound into the logging context for the rest of the request (``basis.api.users`` adds the
+database ``user_id``, the study and the firm), so every log line of a failing request
+carries who was calling.
 
 The verifier is resolved through :func:`get_token_verifier`; tests replace it with
 ``app.dependency_overrides[get_token_verifier] = lambda: FakeVerifier()`` so the header
@@ -27,6 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from basis.api.errors import Unauthorized
 from basis.auth.firebase import Principal
 from basis.errors.codes import E
+from basis.obs.logging import bind
 
 AUTHORIZATION_HEADER: Final = "Authorization"
 DETAIL_MISSING: Final = "Missing Authorization header; send 'Authorization: Bearer <ID token>'."
@@ -72,7 +76,12 @@ async def get_optional_principal(
     if header is None:
         return None
     token = parse_bearer(header)
-    return await run_in_threadpool(verifier.verify, token)
+    principal = await run_in_threadpool(verifier.verify, token)
+    # Every log line of the request from here on names the caller (the request-id
+    # middleware's ``bound`` scope drops it when the request ends), so a 5xx or an unhandled
+    # exception can be matched to the browser's error record (docs/api/CLIENT_ERRORS.md).
+    bind(uid=principal.uid)
+    return principal
 
 
 async def get_principal(

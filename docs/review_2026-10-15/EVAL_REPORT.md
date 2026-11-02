@@ -8484,3 +8484,200 @@ report state and signature members), `evals.freeze_rule_fingerprints --check`,
 section was written, each with a migration; the migration test's head and history follow them). Error
 codes: `025`–`029` are #114's, `030`–`034` the revisions PR's (#117); this section's are `035` and `036`.
 Sections 60 and 61 are #115's and #117's; this one was 59, then 60, until they landed.
+
+## 65. Browser error capture: every error a user hits, recorded in detail and diagnosable from the record (2026-11-01)
+
+**Question.** Bryan asked that every error a user hits be saved "in extreme detail (firm, user,
+page, action, time, everything) whenever they occur on a user end so we can work on fixing those
+bugs whenever they occur". Before this section the API logged its own failures with a request id,
+and the browser showed a toast with the message and the request id; what the user did before, on
+which screen, in which build and browser, and the errors that never reached the API (an uncaught
+exception, a rejected promise, a resource that failed to load) were lost when the tab closed. This
+section designs the capture against how the established tools do it, builds the browser module,
+the ingest route, the store, the timeline link, the operator reads and the operator page, tests
+every path, and proves it on a live stack by breaking the page on purpose. Contract:
+docs/api/CLIENT_ERRORS.md; code: `web/live/errors.js`, `basis/api/routes/client_errors.py`,
+migration `0028_client_errors`, `web/developer/client-errors.html`.
+
+### 65.1 The standard: Sentry, OpenTelemetry, Google Cloud Error Reporting
+
+Read before designing (the pages are linked from the design's docstrings and the contract):
+
+| Source | What it names | Taken |
+|---|---|---|
+| Sentry event payload (`develop.sentry.dev/sdk/.../event-payloads`) | required `event_id` (a UUID the SDK mints), `timestamp`, `platform`; optional `level` (fatal/error/warning/info/debug, default error), `logger`, `transaction` (the route), `release` (a git sha), `environment`, `tags`, `extra`, `fingerprint`; interfaces `exception` (type, value, stacktrace with frames: filename, function, lineno, colno), `breadcrumbs` (timestamp, type, category, message, data), `user` (id, email, ip), `request` (method, url, headers with bodies capped at 8 kB), `contexts` (browser, os, device; each capped at 8 kB), `sdk` | `event_id`, `occurred_at`, `level`, the exception's type/message/stack/source, `breadcrumbs`, `user`, `build` as the release, `http` as the request, `client` as the contexts, `capture_version` as the sdk |
+| Sentry browser SDK options (`docs.sentry.io/platforms/javascript/configuration/options`) and Dedupe integration | `maxBreadcrumbs` default 100; `sampleRate` 1.0; `normalizeDepth` 3; `attachStacktrace`; `beforeSend`/`beforeBreadcrumb` to scrub; a `fetch` transport by default, dropping events when offline; Dedupe (on by default) drops an event identical to the previous one by stack and fingerprint; client reports count dropped events by reason | 50 breadcrumbs (a Basis session is short and an event is at most about 40 KB), depth 3 for context, dedupe within 5 s with `repeats`, `dropped` counted per cap; no sampling: every error is wanted |
+| OpenTelemetry exception semantic conventions (logs) and browser/user-agent attributes | `exception.type` (dynamic class name), `exception.message` (may hold sensitive data), `exception.stacktrace` (the runtime's natural string); record handled exceptions at WARN and unhandled at ERROR; `browser.language` from `navigator.language`, `browser.platform` from `userAgentData.platform` (else unset), `browser.mobile`, `user_agent.original`; `http.request.method`, `http.response.status_code`; the log data model's `Timestamp` (when it happened) beside `ObservedTimestamp` (when it was collected) | `error_type`/`message`/`stack`; `level` warning for a 4xx and error for a 5xx or no response; `client.language`/`platform`/`user_agent`; `http.method`/`status`; `occurred_at` (the browser) beside `received_at` (the database) with `clock_offset_ms` between them |
+| Google Cloud Error Reporting (`ReportedErrorEvent`, "formatting error messages") | `eventTime`, `serviceContext` {service, version}, `message` with a stack trace or `context.reportLocation` {filePath, lineNumber, functionName}, `context.httpRequest` {method, url, userAgent, referrer, responseStatusCode, remoteIp}, `context.user`; grouped by stack | `source` {file, line, column, function} when the stack is empty (a resource failure, a cross-origin `Script error.`), `build.api_git_sha` as the version, `_server.remote_addr`; the API's own log lines already carry `stack_trace` and are what Error Reporting would group |
+
+What Basis adds that none of them has, because Basis has it: the firm (`org_id`), the study with
+its revision and stage, the screen (the hash route and the app's screen name), the gate decision
+breadcrumbs, the problem's catalogue `code` and `request_id` on a failed call (so the browser's
+record and the server's log line meet on one id), the attempt under the idempotency key (a retry
+is not a new error), and the field names of a request body (never the values: the intake and the
+corrections are client data).
+
+### 65.2 Design against the seams we have
+
+* **The browser** (`web/live/errors.js`, loaded first on `index.html`, 290 lines, no
+  dependencies at install): hooks `window` `error` (exceptions and resource failures),
+  `unhandledrejection`, `console.error`, the API client's new `observe` hook (every request:
+  method, path, status, duration, request id, code, attempt, body object), `Basis.reportError`;
+  breadcrumbs for `data-live`/`data-action` clicks, hash navigation, every API call, gate
+  decisions (`live-review.js`), console errors. The live app passes the hook to `createClient`,
+  reports a failed action (`guarded`) and a failed loader that was not an API refusal, and exposes
+  `Live.screen()`. Context is read lazily from `BasisAuth.user`, `BasisLive.firm()` and
+  `BasisLive.state`, so the module needs nothing at load and an error before sign-in still
+  records the page.
+* **Transport:** `fetch` with `keepalive: true` (survives unload; `sendBeacon` cannot carry the
+  bearer token, and the route is authenticated like every other), batches of 20 at most once
+  every 5 s, one `Idempotency-Key` per batch kept across retries (429/5xx/no response: 2 s, 8 s,
+  32 s, then dropped; any other 4xx dropped at once), a queue of 50, 30 events a minute (`dropped`
+  counts the rest on the next event), identical errors within 5 s folded (`repeats`), flush on
+  `pagehide` and `visibilitychange: hidden`, events queued while nobody is signed in and sent after
+  sign-in. The module's own route and its own console use cannot produce an event.
+* **Redaction** on the client and again on the server: ids in paths and routes become `{id}`
+  (UUIDs, long hex, long numbers), query values go (`?limit=…`), `Bearer …` and JWT-shaped strings
+  are masked in free text, a request body is reduced to its field names, any key matching the
+  logging redaction pattern (key, token, secret, password, authorization; the client adds cookie
+  and session) is `***` to depth 3; strings are bounded (message 4,000, stack 16,000, others 500);
+  the server masks the whole event with `basis.obs.logging.redact` before storing. NUL is refused
+  (PostgreSQL text), so no event can turn into a 500.
+* **The route** `POST /v1/client-errors` is a `write_router` route (token, any firm role, a user
+  with no firm too, the mutation rate limit, the idempotency key the contract test requires on
+  every POST), with its own 256 KiB cap checked in a dependency before the body is parsed (413
+  `BASIS-API-045`; a junk body over the cap is 413, under it 422) and 30 batches a minute per
+  user. 202 with `stored`/`duplicates`/`ids`.
+* **Verified, not trusted:** the reporter is the token's user; `org_id` is set only when the
+  reporter belongs to the claimed firm (or to exactly one firm when none is claimed); `study_id`
+  only when `StudyRepository.get_visible` says the reporter can see it. The claims stay inside the
+  event with `_server.org_verified`/`study_visible`. So a browser cannot write a timeline row into
+  another firm's study (the tenancy rule of `test_tenancy.py`, kept).
+* **The timeline:** an event on a visible study appends `client.error` in the same transaction
+  (`StudyEventRepository.record`: actor engineer, `request_id` from the logging context, `code`,
+  `entity_type` `client_error`, `entity_id` the record, `stage`/`revision` the row's, the claim in
+  `detail`). It shows in `GET .../timeline` and `GET /v1/me/activity`; the audit lists engineer
+  actions and an error is not one, so it is unchanged.
+* **The store:** `client_errors` (migration 0028): `seq` identity for the keyset cursor, the
+  client's `event_id` unique (`INSERT ... ON CONFLICT DO NOTHING`, so a retried batch stores each
+  event once), the filter columns indexed by (`org_id`, `seq`), (`user_id`, `seq`), (`study_id`,
+  `seq`), `code`, `request_id`, `created_at`; `event` JSONB with `_server` {received_at, sent_at,
+  clock_offset_ms, api_request_id, api_git_sha, api_env, reporter, org_verified, study_visible,
+  remote_addr}; `forbid_mutation()` on UPDATE (the `takeoffs` rule); deleted only by the purge.
+* **Operators:** `GET /v1/ops/client-errors` (filters org, user, study, code, kind, request id,
+  since/until on the time received; newest first; cursor) and `GET .../{id}` (the whole event),
+  behind the same allowlist as `GET /v1/ops/health` (`require_operator`, moved to
+  `basis/api/operators.py` because a route module importing `routes.ops` imports `api.health`,
+  which imports the routes package: a cycle). `web/developer/client-errors.html` (with
+  `client-errors-model.js`, node-tested) is the list with the filters and a detail view of every
+  fact, the stack, the context, the last actions and the whole event; it signs in with the app's
+  Firebase session through the app's API client.
+* **Retention:** a fixed `CLIENT_ERRORS_RETENTION_DAYS` (180), `python -m basis.retention
+  purge-client-errors` (dry run counts; batches of 1,000), not the firm's rule: the records are
+  operational data about the application that name a user, a firm and a study id, never a
+  document or a price; the firm's rule purges a study's uploads; a bug reported a quarter late
+  still needs its record (Sentry keeps 90 days). The `client.error` timeline rows stay.
+* **Correlation on the server** (the gaps the task asked to fill): the verified `uid` is bound
+  into the logging context by `get_optional_principal`, the database `user_id` by
+  `get_current_user`, `study_id`/`org_id`/`role` by `require_study_access` and
+  `require_org_role`; every problem's log line and the unhandled-exception line carry the matched
+  `route` template, `status`, `error_code`, the exception's type and message (a 5xx problem logs
+  at WARNING); the worker's activity interceptor binds `study_id` and writes one `activity failed`
+  line at ERROR with the code, the exception type and the traceback (the SDK's own failure log
+  runs after the interceptor returns, outside the bound context). So `event.http.request_id`
+  finds one server line with everything about the request that failed.
+
+### 65.3 What a stored event holds
+
+The uncaught `TypeError` from the live check (65.5), as `GET /v1/ops/client-errors/{id}`
+returned it (ids shortened):
+
+| Where | What |
+|---|---|
+| columns | `kind` error, `error_type` TypeError, `message` "Cannot read properties of undefined (reading 'rooms')", `occurred_at` (browser) and `received_at` (database), `user_id`, `org_id` (verified), `study_id` (visible), `revision` 1, `stage` uploading, `route` `#processing/{id}`, `screen` processing, `code` null, `http_status` null, `request_id` null, `build_sha` `15cd291-dirty`, `web_version` `live-16`, `user_agent` |
+| `event.source` / `stack` | `{file, line 5, column 49, function}`; the stack as the browser gave it |
+| `event.user` / `firm` / `study` / `page` | uid, email, role owner; the firm's id and name; study id, revision, stage, status; hash route, screen, path |
+| `event.breadcrumbs` (10) | `load #login` → click Sign in → `GET /v1/me → 0` (the CORS failure of the first attempt, 8 ms) → click reload-me → `GET /v1/me → 200` (134 ms, request id) → `GET /v1/studies?limit=… → 200` → `#dashboard → #processing/{id}` → `GET /v1/studies/{id} → 200` → `POST /v1/studies/{id}/start → 422 BASIS-STUDY-001` (57 ms, request id) → the console error, each with the client's clock and `since_load_ms` |
+| `event.client` | user agent, platform macOS, en-US, viewport 1024×768 @2x, online, time zone, connection 4g, visible, cookies |
+| `event.build` | API git sha from `/health`, web asset version |
+| `event._server` | received_at, sent_at, clock_offset_ms, the report's own request id, the API's sha and env, the reporter's uid and user id, `org_verified` true, `study_visible` true, remote address |
+| timeline | `client.error`, actor engineer, `entity_id` the record, `request_id` the report's, `detail` kind/message/screen/route/http/build/event id; listed under `GET /v1/me/activity` |
+| API log | `client error recorded` with `error_code BASIS-CLIENT-001`, `client_error_id`, `kind`, `client_code`, `client_request_id`, `uid`, `user_id`, `request_id`; and for the failed start, the `problem` line with `request_id f6b17ca4…`, `uid`, `user_id`, `study_id`, `org_id`, `role owner`, `route /v1/studies/{study_id}/start`, `status 422`, `error_code BASIS-STUDY-001` |
+
+The `api` event for the failed start additionally holds `http`: method, route, status 422, code
+`BASIS-STUDY-001`, the request id, the problem type, title and detail, latency 57 ms, attempt 1,
+`body_fields` null; the `report` event holds the context with `apiKey` masked to `***` and `note`
+kept.
+
+### 65.4 Tests
+
+| Suite | Count | What it protects |
+|---|---|---|
+| `web/tests/errors.test.cjs` (node) | 17 | redaction (ids, query values, bearer and JWT text, body field names, secret keys, NUL); stack parsing (V8, Firefox, bare); every field of an event; the API build read once and filled in; each kind; the `observe` hook (attempt under the key, no token, a broken observer never breaks a request); breadcrumbs (click, navigation, decision; ring of 50); dedupe with `repeats`; 30 a minute with `dropped`; a throwing render loop sends one batch of at most 20; batching with the bearer token, keepalive and the key kept across retries; three retries then dropped; a 4xx dropped at once; queued without a token and sent after sign-in; mock mode sends nothing; flush on hide without retry; a broken context getter and a logging listener cannot recurse; the client clock stamp is the same instant as `Date.now()` (added after the live check, 65.5); the sample fixture is what the module produces |
+| `web/tests/client-errors-page.test.cjs` (node) | 4 | the operator page's query, rows, detail and tree, escaped |
+| `tests/api/test_client_errors.py` (integration) | 38 (14 parametrized malformed bodies, 8 bad parameters) | the sample fixture is accepted (client shape = server schema); every detail stored and the timeline row with provenance, the activity listing, the audit unchanged; a viewer posts and gets their one firm; claims the reporter cannot make stay inside the event with no timeline row; no study, no row; a non-catalogue code not indexed; one store per `event_id` across batches and a replay; secrets masked anywhere; 422 naming the field; 413 before validation and 422 under the cap; 429 after 30 batches, per user; 401 without a token, 202 without a firm; operators list newest first with every filter and a cursor, 422 for bad parameters, read one record with `_server`, 404 unknown; a firm owner is 403 `not-operator`; the correlation log lines (unhandled exception: request id, uid, user id, route, status, exception type and message, stack trace, ERROR; a study problem: study id, firm, role, route, code; a 404: study id only; the recorded line); the schema's kinds are the table's |
+| `tests/integration/db/test_client_error_records.py` | 7 | the repository's insert once per `event_id`, the never-updated trigger, the check constraints, listing with every filter and the cursor, the purge in batches with a dry run, `cutoff_for`, the CLI's summary line and arguments |
+| `tests/unit/worker/test_worker_parts.py` | +1 | a failed activity's one ERROR line with the study, the code, the exception type and message and the traceback, the context unbound afterwards |
+| `tests/unit/config/test_settings.py` | +1 | `CLIENT_ERRORS_RETENTION_DAYS` default 180, 1 to 3650 |
+| existing walks | | `test_health.py` known routes (+3), `test_auth.py` (401 on all three), `test_openapi_contract.py` (Schemathesis on all three; the idempotency key required on the POST), `test_models_metadata.py` (`client_errors` columns, the no-update tables), `test_migrations.py` (head 0028, 28 revisions, downgrade and up) |
+
+Mutation checks done while writing: the clock stamp test fails against the first `stamp()`
+(65.5); the dedupe test fails with `dedupeMs: 0`; the 413 test fails with the size dependency
+removed (the junk body becomes 422); the claims test fails with `get_visible` replaced by `get`
+(the other firm's study gets a timeline row); the correlation test fails without the `bind`
+calls (no `uid`, no `study_id` on the lines).
+
+### 65.5 The live check
+
+A stack built from this branch: Postgres in its own container (`client-errors-pg`, port 55433),
+migrations to 0028, the API on port 8200 with `BASIS_ENV=dev`, the Auth emulator the walkthrough
+session already ran, `OPS_OPERATOR_UIDS` set to a test account created in the emulator for this
+check, the web app served from this worktree on port 3300; nothing paid, the Docker stack of the
+walkthrough session untouched. Then, signed in as that account in a firm created by the admin
+CLI, on the processing screen of a draft study: `POST .../start` (422 `intake-required`), a
+`console.error` with a `RangeError`, an unhandled rejection, `Basis.reportError` with a context
+holding `apiKey`, and an uncaught `TypeError` from a timer; before that, the first sign-in had hit
+a CORS failure (the API started with the wrong origin), which the module recorded as a `status 0`
+event and delivered after three retries once the API was restarted.
+
+Results: 6 records stored, one batch of 5 plus the retried one; every column and every member of
+65.3 filled; the five study events on the study's timeline and under `/me/activity`; the API log
+lines with `BASIS-CLIENT-001`; the operator page lists them with the filters and the detail shows
+every fact, the stack, the ten breadcrumbs and the whole event (screenshots in the session). Two
+defects found by the check and fixed before the PR, neither visible to the unit tests because
+their expected values came from the code:
+
+1. **The client clock was 7 hours off.** `occurred_at` was the UTC time with the local offset
+   appended (`00:19:49-07:00` for an event at `00:19:49Z`), so `clock_offset_ms` read 25,199,976.
+   Fixed to shift the time into the zone; a node test now asserts `Date.parse(occurred_at)`
+   equals the fake clock. Verified live after the fix: `2026-11-01T17:21:50.223-07:00` for a
+   record received at `00:21:50Z`, offset under a second.
+2. **`screen` was null.** The module read `window.state.screen`, but the design's `state` is a
+   script-scoped binding, not a window property. The live app now exposes `Live.screen()`.
+   Verified live: `processing`.
+
+Found in passing, not this change's: `POST /v1/orgs` answers 500 whenever the API log level
+is INFO, because `routes/orgs.py` logs `extra={"name": ...}` and `name` is a reserved
+`LogRecord` attribute (`KeyError: Attempt to overwrite 'name'`); the test suite runs at WARNING,
+so it never saw it. The new correlation line showed it at once (`exception_type=KeyError`,
+`route=/v1/orgs`, the uid and user id). Reported to Bryan as a one-line follow-up.
+
+### 65.6 Limits (what cannot be captured)
+
+Cross-origin scripts report `Script error.` without a stack (the Firebase SDK on `gstatic.com`
+is one; the page, user and breadcrumbs still come through); a tab crash or a navigation before
+the keepalive request leaves may lose the last batch (browsers cap keepalive bodies at 64 KB in
+flight per origin); an error before the module loads, and errors while signed out that are never
+followed by a sign-in on that page, are lost; the text a user typed is never recorded, by design;
+if the app ever ships minified, stacks need source maps; events beyond the caps are counted, not
+kept; the server's own view is not copied into the record but found by the request id in the API
+and worker logs, which have their own retention.
+
+### 65.7 Verdict and open items
+
+Done as asked: the module, the route, the table, the timeline link, the operator reads and page,
+the retention rule, the correlation fields, the tests, the live proof. Open: the system-health
+developer page (Codex, not in the repository) should link to the client-errors page; the Cloud
+Scheduler line for `purge-client-errors` is documented with the retention purge, not enabled
+(nothing is deployed); `browser.mobile` and `userAgentData.brands` are not recorded (the user
+agent string carries them); the `orgs.py` log bug above.
