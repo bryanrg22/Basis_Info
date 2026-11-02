@@ -539,3 +539,15 @@ paid call was made.
 | `tests/unit/api/test_cors.py` | Added: `Content-Disposition` is exposed to the listed origins (the page saves run files under the API's attachment name) | pass |
 | `tests/api/test_health.py` | Route inventory widened to the three `/v1/ops/eval-runs` operations | pass |
 | `web/tests/developer-run-records.test.cjs` | The content file maps every step to components (none for reviews); the block for a review step, an unconnected step and a loading step; one sentence per feed failure (untrusted origin, sign-in, timeout, network, 401, 403, 404 with the no-data reason, 404 otherwise, 429, another status, three malformed bodies) with no table and no "no runs" claim, and the explicit "no run names these components"; runs grouped by label file and split with the standing badges, the headline metrics, the cost and duration sources, tokens, code, results, record kinds, "Not recorded" for every unknown, file buttons only for present files; older pages behind a button; hostile feed text escaped and a non-API file link refused; the client's query (repeated `component`, bearer token, no request without a session, untrusted origin) and file reads (text, content type, attachment name, a problem body parsed); the fallback file name and sub-second durations; no study-state wording | 9 passed |
+
+## Image work off the worker's event loop (2026-11-02; EVAL_REPORT 75)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `tests/unit/test_event_loop_image_work.py` | An AST walk over `basis/`: no `async def` calls `prepare_image`, `crop_image`, `jpeg_bytes`, `render_pdf`, `render_marks`, `read_pdf`, `read_appraisal_upload`, `tiles`, `exhibit_photo`, `masks_from_colours`, the crop and segmenter helpers, surface_crops' `build_request` or `Image.open` directly (nested `def`/`lambda` bodies, which go to threads, are skipped); a synthetic module shows the walk flags a direct call and passes `asyncio.to_thread(f, ...)` and a nested function. Failed on main with six call sites before the fix | pass |
+| `tests/unit/vision/test_prep.py` | Added: `prepare_image_in_thread` returns the same image from a thread other than the loop's; the loop keeps running while a 4000 x 3000 photo is prepared; the same rejection is raised; `prepare_image` calls no `warnings` filter function and leaves `warnings.filters` unchanged; an image over Pillow's warning threshold is refused from its header as `too_many_pixels` (scaled-down thresholds); eight threads at once give the sequential result and leave the filters unchanged. The last three fail on main's `prep.py` (the threaded one left a process-wide `error` filter behind, 3 runs of 3) | pass |
+
+Unit suite 5,012 passed, 10 skipped; lifecycle suite 118 passed, 5 skipped (real Temporal
+time-skipping server, the photo, localization and room activities end to end); the image and
+upload slow tests 142 passed.
+

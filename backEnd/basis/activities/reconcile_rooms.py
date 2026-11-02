@@ -113,7 +113,7 @@ from basis.llm.provider import Budget, BudgetExceededError
 from basis.storage import ObjectNotFound
 from basis.vision import room_step
 from basis.vision import surface_crops as crops
-from basis.vision.prep import ImageRejected, prepare_image
+from basis.vision.prep import ImageRejected, prepare_image_in_thread
 from basis.vision.reconcile import RoomInventory, RoomPhoto
 from basis.vision.rooms import (
     ROOM_INVENTORY_SOURCE,
@@ -446,7 +446,7 @@ class ReconcileRooms:
             try:
                 original = await self._deps.storage.read(photo.gcs_uri)
                 originals.append(original)
-                image = prepare_image(original)
+                image = await prepare_image_in_thread(original)
             except ObjectNotFound:
                 raise validation_error(
                     f"photo file {photo.gcs_uri} is missing", E.ROOMS_FILE_MISSING

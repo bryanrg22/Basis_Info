@@ -77,7 +77,7 @@ from basis.llm.prompts import Prompt
 from basis.llm.provider import BudgetExceededError, ChatProvider, ChatRequest, ImagePart, Message
 from basis.vision import fusion
 from basis.vision.merge import merge_analyses, merge_components
-from basis.vision.prep import PreparedImage, prepare_image
+from basis.vision.prep import PreparedImage, prepare_image_in_thread
 from basis.vision.schemas import (
     MAX_COMPONENTS,
     Component,
@@ -338,7 +338,7 @@ async def call_until_usable(
 
 async def analyze_photo_detailed(image_bytes: bytes, ctx: VisionContext) -> PhotoResult:
     """The single-call step: ``ctx.prompt`` once (retried once on unusable output)."""
-    image = prepare_image(image_bytes)
+    image = await prepare_image_in_thread(image_bytes)
     call = await call_until_usable(image, ctx)
     if call.parsed is None:
         analysis = ambiguous_analysis(INVALID_OUTPUT)
@@ -395,7 +395,7 @@ async def analyze_photo_decomposed(
     default_countables, default_surfaces = decomposed_prompts()
     countables = countables or default_countables
     surfaces = surfaces or default_surfaces
-    image = prepare_image(image_bytes)
+    image = await prepare_image_in_thread(image_bytes)
     second_task = (
         asyncio.ensure_future(_fusion_call(image, ctx, ctx.fusion, countables))
         if ctx.fusion is not None

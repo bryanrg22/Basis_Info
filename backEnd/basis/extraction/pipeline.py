@@ -532,7 +532,7 @@ async def extract_appraisal_upload(
     if not is_zip(data) and not looks_like_xml(data):
         return await extract_appraisal(data, doc_id, ctx)  # a PDF (or not one: its errors)
     try:
-        upload = read_appraisal_upload(data)
+        upload = await asyncio.to_thread(read_appraisal_upload, data)
     except InvalidPackage as exc:
         raise InvalidDocument(str(exc)) from exc
     assert upload.xml is not None

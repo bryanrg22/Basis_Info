@@ -78,7 +78,7 @@ from basis.vision.localize import (
     object_labels,
     phrases_for,
 )
-from basis.vision.prep import ImageRejected, prepare_image
+from basis.vision.prep import ImageRejected, prepare_image_in_thread
 from basis.workflow.activity_options import options_for
 from basis.workflow.contracts import LocalizePhotoInput, LocalizePhotoOutput
 
@@ -145,7 +145,7 @@ class LocalizePhoto:
         else:
             started = time.perf_counter()
             try:
-                image = prepare_image(await self._deps.storage.read(gcs_uri))
+                image = await prepare_image_in_thread(await self._deps.storage.read(gcs_uri))
                 async with heartbeating("localizing"):
                     found = await localizer.localize(image, phrases, threshold=CANDIDATE_THRESHOLD)
             except ObjectNotFound:
