@@ -8706,8 +8706,13 @@ the records filtered by status, every refusal; the issues page with its cursor),
 repository tests (the fingerprint names the bug not the occurrence; the counts, the duplicate,
 the regression rule, the cursor), two node tests (the issues table and status form; the
 brief's every line and its plain-text form). Verified live on the stack of 65.5 after the
-change: the six records of the first check fell into five issues, a status set from the
-page, the brief pasted back as text.
+change (the database rebuilt at the final 0028, which also caught a foreign key the first
+draft of the migration lacked; `alembic check` and the up/down/up of `test_migrations.py`
+pass on it): the same uncaught `TypeError` raised twice was one issue with count 2 beside
+the 422 start and a report; `resolved` with a note set from the page recorded who, when and
+the build; the same error re-posted with another build sha turned the issue `regressed`
+with count 3 and `last_build_sha` the new build; the brief came back as one plain-text block
+with every fact, the stack, the four breadcrumbs and the four places to look next.
 
 ### 65.8 Verdict and open items
 
