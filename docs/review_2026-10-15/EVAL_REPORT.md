@@ -8549,6 +8549,90 @@ client gives up is still billed). Low priority.
 (35/35, 39-year share within 0.07 points of the engineer's). Spend for the two studies: 5.67.
 Open: the unplaced-photos view; failed calls in the ledger; Access Control in the structure model;
 a second property, scored blind.
+
+## 64. Every screen of the live app against the final build, with real studies (2026-11-01)
+
+**Question.** Bryan asked that "every page is correct and well tested" and that onboarding "makes
+sense". Does each screen of `web/live` load against the API at main 15cd291, show what the API
+returns, refuse what it should refuse, and say nothing a customer must not see?
+
+**Setup.** The `basis-web` stack from live run 6 (section 63; API 15cd291, DB copy at migration
+0027), `web/` served from a worktree at 15cd291 on port 3100, the Firebase Auth emulator in
+`demo-basis`, the built-in browser pane. Signed in as the firm's owner (the identity the live
+driver used, created in the emulator with the same uid) and then as a brand-new account. Data:
+the two run-6 studies (plain, 8 flagged photos; corrected, revision 5), the signed run-5 study,
+one study waiting at its rooms review. Every API call the pages made was read from the network
+log; the browser console and the API log were checked for errors. No model call was made; the
+corrected study's revision 5 was signed through the app (no model call).
+
+**What passed** (screen: the API calls behind it):
+
+| screen | result |
+|---|---|
+| landing, sign-in (`#landing`, `#login`) | loads; emulator sign-in by test account and by Google; copy explains the emulator |
+| dashboard, library (`#dashboard`, `#library`) | `GET /v1/me`, `GET /v1/studies?limit=100`; counts, search, status filters, firm switcher; archive via API hides the study |
+| new study (`#upload`) | form loads; no intake form (FRONTEND_BACKLOG 1); `POST .../start` without one is 422 `intake-required`, `GET .../intake` 200 with `intake: null`, ETag `"0"` |
+| study page (`#processing/<id>`) | completed study: stages done, documents, dates |
+| appraisal review | 122 fields, 9 critical, page links open the PDF at the page; read-only banner; decision buttons disabled on a completed study (no request on click) |
+| rooms, components, photo viewer | 43 rooms, 45 photos, inventories with counts, materials and confidence; the viewer's pins, scores and per-component counts (`photos/{id}/objects`); every thumbnail 200 |
+| assets review, asset detail | 366 assets, review filter, bucket totals, cost trail columns; the asset page's reasons and evidence (`evidence?asset_id=`) |
+| schedule and report (`#complete/<id>`) | allocation, asset table (paginated by cursor), report state, answers, firm profile; the checklist's blockers in the right order |
+| report flow on the corrected study | study details `PUT report-answers` 200 and refetch; preview `GET report/preview` (45-page PDF with the DRAFT mark); sign `POST report/sign` 201; signed state, signature id and PDF hash shown; signed PDF and schedules downloadable |
+| API contract after signing | `report?variant=final` serves the signed PDF; `format=csv&profile=sage` the vendor columns; a bad profile 422; a stale `If-Match` 412 naming the current ETag; an edit after signing bumps the version and sets `changed_since_signing`, the signed PDF still served |
+| open gate (rooms review, revision 2) | tools enabled (rename, merge, move); a staged correction survives a reload in this browser |
+| team (`#team`) | members and invitations from the API, roles explained |
+| new account | "Not a member of a firm yet", invite-only explanation, unverified-email caveat, Check again |
+| responsiveness | every screen usable with the pane narrowed to 302 px |
+
+The API log holds no 5xx and no traceback for the session; the only 4xx are the ones provoked
+(400 missing idempotency key, 403 non-operator, 405, 412, 422 x2).
+
+**Defects found.** None in the backend's behaviour. In what the engineer sees:
+
+1. *Flagged photos are invisible on a completed study.* The study page polls the workflow
+   view only while processing, so after completion the "8 flagged photos" note and the
+   Workflow line are empty; the rooms page lists 43 rooms and 45 of 52 photos with "0 flagged".
+   The seven photos of run 6 that were never analyzed appear nowhere. Backend side fixed here:
+   `GET /v1/studies/{id}/rooms` now returns `unplaced`, the study's photos no room of the
+   revision holds, each with `analyzed` (false: the analysis never produced a result), the same
+   list on every page (`OutputRepository.unplaced_photos`; `tests/api/test_outputs.py`: two
+   unplaced photos at the current revision, one analyzed and one not; all five at revision 1;
+   every page carries the list). Frontend side: FRONTEND_BACKLOG 7 and 8.
+2. *Live mode shows mock data on two screens.* The Activity page renders the design mock's
+   invented feed ("Illustrative events") and never calls `GET /v1/me/activity` (which answers
+   with the real events); Settings shows the mock user, mock firm and a "preview" cost source.
+   A signed-in engineer would take both for real. FRONTEND_BACKLOG 8.
+3. *Provider and layer names reach the engineer* (the rule of 2026-11-01): the photo viewer
+   prints "SAM 3 · 11 counted instances · model 1bf97763"; the assets table and asset page print
+   the method token (`cache · 1250`, `rule`, `llm`, `manual`). FRONTEND_BACKLOG 8.
+4. *Stale copy*: Team said "No email is sent" (invitations are emailed since #111); fixed here
+   (`web/live/live-team.js`). The preview header says "Local PDF · not uploaded". FRONTEND_BACKLOG 8.
+5. *Broken image*: `assets/kitchen.webp` (the landing hero preview) is not in the repo; two
+   404s on every page load. FRONTEND_BACKLOG 8.
+6. *Docs vs repo*: `docs/api/OPS_HEALTH.md` pointed at a developer page `web/developer/` that
+   does not exist on main (never built). Fixed here: the document says so.
+
+**Observations, not defects.**
+
+- Every appraisal field shows "Low confidence": the grounded extraction gives every accepted
+  model value the constant 0.6 by design (`extraction/grounded.py`: self-reported confidence is
+  not calibrated), so the badge says nothing. The honest label is the source ("read by the
+  model; verify on p. 3"). Design item for the appraisal screen.
+- The classifier names an unmatched component's category "Unclassified: <label>" and the
+  schedule prints it; wording for the router.
+- Two member rows of the firm share one email (two emulator uids). Expected with the emulator;
+  a rule of one membership per verified email per firm is worth adding before firms sign in
+  with Google.
+- Not in the live app at all, each with its API ready: revisions and reopen, study audit and
+  timeline, per-user activity, cost indices, retention, reprice, spend, the result worksheet,
+  the intake form, archive. All in `web/FRONTEND_BACKLOG.md`.
+
+**Verdict.** The backend behaves as its contracts say on every screen and every write is
+conditional and refused correctly; the app renders the real data on the study screens and the
+report flow end to end, including signing. What fails is honesty at the edges: two screens
+show mock data in live mode, flagged photos have no home, and three places name the layers.
+None of it is a backend defect; the one backend gap (the rooms view hiding unplaced photos) is
+closed in this section's PR.
 ## 65. Browser error capture: every error a user hits, recorded in detail and diagnosable from the record (2026-11-01)
 
 **Question.** Bryan asked that every error a user hits be saved "in extreme detail (firm, user,

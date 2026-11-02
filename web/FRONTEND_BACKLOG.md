@@ -98,8 +98,37 @@ of truth. Items are in the order they matter for a first firm.
   review") is wrong for it. Show the unplaced photos as a section of their own on the rooms
   page with the re-analyze action (a `photo` correction at the rooms gate), name them in
   the note, and count them out of "N of M analyzed" (`completed_photos` includes them).
-  The API side (the rooms view returning the unplaced photos with their failure code) is a
-  backend item; until it lands, the ids come from `flagged_photos` and the documents list.
+  The API side landed with EVAL_REPORT 64: `GET .../rooms` returns `unplaced`, the photos
+  no room of the revision holds, each with `analyzed` (false: the analysis never produced
+  a result for it), the same list on every page. Render it as its own section on the rooms
+  page with the re-analyze action.
+
+## 8. Found by the live walkthrough of every screen (EVAL_REPORT 64)
+
+Plain bugs an engineer would hit on the first day, in the order they bite:
+
+- **Activity page shows invented history in live mode** (`#activity`): the mock feed
+  (Alex Morgan, Harbor House, "Illustrative events") renders for a signed-in engineer and
+  nothing calls `GET /v1/me/activity`. Until the page is wired (section 2), live mode must
+  show "not connected yet", never the mock events.
+- **Settings in live mode are the mock** (`#settings`): Profile shows the mock user,
+  Workspace the mock firm, Cost sources "preview". Wire Profile to `/v1/me`, Workspace to
+  the firm (`PATCH /v1/orgs/{id}`, section 4), Cost sources to `docs/api/COST_INDICES.md`.
+- **Flagged photos never reach a completed study's page**: the workflow view is polled
+  only while a study processes, so on a completed study the "N flagged photos" note and the
+  Workflow line ("—") are empty. Fetch `GET .../workflow` once on a completed study too, and
+  count flagged photos out of "N of M analyzed" (`completed_photos` includes them).
+- **Provider and layer names shown to the engineer** (Bryan's rule): the photo viewer
+  prints "SAM 3 · … · model 1bf97763"; the assets table and asset page print the method
+  token (`cache`, `rule`, `llm`, `manual`). Say "Basis outlines", and "firm convention",
+  "rules table", "model", "engineer".
+- ~~Stale copy on Team & invitations ("No email is sent…")~~ fixed with EVAL_REPORT 64;
+  `emailed_at` and the last send error are still not shown (section 4).
+- **Broken image on the landing page**: `assets/kitchen.webp` is referenced by
+  `app.js` (the hero preview) and is not in `web/assets` (two 404s on every load).
+- **Report preview header** says "Local PDF · not uploaded" for an API-rendered preview.
+- **Schedule table**: unpriced assets print "0.0000 SF  $0.00" on some rows and "—" on
+  others; one presentation for "not priced".
 
 ## Testing
 

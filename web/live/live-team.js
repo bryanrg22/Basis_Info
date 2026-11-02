@@ -147,7 +147,7 @@
   const head=heading('Team & invitations',`Invite people to ${esc(firm.org_name)} and manage who has access.`,`<button class="button primary" data-live="invite-member">${icon('plus')}Invite team member</button>`);
   const policy=`<div class="team-policy live-team-policy">${F.ROLES.map(r=>`<div><strong>${F.roleLabel(r)}</strong><p>${esc(F.ROLE_SCOPE[r])}</p></div>`).join('')}</div>`;
   const body=!members.done||!invitations.done?Live.loading('Loading the team…'):members.error?Live.failed(members.error,'reload-team'):invitations.error?Live.failed(invitations.error,'reload-team'):membersTable(firm,me,members.data.items)+invitationsTable(invitations.data.items);
-  return `${head}${policy}${body}<p class="footnote">No email is sent. An invited person sees the invitation when they sign in with that email address, confirmed by Google sign-in.</p>`;
+  return `${head}${policy}${body}<p class="footnote">An invitation email goes to that address. The invited person also sees the invitation here when they sign in with that email address, confirmed by Google sign-in.</p>`;
  };
  const reloadTeam=org=>{Live.invalidate(membersKey(org));Live.invalidate(invitationsKey(org));Live.render()};
  Live.actions['reload-team']=()=>{const f=Live.firm();if(f)reloadTeam(f.org_id)};

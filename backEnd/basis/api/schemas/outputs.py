@@ -154,9 +154,26 @@ class RoomOut(RoomRefOut):
     )
 
 
+class UnplacedPhotoOut(ResponseModel):
+    document_id: uuid.UUID
+    filename: str
+    analyzed: bool = Field(
+        description="True: the analysis ran and the model put the photo in no room. False: "
+        "the analysis never produced a result for this photo (it failed for good, the "
+        "budget could not cover it, or it has not run yet), so none of its components are "
+        "counted. Either way the photo is in no room of this revision; flag it for "
+        "re-analysis with a `photo` correction at the rooms gate."
+    )
+
+
 class RoomsPageOut(ResponseModel):
     revision: int
     items: list[RoomOut]
+    unplaced: list[UnplacedPhotoOut] = Field(
+        default_factory=list,
+        description="The study's photos that no room of this revision holds, in file-name "
+        "order; the same list on every page. Empty when every photo has a room.",
+    )
     next_cursor: str | None = Field(
         description="Pass as `cursor` to get the next page; null on the last page."
     )

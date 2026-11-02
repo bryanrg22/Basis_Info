@@ -21749,6 +21749,14 @@
             "type": "array",
             "title": "Items"
           },
+          "unplaced": {
+            "items": {
+              "$ref": "#/components/schemas/UnplacedPhotoOut"
+            },
+            "type": "array",
+            "title": "Unplaced",
+            "description": "The study's photos that no room of this revision holds, in file-name order; the same list on every page. Empty when every photo has a room."
+          },
           "next_cursor": {
             "anyOf": [
               {
@@ -24366,6 +24374,31 @@
           "stages"
         ],
         "title": "TimelineStepsOut"
+      },
+      "UnplacedPhotoOut": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "analyzed": {
+            "type": "boolean",
+            "title": "Analyzed",
+            "description": "True: the analysis ran and the model put the photo in no room. False: the analysis never produced a result for this photo (it failed for good, the budget could not cover it, or it has not run yet), so none of its components are counted. Either way the photo is in no room of this revision; flag it for re-analysis with a `photo` correction at the rooms gate."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "filename",
+          "analyzed"
+        ],
+        "title": "UnplacedPhotoOut"
       },
       "UploadTicket": {
         "properties": {

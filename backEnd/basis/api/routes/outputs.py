@@ -46,6 +46,7 @@ from basis.api.schemas.outputs import (
     StudyCorpusOut,
     SuggestedCountOut,
     TakeoffOut,
+    UnplacedPhotoOut,
 )
 from basis.api.schemas.timeline import ProvenanceOut
 from basis.api.users import study_access
@@ -390,9 +391,14 @@ async def list_rooms(
     components = await resolver.components([c for row in page.items for c in row.inventory])
     photo_rows = await RoomRepository(session).photo_rooms(access.study.id, page.revision)
     photos = await resolver.photo_rooms(photo_rows)
+    unplaced = await OutputRepository(session).unplaced_photos(access.study.id, page.revision)
     return RoomsPageOut(
         revision=page.revision,
         items=[room_out(row, rooms.get(row.room.id), photos, components) for row in page.items],
+        unplaced=[
+            UnplacedPhotoOut(document_id=p.document_id, filename=p.filename, analyzed=p.analyzed)
+            for p in unplaced
+        ],
         next_cursor=page.next_cursor,
     )
 
