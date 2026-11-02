@@ -37,7 +37,7 @@ from typing import Annotated, Any, Final
 
 from fastapi import Depends, Path, Query, Request
 
-from basis.api.errors import NotFound, PayloadTooLarge, TooManyRequests
+from basis.api.errors import NotFound, PayloadTooLarge, TooManyRequests, Unprocessable
 from basis.api.operators import require_operator
 from basis.api.ratelimit import WINDOW, RateLimiter, get_rate_limiter
 from basis.api.routes.activity import Cursor, Since, Until, as_utc
@@ -46,15 +46,20 @@ from basis.api.schemas.client_errors import (
     ClientErrorBatchIn,
     ClientErrorDetailOut,
     ClientErrorIn,
+    ClientErrorIssueOut,
+    ClientErrorIssuePageOut,
     ClientErrorKind,
     ClientErrorOut,
     ClientErrorPageOut,
     ClientErrorsAcceptedOut,
+    Fingerprint,
+    IssueStatus,
+    IssueStatusIn,
 )
 from basis.api.users import CurrentUserDep
 from basis.config import Settings
 from basis.db.enums import OrgRole
-from basis.db.models import ClientError
+from basis.db.models import ClientError, ClientErrorIssue
 from basis.db.repositories import (
     ClientErrorFilters,
     ClientErrorRepository,
@@ -62,7 +67,7 @@ from basis.db.repositories import (
     StudyRepository,
     UserRepository,
 )
-from basis.db.repositories.client_error import MAX_CLIENT_ERROR_PAGE
+from basis.db.repositories.client_error import MAX_CLIENT_ERROR_PAGE, MAX_ISSUE_PAGE
 from basis.db.repositories.study_event import StudyEventRepository, request_id
 from basis.db.session import SessionDep
 from basis.errors.codes import CODE_PATTERN, E
@@ -78,6 +83,7 @@ DETAIL_TOO_LARGE: Final = (
     f"A batch of browser error events is at most {MAX_BATCH_BYTES} bytes; send fewer events."
 )
 DETAIL_NOT_FOUND: Final = "Client error record not found."
+DETAIL_ISSUE_NOT_FOUND: Final = "Client error issue not found."
 
 logger = logging.getLogger(__name__)
 
@@ -281,8 +287,10 @@ async def post_client_errors(
     )
 
 
-def _out(row: ClientError) -> dict[str, Any]:
+def _out(row: ClientError, status: str) -> dict[str, Any]:
     return {
+        "fingerprint": row.fingerprint,
+        "issue_status": status,
         "id": row.id,
         "seq": row.seq,
         "event_id": row.event_id,
@@ -311,6 +319,92 @@ Code = Annotated[
     str | None,
     Query(pattern=r"^BASIS-[A-Z]+-\d{3}$", description="Only this catalogue code."),
 ]
+FingerprintQuery = Annotated[
+    str | None, Query(pattern=r"^[0-9a-f]{16}$", description="Only this issue's records.")
+]
+
+
+def _issue_out(issue: ClientErrorIssue) -> ClientErrorIssueOut:
+    return ClientErrorIssueOut.model_validate(issue)
+
+
+# Declared before ``/ops/client-errors/{client_error_id}``: a literal segment must win over
+# the UUID parameter (FastAPI matches routes in order).
+@reads.get(
+    "/ops/client-errors/issues",
+    summary="The issues browser errors group into, most recently seen first (operators)",
+    description="One issue per fingerprint (the same error seen again), with its occurrences, "
+    "first and last seen, last build and status. `status` and `kind` filter; `next_cursor` "
+    "continues with issues seen earlier (docs/api/CLIENT_ERRORS.md section 5.2).",
+    dependencies=[Depends(require_operator)],
+    responses=problems(403),
+)
+async def list_client_error_issues(
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=MAX_ISSUE_PAGE, description="Issues per page.")] = (
+        DEFAULT_PAGE
+    ),
+    cursor: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    status: Annotated[IssueStatus | None, Query()] = None,
+    kind: Annotated[ClientErrorKind | None, Query()] = None,
+) -> ClientErrorIssuePageOut:
+    try:
+        page = await ClientErrorRepository(session).list_issues(
+            status=status, kind=kind, cursor=cursor, limit=limit
+        )
+    except ValueError:
+        raise Unprocessable(
+            "invalid pagination cursor", type_suffix="invalid-cursor", code=E.API_INVALID_CURSOR
+        ) from None
+    return ClientErrorIssuePageOut(
+        items=[_issue_out(i) for i in page.items], next_cursor=page.next_cursor
+    )
+
+
+@reads.get(
+    "/ops/client-errors/issues/{fingerprint}",
+    summary="One issue (operators)",
+    dependencies=[Depends(require_operator)],
+    responses=problems(403, 404),
+)
+async def get_client_error_issue(
+    fingerprint: Annotated[Fingerprint, Path()], session: SessionDep
+) -> ClientErrorIssueOut:
+    issue = await ClientErrorRepository(session).get_issue(fingerprint)
+    if issue is None:
+        raise NotFound(DETAIL_ISSUE_NOT_FOUND)
+    return _issue_out(issue)
+
+
+@writes.put(
+    "/ops/client-errors/issues/{fingerprint}/status",
+    summary="Set an issue's status and note (operators)",
+    description="A person's call: `open`, `in_progress`, `resolved` or `ignored`, with an "
+    "optional note; recorded with who set it, when, and the build the issue had last been "
+    "seen on. A `resolved` issue seen again on another build is set `regressed` by the "
+    "ingest; set `in_progress` or `resolved` again to take it back. Last write wins "
+    "(docs/api/CLIENT_ERRORS.md section 5.2).",
+    dependencies=[Depends(require_operator)],
+    responses=problems(403, 404),
+)
+async def put_client_error_issue_status(
+    fingerprint: Annotated[Fingerprint, Path()],
+    body: IssueStatusIn,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> ClientErrorIssueOut:
+    issue = await ClientErrorRepository(session).set_status(
+        fingerprint, status=body.status, note=body.note, user_id=user.id
+    )
+    if issue is None:
+        raise NotFound(DETAIL_ISSUE_NOT_FOUND)
+    logger.info(
+        "client error issue status set",
+        extra={"fingerprint": fingerprint, "issue_status": body.status},
+    )
+    return _issue_out(issue)
+
+
 RequestId = Annotated[
     str | None,
     Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:\-]+$"),
@@ -321,8 +415,9 @@ RequestId = Annotated[
     "/ops/client-errors",
     summary="Browser error records, newest first (platform operators)",
     description="Every error the web app reported, filtered by firm, user, study, code, kind, "
-    "the failed request's id and the time received (`since`/`until`, RFC 3339; a naive time "
-    "is UTC); `next_cursor` continues with older records. Operators only "
+    "the issue's status and fingerprint, the failed request's id and the time received "
+    "(`since`/`until`, RFC 3339; a naive time is UTC); `next_cursor` continues with older "
+    "records. Operators only "
     "(`OPS_OPERATOR_UIDS`); a firm role never grants it (docs/api/CLIENT_ERRORS.md).",
     dependencies=[Depends(require_operator)],
     responses=problems(403),
@@ -338,6 +433,8 @@ async def list_client_errors(
     study_id: Annotated[uuid.UUID | None, Query()] = None,
     code: Code = None,
     kind: Annotated[ClientErrorKind | None, Query()] = None,
+    status: Annotated[IssueStatus | None, Query(description="The issue's status.")] = None,
+    fingerprint: FingerprintQuery = None,
     request_id: RequestId = None,
     since: Since = None,
     until: Until = None,
@@ -352,12 +449,16 @@ async def list_client_errors(
             request_id=request_id,
             since=as_utc(since),
             until=as_utc(until),
+            status=status,
+            fingerprint=fingerprint,
         ),
         before_seq=seq_cursor(cursor),
         limit=limit,
     )
     return ClientErrorPageOut(
-        items=[ClientErrorOut.model_validate(_out(row)) for row in page.items],
+        items=[
+            ClientErrorOut.model_validate(_out(row.record, row.issue_status)) for row in page.items
+        ],
         next_cursor=None if page.next_seq is None else str(page.next_seq),
     )
 
@@ -372,7 +473,10 @@ async def get_client_error(
     client_error_id: Annotated[uuid.UUID, Path(description="The record's id.")],
     session: SessionDep,
 ) -> ClientErrorDetailOut:
-    row = await ClientErrorRepository(session).get(client_error_id)
+    repo = ClientErrorRepository(session)
+    row = await repo.get(client_error_id)
     if row is None:
         raise NotFound(DETAIL_NOT_FOUND)
-    return ClientErrorDetailOut.model_validate({**_out(row), "event": row.event})
+    issue = await repo.get_issue(row.fingerprint)
+    status = issue.status if issue is not None else "open"
+    return ClientErrorDetailOut.model_validate({**_out(row, status), "event": row.event})

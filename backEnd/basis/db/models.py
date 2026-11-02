@@ -105,6 +105,7 @@ UPDATED_AT_TABLES: Final = (
     "classification_cache",
     "firm_profiles",
     "review_drafts",
+    "client_error_issues",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -1577,6 +1578,7 @@ class ClientError(Base):
         Index(None, "code"),
         Index(None, "request_id"),
         Index(None, "created_at"),
+        Index(None, "fingerprint", "seq"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -1599,5 +1601,54 @@ class ClientError(Base):
     build_sha: Mapped[str | None]
     web_version: Mapped[str | None]
     user_agent: Mapped[str | None]
+    # The issue this record belongs to (``client_error_issues.fingerprint``): the same bug seen
+    # again gets the same fingerprint (kind, type, the message with numbers and ids normalized,
+    # the top frame's file and function, the route and status of a failed call).
+    fingerprint: Mapped[str] = mapped_column(ForeignKey("client_error_issues.fingerprint"))
     event: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
+
+
+CLIENT_ERROR_ISSUE_STATUSES: Final = ("open", "in_progress", "resolved", "ignored", "regressed")
+
+
+class ClientErrorIssue(Base):
+    """One bug as the operators track it: every ``client_errors`` record with the same
+    ``fingerprint`` (docs/api/CLIENT_ERRORS.md section 5.2). The counts and the first/last
+    seen are kept by the ingest; the status is a person's call (``open`` when first seen,
+    ``in_progress``, ``resolved``, ``ignored``) with a note and who set it when; the one
+    automatic transition is ``resolved`` -> ``regressed`` when a new occurrence arrives on a
+    build other than the one it was resolved on (``status_build_sha``: the newest build the
+    issue had been seen on when the status was set), Sentry's regression rule. Mutable:
+    ``set_updated_at()`` maintains ``updated_at``.
+    """
+
+    __tablename__ = "client_error_issues"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'in_progress', 'resolved', 'ignored', 'regressed')",
+            name="status_valid",
+        ),
+        CheckConstraint("occurrences >= 1", name="occurrences_positive"),
+        Index(None, "status", "last_seen_at"),
+        Index(None, "last_seen_at"),
+    )
+
+    fingerprint: Mapped[str] = mapped_column(primary_key=True)
+    kind: Mapped[str]
+    error_type: Mapped[str | None]
+    title: Mapped[str]
+    route: Mapped[str | None]
+    code: Mapped[str | None]
+    http_status: Mapped[int | None]
+    status: Mapped[str] = mapped_column(server_default=text("'open'"), default="open")
+    note: Mapped[str | None]
+    status_set_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    status_set_at: Mapped[datetime | None]
+    status_build_sha: Mapped[str | None]
+    occurrences: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    first_seen_at: Mapped[datetime]
+    last_seen_at: Mapped[datetime]
+    last_build_sha: Mapped[str | None]
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()

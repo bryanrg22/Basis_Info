@@ -1,5 +1,6 @@
-"""``client_errors``: every error a user hit in the browser, as the web app reported it
-(docs/api/CLIENT_ERRORS.md, EVAL_REPORT section 65).
+"""``client_errors`` and ``client_error_issues``: every error a user hit in the browser, as
+the web app reported it, and the issues they group into (docs/api/CLIENT_ERRORS.md,
+EVAL_REPORT section 65).
 
 Revision ID: 0028
 Revises: 0027
@@ -17,6 +18,11 @@ batch stores each event once; ``seq`` is the operator listing's keyset cursor. R
 updated (``forbid_mutation()`` on UPDATE, the ``takeoffs`` rule) and are deleted only by
 ``python -m basis.retention purge-client-errors`` after ``CLIENT_ERRORS_RETENTION_DAYS``.
 
+``client_error_issues``: one row per fingerprint (the same bug seen again), with the counts
+and first/last seen the ingest keeps, and the status a person sets (``open`` first,
+``in_progress``, ``resolved``, ``ignored``; ``regressed`` set by the ingest when a resolved
+issue is seen on another build). Mutable: ``set_updated_at()`` maintains ``updated_at``.
+
 Nothing is backfilled: nothing was recorded before.
 """
 
@@ -32,12 +38,69 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLE = "client_errors"
+ISSUES = "client_error_issues"
 KINDS = ("error", "unhandledrejection", "api", "console", "resource", "report")
+STATUSES = ("open", "in_progress", "resolved", "ignored", "regressed")
 # Appended to the never-updated tables (tests/unit/db/test_models_metadata.py).
 NO_UPDATE_TABLES = (TABLE,)
+# Appended to the tables set_updated_at() maintains.
+UPDATED_AT_TABLES = (ISSUES,)
 
 
 def upgrade() -> None:
+    op.create_table(
+        ISSUES,
+        sa.Column("fingerprint", sa.Text(), nullable=False),
+        sa.Column("kind", sa.Text(), nullable=False),
+        sa.Column("error_type", sa.Text(), nullable=True),
+        sa.Column("title", sa.Text(), nullable=False),
+        sa.Column("route", sa.Text(), nullable=True),
+        sa.Column("code", sa.Text(), nullable=True),
+        sa.Column("http_status", sa.Integer(), nullable=True),
+        sa.Column("status", sa.Text(), server_default=sa.text("'open'"), nullable=False),
+        sa.Column("note", sa.Text(), nullable=True),
+        sa.Column("status_set_by", sa.UUID(), nullable=True),
+        sa.Column("status_set_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("status_build_sha", sa.Text(), nullable=True),
+        sa.Column("occurrences", sa.Integer(), server_default=sa.text("1"), nullable=False),
+        sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("last_build_sha", sa.Text(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "status IN (" + ", ".join(f"'{s}'" for s in STATUSES) + ")",
+            name=op.f("ck_client_error_issues_status_valid"),
+        ),
+        sa.CheckConstraint(
+            "occurrences >= 1", name=op.f("ck_client_error_issues_occurrences_positive")
+        ),
+        sa.ForeignKeyConstraint(
+            ["status_set_by"],
+            ["users.id"],
+            name=op.f("fk_client_error_issues_status_set_by_users"),
+        ),
+        sa.PrimaryKeyConstraint("fingerprint", name=op.f("pk_client_error_issues")),
+    )
+    op.create_index(
+        op.f("ix_client_error_issues_status_last_seen_at"), ISSUES, ["status", "last_seen_at"]
+    )
+    op.create_index(op.f("ix_client_error_issues_last_seen_at"), ISSUES, ["last_seen_at"])
+    for table in UPDATED_AT_TABLES:
+        op.execute(
+            f"CREATE TRIGGER {table}_set_updated_at BEFORE UPDATE ON {table} "
+            "FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+        )
     op.create_table(
         TABLE,
         sa.Column("id", sa.UUID(), server_default=sa.text("gen_random_uuid()"), nullable=False),
@@ -60,6 +123,7 @@ def upgrade() -> None:
         sa.Column("build_sha", sa.Text(), nullable=True),
         sa.Column("web_version", sa.Text(), nullable=True),
         sa.Column("user_agent", sa.Text(), nullable=True),
+        sa.Column("fingerprint", sa.Text(), nullable=False),
         sa.Column("event", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column(
             "created_at",
@@ -74,6 +138,11 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "http_status IS NULL OR (http_status >= 0 AND http_status <= 999)",
             name=op.f("ck_client_errors_http_status_range"),
+        ),
+        sa.ForeignKeyConstraint(
+            ["fingerprint"],
+            ["client_error_issues.fingerprint"],
+            name=op.f("fk_client_errors_fingerprint_client_error_issues"),
         ),
         sa.ForeignKeyConstraint(["org_id"], ["orgs.id"], name=op.f("fk_client_errors_org_id_orgs")),
         sa.ForeignKeyConstraint(
@@ -92,6 +161,7 @@ def upgrade() -> None:
     op.create_index(op.f("ix_client_errors_code"), TABLE, ["code"])
     op.create_index(op.f("ix_client_errors_request_id"), TABLE, ["request_id"])
     op.create_index(op.f("ix_client_errors_created_at"), TABLE, ["created_at"])
+    op.create_index(op.f("ix_client_errors_fingerprint_seq"), TABLE, ["fingerprint", "seq"])
     op.execute(
         f"CREATE TRIGGER {TABLE}_no_update BEFORE UPDATE ON {TABLE} "
         "FOR EACH ROW EXECUTE FUNCTION forbid_mutation()"
@@ -101,3 +171,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(f"DROP TRIGGER IF EXISTS {TABLE}_no_update ON {TABLE}")
     op.drop_table(TABLE)
+    for table in UPDATED_AT_TABLES:
+        op.execute(f"DROP TRIGGER IF EXISTS {table}_set_updated_at ON {table}")
+    op.drop_table(ISSUES)

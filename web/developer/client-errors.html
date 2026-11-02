@@ -11,13 +11,19 @@
    <label>Study <input id="study_id" placeholder="study id"></label>
    <label>Code <input id="code" placeholder="BASIS-AREA-nnn" pattern="BASIS-[A-Z]+-[0-9]{3}"></label>
    <label>Kind <select id="kind"><option value="">any</option></select></label>
+   <label>Status <select id="status"><option value="">any</option></select></label>
+   <label>Issue <input id="fingerprint" placeholder="fingerprint"></label>
    <label>Request id <input id="request_id" placeholder="X-Request-Id"></label>
    <label>Since <input id="since" type="date"></label>
    <label>Until <input id="until" type="date"></label>
    <label>Per page <input id="limit" type="number" min="1" max="200" value="50"></label>
    <button type="submit" class="primary">Search</button><button type="button" id="reset" class="quiet">Clear</button>
   </form>
-  <div class="toolbar"><span id="status" role="status" aria-live="polite">Connecting…</span><span class="paging"><button type="button" id="newer" disabled>Newer</button><button type="button" id="older" disabled>Older</button></span></div>
+  <h2 class="section">Issues <span id="issue-count" class="muted"></span></h2>
+  <p class="muted">The same error seen again is one issue. A person sets the status; Basis counts the occurrences and marks a resolved issue <em>regressed</em> when it comes back on another build.</p>
+  <div class="table-wrap"><table class="records issues"><thead><tr><th>Kind</th><th>Issue</th><th>Count</th><th>Seen</th><th>Last build</th><th>Status</th></tr></thead><tbody id="issue-rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>
+  <h2 class="section">Records</h2>
+  <div class="toolbar"><span id="list-status" role="status" aria-live="polite">Connecting…</span><span class="paging"><button type="button" id="newer" disabled>Newer</button><button type="button" id="older" disabled>Older</button></span></div>
   <div class="table-wrap"><table class="records"><thead><tr><th>Received</th><th>Kind</th><th>Message · page</th><th>HTTP · code</th><th>Who · where</th><th>Build</th></tr></thead><tbody id="rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>
   <div id="detail" class="detail-wrap" hidden></div>
   <footer>Read-only. Records are kept <code>CLIENT_ERRORS_RETENTION_DAYS</code> (180) days. Contract: <code>docs/api/CLIENT_ERRORS.md</code>.</footer>

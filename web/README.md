@@ -107,7 +107,9 @@ id, the build and the browser, and sent in batches to `POST /v1/client-errors`
 (`docs/api/CLIENT_ERRORS.md`). Nothing secret is recorded: no token, no request body (field
 names only), no query values, ids replaced by `{id}`. In mock mode events are kept in
 memory and never sent. Operators read them on `developer/client-errors.html`
-(`GET /v1/ops/client-errors`, `OPS_OPERATOR_UIDS`). Tests: `tests/errors.test.cjs`,
+(`GET /v1/ops/client-errors`, `OPS_OPERATOR_UIDS`): the issues they group into with a status a
+person sets (and a regression the ingest sets), the records, a detail view, and **Copy for an
+agent**, one plain-text brief to paste into Claude Code or Codex. Tests: `tests/errors.test.cjs`,
 `tests/client-errors-page.test.cjs`.
 
 ### Configuration (`live/config.js`)

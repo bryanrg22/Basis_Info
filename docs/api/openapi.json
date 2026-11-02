@@ -6352,13 +6352,408 @@
         }
       }
     },
+    "/v1/ops/client-errors/issues/{fingerprint}/status": {
+      "put": {
+        "tags": [
+          "client-errors"
+        ],
+        "summary": "Set an issue's status and note (operators)",
+        "description": "A person's call: `open`, `in_progress`, `resolved` or `ignored`, with an optional note; recorded with who set it, when, and the build the issue had last been seen on. A `resolved` issue seen again on another build is set `regressed` by the ingest; set `in_progress` or `resolved` again to take it back. Last write wins (docs/api/CLIENT_ERRORS.md section 5.2).",
+        "operationId": "put_client_error_issue_status_v1_ops_client_errors_issues__fingerprint__status_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "fingerprint",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Fingerprint"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueStatusIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorIssueOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/client-errors/issues": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "The issues browser errors group into, most recently seen first (operators)",
+        "description": "One issue per fingerprint (the same error seen again), with its occurrences, first and last seen, last build and status. `status` and `kind` filter; `next_cursor` continues with issues seen earlier (docs/api/CLIENT_ERRORS.md section 5.2).",
+        "operationId": "list_client_error_issues_v1_ops_client_errors_issues_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Issues per page.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Issues per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "in_progress",
+                    "resolved",
+                    "ignored",
+                    "regressed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "error",
+                    "unhandledrejection",
+                    "api",
+                    "console",
+                    "resource",
+                    "report"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorIssuePageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/client-errors/issues/{fingerprint}": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "One issue (operators)",
+        "operationId": "get_client_error_issue_v1_ops_client_errors_issues__fingerprint__get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "fingerprint",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Fingerprint"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorIssueOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ops/client-errors": {
       "get": {
         "tags": [
           "ops"
         ],
         "summary": "Browser error records, newest first (platform operators)",
-        "description": "Every error the web app reported, filtered by firm, user, study, code, kind, the failed request's id and the time received (`since`/`until`, RFC 3339; a naive time is UTC); `next_cursor` continues with older records. Operators only (`OPS_OPERATOR_UIDS`); a firm role never grants it (docs/api/CLIENT_ERRORS.md).",
+        "description": "Every error the web app reported, filtered by firm, user, study, code, kind, the issue's status and fingerprint, the failed request's id and the time received (`since`/`until`, RFC 3339; a naive time is UTC); `next_cursor` continues with older records. Operators only (`OPS_OPERATOR_UIDS`); a firm role never grants it (docs/api/CLIENT_ERRORS.md).",
         "operationId": "list_client_errors_v1_ops_client_errors_get",
         "security": [
           {
@@ -6493,6 +6888,50 @@
               ],
               "title": "Kind"
             }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "in_progress",
+                    "resolved",
+                    "ignored",
+                    "regressed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The issue's status.",
+              "title": "Status"
+            },
+            "description": "The issue's status."
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{16}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this issue's records.",
+              "title": "Fingerprint"
+            },
+            "description": "Only this issue's records."
           },
           {
             "name": "request_id",
@@ -12770,6 +13209,23 @@
             ],
             "title": "User Agent"
           },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint",
+            "description": "The issue this record belongs to."
+          },
+          "issue_status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "resolved",
+              "ignored",
+              "regressed"
+            ],
+            "title": "Issue Status",
+            "description": "The issue's status now."
+          },
           "event": {
             "additionalProperties": true,
             "type": "object",
@@ -12800,6 +13256,8 @@
           "build_sha",
           "web_version",
           "user_agent",
+          "fingerprint",
+          "issue_status",
           "event"
         ],
         "title": "ClientErrorDetailOut"
@@ -13030,6 +13488,208 @@
         ],
         "title": "ClientErrorIn"
       },
+      "ClientErrorIssueOut": {
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint",
+            "description": "Sixteen hex characters naming the bug."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "error",
+              "unhandledrejection",
+              "api",
+              "console",
+              "resource",
+              "report"
+            ],
+            "title": "Kind"
+          },
+          "error_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "The first occurrence's message."
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "resolved",
+              "ignored",
+              "regressed"
+            ],
+            "title": "Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "status_set_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Set By"
+          },
+          "status_set_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Set At"
+          },
+          "status_build_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Build Sha",
+            "description": "The build the issue had last been seen on when the status was set; a resolved issue seen on another build regresses."
+          },
+          "occurrences": {
+            "type": "integer",
+            "title": "Occurrences"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          },
+          "last_build_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Build Sha"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fingerprint",
+          "kind",
+          "error_type",
+          "title",
+          "route",
+          "code",
+          "http_status",
+          "status",
+          "note",
+          "status_set_by",
+          "status_set_at",
+          "status_build_sha",
+          "occurrences",
+          "first_seen_at",
+          "last_seen_at",
+          "last_build_sha"
+        ],
+        "title": "ClientErrorIssueOut"
+      },
+      "ClientErrorIssuePageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ClientErrorIssueOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Most recently seen first."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ClientErrorIssuePageOut"
+      },
       "ClientErrorOut": {
         "properties": {
           "id": {
@@ -13228,6 +13888,23 @@
               }
             ],
             "title": "User Agent"
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint",
+            "description": "The issue this record belongs to."
+          },
+          "issue_status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "resolved",
+              "ignored",
+              "regressed"
+            ],
+            "title": "Issue Status",
+            "description": "The issue's status now."
           }
         },
         "type": "object",
@@ -13252,7 +13929,9 @@
           "request_id",
           "build_sha",
           "web_version",
-          "user_agent"
+          "user_agent",
+          "fingerprint",
+          "issue_status"
         ],
         "title": "ClientErrorOut"
       },
@@ -17857,6 +18536,41 @@
         ],
         "title": "InviteeInvitationOut",
         "description": "An invitation as its invitee sees it."
+      },
+      "IssueStatusIn": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "resolved",
+              "ignored"
+            ],
+            "title": "Status",
+            "description": "`regressed` is set by the ingest, never by hand; set `in_progress` or `resolved` to take it back."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "pattern": "^[^\\x00]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "IssueStatusIn",
+        "description": "A person's call on an issue (docs/api/CLIENT_ERRORS.md section 5.2)."
       },
       "LandMethod": {
         "type": "string",

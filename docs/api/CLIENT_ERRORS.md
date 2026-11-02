@@ -10,7 +10,8 @@ the developer page (`web/developer/client-errors.html`) lists and shows them.
 Design record and research: EVAL_REPORT section 65.
 
 Contents: 1 what is captured · 2 the event · 3 `POST /v1/client-errors` · 4 the record,
-the timeline, the logs · 5 the operator reads · 6 retention · 7 what cannot be captured.
+the timeline, the logs · 5 the operator reads, the issues and their status, the copy brief ·
+6 retention · 7 what cannot be captured.
 
 ## 1. What is captured, and what never
 
@@ -143,8 +144,9 @@ and flushes at once when the page hides.
 filters on: `occurred_at` (the client's clock), `created_at` (`received_at` in the API: the
 database clock), `user_id` (the reporter), `org_id`, `study_id`, `revision`, `stage`,
 `route`, `screen`, `kind`, `error_type`, `message`, `code`, `http_status`, `request_id`,
-`build_sha`, `web_version`, `user_agent`; `event` is the whole event as JSONB, after the
-server masked any key that looks like a secret, plus `_server`:
+`build_sha`, `web_version`, `user_agent`, `fingerprint` (the issue, section 5.2); `event` is
+the whole event as JSONB, after the server masked any key that looks like a secret, plus
+`_server`:
 
 ```json
 "_server": {"received_at": "…", "sent_at": "…", "clock_offset_ms": -1480,
@@ -203,10 +205,65 @@ GET /v1/ops/client-errors/{client_error_id}
   `event`.
 * 404 for an unknown id; 422 for a bad parameter or cursor.
 
+Each record also carries `fingerprint` and `issue_status`; `status=` and `fingerprint=`
+filter the records by their issue.
+
+### 5.2 Issues: the same error seen again, and its status
+
+Records are grouped the way Sentry groups events: by a **fingerprint**, sixteen hex
+characters of a hash over the kind, the error type, the message with numbers and ids
+normalized (`Cannot read 'rooms' of {id} at row #`), the top frame's file (without its
+query string) and function, and the route and status of a failed call. Two users on two
+firms hitting the same bug make one issue; a different message or a different frame makes
+another. `client_error_issues` has one row per fingerprint:
+
+```
+GET /v1/ops/client-errors/issues?status=open&kind=error&limit=50&cursor=<next_cursor>
+GET /v1/ops/client-errors/issues/{fingerprint}
+PUT /v1/ops/client-errors/issues/{fingerprint}/status   {"status": "resolved", "note": "fixed in #123"}
+```
+
+```json
+{"fingerprint": "d5076d7e3c7774ca", "kind": "error", "error_type": "TypeError",
+ "title": "Cannot read properties of undefined (reading 'rooms')", "route": null, "code": null, "http_status": null,
+ "status": "regressed", "note": "fixed in #123", "status_set_by": "de30e188-…", "status_set_at": "2026-11-01T19:00:00Z",
+ "status_build_sha": "15cd291", "occurrences": 7, "first_seen_at": "…", "last_seen_at": "…", "last_build_sha": "a1b2c3d"}
+```
+
+* **What the ingest keeps**: `occurrences`, `first_seen_at`, `last_seen_at` (the client's
+  clock), `last_build_sha` (the newest API build the issue was seen on), the `title` (the
+  first occurrence's message) and the route, code and status of a failed call. A duplicate
+  `event_id` counts nothing.
+* **What a person sets** (operators only, last write wins): `status` `open` (the state on
+  first sight), `in_progress`, `resolved` or `ignored`, and a `note` (500 characters). The
+  write records who set it, when, and `status_build_sha`: the build the issue had last
+  been seen on at that moment.
+* **The one automatic transition**: a `resolved` issue seen again on a build **other than**
+  `status_build_sha` becomes `regressed` (the fix was deployed and the bug is back); seen
+  again on the same build it stays `resolved` (the fix is not deployed yet) and the count
+  moves. `regressed` cannot be set by hand; set `in_progress` or `resolved` again to take it
+  back. Nothing detects that a bug is fixed: that is the person's call, as in every tracker;
+  what the system can tell is that it came back, and it does.
+* The list is most recently seen first, keyset-paginated (`next_cursor`; a malformed cursor
+  is 422 `invalid-cursor`); `status` and `kind` filter.
+
+### 5.3 The developer page and the copy brief
+
 The developer page `web/developer/client-errors.html` (served at `/developer/`, beside
-the system-health page) is the list with the filters and a detail view: the facts, the
-stack, the context, the last actions and the whole event. It signs in with the app's
-Firebase session and reads through the app's API client.
+the system-health page) has the issues table (counts, first and last seen, last build, the
+status control with its note), the records list with the filters (an issue's row narrows the
+records to its fingerprint) and a detail view: the facts, the stack, the context, the last
+actions and the whole event. It signs in with the app's Firebase session and reads through
+the app's API client.
+
+**Copy for an agent** puts the record into one plain-text brief on the clipboard, ready to
+paste into Claude Code or Codex: the message, kind and type; the issue with its status,
+count and note; when (both clocks and the offset, the time since load); who (email, uid,
+role, user id); the firm; the study with revision and stage; the screen and route; the
+failed request with its code, request id, latency and attempt; the source location; the
+build and browser; the stack; the context; the last actions, oldest first, with their times;
+and where to look next (the server log line by request id, the record's URL, the study's
+timeline, this document). **Copy JSON** copies the record and its issue as JSON.
 
 ## 6. Retention
 

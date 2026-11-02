@@ -8614,9 +8614,9 @@ kept.
 | Suite | Count | What it protects |
 |---|---|---|
 | `web/tests/errors.test.cjs` (node) | 17 | redaction (ids, query values, bearer and JWT text, body field names, secret keys, NUL); stack parsing (V8, Firefox, bare); every field of an event; the API build read once and filled in; each kind; the `observe` hook (attempt under the key, no token, a broken observer never breaks a request); breadcrumbs (click, navigation, decision; ring of 50); dedupe with `repeats`; 30 a minute with `dropped`; a throwing render loop sends one batch of at most 20; batching with the bearer token, keepalive and the key kept across retries; three retries then dropped; a 4xx dropped at once; queued without a token and sent after sign-in; mock mode sends nothing; flush on hide without retry; a broken context getter and a logging listener cannot recurse; the client clock stamp is the same instant as `Date.now()` (added after the live check, 65.5); the sample fixture is what the module produces |
-| `web/tests/client-errors-page.test.cjs` (node) | 4 | the operator page's query, rows, detail and tree, escaped |
-| `tests/api/test_client_errors.py` (integration) | 38 (14 parametrized malformed bodies, 8 bad parameters) | the sample fixture is accepted (client shape = server schema); every detail stored and the timeline row with provenance, the activity listing, the audit unchanged; a viewer posts and gets their one firm; claims the reporter cannot make stay inside the event with no timeline row; no study, no row; a non-catalogue code not indexed; one store per `event_id` across batches and a replay; secrets masked anywhere; 422 naming the field; 413 before validation and 422 under the cap; 429 after 30 batches, per user; 401 without a token, 202 without a firm; operators list newest first with every filter and a cursor, 422 for bad parameters, read one record with `_server`, 404 unknown; a firm owner is 403 `not-operator`; the correlation log lines (unhandled exception: request id, uid, user id, route, status, exception type and message, stack trace, ERROR; a study problem: study id, firm, role, route, code; a 404: study id only; the recorded line); the schema's kinds are the table's |
-| `tests/integration/db/test_client_error_records.py` | 7 | the repository's insert once per `event_id`, the never-updated trigger, the check constraints, listing with every filter and the cursor, the purge in batches with a dry run, `cutoff_for`, the CLI's summary line and arguments |
+| `web/tests/client-errors-page.test.cjs` (node) | 6 | the operator page's query, rows, issues table, status form, the copy brief, detail and tree, escaped |
+| `tests/api/test_client_errors.py` (integration) | 41 (14 parametrized malformed bodies, 8 bad parameters) | the sample fixture is accepted (client shape = server schema); every detail stored and the timeline row with provenance, the activity listing, the audit unchanged; a viewer posts and gets their one firm; claims the reporter cannot make stay inside the event with no timeline row; no study, no row; a non-catalogue code not indexed; one store per `event_id` across batches and a replay; secrets masked anywhere; 422 naming the field; 413 before validation and 422 under the cap; 429 after 30 batches, per user; 401 without a token, 202 without a firm; operators list newest first with every filter and a cursor, 422 for bad parameters, read one record with `_server`, 404 unknown; a firm owner is 403 `not-operator`; the correlation log lines (unhandled exception: request id, uid, user id, route, status, exception type and message, stack trace, ERROR; a study problem: study id, firm, role, route, code; a 404: study id only; the recorded line); the schema's kinds are the table's |
+| `tests/integration/db/test_client_error_records.py` | 9 | the repository's insert once per `event_id`, the never-updated trigger, the check constraints, listing with every filter and the cursor, the purge in batches with a dry run, `cutoff_for`, the CLI's summary line and arguments |
 | `tests/unit/worker/test_worker_parts.py` | +1 | a failed activity's one ERROR line with the study, the code, the exception type and message and the traceback, the context unbound afterwards |
 | `tests/unit/config/test_settings.py` | +1 | `CLIENT_ERRORS_RETENTION_DAYS` default 180, 1 to 3650 |
 | existing walks | | `test_health.py` known routes (+3), `test_auth.py` (401 on all three), `test_openapi_contract.py` (Schemathesis on all three; the idempotency key required on the POST), `test_models_metadata.py` (`client_errors` columns, the no-update tables), `test_migrations.py` (head 0028, 28 revisions, downgrade and up) |
@@ -8673,10 +8673,47 @@ if the app ever ships minified, stacks need source maps; events beyond the caps 
 kept; the server's own view is not copied into the record but found by the request id in the API
 and worker logs, which have their own retention.
 
-### 65.7 Verdict and open items
+### 65.7 Issues, status and the copy brief (added the same day)
+
+Bryan's follow-up: a record should be copyable into a coding agent's prompt in one go, and a
+developer should be able to mark a bug resolved, in progress or still open; he expected the
+status to be manual and asked whether anything could be automatic. The answer, from how
+Sentry and every tracker do it: the status is a person's call, but two things are not.
+Records are grouped into **issues** by a fingerprint (kind, error type, the message with
+numbers and ids normalized, the top frame's file and function, the route and status of a
+failed call: the same bug on two firms is one issue, a different frame is another), and the
+ingest keeps each issue's `occurrences`, `first_seen_at`, `last_seen_at` and `last_build_sha`.
+The status (`open` on first sight, then `in_progress`, `resolved`, `ignored`, set by an
+operator with a note, who and when) records `status_build_sha`, the build the issue had last
+been seen on; the one automatic transition is `resolved` -> `regressed` when a new
+occurrence arrives on a different build (same build: the fix is not deployed yet, the issue
+stays resolved and the count moves). Nothing can detect that a bug is fixed; the system can
+detect that it came back, and that is what it automates (Sentry's "resolved in the next
+release" and regression rule).
+
+Built: `client_error_issues` (in migration 0028, with `set_updated_at()`),
+`client_errors.fingerprint`, the upsert in `ClientErrorRepository.record` (a duplicate event
+id counts nothing), `GET /v1/ops/client-errors/issues[/{fingerprint}]`,
+`PUT .../issues/{fingerprint}/status`, `status`/`fingerprint` filters and `issue_status` on
+the records, the issues table and status controls on the developer page, and **Copy for an
+agent**: one plain-text brief with every fact of the record (both clocks and the offset,
+user, firm, study, screen, request with its code and request id, source, build, browser,
+stack, context, the breadcrumbs with their times) and where to look next (the server log
+line by request id, the record's URL, the study's timeline, the contract), plus **Copy
+JSON**. Tests: three API tests (one issue across users and firms with its counts and build;
+a person's status with who/when/build, the regression on another build and not on the same,
+the records filtered by status, every refusal; the issues page with its cursor), two
+repository tests (the fingerprint names the bug not the occurrence; the counts, the duplicate,
+the regression rule, the cursor), two node tests (the issues table and status form; the
+brief's every line and its plain-text form). Verified live on the stack of 65.5 after the
+change: the six records of the first check fell into five issues, a status set from the
+page, the brief pasted back as text.
+
+### 65.8 Verdict and open items
 
 Done as asked: the module, the route, the table, the timeline link, the operator reads and page,
-the retention rule, the correlation fields, the tests, the live proof. Open: the system-health
+the issues with their status and the copy brief, the retention rule, the correlation fields,
+the tests, the live proof. Open: the system-health
 developer page (Codex, not in the repository) should link to the client-errors page; the Cloud
 Scheduler line for `purge-client-errors` is documented with the retention purge, not enabled
 (nothing is deployed); `browser.mobile` and `userAgentData.brands` are not recorded (the user

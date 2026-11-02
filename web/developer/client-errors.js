@@ -10,35 +10,63 @@
  const back=new URL('../',document.baseURI);back.search=location.search;back.searchParams.set('mode','live');back.hash='dashboard';$('app-link').href=back.toString();
  $('api-origin').textContent=C.apiBase;
  for(const k of M.KINDS)$('kind').insertAdjacentHTML('beforeend',`<option value="${k}">${k}</option>`);
- const S={cursor:null,stack:[],items:[]};
+ for(const k of M.STATUSES)$('status').insertAdjacentHTML('beforeend',`<option value="${k}">${M.STATUS_LABEL[k]}</option>`);
+ const S={cursor:null,stack:[],items:[],issues:[],current:null};
  const problem=e=>e?.status===403?'This account is not a platform operator (OPS_OPERATOR_UIDS).':e?.status===401?'Sign in to Basis first, then reload this page.':e?.message||String(e);
- function form(){const f={};for(const k of M.FILTERS)f[k]=$(k).value;return f}
+ function form(){const f={};for(const k of [...M.FILTERS,'fingerprint'])f[k]=$(k).value;return f}
+ async function loadIssues(){
+  try{const page=await api.request('GET','/v1/ops/client-errors/issues',{query:{limit:50,...($('status').value?{status:$('status').value}:{}),...($('kind').value?{kind:$('kind').value}:{})}});S.issues=page.items;$('issue-rows').innerHTML=M.issueRows(page.items);$('issue-count').textContent=`${page.items.length} issue${page.items.length===1?'':'s'}${page.next_cursor?' · more':''}`}
+  catch(e){$('issue-rows').innerHTML=`<tr><td colspan="6" class="empty">${M.esc(problem(e))}</td></tr>`}
+ }
  async function load({cursor=null,push=false}={}){
-  $('status').textContent='Loading…';
+  $('list-status').textContent='Loading…';
   try{
    const page=await api.request('GET','/v1/ops/client-errors',{query:M.query(form(),{limit:Number($('limit').value)||50,cursor})});
    if(push)S.stack.push(S.cursor);S.cursor=cursor;S.items=page.items;S.next=page.next_cursor;
    $('rows').innerHTML=M.rows(page.items);
-   $('status').textContent=`${page.items.length} record${page.items.length===1?'':'s'}${page.next_cursor?' · more':''}`;
+   $('list-status').textContent=`${page.items.length} record${page.items.length===1?'':'s'}${page.next_cursor?' · more':''}`;
    $('older').disabled=!page.next_cursor;$('newer').disabled=!S.stack.length;
-  }catch(e){$('rows').innerHTML=`<tr><td colspan="6" class="empty">${M.esc(problem(e))}</td></tr>`;$('status').textContent='Could not load.'}
+  }catch(e){$('rows').innerHTML=`<tr><td colspan="6" class="empty">${M.esc(problem(e))}</td></tr>`;$('list-status').textContent='Could not load.'}
+  if(!cursor)loadIssues();
  }
- async function show(id){
-  $('detail').innerHTML='<p class="muted">Loading the record…</p>';$('detail').hidden=false;
-  try{const r=await api.request('GET',`/v1/ops/client-errors/${encodeURIComponent(id)}`);$('detail').innerHTML=`<button type="button" id="close" class="quiet">Close</button>`+M.detail(r);$('close').onclick=()=>{$('detail').hidden=true;history.replaceState(null,'',location.pathname+location.search)};$('detail').scrollIntoView({block:'start'})}
-  catch(e){$('detail').innerHTML=`<p class="error">${M.esc(problem(e))}</p>`}
+ async function copyText(text,note){
+  try{await navigator.clipboard.writeText(text);$('detail').querySelector('[data-copied]').textContent=note}
+  catch{const ta=document.createElement('textarea');ta.value=text;document.body.append(ta);ta.select();try{document.execCommand('copy');$('detail').querySelector('[data-copied]').textContent=note}catch{$('detail').querySelector('[data-copied]').textContent='Copy failed: select the text below.'}ta.remove()}
+ }
+ async function setStatus(form){
+  const fingerprint=form.dataset.fingerprint,status=form.status.value,note=form.note.value.trim()||null,button=form.querySelector('button');
+  button.disabled=true;
+  try{await api.request('PUT',`/v1/ops/client-errors/issues/${encodeURIComponent(fingerprint)}/status`,{body:{status,note}});await loadIssues();if(S.current)await show(S.current.id,{quiet:true});await load({cursor:S.cursor})}
+  catch(e){alert(problem(e))}
+  finally{button.disabled=false}
+ }
+ async function show(id,{quiet=false}={}){
+  if(!quiet){$('detail').innerHTML='<p class="muted">Loading the record…</p>';$('detail').hidden=false}
+  try{
+   const r=await api.request('GET',`/v1/ops/client-errors/${encodeURIComponent(id)}`);
+   const issue=await api.request('GET',`/v1/ops/client-errors/issues/${encodeURIComponent(r.fingerprint)}`).catch(()=>null);
+   S.current=r;
+   $('detail').innerHTML=`<button type="button" id="close" class="quiet">Close</button>`+M.detail(r,issue);
+   $('close').onclick=()=>{$('detail').hidden=true;S.current=null;history.replaceState(null,'',location.pathname+location.search)};
+   $('detail').querySelector('[data-copy="brief"]').onclick=()=>copyText(M.brief(r,issue),'Copied the brief: paste it into Claude Code or Codex.');
+   $('detail').querySelector('[data-copy="json"]').onclick=()=>copyText(JSON.stringify({record:r,issue},null,2),'Copied the record as JSON.');
+   if(!quiet)$('detail').scrollIntoView({block:'start'});
+  }catch(e){$('detail').innerHTML=`<p class="error">${M.esc(problem(e))}</p>`}
  }
  $('filters').addEventListener('submit',e=>{e.preventDefault();S.stack=[];load()});
- $('reset').addEventListener('click',()=>{for(const k of M.FILTERS)$(k).value='';S.stack=[];load()});
+ $('reset').addEventListener('click',()=>{for(const k of [...M.FILTERS,'fingerprint'])$(k).value='';S.stack=[];load()});
  $('older').addEventListener('click',()=>load({cursor:S.next,push:true}));
  $('newer').addEventListener('click',()=>load({cursor:S.stack.pop()||null}));
  $('rows').addEventListener('click',e=>{const tr=e.target.closest('tr[data-id]');if(!tr)return;e.preventDefault();location.hash=tr.dataset.id;show(tr.dataset.id)});
- window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id)show(id)});
+ // An issue's row filters the records to its fingerprint; its status form saves.
+ $('issue-rows').addEventListener('click',e=>{if(e.target.closest('form'))return;const tr=e.target.closest('tr[data-fingerprint]');if(!tr)return;e.preventDefault();$('fingerprint').value=tr.dataset.fingerprint;S.stack=[];load()});
+ document.addEventListener('submit',e=>{const form=e.target.closest('form.status-form');if(!form)return;e.preventDefault();setStatus(form)});
+ window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id&&!id.startsWith('issue/'))show(id)});
  (async()=>{
-  try{await BasisAuth.init(C.firebase)}catch(e){$('status').textContent='Sign-in is unavailable: '+e.message;return}
-  if(!BasisAuth.user){$('status').textContent='Sign in to Basis first, then reload this page.';$('rows').innerHTML='<tr><td colspan="6" class="empty">Not signed in.</td></tr>';return}
+  try{await BasisAuth.init(C.firebase)}catch(e){$('list-status').textContent='Sign-in is unavailable: '+e.message;return}
+  if(!BasisAuth.user){$('list-status').textContent='Sign in to Basis first, then reload this page.';$('rows').innerHTML='<tr><td colspan="6" class="empty">Not signed in.</td></tr>';return}
   $('who').textContent=BasisAuth.user.email||BasisAuth.user.uid;
   await load();
-  const id=location.hash.slice(1);if(id)show(id);
+  const id=location.hash.slice(1);if(id&&!id.startsWith('issue/'))show(id);
  })();
 })();

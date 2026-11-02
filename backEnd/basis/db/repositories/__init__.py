@@ -8,6 +8,8 @@ from basis.db.repositories.client_error import (
     ClientErrorFilters,
     ClientErrorPage,
     ClientErrorRepository,
+    ClientErrorRow,
+    IssuePage,
     NewClientError,
 )
 from basis.db.repositories.document import DocumentRepository
@@ -55,6 +57,7 @@ __all__ = [
     "ClientErrorFilters",
     "ClientErrorPage",
     "ClientErrorRepository",
+    "ClientErrorRow",
     "CorrectionInput",
     "DecisionRecord",
     "DocumentRepository",
@@ -66,6 +69,7 @@ __all__ = [
     "InvitationRepository",
     "InvitationStatus",
     "InvitationView",
+    "IssuePage",
     "Member",
     "Membership",
     "NewClientError",

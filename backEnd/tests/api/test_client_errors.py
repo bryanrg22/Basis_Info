@@ -525,7 +525,9 @@ async def test_operators_list_newest_first_with_filters_and_a_cursor(ops: Api, s
         "id", "seq", "event_id", "occurred_at", "received_at", "user_id", "org_id", "study_id",
         "revision", "stage", "route", "screen", "kind", "error_type", "message", "code",
         "http_status", "request_id", "build_sha", "web_version", "user_agent",
+        "fingerprint", "issue_status",
     }  # fmt: skip
+    assert items[0]["issue_status"] == "open" and len(items[0]["fingerprint"]) == 16
     assert "event" not in items[0]
 
     async def ids(**params: Any) -> list[str]:
@@ -677,3 +679,155 @@ def test_the_kinds_the_schema_accepts_are_the_kinds_the_table_allows() -> None:
     from basis.api.schemas.client_errors import ClientErrorKind
 
     assert tuple(get_args(ClientErrorKind)) == CLIENT_ERROR_KINDS
+
+
+# --------------------------------------------------------------------------- issues
+
+ISSUES = f"{OPS}/issues"
+
+
+def same_bug(**overrides: Any) -> dict[str, Any]:
+    """The same uncaught error, as another occurrence (new event id, new ids in the text)."""
+    sid = uuid.uuid4()
+    return event(
+        message=f"Cannot read properties of undefined (reading 'rooms') for {sid} at row 7",
+        stack=f"TypeError: x\n    at render (http://127.0.0.1:3100/live/live-app.js?v={uuid.uuid4().hex[:6]}:120:9)",
+        source={
+            "file": "http://127.0.0.1:3100/live/live-app.js?v=live-16",
+            "line": 120,
+            "column": 9,
+            "function": "render",
+        },
+        **overrides,
+    )
+
+
+async def test_the_same_error_seen_again_is_one_issue_with_counts_and_a_status(
+    ops: Api, seed: Seed
+) -> None:
+    first = await ops.post(
+        "alice", PATH, batch(same_bug(build={"api_git_sha": "b1", "web_version": "w"}))
+    )
+    second = await ops.post(
+        "bob",
+        PATH,
+        batch(
+            same_bug(build={"api_git_sha": "b1", "web_version": "w"}),
+            same_bug(build={"api_git_sha": "b2", "web_version": "w"}),
+        ),
+    )
+    other = await ops.post("alice", PATH, batch(event(kind="console", message="something else")))
+    assert (first.status_code, second.status_code, other.status_code) == (202, 202, 202)
+    page = await ops.get(OPERATOR, ISSUES)
+    assert page.status_code == 200, page.text
+    issues = page.json()["items"]
+    assert [i["kind"] for i in issues] == ["console", "error"]  # most recently seen first
+    bug = issues[1]
+    assert bug["occurrences"] == 3
+    assert bug["status"] == "open" and bug["note"] is None and bug["status_set_by"] is None
+    assert bug["last_build_sha"] == "b2"
+    assert bug["title"].startswith("Cannot read properties of undefined")
+    assert bug["first_seen_at"] <= bug["last_seen_at"]
+    # Every record of the bug carries the fingerprint and the issue's status.
+    records = await ops.get(OPERATOR, OPS, params={"fingerprint": bug["fingerprint"]})
+    assert [r["issue_status"] for r in records.json()["items"]] == ["open"] * 3
+    assert {r["fingerprint"] for r in records.json()["items"]} == {bug["fingerprint"]}
+    # Different users and firms do not split an issue; a different message does.
+    assert len({r["user_id"] for r in records.json()["items"]}) == 2
+    one = await ops.get(OPERATOR, f"{ISSUES}/{bug['fingerprint']}")
+    assert one.status_code == 200 and one.json()["occurrences"] == 3
+    assert (await ops.get(OPERATOR, f"{ISSUES}/{'0' * 16}")).status_code == 404
+    assert (await ops.get(OPERATOR, f"{ISSUES}/not-hex")).status_code == 422
+
+
+async def test_a_person_sets_the_status_and_a_resolved_issue_regresses_on_a_new_build(
+    ops: Api, seed: Seed
+) -> None:
+    await ops.post("alice", PATH, batch(same_bug(build={"api_git_sha": "b1", "web_version": "w"})))
+    (bug,) = (await ops.get(OPERATOR, ISSUES)).json()["items"]
+    fp = bug["fingerprint"]
+    put = await ops.client.put(
+        f"{ISSUES}/{fp}/status",
+        json={"status": "in_progress", "note": "on it"},
+        headers=bearer(OPERATOR),
+    )
+    assert put.status_code == 200, put.text
+    body = put.json()
+    assert (body["status"], body["note"], body["status_build_sha"]) == (
+        "in_progress",
+        "on it",
+        "b1",
+    )
+    assert body["status_set_at"] and uuid.UUID(body["status_set_by"])
+    resolved = await ops.client.put(
+        f"{ISSUES}/{fp}/status", json={"status": "resolved", "note": None}, headers=bearer(OPERATOR)
+    )
+    assert resolved.json()["status"] == "resolved" and resolved.json()["note"] is None
+    # Seen again on the same build: still resolved (the fix is not deployed yet), counted.
+    await ops.post("bob", PATH, batch(same_bug(build={"api_git_sha": "b1", "web_version": "w"})))
+    still = (await ops.get(OPERATOR, f"{ISSUES}/{fp}")).json()
+    assert (still["status"], still["occurrences"]) == ("resolved", 2)
+    # Seen on another build: regressed, by the ingest.
+    await ops.post("bob", PATH, batch(same_bug(build={"api_git_sha": "b2", "web_version": "w"})))
+    back = (await ops.get(OPERATOR, f"{ISSUES}/{fp}")).json()
+    assert (back["status"], back["occurrences"], back["last_build_sha"]) == ("regressed", 3, "b2")
+    # The records' listing filters by the issue's status; a person takes it back.
+    assert [
+        r["issue_status"]
+        for r in (await ops.get(OPERATOR, OPS, params={"status": "regressed"})).json()["items"]
+    ] == ["regressed"] * 3
+    assert (await ops.get(OPERATOR, OPS, params={"status": "resolved"})).json()["items"] == []
+    assert [
+        i["fingerprint"]
+        for i in (await ops.get(OPERATOR, ISSUES, params={"status": "regressed"})).json()["items"]
+    ] == [fp]
+    again = await ops.client.put(
+        f"{ISSUES}/{fp}/status", json={"status": "ignored"}, headers=bearer(OPERATOR)
+    )
+    assert again.json()["status"] == "ignored" and again.json()["status_build_sha"] == "b2"
+    # Refusals: regressed by hand, an unknown status, a long note, an unknown issue, a non-operator.
+    for bad in (
+        {"status": "regressed"},
+        {"status": "fixed"},
+        {"status": "open", "note": "x" * 501},
+        {},
+    ):
+        assert (
+            await ops.client.put(f"{ISSUES}/{fp}/status", json=bad, headers=bearer(OPERATOR))
+        ).status_code == 422, bad
+    assert (
+        await ops.client.put(
+            f"{ISSUES}/{'0' * 16}/status", json={"status": "open"}, headers=bearer(OPERATOR)
+        )
+    ).status_code == 404
+    forbidden = await ops.client.put(
+        f"{ISSUES}/{fp}/status", json={"status": "open"}, headers=bearer("alice")
+    )
+    assert forbidden.status_code == 403 and forbidden.json()["code"] == E.API_NOT_OPERATOR
+    assert (await ops.client.get(ISSUES, headers=bearer("alice"))).status_code == 403
+
+
+async def test_issues_page_most_recently_seen_first_with_a_cursor(ops: Api) -> None:
+    for n in range(5):
+        assert (
+            await ops.post(
+                "alice", PATH, batch(event(message=f"bug number {n} of kind x" + "!" * n))
+            )
+        ).status_code == 202
+    seen: list[str] = []
+    cursor = None
+    while True:
+        response = await ops.get(
+            OPERATOR, ISSUES, params={"limit": 2, **({"cursor": cursor} if cursor else {})}
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        seen.extend(i["fingerprint"] for i in body["items"])
+        cursor = body["next_cursor"]
+        if cursor is None:
+            break
+    assert len(seen) == 5 and len(set(seen)) == 5
+    everything = [i["fingerprint"] for i in (await ops.get(OPERATOR, ISSUES)).json()["items"]]
+    assert seen == everything
+    assert (await ops.get(OPERATOR, ISSUES, params={"cursor": "garbage"})).status_code == 422
+    assert (await ops.get(OPERATOR, ISSUES, params={"status": "done"})).status_code == 422

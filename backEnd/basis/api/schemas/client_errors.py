@@ -207,6 +207,48 @@ class ClientErrorsAcceptedOut(ResponseModel):
     ids: list[uuid.UUID] = Field(description="The records stored now, in batch order.")
 
 
+IssueStatus = Literal["open", "in_progress", "resolved", "ignored", "regressed"]
+SettableIssueStatus = Literal["open", "in_progress", "resolved", "ignored"]
+Fingerprint = Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")]
+
+
+class IssueStatusIn(RequestModel):
+    """A person's call on an issue (docs/api/CLIENT_ERRORS.md section 5.2)."""
+
+    status: SettableIssueStatus = Field(
+        description="`regressed` is set by the ingest, never by hand; set `in_progress` or "
+        "`resolved` to take it back."
+    )
+    note: Annotated[str, Field(max_length=500, pattern=NO_NUL_PATTERN)] | None = None
+
+
+class ClientErrorIssueOut(ResponseModel):
+    fingerprint: str = Field(description="Sixteen hex characters naming the bug.")
+    kind: ClientErrorKind
+    error_type: str | None
+    title: str = Field(description="The first occurrence's message.")
+    route: str | None
+    code: str | None
+    http_status: int | None
+    status: IssueStatus
+    note: str | None
+    status_set_by: uuid.UUID | None
+    status_set_at: datetime | None
+    status_build_sha: str | None = Field(
+        description="The build the issue had last been seen on when the status was set; a "
+        "resolved issue seen on another build regresses."
+    )
+    occurrences: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    last_build_sha: str | None
+
+
+class ClientErrorIssuePageOut(ResponseModel):
+    items: list[ClientErrorIssueOut] = Field(description="Most recently seen first.")
+    next_cursor: str | None
+
+
 class ClientErrorOut(ResponseModel):
     id: uuid.UUID
     seq: int = Field(description="Newest first; the keyset cursor.")
@@ -229,6 +271,8 @@ class ClientErrorOut(ResponseModel):
     build_sha: str | None
     web_version: str | None
     user_agent: str | None
+    fingerprint: str = Field(description="The issue this record belongs to.")
+    issue_status: IssueStatus = Field(description="The issue's status now.")
 
 
 class ClientErrorDetailOut(ClientErrorOut):
