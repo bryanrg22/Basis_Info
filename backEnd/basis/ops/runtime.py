@@ -25,6 +25,7 @@ import httpx
 from basis.activities.deps import Deps
 from basis.domain.cost_table import CostTable
 from basis.llm.pool import ProviderPool
+from basis.ops import hosting
 from basis.ops import probes as probe_mod
 from basis.retrieval.embed import ModelLoad
 from basis.temporal.client import build_id
@@ -105,6 +106,8 @@ class WorkerRuntime:
         self.embedder: dict[str, Any] = {"status": "pending"}
         self.reference_index: dict[str, Any] = {"status": "pending"}
         self.probes: dict[str, Any] = {}
+        # Where this worker runs, read once (docs/api/OPS_HEALTH.md section 2: a label).
+        self.hosting = hosting.process_hosting()
         self._transport = transport
         self._probe_list = probe_mod.build_probes(
             settings,
@@ -189,6 +192,7 @@ class WorkerRuntime:
                 "worker_versioning": s.temporal_worker_versioning,
                 "task_queue": s.temporal_task_queue,
                 "env": s.env,
+                "hosting": self.hosting,
             },
             "routes": self.routes,
             "providers_configured": self.providers_configured(),
@@ -212,6 +216,11 @@ class WorkerRuntime:
                 "adapter": self.localizer,
                 "version": s.sam3_replicate_version[:12] if self.localizer else None,
                 "probed": self.localizer == "self-hosted" and s.ops_probe_localizer,
+                # A label for the self-hosted server (Cloud Run, local, self-hosted); never
+                # its URL. Replicate's hosting is Replicate.
+                "hosting": hosting.localizer_hosting(s.localizer_url)
+                if self.localizer == "self-hosted"
+                else None,
             },
             "segmenter": {
                 "adapter": self.segmenter,

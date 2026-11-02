@@ -9314,3 +9314,140 @@ merged branches'). Backend: `tests/api/test_report_signing.py` 13 passed; unit s
 the catalogue, the OpenAPI document, the rule fingerprints, the client-data guard: 1,634 files).
 Screenshots stay in the session (synthetic data only); the numbers above are from the API and
 the database of the isolated stack.
+
+## 73. The developer page's workflow dialogs: what each step runs, on which systems, and what was measured (2026-11-02)
+
+**Question.** The operator page (`web/developer/`, sections 67-71) had the step dialogs designed
+but empty: every "Current runtime" cell read "Not reported", the runtime table listed two
+names per step, and "Tests & results" was one sentence and four links. Can each dialog say what
+the step's activity actually does, list every system the step uses with the exact model id,
+provider, hosting and backup the worker runs, and show the architectures that were compared
+with their measured numbers, without a figure typed by hand and without a word of study state?
+
+**Standard.** OpenTelemetry's resource conventions name where a process runs from what the
+process can read about itself (`cloud.platform`, e.g. `gcp_cloud_run`, detected from the
+runtime environment: on Cloud Run the `K_SERVICE` variable), never from a service's name
+(https://opentelemetry.io/docs/specs/semconv/resource/cloud/); the hosting labels follow that
+rule and answer null otherwise. Status-page practice (Atlassian Statuspage, the GitHub and
+Google Cloud status pages) reports a component's health apart from any customer's order or
+incident; here, service health never says a study is signed or completed (section 71). For the
+numbers, the documentation-as-code rule: a figure a page shows is copied from its source and a
+test fails when the two diverge (the way `docs/api/openapi.json` is held to the app by
+`test_openapi_contract.py`), so the content file is checked against EVAL_REPORT.md on every run.
+
+**Setup.** Branch `claude/developer-workflow`, stacked on PR #125 (the developer page is not on
+main yet: #125 carries the Codex working tree, and this change edits those files). No paid
+call: the live stack is isolated (`pgvector/pgvector:pg16` container `devwf-pg` on 55435
+migrated to 0028, the cost index store seeded from the bundled 2020 book, this checkout's API on
+8500 with `OPS_OPERATOR_UIDS` set to one emulator account, a heartbeat script that builds the
+real `WorkerRuntime` report from this checkout's settings with the provider probes answered by
+an `httpx.MockTransport`, so the worker and relay rows are real `service_heartbeats` rows, the
+web folder served on 3500 with a `local.html` that points `BASIS_CONFIG_OVERRIDES.apiBase` at
+8500, the Auth emulator already on 9099). The `basis-web` compose stack, the other sessions'
+containers and every client file were untouched.
+
+### 73.1 What was built
+
+* **`GET /v1/ops/health`, three additive fields per service** (OPS_HEALTH.md section 2,
+  `basis/ops/services.py`, `basis/ops/hosting.py`, `basis/api/schemas/ops.py`, OpenAPI
+  regenerated): `hosting`, a display label the runtime establishes (`Google Cloud Run` from
+  `K_SERVICE`, `Docker container` from `/.dockerenv`, `Local process`; the worker's and relay's
+  own label from their heartbeat reports; `Google Cloud SQL` / `Local PostgreSQL` /
+  `Self-hosted PostgreSQL` and `Temporal Cloud` / `Local Temporal server` / `Self-hosted
+  Temporal` from the API's settings; the providers by name; a self-hosted SAM 3 server by its
+  `run.app` host; null when nothing establishes it, never a host name); `fallbacks`, the
+  ordered backups as labels (`gpt-6.1-sol → OpenAI API · gpt-6.1-sol`), empty where the code
+  has no fallback and null without a worker report; `models`, one structured route per worker
+  setting that names a model (`VISION_MODEL` ... `CLASSIFY_MODEL`: model id, primary provider
+  with its service id and the model or Azure deployment the request goes to, fallbacks in
+  order). Nothing is inferred from a name: the labels come from the pool's routes in the
+  worker's heartbeat (section 43's `model_routes()`).
+* **`web/developer/workflow-content.json`**, the page's content: for each of the twelve steps
+  three explanation steps written from the activity's code (each with the source file), the
+  systems and model roles the runtime table lists, the measured results (up to three
+  comparisons with the selected row first, up to eight metrics, the step's cost, tokens and
+  latency where the report states them, the regression status from section 63) and the source
+  links. Every figure is the report's own characters; 59 sections are cited with their GitHub
+  anchors.
+* **`backEnd/tests/unit/test_developer_workflow_content.py`** (50 tests) holds the file to the
+  repository: each cited section is a heading of EVAL_REPORT.md and each figure (every table
+  cell, metric, spend field and regression status) appears verbatim between that heading and
+  the next of the same or a higher level; every link and explanation source is a path in the
+  tree (a `#fragment` a heading of that Markdown file); every runtime row names a service id of
+  the contract and a model role the worker reports; three steps per explanation, one value per
+  column, no client data.
+* **`web/developer/architecture.js`** renders the dialog from the content file and the health
+  feed only: the runtime table shows the service row, then one row per model role with the
+  provider's logo, the exact model id (and the Azure deployment when it differs), the
+  provider's hosting and adapter and the model's backups, so SAM 3 plus a model is two rows
+  with two logos; without a feed every system and role is listed as "Not reported" (a model id
+  is never typed in the page); a role the worker does not run (the room call, surface crops,
+  both off by default) is listed only when the feed reports it; the comparisons are tables
+  with the selected architecture first, the metrics a table with a link to the section, the
+  spend a line, the regression a line; a missing or malformed content file leaves the runtime
+  table and says so. `health-model.js` keeps a `models` entry only when well formed.
+  `web/tests/developer-workflow.test.cjs` (10 tests) covers the content shape, the inventory
+  and photo dialogs with a synthetic feed (roles, logos, deployment, fallback, the off roles
+  absent), the no-feed table, the verbatim figures and section links, a step with no paid
+  call, the missing and malformed content file, escaping of hostile feed text, that no dialog
+  says a study is signed or completed, and that every path resolves.
+
+### 73.2 Verified in the browser
+
+* Live, diagnostics connected (operator account): the systems list shows the hosting labels
+  (`Local process`, `Local PostgreSQL`, `Local Temporal server`, `Study worker (Local
+  process)`, `PostgreSQL (Local PostgreSQL)`, `OpenAI`, `Anthropic`, `Replicate`); the Build
+  inventory dialog lists Room inventory (healthy), then `ROOM_MODEL` gpt-6-luna on OpenAI
+  (OpenAI API, no backup) and `ROOM_MATERIALS_MODEL` claude-sonnet-5-5 on Anthropic, then
+  Mask2Former (not enabled) and SAM 3 `vufinder/sam3@1bf97763d5df` on Replicate with the Meta
+  logo; the room call and surface-crop roles are absent because this worker runs neither. The
+  document itself (`ops_health.py` in the session scratchpad) lists every service with the
+  three fields; `azure_openai` and `azure_di` are disabled (unset), with their hosting still
+  named. All twelve dialogs open from the live page with the three sections and a selected
+  row in each comparison that has one; counted from the DOM, the ten model-role rows across
+  the dialogs (extract 2, photos 3, photo-results 1, inventory 2, assets 1) have no "Not
+  reported" cell and one provider logo each. The cells that do read "Not reported" are the
+  Model cells of services that report no model (the API, the database, Temporal, storage,
+  sign-in, the relay), the page's existing convention.
+* Not connected (`index.html`, the API unreachable): the Analyze photos dialog lists Photo
+  analysis, the three roles and SAM 3, every cell "Not reported", and the measured results
+  unchanged.
+* Keyboard: the dialog opens from the step's button, Escape closes it and focus returns to
+  that button (`data-step="inventory"`). Console on a fresh load of the live page: no message.
+* 390 CSS px: `document.documentElement.scrollWidth` 390 for a 390 viewport and the dialog
+  354 for 354; the runtime, comparison and metrics tables scroll inside the dialog, the
+  explanation steps stack with arrows, the controls stay 44 px.
+
+### 73.3 Decisions a reviewer may ask about
+
+* *Why a checked-in JSON and not a generator?* The explanations are written from the code, not
+  derivable from the report; the figures are the report's. A generator would have to decide
+  which 59 of 9,300 lines matter. The test is the generator's guarantee without the generator:
+  change a number in the report and the test names the cell.
+* *Why `hosting` is null so often.* The API knows its own process, its database URL and its
+  Temporal address; the worker knows its own process and the localizer URL. Nothing else is
+  known, so nothing else is said (the hand-off asked that `Temporal` alone never mean Temporal
+  Cloud).
+* *Why `fallbacks` distinguishes `[]` from null.* "None configured" and "not known" are
+  different facts for an operator; the page already drew them differently.
+* *Links go to `blob/main`.* Sections 64-72 exist only on the open PR branches until they merge;
+  the test resolves every link and anchor against the checkout, which is the stricter check.
+* *Tokens per step.* The report gives per-study totals (section 40: 2.8 M input, 165 K output
+  for the 724-call study) and per-call figures in places (33.12, 32.9); the dialogs show what
+  the report has and "Not measured" otherwise, never a split invented from the totals.
+
+### 73.4 Not done
+
+* An authenticated run-record API (list, detail, download of `backEnd/evals/` manifests and
+  ledgers, as `claude-handoff.md` describes) is not built; the dialogs link to the record
+  format and the registry module. The figures on the page are the report's, not read from
+  run directories.
+* The "Recent errors" section stays the link to `client-errors.html` (PR #123).
+* The page's own expiry display of `expires_at` and `last_inference` rendering (ops-health
+  hand-over) are unchanged.
+
+**Measured.** Web: 331 node tests pass (321 before). Backend: `tests/unit/ops` 90 passed (65
+before; `test_hosting.py` 20 new, `test_services.py` 5 new), `test_developer_workflow_content.py`
+50 passed; `tests/api/test_ops_health.py` extended with the three fields on the real-heartbeat
+document; the full backend suite 6,612 passed, 23 skipped, 76 subtests (21 min 32 s; unit, integration and slow, provider keys unset). Static gates green (`ruff`, `ruff format`, `mypy`, the
+catalogue, the OpenAPI document, the rule fingerprints, the client-data guard).

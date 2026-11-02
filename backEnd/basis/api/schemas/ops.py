@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import Field
 
 from basis.api.schemas.common import ResponseModel
-from basis.ops.services import LastInference, Service
+from basis.ops.services import LastInference, ModelRoute, RouteHop, Service
 
 ServiceId = Literal[
     "api",
@@ -54,6 +54,39 @@ class LastInferenceOut(ResponseModel):
         return cls(at=last.at, model=last.model, kind=last.kind)  # type: ignore[arg-type]
 
 
+class RouteHopOut(ResponseModel):
+    """One provider on a model's route, as the worker's pool orders them."""
+
+    provider: str = Field(description="The pool's provider name: `openai`, `azure`, `anthropic`.")
+    service: str = Field(description="The service id of that provider in this document.")
+    target: str = Field(description="The model, or the Azure deployment, the request is sent to.")
+
+    @classmethod
+    def of(cls, hop: RouteHop) -> RouteHopOut:
+        return cls(provider=hop.provider, service=hop.service, target=hop.target)
+
+
+class ModelRouteOut(ResponseModel):
+    """A model a service calls, by the setting that names it, with its route from the
+    worker's heartbeat report: the primary provider, then the fallbacks in order."""
+
+    setting: str = Field(
+        description="The worker setting that names the model, e.g. `VISION_MODEL`."
+    )
+    model: str
+    primary: RouteHopOut | None = Field(description="Null when no configured provider serves it.")
+    fallbacks: list[RouteHopOut]
+
+    @classmethod
+    def of(cls, route: ModelRoute) -> ModelRouteOut:
+        return cls(
+            setting=route.setting,
+            model=route.model,
+            primary=None if route.primary is None else RouteHopOut.of(route.primary),
+            fallbacks=[RouteHopOut.of(h) for h in route.fallbacks],
+        )
+
+
 class ServiceHealthOut(ResponseModel):
     id: ServiceId
     status: Literal["healthy", "degraded", "down", "unknown", "disabled"] = Field(
@@ -76,6 +109,23 @@ class ServiceHealthOut(ResponseModel):
         description="The model or deployment in effect, as the worker runs it."
     )
     last_inference: LastInferenceOut | None = None
+    hosting: str | None = Field(
+        default=None,
+        description="Where it runs, as a display label the runtime establishes (a provider, "
+        "Cloud Run, a Docker container, a local process, Temporal Cloud ...). Null when the "
+        "runtime does not establish it; never a host name, address or path.",
+    )
+    fallbacks: list[str] | None = Field(
+        default=None,
+        description="The ordered backups: display labels of the fallback routes of the models "
+        "it calls (`model → provider · target`). Empty when the code has no fallback for it; "
+        "null when not known (no current worker report).",
+    )
+    models: list[ModelRouteOut] = Field(
+        default_factory=list,
+        description="The models it calls, one entry per setting that names a model, each with "
+        "its route (primary provider first). Empty for a service that calls no chat model.",
+    )
 
     @classmethod
     def of(cls, service: Service) -> ServiceHealthOut:
@@ -91,6 +141,9 @@ class ServiceHealthOut(ResponseModel):
             adapter=service.adapter,
             model=service.model,
             last_inference=LastInferenceOut.of(service.last_inference),
+            hosting=service.hosting,
+            fallbacks=None if service.fallbacks is None else list(service.fallbacks),
+            models=[ModelRouteOut.of(r) for r in service.models],
         )
 
 

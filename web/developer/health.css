@@ -179,3 +179,13 @@ th .provider-logo{width:18px;height:18px;flex-basis:18px}
  .legend{gap:8px}.legend .status{font-size:12px;min-height:34px;padding:6px 8px}#workflow-heading{font-size:23px}.flow-controls button{padding:10px 12px;gap:8px}.node-open{font-size:19px}.flow-controls{grid-column:1/-1;justify-content:flex-end}.flow-hint{grid-column:1/-1}
 }
 @media(max-width:600px){.service-group summary{grid-template-columns:minmax(0,1fr) 18px}.step-sequence li:not(:last-child):after{right:auto;left:24px;bottom:-33px}}
+
+/* Step dialogs: the runtime table lists a system, then one row per model role it runs. */
+.runtime-system{display:flex;align-items:center;gap:10px}.runtime-system>span{display:flex;flex-direction:column;gap:4px}.runtime-name{font-weight:600}.runtime-route th{padding-left:34px;font-weight:400}.runtime-route small{color:var(--muted);font-size:11px}.runtime-route code{font-size:11px}.runtime-system .status{font-size:11px;padding:3px 6px}
+#architecture-content table th,#architecture-content table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}#architecture-content table thead th{background:#f3f7f4;font-weight:600;color:var(--muted);font-size:12px}#architecture-content table tbody tr:last-child th,#architecture-content table tbody tr:last-child td{border-bottom:0}
+.source-ref{font-size:12px;color:var(--muted)}
+.comparison{margin-top:16px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:#fbfdfb}.comparison summary{cursor:pointer;min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;font-size:13px}.comparison summary:focus-visible{outline:3px solid #407fc4;outline-offset:3px}.comparison-meta{color:var(--muted);font-size:12px}.comparison-why{margin-top:10px;font-size:13px}.comparison .table-scroll{margin-top:8px}
+table.metrics{min-width:0}table.metrics th small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:3px}.metric-value{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:var(--ink)}
+.spend-line,.regression-line{margin-top:12px;font-size:13px}
+@media(max-width:760px){.runtime-route th{padding-left:18px}.comparison{padding:10px 12px}}
+table.metrics td:last-child{white-space:nowrap}

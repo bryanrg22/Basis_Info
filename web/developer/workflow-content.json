@@ -1,0 +1,4246 @@
+{
+ "schema_version": 1,
+ "source": {
+  "report": "docs/review_2026-10-15/EVAL_REPORT.md",
+  "repository": "https://github.com/bryanrg22/Basis_Info/blob/main/",
+  "written": "2026-11-02",
+  "note": "Explanations are read from the activities named as each step's source. Every figure is copied verbatim from the section of EVAL_REPORT.md it cites; backEnd/tests/unit/test_developer_workflow_content.py fails when a figure, heading or path no longer matches."
+ },
+ "roles": {
+  "VISION_MODEL": "Countable objects, one call per photo",
+  "VISION_SURFACES_MODEL": "Surfaces, materials and room identity, one call per photo",
+  "VISION_FUSION_MODEL": "Count fusion: second countables call, fused per class",
+  "ROOM_MODEL": "Room reconciliation, one call per multi-photo room",
+  "ROOM_MATERIALS_MODEL": "Material second look (wainscoting, wall finish, tile)",
+  "ROOM_CALL_MODEL": "Room call: one call per interior room with all its photos",
+  "SURFACE_CROP_MODEL": "Material from segmentation-guided surface crops",
+  "EXTRACTION_GROUNDED_MODEL": "Grounded reading: every field in one call, quoted verbatim",
+  "TEXT_MODEL": "Pipeline field call: fields still missing, and the grounded fallback",
+  "CLASSIFY_MODEL": "Residual classifier: components no convention or rule decides"
+ },
+ "steps": {
+  "upload": {
+   "how": [
+    {
+     "title": "Register and upload",
+     "detail": "Each appraisal and photo is registered with its sha256, uploaded to a signed URL that lasts 15 minutes, then confirmed. A lost upload is resumed by re-issuing the URL; the same file registered twice at once is handled safely.",
+     "source": "backEnd/basis/api/routes/documents.py"
+    },
+    {
+     "title": "Intake, then start",
+     "detail": "Start is refused until the intake (property use, placed-in-service date, state, basis) and an appraisal are present. The study's first revision and its Temporal workflow are created together.",
+     "source": "backEnd/basis/api/routes/studies.py"
+    },
+    {
+     "title": "A worker takes it",
+     "detail": "A worker polling the basis-studies task queue records the run start, moves the study to extracting and fans out the appraisal and photo activities in parallel. A worker loads its embedding model before it polls, so the first ingest cannot miss its heartbeat.",
+     "source": "backEnd/basis/workflow/study_workflow.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "api"
+    },
+    {
+     "service": "firebase"
+    },
+    {
+     "service": "storage"
+    },
+    {
+     "service": "db"
+    },
+    {
+     "service": "temporal"
+    },
+    {
+     "service": "worker"
+    }
+   ],
+   "results": {
+    "summary": "An engineer registers each document, uploads it to a signed URL and confirms it; start is refused without the intake and the appraisal (37.1), and a fresh worker now loads the embedding model before it polls so the first appraisal ingest cannot miss its heartbeat (39). Capacity was load-tested per worker process (32): about 6.6 studies an hour at the defaults, 104.0 with the launch settings.",
+    "comparisons": [
+     {
+      "title": "Embedding model load on a fresh worker",
+      "section": "39",
+      "dataset": "SentenceTransformerEmbedder, 64 texts, all-MiniLM-L6-v2; laptop host and the backend container image",
+      "date": "2026-10-29",
+      "columns": [
+       "Setup",
+       "Model load (warm-up or first embed)",
+       "Next embed"
+      ],
+      "rows": [
+       {
+        "name": "Model baked into the image, warmed before polling (fresh container, Hub unreachable)",
+        "values": [
+         "2.9 s",
+         "0.10 s"
+        ],
+        "selected": true
+       },
+       {
+        "name": "Before: fresh container, network on (download and load inside the activity)",
+        "values": [
+         "137.7 s",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "Before: fresh container, Hub unreachable",
+        "values": [
+         "OSError",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "Host, empty cache (download then load)",
+        "values": [
+         "186.8 s",
+         "0.01 s"
+        ]
+       },
+       {
+        "name": "Host, empty cache, repeated later",
+        "values": [
+         "298.5 s",
+         "0.03 s"
+        ]
+       },
+       {
+        "name": "Host, warm cache, Hub reachable",
+        "values": [
+         "7.8 s",
+         "0.01 s"
+        ]
+       },
+       {
+        "name": "Host, warm cache, HF_HUB_OFFLINE=1",
+        "values": [
+         "6.7 s",
+         "0.01 s"
+        ]
+       }
+      ],
+      "winner": "Model baked into the image, warmed before polling (fresh container, Hub unreachable)",
+      "why": "A cold cache is six to ten times the activity's heartbeat window, so the image bakes the pinned model, the worker loads it before polling, and the embedding loop heartbeats on its own."
+     },
+     {
+      "title": "Capacity per worker process",
+      "section": "32",
+      "dataset": "Locust engineers uploading and running whole synthetic 52-photo studies against fake providers with the live study's latencies",
+      "date": "2026-10-17",
+      "columns": [
+       "Run (settings)",
+       "Studies at once",
+       "Studies/hour",
+       "Appraisal gate p95 (s)",
+       "Assets gate p95 (s)",
+       "Cost / completed study"
+      ],
+      "rows": [
+       {
+        "name": "l12-s25: LLM_CONCURRENCY=64, CLASSIFY_CONCURRENCY=16, LOCALIZER_CONCURRENCY=12",
+        "values": [
+         "25",
+         "104.0",
+         "218",
+         "858",
+         "$6.15"
+        ],
+        "selected": true
+       },
+       {
+        "name": "h-s25: LLM_CONCURRENCY=64, CLASSIFY_CONCURRENCY=16, account limits emulated",
+        "values": [
+         "25",
+         "57.4",
+         "208",
+         "848",
+         "$6.15"
+        ]
+       },
+       {
+        "name": "blim-s25: as b, account limits emulated",
+        "values": [
+         "25",
+         "55.7",
+         "282",
+         "965",
+         "$6.07"
+        ]
+       },
+       {
+        "name": "b-s25: LLM_CONCURRENCY=64, CLASSIFY_CONCURRENCY=16",
+        "values": [
+         "25",
+         "55.7",
+         "290",
+         "979",
+         "$6.07"
+        ]
+       },
+       {
+        "name": "b-s10",
+        "values": [
+         "10",
+         "54.2",
+         "145",
+         "429",
+         "$6.07"
+        ]
+       },
+       {
+        "name": "b-s5",
+        "values": [
+         "5",
+         "52.3",
+         "123",
+         "282",
+         "$6.07"
+        ]
+       },
+       {
+        "name": "c-s25: production defaults",
+        "values": [
+         "25",
+         "6.6",
+         "1,545",
+         "13,593",
+         "$6.07"
+        ]
+       },
+       {
+        "name": "c-s10: production defaults",
+        "values": [
+         "10",
+         "6.6",
+         "489",
+         "5,435",
+         "$6.07"
+        ]
+       },
+       {
+        "name": "c-s5: production defaults",
+        "values": [
+         "5",
+         "6.6",
+         "288",
+         "2,737",
+         "$6.07"
+        ]
+       },
+       {
+        "name": "c-s1: production defaults",
+        "values": [
+         "1",
+         "5.9",
+         "130",
+         "584",
+         "$6.07"
+        ]
+       }
+      ],
+      "winner": "l12-s25: LLM_CONCURRENCY=64, CLASSIFY_CONCURRENCY=16, LOCALIZER_CONCURRENCY=12",
+      "why": "The settings recommended for launch (32.12): every study completed with no failed attempt, bound only by the 64-call pool per process."
+     },
+     {
+      "title": "Upload of one study under the per-engineer mutation limit",
+      "section": "32.10",
+      "dataset": "Five engineers uploading at once, 53 documents each, upload-only steps at scale 1.0",
+      "date": "2026-10-17",
+      "columns": [
+       "Mutation limit per engineer",
+       "Upload of 53 documents (p50 / max)",
+       "429s"
+      ],
+      "rows": [
+       {
+        "name": "300 a minute",
+        "values": [
+         "2.9 s / 2.9 s",
+         "0"
+        ],
+        "selected": true
+       },
+       {
+        "name": "60 a minute (default)",
+        "values": [
+         "61.5 s / 61.5 s",
+         "5"
+        ]
+       }
+      ],
+      "winner": "300 a minute",
+      "why": "Recommended for launch together with the frontend: it keeps the abuse guard and lets a whole study upload without throttling; the default was not changed because it is the API contract."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Embedding model warm-up at worker start (baked image)",
+      "value": "4.8 s",
+      "section": "39.4",
+      "note": "logged before the worker polls; SIGTERM drains and stops in 2 s"
+     },
+     {
+      "label": "Activity heartbeat timeout the first embed had to beat",
+      "value": "30 s",
+      "section": "39",
+      "note": "the cold-cache failure cost 19 minutes before a manual retry"
+     },
+     {
+      "label": "Studies per hour, one worker process, production defaults",
+      "value": "6.6",
+      "section": "32.5",
+      "note": "four model calls at a time; a study is about 2,200 call-seconds"
+     },
+     {
+      "label": "Studies per hour our provider accounts allow",
+      "value": "337",
+      "section": "32",
+      "note": "tightest limit: Anthropic Sonnet input tokens (classifier)"
+     },
+     {
+      "label": "ingest_appraisal longest transaction, real embedder, 10 studies",
+      "value": "0.7 s",
+      "section": "32.4",
+      "note": "8.0 s and 21 failed attempts before the fix; 0 after"
+     },
+     {
+      "label": "Signed upload URL lifetime",
+      "value": "15 minutes",
+      "section": "58",
+      "note": "re-issued for an unconfirmed document by POST .../documents/{id}/upload-url; a confirmed one is 409 upload-complete"
+     },
+     {
+      "label": "Start without a complete intake",
+      "value": "422 intake-required",
+      "section": "37.1",
+      "note": "checked before the appraisal's 409 appraisal-required"
+     },
+     {
+      "label": "Two registrations of one sha256 at once",
+      "value": "verified safe",
+      "section": "62.1",
+      "note": "one 201, the other 409 duplicate-document, one row; two confirmations of one upload record one event (fixed)"
+     }
+    ],
+    "spend": {},
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "Live run 6 on main 15cd291 completed both studies end to end on the build with the drafts, resumable uploads and race fixes merged; the section does not measure the upload step separately."
+    }
+   },
+   "links": [
+    {
+     "label": "Upload routes",
+     "path": "backEnd/basis/api/routes/documents.py"
+    },
+    {
+     "label": "Upload tests",
+     "path": "backEnd/tests/api/test_uploads.py"
+    },
+    {
+     "label": "Restart tests",
+     "path": "backEnd/tests/lifecycle/test_restart_recovery.py"
+    },
+    {
+     "label": "Workflow contract",
+     "path": "docs/api/WORKFLOW.md"
+    },
+    {
+     "label": "Resumable uploads",
+     "path": "docs/api/GATE_DRAFTS_AND_RESUME.md"
+    }
+   ]
+  },
+  "extract": {
+   "how": [
+    {
+     "title": "Ingest the report PDF",
+     "detail": "ingest_appraisal picks the extraction source (a PDF, a UAD 3.6 ZIP, or a bare MISMO XML's companion PDF), parses its layout, chunks the text per page with whole tables kept, embeds the chunks and publishes the study corpus, so every citation names its source document.",
+     "source": "backEnd/basis/activities/ingest_appraisal.py"
+    },
+    {
+     "title": "Read the fields",
+     "detail": "A UAD 3.6 XML is read directly, with highlight regions from the PDF. A PDF gets Azure Document Intelligence's page text and one grounded call on EXTRACTION_GROUNDED_MODEL that reads every field with a verbatim quote, each value checked against its quote; when that call cannot run, the Azure DI pipeline with one TEXT_MODEL call fills the fields still missing.",
+     "source": "backEnd/basis/activities/extract_fields.py"
+    },
+    {
+     "title": "Validate and gate",
+     "detail": "Values are checked (types, ranges, presence rules, cross-field consistency) with their sources kept; a missing or conflicting critical field flags the appraisal review, where the engineer's corrections overwrite fields as source manual.",
+     "source": "backEnd/basis/extraction/validation.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "appraisal",
+     "roles": [
+      "EXTRACTION_GROUNDED_MODEL",
+      "TEXT_MODEL"
+     ]
+    },
+    {
+     "service": "azure_di"
+    }
+   ],
+   "results": {
+    "summary": "Appraisal reading was compared across Azure DI's own key-value pairs and 1004 model, the Azure DI pipeline with a model fallback, grounded one-call readings on five models and two-model votes (33.5). Production reads a PDF with one grounded call on gpt-6.1-sol (EXTRACTION_METHOD=grounded, 33.12), falls back to the Azure DI pipeline with gpt-6-luna when that call cannot run (17.3, 18), and reads a UAD 3.6 XML or ZIP with the MISMO reader (33.7).",
+    "comparisons": [
+     {
+      "title": "Method and model sweep, 16-document subset",
+      "section": "33",
+      "dataset": "16 appraisals (both clients, 6 GSE UAD 3.6 samples, 8 synthetic 1004s including 2 scans), all fields",
+      "date": "2026-10-27",
+      "columns": [
+       "System",
+       "Model",
+       "Accuracy (all fields)",
+       "Wrong values",
+       "Critical fields",
+       "$ / doc"
+      ],
+      "rows": [
+       {
+        "name": "llm_all: one grounded call (production default, EXTRACTION_METHOD=grounded)",
+        "values": [
+         "gpt-6.1-sol",
+         "0.940",
+         "33",
+         "1.000",
+         "0.072"
+        ],
+        "selected": true
+       },
+       {
+        "name": "vote llm_all Sol -> checkbox_context Sol",
+        "values": [
+         "Sol",
+         "0.934",
+         "40",
+         "0.969",
+         "0.12"
+        ]
+       },
+       {
+        "name": "vote llm_all Sonnet -> checkbox_context Opus (2 runs)",
+        "values": [
+         "Sonnet + Opus",
+         "0.928 / 0.927",
+         "60",
+         "0.958",
+         "0.270"
+        ]
+       },
+       {
+        "name": "checkbox_context (pipeline with labelled page text)",
+        "values": [
+         "Sol",
+         "0.911",
+         "Not measured",
+         "Not measured",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "checkbox_context (pipeline with labelled page text)",
+        "values": [
+         "Opus",
+         "0.909",
+         "Not measured",
+         "Not measured",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "vote llm_all -> checkbox_context, luna (2 runs)",
+        "values": [
+         "luna",
+         "0.910 / 0.900",
+         "48",
+         "0.969",
+         "0.006"
+        ]
+       },
+       {
+        "name": "llm_all: one grounded call",
+        "values": [
+         "Sonnet",
+         "0.903",
+         "34",
+         "0.990",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "checkbox_context (pipeline with labelled page text)",
+        "values": [
+         "luna",
+         "0.884",
+         "Not measured",
+         "Not measured",
+         "0.002"
+        ]
+       },
+       {
+        "name": "llm_all: one grounded call",
+        "values": [
+         "Haiku",
+         "0.866",
+         "44",
+         "0.833",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "llm_all: one grounded call",
+        "values": [
+         "luna",
+         "0.843",
+         "24",
+         "0.948",
+         "0.004"
+        ]
+       },
+       {
+        "name": "production pipeline (Azure DI layout + model fallback)",
+        "values": [
+         "luna",
+         "0.825",
+         "147",
+         "0.948",
+         "0.002"
+        ]
+       }
+      ],
+      "winner": "llm_all: one grounded call (production default, EXTRACTION_METHOD=grounded)",
+      "why": "Sol's single grounded call had the best overall score, the fewest wrong values and every critical field right; its lead over the votes is within the measured noise, and Bryan made it the production default (33.12)."
+     },
+     {
+      "title": "Production default replayed against the sweep's grounded call",
+      "section": "33.12",
+      "dataset": "Replay with no network on the 16-document subset (documents with a matching recording), gpt-6.1-sol at low effort",
+      "date": "2026-10-28",
+      "columns": [
+       "System",
+       "Documents",
+       "Headline accuracy",
+       "Spurious values"
+      ],
+      "rows": [
+       {
+        "name": "production (grounded call + pipeline highlight rules + derived site area), this commit",
+        "values": [
+         "9 of 16",
+         "0.991 (1,067 / 1,077)",
+         "5"
+        ],
+        "selected": true
+       },
+       {
+        "name": "llm_all (the sweep's grounded call), this commit",
+        "values": [
+         "9 of 16",
+         "0.979 (1,054 / 1,077)",
+         "5"
+        ]
+       },
+       {
+        "name": "production, units description as recorded",
+        "values": [
+         "15 of 16",
+         "0.967 (1,443 / 1,493)",
+         "7"
+        ]
+       },
+       {
+        "name": "llm_all, units description as recorded",
+        "values": [
+         "15 of 16",
+         "0.953 (1,423 / 1,493)",
+         "7"
+        ]
+       }
+      ],
+      "winner": "production (grounded call + pipeline highlight rules + derived site area), this commit",
+      "why": "The production path sends the sweep's requests byte for byte and returns the same values; it only adds the derived site-area fields, which were all correct."
+     },
+     {
+      "title": "Fallback model for the pipeline's field call",
+      "section": "17.1",
+      "dataset": "75 labelled fields of the client appraisal (12 critical), whole document text, 3 repeats per model",
+      "date": "2026-10-16",
+      "columns": [
+       "Model",
+       "Effort",
+       "Fields right, mean of 3",
+       "Critical (12), mean of 3",
+       "Cost per study",
+       "Seconds per call"
+      ],
+      "rows": [
+       {
+        "name": "gpt-6-luna",
+        "values": [
+         "low",
+         "0.924",
+         "1.000",
+         "$0.0024",
+         "17.0"
+        ],
+        "selected": true
+       },
+       {
+        "name": "claude-sonnet-5-5",
+        "values": [
+         "low",
+         "0.916",
+         "1.000",
+         "$0.0610",
+         "14.0"
+        ]
+       },
+       {
+        "name": "claude-opus-5-5",
+        "values": [
+         "low",
+         "0.911",
+         "1.000",
+         "$0.1221",
+         "18.9"
+        ]
+       },
+       {
+        "name": "gpt-5.2",
+        "values": [
+         "low",
+         "0.880",
+         "1.000",
+         "$0.0591",
+         "33.5"
+        ]
+       },
+       {
+        "name": "gpt-6.1-sol",
+        "values": [
+         "low",
+         "0.880",
+         "1.000",
+         "$0.0376",
+         "22.9"
+        ]
+       },
+       {
+        "name": "gpt-5.4-mini",
+        "values": [
+         "low",
+         "0.782",
+         "0.889",
+         "$0.0197",
+         "15.4"
+        ]
+       },
+       {
+        "name": "gpt-4o-mini (previous default)",
+        "values": [
+         "-",
+         "0.249",
+         "0.167",
+         "$0.0025",
+         "12.6"
+        ]
+       }
+      ],
+      "winner": "gpt-6-luna",
+      "why": "Highest mean with every critical field right on every repeat, at the lowest price measured; the top four models are tied within noise (17.3)."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Grounded reading on gpt-6.1-sol, share of all fields (16 documents)",
+      "value": "0.940",
+      "section": "33.5",
+      "note": "every critical field right (1.000)"
+     },
+     {
+      "label": "Azure DI pipeline with the luna fallback, all 41 documents",
+      "value": "0.879",
+      "section": "33.9",
+      "note": "headline, 3,750 of 4,266 after the presence rules; 0.835 when first measured"
+     },
+     {
+      "label": "Highlights on the value, production default (15 replayed documents)",
+      "value": "0.996",
+      "section": "33.12",
+      "note": "1,195 of 1,200; 0.857 for the quote's words alone"
+     },
+     {
+      "label": "UAD 3.6 MISMO XML reader, GSE samples' verified fields",
+      "value": "0.989",
+      "section": "33.7",
+      "note": "0.958 on its first, spec-only pass"
+     },
+     {
+      "label": "Extraction fallback (gpt-6-luna), fields right of 75",
+      "value": "0.924",
+      "section": "18",
+      "note": "12 of 12 critical, $0.0024 per study"
+     },
+     {
+      "label": "Azure DI layout analysis, 6-page document",
+      "value": "33 s",
+      "section": "33.10",
+      "note": "a 32-page form 59 s, with Retry-After capped at 5 s"
+     },
+     {
+      "label": "Azure DI prebuilt-layout price",
+      "value": "$10 per 1,000 pages",
+      "section": "40",
+      "note": "recorded as a document_analysis row; the analysis is reused across revisions"
+     },
+     {
+      "label": "Assets priced once the takeoff reads the appraisal (stored export re-priced)",
+      "value": "283 of 376",
+      "section": "35.2",
+      "note": "249 of 376 before; every input present in the extraction"
+     }
+    ],
+    "spend": {
+     "cost_per_study": "$0.072",
+     "cost_section": "33.12",
+     "input_tokens": "13,600",
+     "output_tokens": "4,500",
+     "tokens_section": "33.12",
+     "latency": "28 s",
+     "latency_section": "33.12"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "Live run 6 on main 15cd291 completed both studies end to end with the appraisal stage in the path, but the section does not score the appraisal fields separately; the grounded default's own replay baseline is baseline.grounded.json (33.12)."
+    }
+   },
+   "links": [
+    {
+     "label": "Extraction pipeline",
+     "path": "backEnd/basis/extraction/pipeline.py"
+    },
+    {
+     "label": "Grounded reading",
+     "path": "backEnd/basis/extraction/grounded.py"
+    },
+    {
+     "label": "Appraisal evaluations",
+     "path": "backEnd/evals/appraisal/SPEC.md"
+    },
+    {
+     "label": "Appraisal harness",
+     "path": "backEnd/evals/appraisal/run.py"
+    },
+    {
+     "label": "UAD 3.6 intake",
+     "path": "docs/api/UAD36_INTAKE.md"
+    }
+   ]
+  },
+  "photos": {
+   "how": [
+    {
+     "title": "Prepare and count",
+     "detail": "analyze_photo resizes, strips EXIF and re-encodes each photo, then makes two concurrent structured calls: countable objects on VISION_MODEL and surfaces, materials and room identity on VISION_SURFACES_MODEL, merged into one analysis with one components row per kind.",
+     "source": "backEnd/basis/vision/analyze.py"
+    },
+    {
+     "title": "Fuse counts per class",
+     "detail": "A third concurrent countables call on VISION_FUSION_MODEL supplies the count for the classes where it measured better (the per-class table of section 15.4). The stored analysis records which model gave each count; a failed second call keeps the base counts and flags the photo instead of failing it.",
+     "source": "backEnd/basis/vision/fusion.py"
+    },
+    {
+     "title": "Outline every object",
+     "detail": "localize_photo sends the photo's countable labels as phrases to SAM 3 in one full-frame prediction; every instance is stored as box and mask, counted when its score clears its class threshold, so an engineer can inspect and select objects. It runs behind the rooms review and never fails the study.",
+     "source": "backEnd/basis/activities/localize_photo.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "vision",
+     "roles": [
+      "VISION_MODEL",
+      "VISION_SURFACES_MODEL",
+      "VISION_FUSION_MODEL"
+     ]
+    },
+    {
+     "service": "sam3"
+    }
+   ],
+   "results": {
+    "summary": "Each photo gets narrow calls instead of one call for everything: countables on gpt-6.1-sol at low effort, with a second countables call on claude-opus-5-5 at medium effort fused per class (15.4), and surfaces and room type on gpt-6-luna (28.1). The decomposed step beat the one-pass prompt (11, 12.1), detectors and segmenters did not beat the model counts (21.6, 26.2), and SAM 3 runs after the model only to draw highlight masks (19, 30).",
+    "comparisons": [
+     {
+      "title": "Per-photo counting variants against the verified boxes",
+      "section": "15.1",
+      "dataset": "52 photos of one client study, 191 verified objects in six count classes, three repeats",
+      "date": "2026-10-16",
+      "columns": [
+       "Variant",
+       "Count MAE",
+       "Exact",
+       "Count P / R",
+       "Diff [95% CI]",
+       "$ / 52",
+       "s / photo"
+      ],
+      "rows": [
+       {
+        "name": "4c. sol low + Opus medium per class, leave-one-photo-out",
+        "values": [
+         "0.124",
+         "0.899",
+         "0.92 / 0.87",
+         "-0.056 [-0.093, -0.022]",
+         "$2.20",
+         "11.1"
+        ],
+        "selected": true
+       },
+       {
+        "name": "Baseline: sol, decomposed, low",
+        "values": [
+         "0.180",
+         "0.865",
+         "0.84 / 0.87",
+         "0",
+         "$0.79",
+         "11.1"
+        ]
+       },
+       {
+        "name": "1b. Opus 5.5 decomposed, low (sec. 14)",
+        "values": [
+         "0.166",
+         "0.876",
+         "0.90 / 0.83",
+         "-0.014 [-0.049, +0.020]",
+         "$2.23",
+         "4.7"
+        ]
+       },
+       {
+        "name": "1d. Opus 5.5, countables at high",
+        "values": [
+         "0.144",
+         "0.893",
+         "0.90 / 0.86",
+         "-0.035 [-0.068, -0.003]",
+         "$2.54",
+         "9.0"
+        ]
+       },
+       {
+        "name": "2a. 2 x 2 parts, separate calls, summed",
+        "values": [
+         "0.265",
+         "0.807",
+         "0.80 / 0.76",
+         "+0.085 [+0.026, +0.150]",
+         "$1.82",
+         "13.2"
+        ]
+       },
+       {
+        "name": "2b. photo + 4 parts in one call",
+        "values": [
+         "0.191",
+         "0.866",
+         "0.81 / 0.91",
+         "+0.012 [-0.020, +0.052]",
+         "$1.04",
+         "11.1"
+        ]
+       },
+       {
+        "name": "3c. sol + Opus low, median of all 6 samples",
+        "values": [
+         "0.147",
+         "0.888",
+         "0.91 / 0.84",
+         "-0.032 [-0.061, -0.006]",
+         "$5.42",
+         "11.1"
+        ]
+       },
+       {
+        "name": "4b. sol + SAM 3 per class, leave-one-photo-out",
+        "values": [
+         "0.167",
+         "0.880",
+         "0.89 / 0.84",
+         "-0.013 [-0.048, +0.025]",
+         "$0.99",
+         "11.1"
+        ]
+       },
+       {
+        "name": "4e. 4c plus SAM 3 as a further source",
+        "values": [
+         "0.155",
+         "0.879",
+         "0.89 / 0.86",
+         "-0.025 [-0.058, +0.005]",
+         "$2.40",
+         "11.1"
+        ]
+       },
+       {
+        "name": "5c. 4c plus confirmed SAM 3 detections",
+        "values": [
+         "0.126",
+         "0.895",
+         "0.92 / 0.87",
+         "-0.053 [-0.094, -0.015]",
+         "$3.18",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "3+4. 4c on each model's median of 3 repeats",
+        "values": [
+         "0.103",
+         "0.917",
+         "0.94 / 0.89",
+         "-0.077 [-0.116, -0.042]",
+         "$5.93",
+         "11.1"
+        ]
+       },
+       {
+        "name": "SAM 3 alone, v2 phrases, score 0.5 (sec. 10)",
+        "values": [
+         "0.587",
+         "0.734",
+         "0.51 / 0.89",
+         "+0.407",
+         "$0.20",
+         "Not measured"
+        ]
+       }
+      ],
+      "winner": "4c. sol low + Opus medium per class, leave-one-photo-out",
+      "why": "Taking each class from the counting call that is more accurate on it was the significant gain that held out of sample; self-consistency on top was more accurate but cost far more, and SAM 3 as a count source only helped in sample (15.3, 15.4)."
+     },
+     {
+      "title": "Surfaces and room-type call: cheapest model that matches",
+      "section": "28.1",
+      "dataset": "52 photos of one client study, three repeats, countables call fixed on gpt-6.1-sol",
+      "date": "2026-10-16",
+      "columns": [
+       "Surfaces call",
+       "Room accuracy, mean of 3",
+       "Surfaces P / R / F1, per photo",
+       "Report rows evidenced (of 38), mean of 3",
+       "Material present (of 8)",
+       "Cost per 52 photos",
+       "Seconds per photo"
+      ],
+      "rows": [
+       {
+        "name": "v2: gpt-6-luna",
+        "values": [
+         "0.878",
+         "0.650 / 0.731 / 0.688",
+         "32.7",
+         "8.0",
+         "$0.019",
+         "4.1"
+        ],
+        "selected": true
+       },
+       {
+        "name": "v2: gpt-6.1-sol (baseline)",
+        "values": [
+         "0.872",
+         "0.588 / 0.804 / 0.679",
+         "33.0",
+         "8.0",
+         "$0.336",
+         "6.8"
+        ]
+       },
+       {
+        "name": "v2: gpt-5.6-luna",
+        "values": [
+         "0.885",
+         "0.616 / 0.754 / 0.678",
+         "33.0",
+         "8.0",
+         "$0.038",
+         "3.8"
+        ]
+       },
+       {
+        "name": "v1: gpt-6.1-sol (12.1, baseline)",
+        "values": [
+         "0.891",
+         "0.580 / 0.772 / 0.663",
+         "30.3",
+         "7.3",
+         "$0.329",
+         "7.7"
+        ]
+       },
+       {
+        "name": "v1: gpt-6-luna",
+        "values": [
+         "0.897",
+         "0.655 / 0.719 / 0.685",
+         "31.3",
+         "8.0",
+         "$0.018",
+         "4.1"
+        ]
+       },
+       {
+        "name": "v1: gpt-5.6-luna",
+        "values": [
+         "0.885",
+         "0.607 / 0.746 / 0.669",
+         "32.0",
+         "8.0",
+         "$0.036",
+         "3.6"
+        ]
+       }
+      ],
+      "winner": "v2: gpt-6-luna",
+      "why": "gpt-6-luna matched gpt-6.1-sol on room type, surface F1 and the report-row measures at a small fraction of the price, trading some surface recall for precision; gpt-5.6-luna lost recall without the precision gain."
+     },
+     {
+      "title": "Trained segmenters and open-vocabulary detectors against the model counts",
+      "section": "26.2",
+      "dataset": "52 photos of one client study, 191 verified boxes; detector phrases and thresholds chosen leave one photo out",
+      "date": "2026-10-16",
+      "columns": [
+       "System",
+       "mAP@0.5 (LOO)",
+       "Count MAE, per-photo yardstick",
+       "Diff vs 4c [95% CI]",
+       "Count P / R",
+       "s / photo",
+       "Cost"
+      ],
+      "rows": [
+       {
+        "name": "Current best counts (4c, VLM)",
+        "values": [
+         "n/a",
+         "0.124",
+         "0",
+         "0.92 / 0.87",
+         "11",
+         "$1.87 / 52"
+        ],
+        "selected": true
+       },
+       {
+        "name": "SAM 3 v3, per class LOO (section 19)",
+        "values": [
+         "0.763",
+         "0.260",
+         "+0.136 [+0.062, +0.225]",
+         "0.77 / 0.82",
+         "3.2",
+         "~$0.15"
+        ]
+       },
+       {
+        "name": "Mask2Former Swin-L, ADE20K panoptic",
+        "values": [
+         "0.219",
+         "0.542",
+         "+0.418 [+0.287, +0.567]",
+         "0.60 / 0.36",
+         "0.15 (MPS)",
+         "$0 local"
+        ]
+       },
+       {
+        "name": "OneFormer Swin-L, ADE20K panoptic",
+        "values": [
+         "0.189",
+         "0.526",
+         "+0.402 [+0.268, +0.556]",
+         "0.62 / 0.36",
+         "1.3 (CPU)",
+         "$0 local"
+        ]
+       },
+       {
+        "name": "OWLv2-L (SAM 3 phrase pool)",
+        "values": [
+         "0.663",
+         "0.407",
+         "+0.283 [+0.187, +0.392]",
+         "0.67 / 0.65",
+         "1.7 (MPS)",
+         "$0 local"
+        ]
+       },
+       {
+        "name": "Grounding DINO-B (SAM 3 phrase pool)",
+        "values": [
+         "0.439",
+         "0.452",
+         "+0.328 [+0.204, +0.478]",
+         "0.70 / 0.46",
+         "24 (MPS)",
+         "$0 local"
+        ]
+       },
+       {
+        "name": "LLMDet-B (SAM 3 phrase pool; 26.12)",
+        "values": [
+         "0.279",
+         "0.529",
+         "+0.405 [+0.275, +0.565]",
+         "0.66 / 0.28",
+         "22 (MPS)",
+         "$0 local"
+        ]
+       }
+      ],
+      "winner": "Current best counts (4c, VLM)",
+      "why": "No detector or segmenter won a single class against the model counts; SAM 3 stays the best detector on these photos, so it is kept for highlight masks only (26.9, 26.10)."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Count MAE, six verified classes (per-class fusion, leave one photo out)",
+      "value": "0.124",
+      "section": "15.4",
+      "note": "against 0.180 for gpt-6.1-sol alone"
+     },
+     {
+      "label": "Exact-count share",
+      "value": "0.899",
+      "section": "15.4",
+      "note": "against 0.865 for gpt-6.1-sol alone"
+     },
+     {
+      "label": "Surfaces F1 per photo (gpt-6-luna, photo_surfaces/v2)",
+      "value": "0.688",
+      "section": "28.1",
+      "note": "gpt-6.1-sol: 0.679"
+     },
+     {
+      "label": "Room-type accuracy, mean of 3 (gpt-6-luna, photo_surfaces/v2)",
+      "value": "0.878",
+      "section": "28.1",
+      "note": "gpt-6.1-sol: 0.872"
+     },
+     {
+      "label": "Surfaces call cost per 52 photos",
+      "value": "$0.019",
+      "section": "28.1",
+      "note": "against $0.336 on gpt-6.1-sol"
+     },
+     {
+      "label": "SAM 3 mAP@0.5, per-class phrases and thresholds, leave one photo out",
+      "value": "0.763",
+      "section": "19.1",
+      "note": "v1 phrases at the earlier thresholds: 0.653"
+     },
+     {
+      "label": "SAM 3 billed predict time per photo, compact output (warm runs)",
+      "value": "0.57 s",
+      "section": "30.3",
+      "note": "2.1 s with full masks"
+     },
+     {
+      "label": "SAM 3 cost per study, compact output",
+      "value": "$0.03",
+      "section": "30.3",
+      "note": "about $0.11 with full masks"
+     }
+    ],
+    "spend": {
+     "cost_per_study": "$2.20",
+     "cost_section": "15.4",
+     "latency": "eleven seconds per photo",
+     "latency_section": "15.4"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "In the plain study of live run 6, seven analyze_photo activities exhausted their three attempts while the host slept with no DNS, so the workflow flagged the seven photos and finished with 45 of 52 photos placed in 43 rooms; the corrected study, run with the host held awake, had no failure."
+    }
+   },
+   "links": [
+    {
+     "label": "Photo analysis",
+     "path": "backEnd/basis/vision/analyze.py"
+    },
+    {
+     "label": "Count fusion tests",
+     "path": "backEnd/tests/unit/vision/test_count_fusion.py"
+    },
+    {
+     "label": "SAM 3 tests",
+     "path": "backEnd/tests/unit/vision/test_localize.py"
+    },
+    {
+     "label": "Count scorer",
+     "path": "backEnd/evals/compare_counts.py"
+    },
+    {
+     "label": "Photo comparison",
+     "path": "docs/review_2026-10-15/EVAL_REPORT.md#151-every-variant-against-the-current-best"
+    }
+   ]
+  },
+  "photo-results": {
+   "how": [
+    {
+     "title": "Group by file name",
+     "detail": "Photos whose file names name the same room, plus the engineer's room aliases, share one room; the model's room identity groups a photo only when its name says nothing. Grouping by the model alone merged distinct rooms, and grouping without aliases counted views of one room twice.",
+     "source": "backEnd/basis/vision/rooms.py"
+    },
+    {
+     "title": "Name, type and floor",
+     "detail": "Each room is named from its file name without the floor, typed from the name's words first and the photos' room answers second, and floored from the file name first. A change is a room.voted event naming the source of each field; a room the engineer corrected is never re-voted. No model call is made.",
+     "source": "backEnd/basis/activities/reconcile_rooms.py"
+    },
+    {
+     "title": "Open the rooms review",
+     "detail": "The rooms review opens once every photo is analyzed and voted. Ambiguous photos stay in Unassigned, SAM 3 outlines continue in the background, and a photo whose analysis failed keeps its failure code for the engineer.",
+     "source": "backEnd/basis/workflow/study_workflow.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "vision",
+     "roles": [
+      "VISION_SURFACES_MODEL"
+     ]
+    },
+    {
+     "service": "worker"
+    }
+   ],
+   "results": {
+    "summary": "Photos are grouped into rooms by file name plus the engineer's room aliases, with the model's room identity only as a fallback, because the model's grouping merged distinct rooms and the no-alias grouping counted views of one room twice (23.3, 27.1). Each room is then named from its file name without the floor, typed from the name's words first and the photos' vote second, and floored from the file name first; this makes no model call (48.4).",
+    "comparisons": [
+     {
+      "title": "Room name, type and floor before and after the name-first rule",
+      "section": "48.4",
+      "dataset": "52 photos of one client property: four live studies and a stored three-repeat per-photo run, scored against the 33 labelled rooms",
+      "date": "2026-10-30",
+      "columns": [
+       "Answers and scenario",
+       "Rooms",
+       "Name right",
+       "Room type right",
+       "Floor right",
+       "All three right",
+       "Ambiguous rooms",
+       "Photos unassigned"
+      ],
+      "rows": [
+       {
+        "name": "Live studies (4), file names, after",
+        "values": [
+         "49",
+         "49",
+         "48–49",
+         "48–49",
+         "48–49",
+         "0",
+         "0"
+        ],
+        "selected": true
+       },
+       {
+        "name": "Live studies (4), file names, before",
+        "values": [
+         "49",
+         "13",
+         "43–45",
+         "45–49",
+         "9–13",
+         "1–2",
+         "0"
+        ]
+       },
+       {
+        "name": "Live studies (4), with the 16 aliases, after",
+        "values": [
+         "33",
+         "33",
+         "32–33",
+         "32–33",
+         "32–33",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "name": "Live studies (4), with the 16 aliases, before",
+        "values": [
+         "33",
+         "3",
+         "29–31",
+         "31–33",
+         "1–3",
+         "0–1",
+         "0"
+        ]
+       },
+       {
+        "name": "Stored run (3 repeats), file names, after",
+        "values": [
+         "49",
+         "49",
+         "49",
+         "49",
+         "49",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "name": "Stored run (3 repeats), file names, before",
+        "values": [
+         "49",
+         "13",
+         "42–44",
+         "49",
+         "13",
+         "3–4",
+         "0"
+        ]
+       },
+       {
+        "name": "Stored run (3 repeats), with the 16 aliases, after",
+        "values": [
+         "33",
+         "33",
+         "33",
+         "33",
+         "33",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "name": "Stored run (3 repeats), with the 16 aliases, before",
+        "values": [
+         "33",
+         "3",
+         "29–30",
+         "33",
+         "3",
+         "1–2",
+         "0"
+        ]
+       }
+      ],
+      "winner": "Live studies (4), file names, after",
+      "why": "Taking the type and floor from the file name's words before the photos' vote fixed the rooms that opened Ambiguous or mistyped although their names said what they were; the vocabulary was written knowing these names, so this is a regression check, not out-of-sample evidence."
+     },
+     {
+      "title": "How photos are grouped into rooms, scored through the room step",
+      "section": "23.3",
+      "dataset": "Live per-photo outputs of one client study, room step of 16.5 re-run offline, one repeat, scored on the 33 labelled rooms",
+      "date": "2026-10-16",
+      "columns": [
+       "Grouping",
+       "Count MAE",
+       "Exact",
+       "Bias",
+       "Rooms exact",
+       "Label F1",
+       "Report rows",
+       "Cost"
+      ],
+      "rows": [
+       {
+        "name": "File name and the engineer's aliases (section 16)",
+        "values": [
+         "0.40",
+         "0.69",
+         "+0.09",
+         "4 of 33",
+         "0.89",
+         "32 of 39",
+         "$0.33"
+        ],
+        "selected": true
+       },
+       {
+        "name": "Model room identity (production, live)",
+        "values": [
+         "0.68",
+         "0.45",
+         "-0.09",
+         "3 of 33",
+         "0.68",
+         "32 of 39",
+         "$0.29"
+        ]
+       },
+       {
+        "name": "File name, no aliases (49 rooms, summed into the labelled 33)",
+        "values": [
+         "0.65",
+         "0.61",
+         "+0.51",
+         "4 of 33",
+         "0.89",
+         "32 of 39",
+         "$0.19"
+        ]
+       },
+       {
+        "name": "Defaults: file name and aliases, same live input",
+        "values": [
+         "0.45",
+         "0.65",
+         "+0.05",
+         "4 of 33",
+         "0.85",
+         "32 of 39",
+         "$0.32"
+        ]
+       },
+       {
+        "name": "Defaults (run 3, sol + fusion input): model room identity, live",
+        "values": [
+         "0.60",
+         "0.51",
+         "-0.23",
+         "2 of 33",
+         "0.69",
+         "32 of 39",
+         "$0.35"
+        ]
+       }
+      ],
+      "winner": "File name and the engineer's aliases (section 16)",
+      "why": "The model's room identity collected several real rooms under one room and de-duplicated objects across them, and without the aliases the views of one room became separate rooms whose objects were counted twice; file names plus aliases avoided both."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Rooms with name, type and floor all right, live studies, every room and repeat",
+      "value": "194",
+      "section": "48.4",
+      "note": "of 196; 46 of 196 before"
+     },
+     {
+      "label": "Rooms with name, type and floor all right, stored run, every room and repeat",
+      "value": "147 of 147",
+      "section": "48.4",
+      "note": "39 of 147 before"
+     },
+     {
+      "label": "Photos whose room has the right type (of 52), file names",
+      "value": "51–52",
+      "section": "48.4",
+      "note": "45–48 before"
+     },
+     {
+      "label": "Rooms opened Ambiguous before the change (stored run, file names)",
+      "value": "3–4",
+      "section": "48.4",
+      "note": "0 after"
+     },
+     {
+      "label": "Rooms proposed from the 52 file names",
+      "value": "33 rooms with the 16 aliases, 49 without",
+      "section": "27.1",
+      "note": "the production assignment equals the eval grouping for every photo"
+     },
+     {
+      "label": "Room count MAE with the production file-name grouping (one replay)",
+      "value": "0.37",
+      "section": "27.1",
+      "note": "0.60 with the model's room identity on the same input"
+     },
+     {
+      "label": "Signed count bias without the aliases (views of one room counted twice)",
+      "value": "+0.51",
+      "section": "23.3"
+     },
+     {
+      "label": "Rooms with more than one photo (where duplicates can occur)",
+      "value": "8",
+      "section": "16",
+      "note": "of 33 rooms; 27 photos are in those 8"
+     }
+    ],
+    "spend": {},
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "Live run 6's plain study finished with 45 of 52 photos placed in 43 rooms because seven photos lost their analysis to a host no-DNS window, and a photo with no analysis gets no room, which the rooms view does not yet show; the corrected study had no failure."
+    }
+   },
+   "links": [
+    {
+     "label": "Room grouping and vote",
+     "path": "backEnd/basis/vision/rooms.py"
+    },
+    {
+     "label": "Room metadata replay",
+     "path": "backEnd/evals/room_metadata.py"
+    },
+    {
+     "label": "Room metadata results",
+     "path": "docs/review_2026-10-15/EVAL_REPORT.md#48-rooms-open-named-typed-and-floored-the-names-words-first-then-every-photos-vote-2026-10-30"
+    }
+   ]
+  },
+  "inventory": {
+   "how": [
+    {
+     "title": "Rebuild each room's input",
+     "detail": "reconcile_rooms reads the approved room's photos in file-name order with each photo's component rows (so corrections carried into the revision are what is reconciled) and the prepared images from storage. A room whose photos did not change keeps its inventory.",
+     "source": "backEnd/basis/activities/reconcile_rooms.py"
+    },
+    {
+     "title": "Count each component once",
+     "detail": "A one-photo room takes its photo's analysis as its inventory. A multi-photo room gets one room_inventory call on ROOM_MODEL that lists every component once across the room's photos, with the photos it was seen in. An unusable answer falls back to the heuristic merge and flags the room.",
+     "source": "backEnd/basis/vision/room_step.py"
+    },
+    {
+     "title": "Second look at materials",
+     "detail": "Wainscoting, wall finish and tile get a material second look on ROOM_MATERIALS_MODEL (from Mask2Former surface crops when MATERIALS_SECOND_LOOK=surface_crops). The result is one components row per component with raw.source = room_inventory, which process_assets uses instead of the per-photo rows.",
+     "source": "backEnd/basis/vision/surface_material.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "room_inventory",
+     "roles": [
+      "ROOM_MODEL",
+      "ROOM_MATERIALS_MODEL",
+      "ROOM_CALL_MODEL",
+      "SURFACE_CROP_MODEL"
+     ]
+    },
+    {
+     "service": "mask2former"
+    },
+    {
+     "service": "sam3"
+    }
+   ],
+   "results": {
+    "summary": "One-photo rooms take their photo's analysis as the inventory; each multi-photo room gets one reconcile_rooms call (room_inventory/v3) that counts every object once across the room's photos, then a material second look on wainscoting, wall finish and tile on claude-sonnet-5-5 (16.5). The reconciliation moved from Sonnet 5.5 to gpt-6-luna at the same accuracy for less than half the cost (28.2, 31); one call per room with all its photos counted better but ships off by default until a second property confirms it (26.10, 29).",
+    "comparisons": [
+     {
+      "title": "Room step variants against the reconciliation baseline",
+      "section": "16.2",
+      "dataset": "33 rooms of one client study (8 with several photos), three repeats; gpt-6.1-sol per-photo input unless the row says Opus input",
+      "date": "2026-10-16",
+      "columns": [
+       "Variant",
+       "Count MAE",
+       "Exact-count rate",
+       "Signed bias",
+       "Label F1",
+       "Report rows (of 39), pass^3",
+       "Material present (of 9)",
+       "Cost, 3 repeats"
+      ],
+      "rows": [
+       {
+        "name": "Recommended: v3 Sonnet multi only + materials sensitive v3 Sonnet",
+        "values": [
+         "0.43",
+         "0.63",
+         "+0.10",
+         "0.85",
+         "32, 0.82",
+         "9",
+         "$0.99"
+        ],
+        "selected": true
+       },
+       {
+        "name": "Baseline: reconciliation room_inventory/v1, Azure gpt-4.1-mini",
+        "values": [
+         "0.72",
+         "0.55",
+         "+0.27",
+         "0.80",
+         "32, 0.82",
+         "8",
+         "$0.18"
+        ]
+       },
+       {
+        "name": "Heuristic merge only (largest per-photo count, no call)",
+        "values": [
+         "0.52",
+         "0.60",
+         "+0.03",
+         "0.84",
+         "31",
+         "8",
+         "$0"
+        ]
+       },
+       {
+        "name": "(a) room_inventory/v2 (per-label accounting), gpt-4.1-mini",
+        "values": [
+         "0.66",
+         "0.57",
+         "+0.35",
+         "0.84",
+         "31, 0.79",
+         "8",
+         "$0.20"
+        ]
+       },
+       {
+        "name": "(b) overlap merge, photo_overlap/v1 judgments by gpt-4.1-mini",
+        "values": [
+         "0.51",
+         "0.61",
+         "+0.05",
+         "0.84",
+         "31, 0.79",
+         "8",
+         "$0.27"
+        ]
+       },
+       {
+        "name": "Reconciler v2 on Opus 5.5 low, all rooms",
+        "values": [
+         "0.62",
+         "0.58",
+         "+0.40",
+         "0.78",
+         "33, 0.85",
+         "9",
+         "$3.30"
+        ]
+       },
+       {
+        "name": "Reconciler v2 on gpt-6.1-sol low, all rooms (2 repeats)",
+        "values": [
+         "0.76",
+         "0.49",
+         "+0.51",
+         "0.74",
+         "32, 0.82",
+         "8",
+         "$0.88"
+        ]
+       },
+       {
+        "name": "Reconciler room_inventory/v3 on Opus 5.5 low, multi only",
+        "values": [
+         "0.44",
+         "0.63",
+         "+0.15",
+         "0.84",
+         "31, 0.79",
+         "8",
+         "$1.16"
+        ]
+       },
+       {
+        "name": "Reconciler v3 on Sonnet 5.5 low, multi only",
+        "values": [
+         "0.42",
+         "0.64",
+         "+0.11",
+         "0.85",
+         "31, 0.79",
+         "7",
+         "$0.57"
+        ]
+       },
+       {
+        "name": "Opus input: baseline (v1, gpt-4.1-mini)",
+        "values": [
+         "0.51",
+         "0.69",
+         "+0.09",
+         "0.88",
+         "31, 0.79",
+         "8",
+         "$0.17"
+        ]
+       },
+       {
+        "name": "Opus input: heuristic merge only",
+        "values": [
+         "0.42",
+         "0.71",
+         "-0.01",
+         "0.89",
+         "30",
+         "8",
+         "$0"
+        ]
+       },
+       {
+        "name": "Opus input: recommended",
+        "values": [
+         "0.34",
+         "0.72",
+         "+0.06",
+         "0.90",
+         "31, 0.79",
+         "9",
+         "$0.94"
+        ]
+       }
+      ],
+      "winner": "Recommended: v3 Sonnet multi only + materials sensitive v3 Sonnet",
+      "why": "De-duplication needs a strong model and only pays where a room has several photos, so one-photo rooms skip the call; the sensitive material second look on Sonnet fixed the wainscot material and evidenced every material row (16.4, 16.5)."
+     },
+     {
+      "title": "Room reconciler and material model: cheapest that matches",
+      "section": "28.2",
+      "dataset": "33 rooms of one client study, Opus 5.5 per-photo input, room_inventory/v3, three repeats; 20 labelled surfaces for materials",
+      "date": "2026-10-16",
+      "columns": [
+       "Reconciler (= material model)",
+       "Count MAE",
+       "Exact-count rate",
+       "Signed bias",
+       "Label F1",
+       "8 multi-photo rooms: MAE / exact / bias",
+       "Labelled surfaces with the right material (of 20)",
+       "Cost per run"
+      ],
+      "rows": [
+       {
+        "name": "gpt-6-luna, second look on Sonnet 5.5",
+        "values": [
+         "0.437",
+         "0.65",
+         "+0.05",
+         "0.86",
+         "0.69 / 0.53 / +0.05",
+         "16",
+         "$0.157"
+        ],
+        "selected": true
+       },
+       {
+        "name": "claude-sonnet-5-5 (16.5, baseline)",
+        "values": [
+         "0.388",
+         "0.68",
+         "+0.00",
+         "0.87",
+         "0.56 / 0.61 / -0.09",
+         "17",
+         "$0.314"
+        ]
+       },
+       {
+        "name": "gpt-6.1-sol",
+        "values": [
+         "0.390",
+         "0.66",
+         "+0.10",
+         "0.87",
+         "0.55 / 0.57 / +0.20",
+         "14",
+         "$0.263"
+        ]
+       },
+       {
+        "name": "gpt-5.6-terra",
+        "values": [
+         "0.426",
+         "0.67",
+         "+0.03",
+         "0.85",
+         "0.65 / 0.59 / -0.02",
+         "12",
+         "about $0.36 (repriced; see below)"
+        ]
+       },
+       {
+        "name": "gpt-6-luna",
+        "values": [
+         "0.393",
+         "0.66",
+         "+0.08",
+         "0.86",
+         "0.56 / 0.57 / +0.14",
+         "14",
+         "$0.014"
+        ]
+       },
+       {
+        "name": "gpt-5.6-luna",
+        "values": [
+         "0.401",
+         "0.67",
+         "+0.05",
+         "0.86",
+         "0.59 / 0.59 / +0.04",
+         "12",
+         "$0.030"
+        ]
+       }
+      ],
+      "winner": "gpt-6-luna, second look on Sonnet 5.5",
+      "why": "gpt-6-luna reconciles within the noise of Sonnet, while materials decide the tax bucket and Sonnet reads them best, so the split keeps the second look on Sonnet at about half the cost; the two gpt-6-luna rows differ only by run-to-run noise of the same reconciler."
+     },
+     {
+      "title": "Room-step architectures: per-photo then reconcile against one call per room",
+      "section": "26.8",
+      "dataset": "One client study, 52 photos and 33 rooms, three repeats; quantities on the 17 count rows against the labelled inventory",
+      "date": "2026-10-16",
+      "columns": [
+       "Architecture",
+       "Label F1 (room)",
+       "Room counts [Diff, 95% CI]",
+       "Rows (pass^3)",
+       "Qty WAPE",
+       "Qty cost-weighted",
+       "$ / study",
+       "Wall s"
+      ],
+      "rows": [
+       {
+        "name": "Current pipeline (per photo Opus + room step; 4c counts)",
+        "values": [
+         "0.900",
+         "0.350",
+         "37 (0.97)",
+         "0.175",
+         "0.064",
+         "~$2.65 (+$1.87 for 4c counts)",
+         "not re-measured"
+        ],
+        "selected": true
+       },
+       {
+        "name": "d1. Room call v1, Opus medium (old furniture rule)",
+        "values": [
+         "0.821",
+         "0.420 [+0.114: +0.066, +0.163]",
+         "36 (0.92)",
+         "0.335",
+         "0.081",
+         "$1.03",
+         "63"
+        ]
+       },
+       {
+        "name": "d2. Room call v2, Opus medium",
+        "values": [
+         "0.917",
+         "0.269 [-0.068: -0.115, -0.017]",
+         "36 (0.92)",
+         "0.086",
+         "0.062",
+         "$1.18",
+         "79"
+        ]
+       },
+       {
+        "name": "d3. Room call v2, sol low",
+        "values": [
+         "0.868",
+         "0.341 [-0.015: -0.079, +0.050]",
+         "36 (0.95)",
+         "0.096",
+         "0.111",
+         "$0.39",
+         "115"
+        ]
+       },
+       {
+        "name": "d4. Whole property, Opus medium",
+        "values": [
+         "0.888",
+         "0.335 [-0.032: -0.125, +0.049]",
+         "36 (0.92)",
+         "0.137",
+         "0.155",
+         "$0.49",
+         "126"
+        ]
+       },
+       {
+        "name": "d5. Whole property, sol low",
+        "values": [
+         "0.884",
+         "0.451 [+0.026: -0.058, +0.118]",
+         "34 (0.89)",
+         "0.199",
+         "0.210",
+         "$0.17",
+         "189"
+        ]
+       },
+       {
+        "name": "d6. Photos to schedule, Opus medium",
+        "values": [
+         "n/a",
+         "n/a",
+         "34.7 (avg)",
+         "0.345",
+         "0.424",
+         "$0.34",
+         "82"
+        ]
+       },
+       {
+        "name": "d7. Photos to schedule, sol low",
+        "values": [
+         "n/a",
+         "n/a",
+         "34.3 (avg)",
+         "0.608",
+         "0.501",
+         "$0.10",
+         "80"
+        ]
+       },
+       {
+        "name": "e2. Room call v2, Opus high",
+        "values": [
+         "0.923",
+         "0.236 [-0.112: -0.187, -0.048]",
+         "36 (0.95)",
+         "0.086",
+         "0.079",
+         "$1.35",
+         "90"
+        ]
+       },
+       {
+        "name": "f. e2 inside, current pipeline outside (in-sample rule)",
+        "values": [
+         "0.898",
+         "0.277 [-0.067: -0.110, -0.023]",
+         "37 (0.97)",
+         "0.090",
+         "0.085",
+         "~$1.35 + exterior per-photo",
+         "~90"
+        ]
+       }
+      ],
+      "winner": "Current pipeline (per photo Opus + room step; 4c counts)",
+      "why": "The room call at high effort counted rooms best, but the interior/exterior rule was chosen on this one study and the per-row totals the engineer prices were no closer, so it was wired behind a setting and left off by default until a second property confirms it (26.10, 29.5)."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Room count MAE, production default (gpt-6-luna reconciles, Sonnet second look)",
+      "value": "0.401",
+      "section": "31",
+      "note": "0.392 with Sonnet for both calls; same report rows"
+     },
+     {
+      "label": "Room count MAE, recommended room step, Opus per-photo input",
+      "value": "0.34",
+      "section": "16.5",
+      "note": "baseline 0.51 on that input"
+     },
+     {
+      "label": "Room count MAE, recommended room step, gpt-6.1-sol per-photo input",
+      "value": "0.43",
+      "section": "16.2",
+      "note": "baseline reconciliation 0.72, heuristic merge 0.52"
+     },
+     {
+      "label": "Count MAE on the 8 multi-photo rooms, reconciliation call (first measurement)",
+      "value": "1.17",
+      "section": "7",
+      "note": "heuristic merge 1.28"
+     },
+     {
+      "label": "Count MAE on the 8 multi-photo rooms, recommended step",
+      "value": "0.55",
+      "section": "16.2",
+      "note": "heuristic merge 0.79"
+     },
+     {
+      "label": "Room count MAE, one call per room (wired, off by default)",
+      "value": "0.272",
+      "section": "29.2",
+      "note": "current pipeline 0.358 on the same input"
+     },
+     {
+      "label": "Labelled surfaces with the right material, luna reconciles and Sonnet looks",
+      "value": "16 of 20",
+      "section": "28.2",
+      "note": "Sonnet for both: 17"
+     },
+     {
+      "label": "Reasoning tokens, gpt-6-luna reconciliation calls over three repeats",
+      "value": "13,200",
+      "section": "28.2",
+      "note": "gpt-5.6-terra 26,600; gpt-6.1-sol 4,600"
+     }
+    ],
+    "spend": {
+     "cost_per_study": "$0.14",
+     "cost_section": "31",
+     "latency": "36 s",
+     "latency_section": "30.6"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "In live run 6's plain study reconcile_rooms exhausted its three attempts during a host no-DNS window, so the workflow flagged the review that shows the room step's output; evidenced rows were 34 of 38 there and 35 in the corrected study, which had no failure (study spend 2.12 and 3.55)."
+    }
+   },
+   "links": [
+    {
+     "label": "Room replay",
+     "path": "backEnd/evals/replay_rooms.py"
+    },
+    {
+     "label": "Room path tests",
+     "path": "backEnd/tests/unit/vision/test_room_step.py"
+    },
+    {
+     "label": "Room step activity tests",
+     "path": "backEnd/tests/unit/activities/test_reconcile_rooms.py"
+    },
+    {
+     "label": "Recorded results",
+     "path": "docs/review_2026-10-15/EVAL_REPORT.md#16-per-room-accuracy-duplicates-conventions-materials-2026-10-16"
+    }
+   ]
+  },
+  "assets": {
+   "how": [
+    {
+     "title": "Classify",
+     "detail": "Each component is classified by the firm's conventions first (prefetched by context key), then the IRS rules table with the component's room, then the bounded residual classifier on CLASSIFY_MODEL, whose tool calls search the reference corpus and the study's own appraisal. Every model answer keeps its citations, verified against the chunk text; a convention outranks a model answer at every tier.",
+     "source": "backEnd/basis/classify/router.py"
+    },
+    {
+     "title": "Measure and price",
+     "detail": "Quantities come from the appraisal's areas (gross living area shared over rooms by type weight, basement and garage areas, footprint and site for property-level rows), measured once per room and takeoff row. Each row is priced from the RSMeans cost table at the study's year index and location factor, with the full cost trail written on the row.",
+     "source": "backEnd/basis/domain/costs.py"
+    },
+    {
+     "title": "Add the structure and reconcile",
+     "detail": "The structure model prices the concealed systems from the RSMeans square-foot model (or the appraisal's cost approach), carves out what the photos evidenced, depreciates the whole and reconciles the total to the purchase price less land. A gap outside the tolerance flags the assets review and withholds the allocation.",
+     "source": "backEnd/basis/domain/structure.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "classification",
+     "roles": [
+      "CLASSIFY_MODEL"
+     ]
+    },
+    {
+     "service": "retrieval"
+    },
+    {
+     "service": "embeddings"
+    },
+    {
+     "service": "takeoff"
+    },
+    {
+     "service": "rsmeans"
+    },
+    {
+     "service": "cost_indices"
+    },
+    {
+     "service": "structure"
+    }
+   ],
+   "results": {
+    "summary": "Each asset is classified by the firm's rulings first, then the IRS rules table, then the residual classifier on claude-sonnet-5-5 at low effort with BM25 search over the reference corpus, kept because no cheaper model matched (17.3, 28.3) and the hybrid search only tied (25.2). Dollars come from the RSMeans cost table with a cited year index and location factor (45, 47), the RSMeans square-foot structure model with the carve-out for the concealed systems (44), and four sourced method corrections that make the depreciated total reconcile to the purchase price less land (49).",
+    "comparisons": [
+     {
+      "title": "Residual classifier: the cheapest model that matches",
+      "section": "28.3",
+      "dataset": "46 rows of the engineer's asset schedule, 3 repeats, production tool loop with the rules table and cache bypassed",
+      "date": "2026-10-16",
+      "columns": [
+       "Model",
+       "Effort",
+       "Bucket right, mean of 3",
+       "pass^3",
+       "Citations verified, all 3 repeats",
+       "Needs review, mean of 3",
+       "Loop failures (of 138)",
+       "Cost per study (46 rows)",
+       "Seconds per row"
+      ],
+      "rows": [
+       {
+        "name": "claude-sonnet-5-5 (re-run, baseline)",
+        "values": [
+         "low",
+         "0.696",
+         "0.652",
+         "0.964",
+         "0.43",
+         "0",
+         "$1.282",
+         "5.1"
+        ],
+        "selected": true
+       },
+       {
+        "name": "claude-sonnet-5-5 (17.2)",
+        "values": [
+         "low",
+         "0.688",
+         "0.630",
+         "0.970",
+         "0.46",
+         "0",
+         "$1.247",
+         "5.9"
+        ]
+       },
+       {
+        "name": "claude-opus-5-5 (17.2)",
+        "values": [
+         "low",
+         "0.703",
+         "0.696",
+         "0.982",
+         "0.36",
+         "0",
+         "$1.919",
+         "9.1"
+        ]
+       },
+       {
+        "name": "gpt-6-luna (with 24's fix)",
+        "values": [
+         "none",
+         "0.652",
+         "0.630",
+         "0.946",
+         "0.55",
+         "0",
+         "$0.052",
+         "6.2"
+        ]
+       },
+       {
+        "name": "gpt-5.6-luna",
+        "values": [
+         "none",
+         "0.717",
+         "0.674",
+         "0.884",
+         "0.43",
+         "0",
+         "$0.083",
+         "5.2"
+        ]
+       },
+       {
+        "name": "gpt-5.6-terra",
+        "values": [
+         "none",
+         "0.696",
+         "0.652",
+         "0.933",
+         "0.51",
+         "0",
+         "$0.639",
+         "5.2"
+        ]
+       }
+      ],
+      "winner": "claude-sonnet-5-5 (re-run, baseline)",
+      "why": "No cheaper model matched on the measures the product depends on: gpt-6-luna sends significantly more rows to review, gpt-5.6-luna's citations verify significantly less often, and gpt-5.6-terra is worse on both product measures' point estimates at a saving smaller than its review cost; Opus is tied with Sonnet at a higher price."
+     },
+     {
+      "title": "Structure model for the concealed systems",
+      "section": "44.3",
+      "dataset": "Both live exports of one client property (runs 3A and 3B) replayed offline through 54 variants; engineer's bucket shares 14.4 / 0.4 / 5.1 / 80.2 %",
+      "date": "2026-10-30",
+      "columns": [
+       "Variant (RCN + split + carve + depreciation)",
+       "Run 3A: status, gap % of B",
+       "Run 3A: 39-year share",
+       "Run 3A: bucket error, mean / max (points)",
+       "Run 3B: status, gap",
+       "Run 3B: 39-year share",
+       "Run 3B: bucket error, mean / max"
+      ],
+      "rows": [
+       {
+        "name": "square_foot + rsmeans + carve + physical (pick)",
+        "values": [
+         "reconciled, +8.0",
+         "83.9 %",
+         "2.06 / 3.6",
+         "reconciled, +7.2",
+         "86.7 %",
+         "3.50 / 6.5"
+        ],
+        "selected": true
+       },
+       {
+        "name": "square_foot + nahb + carve + physical",
+        "values": [
+         "reconciled, +6.0",
+         "84.2 %",
+         "2.23 / 4.0",
+         "reconciled, +5.2",
+         "87.0 %",
+         "3.64 / 6.8"
+        ]
+       },
+       {
+        "name": "appraisal_total + rsmeans + carve + physical (runner-up)",
+        "values": [
+         "reconciled, +3.4",
+         "84.6 %",
+         "2.43 / 4.4",
+         "reconciled, +2.6",
+         "87.4 %",
+         "3.79 / 7.1"
+        ]
+       },
+       {
+        "name": "appraisal_parts + rsmeans + carve + physical",
+        "values": [
+         "reconciled, +2.3",
+         "84.8 %",
+         "2.52 / 4.6",
+         "reconciled, +1.5",
+         "87.5 %",
+         "3.86 / 7.3"
+        ]
+       },
+       {
+        "name": "appraisal_total + nahb + carve + physical",
+        "values": [
+         "reconciled, +1.3",
+         "85.0 %",
+         "2.59 / 4.7",
+         "reconciled, +0.5",
+         "87.7 %",
+         "3.92 / 7.4"
+        ]
+       },
+       {
+        "name": "appraisal_total + rsmeans + top-down + physical",
+        "values": [
+         "unreconciled, -19.8",
+         "87.6 %",
+         "3.84 / 7.4",
+         "unreconciled, -18.5",
+         "89.6 %",
+         "4.84 / 9.4"
+        ]
+       },
+       {
+        "name": "square_foot + rsmeans + top-down + physical",
+        "values": [
+         "unreconciled, -15.2",
+         "87.1 %",
+         "3.60 / 6.9",
+         "unreconciled, -13.9",
+         "89.2 %",
+         "4.65 / 9.0"
+        ]
+       },
+       {
+        "name": "any + marshall_swift + any + any",
+        "values": [
+         "not sourced",
+         "Not measured",
+         "Not measured",
+         "not sourced",
+         "Not measured",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "Before (section 42.5: no structure rows, uniform step-up)",
+        "values": [
+         "step-up 2.39 (error)",
+         "55.1 %",
+         "12.5 / 25.1",
+         "step-up 2.50 (error)",
+         "61.1 %",
+         "9.6 / 19.2"
+        ]
+       }
+      ],
+      "winner": "square_foot + rsmeans + carve + physical (pick)",
+      "why": "It has the smallest bucket-share error on both exports and rests on the published source the IRS guide names, with volume, page and matrix cell on the asset; the appraisal's printed total is the runner-up, one setting away, and variants that skip the carve-out or depreciation never reconcile."
+     },
+     {
+      "title": "Classifier search: BM25 against the hybrid",
+      "section": "25.2",
+      "dataset": "46 rows of the engineer's asset schedule, claude-sonnet-5-5 at low effort, 3 repeats, the four IRS PDFs as the reference corpus",
+      "date": "2026-10-16",
+      "columns": [
+       "Classifier search",
+       "Bucket right, mean of 3",
+       "pass^3",
+       "Citations verified, 3 repeats",
+       "Rows with a verified citation, 3 repeats",
+       "Needs review",
+       "Searches per row",
+       "Rules-table citations resolved (MiniLM, 400 / 80)",
+       "Cost per study",
+       "Seconds per row"
+      ],
+      "rows": [
+       {
+        "name": "BM25 (--store parser --search bm25), production",
+        "values": [
+         "0.652",
+         "0.609",
+         "0.989",
+         "0.986",
+         "0.457",
+         "1.12",
+         "77 / 77",
+         "$1.209",
+         "5.4"
+        ],
+        "selected": true
+       },
+       {
+        "name": "Hybrid, RRF k = 60 (--store parser --search hybrid)",
+        "values": [
+         "0.652",
+         "0.609",
+         "0.995",
+         "1.000",
+         "0.435",
+         "1.08",
+         "74 / 77 (0.961)",
+         "$1.139",
+         "5.2"
+        ]
+       },
+       {
+        "name": "Section 17 run (pymupdf store, BM25)",
+        "values": [
+         "0.688",
+         "0.630",
+         "0.970",
+         "0.957",
+         "0.464",
+         "1.07",
+         "Not measured",
+         "$1.247",
+         "5.9"
+        ]
+       }
+      ],
+      "winner": "BM25 (--store parser --search bm25), production",
+      "why": "The hybrid ties on bucket accuracy and its citation gains are inside the noise, while RRF loses rules-table citations that BM25 resolves (each would flag its rule's assets for review), so RETRIEVAL_SEARCH stays bm25; section 22's retrieval-only test had found the hybrid best but not significantly above BM25."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Bucket accuracy, residual classifier on 46 report rows (mean of 3)",
+      "value": "0.696",
+      "section": "28.3",
+      "note": "claude-sonnet-5-5 low, re-run; reproduces 17.2's 0.688"
+     },
+     {
+      "label": "Citations that pass the production check (all 3 repeats)",
+      "value": "0.964",
+      "section": "28.3",
+      "note": "claude-sonnet-5-5 low"
+     },
+     {
+      "label": "Evidenced rows in the engineer's bucket, live run 6 corrected study",
+      "value": "35/35",
+      "section": "63",
+      "note": "34/34 in the plain study; section 34's first scored export had 24 of 35"
+     },
+     {
+      "label": "39-year share, live run 6 corrected study (engineer 80.2 %)",
+      "value": "80.3 %",
+      "section": "63",
+      "note": "82.2 % in the plain study"
+     },
+     {
+      "label": "Assets served from the firm's rulings, live run 6 corrected study",
+      "value": "160/340",
+      "section": "63",
+      "note": "176/366 in the plain study; key hierarchy (46) and decisions first (54)"
+     },
+     {
+      "label": "Classifier calls per study with the firm's rulings, live run 5",
+      "value": "15",
+      "section": "53",
+      "note": "477 in run 4, before the rulings served"
+     },
+     {
+      "label": "Reconciliation gap, depreciated total below the basis (run 3A)",
+      "value": "2.0 %",
+      "section": "49",
+      "note": "from 30.4 % with the 2020 index (45) and 14.2 % with the July 2024 index (47); 1.6 % on run 3B"
+     },
+     {
+      "label": "Concealed (kind C) rows produced / in the engineer's bucket",
+      "value": "8 / 7",
+      "section": "47.3",
+      "note": "Access Control is the one contested row (44)"
+     }
+    ],
+    "spend": {
+     "cost_per_study": "$1.25 per 46 rows",
+     "cost_section": "18",
+     "input_tokens": "4,700 uncached input tokens per call",
+     "tokens_section": "32.9",
+     "latency": "6.1 s per row",
+     "latency_section": "17.3"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "Live run 6 on main 15cd291: the corrected study put 35/35 evidenced rows in the engineer's bucket with a 39-year share of 80.3 % and 160/340 assets from the firm's rulings, and the plain study 34/34 at 82.2 % with 176/366."
+    }
+   },
+   "links": [
+    {
+     "label": "Classifier",
+     "path": "backEnd/basis/classify/router.py"
+    },
+    {
+     "label": "Takeoff",
+     "path": "backEnd/basis/domain/takeoffs.py"
+    },
+    {
+     "label": "Structure model",
+     "path": "backEnd/basis/domain/structure.py"
+    },
+    {
+     "label": "Structure sweep",
+     "path": "backEnd/evals/structure_sweep.py"
+    },
+    {
+     "label": "Conventions replay",
+     "path": "backEnd/evals/conventions_replay.py"
+    },
+    {
+     "label": "Result contract",
+     "path": "docs/api/STUDY_RESULT.md"
+    },
+    {
+     "label": "Cost indices",
+     "path": "docs/api/COST_INDICES.md"
+    }
+   ]
+  },
+  "output": {
+   "how": [
+    {
+     "title": "Promote the rulings",
+     "detail": "After the assets approval, promote_conventions turns the engineer's corrections and the cited model answers of the approved revision into the firm's conventions, so the next study's identical component is classified from them at no cost.",
+     "source": "backEnd/basis/activities/promote_conventions.py"
+    },
+    {
+     "title": "Export the revision",
+     "detail": "export_report writes the approved revision as canonical JSON (extraction, rooms, components, the evidence pack with citations, provenance, timeline) and a CSV of its assets. The same revision exports byte-identical files with the same sha256.",
+     "source": "backEnd/basis/activities/export_report.py"
+    },
+    {
+     "title": "Record the spend",
+     "detail": "summary.spend rolls up every paid call by stage, activity, component, model and kind (calls, tokens, dollars, latency), and rev-n.calls.jsonl is the transcript of each call with its prompt and raw response. Exporting files does not complete the study: Report & sign does.",
+     "source": "docs/api/SPEND.md"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "exports"
+    },
+    {
+     "service": "storage"
+    },
+    {
+     "service": "db"
+    },
+    {
+     "service": "worker"
+    }
+   ],
+   "results": {
+    "summary": "The results step exports the approved revision (canonical JSON, CSV, evidence pack, spend rollup, draft report and the preparer's schedule); across the live runs the corrected study on the final build is the best result so far, and the printed report reproduces the export to the cent (63). Every paid call is in the study's ledger with its tokens and dollars (40).",
+    "comparisons": [
+     {
+      "title": "Live runs on the final build against their baselines",
+      "section": "63",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-11-01",
+      "columns": [
+       "Study",
+       "processing time",
+       "evidenced rows (of 38 photo-visible)",
+       "bucket right, of evidenced",
+       "max bucket share error (points)",
+       "39-year share (engineer 80.2 %)",
+       "study spend"
+      ],
+      "rows": [
+       {
+        "name": "run 6 corrected",
+        "values": [
+         "8.5 min incl. four reopened gates",
+         "35",
+         "35/35",
+         "0.8",
+         "80.3 %",
+         "3.55"
+        ],
+        "selected": true
+       },
+       {
+        "name": "run 6 plain",
+        "values": [
+         "7.4 min",
+         "34",
+         "34/34",
+         "1.9",
+         "82.2 %",
+         "2.12"
+        ]
+       },
+       {
+        "name": "run 5 plain",
+        "values": [
+         "5.3 min",
+         "35",
+         "34/35",
+         "3.3",
+         "83.5 %",
+         "2.86"
+        ]
+       },
+       {
+        "name": "run 3 corrected",
+        "values": [
+         "Not measured",
+         "35",
+         "35/35",
+         "Not measured",
+         "Not measured",
+         "Not measured"
+        ]
+       }
+      ],
+      "winner": "run 6 corrected",
+      "why": "No regression on the final build, and the corrected study is the best result so far, its 39-year share within a tenth of a point of the engineer's."
+     },
+     {
+      "title": "Run 4 against run 5: the firm's rulings survive the release",
+      "section": "53",
+      "dataset": "One plain study of the client property, every gate approved as the model left it",
+      "date": "2026-11-01",
+      "columns": [
+       "Run",
+       "completed, failures",
+       "bucket right by count",
+       "max bucket share error",
+       "39-year share (engineer 80.2 %)",
+       "assets from the firm's rulings",
+       "classifier calls",
+       "study spend"
+      ],
+      "rows": [
+       {
+        "name": "run 5 (main 7844e4d)",
+        "values": [
+         "yes, 0 (5.3 min)",
+         "34/35",
+         "3.3 points",
+         "83.5 %",
+         "200 of 384",
+         "15",
+         "2.86"
+        ],
+        "selected": true
+       },
+       {
+        "name": "run 4 (main 9c430aa)",
+        "values": [
+         "yes, 0 (11.4 min)",
+         "27/35",
+         "6.9 points",
+         "87.1 %",
+         "0 of 384",
+         "477",
+         "7.73"
+        ]
+       }
+      ],
+      "winner": "run 5 (main 7844e4d)",
+      "why": "Keying the firm's rulings by the rules-table row's fingerprint instead of the release let them serve again, so most assets came from rulings instead of classifier calls."
+     },
+     {
+      "title": "Vendor import profiles for the preparer's schedule",
+      "section": "55.2",
+      "dataset": "The synthetic export (no client data)",
+      "date": "2026-11-01",
+      "columns": [
+       "Package",
+       "Description limit",
+       "Bonus default carried as"
+      ],
+      "rows": [
+       {
+        "name": "Thomson Reuters Fixed Assets CS",
+        "values": [
+         "45",
+         "a memo, no field"
+        ]
+       },
+       {
+        "name": "Sage Fixed Assets Depreciation",
+        "values": [
+         "80",
+         "168 Allow %"
+        ]
+       },
+       {
+        "name": "Intuit ProConnect / Lacerte",
+        "values": [
+         "25",
+         "a memo, no field"
+        ]
+       },
+       {
+        "name": "CCH ProSystem fx Fixed Assets",
+        "values": [
+         "45",
+         "Bonus Default %"
+        ]
+       },
+       {
+        "name": "Bloomberg Tax Fixed Assets",
+        "values": [
+         "45",
+         "Bonus Default %"
+        ]
+       }
+      ],
+      "why": "All five profiles are built to the vendors' published specifications; none has been imported into the real software yet."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Printed report against the export",
+      "value": "87 numbers",
+      "section": "63",
+      "note": "Reproduces from the export to the cent in both run-6 studies, one number off by a cent, as in run 5."
+     },
+     {
+      "label": "Ledger rows in run 6",
+      "value": "5,683",
+      "section": "63",
+      "note": "Every row status ok; a call that times out or fails to connect is never written, so spend can be under-counted during provider trouble."
+     },
+     {
+      "label": "Spend for the two run-6 studies",
+      "value": "5.67",
+      "section": "63"
+     },
+     {
+      "label": "Photos placed in the run-6 plain study",
+      "value": "45 of 52",
+      "section": "63",
+      "note": "Seven photos lost to a host sleep window with no DNS; the study still completed."
+     },
+     {
+      "label": "Report lines (run 4)",
+      "value": "263",
+      "section": "51.3",
+      "note": "89 items awaiting a measurement sit outside the totals."
+     }
+    ],
+    "spend": {
+     "cost_per_study": "$7.67",
+     "cost_section": "40",
+     "input_tokens": "2.8 M",
+     "output_tokens": "165 K",
+     "tokens_section": "40.4",
+     "latency": "10.5 min of work",
+     "latency_section": "38.2"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "Both run-6 studies completed on main 15cd291 and the printed report reproduces from the export to the cent in both, as in run 5."
+    }
+   },
+   "links": [
+    {
+     "label": "Export activity",
+     "path": "backEnd/basis/activities/export_report.py"
+    },
+    {
+     "label": "Export tests",
+     "path": "backEnd/tests/unit/activities/test_export_report.py"
+    },
+    {
+     "label": "Report contract",
+     "path": "docs/api/REPORT.md"
+    },
+    {
+     "label": "Spend contract",
+     "path": "docs/api/SPEND.md"
+    },
+    {
+     "label": "End-to-end scorer",
+     "path": "backEnd/evals/e2e_report.py"
+    }
+   ]
+  },
+  "report-sign": {
+   "how": [
+    {
+     "title": "Complete details",
+     "detail": "The firm profile and the study details the report needs are saved. The report is rendered from the export with Typst, chosen because it produced byte-identical PDFs on the Mac and in the Linux worker image.",
+     "source": "backEnd/basis/report/render.py"
+    },
+    {
+     "title": "Preview and sign",
+     "detail": "An engineer or owner opens the preview; signing re-renders it and compares the sha256, refusing a changed preview or revision (412 BASIS-REPORT-010). The signature row, the report.signed event and the signed PDF are written together under one Idempotency-Key.",
+     "source": "backEnd/basis/api/routes/report.py"
+    },
+    {
+     "title": "After signing",
+     "detail": "A signed PDF is immutable. A later change to the inputs marks the study changed since signing; Start a new revision reopens the assets review, re-exports and signs the next revision while the earlier signed PDF stays byte-identical.",
+     "source": "docs/api/REPORT.md"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "api"
+    },
+    {
+     "service": "firebase"
+    },
+    {
+     "service": "db"
+    },
+    {
+     "service": "storage"
+    },
+    {
+     "service": "exports"
+    }
+   ],
+   "results": {
+    "summary": "Typst was chosen to render the study report because only it was byte-identical between the Mac and the Linux worker image, and faster (51.2); the engineer signs the preview they opened, re-rendered and compared by sha256 so a stale preview is refused (52), and the whole step, including a new revision after a signature, was verified end to end on an isolated stack (72).",
+    "comparisons": [
+     {
+      "title": "Report renderer on run 4's real content",
+      "section": "51.2",
+      "dataset": "Run 4: 384 items, 47 photographs with 328 outlined objects",
+      "date": "2026-10-31",
+      "columns": [
+       "Renderer",
+       "Version",
+       "Mac against the Linux worker image",
+       "Speed"
+      ],
+      "rows": [
+       {
+        "name": "Typst",
+        "values": [
+         "0.15",
+         "byte-identical",
+         "ten times faster"
+        ],
+        "selected": true
+       },
+       {
+        "name": "WeasyPrint",
+        "values": [
+         "70",
+         "Pango differs",
+         "Not measured"
+        ]
+       }
+      ],
+      "winner": "Typst",
+      "why": "Both were deterministic on one machine, but only Typst produced identical bytes across the Mac and the Linux worker image, and it was much faster."
+     },
+     {
+      "title": "Signed revisions after a reopen (isolated stack)",
+      "section": "72.2",
+      "dataset": "The lifecycle suite's synthetic study, offline providers",
+      "date": "2026-11-01",
+      "columns": [
+       "Revision",
+       "report_signatures row",
+       "report.signed event",
+       "signed file in storage",
+       "GET .../revisions"
+      ],
+      "rows": [
+       {
+        "name": "revision 2 (reopened at the assets review)",
+        "values": [
+         "versions 1 / 3",
+         "1, same sha256",
+         "1",
+         "origin reopen, exported, signed, current"
+        ],
+        "selected": true
+       },
+       {
+        "name": "revision 1",
+        "values": [
+         "versions 1 / 2",
+         "1, same sha256",
+         "1",
+         "origin start, exported, signed, not current"
+        ]
+       }
+      ],
+      "winner": "revision 2 (reopened at the assets review)",
+      "why": "The new revision is signed on its own preview while revision 1's signed PDF is kept and still served, bytes identical to the download taken before the reopen."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Run 4 report PDF render",
+      "value": "0.2 s",
+      "section": "51.3",
+      "note": "45 pages, 3.7 MB; PDF, CSV and XLSX byte-identical on a second build."
+     },
+     {
+      "label": "Preview render before signing (run 4)",
+      "value": "0.8 to 1.0 s",
+      "section": "52",
+      "note": "45 pages, byte-identical twice."
+     },
+     {
+      "label": "Input changed after the preview",
+      "value": "412 BASIS-REPORT-010",
+      "section": "52",
+      "note": "The signature is refused when the re-rendered preview no longer matches the reviewed sha256."
+     },
+     {
+      "label": "Report unit tests",
+      "value": "54",
+      "section": "51.4"
+     },
+     {
+      "label": "Report signing API tests",
+      "value": "13 passed",
+      "section": "72.5"
+     },
+     {
+      "label": "Web node tests",
+      "value": "321",
+      "section": "72.5",
+      "note": "296 before section 72."
+     },
+     {
+      "label": "Backend unit suite",
+      "value": "2,046 passed",
+      "section": "72.5",
+      "note": "Integration and slow suite: 1,669 passed."
+     },
+     {
+      "label": "Revision 1 signed PDF after the reopen",
+      "value": "bytes identical",
+      "section": "72.2",
+      "note": "Identical to the download taken before the reopen."
+     }
+    ],
+    "spend": {
+     "latency": "in one second",
+     "latency_section": "53"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "Run 6 on the final build reproduced the printed report from the export to the cent in both studies; the corrected study's revision was then signed through the app (section 64)."
+    }
+   },
+   "links": [
+    {
+     "label": "Signing contract",
+     "path": "docs/api/REPORT.md#signing"
+    },
+    {
+     "label": "After signing",
+     "path": "docs/api/REPORT.md#after-signing"
+    },
+    {
+     "label": "Signing API tests",
+     "path": "backEnd/tests/api/test_report_signing.py"
+    },
+    {
+     "label": "Report tests",
+     "path": "backEnd/tests/api/test_study_report.py"
+    },
+    {
+     "label": "Revisions",
+     "path": "docs/api/REVISIONS.md"
+    }
+   ],
+   "note": "Service health does not prove a study is signed. The completion rule uses the current report state; missing or unknown evidence stays incomplete."
+  },
+  "appraisal-review": {
+   "how": [
+    {
+     "title": "Compare fields",
+     "detail": "Each extracted value is shown with its source in the appraisal (the quote, page and region); flagged, missing and conflicting fields are listed first.",
+     "source": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "title": "Correct values",
+     "detail": "Field corrections and added fields are saved with a reason; on a rejection extract_fields runs again and applies them as source manual.",
+     "source": "backEnd/basis/activities/corrections.py"
+    },
+    {
+     "title": "Approve or correct",
+     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
+     "source": "backEnd/basis/activities/apply_corrections.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "api"
+    },
+    {
+     "service": "db"
+    },
+    {
+     "service": "relay"
+    },
+    {
+     "service": "temporal"
+    }
+   ],
+   "results": {
+    "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
+    "comparisons": [
+     {
+      "title": "Corrected gates and the firm's rulings, two studies in sequence",
+      "section": "42.5",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-10-30",
+      "columns": [
+       "Study",
+       "bucket right by count",
+       "wrong-bucket rows",
+       "39-year share error (points)",
+       "classifier spend",
+       "study spend (ledger)",
+       "workflow wall clock"
+      ],
+      "rows": [
+       {
+        "name": "study A (corrected + rulings)",
+        "values": [
+         "35 of 35",
+         "0",
+         "25.1",
+         "$7.68",
+         "$10.16",
+         "9.5 min"
+        ],
+        "selected": true
+       },
+       {
+        "name": "study B (pipeline + conventions)",
+        "values": [
+         "34 of 35",
+         "1 (Fireplaces)",
+         "19.2",
+         "$1.76",
+         "$4.01",
+         "7.7 min"
+        ]
+       },
+       {
+        "name": "run 2 (corrected gates)",
+        "values": [
+         "24 of 36",
+         "12",
+         "31.8",
+         "$4.29",
+         "$6.63",
+         "11.0 min"
+        ]
+       },
+       {
+        "name": "run 1 (pipeline alone)",
+        "values": [
+         "24 of 35",
+         "11",
+         "32.0",
+         "$5.41",
+         "$7.67",
+         "29.6 min"
+        ]
+       }
+      ],
+      "winner": "study A (corrected + rulings)",
+      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them."
+     },
+     {
+      "title": "Which firm ruling serves: replays of run 5's export",
+      "section": "54",
+      "dataset": "Run 5's export, production router, no paid run",
+      "date": "2026-11-01",
+      "columns": [
+       "Rule",
+       "served by rulings",
+       "bucket right",
+       "max share error"
+      ],
+      "rows": [
+       {
+        "name": "every row, decisions first",
+        "values": [
+         "201",
+         "35/35",
+         "1.8 points"
+        ],
+        "selected": true
+       },
+       {
+        "name": "decisions only (29 rows)",
+        "values": [
+         "47",
+         "35/35",
+         "1.8 points"
+        ]
+       },
+       {
+        "name": "every row, rule as before",
+        "values": [
+         "201",
+         "34/35",
+         "3.3 points"
+        ]
+       }
+      ],
+      "winner": "every row, decisions first",
+      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model."
+     },
+     {
+      "title": "The engineer at every gate: corrected studies",
+      "section": "63",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-11-01",
+      "columns": [
+       "Study",
+       "rulings the engineer had to post",
+       "bucket right, of evidenced",
+       "assets from the firm's rulings",
+       "processing time"
+      ],
+      "rows": [
+       {
+        "name": "run 6 corrected",
+        "values": [
+         "1",
+         "35/35",
+         "160/340",
+         "8.5 min incl. four reopened gates"
+        ],
+        "selected": true
+       },
+       {
+        "name": "run 3 corrected",
+        "values": [
+         "9",
+         "35/35",
+         "Not measured",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "run 6 plain",
+        "values": [
+         "0",
+         "34/34",
+         "176/366",
+         "7.4 min"
+        ]
+       },
+       {
+        "name": "run 5 plain",
+        "values": [
+         "Not measured",
+         "34/35",
+         "200/384",
+         "5.3 min"
+        ]
+       }
+      ],
+      "winner": "run 6 corrected",
+      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Rulings the engineer had to post (run 6 corrected)",
+      "value": "1",
+      "section": "63",
+      "note": "Raised Wood Paneling; run 3's corrected study needed nine."
+     },
+     {
+      "label": "Corrected study processing time",
+      "value": "8.5 min incl. four reopened gates",
+      "section": "63"
+     },
+     {
+      "label": "Corrected study 39-year share (engineer 80.2 %)",
+      "value": "80.3 %",
+      "section": "63"
+     },
+     {
+      "label": "Corrections posted at the components review (run 2)",
+      "value": "81",
+      "section": "38.1",
+      "note": "53 count fixes and 28 additions; 18 room corrections and 3 field corrections at the earlier gates."
+     },
+     {
+      "label": "Reject to the next revision's gate (run 2)",
+      "value": "10 s (rooms, components), 3 min (appraisal)",
+      "section": "38.2"
+     },
+     {
+      "label": "Conventions promoted by study A's approval",
+      "value": "113 conventions",
+      "section": "42.5"
+     },
+     {
+      "label": "Gate draft tests",
+      "value": "20 draft tests",
+      "section": "58",
+      "note": "Plus 6 resume tests and 7 restart tests."
+     },
+     {
+      "label": "Reopen, history and restore API tests",
+      "value": "27",
+      "section": "61",
+      "note": "Plus 4 reopen lifecycle cases, one per gate."
+     }
+    ],
+    "spend": {
+     "cost_per_study": "3.55",
+     "cost_section": "63",
+     "latency": "8.5 min incl. four reopened gates",
+     "latency_section": "63"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+    }
+   },
+   "links": [
+    {
+     "label": "Decision route",
+     "path": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "label": "Gate tests",
+     "path": "backEnd/tests/api/test_decisions.py"
+    },
+    {
+     "label": "Draft tests",
+     "path": "backEnd/tests/api/test_drafts.py"
+    },
+    {
+     "label": "Workflow contract",
+     "path": "docs/api/WORKFLOW.md"
+    },
+    {
+     "label": "Review history",
+     "path": "docs/api/TIMELINE_AND_AUDIT.md"
+    }
+   ]
+  },
+  "rooms-review": {
+   "how": [
+    {
+     "title": "Organize photos",
+     "detail": "Every photo is placed in its room; names, types and floors are checked, with the unplaced photos and their failure codes listed.",
+     "source": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "title": "Correct rooms",
+     "detail": "Rooms are created, renamed, merged or removed and photos moved; a rejection re-votes the rooms and re-analyzes only the photos flagged.",
+     "source": "backEnd/basis/activities/corrections.py"
+    },
+    {
+     "title": "Approve or correct",
+     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
+     "source": "backEnd/basis/activities/apply_corrections.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "api"
+    },
+    {
+     "service": "db"
+    },
+    {
+     "service": "relay"
+    },
+    {
+     "service": "temporal"
+    }
+   ],
+   "results": {
+    "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
+    "comparisons": [
+     {
+      "title": "Corrected gates and the firm's rulings, two studies in sequence",
+      "section": "42.5",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-10-30",
+      "columns": [
+       "Study",
+       "bucket right by count",
+       "wrong-bucket rows",
+       "39-year share error (points)",
+       "classifier spend",
+       "study spend (ledger)",
+       "workflow wall clock"
+      ],
+      "rows": [
+       {
+        "name": "study A (corrected + rulings)",
+        "values": [
+         "35 of 35",
+         "0",
+         "25.1",
+         "$7.68",
+         "$10.16",
+         "9.5 min"
+        ],
+        "selected": true
+       },
+       {
+        "name": "study B (pipeline + conventions)",
+        "values": [
+         "34 of 35",
+         "1 (Fireplaces)",
+         "19.2",
+         "$1.76",
+         "$4.01",
+         "7.7 min"
+        ]
+       },
+       {
+        "name": "run 2 (corrected gates)",
+        "values": [
+         "24 of 36",
+         "12",
+         "31.8",
+         "$4.29",
+         "$6.63",
+         "11.0 min"
+        ]
+       },
+       {
+        "name": "run 1 (pipeline alone)",
+        "values": [
+         "24 of 35",
+         "11",
+         "32.0",
+         "$5.41",
+         "$7.67",
+         "29.6 min"
+        ]
+       }
+      ],
+      "winner": "study A (corrected + rulings)",
+      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them."
+     },
+     {
+      "title": "Which firm ruling serves: replays of run 5's export",
+      "section": "54",
+      "dataset": "Run 5's export, production router, no paid run",
+      "date": "2026-11-01",
+      "columns": [
+       "Rule",
+       "served by rulings",
+       "bucket right",
+       "max share error"
+      ],
+      "rows": [
+       {
+        "name": "every row, decisions first",
+        "values": [
+         "201",
+         "35/35",
+         "1.8 points"
+        ],
+        "selected": true
+       },
+       {
+        "name": "decisions only (29 rows)",
+        "values": [
+         "47",
+         "35/35",
+         "1.8 points"
+        ]
+       },
+       {
+        "name": "every row, rule as before",
+        "values": [
+         "201",
+         "34/35",
+         "3.3 points"
+        ]
+       }
+      ],
+      "winner": "every row, decisions first",
+      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model."
+     },
+     {
+      "title": "The engineer at every gate: corrected studies",
+      "section": "63",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-11-01",
+      "columns": [
+       "Study",
+       "rulings the engineer had to post",
+       "bucket right, of evidenced",
+       "assets from the firm's rulings",
+       "processing time"
+      ],
+      "rows": [
+       {
+        "name": "run 6 corrected",
+        "values": [
+         "1",
+         "35/35",
+         "160/340",
+         "8.5 min incl. four reopened gates"
+        ],
+        "selected": true
+       },
+       {
+        "name": "run 3 corrected",
+        "values": [
+         "9",
+         "35/35",
+         "Not measured",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "run 6 plain",
+        "values": [
+         "0",
+         "34/34",
+         "176/366",
+         "7.4 min"
+        ]
+       },
+       {
+        "name": "run 5 plain",
+        "values": [
+         "Not measured",
+         "34/35",
+         "200/384",
+         "5.3 min"
+        ]
+       }
+      ],
+      "winner": "run 6 corrected",
+      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Rulings the engineer had to post (run 6 corrected)",
+      "value": "1",
+      "section": "63",
+      "note": "Raised Wood Paneling; run 3's corrected study needed nine."
+     },
+     {
+      "label": "Corrected study processing time",
+      "value": "8.5 min incl. four reopened gates",
+      "section": "63"
+     },
+     {
+      "label": "Corrected study 39-year share (engineer 80.2 %)",
+      "value": "80.3 %",
+      "section": "63"
+     },
+     {
+      "label": "Corrections posted at the components review (run 2)",
+      "value": "81",
+      "section": "38.1",
+      "note": "53 count fixes and 28 additions; 18 room corrections and 3 field corrections at the earlier gates."
+     },
+     {
+      "label": "Reject to the next revision's gate (run 2)",
+      "value": "10 s (rooms, components), 3 min (appraisal)",
+      "section": "38.2"
+     },
+     {
+      "label": "Conventions promoted by study A's approval",
+      "value": "113 conventions",
+      "section": "42.5"
+     },
+     {
+      "label": "Gate draft tests",
+      "value": "20 draft tests",
+      "section": "58",
+      "note": "Plus 6 resume tests and 7 restart tests."
+     },
+     {
+      "label": "Reopen, history and restore API tests",
+      "value": "27",
+      "section": "61",
+      "note": "Plus 4 reopen lifecycle cases, one per gate."
+     }
+    ],
+    "spend": {
+     "cost_per_study": "3.55",
+     "cost_section": "63",
+     "latency": "8.5 min incl. four reopened gates",
+     "latency_section": "63"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+    }
+   },
+   "links": [
+    {
+     "label": "Decision route",
+     "path": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "label": "Gate tests",
+     "path": "backEnd/tests/api/test_decisions.py"
+    },
+    {
+     "label": "Draft tests",
+     "path": "backEnd/tests/api/test_drafts.py"
+    },
+    {
+     "label": "Workflow contract",
+     "path": "docs/api/WORKFLOW.md"
+    },
+    {
+     "label": "Review history",
+     "path": "docs/api/TIMELINE_AND_AUDIT.md"
+    }
+   ]
+  },
+  "components-review": {
+   "how": [
+    {
+     "title": "Inspect evidence",
+     "detail": "The room inventory is read against the photos, with every object outlined by SAM 3 and the count source per class.",
+     "source": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "title": "Correct components",
+     "detail": "Counts, materials and missing or wrong components are corrected; a rejection re-analyzes the flagged photos in their rooms and rebuilds only the rooms that changed.",
+     "source": "backEnd/basis/activities/corrections.py"
+    },
+    {
+     "title": "Approve or correct",
+     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
+     "source": "backEnd/basis/activities/apply_corrections.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "api"
+    },
+    {
+     "service": "db"
+    },
+    {
+     "service": "relay"
+    },
+    {
+     "service": "temporal"
+    }
+   ],
+   "results": {
+    "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
+    "comparisons": [
+     {
+      "title": "Corrected gates and the firm's rulings, two studies in sequence",
+      "section": "42.5",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-10-30",
+      "columns": [
+       "Study",
+       "bucket right by count",
+       "wrong-bucket rows",
+       "39-year share error (points)",
+       "classifier spend",
+       "study spend (ledger)",
+       "workflow wall clock"
+      ],
+      "rows": [
+       {
+        "name": "study A (corrected + rulings)",
+        "values": [
+         "35 of 35",
+         "0",
+         "25.1",
+         "$7.68",
+         "$10.16",
+         "9.5 min"
+        ],
+        "selected": true
+       },
+       {
+        "name": "study B (pipeline + conventions)",
+        "values": [
+         "34 of 35",
+         "1 (Fireplaces)",
+         "19.2",
+         "$1.76",
+         "$4.01",
+         "7.7 min"
+        ]
+       },
+       {
+        "name": "run 2 (corrected gates)",
+        "values": [
+         "24 of 36",
+         "12",
+         "31.8",
+         "$4.29",
+         "$6.63",
+         "11.0 min"
+        ]
+       },
+       {
+        "name": "run 1 (pipeline alone)",
+        "values": [
+         "24 of 35",
+         "11",
+         "32.0",
+         "$5.41",
+         "$7.67",
+         "29.6 min"
+        ]
+       }
+      ],
+      "winner": "study A (corrected + rulings)",
+      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them."
+     },
+     {
+      "title": "Which firm ruling serves: replays of run 5's export",
+      "section": "54",
+      "dataset": "Run 5's export, production router, no paid run",
+      "date": "2026-11-01",
+      "columns": [
+       "Rule",
+       "served by rulings",
+       "bucket right",
+       "max share error"
+      ],
+      "rows": [
+       {
+        "name": "every row, decisions first",
+        "values": [
+         "201",
+         "35/35",
+         "1.8 points"
+        ],
+        "selected": true
+       },
+       {
+        "name": "decisions only (29 rows)",
+        "values": [
+         "47",
+         "35/35",
+         "1.8 points"
+        ]
+       },
+       {
+        "name": "every row, rule as before",
+        "values": [
+         "201",
+         "34/35",
+         "3.3 points"
+        ]
+       }
+      ],
+      "winner": "every row, decisions first",
+      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model."
+     },
+     {
+      "title": "The engineer at every gate: corrected studies",
+      "section": "63",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-11-01",
+      "columns": [
+       "Study",
+       "rulings the engineer had to post",
+       "bucket right, of evidenced",
+       "assets from the firm's rulings",
+       "processing time"
+      ],
+      "rows": [
+       {
+        "name": "run 6 corrected",
+        "values": [
+         "1",
+         "35/35",
+         "160/340",
+         "8.5 min incl. four reopened gates"
+        ],
+        "selected": true
+       },
+       {
+        "name": "run 3 corrected",
+        "values": [
+         "9",
+         "35/35",
+         "Not measured",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "run 6 plain",
+        "values": [
+         "0",
+         "34/34",
+         "176/366",
+         "7.4 min"
+        ]
+       },
+       {
+        "name": "run 5 plain",
+        "values": [
+         "Not measured",
+         "34/35",
+         "200/384",
+         "5.3 min"
+        ]
+       }
+      ],
+      "winner": "run 6 corrected",
+      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Rulings the engineer had to post (run 6 corrected)",
+      "value": "1",
+      "section": "63",
+      "note": "Raised Wood Paneling; run 3's corrected study needed nine."
+     },
+     {
+      "label": "Corrected study processing time",
+      "value": "8.5 min incl. four reopened gates",
+      "section": "63"
+     },
+     {
+      "label": "Corrected study 39-year share (engineer 80.2 %)",
+      "value": "80.3 %",
+      "section": "63"
+     },
+     {
+      "label": "Corrections posted at the components review (run 2)",
+      "value": "81",
+      "section": "38.1",
+      "note": "53 count fixes and 28 additions; 18 room corrections and 3 field corrections at the earlier gates."
+     },
+     {
+      "label": "Reject to the next revision's gate (run 2)",
+      "value": "10 s (rooms, components), 3 min (appraisal)",
+      "section": "38.2"
+     },
+     {
+      "label": "Conventions promoted by study A's approval",
+      "value": "113 conventions",
+      "section": "42.5"
+     },
+     {
+      "label": "Gate draft tests",
+      "value": "20 draft tests",
+      "section": "58",
+      "note": "Plus 6 resume tests and 7 restart tests."
+     },
+     {
+      "label": "Reopen, history and restore API tests",
+      "value": "27",
+      "section": "61",
+      "note": "Plus 4 reopen lifecycle cases, one per gate."
+     }
+    ],
+    "spend": {
+     "cost_per_study": "3.55",
+     "cost_section": "63",
+     "latency": "8.5 min incl. four reopened gates",
+     "latency_section": "63"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+    }
+   },
+   "links": [
+    {
+     "label": "Decision route",
+     "path": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "label": "Gate tests",
+     "path": "backEnd/tests/api/test_decisions.py"
+    },
+    {
+     "label": "Draft tests",
+     "path": "backEnd/tests/api/test_drafts.py"
+    },
+    {
+     "label": "Workflow contract",
+     "path": "docs/api/WORKFLOW.md"
+    },
+    {
+     "label": "Review history",
+     "path": "docs/api/TIMELINE_AND_AUDIT.md"
+    }
+   ]
+  },
+  "assets-review": {
+   "how": [
+    {
+     "title": "Check assets",
+     "detail": "Recovery classes, quantities, prices, cost trails and cited evidence are read, with the reconciliation to the basis.",
+     "source": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "title": "Resolve issues",
+     "detail": "Unsupported values are corrected with a reason; a rejection reruns process_assets, and the approval promotes the rulings to the firm's conventions.",
+     "source": "backEnd/basis/activities/corrections.py"
+    },
+    {
+     "title": "Approve or correct",
+     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
+     "source": "backEnd/basis/activities/apply_corrections.py"
+    }
+   ],
+   "runtime": [
+    {
+     "service": "api"
+    },
+    {
+     "service": "db"
+    },
+    {
+     "service": "relay"
+    },
+    {
+     "service": "temporal"
+    }
+   ],
+   "results": {
+    "summary": "At the four gates the engineer's decisions travel through the outbox relay; with the firm's rulings served decisions first (54), the corrected study on the final build needed one ruling where run 3's needed nine and put 35 of 35 evidenced rows in the engineer's bucket (63).",
+    "comparisons": [
+     {
+      "title": "Corrected gates and the firm's rulings, two studies in sequence",
+      "section": "42.5",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-10-30",
+      "columns": [
+       "Study",
+       "bucket right by count",
+       "wrong-bucket rows",
+       "39-year share error (points)",
+       "classifier spend",
+       "study spend (ledger)",
+       "workflow wall clock"
+      ],
+      "rows": [
+       {
+        "name": "study A (corrected + rulings)",
+        "values": [
+         "35 of 35",
+         "0",
+         "25.1",
+         "$7.68",
+         "$10.16",
+         "9.5 min"
+        ],
+        "selected": true
+       },
+       {
+        "name": "study B (pipeline + conventions)",
+        "values": [
+         "34 of 35",
+         "1 (Fireplaces)",
+         "19.2",
+         "$1.76",
+         "$4.01",
+         "7.7 min"
+        ]
+       },
+       {
+        "name": "run 2 (corrected gates)",
+        "values": [
+         "24 of 36",
+         "12",
+         "31.8",
+         "$4.29",
+         "$6.63",
+         "11.0 min"
+        ]
+       },
+       {
+        "name": "run 1 (pipeline alone)",
+        "values": [
+         "24 of 35",
+         "11",
+         "32.0",
+         "$5.41",
+         "$7.67",
+         "29.6 min"
+        ]
+       }
+      ],
+      "winner": "study A (corrected + rulings)",
+      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them."
+     },
+     {
+      "title": "Which firm ruling serves: replays of run 5's export",
+      "section": "54",
+      "dataset": "Run 5's export, production router, no paid run",
+      "date": "2026-11-01",
+      "columns": [
+       "Rule",
+       "served by rulings",
+       "bucket right",
+       "max share error"
+      ],
+      "rows": [
+       {
+        "name": "every row, decisions first",
+        "values": [
+         "201",
+         "35/35",
+         "1.8 points"
+        ],
+        "selected": true
+       },
+       {
+        "name": "decisions only (29 rows)",
+        "values": [
+         "47",
+         "35/35",
+         "1.8 points"
+        ]
+       },
+       {
+        "name": "every row, rule as before",
+        "values": [
+         "201",
+         "34/35",
+         "3.3 points"
+        ]
+       }
+      ],
+      "winner": "every row, decisions first",
+      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model."
+     },
+     {
+      "title": "The engineer at every gate: corrected studies",
+      "section": "63",
+      "dataset": "One client property, 52 photos, 38 photo-visible rows",
+      "date": "2026-11-01",
+      "columns": [
+       "Study",
+       "rulings the engineer had to post",
+       "bucket right, of evidenced",
+       "assets from the firm's rulings",
+       "processing time"
+      ],
+      "rows": [
+       {
+        "name": "run 6 corrected",
+        "values": [
+         "1",
+         "35/35",
+         "160/340",
+         "8.5 min incl. four reopened gates"
+        ],
+        "selected": true
+       },
+       {
+        "name": "run 3 corrected",
+        "values": [
+         "9",
+         "35/35",
+         "Not measured",
+         "Not measured"
+        ]
+       },
+       {
+        "name": "run 6 plain",
+        "values": [
+         "0",
+         "34/34",
+         "176/366",
+         "7.4 min"
+        ]
+       },
+       {
+        "name": "run 5 plain",
+        "values": [
+         "Not measured",
+         "34/35",
+         "200/384",
+         "5.3 min"
+        ]
+       }
+      ],
+      "winner": "run 6 corrected",
+      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine."
+     }
+    ],
+    "metrics": [
+     {
+      "label": "Rulings the engineer had to post (run 6 corrected)",
+      "value": "1",
+      "section": "63",
+      "note": "Raised Wood Paneling; run 3's corrected study needed nine."
+     },
+     {
+      "label": "Corrected study processing time",
+      "value": "8.5 min incl. four reopened gates",
+      "section": "63"
+     },
+     {
+      "label": "Corrected study 39-year share (engineer 80.2 %)",
+      "value": "80.3 %",
+      "section": "63"
+     },
+     {
+      "label": "Corrections posted at the components review (run 2)",
+      "value": "81",
+      "section": "38.1",
+      "note": "53 count fixes and 28 additions; 18 room corrections and 3 field corrections at the earlier gates."
+     },
+     {
+      "label": "Reject to the next revision's gate (run 2)",
+      "value": "10 s (rooms, components), 3 min (appraisal)",
+      "section": "38.2"
+     },
+     {
+      "label": "Conventions promoted by study A's approval",
+      "value": "113 conventions",
+      "section": "42.5"
+     },
+     {
+      "label": "Gate draft tests",
+      "value": "20 draft tests",
+      "section": "58",
+      "note": "Plus 6 resume tests and 7 restart tests."
+     },
+     {
+      "label": "Reopen, history and restore API tests",
+      "value": "27",
+      "section": "61",
+      "note": "Plus 4 reopen lifecycle cases, one per gate."
+     }
+    ],
+    "spend": {
+     "cost_per_study": "3.55",
+     "cost_section": "63",
+     "latency": "8.5 min incl. four reopened gates",
+     "latency_section": "63"
+    },
+    "regression": {
+     "status": "No regression on the final build",
+     "section": "63",
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+    }
+   },
+   "links": [
+    {
+     "label": "Decision route",
+     "path": "backEnd/basis/api/routes/decisions.py"
+    },
+    {
+     "label": "Gate tests",
+     "path": "backEnd/tests/api/test_decisions.py"
+    },
+    {
+     "label": "Draft tests",
+     "path": "backEnd/tests/api/test_drafts.py"
+    },
+    {
+     "label": "Workflow contract",
+     "path": "docs/api/WORKFLOW.md"
+    },
+    {
+     "label": "Review history",
+     "path": "docs/api/TIMELINE_AND_AUDIT.md"
+    }
+   ]
+  }
+ },
+ "sections": {
+  "7": {
+   "title": "7. Counting once per room: heuristic merge versus the reconciliation call (2026-10-15)",
+   "anchor": "7-counting-once-per-room-heuristic-merge-versus-the-reconciliation-call-2026-10-15"
+  },
+  "15.1": {
+   "title": "15.1 Every variant against the current best",
+   "anchor": "151-every-variant-against-the-current-best"
+  },
+  "15.4": {
+   "title": "15.4 Recommended configuration",
+   "anchor": "154-recommended-configuration"
+  },
+  "16": {
+   "title": "16. Per-room accuracy: duplicates, conventions, materials (2026-10-16)",
+   "anchor": "16-per-room-accuracy-duplicates-conventions-materials-2026-10-16"
+  },
+  "16.2": {
+   "title": "16.2 Every variant against the baseline",
+   "anchor": "162-every-variant-against-the-baseline"
+  },
+  "16.5": {
+   "title": "16.5 Recommended room step",
+   "anchor": "165-recommended-room-step"
+  },
+  "17.1": {
+   "title": "17.1 Field extraction",
+   "anchor": "171-field-extraction"
+  },
+  "17.3": {
+   "title": "17.3 Recommendations",
+   "anchor": "173-recommendations"
+  },
+  "18": {
+   "title": "18. Production configuration (2026-10-16)",
+   "anchor": "18-production-configuration-2026-10-16"
+  },
+  "19.1": {
+   "title": "19.1 SAM 3: phrases and count thresholds chosen per class",
+   "anchor": "191-sam-3-phrases-and-count-thresholds-chosen-per-class"
+  },
+  "23.3": {
+   "title": "23.3 Rooms: the grouping, not the models",
+   "anchor": "233-rooms-the-grouping-not-the-models"
+  },
+  "25.2": {
+   "title": "25.2 The hybrid in classification",
+   "anchor": "252-the-hybrid-in-classification"
+  },
+  "26.2": {
+   "title": "26.2 Trained segmentation and open-vocabulary detectors (experiments a and b)",
+   "anchor": "262-trained-segmentation-and-open-vocabulary-detectors-experiments-a-and-b"
+  },
+  "26.8": {
+   "title": "26.8 Every architecture against the current pipeline",
+   "anchor": "268-every-architecture-against-the-current-pipeline"
+  },
+  "27.1": {
+   "title": "27.1 Rooms: file names first, the engineer's aliases, the model's identity as a fallback",
+   "anchor": "271-rooms-file-names-first-the-engineers-aliases-the-models-identity-as-a-fallback"
+  },
+  "28.1": {
+   "title": "28.1 Surfaces and room type (the decomposed step's second call)",
+   "anchor": "281-surfaces-and-room-type-the-decomposed-steps-second-call"
+  },
+  "28.2": {
+   "title": "28.2 Room step: reconciler and material second look",
+   "anchor": "282-room-step-reconciler-and-material-second-look"
+  },
+  "28.3": {
+   "title": "28.3 Asset classification",
+   "anchor": "283-asset-classification"
+  },
+  "29.2": {
+   "title": "29.2 Room counts through the wired code",
+   "anchor": "292-room-counts-through-the-wired-code"
+  },
+  "30.3": {
+   "title": "30.3 Batching and compact output",
+   "anchor": "303-batching-and-compact-output"
+  },
+  "30.6": {
+   "title": "30.6 Study wall time, before and after",
+   "anchor": "306-study-wall-time-before-and-after"
+  },
+  "31": {
+   "title": "31. Room reconciler on gpt-6-luna (2026-10-17)",
+   "anchor": "31-room-reconciler-on-gpt-6-luna-2026-10-17"
+  },
+  "32": {
+   "title": "32. Load and capacity (2026-10-17)",
+   "anchor": "32-load-and-capacity-2026-10-17"
+  },
+  "32.4": {
+   "title": "32.4 Second and third: connections held through model calls and embedding (fixed)",
+   "anchor": "324-second-and-third-connections-held-through-model-calls-and-embedding-fixed"
+  },
+  "32.5": {
+   "title": "32.5 Capacity at the production defaults (after the fixes)",
+   "anchor": "325-capacity-at-the-production-defaults-after-the-fixes"
+  },
+  "32.9": {
+   "title": "32.9 Provider ceilings",
+   "anchor": "329-provider-ceilings"
+  },
+  "32.10": {
+   "title": "32.10 Uploads are throttled by the per-engineer limit",
+   "anchor": "3210-uploads-are-throttled-by-the-per-engineer-limit"
+  },
+  "33": {
+   "title": "33. Appraisal extraction: harness, sweep, highlights, UAD 3.6 (2026-10-27)",
+   "anchor": "33-appraisal-extraction-harness-sweep-highlights-uad-36-2026-10-27"
+  },
+  "33.5": {
+   "title": "33.5 Method and model sweep",
+   "anchor": "335-method-and-model-sweep"
+  },
+  "33.7": {
+   "title": "33.7 UAD 3.6 XML reader",
+   "anchor": "337-uad-36-xml-reader"
+  },
+  "33.9": {
+   "title": "33.9 Presence rules",
+   "anchor": "339-presence-rules"
+  },
+  "33.10": {
+   "title": "33.10 Azure DI polling",
+   "anchor": "3310-azure-di-polling"
+  },
+  "33.12": {
+   "title": "33.12 Production default: the grounded reading on Sol (2026-10-28)",
+   "anchor": "3312-production-default-the-grounded-reading-on-sol-2026-10-28"
+  },
+  "35.2": {
+   "title": "35.2 Re-pricing the stored export (free, no model calls)",
+   "anchor": "352-re-pricing-the-stored-export-free-no-model-calls"
+  },
+  "37.1": {
+   "title": "37.1 What changed",
+   "anchor": "371-what-changed"
+  },
+  "38.1": {
+   "title": "38.1 What the engineer step posted (run 2)",
+   "anchor": "381-what-the-engineer-step-posted-run-2"
+  },
+  "38.2": {
+   "title": "38.2 Timeline and spend",
+   "anchor": "382-timeline-and-spend"
+  },
+  "39": {
+   "title": "39. A fresh worker ingests its first appraisal: the embedding model is loaded before polling (2026-10-29)",
+   "anchor": "39-a-fresh-worker-ingests-its-first-appraisal-the-embedding-model-is-loaded-before-polling-2026-10-29"
+  },
+  "39.4": {
+   "title": "39.4 Verification",
+   "anchor": "394-verification"
+  },
+  "40": {
+   "title": "40. The paid-call ledger: every call, every token, every dollar, with its prompt and answer (2026-10-29)",
+   "anchor": "40-the-paid-call-ledger-every-call-every-token-every-dollar-with-its-prompt-and-answer-2026-10-29"
+  },
+  "40.4": {
+   "title": "40.4 Storage per study",
+   "anchor": "404-storage-per-study"
+  },
+  "42.5": {
+   "title": "42.5 Live: two studies in sequence on the local stack (2026-10-30)",
+   "anchor": "425-live-two-studies-in-sequence-on-the-local-stack-2026-10-30"
+  },
+  "44.3": {
+   "title": "44.3 The sweep: every variant, scored the same way on both live exports",
+   "anchor": "443-the-sweep-every-variant-scored-the-same-way-on-both-live-exports"
+  },
+  "47.3": {
+   "title": "47.3 The two live exports, replayed with the published July 2024 index",
+   "anchor": "473-the-two-live-exports-replayed-with-the-published-july-2024-index"
+  },
+  "48.4": {
+   "title": "48.4 Measured: the 52 photos, no model call (`evals.room_metadata`)",
+   "anchor": "484-measured-the-52-photos-no-model-call-evalsroom_metadata"
+  },
+  "49": {
+   "title": "49. The reconciliation gap closed for documented reasons: the house's baths and heating, the residual added back, one cost basis (2026-10-31)",
+   "anchor": "49-the-reconciliation-gap-closed-for-documented-reasons-the-houses-baths-and-heating-the-residual-added-back-one-cost-basis-2026-10-31"
+  },
+  "51.2": {
+   "title": "51.2 Renderer",
+   "anchor": "512-renderer"
+  },
+  "51.3": {
+   "title": "51.3 Run 4, through the report (private copy)",
+   "anchor": "513-run-4-through-the-report-private-copy"
+  },
+  "51.4": {
+   "title": "51.4 Checks",
+   "anchor": "514-checks"
+  },
+  "52": {
+   "title": "52. Signing the report in Basis (2026-10-31)",
+   "anchor": "52-signing-the-report-in-basis-2026-10-31"
+  },
+  "53": {
+   "title": "53. Live run 5 on main 7844e4d: the rulings survive the release, the report is signed (2026-11-01)",
+   "anchor": "53-live-run-5-on-main-7844e4d-the-rulings-survive-the-release-the-report-is-signed-2026-11-01"
+  },
+  "54": {
+   "title": "54. A decision outranks a model answer: the Fireplaces row (2026-11-01)",
+   "anchor": "54-a-decision-outranks-a-model-answer-the-fireplaces-row-2026-11-01"
+  },
+  "55.2": {
+   "title": "55.2 Built",
+   "anchor": "552-built"
+  },
+  "58": {
+   "title": "58. Leaving a study and coming back: gate drafts on the server, resumable uploads, restarting a cancelled study (2026-11-01)",
+   "anchor": "58-leaving-a-study-and-coming-back-gate-drafts-on-the-server-resumable-uploads-restarting-a-cancelled-study-2026-11-01"
+  },
+  "61": {
+   "title": "61. Reopening a completed study, the revision history, restoring a revision (2026-11-01)",
+   "anchor": "61-reopening-a-completed-study-the-revision-history-restoring-a-revision-2026-11-01"
+  },
+  "62.1": {
+   "title": "62.1 Findings",
+   "anchor": "621-findings"
+  },
+  "63": {
+   "title": "63. Live run 6 on main 15cd291: two studies on the final build, and a lost network window (2026-11-01)",
+   "anchor": "63-live-run-6-on-main-15cd291-two-studies-on-the-final-build-and-a-lost-network-window-2026-11-01"
+  },
+  "72.2": {
+   "title": "72.2 The recovery path after a signature, exercised live",
+   "anchor": "722-the-recovery-path-after-a-signature-exercised-live"
+  },
+  "72.5": {
+   "title": "72.5 What this does not prove",
+   "anchor": "725-what-this-does-not-prove"
+  }
+ }
+}

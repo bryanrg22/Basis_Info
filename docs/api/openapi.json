@@ -18966,6 +18966,46 @@
         ],
         "title": "ModelOut"
       },
+      "ModelRouteOut": {
+        "properties": {
+          "setting": {
+            "type": "string",
+            "title": "Setting",
+            "description": "The worker setting that names the model, e.g. `VISION_MODEL`."
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "primary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RouteHopOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when no configured provider serves it."
+          },
+          "fallbacks": {
+            "items": {
+              "$ref": "#/components/schemas/RouteHopOut"
+            },
+            "type": "array",
+            "title": "Fallbacks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "setting",
+          "model",
+          "primary",
+          "fallbacks"
+        ],
+        "title": "ModelRouteOut",
+        "description": "A model a service calls, by the setting that names it, with its route from the\nworker's heartbeat report: the primary provider, then the fallbacks in order."
+      },
       "NotProducedOut": {
         "properties": {
           "system": {
@@ -21778,6 +21818,33 @@
         ],
         "title": "RoomsPageOut"
       },
+      "RouteHopOut": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "description": "The pool's provider name: `openai`, `azure`, `anthropic`."
+          },
+          "service": {
+            "type": "string",
+            "title": "Service",
+            "description": "The service id of that provider in this document."
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "description": "The model, or the Azure deployment, the request is sent to."
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "service",
+          "target"
+        ],
+        "title": "RouteHopOut",
+        "description": "One provider on a model's route, as the worker's pool orders them."
+      },
       "ScheduleBucketOut": {
         "properties": {
           "bucket": {
@@ -22025,6 +22092,41 @@
                 "type": "null"
               }
             ]
+          },
+          "hosting": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hosting",
+            "description": "Where it runs, as a display label the runtime establishes (a provider, Cloud Run, a Docker container, a local process, Temporal Cloud ...). Null when the runtime does not establish it; never a host name, address or path."
+          },
+          "fallbacks": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallbacks",
+            "description": "The ordered backups: display labels of the fallback routes of the models it calls (`model → provider · target`). Empty when the code has no fallback for it; null when not known (no current worker report)."
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelRouteOut"
+            },
+            "type": "array",
+            "title": "Models",
+            "description": "The models it calls, one entry per setting that names a model, each with its route (primary provider first). Empty for a service that calls no chat model."
           }
         },
         "type": "object",

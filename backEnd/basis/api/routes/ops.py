@@ -40,7 +40,7 @@ from basis.api.schemas.ops import OpsHealthOut, ServiceHealthOut
 from basis.auth.firebase import EMULATOR_ENV_VAR, Principal
 from basis.config import Settings
 from basis.db.session import SESSIONMAKER_STATE_ATTR
-from basis.ops import evidence
+from basis.ops import evidence, hosting
 from basis.ops.services import Inputs, compose, overall_failed
 from basis.storage import GcsStorage, Storage
 
@@ -128,6 +128,8 @@ async def evaluate(request: Request) -> tuple[dict[str, Any], int]:
         evidence.read_ledger(sessionmaker) if sessionmaker is not None else _none(),
         evidence.probe_storage(storage, app.state.storage_bucket),
     )
+    storage_adapter = "Google Cloud Storage" if isinstance(storage, GcsStorage) else "local"
+    firebase_adapter = "emulator" if os.environ.get(EMULATOR_ENV_VAR) else "Firebase Auth"
     services = compose(
         Inputs(
             now=datetime.now(UTC),
@@ -141,11 +143,17 @@ async def evaluate(request: Request) -> tuple[dict[str, Any], int]:
             state=state,
             ledger=ledger,
             storage=stored,
-            storage_adapter="Google Cloud Storage" if isinstance(storage, GcsStorage) else "local",
-            firebase_adapter="emulator" if os.environ.get(EMULATOR_ENV_VAR) else "Firebase Auth",
+            storage_adapter=storage_adapter,
+            firebase_adapter=firebase_adapter,
             firebase_project=settings.firebase_project_id,
             token_verified_at=verified_at,
             task_queue=settings.temporal_task_queue,
+            # Hosting labels from this process's runtime (basis.ops.hosting): never a host.
+            api_hosting=hosting.process_hosting(),
+            db_hosting=hosting.database_hosting(settings),
+            temporal_hosting=hosting.temporal_hosting(settings),
+            storage_hosting=hosting.storage_hosting(storage_adapter),
+            firebase_hosting=hosting.firebase_hosting(firebase_adapter),
         )
     )
     body = OpsHealthOut(services=[ServiceHealthOut.of(s) for s in services])

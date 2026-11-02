@@ -512,3 +512,18 @@ Full web suite: 321/321. Browser evidence (owner and viewer accounts, desktop, 3
 px, keyboard order) and the backend round trips (signature rows, events, files, served sha256)
 are in EVAL_REPORT 72; the stack was isolated (own Postgres, Temporal, storage directory,
 offline providers), no client data, no paid call, no production write.
+
+## Developer workflow dialogs (2026-11-02; EVAL_REPORT 73)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `tests/unit/ops/test_hosting.py` | Hosting labels from the runtime only: Cloud Run from `K_SERVICE`, a Docker container from `/.dockerenv`, else a local process; the database from `cloud_sql_instance`, a `/cloudsql/` socket, a local host or another host (never a name), null for no URL or an unparsable one; Temporal Cloud from the address suffix or an API key, local, self-hosted; storage and sign-in labels; the self-hosted SAM 3 server by `run.app`, local or other, with no part of the host in the label | 20 passed |
+| `tests/unit/ops/test_services.py` | Added: hosting carried from the API's inputs and the worker's and relay's reports (null, never guessed, without them; `Study worker (<label>)` for the steps; `PostgreSQL (<label>)` for the stores); backups as the fallback routes per model (empty where the code has none, null without a worker report); structured routes per setting with the Azure deployment, a provider listing only the routes it serves first, a model with no provider a route with no primary | 5 added, 70 passed |
+| `tests/unit/test_developer_workflow_content.py` | `web/developer/workflow-content.json` against the repository: every cited section a heading of EVAL_REPORT.md and every figure (table cells, metrics, spend, regression) verbatim inside it; every link and source path in the tree, fragments headings of their file; runtime rows name contract service ids and worker model roles; three explanation steps per workflow step, one value per column, the selected row first; no client data or secret | 50 passed |
+| `tests/api/test_ops_health.py` | Extended: the real-heartbeat document carries `hosting` for every row (the API's and worker's labels agree on one host), `models` with the primary route per setting, `fallbacks` empty where one route exists | `integration` |
+| `web/tests/developer-workflow.test.cjs` | The step dialogs: content shape for all twelve steps; inventory and photo dialogs with a synthetic feed (one row per role, provider logos, the Azure deployment, the fallback label, roles the worker does not run absent); no feed lists every system and role as "Not reported" with no typed model id; verbatim figures and section anchors; a step with no paid call; a missing or malformed content file; hostile feed text escaped and a malformed route unable to name a model; no dialog says a study is signed or completed; every source path and link resolves | 10 passed |
+| `web/tests/developer-health.test.cjs` | The three architecture tests ported to the content file (explanations from `workflow-content.json`, the photo comparison's selected row, the `blob/main` source links) | 25 passed |
+
+Full web suite: 331/331. Browser evidence (live with diagnostics connected, unconnected,
+desktop and 390 CSS px, keyboard, console) is in EVAL_REPORT 73; the stack was isolated and no
+paid call was made.

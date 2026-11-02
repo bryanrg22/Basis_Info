@@ -666,3 +666,134 @@ def test_compose_does_not_mutate_its_inputs() -> None:
     before = copy.deepcopy(given.state.value.heartbeats[0].report)  # type: ignore[union-attr]
     compose(given)
     assert given.state.value.heartbeats[0].report == before  # type: ignore[union-attr]
+
+
+# ------------------------------------------------------------ hosting, backups, model routes
+
+
+def test_hosting_comes_from_the_runtime_and_never_from_a_service_name() -> None:
+    s = by_id(
+        compose(
+            inputs(
+                api_hosting="Docker container",
+                db_hosting="Local PostgreSQL",
+                temporal_hosting="Self-hosted Temporal",
+                storage_hosting="Local disk",
+                firebase_hosting="Firebase Auth emulator",
+            )
+        )
+    )
+    assert s["api"].hosting == "Docker container"
+    assert s["db"].hosting == "Local PostgreSQL"
+    assert s["temporal"].hosting == "Self-hosted Temporal"
+    assert s["storage"].hosting == "Local disk"
+    assert s["firebase"].hosting == "Firebase Auth emulator"
+    # Providers are hosted by themselves; Replicate hosts SAM 3 here.
+    assert s["openai"].hosting == "OpenAI" and s["azure_openai"].hosting == "Microsoft Azure"
+    assert s["anthropic"].hosting == "Anthropic" and s["replicate"].hosting == "Replicate"
+    assert s["sam3"].hosting == "Replicate" and s["azure_di"].hosting == "Microsoft Azure"
+    # The worker's report has no hosting: the API does not guess one for it or its steps.
+    assert s["worker"].hosting is None
+    assert s["vision"].hosting == "Study worker" and s["takeoff"].hosting == "Study worker"
+    assert s["retrieval"].hosting == "PostgreSQL (Local PostgreSQL)"
+    # No API-side label: None, not a default.
+    assert by_id(compose(inputs()))["temporal"].hosting is None
+
+
+def test_a_worker_that_reports_its_hosting_labels_its_steps() -> None:
+    def hosted(report: dict[str, Any]) -> None:
+        report["build"]["hosting"] = "Google Cloud Run"
+        report["localizer"] = {
+            "adapter": "self-hosted",
+            "version": "x",
+            "probed": False,
+            "hosting": "Google Cloud Run",
+        }
+
+    s = by_id(compose(with_report(hosted)))
+    assert s["worker"].hosting == "Google Cloud Run"
+    assert s["vision"].hosting == "Study worker (Google Cloud Run)"
+    assert s["embeddings"].hosting == "Study worker (Google Cloud Run)"
+    assert s["sam3"].hosting == "Google Cloud Run" and s["sam3"].adapter == "self-hosted"
+
+
+def test_backups_are_the_fallback_routes_and_empty_where_the_code_has_none() -> None:
+    s = by_id(compose(inputs()))
+    # Azure is first for the GPT models; OpenAI is their fallback.
+    assert s["azure_openai"].fallbacks == (
+        "gpt-6.1-sol → OpenAI API · gpt-6.1-sol",
+        "gpt-6-luna → OpenAI API · gpt-6-luna",
+    )
+    assert s["openai"].fallbacks == ()  # fallback only: nothing falls back from it
+    assert s["anthropic"].fallbacks == ()  # the Claude models have one route
+    assert s["vision"].fallbacks == (
+        "gpt-6.1-sol → OpenAI API · gpt-6.1-sol",
+        "gpt-6-luna → OpenAI API · gpt-6-luna",
+    )
+    assert s["classification"].fallbacks == ()
+    no_fallback = (
+        "api",
+        "db",
+        "temporal",
+        "storage",
+        "firebase",
+        "sam3",
+        "takeoff",
+        "exports",
+        "cost_indices",
+        "rsmeans",
+        "embeddings",
+        "relay",
+        "worker",
+    )
+    for id in no_fallback:
+        assert s[id].fallbacks == (), id
+    # Without a worker report nothing is known: null, not "none configured".
+    gone = by_id(compose(inputs(state=ok(world(heartbeats=[beat("relay")])))))
+    assert gone["vision"].fallbacks is None and gone["openai"].fallbacks is None
+
+
+def test_model_routes_are_structured_per_setting_with_the_deployment() -> None:
+    s = by_id(compose(inputs()))
+    vision = {r.setting: r for r in s["vision"].models}
+    assert list(vision) == ["VISION_MODEL", "VISION_SURFACES_MODEL", "VISION_FUSION_MODEL"]
+    countables = vision["VISION_MODEL"]
+    assert countables.model == "gpt-6.1-sol"
+    assert countables.primary is not None
+    assert (countables.primary.provider, countables.primary.service) == ("azure", "azure_openai")
+    assert countables.primary.target == "basis-vision"  # the Azure deployment
+    assert [h.service for h in countables.fallbacks] == ["openai"]
+    fusion = vision["VISION_FUSION_MODEL"]
+    assert fusion.primary is not None and fusion.primary.service == "anthropic"
+    assert fusion.fallbacks == ()
+    assert [r.setting for r in s["room_inventory"].models] == [
+        "ROOM_MODEL",
+        "ROOM_MATERIALS_MODEL",
+    ]
+    assert [r.setting for r in s["appraisal"].models] == [
+        "EXTRACTION_GROUNDED_MODEL",
+        "TEXT_MODEL",
+    ]
+    assert [r.setting for r in s["classification"].models] == ["CLASSIFY_MODEL"]
+    # A provider lists the routes it serves first, nothing it only backs up.
+    assert {r.setting for r in s["azure_openai"].models} == {
+        "VISION_MODEL",
+        "EXTRACTION_GROUNDED_MODEL",
+        "VISION_SURFACES_MODEL",
+        "ROOM_MODEL",
+        "TEXT_MODEL",
+    }
+    assert s["openai"].models == ()
+    assert s["sam3"].models == () and s["takeoff"].models == ()
+
+
+def test_a_model_without_a_provider_is_a_route_with_no_primary() -> None:
+    def unserved(report: dict[str, Any]) -> None:
+        for r in report["routes"]:
+            if r["model"] == "claude-opus-5-5":
+                r["route"] = []
+
+    s = by_id(compose(with_report(unserved)))
+    fusion = next(r for r in s["vision"].models if r.setting == "VISION_FUSION_MODEL")
+    assert fusion.primary is None and fusion.fallbacks == ()
+    assert s["vision"].status == "down"

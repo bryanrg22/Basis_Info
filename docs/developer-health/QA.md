@@ -60,3 +60,20 @@ Verification:
 - Claude's walkthrough owns port 3100. This preview uses port 3101 and a temporary GET-only bridge for `/health` and `/v1/ops/health` to the existing local API on port 8000. No backend service, study or authorization settings were changed. This is local, not deployed.
 
 Standards reviewed: [W3C color cues](https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html) and [OpenTelemetry exception attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/exception/). Error capture and protected run downloads remain backend work; the UI does not invent missing records or metadata.
+
+## November 2, 2026: step dialogs filled from the code, the health feed and the evaluation report
+
+Changes in this pass (EVAL_REPORT 73, branch `claude/developer-workflow`):
+
+- Every step dialog's "How it works" is written from the step's activity (`web/developer/workflow-content.json`, each step naming its source file); "Build inventory" speaks of components, the room step's one call per multi-photo room and the material second look.
+- "Current runtime" lists every system the step uses and, under a capability, one row per model role from the health feed's new `models` field: provider logo, exact model id (and the Azure deployment when it differs), the provider's hosting and adapter, the model's backups. Without a feed every row says "Not reported"; a model id is never typed in the page.
+- "Tests & results" shows the architectures compared and the measured results per step (comparisons with the selected row first, metrics, cost, tokens and latency where the report states them, the regression status) with links to the report sections; `backEnd/tests/unit/test_developer_workflow_content.py` fails when a figure, heading or path no longer matches the repository.
+- Service health still never says whether a study is signed or completed; every dialog says so under its runtime table.
+
+Verification:
+
+- `node --test web/tests/*.test.cjs`: **331 passed, 0 failed** (10 new developer-workflow tests; the three architecture tests ported).
+- Browser, live with diagnostics connected to an isolated API (this checkout, port 8500, real `service_heartbeats` rows, provider probes answered by a mock transport): hosting labels on the system rows; the Build inventory dialog with `ROOM_MODEL`, `ROOM_MATERIALS_MODEL`, Mask2Former (not enabled) and SAM 3 on Replicate; all twelve dialogs open with the three sections.
+- Browser, not connected: every runtime cell "Not reported", the measured results unchanged.
+- Keyboard: Escape closes the dialog and returns focus to the step button. Console on a fresh load: empty. 390 CSS px: no page or dialog overflow; wide tables scroll inside the dialog.
+- No paid model call, no deployment, no change to the `basis-web` stack or any client file.
