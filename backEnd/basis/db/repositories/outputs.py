@@ -28,7 +28,7 @@ from typing import Any, Final, Literal
 from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from basis.db.enums import Corpus
+from basis.db.enums import Corpus, DocumentKind
 from basis.db.errors import InvalidCursorError
 from basis.db.models import (
     Asset,
@@ -42,6 +42,7 @@ from basis.db.models import (
     ExtractionField,
     PhotoObject,
     PhotoRoom,
+    PhotoRoomAnswer,
     Room,
     Takeoff,
 )
@@ -96,6 +97,18 @@ class FieldRow:
 class RoomPhoto:
     document_id: uuid.UUID
     filename: str
+
+
+@dataclass(frozen=True, slots=True)
+class UnplacedPhoto:
+    """A photo of the study that no room of the revision holds (EVAL_REPORT 64)."""
+
+    document_id: uuid.UUID
+    filename: str
+    # A ``photo_room_answers`` row at or before the revision: the analysis ran and said
+    # something about the photo's room. False: it never did (it failed for good, the budget
+    # could not cover it, or it has not run yet), so the photo's components are not counted.
+    analyzed: bool
 
 
 @dataclass(slots=True)
@@ -295,6 +308,34 @@ class OutputRepository:
             last = rooms[-1].room
             next_cursor = encode_cursor(revision, (last.name, str(last.id)))
         return Page(revision=revision, items=rooms, next_cursor=next_cursor)
+
+    async def unplaced_photos(self, study_id: uuid.UUID, revision: int) -> list[UnplacedPhoto]:
+        """The study's photos that no room of ``revision`` holds, in file-name order.
+
+        The rooms review shows rooms; a photo whose analysis never ran has no room
+        (``basis.vision.rooms``: no analysis, no room) and so did not appear anywhere the
+        engineer looks (live run 6, EVAL_REPORT 63). ``analyzed`` tells the two cases apart:
+        a photo the model placed in no room (its answer exists) and a photo never analyzed.
+        """
+        placed = select(PhotoRoom.document_id).where(
+            PhotoRoom.study_id == study_id, PhotoRoom.revision == revision
+        )
+        answered = select(PhotoRoomAnswer.document_id).where(
+            PhotoRoomAnswer.study_id == study_id, PhotoRoomAnswer.revision <= revision
+        )
+        stmt = (
+            select(Document.id, Document.filename, Document.id.in_(answered))
+            .where(
+                Document.study_id == study_id,
+                Document.kind == DocumentKind.PHOTO,
+                Document.id.not_in(placed),
+            )
+            .order_by(Document.filename, Document.id)
+        )
+        return [
+            UnplacedPhoto(document_id, filename, bool(analyzed))
+            for document_id, filename, analyzed in (await self._session.execute(stmt)).all()
+        ]
 
     async def _room_objects(self, study_id: uuid.UUID, revision: int, rooms: list[RoomRow]) -> None:
         """Fill each room's per-photo counts of counted instances (and manual ones)."""
