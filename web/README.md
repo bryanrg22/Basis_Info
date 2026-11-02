@@ -259,6 +259,21 @@ Browsers that block pop-ups can use `?mode=live&signin=redirect`.
    the emulator account (its uid): if the emulator restarts without its saved state, the same
    email is a new account and needs a new invitation (`python -m basis.admin invite`).
 
+### Error capture (`live/errors.js`)
+
+Loaded first on the page. Every error a user hits (an uncaught exception, a rejected
+promise, a failed `/v1` call, a `console.error`, a resource that failed to load, an explicit
+`Basis.reportError(err, context)`) is recorded with the user, firm, study, screen, the last
+50 actions, the stack and source location, the failed request's status, code and request
+id, the build and the browser, and sent in batches to `POST /v1/client-errors`
+(`docs/api/CLIENT_ERRORS.md`). Nothing secret is recorded: no token, no request body (field
+names only), no query values, ids replaced by `{id}`. In mock mode events are kept in
+memory and never sent. Operators read them on `developer/client-errors.html`
+(`GET /v1/ops/client-errors`, `OPS_OPERATOR_UIDS`): the issues they group into with a status a
+person sets (and a regression the ingest sets), the records, a detail view, and **Copy for an
+agent**, one plain-text brief to paste into Claude Code or Codex. Tests: `tests/errors.test.cjs`,
+`tests/client-errors-page.test.cjs`.
+
 ### Configuration (`live/config.js`)
 
 | Setting | Default | Notes |

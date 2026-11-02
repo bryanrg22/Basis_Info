@@ -35,6 +35,7 @@
   // Retry only the same request: studies and edited payloads need distinct keys.
   const key=JSON.stringify([L.studyId,body]);L.decisionKeys||={};L.decisionKeys[key]||=BasisApi.newKey();
   try{
+   globalThis.BasisErrors?.breadcrumb('decision',`${decision} ${stage}`,{stage,decision,revision:L.study.revision,corrections:corrections.length});
    const r=await api.decide(L.studyId,body,L.decisionKeys[key]);
    pending(stage).clear();L.workflow=null;Live.stopPolling();toast(decision==='approve'?`${Live.STAGE[stage]} approved.`:`Sent ${r.corrections_recorded} ${r.corrections_recorded===1?'correction':'corrections'}. Basis is re-running this stage.`);
    Live.invalidate('studies');Live.invalidate(`fields:${L.studyId}`);Live.invalidate(`rooms:${L.studyId}`);Live.invalidate(`assets:${L.studyId}`);Live.invalidate(`objects:${L.studyId}`);

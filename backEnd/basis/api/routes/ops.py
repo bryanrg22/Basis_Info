@@ -1,9 +1,10 @@
 """``GET /v1/ops/health``: internal system health for platform operators
 (docs/api/OPS_HEALTH.md).
 
-* Access: a verified Firebase ID token whose uid is in ``OPS_OPERATOR_UIDS``. A firm role,
-  owner included, never grants it. 401 without a usable token, 403 ``not-operator``
-  otherwise; neither carries diagnostics. The user is not upserted (no database write), so
+* Access: a verified Firebase ID token whose uid is in ``OPS_OPERATOR_UIDS``
+  (:func:`basis.api.operators.require_operator`). A firm role, owner included, never grants
+  it. 401 without a usable token, 403 ``not-operator`` otherwise; neither carries
+  diagnostics. The user is not upserted (no database write), so
   the route answers while the database is down.
 * Rate limits: the read limit by uid (every ``/v1`` read), then
   :data:`OPS_RATE_LIMIT_PER_MIN` per operator.
@@ -30,16 +31,15 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from basis.api.auth import CurrentPrincipal
-from basis.api.errors import Forbidden, TooManyRequests
+from basis.api.errors import TooManyRequests
 from basis.api.health import check_database, check_temporal
+from basis.api.operators import require_operator
 from basis.api.ratelimit import RateLimiter, get_rate_limiter, rate_limited
 from basis.api.routes.common import API_PREFIX, problems
 from basis.api.schemas.ops import OpsHealthOut, ServiceHealthOut
 from basis.auth.firebase import EMULATOR_ENV_VAR, Principal
 from basis.config import Settings
 from basis.db.session import SESSIONMAKER_STATE_ATTR
-from basis.errors.codes import E
 from basis.ops import evidence
 from basis.ops.services import Inputs, compose, overall_failed
 from basis.storage import GcsStorage, Storage
@@ -47,19 +47,10 @@ from basis.storage import GcsStorage, Storage
 CACHE_TTL_S: Final = 10.0
 OPS_RATE_LIMIT_PER_MIN: Final = 30
 OPS_POLLERS_STATE_ATTR: Final = "ops_pollers"
-DETAIL_NOT_OPERATOR: Final = "This account is not a platform operator."
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix=API_PREFIX, tags=["ops"])
-
-
-async def require_operator(request: Request, principal: CurrentPrincipal) -> Principal:
-    settings: Settings = request.app.state.settings
-    if principal.uid not in settings.ops_operator_uids:
-        logger.info("ops health refused: not an operator")
-        raise Forbidden(DETAIL_NOT_OPERATOR, type_suffix="not-operator", code=E.API_NOT_OPERATOR)
-    return principal
 
 
 async def ops_rate_limit(

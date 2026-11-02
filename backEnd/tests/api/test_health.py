@@ -118,6 +118,13 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
     assert operations == {
         "GET /health",
         "GET /",
+        # browser error capture (tests/api/test_client_errors.py, docs/api/CLIENT_ERRORS.md)
+        "POST /v1/client-errors",
+        "GET /v1/ops/client-errors",
+        "GET /v1/ops/client-errors/{client_error_id}",
+        "GET /v1/ops/client-errors/issues",
+        "GET /v1/ops/client-errors/issues/{fingerprint}",
+        "PUT /v1/ops/client-errors/issues/{fingerprint}/status",
         "GET /v1/studies",
         "POST /v1/studies",
         "GET /v1/studies/{study_id}",

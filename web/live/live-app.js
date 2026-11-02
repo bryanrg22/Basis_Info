@@ -21,7 +21,9 @@
  const C=globalThis.BASIS_CONFIG;if(!C||C.mode!=='live')return;
  document.documentElement.dataset.basisMode='live';
  const L={authReady:false,user:null,authError:'',studies:null,studiesError:null,studyId:null,docId:null,study:null,cache:new Map(),blobs:new Map(),poller:null,workflow:null,upload:null,returnTo:null,busy:new Set(),corrections:{},viewer:{mode:'spotlight',focusLabel:null,selectedId:null,tool:null,addLabel:null},assetsFilter:'all',studiesFilter:'All studies',studiesQuery:'',studiesSort:'updated'};
- const api=BasisApi.createClient({baseUrl:C.apiBase,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')}});
+ // Every call is a breadcrumb and every failure an event in the error capture (live/errors.js).
+ const api=BasisApi.createClient({baseUrl:C.apiBase,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')},observe:info=>globalThis.BasisErrors?.apiCall(info)});
+ const reportError=(err,context)=>{try{globalThis.BasisErrors?.report(err,context)}catch{}};
  const Live=globalThis.BasisLive={config:C,api,state:L,screens:{}};
  const STAGE={uploading:'Waiting for documents',extracting:'Extracting the appraisal and analyzing photos',appraisal_review:'Appraisal review',rooms_review:'Rooms review',components_processing:'Preparing components',components_review:'Components review',assets_processing:'Preparing asset costs',assets_review:'Assets review',exporting:'Preparing results',completed:'Reviews approved'};
  const STATUS={draft:'Draft',processing:'Processing',waiting_review:'Ready for review',stalled:'Needs attention',completed:'Reviews approved',archived:'Archived',failed:'Failed'};
@@ -44,7 +46,7 @@
  function load(key,loader,{force=false}={}){
   const hit=L.cache.get(key);if(hit&&!force)return hit;
   const entry={promise:null,data:undefined,error:null,done:false};L.cache.set(key,entry);
-  entry.promise=loader().then(d=>{entry.data=d;entry.done=true;render();return d},e=>{entry.error=e;entry.done=true;render();throw e});
+  entry.promise=loader().then(d=>{entry.data=d;entry.done=true;render();return d},e=>{entry.error=e;entry.done=true;if(!(e instanceof BasisApi.ApiError))reportError(e,{load:key});render();throw e});
   entry.promise.catch(()=>{});return entry;
  }
  Live.load=load;
@@ -127,6 +129,8 @@
   afterRender();
  };
  Live.render=()=>render();
+ Live.reportError=reportError;
+ Live.screen=()=>state.screen;// the error capture names the screen an error happened on
  function afterRender(){
   const workspace=root.querySelector('.workspace');if(workspace)workspace.dataset.screen=state.screen;
   const bar=root.querySelector('.reviewbar');if(bar)bar.outerHTML=liveBar();
@@ -379,7 +383,9 @@
   }
  }
  Live.actions={};
- async function guarded(name,fn){if(L.busy.has(name))return;L.busy.add(name);try{await fn()}catch(e){toast(Live.errorText(e))}finally{L.busy.delete(name)}}
+ // A failed action is shown to the user and, unless it was an API refusal the client already
+ // recorded, reported with the action's name.
+ async function guarded(name,fn){if(L.busy.has(name))return;L.busy.add(name);try{await fn()}catch(e){toast(Live.errorText(e));if(!(e instanceof BasisApi.ApiError))reportError(e,{action:name})}finally{L.busy.delete(name)}}
  Live.guarded=guarded;
  root.addEventListener('click',e=>{
   const el=e.target.closest('[data-live]');if(el){e.preventDefault();e.stopImmediatePropagation();act(el.dataset.live,el);return}

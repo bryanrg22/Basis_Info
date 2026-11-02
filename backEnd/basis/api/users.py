@@ -47,6 +47,7 @@ from basis.db.models import User
 from basis.db.repositories import OrgRepository, StudyRepository, UserRepository, VisibleStudy
 from basis.db.session import SESSIONMAKER_STATE_ATTR, SessionDep, session_scope
 from basis.errors.codes import E
+from basis.obs.logging import bind
 
 LAST_SEEN_RESOLUTION: Final = timedelta(minutes=5)
 DETAIL_NO_DATABASE: Final = "The database is not configured."
@@ -98,10 +99,12 @@ async def get_current_user(
         users = UserRepository(session)
         existing = await users.get_by_firebase_uid(principal.uid)
         if existing is not None and _is_current(existing, principal, datetime.now(UTC)):
+            bind(user_id=str(existing.id))
             return CurrentUser(user=existing, principal=principal)
         user = await users.upsert_by_firebase_uid(
             principal.uid, principal.email, principal.display_name
         )
+    bind(user_id=str(user.id))
     return CurrentUser(user=user, principal=principal)
 
 
@@ -112,9 +115,11 @@ async def require_study_access(
     session: AsyncSession, user: CurrentUser, study_id: uuid.UUID, min_role: OrgRole
 ) -> VisibleStudy:
     """The study and the caller's role in its org; 404 if not visible, 403 if role too low."""
+    bind(study_id=str(study_id))
     visible = await StudyRepository(session).get_visible(study_id, user.id)
     if visible is None:
         raise NotFound(DETAIL_STUDY_NOT_FOUND, code=E.STUDY_NOT_FOUND)
+    bind(org_id=str(visible.study.org_id), role=visible.role.value)
     if visible.role.rank < min_role.rank:
         raise Forbidden(
             f"This action needs the {min_role.value} role or higher in the study's "
@@ -150,9 +155,11 @@ async def require_org_role(
     session: AsyncSession, user: CurrentUser, org_id: uuid.UUID, min_role: OrgRole
 ) -> OrgRole:
     """The caller's role in the firm; 404 if not a member, 403 if the role is too low."""
+    bind(org_id=str(org_id))
     role = await OrgRepository(session).role_of(org_id, user.id)
     if role is None:
         raise NotFound(DETAIL_ORG_NOT_FOUND, code=E.API_ORG_NOT_FOUND)
+    bind(role=role.value)
     if role.rank < min_role.rank:
         raise Forbidden(
             f"This action needs the {min_role.value} role in the organization; you are "

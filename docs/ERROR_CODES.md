@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-285 codes in 22 areas.
+288 codes in 23 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -64,6 +64,7 @@ stale).
 | `BASIS-API-042` | refusal | `GET`/`POST /studies/{id}/assets/reprice`; `basis.costs.reprice` | The study is not waiting at the assets review of that revision. | 409 `gate-not-open`; the preview's `blocked_code`. (type `gate-not-open`) | Wait for the assets review to open, or use the current revision. | yes |
 | `BASIS-API-043` | refusal | `GET /v1/ops/health`; `basis.api.routes.ops` | The signed-in account is not a platform operator (its uid is not in `OPS_OPERATOR_UIDS`); a firm role never grants it. | 403 `not-operator`, with no diagnostics. (type `not-operator`) | An operator with deployment access adds the uid to `OPS_OPERATOR_UIDS`. | no |
 | `BASIS-API-044` | error | any request; `basis.api.ratelimit_pg` | The Postgres-backed rate limiter (`RATE_LIMIT_STORE=postgres`, the default in staging and prod) could not reach the database; the request was counted against a per-process budget instead, so the published limit holds per API instance until the database is back. | A warning log line, at most one per minute per process, with `fallbacks` (how many requests used the per-process budget); requests are not refused for it. | Restore the database (the same cause makes every `/v1` route answer 503 `BASIS-API-0xx`); nothing to reset, the shared log resumes on the next request. | yes |
+| `BASIS-API-045` | refusal | `POST /v1/client-errors`; `basis.api.routes.client_errors` | A batch of browser error events is larger than `MAX_BATCH_BYTES` (256 KiB), the route's own cap under the API's 1 MiB body limit; the batch was not read. | 413 `payload-too-large`. (type `payload-too-large`) | The web app's capture module caps each event (stack 16,000 characters, 50 breadcrumbs) and sends at most 20 per batch, so this means a client outside it; send smaller batches. | no |
 
 ## FIRM: Firms and membership
 
@@ -418,4 +419,11 @@ stale).
 | `BASIS-ALERT-002` | error | the relay's heartbeat check (`ALERT_CHECK_SECONDS`); `basis.notify.heartbeats` | No heartbeat of a service (worker, relay) is younger than `ALERT_HEARTBEAT_STALE_SECONDS`: the process died, hangs, or cannot reach the database. One alert per stale period (keyed by the last heartbeat seen); a new one only after the service came back and went stale again. | `alerts` row (`kind = heartbeat_stale`, `service`); the relay's log with `error_code`; the email; `GET /v1/ops/health` reports the service `down`. | Check the process (Cloud Run worker pool instances, container logs) and the database; restart it. Nothing to reset: the next stale period raises its own alert. | no |
 | `BASIS-ALERT-003` | error | the outbox relay (an `alert` notification); `basis.relay.delivery` | The email sender failed to send an alert: transient (the relay retries with backoff) or final (the recipient was refused; the outbox row is `dead`). | Relay log with `error_code`; the outbox row's `last_error` and `status`. | Fix the sender's configuration or the recipient (`ALERT_EMAIL_TO`) and requeue the dead row (S2_RUNBOOK section 5); the alert itself is still in `alerts`. | automatic |
 | `BASIS-ALERT-004` | outcome | the outbox relay (an `alert` notification); `basis.relay.delivery` | `ALERT_EMAIL_TO` is not set: the rendered alert was written to the relay's log at WARNING and the outbox row marked delivered. Nobody was emailed. | Relay log line `alert (no ALERT_EMAIL_TO)` with the subject and text. | Set `ALERT_EMAIL_TO` on the relay so alerts reach someone. | no |
+
+## CLIENT: Browser error capture: `POST /v1/client-errors` (docs/api/CLIENT_ERRORS.md)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-CLIENT-001` | outcome | `POST /v1/client-errors`; `basis.api.routes.client_errors` | The web app reported an error a user hit in the browser (an uncaught exception, a rejected promise, a failed API call, a `console.error`, an explicit report) and the API stored it with everything the client knew: the user, firm, study, screen, the last actions, the stack, the failed request's status, code and request id, the build and the browser (docs/api/CLIENT_ERRORS.md). | A `client_errors` row (`GET /v1/ops/client-errors`, operators); a `client.error` timeline event when the error names a study the reporter can see; the API log line `client error recorded` with `client_error_id`, `kind`, the client's `error_code` and `client_request_id`. | Diagnose from the record: the event's `http.request_id` finds the server log of the failed request, the breadcrumbs say what the user did, the stack says where. Fix the bug; the record stays until the client-error retention purge. | no |
+| `BASIS-CLIENT-002` | outcome | `python -m basis.retention purge-client-errors`; `basis.retention.client_errors` | Browser error records older than `CLIENT_ERRORS_RETENTION_DAYS` (180) were deleted: they are operational data about the application, kept long enough to diagnose a bug a firm reports late, not client files, so the firm's retention rule does not apply. | The purge's JSON summary line (`deleted`, `cutoff`); the `client.error` timeline events stay (the timeline is append-only). | Nothing; raise `CLIENT_ERRORS_RETENTION_DAYS` on the job if records are needed longer. | no |
 

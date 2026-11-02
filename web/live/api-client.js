@@ -7,6 +7,10 @@
  *   detail, the field errors and the request id (quote it when reporting a bug).
  * * pollWorkflow polls GET .../workflow with backoff: quick while something changes,
  *   slower while nothing does, paused while the tab is hidden.
+ * * observe (optional): called once per request with what happened (method, path, status,
+ *   duration, the problem's code and request id, the attempt under its idempotency key, the
+ *   body object for field names); the error capture (live/errors.js) records it. Never the
+ *   token, never the response body.
  */
 (function(scope){
  'use strict';
@@ -14,15 +18,20 @@
   constructor(status,problem={},fallback=''){
    super(problem.detail||problem.title||fallback||`Request failed (${status})`);
    this.name='ApiError';this.status=status;this.type=problem.type||'about:blank';this.title=problem.title||'';
-   this.code=problem.code||null;this.detail=problem.detail||'';this.errors=problem.errors||[];this.requestId=problem.request_id||null;
+   this.detail=problem.detail||'';this.errors=problem.errors||[];this.requestId=problem.request_id||null;
+   // The catalogue code (docs/ERROR_CODES.md), the operator's lookup key.
+   this.code=problem.code||null;
   }
   // The problem type's last path segment, e.g. "stale", "gate-not-open", "upload-missing".
   get kind(){return String(this.type).split('/').pop()}
  }
  const newKey=()=>(globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`);
- function createClient({baseUrl,getToken,fetchImpl=globalThis.fetch?.bind(globalThis),onUnauthorized}={}){
+ function createClient({baseUrl,getToken,fetchImpl=globalThis.fetch?.bind(globalThis),onUnauthorized,observe,now=()=>(globalThis.performance?.now?.()??Date.now())}={}){
   if(!baseUrl)throw new Error('baseUrl is required');
   const base=baseUrl.replace(/\/+$/,'');
+  // How many times each idempotency key was sent: the second time is a retry.
+  const attempts=new Map();
+  function notify(info){if(!observe)return;try{observe(info)}catch{}}
   function url(path,query){
    const u=new URL(base+path);
    for(const [k,v] of Object.entries(query||{}))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,String(v));
@@ -31,20 +40,24 @@
   async function request(method,path,{query,body,key,raw=false,signal,headers:extra}={}){
    const headers={Accept:'application/json, application/problem+json',...extra},token=getToken?await getToken():null;
    if(token)headers.Authorization=`Bearer ${token}`;
-   if(method==='POST'||method==='DELETE')headers['Idempotency-Key']=key||newKey();
+   let attempt=1;
+   if(method==='POST'||method==='DELETE'){const k=key||newKey();headers['Idempotency-Key']=k;attempt=(attempts.get(k)||0)+1;attempts.set(k,attempt);if(attempts.size>500)attempts.delete(attempts.keys().next().value)}
    if(body!==undefined)headers['Content-Type']='application/json';
+   const started=now(),seen=(status,error)=>notify({method,path:path+(query?'?'+Object.keys(query).filter(k=>query[k]!==undefined&&query[k]!==null&&query[k]!=='').join('&'):''),status,durationMs:now()-started,requestId:error?.requestId||response?.headers?.get?.('x-request-id')||null,code:error?.code||null,problemType:error?.type||null,title:error?.title||null,detail:error?.detail||null,attempt,retry:attempt>1,body,aborted:error?.name==='AbortError',stack:error?.stack||null});
    let response;
    try{response=await fetchImpl(url(path,query),{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal})}
-   catch(error){if(error?.name==='AbortError')throw error;throw new ApiError(0,{title:'Network error',detail:'The Basis API could not be reached. Check that it is running and that this page’s origin is allowed (CORS_ALLOWED_ORIGINS).'})}
-   if(raw&&response.ok)return response;
-   if(response.status===304)return null;
+   catch(error){if(error?.name==='AbortError'){seen(0,error);throw error}const failure=new ApiError(0,{title:'Network error',detail:'The Basis API could not be reached. Check that it is running and that this page’s origin is allowed (CORS_ALLOWED_ORIGINS).'});seen(0,failure);throw failure}
+   if(raw&&response.ok){seen(response.status);return response}
+   if(response.status===304){seen(304);return null}
    const type=response.headers.get('content-type')||'',text=await response.text();
    let data=null;if(text&&/json/.test(type)){try{data=JSON.parse(text)}catch{data=null}}
    if(!response.ok){
     const error=new ApiError(response.status,data||{},text.slice(0,200));
+    seen(response.status,error);
     if(response.status===401&&onUnauthorized)onUnauthorized(error);
     throw error;
    }
+   seen(response.status);
    return data;
   }
   // Every page of a cursor-paginated list ({items, next_cursor}).

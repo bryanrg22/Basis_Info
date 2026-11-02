@@ -37,6 +37,13 @@ MIGRATION = VERSIONS / "0001_initial.py"
 SPEC_TABLES = {
     # Retention (migration 0026_retention_alerts): orgs.retention_days, studies.purged_at.
     "orgs": "id name retention_days created_at",
+    # Browser error capture (migration 0028_client_errors, docs/api/CLIENT_ERRORS.md).
+    "client_errors": "id seq event_id occurred_at user_id org_id study_id revision stage route "
+    "screen kind error_type message code http_status request_id build_sha web_version "
+    "user_agent fingerprint event created_at",
+    "client_error_issues": "fingerprint kind error_type title route code http_status status note "
+    "status_set_by status_set_at status_build_sha occurrences first_seen_at last_seen_at "
+    "last_build_sha created_at updated_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
@@ -297,6 +304,8 @@ SPEC_PRIMARY_KEYS = {
     "classification_cache": ("org_id", "key"),
     "idempotency_keys": ("key",),
     "firm_profiles": ("org_id",),
+    # Browser error capture (0028): one issue per fingerprint.
+    "client_error_issues": ("fingerprint",),
 }
 
 SPEC_CHECKS = {
@@ -507,13 +516,16 @@ def test_migration_enum_labels_match_models() -> None:
 
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
-    # 0020 adds firm_profiles to the updated_at tables; 0024 adds review_drafts.
+    # 0020 adds firm_profiles to the updated_at tables; 0024 adds review_drafts; 0028 adds
+    # client_error_issues.
     report = load_migration(VERSIONS / "0020_report_signing.py")
     drafts = load_migration(VERSIONS / "0024_review_drafts.py")
+    issues = load_migration(VERSIONS / "0028_client_errors.py")
     assert (
         *migration.UPDATED_AT_TABLES,
         *report.UPDATED_AT_TABLES,
         *drafts.UPDATED_AT_TABLES,
+        *issues.UPDATED_AT_TABLES,
     ) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
@@ -653,8 +665,8 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
     # ops health (0021): service_heartbeats.report; the firm's history (0022):
     # org_events.before/after/detail; gate drafts (0024): review_drafts.document;
-    # alerts (0026): alerts.payload
-    assert len(jsonb) == 37
+    # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event
+    assert len(jsonb) == 38
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

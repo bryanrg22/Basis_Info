@@ -20,3 +20,7 @@ e9814f3e40886b7ca13e4426a924a33b8b419a51:.gitleaksignore:generic-api-key:9
 # The ops probe tests' fake Replicate token ("r8_test-..."), a placeholder the tests assert
 # never leaks into a probe result, not a credential.
 0b7006000b757bdcf5959e8dcbbc27d8d2c238bc:backEnd/tests/unit/ops/test_probes.py:generic-api-key:31
+# The error capture node test (EVAL_REPORT 65) checked that a JWT-shaped string is masked with a
+# fake token written out in the source; a later commit assembles it at run time, but the first
+# commit still carries the literal.
+aaa0144bcd5f613e551cb2cea0421037a6a017d7:web/tests/errors.test.cjs:jwt:46
