@@ -5394,7 +5394,8 @@
               "minimum": 1,
               "description": "A revision of the study.",
               "title": "From Revision"
-            }
+            },
+            "description": "A revision of the study."
           },
           {
             "name": "to_revision",
@@ -5406,7 +5407,8 @@
               "minimum": 1,
               "description": "A revision of the study.",
               "title": "To Revision"
-            }
+            },
+            "description": "A revision of the study."
           },
           {
             "name": "study_id",
@@ -5719,7 +5721,8 @@
               "minimum": 1,
               "description": "A revision of the study.",
               "title": "Revision"
-            }
+            },
+            "description": "A revision of the study."
           },
           {
             "name": "Idempotency-Key",

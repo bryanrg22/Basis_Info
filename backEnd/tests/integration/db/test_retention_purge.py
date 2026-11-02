@@ -44,9 +44,11 @@ from basis.storage import LocalStorage, ObjectNotFound, StorageError
 pytestmark = pytest.mark.integration
 
 BUCKET = "basis-local"
-NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
-# The set_updated_at() trigger stamps now() on every UPDATE, so a study cannot be backdated;
-# the tests move the rule's clock forward instead (``now``).
+# The set_updated_at() trigger stamps the database's now() on every UPDATE, so a study cannot
+# be backdated; the tests move the rule's clock forward instead (``now``). NOW is the real
+# clock when the module loads, so every study a test makes is changed within a day after it:
+# a fixed date stopped selecting anything once the wall clock passed it (2026-11-02 12:00 UTC).
+NOW = datetime.now(UTC)
 LATER = NOW + timedelta(days=31)
 
 
@@ -274,7 +276,9 @@ async def test_an_object_already_gone_is_reported_not_fatal(
     study = await finished_study(make, session)
     await set_rule(session, study.org_id, 30)
     objects = await populate(session, storage, study)
-    gone = objects["client"][0]
+    # A document's object, chosen by name: the sorted list starts with a non-document path
+    # whenever both random document ids sort after "analyses/" (about one run in ten).
+    gone = next(uri for uri in objects["client"] if uri.endswith("/appraisal.pdf"))
     await storage.delete(gone)
     (candidate,) = await select_candidates(session, now=LATER)
 
