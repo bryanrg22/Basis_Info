@@ -37,13 +37,24 @@
   const names=state.changed_since_signing.map(key=>({firm:'firm profile',study:'study details'}[key])).filter(Boolean);
   return names.length?'Signed with earlier information. The '+names.join(' and ')+' changed after signing; the signed PDF is unchanged.':'';
  }
+ function summary(state){
+  if(!state)return {tone:'neutral',title:'Report status unavailable',detail:'The report status has not loaded yet.'};
+  if(state.signature){
+   const notice=changeNotice(state);
+   return notice?{tone:'attention',title:state.changed_since_signing==null?'Signed report · changes unverified':'Signed report · inputs changed',detail:notice}:{tone:'signed',title:'Report signed',detail:'The signed PDF is available in Client report.'};
+  }
+  if(state.skipped)return {tone:'attention',title:'Report not generated',detail:state.skipped.message||'Review the export details before preparing the report.'};
+  if(!state.exported)return {tone:'neutral',title:'Report not generated',detail:'No report export is recorded for this revision.'};
+  const missing=(state.missing_for_final||[]).filter(k=>k!=='signature').map(k=>({firm:'firm profile',study:'study details'}[k])).filter(Boolean);
+  return {tone:'attention',title:'Draft report · signature needed',detail:missing.length?'Complete the '+missing.join(' and ')+', then preview and sign the report.':'Preview the report, then sign it before sending it to the client.'};
+ }
  // The three inputs of a final report and whether each is in.
  function checklist(state){
   const missing=new Set(state?.missing_for_final||[]);
   return [
    {key:'firm',label:'Firm profile',done:!missing.has('firm'),hint:'Letterhead and the signing engineer. An owner saves it once for the firm.'},
    {key:'study',label:'Study details',done:!missing.has('study'),hint:'The taxpayer, and who photographed the property and when.'},
-   {key:'signature',label:'Engineer’s signature',done:Boolean(state?.signature),hint:'Signed in Basis after reviewing the preview.'},
+   {key:'signature',label:'Engineer’s signature',done:Boolean(state?.signature),hint:state?.signature?'Signed in Basis after reviewing the preview.':'Preview the report, then sign in Basis.'},
   ];
  }
  // Whether the signed-in user may sign now, and if not why (one sentence for the button's title).
@@ -87,6 +98,6 @@
   if(body.engineer.license_state&&!/^[A-Z]{2}$/.test(body.engineer.license_state))problems.push('The license state is a two-letter code.');
   return {body,problems};
  }
- const api={changeNotice,RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
+ const api={summary,changeNotice,RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisReport=api;
 })(typeof globalThis==='object'?globalThis:this);

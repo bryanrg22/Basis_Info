@@ -5,7 +5,7 @@ const study=(status='completed',current_stage='completed',components_gate=true)=
 test('overview permits all completed steps and only past/current reviews before completion',()=>{
  for(const legacy of [false,true]){
   const done=H.steps(study('completed','completed',legacy));
-  assert.equal(done.length,legacy?6:5);assert(done.every(s=>s.canOpen));assert.equal(done.at(-1).label,'Results');
+  assert.equal(done.length,legacy?7:6);assert(done.every(s=>s.canOpen));assert.equal(done.at(-1).label,'Report & sign');
   for(const stage of G.ORDER){
    const pending=H.steps(study('processing',stage,legacy));
    assert(pending.filter(s=>s.state==='active').every(s=>!s.canOpen));
@@ -60,11 +60,11 @@ test('every Home, Library and Activity study entry opens progress, with distinct
 });
 test('progress renders a compact status bar and detailed list, preserving actions and gate access',()=>{
  const {ctx,live}=boot();
- for(const [status,stage,action] of [['completed','completed','View results'],['waiting_review','rooms_review','Review rooms'],['processing','components_processing','Cancel study'],['failed','assets_processing','Retry processing'],['draft','uploading','Start the study'],['archived','rooms_review','This study is archived']]){
+ for(const [status,stage,action] of [['completed','completed','Report & sign'],['waiting_review','rooms_review','Review rooms'],['processing','components_processing','Cancel study'],['failed','assets_processing','Retry processing'],['draft','uploading','Start the study'],['archived','rooms_review','This study is archived']]){
   const s={...study(status,stage),org_id:'firm'};s.documents=[{id:'doc',kind:'appraisal',uploaded_at:'now'}];
   live.state.studyId=s.id;live.state.cache.set('study:'+s.id,{done:true,data:s});
   const html=ctx.processing();assert.match(html,new RegExp(action));assert.doesNotMatch(html,/class="steps|>Workflow<|Property photos|processing budget/);
-  const bar=html.match(/<nav class="hub-progress"[\s\S]*?<\/nav>/)?.[0];assert(bar);assert.equal((bar.match(/<li /g)||[]).length,6);assert.equal((bar.match(/aria-current="step"/g)||[]).length,status==='completed'?0:1);
+  const bar=html.match(/<nav class="hub-progress"[\s\S]*?<\/nav>/)?.[0];assert(bar);assert.equal((bar.match(/<li /g)||[]).length,7);assert.equal((bar.match(/aria-current="step"/g)||[]).length,1);
   assert.equal((bar.match(/<a /g)||[]).length,H.steps(s).filter(step=>step.canOpen).length);
   if(status==='completed')assert.doesNotMatch(html,/data-live="cancel"|data-live="start"/);
   if(stage==='rooms_review'&&status==='waiting_review'){assert.match(html,/href="#rooms\/study"/);assert.doesNotMatch(html,/href="#components|href="#assets|href="#complete/)}
@@ -87,4 +87,40 @@ test('retry reuses its key after an uncertain failure and renews it after an ack
  await click();fail=false;await click();await click();
  assert.deepEqual(keys,['retry-1','retry-1','retry-2']);assert.equal(live.state.busy.size,0);
  live.me=()=>({memberships:[{org_id:'firm',role:'viewer'}]});await click();assert.equal(keys.length,3);
+});
+
+
+test('completed status is above navigation and read-only is scoped to review pages',()=>{
+ const {ctx,live}=boot();const s=study();
+ live.reportStateEntry=()=>({done:true,data:{study_id:s.id,revision:3,exported:true,skipped:null,missing_for_final:[],signature:{study_id:s.id,revision:3},changed_since_signing:[]}});
+ for(const screen of ['appraisal','rooms','components','assets','asset-detail','complete','files','structure','intake']){
+  ctx.state.screen=screen;const html=live.steps(s);
+  assert(html.indexOf('Study completed')<html.indexOf('<nav'));
+  assert.equal((html.match(/Study completed/g)||[]).length,1);
+  assert.equal(html.includes('Read-only review'),['appraisal','rooms','components','assets','asset-detail'].includes(screen));
+ }
+ live.state.studyId=s.id;live.state.cache.set('study:'+s.id,{done:true,data:s});
+ const overview=ctx.processing();assert(overview.indexOf('Study completed')<overview.indexOf('<nav'));
+ assert.doesNotMatch(overview,/Every review is approved|Study complete<|This study is at Completed/);
+});
+
+test('read-only status follows the actual gate, failure and legacy contract',()=>{
+ for(const [view,stage] of Object.entries({appraisal:'appraisal_review',rooms:'rooms_review',components:'components_review',assets:'assets_review','asset-detail':'assets_review','viewer-components':'components_review','viewer-rooms':'rooms_review'})){
+  assert.equal(G.reviewContext(study('waiting_review',stage),view),null);
+  assert.equal(G.reviewContext(study('processing',stage),view).readOnly,true);
+  assert.equal(G.reviewContext(study('failed',stage),view).tone,'attention');
+  assert.equal(G.reviewContext(study('archived',stage),view).title,'Study archived');
+ }
+ assert.equal(G.reviewContext(study('waiting_review','rooms_review',false),'viewer-components'),null);
+ assert.equal(G.reviewContext(study('processing','completed'),'complete'),null);
+ assert.equal(G.reviewContext(study('draft','uploading'),'upload'),null);
+ for(const view of ['viewer-rooms','viewer-components'])assert.equal(G.reviewContext(study(),view).title,'Checking completion…');
+});
+
+test('pending, failed, draft and changed report states never flash completed above a review',()=>{
+ const {ctx,live}=boot();const s=study();ctx.state.screen='components';
+ for(const e of [null,{done:false},{done:true,error:Error('offline')},{done:true,data:{study_id:s.id,revision:3,exported:true,missing_for_final:['signature'],signature:null}},{done:true,data:{study_id:s.id,revision:3,exported:true,signature:{study_id:s.id,revision:3},changed_since_signing:['study']}}]){
+  live.reportStateEntry=()=>e;const html=live.steps(s);
+  assert.doesNotMatch(html,/Study completed|study-status--complete/);assert.match(html,/Read-only review/);assert.match(html,/href="#report\/study"/);
+ }
 });

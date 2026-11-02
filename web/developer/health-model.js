@@ -41,9 +41,12 @@
    {id:'components-review',title:'Review components',description:'Confirm room-level counts, materials and photo evidence.',review:true,services:['api','db','relay','temporal']}],
   [{id:'assets',title:'Classify & cost',description:'Classify assets, estimate quantities and reconcile costs.',services:['classification','retrieval','embeddings','takeoff','structure','rsmeans','cost_indices']},
    {id:'assets-review',title:'Review assets',description:'Check classifications, prices, citations and flagged items.',review:true,services:['api','db','relay','temporal']}],
-  [{id:'output',title:'Produce results',description:'Prepare the approved report, schedule and supporting files.',services:['exports','storage','db']}],
+  [{id:'output',title:'Produce results',description:'Prepare the results, draft report, schedule and supporting files.',services:['exports','storage','db']}],
+  [{id:'report-sign',title:'Report & sign',description:'Complete report details, preview, then sign the current revision.',signing:true,services:['api','firebase','db','storage','exports']}],
  ];
  // Brand identity is static; check status and selected runtime adapters remain independent.
+ const PHASES=['Intake','Parallel analysis','Prepare review','Room review','Components','Classify & cost','Results','Report & sign'];
+ const EDGES=[['upload','extract'],['upload','photos'],['extract','appraisal-review'],['photos','photo-results'],['appraisal-review','rooms-review'],['photo-results','rooms-review'],['rooms-review','inventory'],['inventory','components-review'],['components-review','assets'],['assets','assets-review'],['assets-review','output'],['output','report-sign']];
  const BRANDS={openai:'OpenAI',meta:'Meta',claude:'Anthropic / Claude',replicate:'Replicate',azure:'Microsoft Azure',postgresql:'PostgreSQL',temporal:'Temporal',firebase:'Firebase',fastapi:'FastAPI'};
  const SERVICE_BRANDS={api:'fastapi',db:'postgresql',temporal:'temporal',firebase:'firebase',openai:'openai',azure_openai:'azure',anthropic:'claude',replicate:'replicate',azure_di:'azure',sam3:'meta',mask2former:'meta'};
  function logo(brand){return BRANDS[brand]?`<img class="provider-logo" src="logos/${brand}.svg" width="24" height="24" alt="" aria-hidden="true" title="${esc(BRANDS[brand])}">`:''}
@@ -89,7 +92,21 @@
   if(active.some(s=>s.status!=='healthy'))return 'unknown';
   return 'healthy';
  }
- function badge(status,label){return `<span class="status status-${esc(status)}"><span aria-hidden="true" class="status-dot"></span>${esc(label||LABELS[status]||LABELS.unknown)}</span>`}
+ function statusIcon(status){
+  const paths={healthy:'<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',down:'<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>',degraded:'<path d="m12 3 10 18H2Z"/><path d="M12 9v5m0 3v.1"/>',stale:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',disabled:'<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',unknown:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3v.1"/>'};
+  return `<svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[status]||paths.unknown}</svg>`;
+ }
+ function badge(status,label){return `<span class="status status-${esc(status)}">${statusIcon(status)}${esc(label||LABELS[status]||LABELS.unknown)}</span>`}
+ function renderCounts(services){return ['down','degraded','stale','unknown','healthy','disabled'].map(status=>{const n=services.filter(s=>s.status===status).length;return `<span class="health-count health-count-${status}">${statusIcon(status)}<strong>${n}</strong><span>${LABELS[status]}</span></span>`}).join('')}
+ function renderLegend(){return Object.keys(LABELS).map(status=>badge(status)).join('')+'<span class="review-marker">Engineer review</span>'}
+ // Explicit edges retain the parallel split and merge. Port offsets keep join arrows distinct.
+ function connectionPath(from,to,a,b){
+  if(Math.abs(a.left-b.left)<2){const x=a.left+a.width/2;return `M ${x} ${a.bottom} V ${b.top-3}`}
+  const y=a.top+a.height*.5;
+  const ty=b.top+b.height*(to==='rooms-review'?(from==='photo-results'?.7:.4):.5);
+  const x=a.right,tx=b.left-3,m=(x+tx)/2;
+  return `M ${x} ${y} H ${m} V ${ty} H ${tx}`;
+ }
  function time(value){return value?new Date(value).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'Never'}
  // Failed and degraded rows precede every normal category, without duplication.
  function serviceGroups(services,{query='',attention=false}={}){
@@ -119,8 +136,8 @@
  }
  function renderFlow(services){
   const byId=new Map(services.map(s=>[s.id,s]));
-  return '<svg class="flow-wires" aria-hidden="true"><defs><marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#35694f"/></marker></defs><g></g></svg>'+FLOW.map((column,index)=>`<div class="flow-column"><div class="flow-column-title">${index===1?'Runs in parallel':index===2?'Both paths join at rooms':`Step ${index+1}`}</div>${column.map(node=>{const deps=node.services.map(id=>byId.get(id)).filter(Boolean),state=aggregate(deps);return `<article data-node="${node.id}" class="flow-node ${node.review?'review-node':''} node-${state}"><div class="node-heading">${node.review?'<span class="review-marker">Engineer review</span>':badge(state)}<h3><button type="button" class="node-open" data-step="${node.id}" aria-haspopup="dialog">${esc(node.title)}<span aria-hidden="true">↗</span></button></h3></div><p>${esc(node.description)}</p><div class="node-services">${deps.map(s=>`<button type="button" data-service="${s.id}" class="dependency dependency-${s.status}" aria-label="${esc(s.name+': '+LABELS[s.status]+'. Show health check')}">${serviceLogos(s)}<span>${esc(s.name)}${s.model?`<small>${esc(s.model)}</small>`:''}</span><span class="status-dot" aria-hidden="true"></span></button>`).join('')}</div>${node.review?`<div class="review-health">Review services: ${badge(state)}</div>`:''}</article>`}).join('')}</div>`).join('');
+  return '<svg class="flow-wires" aria-hidden="true"><defs><marker id="flow-arrow" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="18" markerHeight="18" markerUnits="userSpaceOnUse" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#244e3d"/></marker></defs><g></g></svg>'+FLOW.map((column,index)=>`<div class="flow-column"><div class="flow-column-title"><span class="phase-number">${index+1}</span><div><strong>${PHASES[index]}</strong><span>Step ${index+1} of ${FLOW.length}</span></div></div>${index===1?'<div class="flow-branch-note">Runs in parallel</div>':''}${index===3?'<div class="flow-branch-note">Both paths join here</div>':''}${column.map(node=>{const deps=node.services.map(id=>byId.get(id)).filter(Boolean),state=aggregate(deps);return `<article data-node="${node.id}" class="flow-node ${node.review||node.signing?'review-node':''} node-${state}"><div class="node-heading"><div class="node-status">${badge(state)}${node.review||node.signing?`<span class="review-marker">${node.signing?'Engineer signature':'Engineer review'}</span>`:''}</div><h3><button type="button" class="node-open" data-step="${node.id}" aria-haspopup="dialog">${esc(node.title)}<span class="node-open-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 5 7 7-7 7"/></svg></span></button></h3></div><p>${esc(node.description)}</p><div class="node-services">${deps.map(s=>`<button type="button" data-service="${s.id}" class="dependency dependency-${s.status}" aria-label="${esc(s.name+': '+LABELS[s.status]+'. Show health check')}">${serviceLogos(s)}<span>${esc(s.name)}${s.model?`<small>${esc(s.model)}</small>`:''}</span>${statusIcon(s.status)}</button>`).join('')}</div></article>`}).join('')}</div>`).join('');
  }
- const api={GROUPS,SERVICES,FLOW,LABELS,esc,normalize,basicChecks,snapshot,aggregate,badge,time,serviceGroups,hostLabel,renderServices,renderFlow,serviceLogos};
+ const api={PHASES,EDGES,connectionPath,statusIcon,renderCounts,renderLegend,GROUPS,SERVICES,FLOW,LABELS,esc,normalize,basicChecks,snapshot,aggregate,badge,time,serviceGroups,hostLabel,renderServices,renderFlow,serviceLogos};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisHealth=api;
 })(globalThis);

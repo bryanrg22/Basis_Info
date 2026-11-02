@@ -94,3 +94,54 @@ test('workflow detail escapes runtime metadata and exposes keyboard dialog contr
  assert.ok(html.includes('&lt;script&gt;backup'));
  assert.equal((H.renderFlow(services).match(/aria-haspopup="dialog"/g)||[]).length,H.FLOW.flat().length);
 });
+
+
+test('workflow phases are numbered consistently and every node exposes health before its title',()=>{
+ const rows=H.snapshot(basic,null,now),html=H.renderFlow(rows);
+ for(let i=1;i<=H.FLOW.length;i++)assert.ok(html.includes(`Step ${i} of ${H.FLOW.length}`));
+ assert.equal(H.PHASES.length,H.FLOW.length);
+ for(const article of html.split('<article ').slice(1)){assert.ok(article.indexOf('node-status')<article.indexOf('<h3>'));assert.ok(article.includes('status-icon'));}
+ assert.equal((html.match(/class="node-open-icon"/g)||[]).length,H.FLOW.flat().length);
+ assert.ok(!html.includes('↗'));
+});
+test('status counts reconcile with services and legend supplies distinct symbols and labels',()=>{
+ const rows=H.snapshot(basic,null,now),html=H.renderCounts(rows);
+ const totals=[...html.matchAll(/<strong>(\d+)<\/strong>/g)].map(m=>Number(m[1]));
+ assert.equal(totals.reduce((a,b)=>a+b,0),rows.length);
+ for(const status of Object.keys(H.LABELS)){assert.ok(H.renderLegend().includes(H.LABELS[status]));assert.ok(H.badge(status).includes('aria-hidden="true"'));}
+ assert.equal(new Set(Object.keys(H.LABELS).map(H.statusIcon)).size,6);
+});
+test('workflow connections preserve split, join and vertical review edges',()=>{
+ const nodes=new Set(H.FLOW.flat().map(n=>n.id));
+ for(const [a,b] of H.EDGES){assert.ok(nodes.has(a)&&nodes.has(b));}
+ assert.equal(H.EDGES.filter(e=>e[0]==='upload').length,2);
+ assert.equal(H.EDGES.filter(e=>e[1]==='rooms-review').length,2);
+ const a={left:0,right:290,top:100,bottom:400,width:290,height:300},b={left:338,right:628,top:100,bottom:400,width:290,height:300};
+ assert.equal(H.connectionPath('upload','extract',a,b),'M 290 250 H 312.5 V 250 H 335');
+ assert.notEqual(H.connectionPath('appraisal-review','rooms-review',a,b),H.connectionPath('photo-results','rooms-review',a,b));
+ assert.equal(H.connectionPath('inventory','components-review',a,{...a,top:438,bottom:738}),'M 145 400 V 435');
+});
+
+
+test('report signing follows export and stays distinct from the four review gates',()=>{
+ const A=require('../developer/architecture.js'),nodes=H.FLOW.flat(),last=nodes.at(-1);
+ assert.equal(last.id,'report-sign');assert.equal(last.signing,true);
+ assert.equal(H.PHASES.at(-1),'Report & sign');
+ assert.deepEqual(H.EDGES.filter(([from])=>from==='output'),[['output','report-sign']]);
+ assert.equal(nodes.filter(n=>n.review).length,4);
+ const services=H.SERVICES.map(s=>({...s,...H.normalize(ok,now)}));
+ const html=H.renderFlow(services),detail=A.render(last,services,H);
+ assert.ok(html.includes('Engineer signature'));
+ assert.ok(html.includes('Report &amp; sign'));
+ assert.ok(!html.includes('Study completed'));
+ assert.match(detail,/changed preview or revision/);
+ assert.match(detail,/missing or unknown evidence stays incomplete/);
+ assert.match(detail,/test_report_signing.py/);
+ assert.match(A.render(nodes.find(n=>n.id==='output'),services,H),/Exporting files does not complete the study/);
+ for(const status of ['healthy','down','unknown','stale']){
+  const rows=services.map(s=>s.id==='storage'?{...s,status}:s);
+  const card=H.renderFlow(rows).split('data-node="report-sign"')[1].split('</article>')[0];
+  assert.ok(card.includes(`node-${status}`));
+  assert.ok(!card.includes('Study completed'));
+ }
+});

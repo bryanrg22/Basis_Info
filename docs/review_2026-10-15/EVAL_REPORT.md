@@ -8666,3 +8666,183 @@ gaps. These are explicitly recorded instead of claiming full workflow completion
 changes to the restored interface. They contain local study information and are
 kept outside the repository. Mobile issues include the persistent rail, cramped
 appraisal fields and wrapped amounts. No proposed visual redesign was applied.
+
+
+## 66. Study status, access and report-state emphasis (2026-11-01)
+
+**Problem.** Completed and read-only notices looked like ordinary metrics and sat
+below the workflow navigation. A completed review could be mistaken for a signed
+client deliverable. Pending room corrections and review findings lacked emphasis.
+
+**Standard.** Autodesk Docs places workflow status next to review context
+(https://help.autodesk.com/cloudhelp/ENG/Docs-Reviews/files/Reviews_Review_and_Approve.html).
+Carbon notification guidance calls for persistent, scoped messages with explicit
+text and severity cues
+(https://www.carbondesignsystem.com/building-blocks/core/components/notification/guidelines).
+Keep the existing visual system; use a shared top status, an access label scoped
+to closed review pages, and a separate report state. Color is supported by words
+and icons rather than being the sole signal.
+
+**Change.** Completed status now precedes the step navigation across study
+progress, appraisal, rooms, components, assets/details, results, files and
+concealed systems, and appears above both photo viewers. Closed reviews carry
+Read-only review; current gates remain editable. Earlier reviews say Review not
+open. Duplicate notices and edit instructions on closed reviews are removed.
+Progress and Results expose draft, signed, changed-input, skipped, unavailable
+and loading report states using the existing report endpoint. Report navigation
+opens the existing panel. Pending corrections, unplaced room photos and asset
+review reasons use amber emphasis. Mobile result actions wrap, and the photo
+viewer retains reachable controls below the banner.
+
+**Measured.** 287/287 frontend tests pass. The regression suite covers all review
+routes, active and earlier gates, draft/processing/failed/stalled/archived states,
+legacy single-gate studies, report-state variants, escaping, loading/error paths,
+report navigation and read-only mutation guards. The server test needs loopback
+permissions; the sandbox run failed to start its server, then the same full suite
+passed with loopback access. JavaScript syntax, whitespace and client-data checks
+were run separately.
+
+Browser verification used existing local completed and in-progress studies,
+including a draft report and a signed report with changed inputs. Checked the
+report jump target, rendered source PDF, shared banner before navigation,
+page-specific access text and both photo viewers. At a measured 390 CSS px,
+Components and Results fit the page width and the photo footer is reachable by
+scrolling. No errors were recorded in the review tab's console. Synthetic room
+placement verification showed disabled approval for an unplaced photo, then an
+amber unsaved-changes state after a local move. No study/API writes were made.
+
+**Limits.** Presentation changes only: no provider calls, backend restarts, cost
+refresh changes, repricing, saving/signing a report, deployment or merge. A
+completed review is not a claim that every recorded asset is priced or that the
+report is signed. This pass does not resolve the separate integration gaps in
+section 65 or replace full release-gate testing. Screenshots containing local
+study information and the approval PDF are kept outside the repository.
+
+
+## 67. Developer workflow hierarchy and health emphasis (2026-11-01)
+
+**Problem.** Phase labels, status indicators and connecting arrows were too weak
+in the developer workflow. The local port 3101 preview also served an older
+checkout rather than the restored primary frontend.
+
+**Standard.** Carbon's status-indicator pattern combines distinct shape, text and
+color (https://www.carbondesignsystem.com/building-blocks/core/patterns/status-indicators).
+WCAG non-text contrast calls for discernible meaningful graphical objects
+(https://www.w3.org/WAI/WCAG21/understanding/non-text-contrast.html). Keep the
+existing green/blue palette while separating phase, health and review-gate cues.
+
+**Change.** Seven numbered phase headers now use a strong dark-green band. Every
+workflow node puts observed health above its title, including engineer-review
+nodes. The legend and system totals use labeled icons and stronger color
+contrast. Boxed chevrons indicate step details; labeled Previous/Next controls
+are disabled at the scroll boundaries. Orthogonal four-pixel connectors have
+larger arrowheads, shared fork stems and separate room-review entry points.
+The three-step detail sequence also has stronger arrows. Mobile phases retain
+horizontal scrolling, with matching scroll padding and touch-sized controls.
+
+**Measured.** 290/290 frontend tests pass, including 28 developer tests. New
+coverage verifies phase numbering, health placement, distinct status symbols,
+count reconciliation, valid graph edges and split/join/vertical geometry.
+JavaScript syntax, whitespace and the client-data guard pass (1,608 tracked
+files checked). Calculated text contrast is 6.76:1 for healthy, 6.87:1 for failed,
+7.29:1 for amber, 7.86:1 for unknown, and 9.41:1 for phase headers; connectors
+against white also measure 9.41:1.
+
+Browser inspection verified the real local port 3101 page, both halves of the
+workflow, step detail open/close, and end-of-scroll controls. Isolated synthetic
+fixtures verified healthy, partial-outage and stale responses: four failed
+systems lead the outage list; stale provider evidence is not green. At measured
+320 and 390 CSS px, the fixture reported zero page overflow, zero broken logos
+and minimum 44 px controls. The 390 px Next action visibly advances to phase 2.
+An observed four-pixel mobile snap offset was corrected and rechecked at zero,
+with Previous disabled at the first phase. Actual browser screenshots, rather
+than design mockups, are saved outside the repository for approval.
+
+**Limits.** UI changes only. Port 3101's existing read-only preview was repointed
+to the primary checkout and only that static preview process was restarted.
+The local public feed still reports three healthy services and 22 unchecked;
+this does not establish provider or worker readiness. No backend integration,
+provider calls, study writes, deployment or merge was performed in this pass.
+
+## 68. Completion requires the current signed report (2026-11-01)
+
+**Correction to section 66.** A backend `completed` study has finished its review
+workflow; it may still have an unsigned report or inputs changed after signing.
+Calling that study completed was premature. The user requires completed to mean
+approved, signed, current and ready to deliver.
+
+**Standard.** Docusign distinguishes individual signing from overall completion:
+https://www.docusign.com/blog/developers/dsdev-has-my-envelope-been-signed.
+The existing Basis report contract (`docs/api/REPORT.md`, `ReportStateOut` and
+`GET .../report/state`) provides the current revision, export/skip state, missing
+inputs, signature and input changes since signing. The UI uses that evidence;
+it does not infer a signature from the workflow status or create a new backend
+stage.
+
+**Change.** Report & sign is now a separate final navigation step after Results,
+with the existing details forms, preview, signing controls and downloads. A
+study is displayed as completed only when the backend reviews are complete,
+report and signature match the study and revision, export is present and not
+skipped, no required inputs are missing, and tracked changes since signing are
+explicitly empty. Unsigned, outdated, unknown, unavailable and loading states
+cannot receive the green completed banner. Closed reviews retain a separate
+Read-only review label. Results and progress use the same status above their
+navigation; progress remains at six of seven steps until the final check passes.
+Report evidence is cached by revision and refreshed when entering study screens.
+Home/Library describe the backend-only status as Reviews approved.
+
+Signed report instructions no longer ask the user to sign again or say an
+outdated PDF is the one to deliver. The old signed PDF remains downloadable and
+immutable. Touch targets in the final report are at least 44 px, checklist rows
+wrap on narrow screens, and navigation keeps the selected step visible after a
+resize. Custom live routes now receive the screen attribute used by their styles.
+
+**Measured.** 295/295 frontend tests pass. Added completion cases cover missing
+signature/details, changed firm/study/both, untracked changes, unexported/skipped
+reports, missing checklist, mismatched study/revision, pending/error/missing
+responses and non-completed workflow states. Existing gates and legacy studies
+retain their review access. Controller tests verify the dedicated final route,
+no writes on render, correct study/revision cache keys, signed downloads and
+retained preview/sign handlers. Existing signing tests retain ETag, permission,
+input and signature guards.
+
+Browser checks verified an existing unsigned local study and the signed study
+with changed inputs from the user's screenshot. The latter now shows Report
+needs updating and six of seven steps complete. No warnings/errors were recorded
+in the live review tab. The isolated report-completion fixture verifies awaiting
+signature, signed/current, untracked signature and failed status loading without
+live API calls. At 320 and 390 CSS px it measures page width equal to viewport
+width and report/navigation controls of at least 44 px. The selected final step,
+wrapped checklist and lower downloads were visually inspected.
+
+**Limits.** No backend state or signing contract changed. No live signature,
+report input save, study write, paid provider request, deployment or merge was
+performed. The green completion screenshot is explicitly synthetic; it does
+not attest or sign an existing study. Revision creation and re-signing remain
+subject to the existing backend workflow. Screenshots are outside the repository.
+
+The signature checklist also distinguishes the next action (preview, then sign) from an already recorded signature; both wording branches are asserted in `web/tests/report.test.cjs`.
+
+
+## 69. Developer workflow includes report signing (2026-11-01)
+
+The existing report contract separates export, preview, signature and immutable
+signed files. Docusign likewise recommends authoritative completion state rather
+than inferring completion from a client action:
+https://www.docusign.com/blog/developers/dsdev-has-my-envelope-been-signed.
+
+Added Report & sign after Produce results in the developer architecture map,
+with an explicit connecting edge, numbered phase, Engineer signature marker and
+three-step explanation. Results now describes draft report generation. The
+four workflow review gates remain unchanged. The final node reports its existing
+API, identity, database, storage and export health dependencies; it neither
+creates a new probe nor asserts that any study has been signed. The details link
+to the signing contract and existing API tests and explain the completion rule.
+
+Validation: 296/296 frontend tests passed, including new final-edge, gate-count,
+signing explanation and healthy/down/unknown/stale dependency checks. Observed
+the actual developer map and opened/closed its dialog. At 390 CSS px the
+synthetic fixture measured page width 390, zero overflow, minimum control height
+44 px and zero broken logos; the final card and dialog were visually inspected.
+No report signing, provider calls, backend changes or deployment occurred.
+The separate verification prompt requests isolated end-to-end backend testing.

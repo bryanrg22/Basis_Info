@@ -14,25 +14,23 @@
   $('service-groups').innerHTML=H.renderServices(services,{query:$('search').value,attention:$('attention').checked});
   for(const id of opened)if($(id))$(id).open=true;
   $('flow').innerHTML=H.renderFlow(services);
-  drawConnections();
+  drawConnections();updateFlowControls();
   if(focusService)$(focusService)?.querySelector('summary')?.focus({preventScroll:true});
   if(dependency)document.querySelector(`[data-service="${dependency}"]`)?.focus({preventScroll:true});
   if(step)document.querySelector(`[data-step="${step}"]`)?.focus({preventScroll:true});
-  const counts={};for(const s of services)counts[s.status]=(counts[s.status]||0)+1;
   const overall=H.aggregate(services);
   $('overall').textContent={healthy:'Healthy',down:'Failed checks',degraded:'Degraded checks',stale:'Stale checks',unknown:'Not fully checked'}[overall]||'Not fully checked';
-  $('counts').textContent=[`${counts.healthy||0} healthy`,`${counts.down||0} failed`,`${counts.degraded||0} degraded`,`${counts.unknown||0} not checked`,counts.stale?`${counts.stale} stale`:'',counts.disabled?`${counts.disabled} not enabled`:''].filter(Boolean).join(' · ');
+  $('counts').innerHTML=H.renderCounts(services);
+  $('flow-legend').innerHTML=H.renderLegend();
  }
  function drawConnections(){
   const flow=$('flow'),box=flow.getBoundingClientRect(),svg=flow.querySelector('svg');if(!svg)return;
   svg.setAttribute('viewBox',`0 0 ${box.width} ${box.height}`);
-  const edges=[['upload','extract'],['upload','photos'],['extract','appraisal-review'],['photos','photo-results'],['appraisal-review','rooms-review'],['photo-results','rooms-review'],['rooms-review','inventory'],['inventory','components-review'],['components-review','assets'],['assets','assets-review'],['assets-review','output']];
-  svg.querySelector('g').innerHTML=edges.map(([from,to])=>{
-   const a=flow.querySelector(`[data-node="${from}"]`).getBoundingClientRect(),b=flow.querySelector(`[data-node="${to}"]`).getBoundingClientRect();
-   let path;
-   if(Math.abs(a.left-b.left)<2){const x=a.left-box.left+a.width/2;path=`M ${x} ${a.bottom-box.top} L ${x} ${b.top-box.top-3}`}
-   else {const x=a.right-box.left,y=a.top-box.top+a.height/2,tx=b.left-box.left-3,ty=b.top-box.top+b.height/2,m=(x+tx)/2;path=`M ${x} ${y} H ${m} V ${ty} H ${tx}`}
-   return `<path d="${path}" fill="none" stroke="#35694f" stroke-width="2.5" marker-end="url(#flow-arrow)"/>`;
+  const relative=el=>{const r=el.getBoundingClientRect();return {left:r.left-box.left,right:r.right-box.left,top:r.top-box.top,bottom:r.bottom-box.top,width:r.width,height:r.height}};
+  svg.querySelector('g').innerHTML=H.EDGES.map(([from,to])=>{
+   const a=relative(flow.querySelector(`[data-node="${from}"]`)),b=relative(flow.querySelector(`[data-node="${to}"]`));
+   const path=H.connectionPath(from,to,a,b);
+   return `<path class="flow-wire-halo" d="${path}"/><path class="flow-wire" d="${path}" marker-end="url(#flow-arrow)"/>`;
   }).join('');
  }
  new ResizeObserver(drawConnections).observe($('flow-scroll'));
@@ -93,6 +91,9 @@
  });
  for(const [id,direction] of [['flow-left',-1],['flow-right',1]])$(id).addEventListener('click',()=>{const column=$('flow').querySelector('.flow-column');const distance=column.getBoundingClientRect().width+parseFloat(getComputedStyle($('flow')).columnGap);$('flow-scroll').scrollBy({left:direction*distance,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){redraw();if($('auto-refresh').checked)refresh()}else $('last-refresh').textContent='Auto-refresh pauses while this tab is hidden.'});
+ $('flow-scroll').addEventListener('scroll',updateFlowControls,{passive:true});
+ function updateFlowControls(){const el=$('flow-scroll');$('flow-left').disabled=el.scrollLeft<2;$('flow-right').disabled=el.scrollLeft+el.clientWidth>=el.scrollWidth-2}
+ new ResizeObserver(updateFlowControls).observe($('flow-scroll'));
  const poll=setInterval(()=>{if($('auto-refresh').checked)refresh()},30000);
  const age=setInterval(()=>{if(!document.hidden&&!busy)redraw()},15000);
  window.addEventListener('pagehide',()=>{stopped=true;request?.abort();clearInterval(poll);clearInterval(age)});

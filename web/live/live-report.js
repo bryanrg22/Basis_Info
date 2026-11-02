@@ -1,6 +1,6 @@
-/* Live mode, part 4: the client report on the Schedule screen (STUDY_REPORT_SPEC 11.13).
+/* Live mode, part 4: the final Report & sign screen (STUDY_REPORT_SPEC 11.13).
  *
- * Under the schedule table: where the current revision's report stands (GET .../report/
+ * After Results: where the current revision's report stands (GET .../report/
  * state), the three inputs of a final report (the firm profile, the study's details, the
  * engineer's signature) with their forms, the preview, the downloads (the report PDF, signed
  * once it is; the preparer's schedule as CSV and XLSX) and Sign.
@@ -18,20 +18,25 @@
  const sid=()=>encodeURIComponent(L.studyId);
  L.reportPreview=null;// {studyId, revision, tag}
  const roleIn=s=>((Live.me()?.memberships)||[]).find(m=>m.org_id===s.org_id)?.role||null;
- const stateEntry=(s,force=false)=>Live.load('report-state:'+s.id,()=>api.request('GET',`/v1/studies/${sid()}/report/state`),{force});
+ const stateEntry=(s,force=false)=>Live.load('report-state:'+s.id+':'+s.revision,()=>api.request('GET',`/v1/studies/${encodeURIComponent(s.id)}/report/state`),{force});
+ Live.reportStateEntry=s=>s.status==='completed'?stateEntry(s):null;
  const answersEntry=(s,force=false)=>Live.load('report-answers:'+s.id,()=>api.request('GET',`/v1/studies/${sid()}/report-answers`),{force});
  const profileEntry=(s,force=false)=>Live.load('firm-profile:'+s.org_id,()=>api.request('GET',`/v1/orgs/${encodeURIComponent(s.org_id)}/profile`).catch(e=>{if(e.status===404)return null;throw e}),{force});
  function refresh(s){Live.invalidate('report-state:'+s.id);Live.invalidate('report-answers:'+s.id);Live.invalidate('firm-profile:'+s.org_id);L.reportPreview=null;Live.render()}
  const previewTag=s=>L.reportPreview&&L.reportPreview.studyId===s.id&&L.reportPreview.revision===s.revision?L.reportPreview.tag:null;
 
+ Live.reportSummary=s=>{
+  const entry=stateEntry(s),summary=entry.error?{tone:'attention',title:'Report status unavailable',detail:'The report status could not be loaded. Open Client report to retry.'}:!entry.done?{tone:'neutral',title:'Checking report status…',detail:'Loading the saved report state.'}:R.summary(entry.data);
+  return `<section class="report-status report-status--${summary.tone}" aria-label="Report status"><span class="report-status-symbol" aria-hidden="true">${icon('file',21)}</span><div><h2>${esc(summary.title)}</h2><p>${esc(summary.detail)}</p></div><a class="button" href="${Live.route('report',s.id)}">Report & sign${icon('arrow',16)}</a></section>`;
+ };
  const BADGE={signed:['complete','Signed'],draft:['review','Draft'],not_exported:['','Not written yet'],skipped:['danger','No report'],loading:['','Loading']};
  function panel(s){
   const st=stateEntry(s),an=answersEntry(s),pr=profileEntry(s);
   if(!st.done||!an.done||!pr.done)return `<section class="panel live-report">${Live.loading('Loading the report…')}</section>`;
   if(st.error)return `<section class="panel live-report">${Live.failed(st.error,'report-reload')}</section>`;
-  const state=st.data,role=roleIn(s),status=R.status(state),[cls,label]=BADGE[status];
+  const state=st.data,role=roleIn(s),status=R.status(state),final=globalThis.BasisGates.completion(s,st),[cls,label]=status==='signed'&&!final.complete?['review','Signed earlier']:BADGE[status];
   const blocker=R.signBlocker(state,role,previewTag(s)),owner=role==='owner',engineer=(R.RANK[role]??-1)>=R.RANK.engineer;
-  const intro={signed:'The report is signed. The signed PDF is the one to deliver; the preparer’s schedule goes with it.',draft:'The report is a DRAFT until an engineer signs it in Basis. Fill in what it lacks, open the preview, then sign.',not_exported:'The report and the preparer’s schedule are written when the assets review is approved.',skipped:`The export wrote no report: ${state.skipped?.message||''}`}[status];
+  const intro={signed:final.complete?'The signed report and preparer’s schedule are ready to deliver.':'This is a previously signed report. Check the study status above before delivery.',draft:'The report is a DRAFT until an engineer signs it in Basis. Fill in what it lacks, open the preview, then sign.',not_exported:'The report and the preparer’s schedule are written when the assets review is approved.',skipped:`The export wrote no report: ${state.skipped?.message||''}`}[status];
   const action={firm:owner?`<button class="button small" data-live="report-edit-profile">${pr.data?'Edit':'Add'} firm profile</button>`:`<span class="small">${pr.data?'':'An owner adds it.'}</span>`,study:engineer?`<button class="button small" data-live="report-edit-answers">${an.data?.report_answers?'Edit':'Add'} study details</button>`:'',signature:''};
   const items=R.checklist(state).map(i=>`<li class="${i.done?'is-done':''}"><span class="live-report-mark" aria-hidden="true">${i.done?'✓':''}</span><div><strong>${esc(i.label)}</strong><p class="small">${esc(i.key==='study'&&an.data?.report_answers?`${an.data.report_answers.taxpayer_name} · ${R.PHOTOGRAPHS[an.data.report_answers.photographs]}`:i.key==='firm'&&pr.data?`${pr.data.profile.name}${pr.data.profile.engineer?' · '+pr.data.profile.engineer.name+', '+pr.data.profile.engineer.credentials:''}`:i.hint)}</p></div>${action[i.key]}</li>`).join('');
   const sig=state.signature,changeNotice=R.changeNotice(state);
@@ -42,13 +47,12 @@
   return `<section class="panel live-report" aria-labelledby="live-report-title"><div class="panel-head"><h2 id="live-report-title">Client report</h2><span class="badge ${cls}">${label}</span></div><div class="panel-body"><p>${esc(intro)}</p>${changeNotice?`<p class="result-warning" role="status">${esc(changeNotice)}</p>`:''}<ul class="live-report-checklist">${items}</ul>${signed}<div class="row live-report-actions">${canPreview?`<button class="button small" data-live="report-preview">${previewTag(s)?'Preview again':'Open the preview'}</button>`:''}${dl('pdf','report.pdf',sig?'Signed report (PDF)':'Draft report (PDF)')}${dl('csv','schedule.csv','Schedule (CSV)')}${dl('xlsx','schedule.xlsx','Schedule (XLSX)')}${sig?'':`<button class="button primary small" data-live="report-sign" ${blocker?`disabled title="${esc(blocker)}"`:''}>Sign report</button>`}</div>${!sig&&blocker&&state.exported&&!state.skipped?`<p class="small live-report-why">${esc(blocker)}</p>`:''}</div></section>`;
  }
 
- // Keep the recovered Results renderer and append the report contract once.
- const designComplete=complete;
- complete=function(){
-  const html=designComplete();
-  if(!L.study||L.study.id!==L.studyId)return html;
-  return html.replace(/<p>Export is not available yet[^<]*<\/p>/,'<p>The assets as the API lists them. The report and the preparer’s schedule are under “Client report”.</p>')+panel(L.study);
- };
+ // A dedicated final step keeps allocation review separate from report completion.
+ Live.screens.report=()=>Live.withStudy(s=>{
+  const entry=stateEntry(s),final=globalThis.BasisGates.completion(s,entry);
+  const subtitle=final.complete?'Download the signed report and preparer’s schedule.':entry.data?.signature?'Review the signed report and any changes since signing.':'Complete the report details, preview, then sign.';
+  return `${Live.steps(s)}${heading('Report & sign',subtitle,`<a class="button" href="${Live.route('complete',s.id)}">${icon('back',16)}Back to results</a>`)}${panel(s)}`;
+ });
 
  async function pdfFetch(path,query){
   const response=await api.request('GET',path,{query,raw:true});

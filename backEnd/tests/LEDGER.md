@@ -441,3 +441,54 @@ dependency group `legacy` (langchain, langgraph, faiss, mcp, replicate, ...) is 
 
 The full restored `web/tests/*.test.cjs` suite passed 283 tests. This does not
 replace API/lifecycle write tests or the release gates for a subsequent PR.
+
+
+## Study and report status emphasis (2026-11-01; EVAL_REPORT 66)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/study-overview.test.cjs` | Actual banner rendering before steps, page-scoped access, all review routes, open/closed gates, legacy, draft, failure and archive states | passes in 287-test web suite |
+| `web/tests/report.test.cjs` | Report summary for draft, signed, changed, unverified, missing, skipped and unexported states | passes in 287-test web suite |
+| `web/tests/primary-frontend.test.cjs` | Summary placement and navigation, loading/error/escaping behavior, no mutations; existing report behavior retained | passes in 287-test web suite |
+| `web/tests/room-placement-controller.test.cjs` | Pending-change emphasis, closed-review controls and mutation guards | passes in 287-test web suite |
+
+The full frontend suite passed 287 tests with temporary loopback-server access.
+Desktop and 390 CSS px browser checks supplement these tests; screenshot artifacts
+remain outside the repository because they include local study information.
+
+
+## Developer workflow emphasis (2026-11-01; EVAL_REPORT 67)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/developer-health.test.cjs` | Phase numbering and health order, six distinct status symbols, count reconciliation, valid split/join and vertical connectors; existing health/auth semantics retained | 28/28 pass; full web suite 290/290 pass |
+
+Browser checks supplement unit tests: real local preview, both workflow halves,
+step dialog, scroll endpoints, synthetic healthy/outage/stale states, and 320/390
+CSS px layouts. Mobile layout measurements report zero overflow/broken logos and
+44 px minimum controls. No external provider or live study writes were made.
+
+## Signed-report completion (2026-11-01; EVAL_REPORT 68)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/gates.test.cjs` | Seven-step/legacy navigation; current signed completion; unsigned, missing, changed, untracked, mismatched, skipped, failed and loading evidence | 10/10 pass |
+| `web/tests/study-overview.test.cjs` | Shared top status and access semantics; final action; progress counts; no premature completed state | 12/12 pass |
+| `web/tests/primary-frontend.test.cjs` | Dedicated report route, no render writes, signed downloads, revision cache key, current-study request isolation and final report copy | 6/6 pass |
+| `web/tests/report.test.cjs` | Unsigned checklist gives a next action; signed checklist describes the recorded signature | Pass in the 295-test web suite |
+
+Full frontend suite: 295/295 pass. Existing report signing/input tests remain
+included. Browser checks covered existing local unsigned/changed reports and
+isolated signed/current, untracked and unavailable cases. 320/390 CSS px checks
+show no page overflow and minimum 44 px report/navigation controls. No live
+study writes or signing occurred.
+
+
+## Developer report signing phase (2026-11-01; EVAL_REPORT 69)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/developer-health.test.cjs` | Final report/sign edge, four original gates, current completion explanation, health-state isolation | Pass |
+
+Full frontend suite: 296/296 pass. Desktop final card/dialog and 390px synthetic
+mobile card/dialog inspected; zero page overflow and 44px minimum controls.

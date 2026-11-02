@@ -413,3 +413,5 @@ html[data-basis-mode="live"] #app .draft-status{display:none!important}
  #app .component-room-toggle{white-space:normal}
 }
 @media(prefers-reduced-motion:reduce){#app .component-room-toggle>svg{transition:none}}
+
+@media(max-width:700px){#app .workspace .sidebar{top:calc(var(--ui-bar-height) + 8px)}}

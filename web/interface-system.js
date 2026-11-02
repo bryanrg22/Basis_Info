@@ -8,11 +8,14 @@
   if(field)fieldIntent={kind:field.dataset.live?'live':'action',value:field.dataset.value};
  },true);
  function measureBar(){const bar=root.querySelector('.reviewbar');document.documentElement.style.setProperty('--ui-bar-height',(bar?.getBoundingClientRect().height||0)+'px')}
+ function alignStudyStep(){
+  const steps=root.querySelector('.study-navigation'),selected=steps?.querySelector('[aria-current="page"]');
+  if(selected&&steps.scrollWidth>steps.clientWidth){const at=selected.getBoundingClientRect(),bar=steps.getBoundingClientRect();steps.scrollLeft+=at.left-bar.left-(steps.clientWidth-at.width)/2;}
+ }
  function enhance(){
   measureBar();barObserver?.disconnect();const bar=root.querySelector('.reviewbar');
   if(bar){barObserver=new ResizeObserver(measureBar);barObserver.observe(bar)}
-  const steps=root.querySelector('.study-navigation'),selected=steps?.querySelector('[aria-current="page"]');
-  if(selected&&steps.scrollWidth>steps.clientWidth){const at=selected.getBoundingClientRect(),bar=steps.getBoundingClientRect();steps.scrollLeft+=at.left-bar.left-(steps.clientWidth-at.width)/2;}
+  alignStudyStep();
   const details=root.querySelector('.workspace[data-screen="appraisal"] .appraisal-details');
   if(details&&!details.querySelector('.ui-field-scroll')){
    const rows=[...details.children].filter(el=>el.matches('.field-row,.live-field-section'));
@@ -45,6 +48,6 @@
   const next=root.querySelector('.ui-field-scroll');if(same&&next)next.scrollTop=top;
   if(field){const target=[...root.querySelectorAll(field.kind==='live'?'[data-live="select-field"]':'[data-action="select-field"]')].find(el=>el.dataset.value===field.value);target?.focus({preventScroll:true})}
  };
- addEventListener('resize',measureBar,{passive:true});
+ addEventListener('resize',()=>{measureBar();alignStudyStep()},{passive:true});
  render();
 })();
