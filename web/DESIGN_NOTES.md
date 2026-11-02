@@ -1,5 +1,75 @@
 # Basis visual design review
 
+## October 22: shared engineer interface
+
+The photo workspace's contrast and control discipline now extends through the engineer
+workflow and public entry. Glass stays in navigation; documents, forms and numerical
+tables use opaque surfaces. Compact study navigation leaves more space for evidence.
+Appraisal gets independent field/document scrolling; rooms keep separate named groups;
+Library keeps a register that scales through pagination. No new owner workflow or
+unsupported persistence was added. The plan, reference decisions and verification are
+recorded in [INTERFACE_REVIEW_QA.md](INTERFACE_REVIEW_QA.md).
+
+## October 22: the wired photo component workspace
+
+This section supersedes the historical prototype-only description below **for the photo
+viewer**. Changes are confined to `web/`; the shared viewer uses the real object API in
+live mode. Sage glass navigation and the Basis assets are retained. Working content has
+opaque surfaces: forest canvas `#24382f`, white inspector, ink `#213b30`, secondary text
+`#53675d`, accent `#3c6b54`, border `#d5dfd8`. Existing Inter supplies a 12/13/18/26px
+scale. Spacing follows an 8px rhythm; tokens define colors, sizes, radii and shadow.
+Hover/focus changes take 180ms and respect reduced motion. The photo carries the visual
+weight; its inspector is a single, independently scrolling column, not a page of cards.
+
+The initial design plan was a photo editor with a stable canvas, type/instance inspector,
+and room filmstrip. Reviewing it against this brief removed decorative metrics, model
+metadata and additional nested toolbars. Selection updates the mounted workspace; it
+does not rebuild the sidebar or trigger document scrolling.
+
+### Research and decisions
+
+These are interaction references, not claims that the products were copied or that their
+logged-in applications were comprehensively tested.
+
+* [CVAT AI tools](https://docs.cvat.ai/docs/manual/advanced/ai-tools/): choose a class
+  before drawing, and distinguish positive/negative refinement from final acceptance.
+  Basis exposes the supported box/candidate flow and clearly identifies missing refinement.
+* [Label Studio interactive annotation](https://labelstud.io/guide/ml_tutorials/segment_anything_model):
+  inspect a suggestion before accepting it. The current API persists immediately, so
+  Basis says so and offers Keep/Remove afterward rather than pretending it has a draft API.
+* [Roboflow Smart Polygon](https://roboflow.com/blog/sam-2-roboflow): separate finding an
+  outline from selecting/reviewing an object; retain explicit user control over the result.
+* [V7 Auto-Annotate](https://docs.v7labs.com/docs/auto-annotate): make correction a visible
+  next step beside a selected object. Refine/Split/Merge live with that object’s actions.
+* [Encord image editor](https://docs.encord.com/platform-documentation/Annotate/annotate-label-editor/annotate-images):
+  readable labels over busy images, explicit shape tools, and overlap management. Basis
+  uses solid 36px pin targets, leader lines, a dense-cluster picker, and repeat-click/key cycling.
+* [Segments.ai vector interface](https://docs.segments.ai/how-to-annotate/label-images/image-vector-interface):
+  one selection shared by image and sidebar, with an explicit return to selection mode.
+* [Meta’s interactive selection demonstration](https://ai.meta.com/blog/segment-anything-foundation-model-image-segmentation/):
+  ambiguity can have several valid masks. Offer candidate preview/cycling rather than
+  silently choosing an obscuring outline.
+* [Figma canvas controls](https://help.figma.com/hc/en-us/articles/15297425105303-Explore-design-files)
+  and [Apple Photos shortcuts](https://support.apple.com/en-ge/guide/photos/pht9b4411b24/mac):
+  fit/zoom/pan and visible photo navigation. Canvas zoom is separate from browser zoom;
+  input fields and drawing contexts retain their keyboard behavior.
+* [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/): preserve
+  the established navigation/content distinction. The specific inspector page could not
+  be retrieved by the research tool; no unverified inspector quotation is used here.
+* [Refactoring UI public chapter outline](https://www.refactoringui.com/): consistent
+  spacing/type choices and a deliberate hierarchy instead of many equally weighted boxes.
+* [Linear’s UI redesign](https://linear.app/now/how-we-redesigned-the-linear-ui): reduce
+  navigation noise and align headers, controls and metadata around the task.
+* [Vercel Geist](https://vercel.com/geist/stack): a common token/control system and
+  strong contrast. This is plain JavaScript/CSS, not a React/component-library migration.
+* [Stripe Dashboard](https://docs.stripe.com/dashboard/basics): keep navigation separate
+  from contextual resource actions and use action-specific confirmation.
+* [NN/g heuristics](https://media.nngroup.com/media/articles/attachments/NNg_Jakob%27s_Usability_Heuristic_Summary.pdf):
+  visible save progress, plain language, reversible exits, and honest unsupported states.
+
+The existing mock screenshots and verification claims below describe earlier versions;
+current results and limits are in [VISION_REVIEW_QA.md](VISION_REVIEW_QA.md).
+
 This is an isolated, clickable visual proposal. It retains the current app's actual Basis logo PNGs, Inter font, and established green palette. No production frontend routes, Firebase logic, backend files, or API contracts were changed. No external messages, deployment, real uploads, or model calls are performed.
 
 ## Open the review

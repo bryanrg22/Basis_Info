@@ -5,23 +5,23 @@ const bar=s=>G.steps(s).map(x=>x.label+(x.state==='active'?'*':x.state==='done'?
 
 test('a study with the components gate, or not started yet, has six steps',()=>{
  for(const gate of [true,null,undefined]){
-  assert.equal(bar(study('rooms_review','waiting_review',gate)),'Upload+ Appraisal+ Rooms* Components Assets Schedule');
+  assert.equal(bar(study('rooms_review','waiting_review',gate)),'Upload+ Appraisal+ Rooms* Components Assets Results');
  }
- assert.equal(bar(study('uploading','draft',null)),'Upload* Appraisal Rooms Components Assets Schedule');
- assert.equal(bar(study('extracting','processing',true)),'Upload* Appraisal Rooms Components Assets Schedule');
+ assert.equal(bar(study('uploading','draft',null)),'Upload* Appraisal Rooms Components Assets Results');
+ assert.equal(bar(study('extracting','processing',true)),'Upload* Appraisal Rooms Components Assets Results');
  // The room step after the rooms approval belongs to the Components step.
- assert.equal(bar(study('components_processing','processing',true)),'Upload+ Appraisal+ Rooms+ Components* Assets Schedule');
- assert.equal(bar(study('components_review','waiting_review',true)),'Upload+ Appraisal+ Rooms+ Components* Assets Schedule');
- assert.equal(bar(study('assets_processing','processing',true)),'Upload+ Appraisal+ Rooms+ Components+ Assets* Schedule');
- assert.equal(bar(study('exporting','processing',true)),'Upload+ Appraisal+ Rooms+ Components+ Assets+ Schedule*');
- assert.equal(bar(study('completed','completed',true)),'Upload+ Appraisal+ Rooms+ Components+ Assets+ Schedule+');
+ assert.equal(bar(study('components_processing','processing',true)),'Upload+ Appraisal+ Rooms+ Components* Assets Results');
+ assert.equal(bar(study('components_review','waiting_review',true)),'Upload+ Appraisal+ Rooms+ Components* Assets Results');
+ assert.equal(bar(study('assets_processing','processing',true)),'Upload+ Appraisal+ Rooms+ Components+ Assets* Results');
+ assert.equal(bar(study('exporting','processing',true)),'Upload+ Appraisal+ Rooms+ Components+ Assets+ Results*');
+ assert.equal(bar(study('completed','completed',true)),'Upload+ Appraisal+ Rooms+ Components+ Assets+ Results+');
  assert.deepEqual(G.steps(study('rooms_review','waiting_review',true)).map(x=>x.screen),['processing','appraisal','rooms','components','assets','complete']);
 });
 
 test('a study with the single rooms review keeps the five steps it had',()=>{
- assert.equal(bar(study('rooms_review','waiting_review',false)),'Upload+ Appraisal+ Rooms* Assets Schedule');
- assert.equal(bar(study('assets_processing','processing',false)),'Upload+ Appraisal+ Rooms+ Assets* Schedule');
- assert.equal(bar(study('completed','completed',false)),'Upload+ Appraisal+ Rooms+ Assets+ Schedule+');
+ assert.equal(bar(study('rooms_review','waiting_review',false)),'Upload+ Appraisal+ Rooms* Assets Results');
+ assert.equal(bar(study('assets_processing','processing',false)),'Upload+ Appraisal+ Rooms+ Assets* Results');
+ assert.equal(bar(study('completed','completed',false)),'Upload+ Appraisal+ Rooms+ Assets+ Results+');
 });
 
 test('the objects and inventories are edited at the components review, or the single rooms review',()=>{
@@ -53,4 +53,30 @@ test('a move is a photo_room correction naming the target room',()=>{
  assert.deepEqual({entity_type:c.entity_type,entity_id:c.entity_id,before:c.before,after:c.after,key:c.key},{entity_type:'photo_room',entity_id:'p1',before:{room_id:'r1'},after:{room_id:'r2'},key:'photo_room:p1'});
  assert.equal(c.summary,'move to Bathroom');
  assert.deepEqual(G.moveCorrection({document_id:'p1',filename:'x'},null,{id:'r2',name:'B'}).before,{room_id:null});
+});
+
+
+test('viewing an approved step does not move workflow progress in either flow',()=>{
+ for(const gate of [true,false])for(const view of ['rooms','appraisal','files']){
+  const nav=G.navigation(study('assets_review','waiting_review',gate),view);
+  const selected=nav.filter(s=>s.selected);assert.equal(selected.length,1);
+  assert.equal(selected[0].label,{rooms:'Rooms',appraisal:'Appraisal',files:'Upload'}[view]);
+  assert.equal(selected[0].state,'done');assert.equal(selected[0].status,'Completed');
+  assert.equal(nav.find(s=>s.label==='Assets').status,'Needs review');
+  assert.equal(nav[0].destination,'files');assert.equal(nav.at(-1).available,false);
+ }
+});
+test('progress routes, child views and finished studies keep selection and availability distinct',()=>{
+ for(const gate of [true,false]){
+  assert.equal(G.navigation(study('assets_review','waiting_review',gate),'asset-detail').find(x=>x.selected).label,'Assets');
+  assert.equal(G.navigation(study('rooms_review','waiting_review',gate),'viewer').find(x=>x.selected).label,gate?'Components':'Rooms');
+  const finished=G.navigation(study('completed','completed',gate),'appraisal');
+  assert(finished.every(x=>x.status==='Completed'&&x.available));assert.equal(finished.filter(x=>x.selected).length,1);
+ }
+ const processing=G.navigation(study('components_processing','processing',true),'processing');
+ const current=processing.find(x=>x.selected);assert.equal(current.label,'Components');assert.equal(current.status,'In progress');assert.equal(current.destination,'processing');
+ assert.equal(G.navigation(study('assets_processing','failed',true),'processing').find(x=>x.selected).status,'Needs attention');
+ const draft=G.navigation(study('uploading','draft',true),'upload').find(x=>x.selected);
+ assert.equal(draft.label,'Upload');assert.equal(draft.destination,'processing');
+ assert.equal(G.navigation(study('extracting','processing',true),'processing')[0].destination,'processing');
 });

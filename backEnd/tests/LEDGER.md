@@ -428,3 +428,16 @@ the lifecycle, node and behavioral suites; `agentic/tests/test_mcp_server.py` ->
 never wired; photo analysis is one structured model call, `tests/unit/vision/`). The
 dependency group `legacy` (langchain, langgraph, faiss, mcp, replicate, ...) is gone from
 `pyproject.toml` and `uv.lock`.
+
+
+## Frontend primary recovery (2026-11-01; EVAL_REPORT 65)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/primary-frontend.test.cjs` | Restored entry dependency order and file existence; result/report coexistence without writes; signed report download and changed-input notice | 3 pass |
+| `web/tests/primary-server.test.cjs` | Real loopback server from another cwd; correct entry/module; conditional request bypass and no-store | 1 pass |
+| `web/tests/report.test.cjs` | Current report behavior plus signed changed/unchanged/unknown-state notice | passes in 283-test web suite |
+| `web/tests/room-placement.test.cjs` | Both unplaced response shapes, analyzed flag, duplicate/placed-photo exclusion, existing placement rules | passes in 283-test web suite |
+
+The full restored `web/tests/*.test.cjs` suite passed 283 tests. This does not
+replace API/lifecycle write tests or the release gates for a subsequent PR.

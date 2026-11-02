@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><base href="../../"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="assets/basis-mark.png"><title>Basis · Design review</title><link rel="stylesheet" href="assets/vendor/pdfjs/pdf_viewer.css?v=5.6.205-scoped"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="workspace.css?v=engineer-review-2"><link rel="stylesheet" href="engineer.css?v=4"><link rel="stylesheet" href="studies.css?v=pdf-preview-3">
+<link rel="stylesheet" href="library.css?v=library-polish-9"><link rel="stylesheet" href="product-polish.css?v=product-system-12"><link rel="stylesheet" href="room-review.css?v=component-edit-14">
+<link rel="stylesheet" href="live/live.css?v=live-15"><link rel="stylesheet" href="interface-system.css?v=13"><link rel="stylesheet" href="vision-workbench.css?v=1"><link rel="stylesheet" href="review-layout.css?v=5"><link rel="stylesheet" href="room-placement.css?v=4"></head><body><div id="app"></div><div id="toast" role="status" aria-live="polite"></div>
+<script src="review-data.js"></script><script src="app.js?v=photo-move-icon-2"></script>
+<script>
+const qaData={items:[{id:'kitchen',name:'Kitchen',room_type:'kitchen',floor:'1',photos:[{document_id:'k',filename:'Kitchen.jpg'}]},{id:'office',name:'Office',room_type:'office',floor:'1',photos:[]}],unassigned_photos:[{document_id:'unknown',filename:'Unmatched photo.jpg'}]};
+window.BasisLive={state:{study:{id:'qa',revision:1},corrections:{}},gates:{componentsGate:()=>true},gateOpen:()=>true,roomsEntry:()=>({done:true,data:qaData}),withStudy:f=>f(BasisLive.state.study),steps:()=>'',labelName:v=>v,route:()=> '#rooms',actions:{},photo:(id,name)=>'<img alt="'+name+'" src="assets/basis-mark.png" style="object-fit:contain;background:#dae7e1">',saveRoomChanges:()=>{qaData.items=BasisRoomPlacement.clone(BasisLive.state.placement.draft.rooms);qaData.unassigned_photos=BasisLive.state.placement.draft.unassigned;BasisLive.state.study.revision++;BasisLive.render();toast('Test fixture saved. No study or API changed.')},render:()=>{root.innerHTML='<div class="workspace" data-screen="rooms" style="display:block;margin:20px auto;max-width:1200px"><main class="main"><div class="content"><p style="color:#8a642d">Room placement test fixture · Synthetic photos · No API writes</p>'+rooms()+'</div></main></div>'}};
+BasisLive.actions.approve=()=>toast('Fixture approval available. No workflow started.');
+root.addEventListener('click',e=>{const b=e.target.closest('[data-live]');if(b){e.preventDefault();BasisLive.actions[b.dataset.live]?.(b,b.dataset.value)}});
+</script><script src="room-placement.js?v=2"></script><script src="live/room-placement.js?v=5"></script><script>
+BasisLive.render();
+// Capture the actual hover state before drop clears it, for visual CSS regression checks.
+let capturedDrop=null;const renderRoomsFixture=BasisLive.render;
+BasisLive.render=()=>{renderRoomsFixture();if(capturedDrop)root.prepend(capturedDrop)};
+root.addEventListener('drop',e=>{
+ const target=e.target.closest('.placement-room.placement-drop-active');if(!target)return;
+ const preview=target.cloneNode(true);preview.removeAttribute('data-placement-room');preview.style.transition='none';
+ preview.querySelectorAll('button,a').forEach(el=>{el.removeAttribute('data-live');el.removeAttribute('href');el.setAttribute('tabindex','-1')});
+ {
+  const section=document.createElement('section');section.className='workspace';section.dataset.screen='rooms';section.style.cssText='display:block;margin:24px auto;max-width:1200px;padding:24px';
+  section.innerHTML='<h2>Captured destination while dragging</h2><p>The real drag handler applied this state before the drop.</p>';
+  section.append(preview);root.querySelector('[data-drop-capture]')?.remove();section.dataset.dropCapture='true';capturedDrop=section;
+ }
+},true);
+</script></body></html>

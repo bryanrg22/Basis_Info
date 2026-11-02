@@ -1,0 +1,27 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Developer health · synthetic tests</title><style>body{margin:0;font:14px system-ui;background:#e9efeb}header{display:flex;gap:20px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:#223e31;color:white}select,button{font:inherit;padding:6px}iframe{display:block;width:100%;height:calc(100vh - 58px);border:0;margin:0 auto;background:white}iframe.narrow{width:390px;max-width:100%}</style></head><body><header><strong>Synthetic checks · no live API or provider calls</strong><label>Scenario <select id="scenario"><option value="healthy">Healthy</option><option value="partial">Partial outage</option><option value="stale">Stale evidence</option><option value="missing">Endpoint not connected</option><option value="forbidden">No operator access</option><option value="offline">API unreachable</option></select></label><label>Viewport <select id="width"><option value="full">Full width</option><option value="320">320px</option><option value="375">375px</option><option value="390">390px</option><option value="430">430px</option><option value="768">768px</option><option value="1024">1024px</option></select></label><button id="measure">Measure layout</button><output id="layout"></output></header><iframe id="preview" title="Developer health test page"></iframe><script>
+const frame=document.getElementById('preview');
+const fixtureBootstrap=()=>{
+ window.addEventListener('message',event=>{if(event.source===parent&&event.origin===parent.location.origin&&event.data?.type==='fixture-refresh')document.getElementById('refresh').click()});
+ window.BasisAuth={user:{uid:'synthetic-operator'},init:async()=>{},getToken:async()=>'synthetic-token'};
+ window.fetch=async(url,options)=>{
+  const scenario=parent.document.getElementById('scenario').value,path=new URL(url).pathname;
+  if(!['/health','/v1/ops/health'].includes(path))throw Error('Fixture blocked unexpected request');
+  if(scenario==='offline')throw Error('Synthetic network failure');
+  const time=new Date(Date.now()-(scenario==='stale'?180000:0)).toISOString();
+  if(path==='/health')return {status:200,json:async()=>({status:'ok',service:'basis',env:'synthetic',version:'test',git_sha:'fixture',checks:{db:{status:'ok',latency_ms:2},temporal:{status:scenario==='partial'?'fail':'ok',latency_ms:6}}})};
+  if(scenario==='missing'||scenario==='forbidden')return {status:scenario==='missing'?404:403,json:async()=>({})};
+  const disabled=['azure_openai','mask2former'];
+  return {status:scenario==='partial'?503:200,json:async()=>({schema_version:1,services:BasisHealth.SERVICES.map(s=>({id:s.id,status:disabled.includes(s.id)?'disabled':scenario==='partial'&&['replicate','sam3','vision'].includes(s.id)?'down':'healthy',checked_at:time,check_kind:s.id==='worker'||s.id==='relay'?'heartbeat':'probe',latency_ms:s.id==='sam3'?84:12,required:false,detail:s.id==='sam3'&&scenario==='partial'?'Synthetic: the configured localizer did not respond.':'Synthetic readiness evidence. No real service was contacted.',model:['openai','vision','appraisal'].includes(s.id)?'Synthetic GPT deployment':s.id==='sam3'?'SAM 3':'',adapter:s.id==='sam3'?'replicate':'',hosting:s.id==='temporal'?'Synthetic Docker':undefined,fallbacks:s.id==='sam3'?[]:undefined}))})};
+ };
+};
+async function load(){let html=await (await fetch('../../developer/index.html')).text();html=html.replace('<head>','<head><base href="'+new URL('../../developer/',location.href).href+'">');html=html.replace('<script src="../live/auth.js?v=live-10"></'+'script>','<script>('+fixtureBootstrap.toString()+')();</'+'script>');frame.srcdoc=html}
+document.getElementById('scenario').onchange=()=>frame.contentWindow.postMessage({type:'fixture-refresh'},location.origin);document.getElementById('width').onchange=event=>{frame.style.width=event.target.value==='full'?'100%':event.target.value+'px';frame.style.maxWidth='100%'};
+document.getElementById('measure').onclick=()=>{
+ const doc=frame.contentDocument,win=frame.contentWindow,flow=doc.getElementById('flow-scroll');
+ const outside=[...doc.querySelectorAll('main *,header *')].filter(el=>!el.closest('#flow-scroll')).filter(el=>{const b=el.getBoundingClientRect();return b.width&&b.right>doc.documentElement.clientWidth+1});
+ const controls=[...doc.querySelectorAll('button,input[type=search],nav a,.filters label,.connection-strip label')].filter(el=>el.getBoundingClientRect().width);
+ const smallest=Math.min(...controls.map(el=>el.getBoundingClientRect().height));
+ const broken=[...doc.images].filter(img=>!img.complete||img.naturalWidth===0);
+ document.getElementById('layout').textContent=`Viewport ${win.innerWidth}px · page ${doc.documentElement.scrollWidth}px · overflow ${outside.length} · smallest control ${Math.round(smallest)}px · broken logos ${broken.length} · workflow scroll ${Math.round(flow.scrollLeft)}px`;
+};load();
+</script></body></html>

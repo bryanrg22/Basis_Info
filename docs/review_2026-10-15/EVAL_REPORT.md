@@ -8633,3 +8633,36 @@ report flow end to end, including signing. What fails is honesty at the edges: t
 show mock data in live mode, flagged photos have no home, and three places name the layers.
 None of it is a backend defect; the one backend gap (the rooms view hiding unplaced photos) is
 closed in this section's PR.
+
+
+## 65. Recover the primary frontend and repeat the workflow review (2026-11-01)
+
+**Problem.** The local web server served the walkthrough worktree rather than the
+approved redesign. The redesign's source remained intact. Recover it without
+overwriting concurrent backend work or losing the newer report controls.
+
+**Method.** Preserve and hash the source archive; restore the web source into a
+separate primary checkout based on the walkthrough commit. Keep the report
+controller as a wrapper around the recovered results screen, adapt both room
+response shapes, and serve the checkout explicitly with no stale dev caches.
+Follow the existing static-client contract and source/report APIs; do not replace
+them with a new frontend framework. See `web/PRIMARY_FRONTEND_QA.md`.
+
+**Measured.** 283 frontend tests pass. The added regressions verify actual local
+HTTP serving from another cwd, cache handling, script dependencies, result/report
+coexistence, signed-report change notices and room photo deduplication. Browser
+review covers the workflow and auxiliary result screens, including a rendered
+draft PDF and existing signed state. Four screens were inspected at a measured
+390 CSS px. Source syntax, whitespace and staged client-data checks pass.
+
+**Limits.** This is read-only live browsing plus local automated tests. No paid
+calls, uploads, study corrections, approvals, intake saves, repricing or signing.
+No backend processes were restarted and no release or merge was performed.
+The running API still lacks unplaced-photo output. Intake-before-start, conditional
+intake saves/reopen and the separate room-management backend remain integration
+gaps. These are explicitly recorded instead of claiming full workflow completion.
+
+**Review artifact.** Fresh screenshots with numbered red boxes document proposed
+changes to the restored interface. They contain local study information and are
+kept outside the repository. Mobile issues include the persistent rail, cramped
+appraisal fields and wrapped amounts. No proposed visual redesign was applied.

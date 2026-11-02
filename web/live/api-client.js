@@ -14,7 +14,7 @@
   constructor(status,problem={},fallback=''){
    super(problem.detail||problem.title||fallback||`Request failed (${status})`);
    this.name='ApiError';this.status=status;this.type=problem.type||'about:blank';this.title=problem.title||'';
-   this.detail=problem.detail||'';this.errors=problem.errors||[];this.requestId=problem.request_id||null;
+   this.code=problem.code||null;this.detail=problem.detail||'';this.errors=problem.errors||[];this.requestId=problem.request_id||null;
   }
   // The problem type's last path segment, e.g. "stale", "gate-not-open", "upload-missing".
   get kind(){return String(this.type).split('/').pop()}
@@ -72,6 +72,16 @@
    declineInvitation:(id,key)=>request('POST',`/v1/invitations/${encodeURIComponent(id)}/decline`,{key}),
    listStudies:()=>listAll('/v1/studies',{},{limit:100}),
    getStudy:id=>request('GET',study(id)),
+   result:(id,revision)=>request('GET',`${study(id)}/result`,{query:{revision}}),
+   setIntake:(id,body)=>request('PUT',`${study(id)}/intake`,{body}),
+   timeline:(id,query={})=>request('GET',`${study(id)}/timeline`,{query:{limit:100,...query}}),
+   timelineSteps:id=>request('GET',`${study(id)}/timeline/steps`),
+   audit:id=>request('GET',`${study(id)}/audit`),
+   spend:id=>request('GET',`${study(id)}/spend`),
+   calls:(id,query={})=>request('GET',`${study(id)}/calls`,{query:{limit:50,...query}}),
+   costIndices:(query={})=>request('GET','/v1/cost-indices',{query:{limit:100,...query}}),
+   costIndexRuns:()=>request('GET','/v1/cost-indices/runs'),
+   addCostIndex:(body,key)=>request('POST','/v1/cost-indices',{body,key}),
    createStudy:(body,key)=>request('POST','/v1/studies',{body,key}),
    archiveStudy:(id,key)=>request('DELETE',study(id),{key}),
    registerDocument:(id,body,key)=>request('POST',`${study(id)}/documents`,{body,key}),

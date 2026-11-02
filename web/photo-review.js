@@ -1,6 +1,6 @@
 /* Large local photo viewer. No storage, model, or workflow calls. */
 'use strict';
-state.collapsedRooms=new Set();
+state.expandedRooms=new Set();
 state.componentPhoto=0;
 state.componentErrors={};
 icons.edit='M16 3l5 5 M4 20l4-1 12-12-4-4L4 15z';
@@ -15,11 +15,11 @@ root.addEventListener('keydown',e=>{if(e.key==='Escape'&&e.target.closest('.comp
 rooms=function(){
  const groups=RoomPresentation.groupPhotos(photos,state.group),reviewed=photos.filter((_,i)=>i<2).length;
  return `${steps(2)}${heading('Rooms & photos','Review each room’s photos and component inventory.',`${btn('Export rooms','future','Room export is a preview here. Existing application behavior is unchanged.','','download')}${btn('Add room','add-room','','','plus')}`)}<div class="rooms-overview"><span>${groups.filter(g=>g.photos.length).length} rooms<span>·</span>${photos.length} photos</span><span>${reviewed} of ${photos.length} photos reviewed</span></div><div class="room-sections">${groups.map((group,i)=>{
-  const collapsed=state.collapsedRooms.has(group.name),checked=group.photos.filter(p=>p.index<2).length;
-  return `<section class="room-section" aria-labelledby="room-name-${i}"><h2 class="room-section-heading"><button type="button" data-room-section="${esc(group.name)}" aria-expanded="${!collapsed}" aria-controls="room-gallery-${i}"><span class="room-title" id="room-name-${i}">${esc(group.name)}</span><span class="room-photo-count">${group.photos.length} ${group.photos.length===1?'photo':'photos'}</span><span class="room-review-count">${checked?checked+' reviewed':'To review'}</span>${icon('down',17)}</button></h2><div class="room-section-body" id="room-gallery-${i}" ${collapsed?'hidden':''}>${group.photos.length?`<div class="room-photo-grid">${group.photos.map(({photo,index})=>photoCard(photo[0],index)).join('')}</div>`:'<p class="room-section-empty">No photos in this room. Use a photo’s Room menu to move it here.</p>'}</div></section>`
+  const collapsed=!state.expandedRooms.has(group.name),checked=group.photos.filter(p=>p.index<2).length;
+  return `<section class="room-section room-summary-card" aria-labelledby="room-name-${i}"><h2 class="room-section-heading"><button type="button" data-room-section="${esc(group.name)}" aria-expanded="${!collapsed}" aria-controls="room-gallery-${i}"><span class="room-summary-info"><span class="room-title" id="room-name-${i}">${esc(group.name)}</span></span><span class="room-summary-chevron">${icon('down',17)}</span><span class="room-summary-previews" aria-hidden="true">${group.photos.slice(0,3).map(({photo})=>`<img class="room-summary-thumb" src="assets/${photo[0]}.webp" alt="">`).join('')}${group.photos.length>3?`<span class="room-preview-more">+${group.photos.length-3}</span>`:''}</span><span class="room-summary-stats"><span>${group.photos.length} ${group.photos.length===1?'photo':'photos'}</span><span>${checked?checked+' reviewed':'To review'}</span></span></button></h2><div class="room-section-body" id="room-gallery-${i}" ${collapsed?'hidden':''}>${group.photos.length?`<div class="room-photo-grid">${group.photos.map(({photo,index})=>photoCard(photo[0],index)).join('')}</div>`:'<p class="room-section-empty">No photos in this room. Use a photo’s Room menu to move it here.</p>'}</div></section>`
  }).join('')}</div><div class="actionbar"><p>Return affected photos with corrections, or approve the room inventory.</p><div class="row">${btn('Request corrections','request-corrections','rooms_review')}${btn('Approve rooms','approve','rooms_review','primary','check')}</div></div>`;
 };
-root.addEventListener('click',e=>{const button=e.target.closest('[data-room-section]');if(!button)return;const name=button.dataset.roomSection,collapsed=state.collapsedRooms.has(name);collapsed?state.collapsedRooms.delete(name):state.collapsedRooms.add(name);button.setAttribute('aria-expanded',String(collapsed));document.getElementById(button.getAttribute('aria-controls')).hidden=!collapsed});
+root.addEventListener('click',e=>{const button=e.target.closest('[data-room-section]');if(!button)return;const name=button.dataset.roomSection,expanded=!state.expandedRooms.has(name);expanded?state.expandedRooms.add(name):state.expandedRooms.delete(name);button.setAttribute('aria-expanded',String(expanded));document.getElementById(button.getAttribute('aria-controls')).hidden=!expanded});
 let activePhotoReview;
 function openPhotoReview(initialIndex){
  if(!Number.isInteger(initialIndex)||!photos[initialIndex])return;
@@ -30,7 +30,7 @@ function openPhotoReview(initialIndex){
  const inertElements=[...root.children].filter(e=>e!==backdrop).map(element=>[element,element.inert]);for(const [element] of inertElements)element.inert=true;
  const oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';
  let index=initialIndex,zoom=1,closed=false;
- function cleanup(){if(closed)return;closed=true;for(const [element,inert] of inertElements)element.inert=inert;document.body.style.overflow=oldOverflow;observer.disconnect();activePhotoReview=null}
+ function cleanup(){if(closed)return;closed=true;stopGestures();for(const [element,inert] of inertElements)element.inert=inert;document.body.style.overflow=oldOverflow;observer.disconnect();activePhotoReview=null}
  function close(){cleanup();backdrop.remove();if(previous?.isConnected)previous.focus({preventScroll:true})}
  const observer=new MutationObserver(()=>{if(!backdrop.isConnected)cleanup()});observer.observe(root,{childList:true});activePhotoReview=close;
  function paint(){
@@ -47,6 +47,10 @@ function openPhotoReview(initialIndex){
   if(document.activeElement?.disabled&&backdrop.contains(document.activeElement))backdrop.querySelector('[data-photo-review="close"]').focus({preventScroll:true});
   if(image.getAttribute('src')!==url){stage.setAttribute('aria-busy','true');image.hidden=false;error.hidden=true;image.alt=photo[1]+' — '+room;image.src=url;stage.scrollTop=0;stage.scrollLeft=0}
  }
+ const stopGestures=BasisGestures.attach(stage,{canZoom:()=>image.complete&&image.naturalWidth>0,zoom:(factor,point)=>{
+  const next=BasisGestures.clamp(zoom*factor,1,3);if(next===zoom)return;
+  const a=BasisGestures.anchor(canvas,point);zoom=next;paint();BasisGestures.restore(stage,canvas,a);
+ }});
  image.onload=()=>stage.setAttribute('aria-busy','false');image.onerror=()=>{stage.setAttribute('aria-busy','false');image.hidden=true;error.hidden=false};
  function act(action){
   if(action==='close'){close();return}
