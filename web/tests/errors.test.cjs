@@ -235,7 +235,9 @@ test('the sample event posted by the API test is what this module produces',()=>
  b.cap.apiCall({method:'POST',path:'/v1/studies/3f2c1a2b-1234-4bcd-8ef0-123456789abc/decisions',status:409,durationMs:12,requestId:'r-2',code:'BASIS-STUDY-003',problemType:'https://basis.invalid/problems/stale-state',title:'Conflict',detail:'revision 1 is stale',attempt:1,retry:false,body:{stage:'rooms_review',revision:1,decision:'approve'}});
  const err=new TypeError('Cannot read properties of undefined (reading "rooms")');err.stack='TypeError: Cannot read properties of undefined (reading "rooms")\n    at render (http://127.0.0.1:3100/live/live-app.js?v=live-16:120:9)';
  b.fire('window','error',{error:err,message:err.message,filename:'http://127.0.0.1:3100/live/live-app.js?v=live-16',lineno:120,colno:9});
- b.cap.report(new Error('from a screen'),{action:'move-photo',apiKey:'x'});
+ // A fixed stack: a real one names this file's path and line, which differ per machine.
+ const reported=new Error('from a screen');reported.stack='Error: from a screen\n    at movePhoto (http://127.0.0.1:3100/live/live-review.js?v=live-16:137:21)';
+ b.cap.report(reported,{action:'move-photo',apiKey:'x'});
  const events=b.cap.queue.map(e=>({...e,client:{...e.client,timezone:'America/New_York'}}));
  const file=path.join(__dirname,'fixtures','client-error-sample.json');
  const sample={events,sent_at:events[0].occurred_at};

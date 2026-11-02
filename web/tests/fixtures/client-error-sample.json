@@ -236,12 +236,12 @@
    "level": "error",
    "message": "from a screen",
    "error_type": "Error",
-   "stack": "Error: from a screen\n    at TestContext.<anonymous> (/Users/bryanramirez-gonzalez/dev/GitHub/Basis_Info/.claude/worktrees/client-errors/web/tests/errors.test.cjs:236:15)\n    at Test.runInAsyncScope (node:async_hooks:214:14)\n    at Test.run (node:internal/test_runner/test:1047:25)\n    at Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    at Test.postRun (node:internal/test_runner/test:1173:19)\n    at Test.run (node:internal/test_runner/test:1101:12)\n    at async Test.processPendingSubtests (node:internal/test_runner/test:744:7)",
+   "stack": "Error: from a screen\n    at movePhoto (http://127.0.0.1:3100/live/live-review.js?v=live-16:137:21)",
    "source": {
-    "function": "TestContext.<anonymous>",
-    "file": "/Users/bryanramirez-gonzalez/dev/GitHub/Basis_Info/.claude/worktrees/client-errors/web/tests/errors.test.cjs",
-    "line": 236,
-    "column": 15
+    "function": "movePhoto",
+    "file": "http://127.0.0.1:3100/live/live-review.js?v=…",
+    "line": 137,
+    "column": 21
    },
    "page": {
     "hash": "#rooms/{id}",
