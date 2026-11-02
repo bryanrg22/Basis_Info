@@ -4,6 +4,7 @@ function closeAccountMenu(restoreFocus=false){
  const popup=document.getElementById('account-popover'),trigger=document.getElementById('account-menu-trigger');
  popup?.remove();trigger?.setAttribute('aria-expanded','false');
  if(restoreFocus)trigger?.focus({preventScroll:true});
+ if(popup)scheduleSidebarClose();
 }
 function positionAccountMenu(){
  const popup=document.getElementById('account-popover'),trigger=document.getElementById('account-menu-trigger');if(!popup||!trigger)return;

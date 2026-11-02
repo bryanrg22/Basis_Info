@@ -31,6 +31,12 @@
   if(state.skipped)return 'skipped';
   return 'draft';
  }
+ function changeNotice(state){
+  if(!state?.signature)return '';
+  if(state.changed_since_signing==null)return 'The signed PDF is preserved. Changes since signing were not recorded for this signature.';
+  const names=state.changed_since_signing.map(key=>({firm:'firm profile',study:'study details'}[key])).filter(Boolean);
+  return names.length?'Signed with earlier information. The '+names.join(' and ')+' changed after signing; the signed PDF is unchanged.':'';
+ }
  // The three inputs of a final report and whether each is in.
  function checklist(state){
   const missing=new Set(state?.missing_for_final||[]);
@@ -81,6 +87,6 @@
   if(body.engineer.license_state&&!/^[A-Z]{2}$/.test(body.engineer.license_state))problems.push('The license state is a two-letter code.');
   return {body,problems};
  }
- const api={RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
+ const api={changeNotice,RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisReport=api;
 })(typeof globalThis==='object'?globalThis:this);

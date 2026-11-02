@@ -34,14 +34,15 @@
   const intro={signed:'The report is signed. The signed PDF is the one to deliver; the preparer’s schedule goes with it.',draft:'The report is a DRAFT until an engineer signs it in Basis. Fill in what it lacks, open the preview, then sign.',not_exported:'The report and the preparer’s schedule are written when the assets review is approved.',skipped:`The export wrote no report: ${state.skipped?.message||''}`}[status];
   const action={firm:owner?`<button class="button small" data-live="report-edit-profile">${pr.data?'Edit':'Add'} firm profile</button>`:`<span class="small">${pr.data?'':'An owner adds it.'}</span>`,study:engineer?`<button class="button small" data-live="report-edit-answers">${an.data?.report_answers?'Edit':'Add'} study details</button>`:'',signature:''};
   const items=R.checklist(state).map(i=>`<li class="${i.done?'is-done':''}"><span class="live-report-mark" aria-hidden="true">${i.done?'✓':''}</span><div><strong>${esc(i.label)}</strong><p class="small">${esc(i.key==='study'&&an.data?.report_answers?`${an.data.report_answers.taxpayer_name} · ${R.PHOTOGRAPHS[an.data.report_answers.photographs]}`:i.key==='firm'&&pr.data?`${pr.data.profile.name}${pr.data.profile.engineer?' · '+pr.data.profile.engineer.name+', '+pr.data.profile.engineer.credentials:''}`:i.hint)}</p></div>${action[i.key]}</li>`).join('');
-  const sig=state.signature;
+  const sig=state.signature,changeNotice=R.changeNotice(state);
   const signed=sig?`<div class="live-report-signature"><strong>Signed in Basis</strong> by ${esc(sig.engineer.name)}, ${esc(sig.engineer.credentials)} · ${esc(Live.when(sig.signed_at))}<p class="small">Signature ${esc(sig.id)} · PDF sha256 ${esc(sig.pdf_sha256.slice(0,16))}…</p></div>`:'';
   const files=new Set(state.files||[]),has=f=>files.has(f)||Boolean(sig&&f==='report.pdf');
   const dl=(fmt,file,text)=>`<button class="button small" data-live="report-download" data-value="${fmt}" ${has(file)?'':'disabled'}>${icon('download',15)}${text}</button>`;
   const canPreview=state.exported&&!state.skipped&&!sig;
-  return `<section class="panel live-report" aria-labelledby="live-report-title"><div class="panel-head"><h2 id="live-report-title">Client report</h2><span class="badge ${cls}">${label}</span></div><div class="panel-body"><p>${esc(intro)}</p><ul class="live-report-checklist">${items}</ul>${signed}<div class="row live-report-actions">${canPreview?`<button class="button small" data-live="report-preview">${previewTag(s)?'Preview again':'Open the preview'}</button>`:''}${dl('pdf','report.pdf',sig?'Signed report (PDF)':'Draft report (PDF)')}${dl('csv','schedule.csv','Schedule (CSV)')}${dl('xlsx','schedule.xlsx','Schedule (XLSX)')}${sig?'':`<button class="button primary small" data-live="report-sign" ${blocker?`disabled title="${esc(blocker)}"`:''}>Sign report</button>`}</div>${!sig&&blocker&&state.exported&&!state.skipped?`<p class="small live-report-why">${esc(blocker)}</p>`:''}</div></section>`;
+  return `<section class="panel live-report" aria-labelledby="live-report-title"><div class="panel-head"><h2 id="live-report-title">Client report</h2><span class="badge ${cls}">${label}</span></div><div class="panel-body"><p>${esc(intro)}</p>${changeNotice?`<p class="result-warning" role="status">${esc(changeNotice)}</p>`:''}<ul class="live-report-checklist">${items}</ul>${signed}<div class="row live-report-actions">${canPreview?`<button class="button small" data-live="report-preview">${previewTag(s)?'Preview again':'Open the preview'}</button>`:''}${dl('pdf','report.pdf',sig?'Signed report (PDF)':'Draft report (PDF)')}${dl('csv','schedule.csv','Schedule (CSV)')}${dl('xlsx','schedule.xlsx','Schedule (XLSX)')}${sig?'':`<button class="button primary small" data-live="report-sign" ${blocker?`disabled title="${esc(blocker)}"`:''}>Sign report</button>`}</div>${!sig&&blocker&&state.exported&&!state.skipped?`<p class="small live-report-why">${esc(blocker)}</p>`:''}</div></section>`;
  }
 
+ // Keep the recovered Results renderer and append the report contract once.
  const designComplete=complete;
  complete=function(){
   const html=designComplete();
@@ -64,7 +65,7 @@
   // which a later render would replace.
   L.reportPreview={studyId:s.id,revision:s.revision,tag};
   Live.render();
-  openPdfPreview({name:`${fileBase(s)}_report_preview.pdf`,url:URL.createObjectURL(blob)});
+  openPdfPreview({name:`${fileBase(s)}_report_preview.pdf`,url:URL.createObjectURL(blob),description:`Draft report · revision ${s.revision}`,onClose(){URL.revokeObjectURL(this.url)}});
  });
  Live.actions['report-download']=(el,fmt)=>Live.guarded('report-download',async()=>{
   const s=L.study,state=stateEntry(s).data,{blob}=await pdfFetch(`/v1/studies/${sid()}/report`,{format:fmt});

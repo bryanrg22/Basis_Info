@@ -14,6 +14,7 @@ function productUpdateSelect(select){
 }
 function productEnhanceSelects(){
  for(const select of root.querySelectorAll('.main select:not([multiple]),.modal select:not([multiple])')){
+  if(select.dataset.native==='true')continue;
   if(select.dataset.productSelect){productUpdateSelect(select);continue}
   select.dataset.productSelect=productSelectKey(select);select.hidden=true;
   const button=document.createElement('button');button.type='button';button.className='product-select';button.dataset.productSelectKey=select.dataset.productSelect;

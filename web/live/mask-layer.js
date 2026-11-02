@@ -52,7 +52,7 @@
   }
   instance._layer=prepared;return prepared;
  }
- function attach(img,{onPick,onHover}={}){
+ function attach(img,{onPick,onHover,interactive=true}={}){
   const canvas=document.createElement('canvas');canvas.className='live-mask-canvas';canvas.setAttribute('aria-hidden','true');
   img.insertAdjacentElement('afterend',canvas);
   const host=img.parentElement;if(getComputedStyle(host).position==='static')host.style.position='relative';
@@ -65,6 +65,7 @@
   }
   const toCanvas=(u,v)=>[(rect.x+u*rect.w)*dpr,(rect.y+v*rect.h)*dpr];
   function drawInstance(ctx,inst,kind,color){
+   if(inst.polygon?.length){ctx.save();ctx.beginPath();inst.polygon.forEach((p,n)=>{const [x,y]=toCanvas(p.x,p.y);n?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.closePath();if(kind==='edge'){ctx.strokeStyle=`rgb(${color||WHITE})`;ctx.lineWidth=2*dpr;ctx.stroke()}else{ctx.fillStyle=`rgb(${color||WHITE})`;ctx.fill()}ctx.restore();return}
    const p=prepare(inst);
    if(p){
     const [x,y]=toCanvas(p.b.x1/p.mask.width,p.b.y1/p.mask.height),w=(p.b.x2-p.b.x1)/p.mask.width*rect.w*dpr,h=(p.b.y2-p.b.y1)/p.mask.height*rect.h*dpr;
@@ -83,12 +84,13 @@
    return b.y2-b.y1>0.12?[(b.x1+b.x2)/2,(b.y1+b.y2)/2]:[(b.x1+b.x2)/2,Math.max(0.03,b.y1-0.035)];
   }
   function pin(ctx,u,v,text,active){
+   if(view.externalPins)return;
    const [x,y]=toCanvas(u,v),r=12*dpr;ctx.save();ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=active?FOREST:'#fff';ctx.fill();ctx.lineWidth=2.5*dpr;ctx.strokeStyle=active?'#fff':FOREST;ctx.stroke();
    ctx.fillStyle=active?'#fff':FOREST;ctx.font=`600 ${11*dpr}px Inter, system-ui, sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,x,y+0.5*dpr);ctx.restore();
   }
   function highlight(ctx,group){
    // Dim and desaturate the photo, cut the instances out of the dim layer, then glow + edge.
-   if(CANVAS_FILTER){ctx.save();ctx.filter='grayscale(1) brightness(0.45)';ctx.drawImage(img,rect.x*dpr,rect.y*dpr,rect.w*dpr,rect.h*dpr);ctx.restore()}
+   if(CANVAS_FILTER){ctx.save();ctx.filter='grayscale(1) brightness(0.62)';ctx.drawImage(img,rect.x*dpr,rect.y*dpr,rect.w*dpr,rect.h*dpr);ctx.restore()}
    else{ctx.fillStyle='rgba(18,28,22,.6)';ctx.fillRect(rect.x*dpr,rect.y*dpr,rect.w*dpr,rect.h*dpr)}// no canvas filter (Safari before 18): plain dim
    ctx.save();ctx.globalCompositeOperation='destination-out';group.forEach(i=>drawInstance(ctx,i,'fill'));ctx.restore();
    ctx.save();ctx.shadowColor=`rgba(${GREEN},.95)`;ctx.shadowBlur=14*dpr;group.forEach(i=>drawInstance(ctx,i,'edge',GREEN));ctx.restore();
@@ -100,15 +102,17 @@
    const {mode,instances}=view;
    if(mode==='overview'){
     const counted=instances.filter(i=>i.counted);
-    [...counted].sort((a,b)=>(b.area||0)-(a.area||0)).forEach(i=>{ctx.save();ctx.globalAlpha=.42;drawInstance(ctx,i,'fill',labelColor(i.label,view.labels));ctx.restore()});
+    [...counted].sort((a,b)=>(b.area||0)-(a.area||0)).forEach(i=>{ctx.save();ctx.globalAlpha=.16;drawInstance(ctx,i,'fill',labelColor(i.label,view.labels));ctx.restore()});
     counted.forEach(i=>drawInstance(ctx,i,'edge',labelColor(i.label,view.labels)));
     const selected=instances.find(i=>i.id===view.selectedId);if(selected)drawInstance(ctx,selected,'edge',WHITE);
+    const hovered=instances.find(i=>i.id===view.hoverId);if(hovered)drawInstance(ctx,hovered,'edge',WHITE);
     return;
    }
    if(mode==='single'){
-    const one=instances.find(i=>i.id===view.selectedId);if(!one)return;highlight(ctx,[one]);const [u,v]=pinAt(one),n=orderedFocus().findIndex(i=>i.id===one.id);pin(ctx,u,v,n>=0?String(n+1):'•',true);return;
+    const one=instances.find(i=>i.id===view.selectedId);if(!one)return;const hovered=instances.find(i=>i.id===view.hoverId);highlight(ctx,hovered&&hovered.id!==one.id?[one,hovered]:[one]);const [u,v]=pinAt(one),n=orderedFocus().findIndex(i=>i.id===one.id);pin(ctx,u,v,n>=0?String(n+1):'•',true);return;
    }
    const group=orderedFocus();if(!group.length)return;highlight(ctx,group);
+   const hovered=instances.find(i=>i.id===view.hoverId);if(hovered)drawInstance(ctx,hovered,'edge',WHITE);
    group.forEach((i,n)=>{const [u,v]=pinAt(i);pin(ctx,u,v,String(n+1),i.id===view.selectedId||i.id===view.hoverId)});
   }
   // The focused component's counted instances, numbered left to right (as the pins read).
@@ -122,7 +126,7 @@
   const pointToPhoto=e=>{const r=img.getBoundingClientRect();return [(e.clientX-r.left-rect.x)/rect.w,(e.clientY-r.top-rect.y)/rect.h]};
   const onClick=e=>{const [u,v]=pointToPhoto(e);if(u<0||u>1||v<0||v>1)return;onPick?.(pick(u,v),u,v,e)};
   const onMove=e=>{const [u,v]=pointToPhoto(e);const hit=u>=0&&u<=1&&v>=0&&v<=1?pick(u,v):null;img.style.cursor=hit?'pointer':'crosshair';if((hit?.id||null)!==view.hoverId){view.hoverId=hit?.id||null;onHover?.(hit);draw()}};
-  img.addEventListener('click',onClick);img.addEventListener('mousemove',onMove);
+  if(interactive){img.addEventListener('click',onClick);img.addEventListener('mousemove',onMove)}
   const observer=new ResizeObserver(place);observer.observe(img);
   img.addEventListener('load',place);if(img.complete)place();
   return {

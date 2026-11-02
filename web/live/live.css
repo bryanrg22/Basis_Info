@@ -71,7 +71,22 @@
 .live-team-policy{grid-template-columns:repeat(3,1fr)}
 @media(max-width:850px){.live-team-policy{grid-template-columns:1fr}}
 .live-members .select-field{min-width:120px}
-/* The client report on the Schedule screen (live/live-report.js) */
+
+/* Fill the card with the top of the actual first page, preserving its proportions. */
+.file-document-thumbnail.live-pdf-thumbnail{position:relative;overflow:hidden;aspect-ratio:1.5;background:#e7eeea;gap:0;padding:24px}
+.live-pdf-thumbnail>img{position:absolute;top:16px;left:16px;transform:none;height:auto;max-width:none;width:calc(100% - 32px);object-fit:contain;background:#fff;box-shadow:0 2px 9px #243b2c20;border:1px solid #cbd6ce;border-radius:1px}
+.live-pdf-thumbnail .live-pdf-thumbnail-status{display:flex;align-items:center;justify-content:center;gap:10px;max-width:240px;text-align:center;font-size:12px;line-height:1.6;letter-spacing:0;color:#52675a;border:0;background:none;padding:0}
+.live-pdf-thumbnail .live-pdf-thumbnail-badge{position:absolute;left:14px;bottom:12px;font-size:11px;line-height:18px;font-weight:500;color:#3b5a43;background:#fffffff2;border:1px solid #d6e0d9;border-radius:6px;padding:4px 8px;box-shadow:0 1px 5px #243b2c12}
+.live-pdf-thumbnail[data-failed=true]{background:#f0f4f1}
+
+/* Component thumbnails reuse the viewer's real mask layer. Clip both image and
+   canvas together so cropped previews remain aligned at every card size. */
+.component-mask-preview{position:relative;display:block;overflow:hidden}
+.component-mask-preview>img{display:block;width:100%;height:100%;object-fit:cover}
+.component-preview-status{position:absolute;bottom:6px;left:6px;max-width:calc(100% - 12px);padding:3px 6px;border-radius:4px;background:rgba(255,255,255,.9);color:#355047;font-size:11px;line-height:1.4}
+.room-summary-thumb .component-preview-status{display:none}
+
+/* The client report on Results (live/live-report.js) */
 .live-report{margin-top:18px}
 .live-report-checklist{list-style:none;margin:14px 0;padding:0;display:grid;gap:10px}
 .live-report-checklist li{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}

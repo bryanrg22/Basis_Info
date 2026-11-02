@@ -27,6 +27,7 @@ from basis.db.models import (
     Extraction,
     ExtractionField,
     PhotoRoom,
+    PhotoRoomAnswer,
     Room,
     Takeoff,
 )
@@ -86,6 +87,10 @@ async def seed_outputs(api: Api, seed: Seed, sm: async_sessionmaker[AsyncSession
             ("Kitchen photo 2.jpg", DocumentKind.PHOTO),
             ("Kitchen photo 1.jpg", DocumentKind.PHOTO),
             ("Bath.jpg", DocumentKind.PHOTO),
+            # Two photos no room holds (EVAL_REPORT 64): Yard.jpg was analyzed (its room
+            # answer exists) and placed nowhere; Shed.jpg never got an analysis.
+            ("Yard.jpg", DocumentKind.PHOTO),
+            ("Shed.jpg", DocumentKind.PHOTO),
         ):
             document_id = uuid.uuid4()
             await documents.create(
@@ -161,6 +166,16 @@ async def seed_outputs(api: Api, seed: Seed, sm: async_sessionmaker[AsyncSession
                 PhotoRoom(study_id=sid, document_id=k2, room_id=kitchen.id, revision=2),
                 PhotoRoom(study_id=sid, document_id=k1, room_id=kitchen.id, revision=2),
                 PhotoRoom(study_id=sid, document_id=b1, room_id=bath.id, revision=2),
+                PhotoRoomAnswer(
+                    study_id=sid,
+                    document_id=photos["Yard.jpg"],
+                    revision=2,
+                    room_type="exterior",
+                    room_confidence=0.7,
+                    floor=None,
+                    room_ordinal=1,
+                    analysis_uri=None,
+                ),
             ]
         )
         per_photo = [
@@ -358,6 +373,12 @@ async def test_rooms_with_photos_and_inventories(
     [toilet] = bath["inventory"]
     assert toilet["document_id"] == str(seeded.photos["Bath.jpg"]) and toilet["seen_in"] == []
     assert bath["group_key"] is None
+    # Photos no room holds are listed apart, in file-name order, with whether the analysis
+    # ever answered for them (EVAL_REPORT 64: seven photos of live run 6 vanished here).
+    assert body["unplaced"] == [
+        {"document_id": str(seeded.photos["Shed.jpg"]), "filename": "Shed.jpg", "analyzed": False},
+        {"document_id": str(seeded.photos["Yard.jpg"]), "filename": "Yard.jpg", "analyzed": True},
+    ]
 
 
 async def test_rooms_paginate(
@@ -368,6 +389,16 @@ async def test_rooms_paginate(
     assert [page["items"][0]["name"] for page in found] == ["Bath", "Kitchen"]
     old = (await api.get("alice", f"/v1/studies/{seeded.study_id}/rooms?revision=1")).json()
     assert [r["name"] for r in old["items"]] == ["Old"] and old["items"][0]["photos"] == []
+    # Every page carries the same unplaced list; at revision 1 no photo had a room or an
+    # answer yet, so all five are unplaced and none analyzed (the appraisal is not a photo).
+    assert [page["unplaced"] for page in found] == [found[0]["unplaced"]] * len(found)
+    assert [(p["filename"], p["analyzed"]) for p in old["unplaced"]] == [
+        ("Bath.jpg", False),
+        ("Kitchen photo 1.jpg", False),
+        ("Kitchen photo 2.jpg", False),
+        ("Shed.jpg", False),
+        ("Yard.jpg", False),
+    ]
 
 
 # --------------------------------------------------------------------------- assets
@@ -468,7 +499,10 @@ async def test_a_study_with_no_outputs_has_empty_pages(api: Api) -> None:
     study = await api.create_study("alice")
     for route in ("fields", "rooms", "assets"):
         body = (await api.get("alice", f"/v1/studies/{study['id']}/{route}")).json()
-        assert body == {"revision": 1, "items": [], "next_cursor": None}
+        empty: dict[str, Any] = {"revision": 1, "items": [], "next_cursor": None}
+        if route == "rooms":
+            empty["unplaced"] = []  # no photos, so none unplaced (EVAL_REPORT 64)
+        assert body == empty
 
 
 async def test_rooms_suggest_counts_from_the_photos_and_list_added_components(

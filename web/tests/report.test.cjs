@@ -58,3 +58,10 @@ test('the profile form keeps the logo, upper-cases the state and refuses a bad o
  assert.equal(R.profileBody({name:'x',engineer_name:'y',credentials:'PE',license_state:'New York'}).problems.length,1);
  assert.equal(R.profileBody({}).problems.length,3);
 });
+
+test('signed reports distinguish changed inputs, unchanged inputs and unknown historical versions',()=>{
+ assert.equal(R.changeNotice(state()),'');
+ assert.equal(R.changeNotice(state({signature:{id:'s'},changed_since_signing:[]})),'');
+ assert.match(R.changeNotice(state({signature:{id:'s'},changed_since_signing:['firm','study']})),/firm profile and study details changed/);
+ assert.match(R.changeNotice(state({signature:{id:'s'},changed_since_signing:null})),/not recorded/);
+});

@@ -23,14 +23,26 @@
   if(study.status==='waiting_review'&&GATE_SCREEN[study.current_stage])return GATE_SCREEN[study.current_stage];
   return 'processing';
  }
- // The step bar: Upload · Appraisal · Rooms · [Components ·] Assets · Schedule.
+ // The step bar: Upload · Appraisal · Rooms · [Components ·] Assets · Results.
  function steps(study){
   const gate=componentsGate(study);
-  const labels=[['upload','Upload','processing'],['appraisal_review','Appraisal','appraisal'],['rooms_review','Rooms','rooms'],...(gate?[['components_review','Components','components']]:[]),['assets_review','Assets','assets'],['completed','Schedule','complete']];
+  const labels=[['upload','Upload','processing'],['appraisal_review','Appraisal','appraisal'],['rooms_review','Rooms','rooms'],...(gate?[['components_review','Components','components']]:[]),['assets_review','Assets','assets'],['completed','Results','complete']];
   const at=ORDER.indexOf(study.current_stage),done=study.status==='completed';
   const found=labels.findIndex(([stage])=>stage==='upload'?at<=1:ORDER.indexOf(stage)>=at);
   const index=found<0?labels.length-1:found;
   return labels.map(([,label,screen],i)=>({label,screen,state:i<index||done?'done':i===index?'active':''}));
+ }
+ // Location and workflow progress are independent: a completed step can be viewed.
+ function navigation(study,view){
+  const list=steps(study),current=list.findIndex(step=>step.state==='active');
+  const selected=view==='files'?'Upload':view==='upload'?'Upload':view==='viewer'?(componentsGate(study)?'Components':'Rooms'):view==='asset-detail'?'Assets':null;
+  return list.map((step,i)=>{
+   const isCurrent=i===current,complete=step.state==='done';
+   const status=complete?'Completed':!isCurrent?'Not started':study.status==='waiting_review'?'Needs review':['failed','stalled'].includes(study.status)?'Needs attention':study.status==='archived'?'Archived':study.current_stage==='uploading'?'Add files':'In progress';
+   const destination=i===0?(complete?'files':'processing'):isCurrent&&study.status!=='waiting_review'?'processing':step.screen;
+   const viewing=selected?step.label===selected:view==='processing'?isCurrent:step.screen===view;
+   return {...step,selected:viewing,status,destination,available:complete||isCurrent||viewing};
+  });
  }
  // The stages the progress page lists, in order.
  function timeline(study){
@@ -41,6 +53,6 @@
  function moveCorrection(photo,from,to){
   return {key:`photo_room:${photo.document_id}`,entity_type:'photo_room',entity_id:photo.document_id,before:{room_id:from?from.id:null},after:{room_id:to.id},reason:null,title:photo.filename,summary:`move to ${to.name}`,display:to.name};
  }
- const api={ORDER,GATE_SCREEN,componentsGate,editStage,editScreen,nextScreen,steps,timeline,moveCorrection};
+ const api={ORDER,GATE_SCREEN,componentsGate,editStage,editScreen,nextScreen,steps,navigation,timeline,moveCorrection};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisGates=api;
 })(typeof globalThis==='object'?globalThis:this);
