@@ -54,3 +54,34 @@ test('current signed report is ready to deliver only on matching study and revis
  const h=reportHarness({missing_for_final:[],changed_since_signing:[],signature:{id:'sig',study_id:'s1',revision:5,engineer:{name:'Engineer',credentials:'PE'},signed_at:'2026-01-01',pdf_sha256:'a'.repeat(64)}});
  assert.match(h.Live.screens.report(),/ready to deliver/);assert.equal(h.calls.length,0);
 });
+
+const signedState={missing_for_final:[],changed_since_signing:['study'],signature:{id:'sig',study_id:'s1',revision:5,engineer:{name:'Engineer',credentials:'PE'},signed_at:'2026-01-01',pdf_sha256:'a'.repeat(64)}};
+test('a signed study offers the documented recovery path: a new revision at the assets review, for engineers of a completed study only',async()=>{
+ const h=reportHarness(signedState),html=h.Live.screens.report();
+ assert.match(html,/data-live="report-new-revision"/);assert.match(html,/Start a new revision/);assert.match(html,/start a new revision: the assets review opens again/);
+ // A viewer may not; neither may anyone on an archived study; an unsigned draft has nothing to revise.
+ const viewer=reportHarness(signedState);viewer.Live.me=()=>({memberships:[{org_id:'org',role:'viewer'}]});assert.doesNotMatch(viewer.Live.screens.report(),/report-new-revision/);
+ const archived=reportHarness(signedState);archived.Live.state.study.status='archived';assert.doesNotMatch(archived.Live.screens.report(),/report-new-revision/);
+ assert.doesNotMatch(reportHarness().Live.screens.report(),/report-new-revision/);
+ // The action reads the plan first (dry run), shows it, and only the confirmation reopens.
+ const opened=[];h.Live.guarded=(n,fn)=>fn();h.Live.invalidate=()=>{};h.Live.reloadStudy=async()=>{};h.Live.go=(...a)=>opened.push(a);
+ h.Live.api.request=(...args)=>{h.calls.push(args);return Promise.resolve(args[2]?.body?.dry_run?{stage:'assets_review',from_revision:5,revision:6,recomputed:['exporting'],reviews:['assets_review'],carried:['assets']}:{revision:6,stage:'assets_review'})};
+ let confirm=null,modalHtml='';h.context.modal=(title,body)=>{modalHtml=title+body;return {querySelector:()=>({set onclick(fn){confirm=fn}}),remove(){}}};h.context.closeBtn='';h.context.toast=()=>{};
+ await h.Live.actions['report-new-revision']();
+ assert.deepEqual(JSON.parse(JSON.stringify(h.calls)),[['POST','/v1/studies/s1/reopen',{body:{stage:'assets_review',dry_run:true}}]]);
+ assert.match(modalHtml,/Revision 6 opens at the assets review with the assets of revision 5/);assert.match(modalHtml,/signed report of revision 5 is kept/);
+ assert.equal(opened.length,0);
+ await confirm();
+ assert.deepEqual(JSON.parse(JSON.stringify(h.calls[1])),['POST','/v1/studies/s1/reopen',{body:{stage:'assets_review'}}]);assert.deepEqual(JSON.parse(JSON.stringify(opened)),[['processing','s1']]);
+});
+test('earlier signed revisions are listed with their own PDF download, by revision number',()=>{
+ const h=reportHarness({missing_for_final:['signature'],signature:null});
+ const base=h.Live.load;h.Live.load=key=>key.startsWith('revisions:')?{done:true,data:{items:[{revision:5,current:true,signature:null},{revision:4,current:false,signature:{id:'old',signed_by:'u',signed_at:'2026-01-01'}},{revision:3,current:false,signature:null}]}}:base(key);
+ const html=h.Live.screens.report();
+ assert.match(html,/Earlier signed reports/);assert.match(html,/data-live="report-download-revision" data-value="4"/);assert.doesNotMatch(html,/data-value="3"/);assert.doesNotMatch(html,/data-value="5"/);
+ assert.equal(typeof h.Live.actions['report-download-revision'],'function');
+ // Revision 1 asks nothing; a failed history says so without hiding the report.
+ const first=reportHarness();first.Live.state.study.revision=1;assert.doesNotMatch(first.Live.screens.report(),/Earlier signed reports|Loading earlier/);
+ const failed=reportHarness();failed.Live.load=key=>key.startsWith('revisions:')?{done:true,error:Error('offline')}:base(key);failed.Live.errorText=e=>e.message;
+ assert.match(failed.Live.screens.report(),/Earlier revisions could not be loaded/);assert.match(failed.Live.screens.report(),/Client report/);
+});

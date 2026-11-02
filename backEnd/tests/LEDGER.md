@@ -496,3 +496,19 @@ study writes or signing occurred.
 
 Full frontend suite: 296/296 pass. Desktop final card/dialog and 390px synthetic
 mobile card/dialog inspected; zero page overflow and 44px minimum controls.
+
+
+## Report & sign verified end to end (2026-11-01; EVAL_REPORT 72)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `tests/api/test_report_signing.py` | Added: a retried or double-submitted signing under one `Idempotency-Key` (in flight 409, replay 201 `Idempotent-Replayed`, other body 422, fresh key 409 BASIS-REPORT-009; one row, PDF and event); firm isolation on state, preview, files and sign (404), a viewer reads and cannot sign (403); an archived study keeps and serves its signed report, an archived unsigned one cannot be previewed or signed (409 BASIS-REPORT-007) nor have its answers changed (409 BASIS-STUDY-004); the new-revision path (revision 2 exported: its state, signing revision 1 refused, the draft by default and revision 1's signed PDF by number, revision 2 signed on its own, both files kept, the history) | 13 passed, `integration` |
+| `tests/unit/evals/test_appraisal_normalize.py` | The display mirror reads the low-confidence threshold from `web/review-organization.js` (where the primary frontend keeps it) as `.7` or `0.7` | 190 passed |
+| `web/tests/primary-frontend.test.cjs` | "Start a new revision" for engineers and owners of a completed signed study only (not viewers, not archived, not unsigned); dry run read first, reopen only on confirmation, then the progress page; earlier signed revisions listed by number with their own download, the current and unsigned ones left out, a failed history reported without hiding the report | 8 tests pass |
+| `web/tests/errors.test.cjs` | The API client marks a refusal the caller named as expected; the observe payload carries `expected` | pass |
+| `web/tests/study-overview.test.cjs` | The retry test runs again on the merged tree (`apiRefusal` tolerates a harness without `ApiError`) | pass |
+
+Full web suite: 321/321. Browser evidence (owner and viewer accounts, desktop, 320 and 390 CSS
+px, keyboard order) and the backend round trips (signature rows, events, files, served sha256)
+are in EVAL_REPORT 72; the stack was isolated (own Postgres, Temporal, storage directory,
+offline providers), no client data, no paid call, no production write.

@@ -9158,3 +9158,159 @@ synthetic fixture measured page width 390, zero overflow, minimum control height
 44 px and zero broken logos; the final card and dialog were visually inspected.
 No report signing, provider calls, backend changes or deployment occurred.
 The separate verification prompt requests isolated end-to-end backend testing.
+
+
+## 72. Report & sign verified end to end: the live stack, the recovery path, the gaps (2026-11-01)
+
+**Question.** Does "Study completed" hold only when every review is approved *and* the current
+revision's report is exported, signed for this study and revision, lacks no required input and
+has no change since signing (sections 70 and 71 made that the rule in the web app); and does the
+whole step work against the real API, worker and storage, including after the inputs change
+following a signature?
+
+**Standard.** DocuSign's guidance separates "a recipient signed" from "the envelope is
+completed" and reads completion from the authoritative envelope status, never from the client
+action (https://www.docusign.com/blog/developers/dsdev-has-my-envelope-been-signed). ESIGN/UETA
+elements and what the Basis signature is and is not: STUDY_REPORT_SPEC 11.13. The append-only
+revision model (git revert, Wikipedia undo): REVISIONS.md section 1. The web app's completion
+rule reads `GET .../report/state` (REPORT.md "Signing", "After signing") and nothing else.
+
+**Setup (all isolated, nothing shared with the `basis-web` stack or any client file).** The
+tree is main ac24943 with PR #122, the Codex `codex/frontend-primary` working tree (committed
+verbatim, its sections renumbered 67-71 because #123 is 65 and #124 is 66), PR #123 and
+PR #124 merged. A fresh Postgres (`pgvector/pgvector:pg16`, container `report-sign-pg`,
+port 55434, migrated to 0028), a Temporal dev server on 7434, the API on 8400
+(`BASIS_ENV=dev`, `TMPDIR` under the session scratchpad so `LOCAL_STORAGE_DIR` is its own),
+the outbox relay, a worker on the API's task queue built from the lifecycle suite's offline
+providers (`FixtureVisionProvider`, `FixtureAzureDi`, the scripted classifier, the published
+test reference corpus: no provider key in the process, no paid call possible), the web app
+from this worktree on 3400, and the Firebase Auth emulator already running on 9099 (two new
+accounts, `report-sign-owner` and `report-sign-viewer`, in the demo project). Studies are the
+lifecycle suite's synthetic study (the synthetic URAR appraisal, three fixture photos), started
+and approved through the real API and relay. One synthetic 2025 historical cost index row was
+entered with the refresh CLI (`source manual`, citation says it is synthetic); the first study
+(purchase price 650,000) withheld its allocation at reconciliation (+36.8 % against RCNLD,
+outside 10 %) and its export skipped the report (`BASIS-REPORT-002`), which became the
+"skipped" case below; the study used for signing was priced at 445,000 (gap 0.3 %) and
+exported a report (11 pages, DRAFT watermark, Exhibits A-C).
+
+### 72.1 The step, end to end, in the browser against the real API
+
+Owner account, desktop viewport, every screen read after each action (banner, step bar,
+progress count, badge, console, network):
+
+| Step | Observed | Backend check |
+|---|---|---|
+| Study completed by the workflow, no inputs | banner "Report details needed", step 7 "Needs details", progress "6 of 7 complete"; Home counts it under "Reviews approved", never "completed" | `report/state`: exported, `missing_for_final` firm, study, signature |
+| Firm profile saved (modal, If-Match) | checklist ticks, toast; banner unchanged | `PUT /orgs/{id}/profile` 200, version 1 |
+| Study details saved | banner "Awaiting signature", step "Needs signature", Sign disabled with the reason "Open the preview first" | `PUT .../report-answers` 200, version 1 |
+| Open the preview | PDF modal, 11 pages, DRAFT, letterhead and taxpayer from the saved inputs; Sign enabled | `GET .../report/preview` 200, `ETag` exposed through CORS and kept as `reviewed_sha256` |
+| Sign without the attestation box | refused in the client: "Check the box…", no request | no `POST .../sign` |
+| An answer changed from another client, then Sign | 412 handled: toast "The report changed since you opened the preview…", page refreshed, Sign disabled again | `BASIS-REPORT-010`, 0 signatures, 0 events, 0 files |
+| Preview again, Sign; the modal's Sign button clicked three times at once | one request (`Live.guarded`), toast "Report signed", banner "Study completed · Revision 1 is approved and signed…", step 7 "Signed", badge Signed, signature block with id and PDF sha256, downloads Signed report (PDF), Schedule (CSV, XLSX) | one `report_signatures` row (versions 1/2), one `report.signed` event with the same id and `pdf_sha256`, one `rev-1.report.signed.<id>.pdf` in storage, `GET .../report` serves it with `ETag` = sha256 of the bytes = the row's `pdf_sha256` and the name `…-rev-1-report-signed.pdf`; `variant=draft` is a different file |
+| Reload; direct link `#report/<id>`; `#complete`, `#processing` ("7 of 7 complete"), `#appraisal`, `#assets`, `#components` (each "Read-only review"); back, back, forward | "Study completed" on every screen, the right step selected each time | `report/state` re-read on every screen entry (cache key study:revision) |
+| Switch to the skipped study and back | "Report not ready · Blocked · No report" there, "Study completed" here; the cache holds one entry per study and revision, the preview tag is per study and revision | |
+| Viewer account on the signed study | "Study completed", downloads only: no Sign, no Edit, no new-revision control | `report/state` 200, `POST .../sign` 403 |
+| An unknown study id | the API's 404 problem, no banner, no "completed" anywhere | `BASIS-STUDY-017` |
+| Another firm's account (its own firm, no membership) | | `state`, `preview`, `report`, `sign`: all 404 `BASIS-STUDY-017` |
+| 320 px and 390 px | no horizontal scroll (`scrollWidth` = viewport), every report and step control at least 44 px high, the checklist rows wrap, the step bar scrolls; the sidebar rail stays (FRONTEND_BACKLOG 9) | |
+| Keyboard | tab order: status banner action, the seven steps, Edit firm profile, Edit study details, the three downloads, Start a new revision, the earlier revision's PDF; `:focus-visible` outlines on buttons, links and the step bar | |
+
+Client-error capture (PR #123) during the walkthrough: the 412 was recorded as one `api`
+warning with the code and route; two more warnings were the firm profile's expected 404
+before the owner saved it (fixed, 72.3).
+
+### 72.2 The recovery path after a signature, exercised live
+
+After signing, the study details were edited in the app: banner "Report needs updating ·
+Details changed after signing. The previous signed PDF is preserved; an updated revision must
+be reviewed and signed before delivery", step "Update required", badge "Signed earlier",
+`changed_since_signing` `["study"]`. **There was no way to make that revision in the app**: a
+dead end (the wording was right, the action missing). The documented path is a reopen at the
+assets review (REVISIONS.md section 2: the approved assets carried, only the export reruns, the
+new report carries the stored inputs). Added to the step, for engineers and owners of a
+`completed` study with a signature: "Start a new revision" reads the plan (`POST .../reopen`
+with `dry_run`), shows it ("Revision 2 opens at the assets review with the assets of revision 1
+as they were approved… The signed report of revision 1 is kept"), and on confirmation reopens.
+
+Live: 202, the progress page followed the new execution ("Assets review is ready", "4 of 7
+complete", revision 2; timeline `stage.entered`, `study.reopened`, `run.started`,
+`revision.carried` with 18 assets, 10 components, 2 rooms, `gate.opened`), the assets review
+showed the 18 carried assets ($410,483) and was approved in the app (decision through the
+relay), the export ran (the Results page landed on does not poll: FRONTEND_BACKLOG 9), and
+Report & sign read revision 2: "Awaiting signature", badge Draft, Sign disabled until the
+preview, and a new section "Earlier signed reports · Revision 1 · signed Nov 1, 8:50 PM" with
+its own download (`GET .../report?format=pdf&revision=1`, from `GET .../revisions`). Preview
+and sign: "Study completed · Revision 2 is approved and signed…".
+
+| | revision 1 | revision 2 |
+|---|---|---|
+| `report_signatures` row | sha256 `6f4f64c6…`, versions 1 / 2 | sha256 `234b8bba…`, versions 1 / 3 |
+| `report.signed` event | 1, same sha256 | 1, same sha256 |
+| signed file in storage | 1 | 1 |
+| `GET .../report?revision=n` | `…-rev-1-report-signed.pdf`, bytes identical to the download taken before the reopen | `…-rev-2-report-signed.pdf` (the default) |
+| `GET .../revisions` | origin start, exported, signed, not current | origin reopen, exported, signed, current |
+
+### 72.3 Defects found and fixed (each with a test)
+
+1. **Dead end after a changed signature** (72.2): the Report & sign step now offers the new
+   revision and lists earlier signed PDFs (`web/live/live-report.js`; `web/tests/
+   primary-frontend.test.cjs`: the control appears for engineers and owners of a completed
+   signed study only, the dry run is read first and the reopen happens only on confirmation,
+   earlier signed revisions are listed by number with the current one and unsigned ones left
+   out, a failed history says so without hiding the report). REPORT.md "After signing" names
+   the path.
+2. **A refusal the client expects was a client error**: the firm profile's 404 before the
+   owner saves it was captured as a warning on every load of the step (two records in the
+   walkthrough). `api.request(path, {expect: [404]})` marks it; the capture keeps the
+   breadcrumb and files no event (`web/live/api-client.js`, `web/live/errors.js`;
+   `web/tests/errors.test.cjs`).
+3. **The merged tree threw on any failed action in a harness**: `guarded` and `load` tested
+   `e instanceof BasisApi.ApiError`, and the Codex test harness and the synthetic fixture stub
+   `BasisApi` without it (`TypeError: Right-hand side of 'instanceof' is not an object`, one web
+   test failing after the merge). `apiRefusal()` checks the class exists first
+   (`web/live/live-app.js`).
+4. **A backend unit test mirrored a line the primary frontend moved**:
+   `test_review_display_mirrors_live_review_js` looked for `f.confidence<0.7` in
+   `live-review.js`; the rule lives in `web/review-organization.js` as `.7` now. The test reads
+   both files and both spellings.
+5. **The developer page had no way to the client-errors page**: nav link and the "Recent
+   errors" section now point at `client-errors.html` (PR #123's page); both surfaces kept.
+
+### 72.4 Backend round trips added (`tests/api/test_report_signing.py`, 13 tests in all)
+
+* A retried or double-submitted signing: the same `Idempotency-Key` while the first request
+  holds the study's row lock is 409 `idempotency-key-in-flight` at once; after it completes the
+  key replays the 201 with `Idempotent-Replayed: true` and the same signature id; the same key
+  with another body is 422; a fresh key is 409 `BASIS-REPORT-009`. One row, one PDF, one event.
+* Firm isolation on every report route (404 for another firm's member on state, preview,
+  files and sign; a viewer reads all three and gets 403 on sign).
+* An archived study keeps and serves its signed report and state; an archived unsigned study
+  cannot be previewed or signed (409 `BASIS-REPORT-007`) and its answers cannot change (409
+  `BASIS-STUDY-004`).
+* The new-revision path at the API level: the study at revision 2 with its export (the rows a
+  reopen leaves), state is revision 2's (unsigned, `changed_since_signing` null), signing
+  revision 1 is 409 `BASIS-REPORT-007`, `GET .../report` serves revision 2's draft by default and
+  revision 1's signed PDF by number, revision 2 is signed on its own preview, both signed files
+  then serve with their own sha256, the history lists both.
+
+### 72.5 What this does not prove
+
+* The live walkthrough used the lifecycle suite's offline providers and a synthetic index value
+  (330.0 for 2025, labelled synthetic): the report's figures are not a study's, and the
+  workflow's model steps were not exercised here (sections 6-50 did that).
+* Sign-in token expiry (401 mid-session) and a request timeout were not simulated in the
+  browser; the client's handlers (toast on 401, "Completion not verified" with retry on any
+  failed state read) are covered by the node tests and the synthetic fixture
+  (`web/tests/fixtures/report-completion.html`: unsigned, signed, changed, untracked, offline).
+* The reopen's concurrency rule (two reopens, reopen while running) is #117's evidence
+  (section 61); this section drove one reopen through the app.
+* The Results page does not poll, so after the assets approval the engineer sees the export
+  finish only on the next screen (FRONTEND_BACKLOG 9).
+
+**Measured.** Web: 321 node tests pass (296 before; the 25 added are this section's and the
+merged branches'). Backend: `tests/api/test_report_signing.py` 13 passed; unit suite and the
+integration/slow suite in the PR body; every static gate green (`ruff`, `ruff format`, `mypy`,
+the catalogue, the OpenAPI document, the rule fingerprints, the client-data guard: 1,634 files).
+Screenshots stay in the session (synthetic data only); the numbers above are from the API and
+the database of the isolated stack.

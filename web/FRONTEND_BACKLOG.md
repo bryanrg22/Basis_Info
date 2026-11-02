@@ -130,6 +130,21 @@ Plain bugs an engineer would hit on the first day, in the order they bite:
 - **Schedule table**: unpriced assets print "0.0000 SF  $0.00" on some rows and "—" on
   others; one presentation for "not priced".
 
+## 9. Found by the Report & sign verification (EVAL_REPORT 72)
+
+- **The results page does not follow the export**: approving the assets review sends the
+  engineer to Results, which does not poll (only the progress page does), so the step stays
+  "In progress" and the report step "Not started" until they open another screen. Poll
+  `GET .../workflow` on Results while the study is `processing`, or send the approval to the
+  progress page as the other gates do.
+- ~~No way to make the new revision a changed signed report needs~~: fixed with EVAL_REPORT 72
+  (Report & sign offers "Start a new revision", `POST .../reopen` at the assets review, and
+  lists every earlier revision's signed PDF).
+- ~~The firm profile's expected 404 before the owner saves it was recorded as a client error on
+  every Report & sign load~~: fixed with EVAL_REPORT 72 (`api.request(..., {expect:[404]})`).
+- **Rail on narrow screens**: the sidebar rail stays at 320 px and takes a fifth of the width
+  (Codex noted it in EVAL_REPORT 67); the report step itself fits with no horizontal scroll.
+
 ## Testing
 
 No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper

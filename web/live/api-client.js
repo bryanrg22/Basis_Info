@@ -37,13 +37,13 @@
    for(const [k,v] of Object.entries(query||{}))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,String(v));
    return u.toString();
   }
-  async function request(method,path,{query,body,key,raw=false,signal,headers:extra}={}){
+  async function request(method,path,{query,body,key,raw=false,signal,headers:extra,expect=[]}={}){
    const headers={Accept:'application/json, application/problem+json',...extra},token=getToken?await getToken():null;
    if(token)headers.Authorization=`Bearer ${token}`;
    let attempt=1;
    if(method==='POST'||method==='DELETE'){const k=key||newKey();headers['Idempotency-Key']=k;attempt=(attempts.get(k)||0)+1;attempts.set(k,attempt);if(attempts.size>500)attempts.delete(attempts.keys().next().value)}
    if(body!==undefined)headers['Content-Type']='application/json';
-   const started=now(),seen=(status,error)=>notify({method,path:path+(query?'?'+Object.keys(query).filter(k=>query[k]!==undefined&&query[k]!==null&&query[k]!=='').join('&'):''),status,durationMs:now()-started,requestId:error?.requestId||response?.headers?.get?.('x-request-id')||null,code:error?.code||null,problemType:error?.type||null,title:error?.title||null,detail:error?.detail||null,attempt,retry:attempt>1,body,aborted:error?.name==='AbortError',stack:error?.stack||null});
+   const started=now(),seen=(status,error)=>notify({method,path:path+(query?'?'+Object.keys(query).filter(k=>query[k]!==undefined&&query[k]!==null&&query[k]!=='').join('&'):''),status,durationMs:now()-started,requestId:error?.requestId||response?.headers?.get?.('x-request-id')||null,expected:expect.includes(status),code:error?.code||null,problemType:error?.type||null,title:error?.title||null,detail:error?.detail||null,attempt,retry:attempt>1,body,aborted:error?.name==='AbortError',stack:error?.stack||null});
    let response;
    try{response=await fetchImpl(url(path,query),{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal})}
    catch(error){if(error?.name==='AbortError'){seen(0,error);throw error}const failure=new ApiError(0,{title:'Network error',detail:'The Basis API could not be reached. Check that it is running and that this page’s origin is allowed (CORS_ALLOWED_ORIGINS).'});seen(0,failure);throw failure}

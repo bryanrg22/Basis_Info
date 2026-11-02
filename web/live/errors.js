@@ -204,7 +204,8 @@
    const route=redactPath(info.path),http={method:info.method||null,route,status:Number.isFinite(info.status)?info.status:0,code:info.code||null,request_id:info.requestId||null,problem_type:info.problemType?cut(info.problemType,LIMITS.short):null,problem_title:info.title?cut(info.title,LIMITS.short):null,problem_detail:info.detail?redactText(info.detail):null,latency_ms:Number.isFinite(info.durationMs)?Math.max(0,Math.round(info.durationMs)):null,attempt:info.attempt||1,retry:Boolean(info.retry),body_fields:safeKeys(info.body)};
    breadcrumb('api',`${http.method} ${route} → ${http.status}`,{status:http.status,request_id:http.request_id,code:http.code,latency_ms:http.latency_ms,attempt:http.attempt});
    if(http.status>=200&&http.status<400)return;
-   if(info.aborted)return;
+   // A refusal the caller named as expected (a 404 for a profile not saved yet) is handled, not an error.
+   if(info.aborted||info.expected)return;
    const title=http.status===0?'The API could not be reached':`${http.method} ${route} failed with ${http.status}`;
    capture('api',{level:http.status>=500||http.status===0?'error':'warning',message:cut(`${title}${http.code?` (${http.code})`:''}${http.problem_detail?`: ${http.problem_detail}`:''}`,LIMITS.message),error_type:http.status===0?'NetworkError':'ApiError',stack:info.stack?redactText(info.stack,LIMITS.stack):null,http});
   }

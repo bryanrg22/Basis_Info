@@ -98,6 +98,12 @@
 .live-report-why{margin-top:8px}
 .live-report-signature{margin:0 0 14px;padding:10px 12px;border-left:3px solid var(--forest);background:var(--wash,#f3f5f2);border-radius:6px}
 .live-report-signature p{margin:4px 0 0}
+.live-report-revise{margin-top:14px;padding-top:12px;border-top:1px solid var(--line,#e3e8e3)}
+.live-report-revise p{margin:0 0 8px}
+.live-report-earlier{margin-top:14px;padding-top:12px;border-top:1px solid var(--line,#e3e8e3)}
+.live-report-earlier h3{margin:0 0 4px;font-size:15px}
+.live-report-earlier ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.live-report-earlier li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .live-report-cert{margin-top:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px}
 .live-report-cert ul{margin:6px 0 0;padding-left:18px;display:grid;gap:4px}
 .live-report-radios{border:0;padding:0;margin:12px 0 0}

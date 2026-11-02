@@ -134,8 +134,12 @@ test('the API client reports every request to observe with the attempt under its
  await api.createStudy({property_name:'P'},'key-1').catch(()=>{});
  await api.getStudy('s1').catch(()=>{});
  assert.equal(seen.length,3);
- assert.deepEqual({...seen[0],body:undefined,stack:undefined},{method:'POST',path:'/v1/studies',status:201,durationMs:0,requestId:'rid-1',code:null,problemType:null,title:null,detail:null,attempt:1,retry:false,body:undefined,aborted:false,stack:undefined});
+ assert.deepEqual({...seen[0],body:undefined,stack:undefined},{method:'POST',path:'/v1/studies',status:201,durationMs:0,requestId:'rid-1',code:null,problemType:null,title:null,detail:null,attempt:1,retry:false,body:undefined,aborted:false,stack:undefined,expected:false});
  assert.deepEqual(seen[0].body,{property_name:'P'});
+ // A refusal the caller named as expected is still observed, marked, so the capture keeps it a breadcrumb.
+ const quiet=[];const tolerant=createClient({baseUrl:'http://api.test',fetchImpl:async()=>({ok:false,status:404,headers:{get:()=>null},text:async()=>'{}'}),observe:i=>quiet.push(i)});
+ await tolerant.request('GET','/v1/orgs/o/profile',{expect:[404]}).catch(()=>{});
+ assert.equal(quiet[0].status,404);assert.equal(quiet[0].expected,true);
  assert.equal(seen[1].attempt,2);assert.equal(seen[1].retry,true);assert.equal(seen[1].status,422);assert.equal(seen[1].code,'BASIS-API-013');assert.equal(seen[1].requestId,'rid-2');
  assert.equal(seen[2].attempt,1);assert.equal(seen[2].status,201);
  assert.ok(!JSON.stringify(seen).includes('tok'));

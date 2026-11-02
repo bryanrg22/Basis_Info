@@ -24,6 +24,8 @@
  // Every call is a breadcrumb and every failure an event in the error capture (live/errors.js).
  const api=BasisApi.createClient({baseUrl:C.apiBase,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')},observe:info=>globalThis.BasisErrors?.apiCall(info)});
  const reportError=(err,context)=>{try{globalThis.BasisErrors?.report(err,context)}catch{}};
+ // An API refusal the client already recorded (test and fixture harnesses stub BasisApi without ApiError).
+ const apiRefusal=e=>typeof BasisApi.ApiError==='function'&&e instanceof BasisApi.ApiError;
  const Live=globalThis.BasisLive={config:C,api,state:L,screens:{}};
  const STAGE={uploading:'Waiting for documents',extracting:'Extracting the appraisal and analyzing photos',appraisal_review:'Appraisal review',rooms_review:'Rooms review',components_processing:'Preparing components',components_review:'Components review',assets_processing:'Preparing asset costs',assets_review:'Assets review',exporting:'Preparing results',completed:'Reviews approved'};
  const STATUS={draft:'Draft',processing:'Processing',waiting_review:'Ready for review',stalled:'Needs attention',completed:'Reviews approved',archived:'Archived',failed:'Failed'};
@@ -46,7 +48,7 @@
  function load(key,loader,{force=false}={}){
   const hit=L.cache.get(key);if(hit&&!force)return hit;
   const entry={promise:null,data:undefined,error:null,done:false};L.cache.set(key,entry);
-  entry.promise=loader().then(d=>{entry.data=d;entry.done=true;render();return d},e=>{entry.error=e;entry.done=true;if(!(e instanceof BasisApi.ApiError))reportError(e,{load:key});render();throw e});
+  entry.promise=loader().then(d=>{entry.data=d;entry.done=true;render();return d},e=>{entry.error=e;entry.done=true;if(!apiRefusal(e))reportError(e,{load:key});render();throw e});
   entry.promise.catch(()=>{});return entry;
  }
  Live.load=load;
@@ -385,7 +387,7 @@
  Live.actions={};
  // A failed action is shown to the user and, unless it was an API refusal the client already
  // recorded, reported with the action's name.
- async function guarded(name,fn){if(L.busy.has(name))return;L.busy.add(name);try{await fn()}catch(e){toast(Live.errorText(e));if(!(e instanceof BasisApi.ApiError))reportError(e,{action:name})}finally{L.busy.delete(name)}}
+ async function guarded(name,fn){if(L.busy.has(name))return;L.busy.add(name);try{await fn()}catch(e){toast(Live.errorText(e));if(!apiRefusal(e))reportError(e,{action:name})}finally{L.busy.delete(name)}}
  Live.guarded=guarded;
  root.addEventListener('click',e=>{
   const el=e.target.closest('[data-live]');if(el){e.preventDefault();e.stopImmediatePropagation();act(el.dataset.live,el);return}
