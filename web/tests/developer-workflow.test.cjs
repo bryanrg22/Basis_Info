@@ -120,7 +120,10 @@ test('results are filed under the part of the step they measured, and a part wit
  const html=fresh().render(node('extract'),services(),H);
  const parts=html.split('class="part-results"').length-1;
  assert.equal(parts,3);
- assert.ok(html.includes('No comparison table: the presence rules'));
+ assert.ok(html.includes('Not a comparison. The rules for which fields must be present'));
+ assert.ok(html.includes('Not compared yet. The PDF readers'));
+ assert.ok(html.includes('Does the code that runs today read an appraisal as well as the best method from the model test?'));
+ assert.ok(!html.includes("sweep's"));
  assert.ok(!html.includes('No comparison has been measured for this part yet.'));
 });
 test('a setup without a model says so, and row text is escaped',()=>{
