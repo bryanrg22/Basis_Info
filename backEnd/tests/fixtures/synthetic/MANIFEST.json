@@ -60,8 +60,8 @@
     },
     {
       "path": "cost_table.json",
-      "sha256": "2bbd6979f6d3954fa177914caf32348685ef04a35c0578d30c59c2917aa53241",
-      "bytes": 2626
+      "sha256": "3c0372974358783409ab26b72486bb1624403c84eeaed4ece10dad7d4628ce44",
+      "bytes": 2610
     },
     {
       "path": "malformed/README.md",
@@ -137,6 +137,11 @@
       "path": "photos/labels.json",
       "sha256": "ae25fc47e61ceb2e47182532cf77604dffb90cd3c3ea022bfc678d9b858f1cb1",
       "bytes": 3311
+    },
+    {
+      "path": "suite_cost_table.json",
+      "sha256": "1bdb00400929e454db8ec8881712aea4893a366d7eb491c79e164c4cabcab886",
+      "bytes": 2375
     },
     {
       "path": "urar_sample.expected.json",

@@ -40,6 +40,15 @@ os.environ.setdefault("EXTRACTION_FALLBACK_SCOPE", "critical")
 # section 33.5, the production default) has its own unit and activity tests and runs in
 # test_production_defaults.py.
 os.environ.setdefault("EXTRACTION_METHOD", "pipeline")
+# And assets price from a synthetic cost table: the product has no built-in prices since
+# EVAL_REPORT 78 (the six legacy placeholder rows were removed), so a study priced with no
+# table is unpriced and withheld. The suite's table carries the six labels at the values the
+# removed rows had, so the suite's arithmetic is unchanged; tests of the no-table path set
+# COST_TABLE_PATH to nothing themselves, and tests/unit/config removes this baseline.
+os.environ.setdefault(
+    "COST_TABLE_PATH",
+    os.path.join(os.path.dirname(__file__), "fixtures", "synthetic", "suite_cost_table.json"),
+)
 
 from basis.config import Settings, get_settings, reset_settings  # noqa: E402
 from basis.obs.logging import clear_context  # noqa: E402

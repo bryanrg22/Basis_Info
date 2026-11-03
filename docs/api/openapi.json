@@ -15805,12 +15805,12 @@
           "table": {
             "type": "string",
             "title": "Table",
-            "description": "The cost table: `TYPICAL_UNIT_COSTS` (the legacy placeholder rows) or the configured table's name."
+            "description": "The configured cost table's name (`COST_TABLE_PATH`); the legacy placeholder rows were removed (EVAL_REPORT 78)."
           },
           "row": {
             "type": "string",
             "title": "Row",
-            "description": "The row: the legacy component key or the table's label."
+            "description": "The table row's label."
           },
           "tier": {
             "anyOf": [
@@ -15822,7 +15822,7 @@
               }
             ],
             "title": "Tier",
-            "description": "The legacy row's tier; null for a table row."
+            "description": "Always null (the legacy tiers were removed)."
           },
           "source": {
             "anyOf": [

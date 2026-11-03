@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from costtest_support import SUITE_TABLE
 from fixtures import fixture_path
 
 from basis.db.enums import Bucket
@@ -76,15 +77,20 @@ def test_a_label_is_priced_from_the_table_in_its_unit() -> None:
     assert top.base_unit_cost == Decimal("14.00") and "x0.5 from per L.F." in top.source_row
 
 
-def test_the_legacy_rows_win_and_unknown_labels_stay_missing() -> None:
+def test_the_table_prices_every_label_and_unknown_labels_stay_missing() -> None:
+    """EVAL_REPORT 78: no built-in row wins over the table (the legacy placeholder rows priced
+    light fixtures ahead of it); a label the table lacks, or no table at all, is missing."""
     table = load_cost_table(PATH)
     fixture = estimate_quantity("light_fixture", 100, 2)
-    legacy = estimate_cost(fixture, 2020, "1", table=table, label="light_fixture")
-    assert legacy.source_row.startswith("TYPICAL_UNIT_COSTS[light_fixture]")
+    from_table = estimate_cost(fixture, 2020, "1", table=table, label="light_fixture")
+    assert from_table.source_row.startswith("synthetic_2020[light_fixture]")
+    assert from_table.total == Decimal("4.00")  # (1 + 1 + 0) x 2
     with pytest.raises(MissingCostRow):
         estimate_cost(estimate_quantity("stairs", 100), 2020, "1", table=table, label="stairs")
-    with pytest.raises(MissingCostRow):  # no table configured: as before
+    with pytest.raises(MissingCostRow):  # no table configured
         estimate_cost(estimate_quantity("window", 100), 2020, "1", label="window")
+    with pytest.raises(MissingCostRow):  # nor for a label the legacy rows used to price
+        estimate_cost(fixture, 2020, "1", label="light_fixture")
     # An unlabelled takeoff can still match the table by its takeoff component.
     by_component = estimate_cost(estimate_quantity("window", 100), 2020, "1", table=table)
     assert by_component.total == Decimal("230.00")
@@ -177,15 +183,15 @@ def test_a_row_without_the_column_is_converted_by_the_books_markups() -> None:
     assert INSTALLED_SOURCE in window.source_row and "labor x1.72" in window.source_row
 
 
-def test_the_legacy_rows_are_converted_on_the_installed_basis() -> None:
+def test_a_row_without_total_incl_op_is_converted_on_the_installed_basis() -> None:
     fixture = estimate_quantity("light_fixture", 100, 2)
-    installed = _estimate_cost(fixture, 2020, "1")
-    # standard light fixture 85 + 35 + 5: 85 x 1.10 + 35 x 1.72 + 5 x 1.10 = 159.20
+    installed = _estimate_cost(fixture, 2020, "1", table=SUITE_TABLE)
+    # suite light fixture 85 + 35 + 5: 85 x 1.10 + 35 x 1.72 + 5 x 1.10 = 159.20
     assert installed.base_unit_cost == Decimal("159.20")
     assert installed.total == Decimal("318.40")
-    assert installed.source_row.startswith("TYPICAL_UNIT_COSTS[light_fixture]")
+    assert installed.source_row.startswith("synthetic_suite[light_fixture]")
     assert "installed: material x1.10" in installed.source_row
-    assert estimate_cost(fixture, 2020, "1").base_unit_cost == Decimal("125.00")
+    assert estimate_cost(fixture, 2020, "1", table=SUITE_TABLE).base_unit_cost == Decimal("125.00")
 
 
 def test_installed_cost_is_the_square_foot_sections_markups() -> None:

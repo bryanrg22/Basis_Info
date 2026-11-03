@@ -253,11 +253,11 @@ class CostTrailBaseOut(ResponseModel):
     )
     unit: str = Field(description="The takeoff unit the base is per.")
     table: str = Field(
-        description="The cost table: `TYPICAL_UNIT_COSTS` (the legacy placeholder rows) or "
-        "the configured table's name."
+        description="The configured cost table's name (`COST_TABLE_PATH`); the legacy "
+        "placeholder rows were removed (EVAL_REPORT 78)."
     )
-    row: str = Field(description="The row: the legacy component key or the table's label.")
-    tier: str | None = Field(description="The legacy row's tier; null for a table row.")
+    row: str = Field(description="The table row's label.")
+    tier: str | None = Field(description="Always null (the legacy tiers were removed).")
     source: str | None = Field(
         description="The row's printed source (book, line, page) as the table records it; "
         "null for a legacy placeholder row, which has none."

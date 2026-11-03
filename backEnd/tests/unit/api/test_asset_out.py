@@ -12,12 +12,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from costtest_support import priced as estimate_cost
+
 from basis.api.routes.outputs import asset_out
 from basis.db.enums import Bucket, ClassificationMethod
 from basis.db.models import Asset, CostEstimate, Takeoff
 from basis.db.repositories.outputs import AssetRow
 from basis.domain.cost_trail import TrailContext, json_safe, priced_trail, quantity_block
-from basis.domain.costs import estimate_cost
 from basis.domain.measurements import resolve_cost_index
 from basis.domain.takeoffs import Takeoff as DomainTakeoff
 
@@ -122,7 +123,7 @@ def test_a_stored_trail_is_mapped_as_recorded() -> None:
     # The JSON the route sends: the trail's own strings, `from` by its name.
     body = out.model_dump(mode="json", by_alias=True)
     sent = body["cost"]["trail"]
-    assert sent["year"]["factor"] == "0.9322" and sent["base"]["unit_cost"] == "61.20"
+    assert sent["year"]["factor"] == "0.9322" and sent["base"]["unit_cost"] == "61.2"
     assert sent["year"]["from"] == "placed in service 2018-05-01 (intake)"
     assert sent["location"]["from"].startswith("zip 12345 (intake)")
     assert sent["unit_cost"] == body["cost"]["unit_cost"]

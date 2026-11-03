@@ -84,6 +84,92 @@ def dump_json(data: Any) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
+# The suite's default cost table (tests/conftest.py sets COST_TABLE_PATH to it): since
+# EVAL_REPORT 78 the product has no built-in prices, so the six labels the removed legacy
+# placeholder rows priced are here, at the values those rows carried (invented numbers, not
+# a cost source), and the suite's arithmetic is unchanged.
+SUITE_COST_TABLE: Final[dict[str, Any]] = {
+    "schema_version": 1,
+    "name": "synthetic_suite",
+    "base_year": 2020,
+    "basis": "SYNTHETIC TEST FIXTURE: invented numbers, not a cost source",
+    "rows": {
+        "light_fixture": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 85,
+            "labor": 35,
+            "equipment": 5,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "electrical_outlet": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 15,
+            "labor": 35,
+            "equipment": 3,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "carpet": {
+            "unit": "SY",
+            "factor": 9,
+            "material": 4.5,
+            "labor": 2,
+            "equipment": 0.3,
+            "total_incl_op": None,
+            "source_unit": "SF",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "tile": {
+            "unit": "SF",
+            "factor": 1,
+            "material": 8,
+            "labor": 8,
+            "equipment": 0.75,
+            "total_incl_op": None,
+            "source_unit": "S.F.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "cabinet": {
+            "unit": "LF",
+            "factor": 1,
+            "material": 200,
+            "labor": 50,
+            "equipment": 8,
+            "total_incl_op": None,
+            "source_unit": "L.F.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "hvac_unit": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 4000,
+            "labor": 1500,
+            "equipment": 400,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+    },
+}
+
+
 # A unit-cost table in basis.domain.cost_table's schema (EVAL_REPORT section 27). Invented
 # numbers: the engineer's RSMeans table is licensed and never in the repository.
 COST_TABLE: Final[dict[str, Any]] = {
@@ -173,7 +259,7 @@ COST_TABLE: Final[dict[str, Any]] = {
             "total_incl_op": 3,
             "source_unit": "Ea.",
             "source": "synthetic 26-0001, p. 5",
-            "description": "never used: the legacy row wins",
+            "description": "a light fixture",
             "assumption": None,
         },
         "patio": {
@@ -2112,6 +2198,7 @@ def generate() -> dict[str, bytes]:
     )
     files["adversarial/README.md"] = adversarial_readme(overlay).encode("utf-8")
     files["cost_table.json"] = dump_json(COST_TABLE)
+    files["suite_cost_table.json"] = dump_json(SUITE_COST_TABLE)
 
     files["malformed/empty.pdf"] = empty_pdf()
     files["malformed/not_a_pdf.pdf"] = NOT_A_PDF

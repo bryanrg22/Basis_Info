@@ -15,11 +15,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from costtest_support import SUITE_TABLE
+from costtest_support import priced as estimate_cost
 
 from basis.api.schemas.outputs import CostTrailOut
 from basis.costs.indices.select import MANUAL_SOURCE, values_from_rows
 from basis.domain import structure as s
-from basis.domain.cost_table import parse_cost_table
+from basis.domain.cost_table import CostTable, parse_cost_table
 from basis.domain.cost_trail import (
     STRUCTURE_RESIDUAL,
     STRUCTURE_ROUNDING,
@@ -40,7 +42,6 @@ from basis.domain.costs import (
     CostBasis,
     CostEstimate,
     Markup,
-    estimate_cost,
     year_factor_index,
 )
 from basis.domain.measurements import CostIndex, measurements_from_fields, resolve_cost_index
@@ -127,6 +128,7 @@ def trail_of(
     label: str | None = None,
     basis: CostBasis = "bare",
     markup: Markup | None = None,
+    table: CostTable | None = None,
 ) -> tuple[CostEstimate, dict[str, Any]]:
     """Priced on the bare basis unless told (the numbers below are the bare rows'); the
     installed basis and the model's markup have their own tests."""
@@ -134,7 +136,7 @@ def trail_of(
         t,
         index.cost_year,
         index.location_factor,
-        table=TABLE,
+        table=table or TABLE,
         label=label,
         year_source=index.year_source,
         location_source=index.location_source,
@@ -168,17 +170,17 @@ def readable(trail: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------- the base row
 
 
-def test_a_legacy_row_in_square_yards_records_the_per_sf_row_and_the_conversion() -> None:
-    estimate, trail = trail_of(takeoff("carpet", "18.33", "SY"), setting_index())
+def test_a_row_in_square_yards_records_the_per_sf_row_and_the_conversion() -> None:
+    estimate, trail = trail_of(takeoff("carpet", "18.33", "SY"), setting_index(), table=SUITE_TABLE)
     assert (trail["version"], trail["kind"]) == (TRAIL_VERSION, UNIT_PRICE)
-    # standard carpet: 4.50 + 2.00 + 0.30 = 6.80 per SF, x9 per SY = 61.20.
+    # suite carpet: 4.50 + 2.00 + 0.30 = 6.80 per SF, x9 per SY = 61.20.
     assert trail["base"] == {
-        "unit_cost": "61.20",
+        "unit_cost": "61.2",
         "unit": "SY",
-        "table": "TYPICAL_UNIT_COSTS",
+        "table": "synthetic_suite",
         "row": "carpet",
-        "tier": "standard",
-        "source": None,
+        "tier": None,
+        "source": "SYNTHETIC suite row",
         "base_year": 2020,
         "row_unit": "SF",
         "conversion": "x9 from per SF",
@@ -545,13 +547,17 @@ def test_check_reports_a_trail_that_does_not_add_up() -> None:
 
 
 def test_the_installed_basis_and_the_model_markup_are_recorded() -> None:
-    """STRUCTURE_MODEL.md 9.3: a legacy row on the installed basis records how it got there
-    (the section's markups on material, labor, equipment), and a row inside the model the
-    general contractor's O&P spread on it; base x (1 + markup) x year x location is the
-    unit cost."""
+    """STRUCTURE_MODEL.md 9.3: a row with no Total Incl O&P on the installed basis records
+    how it got there (the section's markups on material, labor, equipment), and a row inside
+    the model the general contractor's O&P spread on it; base x (1 + markup) x year x
+    location is the unit cost."""
     markup = Markup(Decimal("0.200129"), "model item 10 over components 1-9")
     estimate, trail = trail_of(
-        takeoff("carpet", "20", "SF"), setting_index(), basis="installed", markup=markup
+        takeoff("tile", "20", "SF"),
+        setting_index(),
+        basis="installed",
+        markup=markup,
+        table=SUITE_TABLE,
     )
     base = trail["base"]
     assert (base["basis"], base["markup"]) == (
@@ -560,7 +566,7 @@ def test_the_installed_basis_and_the_model_markup_are_recorded() -> None:
     )
     assert base["basis_how"].startswith("installed: material x1.10 + labor x1.72")
     assert check(trail) == []
-    bare, bare_trail = trail_of(takeoff("carpet", "20", "SF"), setting_index())
+    bare, bare_trail = trail_of(takeoff("tile", "20", "SF"), setting_index(), table=SUITE_TABLE)
     assert bare_trail["base"]["basis"] == "bare" and bare_trail["base"]["markup"] is None
     assert Decimal(base["unit_cost"]) > Decimal(bare_trail["base"]["unit_cost"])
     assert estimate.unit_cost > bare.unit_cost
