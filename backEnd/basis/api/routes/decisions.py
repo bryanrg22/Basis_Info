@@ -72,7 +72,9 @@ from typing import Annotated, Any, Final
 from fastapi import Depends, Request, status
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.exceptions import ApplicationError
 
+from basis.activities.corrections import check_quantity
 from basis.activities.reprice_corrections import STUDY_TARGETED
 from basis.api.idempotency import IDEMPOTENCY_HEADER, parse_idempotency_key
 from basis.api.routes.common import problems, write_router
@@ -202,12 +204,24 @@ def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
             problems = ["a photo_room correction takes exactly a room_id (a room id)"]
         elif item.entity_type == "room":
             problems = room_field_problems(item.after)
+        elif item.entity_type == "asset":
+            problems = quantity_problems(item.after)
         errors += [
             _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR)
             for problem in problems
         ]
     if errors:
         raise RequestValidationError(errors)
+
+
+def quantity_problems(after: dict[str, Any]) -> list[str]:
+    """The asset correction's measured quantity (EVAL_REPORT 78) as ``process_assets`` would
+    refuse it: refused here so the rejection's other corrections are not lost with it."""
+    try:
+        check_quantity(after)
+    except ApplicationError as exc:
+        return [str(exc.message).split(" [BASIS-")[0]]
+    return []
 
 
 def _is_move(after: dict[str, Any]) -> bool:
@@ -405,7 +419,9 @@ def check_no_corrections_on_approve(decision: str, corrections: Sequence[Correct
         "its `entity_id` must exist in the study at the decided revision (a photo or "
         "photo_room: a photo document of the study; a room_component: the room it adds a "
         "component to); a `photo_room` `after` is exactly a `room_id` of that revision; a "
-        "`component` `count` must be a whole number from 1, and a `room_component` "
+        "`component` `count` must be a whole number from 1, an `asset`'s measured quantity "
+        "(EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and "
+        "`quantity_source` (where it was measured) together, and a `room_component` "
         "`after` a taxonomy `label` with a `count` (optional `material`, `attachment` from "
         "their vocabularies); otherwise 422 with one `errors` entry per offending "
         'correction, located at `["body", "corrections", <index>, "entity_type" | '

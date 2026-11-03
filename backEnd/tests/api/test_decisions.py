@@ -1522,3 +1522,54 @@ async def test_a_decision_with_a_new_type_replays_with_its_key(
     assert second.content == first.content
     assert second.headers[REPLAYED_HEADER] == "true"
     assert await counts(sessionmaker) == (1, 1, 1)
+
+
+# ------------------------------------------------- a measured quantity (EVAL_REPORT 78)
+
+
+@pytest.mark.parametrize(
+    ("after", "message"),
+    [
+        ({"quantity": "120"}, "quantity, quantity_unit and quantity_source together"),
+        ({"quantity": "0", "quantity_unit": "LF", "quantity_source": "plan"}, "positive"),
+        ({"quantity": "12", "quantity_unit": "acres", "quantity_source": "plan"}, "quantity_unit"),
+        (
+            {"quantity": "12", "quantity_unit": "LF", "quantity_source": " "},
+            "where it was measured",
+        ),
+    ],
+)
+async def test_a_measured_quantity_process_assets_would_refuse_is_422(
+    api: Api,
+    seed: Seed,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    after: dict[str, Any],
+    message: str,
+) -> None:
+    sid = await study_at(api, seed, Stage.ASSETS_REVIEW, revision=2)
+    targets = await seed.outputs(sid, revision=2)
+    good = {"entity_type": "asset", "entity_id": targets["asset"], "after": {"bucket": "y5"}}
+    bad = {"entity_type": "asset", "entity_id": targets["asset"], "after": after}
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("assets_review", 2, "reject", corrections=[good, bad]),
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["errors"]
+    assert error["loc"] == ["body", "corrections", 1, "after"]
+    assert message in error["detail"] and error["type"] == "correction_value"
+    await assert_nothing_written(sessionmaker, sid, Stage.ASSETS_REVIEW, 2)
+
+
+async def test_a_measured_quantity_is_accepted_with_the_rejection(api: Api, seed: Seed) -> None:
+    sid = await study_at(api, seed, Stage.ASSETS_REVIEW, revision=2)
+    targets = await seed.outputs(sid, revision=2)
+    after = {"quantity": "14", "quantity_unit": "LF", "quantity_source": "measured on site 11/02"}
+    correction = {"entity_type": "asset", "entity_id": targets["asset"], "after": after}
+    response = await api.post(
+        "alice",
+        f"/v1/studies/{sid}/decisions",
+        decision("assets_review", 2, "reject", corrections=[correction]),
+    )
+    assert response.status_code == 202, response.text

@@ -1771,7 +1771,7 @@
           "reviews"
         ],
         "summary": "Approve or reject the current review stage",
-        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field, extraction_field_add; rooms_review: room, photo_room; components_review: component, component_remove, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, component_remove, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\" | \"reason\"]`. A `component_remove` (an erroneous room inventory component row: `entity_id` a component of the revision, `after` exactly `{}`, `reason` required) leaves the row out of the next revision; refused: the same row removed twice or also corrected (`correction_duplicate`), a row the rejection rebuilds anyway (an inventory row of a room whose photo the same decision flags for re-analysis, or of a merged room, or a flagged photo's row: `correction_rebuilt`), a room's last inventory row (`correction_last_inventory`). It never deletes a photo's detected object (that is `DELETE .../photos/{document_id}/objects/{object_id}`). An `extraction_field_add` (an appraisal field the extraction missed: `entity_id` the extraction, `after` `{key, value_text | value_num | value_date, page, evidence}`, `reason` required) is refused for an unknown key, a value of the wrong type, a page past the PDF (`correction_value`), a key the extraction has (`correction_field_exists`: correct it with `extraction_field`) or a key added twice (`correction_duplicate`); a missing reason is `correction_reason` at `reason`.",
+        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field, extraction_field_add; rooms_review: room, photo_room; components_review: component, component_remove, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, component_remove, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, an `asset`'s measured quantity (EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and `quantity_source` (where it was measured) together, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\" | \"reason\"]`. A `component_remove` (an erroneous room inventory component row: `entity_id` a component of the revision, `after` exactly `{}`, `reason` required) leaves the row out of the next revision; refused: the same row removed twice or also corrected (`correction_duplicate`), a row the rejection rebuilds anyway (an inventory row of a room whose photo the same decision flags for re-analysis, or of a merged room, or a flagged photo's row: `correction_rebuilt`), a room's last inventory row (`correction_last_inventory`). It never deletes a photo's detected object (that is `DELETE .../photos/{document_id}/objects/{object_id}`). An `extraction_field_add` (an appraisal field the extraction missed: `entity_id` the extraction, `after` `{key, value_text | value_num | value_date, page, evidence}`, `reason` required) is refused for an unknown key, a value of the wrong type, a page past the PDF (`correction_value`), a key the extraction has (`correction_field_exists`: correct it with `extraction_field`) or a key added twice (`correction_duplicate`); a missing reason is `correction_reason` at `reason`.",
         "operationId": "record_decision_v1_studies__study_id__decisions_post",
         "security": [
           {
@@ -6576,7 +6576,8 @@
                     "api",
                     "console",
                     "resource",
-                    "report"
+                    "report",
+                    "study_input"
                   ],
                   "type": "string"
                 },
@@ -6881,7 +6882,8 @@
                     "api",
                     "console",
                     "resource",
-                    "report"
+                    "report",
+                    "study_input"
                   ],
                   "type": "string"
                 },
@@ -13635,7 +13637,8 @@
               "api",
               "console",
               "resource",
-              "report"
+              "report",
+              "study_input"
             ],
             "title": "Kind"
           },
@@ -14016,7 +14019,8 @@
               "api",
               "console",
               "resource",
-              "report"
+              "report",
+              "study_input"
             ],
             "title": "Kind"
           },
@@ -14315,7 +14319,8 @@
               "api",
               "console",
               "resource",
-              "report"
+              "report",
+              "study_input"
             ],
             "title": "Kind"
           },

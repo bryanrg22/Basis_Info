@@ -102,6 +102,12 @@ INPUTS: Final[dict[str, MissingInput]] = dict(
             MEASURE_FIX,
         ),
         _input(
+            "room_type",
+            "the room's type is not known (its photos were ambiguous), so its share of the "
+            "living area cannot be sized",
+            "set the room's type at the rooms review",
+        ),
+        _input(
             "room",
             "the component is in no room, so it has no area to measure by",
             "assign it to a room at the components review, or " + MEASURE_FIX,

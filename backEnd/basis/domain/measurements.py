@@ -634,6 +634,10 @@ def program_weight(m: BuildingMeasurements) -> Derived | None:
     return Derived(total, "SF", formula, inputs)
 
 
+# Room types that say nothing about the room: no share of the living area is sized for them.
+UNKNOWN_ROOM_TYPES: Final = frozenset({"", "ambiguous"})
+
+
 def room_areas(
     m: BuildingMeasurements, rooms: Sequence[RoomView], property_class: str
 ) -> dict[object, RoomArea]:
@@ -706,6 +710,10 @@ def room_areas(
         f"({denominator})",
     )
     for room in above:
+        if normalize_room_type(room.room_type) in UNKNOWN_ROOM_TYPES:
+            # An ambiguous room has no type to weigh its share by (EVAL_REPORT 78).
+            areas[room.id] = typical(room, "room_type")
+            continue
         weight = weights[room.id]
         area = m.gla_sf.value * weight / total_weight
         areas[room.id] = RoomArea(
@@ -766,8 +774,7 @@ def room_areas(
                 {**base_inputs, **basement_inputs, "room_weight_sf": _fmt(weight)},
                 (
                     *assumptions,
-                    f"basement rooms are sized at the house scale, capped by the {limit_name} "
-                    "area",
+                    f"basement rooms are sized at the house scale, capped by the {limit_name} area",
                 ),
             )
 

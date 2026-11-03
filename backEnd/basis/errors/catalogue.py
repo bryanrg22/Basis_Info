@@ -1203,6 +1203,24 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "no",
         problem="intake-locked",
     ),
+    _e(
+        E.STUDY_INPUT_MISSING,
+        "outcome",
+        "`process_assets`; `GET /v1/ops/client-errors` (kind `study_input`)",
+        "basis.evidence.input_records",
+        "A dollar the study's report would show stands on something missing (EVAL_REPORT 78): "
+        "an appraisal field (the GLA, the stories, a garage or basement area, the quality "
+        "rating, the cost-data date), a measured quantity, a count, a cost-table row, a "
+        "classification, the location or the cost year's index. The rows it holds are "
+        "written unpriced and the allocation, the report and the signature are withheld.",
+        "`GET .../result` lists each under `blockers` with its fix; one `client_errors` record "
+        "(kind `study_input`, this code) per blocker per revision, grouped per firm and blocker, "
+        "with the study, the person whose decision started the run and the study's files.",
+        "The engineer supplies what the blocker names (the appraisal review, the components "
+        "review, the assets review's measured quantity), or an operator adds the cost-table "
+        "row; the next revision prices it.",
+        "after fix",
+    ),
     # ------------------------------------------------------------------ OBJECT
     _e(
         E.STUDY_DRAFT_PRECONDITION_FAILED,
@@ -2110,6 +2128,20 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "attachment).",
         "`ValidationError: <problems> [BASIS-CORRECT-008]`.",
         "Use a label from the component taxonomy with `count`.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_QUANTITY,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "An asset correction's measured quantity is incomplete or invalid: `quantity`, "
+        "`quantity_unit` and `quantity_source` go together, the quantity is a positive number, "
+        "the unit one the cost table prices in (EA, SF, LF, SY), the source says where it was "
+        "measured (EVAL_REPORT 78).",
+        "`ValidationError: ... [BASIS-CORRECT-043]`.",
+        "Send all three: the measured quantity, its unit and where it was measured.",
         "no",
         temporal_type="ValidationError",
     ),

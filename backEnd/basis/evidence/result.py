@@ -884,6 +884,8 @@ def compute_result(
     if intake is None:
         missing.append("intake")
     else:
+        if blockers:
+            missing.append("blockers")
         ws = worksheet(intake.to_basis_inputs())
         ws_out = worksheet_out(ws, intake)
         rcn_rows = [
@@ -927,11 +929,10 @@ def compute_result(
         else:
             allocate_rows = True
             depreciated = False
-        if allocate_rows and blockers:
+        if blockers:
             # A dollar the report would show stands on a missing input (EVAL_REPORT 78): no
             # allocation, so no report and no signature, until every blocker is resolved.
             allocate_rows = False
-            missing.append("blockers")
         if allocate_rows:
             try:
                 allocation = allocate(

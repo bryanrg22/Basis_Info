@@ -1536,6 +1536,10 @@ CLIENT_ERROR_KINDS: Final = (
     "resource",  # a script, stylesheet or image that failed to load
     "report",  # Basis.reportError(err, context) from a screen
 )
+# The kinds only the server writes into the same store (never accepted from the browser).
+SERVER_RECORD_KINDS: Final = (
+    "study_input",  # a study whose dollars are held by a missing input (EVAL_REPORT 78)
+)
 
 
 class ClientError(Base):
@@ -1563,7 +1567,8 @@ class ClientError(Base):
     __tablename__ = "client_errors"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('error', 'unhandledrejection', 'api', 'console', 'resource', 'report')",
+            "kind IN ('error', 'unhandledrejection', 'api', 'console', 'resource', 'report', "
+            "'study_input')",
             name="kind_valid",
         ),
         CheckConstraint(

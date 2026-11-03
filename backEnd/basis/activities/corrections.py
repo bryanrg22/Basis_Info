@@ -41,7 +41,23 @@ ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor", "merge_into"})
 # the same revision (its photos and per-photo rows move there); it takes no other field.
 MERGE_INTO: Final = "merge_into"
 COMPONENT_FIELDS: Final = frozenset({"label", "material", "attachment", "count"})
-ASSET_FIELDS: Final = frozenset({"category", "bucket", "recovery_period", "irs_section"})
+ASSET_FIELDS: Final = frozenset(
+    {
+        "category",
+        "bucket",
+        "recovery_period",
+        "irs_section",
+        # EVAL_REPORT 78: the engineer's measurement of an item the appraisal cannot size (a
+        # driveway, a cabinet run, a room with no measured area); the three go together.
+        "quantity",
+        "quantity_unit",
+        "quantity_source",
+    }
+)
+QUANTITY_FIELDS: Final = frozenset({"quantity", "quantity_unit", "quantity_source"})
+QUANTITY_UNITS: Final = frozenset({"EA", "SF", "LF", "SY"})
+MAX_QUANTITY: Final = Decimal(10_000_000)
+MAX_SOURCE_CHARS: Final = 300
 PHOTO_FIELDS: Final = frozenset[str]()
 # A ``photo_room`` correction (v0.12, the rooms review of patch ``components-gate-v1``)
 # ``{"room_id": "<room id>"}`` moves the photo named by ``entity_id`` to that room of the
@@ -166,6 +182,7 @@ def check_asset(after: dict[str, Any]) -> None:
     15/27.5/39): the domain validators of ``basis.domain.validators``.
     """
     check_fields("asset", after, ASSET_FIELDS)
+    check_quantity(after)
     bucket = parse_bucket(after["bucket"]) if "bucket" in after else None
     period = parse_recovery_period(after["recovery_period"]) if "recovery_period" in after else None
     section = after.get("irs_section")
@@ -181,3 +198,43 @@ def check_asset(after: dict[str, Any]) -> None:
         issues = validate_section_bucket(str(section), bucket)
         if issues:
             raise validation_error(issues[0].message, E.CORRECT_SECTION_BUCKET_MISMATCH)
+
+
+def check_quantity(after: dict[str, Any]) -> Decimal | None:
+    """The engineer's measured quantity in an asset correction (EVAL_REPORT 78), or None
+    when the correction carries none: all of ``quantity`` (positive, at most 10,000,000),
+    ``quantity_unit`` (EA, SF, LF, SY) and ``quantity_source`` (where it was measured, at
+    most 300 characters), or a ``CORRECT_QUANTITY`` error."""
+    given = QUANTITY_FIELDS & set(after)
+    if not given:
+        return None
+    if given != QUANTITY_FIELDS:
+        raise validation_error(
+            "a measured quantity needs quantity, quantity_unit and quantity_source together "
+            f"(missing: {', '.join(sorted(QUANTITY_FIELDS - given))})",
+            E.CORRECT_QUANTITY,
+        )
+    try:
+        quantity = Decimal(str(after["quantity"]))
+    except InvalidOperation:
+        raise validation_error(
+            f"quantity {after['quantity']!r} is not a number", E.CORRECT_QUANTITY
+        ) from None
+    if not quantity.is_finite() or quantity <= 0 or quantity > MAX_QUANTITY:
+        raise validation_error(
+            f"quantity must be positive and at most {MAX_QUANTITY}, got {after['quantity']!r}",
+            E.CORRECT_QUANTITY,
+        )
+    if after["quantity_unit"] not in QUANTITY_UNITS:
+        raise validation_error(
+            f"quantity_unit {after['quantity_unit']!r} is not one of "
+            f"{', '.join(sorted(QUANTITY_UNITS))}",
+            E.CORRECT_QUANTITY,
+        )
+    source = after["quantity_source"]
+    if not isinstance(source, str) or not source.strip() or len(source) > MAX_SOURCE_CHARS:
+        raise validation_error(
+            f"quantity_source must say where it was measured (1-{MAX_SOURCE_CHARS} characters)",
+            E.CORRECT_QUANTITY,
+        )
+    return quantity

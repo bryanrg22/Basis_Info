@@ -36,7 +36,13 @@ MAX_LANGUAGES: Final = 10
 MAX_BREADCRUMB_DATA_CHARS: Final = 2000
 MAX_CONTEXT_CHARS: Final = 16000
 
-ClientErrorKind = Literal["error", "unhandledrejection", "api", "console", "resource", "report"]
+# What the browser reports (``POST /v1/client-errors``).
+BrowserErrorKind = Literal["error", "unhandledrejection", "api", "console", "resource", "report"]
+# What the store holds: the browser's kinds and ``study_input`` (a study whose dollars are held
+# by a missing input, written by the server: EVAL_REPORT 78).
+ClientErrorKind = Literal[
+    "error", "unhandledrejection", "api", "console", "resource", "report", "study_input"
+]
 BreadcrumbKind = Literal["click", "navigation", "api", "decision", "console", "error", "custom"]
 Level = Literal["error", "warning", "info"]
 
@@ -165,7 +171,7 @@ class ClientErrorIn(RequestModel):
     since_load_ms: Annotated[float, Field(ge=0)] | None = Field(
         default=None, description="`performance.now()` when it happened."
     )
-    kind: ClientErrorKind
+    kind: BrowserErrorKind
     level: Level = "error"
     message: Message
     error_type: Short | None = Field(default=None, description="`error.name` (`TypeError`).")

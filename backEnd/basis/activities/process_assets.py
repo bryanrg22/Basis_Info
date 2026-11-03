@@ -114,7 +114,12 @@ from basis.activities._support import (
     validation_error,
 )
 from basis.activities.apply_corrections import CARRIED_FROM
-from basis.activities.corrections import check_asset, parse_bucket, parse_recovery_period
+from basis.activities.corrections import (
+    check_asset,
+    check_quantity,
+    parse_bucket,
+    parse_recovery_period,
+)
 from basis.activities.deps import Deps
 from basis.activities.reprice_corrections import (
     REPRICE,
@@ -215,9 +220,10 @@ from basis.domain.structure import (
     small_system_rows,
     split_building,
 )
-from basis.domain.takeoffs import Takeoff, estimate_quantity, takeoff_key
+from basis.domain.takeoffs import Method, Takeoff, estimate_quantity, takeoff_key
 from basis.domain.validators import validate_classification
 from basis.errors.codes import E
+from basis.evidence.input_records import record_input_blockers
 from basis.evidence.pricing import pricing_method
 from basis.evidence.result import concealed_label
 from basis.llm.cost import cost_usd
@@ -309,7 +315,11 @@ class ProcessAssets:
                     needs_review=sum(a.needs_review for a in existing),
                     concealed=sum(a.component_id is None for a in existing),
                 )
-            return await _write(self._deps, session, study_id, input, prepared, results)
+            out = await _write(self._deps, session, study_id, input, prepared, results)
+            # Every blocker of the revision, recorded for the operators with the firm, the
+            # person, the study and its files (EVAL_REPORT 78); never fails the activity.
+            await record_input_blockers(session, study_id, input.revision, self._deps.settings)
+            return out
 
         return await run_once(
             self._deps,
@@ -642,6 +652,8 @@ async def _write(
             rule_key, extra_inputs = result.rule_key, {}
             citations = result.citations
         takeoff = _takeoff(component, room, rule_key, plan, measured, asset.id)
+        if override is not None and check_quantity(override.after) is not None:
+            takeoff = measured_by_engineer(takeoff, override.after)
         cost, priced_per, not_priced = _cost(
             takeoff,
             plan.index,
@@ -1455,6 +1467,45 @@ def _building(inputs: StructureInputs) -> BuildingRcn | None:
         year=inputs.year,
         modifications=inputs.modifications,
         model_override=inputs.model_override,
+    )
+
+
+UNIT_METHODS: Final[dict[str, Method]] = {
+    "EA": "count",
+    "SF": "area",
+    "SY": "area",
+    "LF": "perimeter",
+}
+
+
+def measured_by_engineer(takeoff: Takeoff, after: dict[str, Any]) -> Takeoff:
+    """The takeoff with the engineer's measured quantity (an asset correction's
+    ``quantity``, ``quantity_unit``, ``quantity_source``: EVAL_REPORT 78) in place of the
+    computed one; a missing input it supplied no longer holds the row."""
+    quantity = Decimal(str(after["quantity"])).quantize(Decimal("0.01"))
+    unit, source = str(after["quantity_unit"]), str(after["quantity_source"]).strip()
+    inputs = {
+        k: v
+        for k, v in takeoff.inputs.items()
+        if k not in (MISSING_INPUT, "needs_measurement", "measured_with_asset")
+    }
+    inputs.update(
+        {
+            "quantity_source": "engineer",
+            "measured_by_engineer": source,
+            "computed_quantity": None
+            if takeoff.inputs.get(MISSING_INPUT)
+            else f"{takeoff.quantity} {takeoff.unit}",
+        }
+    )
+    return Takeoff(
+        component=takeoff.component,
+        quantity=quantity,
+        unit=unit,
+        formula=f"{quantity} {unit} measured by the engineer ({source})",
+        inputs=inputs,
+        method=UNIT_METHODS[unit],
+        assumptions=(),
     )
 
 

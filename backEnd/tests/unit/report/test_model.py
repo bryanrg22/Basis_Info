@@ -128,6 +128,35 @@ def test_not_an_export_and_no_allocation_are_refused() -> None:
     assert e.value.code == E.REPORT_NOT_PRODUCED
 
 
+def test_a_withheld_allocation_names_every_blocker_and_its_fix() -> None:
+    """EVAL_REPORT 78: the report refused for missing inputs says which, and where to fix."""
+    doc = export()
+    basis = doc["summary"]["basis"]
+    basis["allocation"] = None
+    basis["missing"] = ["blockers", "allocation"]
+    basis["blockers"] = [
+        {
+            "code": "input:gla",
+            "message": "the gross living area (GLA) is not on the appraisal",
+            "assets": 4,
+            "fix": "add or correct the field at the appraisal review (improvements.gla_sqft)",
+        },
+        {
+            "code": "cost_index",
+            "message": "no RSMeans Historical Cost Index is loaded for 2026",
+            "assets": 0,
+            "fix": "POST /v1/cost-indices",
+        },
+    ]
+    with pytest.raises(ReportError) as e:
+        build_report(doc)
+    assert e.value.code == E.REPORT_NOT_PRODUCED
+    text = str(e.value)
+    assert "missing: blockers, allocation" in text
+    assert "the gross living area (GLA) is not on the appraisal (4 assets): add or correct" in text
+    assert "no RSMeans Historical Cost Index is loaded for 2026: POST /v1/cost-indices" in text
+
+
 def test_systems_without_a_priced_line_are_disclosed_not_refused() -> None:
     doc = export()
     doc["summary"]["basis"]["not_produced"] = [

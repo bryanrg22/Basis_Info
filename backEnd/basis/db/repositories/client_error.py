@@ -87,6 +87,11 @@ def fingerprint(
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
 
 
+def group_fingerprint(kind: str, group: str) -> str:
+    """Sixteen hex characters for an issue named by its group, not by a message."""
+    return hashlib.sha256(f"{kind}\x1f{group}".encode()).hexdigest()[:16]
+
+
 @dataclass(frozen=True, slots=True)
 class NewClientError:
     """One event to store: the filter columns and the whole event (already redacted)."""
@@ -110,6 +115,9 @@ class NewClientError:
     build_sha: str | None = None
     web_version: str | None = None
     user_agent: str | None = None
+    # The issue the event belongs to when it is not the browser's message: a ``study_input``
+    # record groups by firm and blocker (EVAL_REPORT 78), not by its text.
+    group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,16 +198,21 @@ class ClientErrorRepository:
         )
         if exists is not None:
             return None
-        fp = fingerprint(
-            kind=new.kind,
-            error_type=new.error_type,
-            message=new.message,
-            source=new.event.get("source") if isinstance(new.event.get("source"), dict) else None,
-            route=(new.event.get("http") or {}).get("route")
-            if isinstance(new.event.get("http"), dict)
-            else None,
-            http_status=new.http_status,
-        )
+        if new.group is not None:
+            fp = group_fingerprint(new.kind, new.group)
+        else:
+            fp = fingerprint(
+                kind=new.kind,
+                error_type=new.error_type,
+                message=new.message,
+                source=new.event.get("source")
+                if isinstance(new.event.get("source"), dict)
+                else None,
+                route=(new.event.get("http") or {}).get("route")
+                if isinstance(new.event.get("http"), dict)
+                else None,
+                http_status=new.http_status,
+            )
         await self._touch_issue(fp, new)
         values = {
             "event_id": new.event_id,

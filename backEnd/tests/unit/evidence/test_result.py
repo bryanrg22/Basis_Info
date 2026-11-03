@@ -11,6 +11,8 @@ from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from basis.domain.basis import ONE, REPORT_ROW_SYSTEMS, RcnRow, allocate
 from basis.domain.cost_indices import YearIndex
 from basis.domain.costs import year_factor_index
@@ -373,7 +375,8 @@ def test_outside_tolerance_the_allocation_is_withheld_with_the_diagnosis() -> No
         1,
         structure(),  # type: ignore[arg-type]
     )
-    assert result.missing == ["cost_index", "allocation"] and result.allocation is None
+    assert result.missing == ["cost_index", "blockers", "allocation"]
+    assert result.allocation is None
     r = result.reconciliation
     assert r is not None and r.status == "unreconciled"
     assert (r.gap, r.gap_share) == (D("-65000.00"), D("-0.650000"))
@@ -397,7 +400,13 @@ def test_outside_tolerance_the_allocation_is_withheld_with_the_diagnosis() -> No
 def test_without_a_building_rcn_or_a_rate_the_result_says_what_is_missing() -> None:
     bare = structure(fields(improvements__stories=2))  # no GLA, no cost approach
     result = compute_result(PRODUCED, intake(purchase_price="180000.00"), 1, bare)  # type: ignore[arg-type]
-    assert result.missing == ["cost_index", "building_rcn", "depreciation", "allocation"]
+    assert result.missing == [
+        "cost_index",
+        "building_rcn",
+        "depreciation",
+        "blockers",
+        "allocation",
+    ]
     assert result.reconciliation is not None and result.reconciliation.status == "not_checked"
     assert result.structure is not None and result.structure.building_rcn is None
     assert result.structure.components == [] and len(result.structure.concealed) == 5
@@ -413,3 +422,130 @@ def test_concealed_label_reads_the_takeoff_inputs() -> None:
     assert concealed_label({"label": "carpet"}) == ("carpet", False)
     assert concealed_label(None) == (None, False)
     assert concealed_label({"concealed": "yes", "label": 3}) == (None, False)
+
+
+# ------------------------------------------------- blockers: nothing assumed reaches dollars
+
+
+def without(*names: str) -> list[Row]:
+    """HOUSE without the named ``section__field`` rows."""
+    drop = {tuple(n.split("__")) for n in names}
+    return [r for r in HOUSE if (r.section, r.field) not in drop]
+
+
+def clean(field_rows: list[Row] = HOUSE, **kw: object) -> StructureInputs:
+    loaded = {
+        2024: YearIndex(2024, D("294.8"), date(2024, 7, 1), "test value"),
+    }
+    return replace(
+        structure(field_rows, **kw),  # type: ignore[arg-type]
+        location_source="zip 90001 (intake): Los Angeles",
+        year=year_factor_index(2024, loaded),
+    )
+
+
+def blocker_codes(
+    field_rows: list[Row], rows: list[ScheduleRow] | None = None, **kw: object
+) -> list[str]:
+    priced = rows if rows is not None else [r for r in PRODUCED if r.rcn is not None]
+    result = compute_result(priced, intake(purchase_price="180000.00"), 1, clean(field_rows, **kw))  # type: ignore[arg-type]
+    if result.blockers:
+        assert result.allocation is None and "blockers" in result.missing
+    return [b.code for b in result.blockers]
+
+
+def test_a_complete_house_has_no_blockers() -> None:
+    assert blocker_codes(HOUSE) == []
+
+
+@pytest.mark.parametrize(
+    ("dropped", "code"),
+    [
+        # The square-foot model's class without a quality rating, its type without stories.
+        (("improvements__quality",), "input:model_class"),
+        (("improvements__stories",), "input:stories"),
+        # The appraiser's cost new cannot be brought to the cost year without its date.
+        (("cost_approach__effective_date_of_cost_data",), "input:cost_data_date"),
+    ],
+)
+def test_an_assumed_building_input_blocks_the_allocation(
+    dropped: tuple[str, ...], code: str
+) -> None:
+    assert code in blocker_codes(without(*dropped))
+
+
+def test_a_house_with_a_basement_but_no_finish_blocks_on_the_square_foot_model() -> None:
+    rows = [*HOUSE, *fields(improvements__basement_area_sqft=800)]
+    assert "input:basement_finish" in blocker_codes(rows, rcn_source="square_foot")
+
+
+def test_without_physical_depreciation_the_age_life_ratio_applies_not_the_total() -> None:
+    """EVAL_REPORT 78: the total depreciation (physical, functional and external) stood in for
+    the physical depreciation when it was not printed."""
+    rows = [
+        *without("cost_approach__depreciation_physical"),
+        *fields(cost_approach__depreciation_total=120000),
+    ]
+    result = compute_result(
+        [r for r in PRODUCED if r.rcn is not None],
+        intake(purchase_price="180000.00"),
+        1,
+        clean(rows),  # type: ignore[arg-type]
+    )
+    assert result.depreciation is not None
+    assert result.depreciation.method == "age_life"
+    assert result.depreciation.rate == D("0.250000")  # 15 / (15 + 45), not 120,000 / 300,000
+
+
+def test_without_any_depreciation_input_the_allocation_is_withheld() -> None:
+    rows = without(
+        "cost_approach__depreciation_physical",
+        "improvements__effective_age_years",
+        "cost_approach__remaining_economic_life",
+    )
+    assert "depreciation" in blocker_codes(rows)
+
+
+def test_a_location_or_cost_year_from_the_settings_blocks() -> None:
+    priced = [r for r in PRODUCED if r.rcn is not None]
+    settings_location = replace(
+        clean(),
+        location_source="COST_LOCATION_FACTOR setting: no location factor for state 'PR' (intake)",
+    )
+    settings_year = replace(
+        clean(),
+        year_source="COST_YEAR setting: placed in service 1950-01-01 (intake) is before the "
+        "1970-2020 Historical Cost Index",
+    )
+    for inputs, code in ((settings_location, "input:location"), (settings_year, "input:cost_year")):
+        result = compute_result(priced, intake(purchase_price="180000.00"), 1, inputs)  # type: ignore[arg-type]
+        assert code in [b.code for b in result.blockers] and result.allocation is None
+
+
+def test_an_unclassified_row_blocks_even_when_priced() -> None:
+    rows = [
+        *[r for r in PRODUCED if r.rcn is not None],
+        ScheduleRow(_id(9), "Unclassified: widget", "y39", D("100.00"), label="widget"),
+    ]
+    codes = blocker_codes(HOUSE, rows)
+    assert codes == ["unclassified"]
+
+
+def test_rows_missing_an_input_are_counted_per_input() -> None:
+    rows = [
+        *[r for r in PRODUCED if r.rcn is not None],
+        ScheduleRow(_id(7), "Carpet", "y5", None, label="carpet", review_reason="input:gla"),
+        ScheduleRow(_id(8), "Tile", "y5", None, label="tile", review_reason="rule:x; input:gla"),
+        ScheduleRow(
+            _id(9),
+            "Driveway",
+            "y15",
+            None,
+            label="driveway",
+            review_reason="cross:COST_NEEDS_QUANTITY",
+        ),
+    ]
+    result = compute_result(rows, intake(purchase_price="180000.00"), 1, clean())  # type: ignore[arg-type]
+    assert [(b.code, b.assets) for b in result.blockers] == [("input:gla", 2), ("unpriced", 1)]
+    gla = result.blockers[0]
+    assert "gross living area" in gla.message and "improvements.gla_sqft" in gla.fix

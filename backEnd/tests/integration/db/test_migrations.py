@@ -54,6 +54,8 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
+* ``0029_study_input_records`` lets ``client_errors.kind`` be ``study_input`` (a study held by a
+  missing input, written by the server) and downgrades back to ``0028`` (those rows deleted);
 * ``0028_client_errors`` creates ``client_errors`` (the browser error records: the client's
   unique ``event_id``, the filter columns, the event as JSONB, never updated), nothing
   backfilled; it downgrades back to ``0027`` exactly;
@@ -115,8 +117,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0028"
-HISTORY = [f"{n:04d}" for n in range(28, 0, -1)]  # "0028" .. "0001"
+HEAD = "0029"
+HISTORY = [f"{n:04d}" for n in range(29, 0, -1)]  # "0029" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}

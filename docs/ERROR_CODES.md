@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-290 codes in 23 areas.
+292 codes in 23 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -139,6 +139,7 @@ stale).
 | `BASIS-STUDY-034` | refusal | `POST .../revisions/{n}/restore`; `basis.api.routes.revisions` | The revision never reached a review gate (the execution was cancelled or restarted during extraction), so there is no reviewed state to restore. | 409 `revision-not-restorable`. (type `revision-not-restorable`) | Restore a revision whose `stage_reached` in `GET .../revisions` is a review gate or later. | no |
 | `BASIS-STUDY-035` | refusal | `DELETE /v1/studies/{id}`; `basis.api.routes.studies` | The study's workflow execution is running (in progress, waiting at a review gate, or holding a failed stage for a retry), or the study was started while the archive was being decided. Archiving it would leave an execution working on a study its activities may no longer move (every transition refuses an archived study), so the archive is refused rather than silently stopping or failing the run. | 409 `workflow-running`; the study is unchanged. (type `workflow-running`) | Cancel the study first (`POST /v1/studies/{id}/cancel`); once its execution has closed (`GET .../workflow` `execution_status` not `RUNNING`), archive it. | after fix |
 | `BASIS-STUDY-036` | refusal | `PUT /v1/studies/{id}/intake`; `basis.db.repositories.study` | The study has started: the run read its intake, and the result and the report are priced from it (the cost year, the location factor, the property class, the basis). Replacing it in place would change a result, an export or a signed report after the fact with nothing marking them stale. | 409 `intake-locked`; nothing is written, no event. (type `intake-locked`) | Changing the inputs of a started study is a reopen with new inputs (a new revision), not an edit in place; the intake can be replaced while the study is `uploading`. The reopen and restart that exist keep the intake (docs/api/STUDY_RESULT.md, Open). | no |
+| `BASIS-STUDY-037` | outcome | `process_assets`; `GET /v1/ops/client-errors` (kind `study_input`); `basis.evidence.input_records` | A dollar the study's report would show stands on something missing (EVAL_REPORT 78): an appraisal field (the GLA, the stories, a garage or basement area, the quality rating, the cost-data date), a measured quantity, a count, a cost-table row, a classification, the location or the cost year's index. The rows it holds are written unpriced and the allocation, the report and the signature are withheld. | `GET .../result` lists each under `blockers` with its fix; one `client_errors` record (kind `study_input`, this code) per blocker per revision, grouped per firm and blocker, with the study, the person whose decision started the run and the study's files. | The engineer supplies what the blocker names (the appraisal review, the components review, the assets review's measured quantity), or an operator adds the cost-table row; the next revision prices it. | after fix |
 
 ## OBJECT: Photo objects (an engineer's selections)
 
@@ -294,6 +295,7 @@ stale).
 | `BASIS-CORRECT-040` | error | apply_corrections, process_assets; `basis.activities.reprice_corrections` | A `reprice` correction is not exactly `{"fingerprint": <64 hex>}`. | `ValidationError: ... [BASIS-CORRECT-040]`. (Temporal `ValidationError`) | Request the rebuild with `POST /studies/{id}/assets/reprice`, which writes it. | no |
 | `BASIS-CORRECT-041` | error | apply_corrections, process_assets; `basis.activities.reprice_corrections` | A `structure_model` correction has an unknown member, no member, a class or type outside the RSMeans vocabularies, or a living area outside (0, 100,000] SF. | `ValidationError: ... [BASIS-CORRECT-041]`. (Temporal `ValidationError`) | Send `model_class` (economy, average, custom, luxury), `building_type` (1 story ... 3 story) and/or `living_area_sf`. | no |
 | `BASIS-CORRECT-042` | error | apply_corrections, process_assets; `basis.activities.reprice_corrections` | A study-level correction (`reprice`, `structure_model`) names another entity than its own study. | `ValidationError: ... [BASIS-CORRECT-042]`. (Temporal `ValidationError`) | Its `entity_id` is the study id. | no |
+| `BASIS-CORRECT-043` | error | corrections; `basis.activities.corrections` | An asset correction's measured quantity is incomplete or invalid: `quantity`, `quantity_unit` and `quantity_source` go together, the quantity is a positive number, the unit one the cost table prices in (EA, SF, LF, SY), the source says where it was measured (EVAL_REPORT 78). | `ValidationError: ... [BASIS-CORRECT-043]`. (Temporal `ValidationError`) | Send all three: the measured quantity, its unit and where it was measured. | no |
 
 ## ASSETS: process_assets
 
