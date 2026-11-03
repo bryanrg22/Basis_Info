@@ -9617,3 +9617,96 @@ operators"): `tests/unit/ops/test_eval_runs.py` 19, `tests/api/test_eval_runs.py
 `test_registry.py` 12, `test_developer_workflow_content.py` 62; web 340 node tests pass (331
 before). Static gates green (`ruff`, `ruff format`, `mypy`, the catalogue, the OpenAPI
 document, the rule fingerprints, the client-data guard). Unit suite 5,003 passed, 10 skipped (1 min 49 s); integration and slow suite 1,668 passed, 7 skipped, 79 subtests, one failure (`tests/integration/db/test_retention_purge.py::test_an_object_already_gone_is_reported_not_fatal`, the retention purge from section 54, untouched here; it passed alone right after, so it is an ordering or timing flake of that suite, left for its owner), 19 min 34 s, provider keys unset.
+
+## 75. Temporal's deadlock detector and image work on the worker's event loop (2026-11-02)
+
+**Question.** Main's CI failed three lifecycle tests on 2026-11-02 within 90 s
+(`test_conventions.py::test_an_assets_correction_classifies_the_firms_next_study`,
+`test_localization.py::test_rooms_reject_relocalizes_only_the_reanalyzed_photo[components_gate]`,
+`test_reject_paths.py::test_two_rejections_in_a_row_keep_counting_revisions`), each a status
+query refused with `TMPRL1101` "Potential deadlock detected: workflow didn't yield within 2
+second(s)", 2.3 to 4.2 s after the test's worker started. They passed on rerun and in every run
+since. What makes the SDK report a deadlock, can it happen to a real study, and what is fixed?
+
+**Setup.** temporalio 1.34.0 (Python), the lifecycle harness (time-skipping server, real
+Postgres, real worker), Python 3.12 on an Apple M-series laptop. No paid call; the photos are
+synthetic.
+
+**Method.**
+
+1. Read the SDK: `_WorkflowWorker._handle_activation` runs the activation on a thread and waits
+   for it with `asyncio.wait_for(task, 2)` on the worker's event loop
+   (`temporalio/worker/_workflow.py`, `_deadlock_timeout_seconds`, fixed at 2 s unless
+   `debug_mode`). The timer is a loop timer: if the loop is held for 2 s, it fires before the
+   activation's finished result is processed, so a quick activation reads as a deadlock. The
+   async activities run on that same loop.
+2. Timed a full sandboxed replay of every recorded history (`tests/lifecycle/histories/`,
+   `Replayer`, three runs each).
+3. Ran the three tests, then the whole lifecycle suite, with asyncio debug mode (slow callbacks
+   over 0.1 s) and a watchdog thread that samples the loop thread's stack whenever the loop has
+   not ticked for 0.3 s (then 0.08 s).
+4. Listed the CPU work that `async def` code calls directly, and timed the heaviest
+   (`prepare_image`: decode, orient, downsize to 1,024 px, re-encode) on a synthetic 4000 x 3000
+   JPEG (4.2 MB), alone and with 20 activities started together, the way a study's photo
+   activities start; the worst loop stall was measured by a 5 ms ticker.
+
+| measurement | result |
+|---|---|
+| full replay, longest history (`components_gate`, 288 events) | 0.020 s |
+| full replay, cold first run (`appraisal_reject`, 175 events) | 0.079 s |
+| lifecycle suite under the watchdog: stalls over 0.3 s | only at session start: the Postgres container (0.9 s) and the SDK's default build id, computed once per process from every loaded module (0.7 s, memoized) |
+| `prepare_image`, one 12 MP photo | 0.083 s (median of 5) |
+| 20 photos at once, on the loop | worst stall 1.70 to 1.82 s; wall 1.70 to 1.82 s (3 runs) |
+| 20 photos at once, `prepare_image_in_thread` | worst stall 0.020 to 0.068 s; wall 0.28 to 0.33 s (3 runs) |
+
+**Findings.**
+
+* Replay is about 100 times under the limit, so the workflow code is not what took 2 s. The
+  reported deadlocks were the loop being held, not the workflow.
+* The CI trigger was not reproduced: locally nothing in the lifecycle suite holds the loop
+  near 2 s after start-up, the fixtures are 800 x 600 photos, and the three failures landed
+  within 90 s of each other on one runner. A stall of the runner is the likeliest cause; it
+  is not proven.
+* Production has the mechanism at full size. `prepare_image` ran directly in `async def` in
+  `analyze_photo` (both vision paths), `localize_photo` and the room step, and the segmenter,
+  the surface crops (decode, the full-size blend, the crop JPEG, the request's two prepared
+  images), SAM 3 tiling and the UAD upload parse did CPU work on the loop too. Twenty photos
+  held the loop 1.7 s on this laptop, so a host at half its speed, or a study with more
+  photos, crosses 2 s: workflow tasks fail as deadlocks (the server retries them after the
+  task timeout) and the API's status queries fail.
+* A naive fix would have added a bug: `prepare_image` used `warnings.catch_warnings`, which
+  swaps the process-wide filter list and is not thread-safe. On main's code, eight threads
+  preparing at once left a process-wide `error` filter for Pillow's warning behind in 3 runs
+  of 3.
+
+**Change.**
+
+* `basis.vision.prep.prepare_image_in_thread` (`asyncio.to_thread`) at every async call site;
+  the segmenter's encode, the crops' decode and blend and request, tiling and the upload parse
+  on threads as well. Pillow releases the GIL while it decodes and resamples, so the batch is
+  also faster (1.7 s to 0.3 s for 20 photos).
+* `prepare_image` no longer touches the warning filters. `MAX_PIXELS` (80 M) is below Pillow's
+  warning threshold (89.5 M), so every image Pillow would warn about is refused from its header
+  as `too_many_pixels` (it was `not_an_image`), before a pixel is decoded; Pillow's
+  `DecompressionBombError` (twice its threshold) is still `not_an_image`.
+* `tests/unit/test_event_loop_image_work.py` walks `basis/` and refuses a direct call to the
+  known image functions inside `async def` (it found the six call sites on main); the
+  `tests/unit/vision/test_prep.py` additions are listed in the test ledger. `AGENTS.md`
+  states the rule.
+
+**Verdict.** Fixed for the cause found in production code; the CI failures' own trigger is
+unproven. No workflow code changed, so no patch is needed and the recorded histories replay
+as before.
+
+**Open.**
+
+* If `TMPRL1101` recurs in CI, run the failing test file with the watchdog described in
+  method 3 to name what holds the loop.
+* The worker has no loop-stall metric. A production worker could export the worst stall per
+  minute the same way, and an alert on it would show a blocking call before studies slow
+  down.
+* The guard knows the functions measured here by name; CPU work under another name is caught
+  only by review.
+
+**Measured.** Unit suite 5,012 passed, 10 skipped; lifecycle suite 118 passed, 5 skipped;
+image and upload slow tests 142 passed; static gates green.

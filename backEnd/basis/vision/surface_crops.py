@@ -31,6 +31,7 @@ budget guard and account-error stop apply).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import time
 from collections import Counter
@@ -475,6 +476,23 @@ class RoomCrops:
         }
 
 
+def _open_rgb(photo: bytes) -> Image.Image:
+    """The photo decoded to RGB; CPU work, run on a thread (:func:`photo_crops`)."""
+    return Image.open(io.BytesIO(photo)).convert("RGB")
+
+
+def _crop_jpeg(
+    image: Image.Image, mask: npt.NDArray[np.bool_]
+) -> tuple[bytes, tuple[int, int, int, int]] | None:
+    """The surface's crop as a JPEG and its box, or None when the mask has no box; the
+    blend over the full-size photo is CPU work, run on a thread (:func:`photo_crops`)."""
+    crop = crop_image(image, mask)
+    box = mask_box(mask)
+    if crop is None or box is None:
+        return None
+    return jpeg_bytes(crop), box
+
+
 async def ask_crop(
     surface: Surface, photo: bytes, crop: bytes, record: CropRecord, ctx: CropContext
 ) -> None:
@@ -482,7 +500,8 @@ async def ask_crop(
     transient provider error (``provider_unavailable``) or a refused crop
     (``request_rejected``) is recorded and ends the crop unanswered; budget, account and
     configuration errors propagate."""
-    request = build_request(
+    request = await asyncio.to_thread(
+        build_request,
         surface,
         photo,
         crop,
@@ -563,7 +582,7 @@ async def photo_crops(
 
     out = PhotoCrops(file=file)
     try:
-        image = Image.open(io.BytesIO(photo)).convert("RGB")
+        image = await asyncio.to_thread(_open_rgb, photo)
     except Exception as exc:  # it was prepared before; a broken file is not this step's
         out.errors.append(f"segmenter: unreadable photo: {type(exc).__name__}")
         return out
@@ -584,12 +603,12 @@ async def photo_crops(
         share = float(mask.mean())
         if share < MIN_SHARE:
             continue
-        crop = crop_image(image, mask)
-        box = mask_box(mask)
-        if crop is None or box is None:
+        cropped = await asyncio.to_thread(_crop_jpeg, image, mask)
+        if cropped is None:
             continue
+        crop_jpeg, box = cropped
         record = CropRecord(file=file, surface=surface, box=box, share=share)
-        await ask_crop(surface, photo, jpeg_bytes(crop), record, ctx)
+        await ask_crop(surface, photo, crop_jpeg, record, ctx)
         for kind in _NOT_ANSWERED:
             if any(e.startswith(kind) for e in record.errors):
                 out.errors.append(f"{kind}: {surface}")
