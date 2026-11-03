@@ -51,6 +51,11 @@ test('raw requests return the response for binary content; ids are URL-encoded',
  const api=createClient({baseUrl:'http://api.test',fetchImpl:impl});
  const r=await api.documentContent('s 1','d/2');assert.equal(r.status,200);assert.equal(calls[0].url,'http://api.test/v1/studies/s%201/documents/d%2F2/content');
 });
+test('a photo as the browser shows it comes from /image',async()=>{
+ const {impl,calls}=fakeFetch([{body:'jpeg',type:'image/jpeg'}]);
+ const api=createClient({baseUrl:'http://api.test',fetchImpl:impl});
+ const r=await api.documentImage('s 1','d/2');assert.equal(r.status,200);assert.equal(calls[0].url,'http://api.test/v1/studies/s%201/documents/d%2F2/image');
+});
 function fakeTimers(){const q=[];return {q,setTimeout:(fn,ms)=>{q.push({fn,ms});return q.length},clearTimeout:()=>{}}}
 const flush=()=>new Promise(r=>setImmediate(r));
 test('polling backs off while nothing changes, resets on change, and stops when told',async()=>{

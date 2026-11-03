@@ -287,5 +287,7 @@ def test_coverage_rows_cite_real_sections_and_name_the_gap(step_id: str) -> None
         assert row["component"] and row["used"], row
         for section in row["sections"]:
             assert section in sections(), (step_id, section)
+            # linked in the dialog: without a map entry the citation shows as plain text
+            assert section in content()["sections"], (step_id, section)
         if row["verdict"] != "compared":
             assert row["missing"] and row["test"] and row["cost"], row

@@ -56,6 +56,7 @@ from basis.llm.errors import (
 from basis.llm.prompts import Prompt
 from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
 from basis.llm.recorder import KIND_SEGMENTATION, STATUS_ERROR, STATUS_OK
+from basis.vision import heif
 from basis.vision.localize import LocalizeCall
 from basis.vision.prep import prepare_image
 from basis.vision.reconcile import NOTE_MAX, InventoryObject, clip_text
@@ -63,6 +64,8 @@ from basis.vision.schemas import Material
 
 if TYPE_CHECKING:
     from basis.vision.surface_segmenter import SurfaceSegmenter
+
+heif.register()  # the room's photos as uploaded may be HEIC (_open_rgb)
 
 PROMPT_NAME: Final = "surface_crop_material"
 Surface = Literal["floor", "wall", "ceiling"]

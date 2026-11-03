@@ -10501,3 +10501,158 @@ every coverage row against this report. Nothing paid was run.
 Found along the way and not fixed here: iPhone HEIC photos are rejected at preparation (verified with
 a real HEIC file); a UAD 3.6 XML study is always flagged for total rooms; an assets send-back
 re-classifies every uncorrected item.
+
+## 81. iPhone photos (HEIC) are read, and shown in every browser (2026-11-03)
+
+**Question.** The upload accepted `image/heic` and `image/heif`, but nothing could read them:
+Pillow has no HEIC decoder, so the preparation for the model refused every iPhone photo as "not
+a readable image" (found in 80.1, verified with a real file), the report's photo exhibit would
+have failed on one, and the web app shows photos from their original bytes, which Chrome, Edge
+and Firefox cannot display. An iPhone saves HEIC by default. How should Basis read them and
+show them?
+
+**The standard.**
+
+* HEIC is HEVC-coded pictures in the HEIF container (ISO/IEC 23008-12), itself built of ISO
+  base media boxes (ISO/IEC 14496-12). The open decoder is libheif with libde265. Python reaches
+  it through `pillow-heif`, which registers a Pillow plugin; `pi-heif` is the same project's
+  decode-only build ("includes only HEIF decoder and does not support save operations", its
+  PyPI page), published for its more permissive licence: the full build's wheels bundle the x265
+  encoder, which is GPL. Basis only decodes.
+* Browsers: Safari decodes HEIC; Chrome, Edge and Firefox do not. Checked here in the app's
+  Chromium 152: the synthetic HEIC fixture loads as a broken image (0 x 0), its converted JPEG
+  as 240 x 320.
+* Image services (Cloudinary, imgix) keep the uploaded original and serve a derived copy in a
+  format the client shows. Basis does the same: `.../content` stays the original (hashed,
+  evidence), `.../image` is the derived copy.
+
+**What was built** (docs/api/PHOTOS.md):
+
+* `basis/vision/heif.py` registers `pi-heif` 1.4.0 (libheif 1.23.0, decoder libde265 only, no
+  encoder) with Pillow, once, from every module that opens a photo as uploaded: the model's
+  preparation (`basis/vision/prep.py`), the surface crops and the report exhibit. Embedded
+  thumbnails, depth maps and auxiliary images are off.
+* `prepare_image` is unchanged for every other format (its decoding moved into `decode_photo`,
+  shared with the browser copy). It now also catches `EOFError`, which libheif raises for damaged
+  picture data and which is not an `OSError`; without it a damaged HEIC would have failed the
+  photo's activity as an unexpected error instead of flagging the photo.
+* A HEIC cut short is refused. libheif decoded an iPhone photo cut to 70, 50, 30 and 10 % of its
+  bytes without an error, every row wrong (the missing grid tiles left blank); a JPEG cut short
+  is refused by Pillow. `heif.cut_short` reads the top-level box sizes (14496-12 section 4.2)
+  and refuses a file shorter than they declare.
+* `GET /v1/studies/{id}/documents/{doc_id}/image`: JPEG, PNG and WebP as uploaded; HEIC and HEIF
+  as a JPEG, upright, long side at most 4,096 px, quality 90, colour profile kept, EXIF (GPS) and
+  XMP dropped; ETag `"<sha256>.display-v1"`; one conversion at a time per API process, on a
+  thread. Two codes: `BASIS-UPLOAD-012` `not-a-photo`, `BASIS-UPLOAD-013` `unreadable-photo`.
+* The web app shows every photo from `/image` (`Live.photoUrl`); downloads, the appraisal and
+  PDF thumbnails stay on `/content`.
+
+No setting: the API already accepted these types, and nobody wants iPhone photos refused, so
+there is no "off" to choose.
+
+### 81.1 The decoders compared on 43 iPhone photos
+
+HEIC photos from Bryan's Downloads folder (an iPhone camera's `IMG_nnnn` names; read locally,
+never copied or committed): 43 files, 879 to 5,712 px on a side, 12 and 24 megapixels and panoramas; 26 carry EXIF orientation
+6 with an `irot` rotation in the container, 17 orientation 1. The reference is Apple's own decoder
+(ImageIO, through `sips -s format jpeg`), which made the files. The run is recorded by
+`evals/heic_decoding.py` (decode against Apple, prepare, and the file cut to 70 % refused, for each
+file): 129 of 129 cases passed, filed in the verification tree under
+`heic_decoding/pi-heif-1.4.0/heic_decoding_20261103`. The pillow-heif row was a one-off run of the
+same comparison in a separate environment, not recorded there.
+
+**How to read this table.** Does each decoder give the picture Apple's decoder gives, upright, and how long does it take?
+
+- **Models**: no AI model is involved; this is file decoding.
+- **Same size and orientation as Apple's decoder**: files whose decoded picture has Apple's width, height and orientation (the picture turned the wrong way differed by 23 to 124 of 255, so a wrong rotation is unmistakable).
+- **Mean pixel difference**: the mean absolute difference from Apple's picture, both scaled to 256 x 256, on a 0 to 255 scale (lower is closer; 0.11 is far below what an eye sees).
+- **Median decode time**: per file, open and decode, on the laptop (four runs of each, alternated; the range is the run-to-run spread).
+- **Licence of what is bundled**: what the installed wheel carries.
+- **Tokens (input / output)**: none; nothing here calls a model.
+
+| Decoder | Models (provider, effort, temperature) | Same size and orientation as Apple's decoder | Mean pixel difference | Median decode time | Licence of what is bundled | Tokens (input / output) |
+|---|---|---|---|---|---|---|
+| pi-heif 1.4.0 (chosen) · libheif 1.23.0, libde265 decoder only | No AI model | 43 of 43 | at most 0.11 of 255 | 256 to 316 ms | BSD-3-Clause and LGPL-3 (libheif, libde265); no encoder | None |
+| pillow-heif 1.8.1 · libheif 1.23.6, libde265 decoder and the x265 encoder | No AI model | 42 of 42 (the `.HEIC` files): decoded pixels identical to pi-heif's on every file | the same pixels | 260 to 279 ms | as pi-heif, plus x265 (GPL-2) | None |
+| Apple ImageIO (`sips`) · the reference | No AI model | the reference | 0 | not timed | macOS only; not available on the Linux worker | None |
+
+pi-heif is chosen: the same pixels as the full build at the same speed (the two ranges overlap),
+without the GPL encoder Basis does not use. Not compared: converting in the browser before the
+upload (a WebAssembly build of the same libheif, about a megabyte for every visitor, and the
+original would never reach Basis); ImageMagick or libvips, which read HEIC through the same
+libheif.
+
+### 81.2 Memory, size and time of the browser copy
+
+Measured on the laptop with one 24-megapixel HEIC (4284 x 5712) and the same photo converted to
+JPEG by Apple's decoder, peak resident memory above the process's starting point:
+
+| What runs | Peak memory |
+|---|---|
+| `prepare_image` on the JPEG (what runs today for a JPEG upload) | 238 MB |
+| `prepare_image` on the HEIC (decode threads 4 / 1) | 370 MB / 350 MB |
+| Decoding the HEIC alone (threads 4 / 1) | 226 MB / 216 MB |
+
+A HEIC needs about 1.5 times the memory of the same photo as a JPEG while it is prepared. The
+worker already prepares 24-megapixel JPEGs, so the extra is within what it runs; the API's 1 GiB
+container converts one photo at a time.
+
+The browser copy's size by its long-side limit (quality 90, five of the photos):
+
+| Photo | HEIC | JPEG, full size | JPEG, at most 4,096 px (chosen) | JPEG, at most 2,048 px |
+|---|---|---|---|---|
+| 24 MP, three photos | 1,947 to 2,264 KB | 2,826 to 3,576 KB | 1,650 to 2,033 KB | 461 to 554 KB |
+| 12 MP, two photos | 1,403 to 2,100 KB | 1,884 to 2,749 KB | the same (no resize) | 611 to 868 KB |
+
+4,096 px keeps every pixel of an iPhone's default 12-megapixel photo and serves a 24-megapixel one
+at about the HEIC's own size. Decoding took 96 to 219 ms and encoding 20 to 59 ms per photo in this
+run; the 81.1 runs, with other work on the laptop, put the median decode near 0.3 s.
+
+### 81.3 Verified
+
+* `tests/unit/vision/test_heic.py` (synthetic fixtures, `tests/fixtures/heic/`, made by
+  `tooling/fixtures/make_heic_fixtures.py` with Apple's encoder; a red block marks the top left):
+  - the model's copy of a HEIC is upright, the container's rotation applied once, transparency on
+    white, no metadata;
+  - every length of each fixture short of the whole file is refused as not an image (4,834 cases
+    across the three files), damaged picture data is refused, the pixel limit is read from the
+    header;
+  - the browser copy is upright, at most the display side, keeps the colour profile and drops EXIF
+    with GPS; four threads at once convert one at a time (a barrier makes the race real), and a
+    failed conversion frees the slot;
+  - the surface crops and the report exhibit read a HEIC upright;
+  - regression: `prepare_image(01_kitchen.jpg)` gives the sha256 it gave on main before the change,
+    and on 400 photos from the private eval data the old and new `prepare_image` gave identical
+    bytes or the identical refusal in every case.
+* Fuzzing (not in the suite): 900 random truncations of six iPhone photos and the fixtures were
+  all refused as not an image; 900 random byte changes were refused or decoded, never raised as
+  anything but `ImageRejected`. All 43 intact photos prepare, and none is taken for cut short.
+* `tests/api/test_document_image.py`: a HEIC comes back as an upright JPEG with its headers and
+  ETag, 304 on the copy's ETag but not on the original's, `.../content` still the HEIC; JPEG,
+  PNG and WebP as uploaded; `not-a-photo`, `unreadable-photo`, `upload-missing`, a viewer may
+  read, a stranger gets 404, no token 401, bytes gone 404. The route is in the known-routes list,
+  the tenancy walk and the OpenAPI document; the Schemathesis contract test passes.
+* `web/tests/live-photos.test.cjs` and `api-client.test.cjs`: a photo on screen is fetched from
+  `/image`, the original from `/content`, each once; a fetched photo renders at once.
+* In the browser: Chromium 152 shows the converted JPEG (240 x 320) and not the HEIC (0 x 0).
+* On Linux: in the worker's base image (`python:3.12-slim`, aarch64, glibc 2.41) `pi-heif` 1.4.0
+  installs from its wheel and decodes `rotated_90cw.heic` upright (240 x 320, the red block top
+  right). CI's test job runs the HEIC tests on x86-64.
+
+**Not verified, and open.**
+
+* No live study with HEIC photos has run (it would cost about $3 to $4; not approved). The path is
+  the one JPEG photos take after `prepare_image`, which the tests above cover; the models never see
+  the difference, since they are sent the prepared JPEG.
+* The web app's upload list shows a preview of each photo from the local file before upload;
+  Chrome cannot show a HEIC there (FRONTEND_BACKLOG.md).
+* Colour: the model's copy drops the colour profile, as it always has for JPEG. An iPhone photo is
+  Display P3, so its colours reach the model slightly muted. Converting to sRGB first would change
+  every prepared photo's bytes, so it is left for a measured change of its own.
+* The surface crops open the uploaded photo without applying its EXIF orientation
+  (`surface_crops._open_rgb`, read in the code, not measured): a HEIC comes out upright (its
+  rotation is applied while it decodes) but a portrait JPEG's segmentation and crops are made on
+  the picture turned on its side. The crops are off by default (`MATERIALS_SECOND_LOOK=per_photo`,
+  26.3), so this matters only when they are turned on. Pre-existing, not changed here.
+* HEVC is a patented codec. Whether decoding iPhone photos on Basis's servers needs a patent
+  licence is a legal question for Bryan, not settled here.

@@ -33,6 +33,12 @@ def fixture_path(*parts: str) -> Path:
     return path
 
 
+def heic_fixture(name: str) -> bytes:
+    """The bytes of one synthetic HEIC (``heic/``, made on macOS by
+    ``tooling/fixtures/make_heic_fixtures.py``: coloured rectangles, no photo)."""
+    return (_ROOT / "heic" / name).read_bytes()
+
+
 def load_fixture_json(*parts: str) -> Any:
     """Parse a JSON fixture (golden files, labels, qrels, manifests)."""
     return json.loads(fixture_path(*parts).read_text(encoding="utf-8"))
