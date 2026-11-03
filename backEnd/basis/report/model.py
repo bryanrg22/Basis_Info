@@ -360,9 +360,19 @@ def build_report(
     allocation = basis.get("allocation")
     if not allocation:
         why = [str(m) for m in basis.get("missing") or []] or ["no allocation in the export"]
+        # EVAL_REPORT 78: each missing input, unpriced or unclassified group, named.
+        named = [
+            f"{b.get('message')} ({b.get('assets')} assets): {b.get('fix')}"
+            if b.get("assets")
+            else f"{b.get('message')}: {b.get('fix')}"
+            for b in basis.get("blockers") or []
+        ]
         raise ReportError(
             E.REPORT_NOT_PRODUCED,
-            "the allocation was withheld (missing: " + ", ".join(why) + ")",
+            "the allocation was withheld (missing: "
+            + ", ".join(why)
+            + ")"
+            + ("; " + "; ".join(named) if named else ""),
         )
     worksheet = basis["worksheet"]
     reconciliation = basis.get("reconciliation") or {}

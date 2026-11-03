@@ -7,10 +7,13 @@ tolerance (docs/review_2026-10-15/STRUCTURE_MODEL.md section 3.8). Fabricated va
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
+from basis.domain.basis import ONE, REPORT_ROW_SYSTEMS, RcnRow, allocate
+from basis.domain.cost_indices import YearIndex
+from basis.domain.costs import year_factor_index
 from basis.domain.intake import StudyIntakeIn, with_location
 from basis.domain.measurements import measurements_from_fields
 from basis.domain.structure import (
@@ -19,8 +22,16 @@ from basis.domain.structure import (
     SYSTEM_LABELS,
     StructureInputs,
     cost_approach_from_fields,
+    mapping_for,
 )
-from basis.evidence.result import NOT_PRODUCED, ScheduleRow, compute_result, concealed_label
+from basis.evidence.result import (
+    NOT_PRODUCED,
+    AllocationOut,
+    ScheduleRow,
+    allocation_out,
+    compute_result,
+    concealed_label,
+)
 
 D = Decimal
 
@@ -73,9 +84,12 @@ def test_without_an_intake_the_schedule_alone_is_returned() -> None:
     assert all("STRUCTURE_MODEL.md" in n.reason for n in result.not_produced)
 
 
-def test_with_an_intake_and_no_structure_inputs_the_uniform_factor_applies() -> None:
+def test_without_structure_inputs_the_allocation_is_withheld() -> None:
+    """EVAL_REPORT 78: with no appraisal fields nothing reconciles the schedule against the
+    price; the uniform factor once scaled the priced rows up to the basis (the ATG's rejected
+    step-up), and an unpriced row's share went to the others. Both are blockers now."""
     result = compute_result(ROWS, intake(), 1)  # type: ignore[arg-type]
-    assert result.missing == []
+    assert result.missing == ["blockers", "allocation"]
     ws = result.worksheet
     assert ws is not None
     assert (ws.building_basis, ws.capitalized_costs, ws.total_basis) == (
@@ -85,26 +99,30 @@ def test_with_an_intake_and_no_structure_inputs_the_uniform_factor_applies() -> 
     )
     assert (ws.state, ws.zip, ws.location_source) == ("CA", "90001", "appraisal")
     assert ws.recovery_period == D("39")
-    a = result.allocation
-    assert a is not None and a.depreciated is False and a.rcnld_total is None
-    # f = 80000 / 16477: 1368.52 × f = 6644.5105… → 6644.51; the cabinets take the rest.
-    assert [(r.asset_id, r.allocated, r.rcnld) for r in a.assets] == [
-        (uuid.UUID(int=1), D("6644.51"), None),
-        (uuid.UUID(int=2), D("73355.49"), None),
+    assert result.allocation is None
+    assert [(b.code, b.assets) for b in result.blockers] == [
+        ("unpriced", 1),
+        ("appraisal_fields", 0),
     ]
-    assert a.rows_sum == a.total == D("80000.00")
-    assert [
-        (b.bucket.value, b.allocated, b.percent, b.building, b.closing_costs) for b in a.by_bucket
-    ] == [("y5", D("80000.00"), D("100.0"), D("80000.00"), D("0.00"))]
-    # Rows without a label are Miscellaneous Building Components: the page is always built.
-    assert a.by_system is not None and a.by_system_reason is None
-    assert [(s.system, s.allocated) for s in a.by_system] == [
-        ("Miscellaneous Building Components", D("80000.00"))
+    assert all(b.message and b.fix for b in result.blockers)
+
+
+def grouped(rows: list[ScheduleRow], basis: Decimal) -> AllocationOut:
+    """The allocation's grouping on its own: :func:`allocate` and :func:`allocation_out`, the
+    code ``compute_result`` runs once nothing blocks it (whose gates are tested above)."""
+    rcn_rows = [
+        RcnRow(
+            id=r.asset_id,
+            bucket=r.bucket,
+            rcn=r.rcn,  # type: ignore[arg-type]
+            label=r.category,
+            systems=REPORT_ROW_SYSTEMS.get(r.category) or ((mapping_for(r.label).system, ONE),),
+        )
+        for r in rows
     ]
-    # The schedule covers a fifth of the basis: scaling up is the ATG's rejected step-up.
-    step_up = [c for c in a.checks if c.code == "uniform_factor"]
-    assert step_up[0].severity == "error" and "step-up" in step_up[0].message
-    assert a.factor == D("4.855252777")  # 4.8552527765… to nine places
+    return allocation_out(
+        allocate(rcn_rows, basis, D("0.00"), depreciated=False), {r.asset_id: r for r in rows}
+    )
 
 
 def test_report_row_categories_regroup_by_system() -> None:
@@ -112,9 +130,8 @@ def test_report_row_categories_regroup_by_system() -> None:
         ScheduleRow(_id(1), "Interior Half Walls", "y5", D("100.00")),
         ScheduleRow(_id(2), "Painting", "y39", D("300.00")),
     ]
-    result = compute_result(rows, intake(purchase_price="420.00", appraisal_site_value="20.00"), 1)  # type: ignore[arg-type]
-    a = result.allocation
-    assert a is not None and a.by_system is not None
+    a = grouped(rows, D("400.00"))
+    assert a.by_system is not None
     assert [(s.system, s.allocated) for s in a.by_system] == [
         ("Interior Framing / Partitions", D("80.00")),
         ("Painting", D("320.00")),
@@ -127,9 +144,8 @@ def test_labels_regroup_by_system_when_the_category_is_not_a_report_row() -> Non
         ScheduleRow(_id(2), "Window (structural component)", "y39", D("300.00"), label="window"),
         ScheduleRow(_id(3), "Light fixtures", "y39", D("100.00"), label="light_fixture"),
     ]
-    result = compute_result(rows, intake(purchase_price="520.00", appraisal_site_value="20.00"), 1)  # type: ignore[arg-type]
-    a = result.allocation
-    assert a is not None and a.by_system is not None
+    a = grouped(rows, D("500.00"))
+    assert a.by_system is not None
     assert [(s.system, s.allocated) for s in a.by_system] == [
         ("Electrical", D("100.00")),
         ("Miscellaneous Building Components", D("100.00")),
@@ -140,9 +156,11 @@ def test_labels_regroup_by_system_when_the_category_is_not_a_report_row() -> Non
 def test_an_intake_with_nothing_priced_has_no_allocation() -> None:
     rows = [ScheduleRow(_id(3), "Toilet", "y39", None), ScheduleRow(_id(4), "Site", "land", D("5"))]
     result = compute_result(rows, intake(), 1)  # type: ignore[arg-type]
-    assert result.missing == ["allocation"]
+    assert result.missing == ["blockers", "allocation"]
     assert result.worksheet is not None and result.allocation is None
-    assert compute_result([], intake(), 1).missing == ["allocation"]  # type: ignore[arg-type]
+    assert [b.code for b in result.blockers] == ["unpriced", "appraisal_fields"]
+    empty = compute_result([], intake(), 1)  # type: ignore[arg-type]
+    assert empty.missing == ["blockers", "allocation"]
     assert compute_result([], None, 1).missing == ["intake"]
 
 
@@ -151,8 +169,8 @@ def test_rows_are_taken_in_asset_id_order_and_the_document_is_json() -> None:
     document = result.model_dump(mode="json")
     assert document["revision"] == 3
     assert document["worksheet"]["total_basis"] == "80000.00"
-    assert [r["asset_id"] for r in document["allocation"]["assets"]] == [_id(1), _id(2)]
-    assert document["allocation"]["assets"][0]["allocated"] == "6644.51"
+    assert document["allocation"] is None
+    assert [b["code"] for b in document["blockers"]] == ["unpriced", "appraisal_fields"]
     assert document["schedule"]["unpriced"] == [_id(3)]
     assert document["structure"] is None and document["depreciation"] is None
 
@@ -230,16 +248,23 @@ PRODUCED = [
 ]
 
 
-def test_the_structure_path_depreciates_reconciles_and_allocates_on_rcnld() -> None:
+def test_the_structure_path_depreciates_and_reconciles_and_withholds_on_its_blockers() -> None:
+    """The model's numbers are all shown, and the allocation is withheld: the fixture's 2024
+    has no loaded index (the released book stops at 2020), its location factor is the
+    setting's (no ZIP or state on the structure inputs), and two rows are unpriced (EVAL_REPORT
+    78; before it, all three still allocated, the unpriced rows' share going to the others)."""
     result = compute_result(
         PRODUCED,
         intake(purchase_price="180000.00"),
         1,
         structure(),  # type: ignore[arg-type]
     )
-    # The fixture's 2024 has no loaded index (the released book stops at 2020): the result
-    # says which value to enter, and nothing else is missing.
-    assert result.missing == ["cost_index"]
+    assert result.missing == ["cost_index", "blockers", "allocation"]
+    assert [(b.code, b.assets) for b in result.blockers] == [
+        ("unpriced", 2),
+        ("input:location", 0),
+        ("cost_index", 0),
+    ]
     assert result.cost_index is not None and result.cost_index.status == "missing"
     assert result.cost_index.factor == D("1.0000")
     assert "2024 RSMeans Historical Cost Index" in (result.cost_index.needed or "")
@@ -266,23 +291,7 @@ def test_the_structure_path_depreciates_reconciles_and_allocates_on_rcnld() -> N
     foundation = r.by_component[1]
     assert foundation.concealed == D("60000.00")  # the schedule's foundation row
     assert r.checks[0].severity == "ok"
-    a = result.allocation
-    assert a is not None and a.depreciated is True and a.rcnld_total == D("165000.00")
-    # f = 160000 / 165000 on RCNLD: the carpet's 3750 RCNLD -> 3636.36.
-    rows = {r.label: r for r in a.assets}
-    assert (rows["carpet"].rcn, rows["carpet"].rcnld, rows["carpet"].allocated) == (
-        D("5000.00"),
-        D("3750.00"),
-        D("3636.36"),
-    )
-    assert rows["foundation"].concealed is True and rows["carpet"].concealed is False
-    assert a.rows_sum == a.total == D("160000.00")
-    assert a.factor == D("0.969696970")
-    assert {c.code: c.severity for c in a.checks} == {"rcnld_factor": "ok"}
-    assert a.by_system is not None
-    systems = {s.system: s for s in a.by_system}
-    assert systems["Painting"].rcnld == D("15000.00")
-    assert systems["Interior Framing / Partitions"].allocated == D("29090.91")
+    assert result.allocation is None
     # The structure block: the appraisal's RCN split into the model's components, the
     # itemized rows carved out, the concealed rows listed; what no row priced is not produced.
     st = result.structure
@@ -315,6 +324,27 @@ def test_the_structure_path_depreciates_reconciles_and_allocates_on_rcnld() -> N
     ]
     assert "Specialties residual" not in {n.system for n in result.not_produced}
     assert set(STRUCTURE_LABELS) - set(SYSTEM_LABELS) == {"specialties_residual"}
+
+
+def test_with_every_input_the_structure_path_allocates_on_rcnld() -> None:
+    """Every row priced, the location from a ZIP and the cost year's index loaded: nothing
+    blocks, so the allocation is produced on RCNLD and ties to the building basis."""
+    priced = [r for r in PRODUCED if r.rcn is not None]
+    loaded = {2024: YearIndex(2024, D("294.8"), date(2024, 7, 1), "test value")}
+    inputs = replace(
+        structure(),
+        location_source="zip 90001 (intake): Los Angeles",
+        year=year_factor_index(2024, loaded),
+    )
+    result = compute_result(priced, intake(purchase_price="180000.00"), 1, inputs)  # type: ignore[arg-type]
+    assert result.blockers == [] and "blockers" not in result.missing
+    r = result.reconciliation
+    assert r is not None and r.status == "reconciled"
+    a = result.allocation
+    assert a is not None and a.depreciated is True
+    assert a.rows_sum == a.total == result.worksheet.building_basis  # type: ignore[union-attr]
+    assert {x.label for x in a.assets} == {r.label for r in priced}
+    assert a.by_system is not None
 
 
 def test_the_default_source_is_the_square_foot_model() -> None:

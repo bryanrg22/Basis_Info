@@ -25,6 +25,7 @@ from basis.domain.measurements import (
     measurements_from_fields,
     perimeter_ft,
     program_weight,
+    property_missing,
     property_quantities,
     resolve_cost_index,
     roof_area,
@@ -181,19 +182,56 @@ def test_roof_siding_gutter_landscaping_by_hand(full: BuildingMeasurements) -> N
     assert set(property_quantities(full)) == {"roof", "siding", "gutter", "landscaping"}
 
 
-def test_one_story_is_assumed_and_a_small_lot_has_no_landscaping() -> None:
+def test_without_stories_nothing_is_derived_and_the_input_is_named() -> None:
+    """EVAL_REPORT 78: a missing story count is not taken as 1 story (it priced the roof,
+    siding and gutters on the GLA as the footprint); the four labels name it as missing."""
     m = measurements_from_fields(
-        [num("improvements.gla_sqft", "1500"), num("site.area_sqft", "1500")]
+        [num("improvements.gla_sqft", "1500"), num("site.area_sqft", "8000")]
+    )
+    assert footprint(m) is None and siding_area(m) is None and roof_area(m) is None
+    assert property_quantities(m) == {}
+    assert property_missing(m) == dict.fromkeys(
+        ("roof", "siding", "gutter", "landscaping"), "stories"
+    )
+
+
+def test_one_story_and_a_small_lot_has_no_landscaping() -> None:
+    m = measurements_from_fields(
+        [
+            num("improvements.gla_sqft", "1500"),
+            num("improvements.stories", "1"),
+            num("site.area_sqft", "1500"),
+        ]
     )
     fp = footprint(m)
-    assert fp is not None and fp.quantity == Decimal("1500.00")
-    assert fp.assumptions == ("1 story assumed: stories not printed",)
+    assert fp is not None and fp.quantity == Decimal("1500.00") and fp.assumptions == ()
     siding = siding_area(m)
     assert siding is not None and "upper stories" not in siding.formula
     # 1,500 x 9 x 0.85 ... on the perimeter 2 x sqrt(1000) x 2.5 = 158.114: 1,423.03 x 0.85
     assert siding.quantity == Decimal("1209.57")
     assert landscaping_area(m) is None
     assert set(property_quantities(m)) == {"roof", "siding", "gutter"}
+    assert property_missing(m) == {}
+
+
+@pytest.mark.parametrize(("printed", "stories"), [("1.5", "1.5"), ("2.5", "2.5"), ("1", "1")])
+def test_a_half_story_is_kept(printed: str, stories: str) -> None:
+    """EVAL_REPORT 78: 1.5 stories was dropped (and then priced as 1 story)."""
+    m = measurements_from_fields(
+        [num("improvements.gla_sqft", "1500"), num("improvements.stories", printed)]
+    )
+    assert m.stories is not None and m.stories.value == Decimal(stories)
+    fp = footprint(m)
+    assert fp is not None and fp.quantity == (Decimal(1500) / Decimal(stories)).quantize(
+        Decimal("0.01")
+    )
+
+
+def test_a_story_count_that_is_not_one_is_not_read() -> None:
+    m = measurements_from_fields(
+        [num("improvements.gla_sqft", "1500"), num("improvements.stories", "40")]
+    )
+    assert m.stories is None
 
 
 def test_nothing_is_derived_without_a_gla() -> None:
@@ -283,15 +321,52 @@ def test_basement_rooms_are_capped_by_the_finished_area() -> None:
     # Finished 300 SF < 584.4 at the house scale: 300 x 150 / 375 = 120; 300 x 75 / 375 = 60.
     assert areas["bb1"].area_sf == Decimal("120.00")
     assert areas["bath0"].area_sf == Decimal("60.00")
-    assert "would exceed the finished area" in areas["bb1"].formula
+    assert "would exceed the finished basement area" in areas["bb1"].formula
+    assert areas["bb1"].missing is None
     assert areas["bb1"].area_sf + areas["bb2"].area_sf + areas["bath0"].area_sf == Decimal(300)
 
 
-def test_basement_finish_defaults_to_100_percent() -> None:
+def test_an_unprinted_basement_finish_is_missing_not_100_percent() -> None:
+    """EVAL_REPORT 78: an unprinted finish was taken as 100 % finished."""
     rows = [r for r in FULL if r.field != "basement_finish_percent"]
     areas = room_areas(measurements_from_fields(rows), ROOMS, "residential_rental")
-    assert areas["bb1"].inputs["basement_finish_field"] == "assumed"
-    assert "basement finish not printed: 100% assumed" in areas["bb1"].assumptions
+    for room in ("bb1", "bb2", "bath0"):
+        assert areas[room].missing == "basement_finish"
+    assert areas["k"].missing is None and areas["g"].missing is None
+
+
+def test_a_basement_room_without_a_basement_area_is_missing_not_gla_sized() -> None:
+    """EVAL_REPORT 78: a lone basement room with no above-grade room, no room count and no
+    basement area was sized GLA x 150 SF (277,500 SF for a 1,850 SF house)."""
+    m = measurements_from_fields([num("improvements.gla_sqft", "1850")])
+    areas = room_areas(m, [RoomStub("bsmt", "bedroom", "0")], "residential_rental")
+    assert areas["bsmt"].missing == "basement_area"
+    assert areas["bsmt"].area_sf < 1000  # a typical area for the type, never priced
+
+
+def test_a_lone_basement_room_with_a_printed_area_is_capped_by_it() -> None:
+    m = measurements_from_fields(
+        [
+            num("improvements.gla_sqft", "1850"),
+            num("improvements.basement_area_sqft", "900"),
+            num("improvements.basement_finish_percent", "50"),
+        ]
+    )
+    areas = room_areas(m, [RoomStub("bsmt", "bedroom", "0")], "residential_rental")
+    assert areas["bsmt"].missing is None and areas["bsmt"].area_sf == Decimal("450.00")
+
+
+def test_an_unfinished_basement_is_sized_on_its_floor() -> None:
+    m = measurements_from_fields(
+        [
+            num("improvements.gla_sqft", "1850"),
+            num("improvements.basement_area_sqft", "900"),
+            num("improvements.basement_finish_percent", "0"),
+        ]
+    )
+    areas = room_areas(m, [RoomStub("bsmt", "utility", "0")], "residential_rental")
+    assert areas["bsmt"].missing is None and areas["bsmt"].area_sf == Decimal("900.00")
+    assert "unfinished basement floor" in areas["bsmt"].formula
 
 
 def test_without_a_room_count_the_study_rooms_are_the_denominator() -> None:

@@ -124,8 +124,11 @@ def test_summary_carries_the_basis_result() -> None:
     )
     with_intake = assemble_pack(**rows(), intake=intake).summary["basis"]
     assert with_intake["worksheet"]["total_basis"] == "80000.00"
-    assert with_intake["allocation"]["rows_sum"] == "80000.00"
-    assert with_intake["allocation"]["by_bucket"][0]["allocated"] == "80000.00"
+    # No appraisal fields in the pack: nothing reconciles the schedule, so the allocation is
+    # withheld and the export says why (EVAL_REPORT 78).
+    assert with_intake["allocation"] is None
+    assert "blockers" in with_intake["missing"]
+    assert "appraisal_fields" in [b["code"] for b in with_intake["blockers"]]
     assert with_intake["revision"] == 1
 
 

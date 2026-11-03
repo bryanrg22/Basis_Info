@@ -167,6 +167,7 @@ from basis.domain.costs import (
     CostError,
     CostEstimate,
     Markup,
+    MissingCostRow,
     NeedsQuantity,
     estimate_cost,
     year_factor_index,
@@ -175,20 +176,30 @@ from basis.domain.cross_validation import cross_validate
 from basis.domain.intake import StudyIntake
 from basis.domain.measurements import (
     NEEDS_MEASUREMENT,
+    PROPERTY_LABELS,
     BuildingMeasurements,
     CostIndex,
     Derived,
     RoomArea,
     measurements_from_fields,
+    property_missing,
     property_quantities,
     resolve_cost_index,
     room_areas,
+)
+from basis.domain.money_inputs import (
+    GUESSED_RUNS,
+    MISSING_INPUT,
+    REASON_PREFIX,
+    missing,
+    with_missing_input,
 )
 from basis.domain.rooms import guidance_for, typical_area_sf
 from basis.domain.rules import RECOVERY_YEARS, PropertyClass, check_property_class, lookup
 from basis.domain.structure import (
     STRUCTURE_LABELS,
     BuildingRcn,
+    ConcealedRow,
     CostApproach,
     ItemizedRow,
     ModelOverride,
@@ -631,7 +642,7 @@ async def _write(
             rule_key, extra_inputs = result.rule_key, {}
             citations = result.citations
         takeoff = _takeoff(component, room, rule_key, plan, measured, asset.id)
-        cost, priced_per = _cost(
+        cost, priced_per, not_priced = _cost(
             takeoff,
             plan.index,
             table,
@@ -649,8 +660,12 @@ async def _write(
                 priced_per=priced_per,
             )
             if i.needs_review
+            # A row not priced for a named reason is not a missing cost row.
+            and not (not_priced is not None and i.code in UNPRICED_CODES)
         ]
         extra_reasons = [f"cross:{i.code}" for i in issues]
+        if not_priced is not None:
+            extra_reasons.insert(0, not_priced.reason)
         if cost is not None and cost.year_assumption is not None:
             # The cost year has no published index loaded (COST_INDICES.md section 4): the
             # dollars stand on the latest index until the firm supplies the year's.
@@ -680,7 +695,7 @@ async def _write(
             formula=takeoff.formula,
             inputs=takeoff_inputs,
         )
-        source_row = _source_row(takeoff, cost)
+        source_row = _source_row(takeoff, cost, not_priced)
         await assets.add_cost_estimate(
             asset=asset,
             unit_cost=None if cost is None else cost.unit_cost,
@@ -707,7 +722,10 @@ async def _write(
             row.verified_at = datetime.now(UTC)
         needs_review += asset.needs_review
         itemized.append(
-            ItemizedRow(component.label, None if cost is None else cost.total, _count(component))
+            # An unknown count credits nothing found (the study is withheld for it anyway).
+            ItemizedRow(
+                component.label, None if cost is None else cost.total, _count(component) or 0
+            )
         )
     concealed = 0
     if structure is not None:
@@ -763,7 +781,9 @@ async def _write_structure(
     table's row for a small system; the small systems inside the model are carved from
     their component like the itemized rows). Returns ``(rows written, rows needing review)``."""
 
-    def price(label: str, takeoff: Takeoff) -> tuple[CostEstimate | None, str | None]:
+    def price(
+        label: str, takeoff: Takeoff
+    ) -> tuple[CostEstimate | None, str | None, NotPriced | None]:
         return _cost(
             takeoff,
             plan.index,
@@ -776,16 +796,7 @@ async def _write_structure(
     small = small_system_inputs(inputs.measurements, inputs.cost_approach, itemized)
     small_priced: dict[str, Decimal | None] = {}
     for small_row in small_system_rows(small):
-        estimate, _ = price(
-            small_row.label,
-            Takeoff(
-                component=small_row.label,
-                quantity=small_row.quantity,
-                unit=small_row.unit,
-                formula=small_row.formula,
-                method=small_row.method,
-            ),
-        )
+        estimate, _, _ = price(small_row.label, _small_takeoff(small_row))
         small_priced[small_row.label] = None if estimate is None else estimate.total
     carve = None
     if building is not None:
@@ -810,13 +821,7 @@ async def _write_structure(
         else:
             reasons = [r for r in (result.review_reason or "").split("; ") if r]
         reasons += list(row.review_reasons)
-        takeoff = Takeoff(
-            component=row.label,
-            quantity=row.quantity,
-            unit=row.unit,
-            formula=row.formula,
-            method=row.method,
-        )
+        takeoff = _small_takeoff(row)
         cost: CostEstimate | None = None
         priced_per: str | None = None
         if row.rcn is not None:
@@ -840,12 +845,14 @@ async def _write_structure(
         else:
             # A small system: priced from the cost table's row for the label, like any
             # other label; without a row it stays unpriced with the reason.
-            cost, priced_per = price(row.label, takeoff)
+            cost, priced_per, not_priced = price(row.label, takeoff)
             unit_cost = None if cost is None else cost.unit_cost
             total = None if cost is None else cost.total
-            source_row = _source_row(takeoff, cost)
+            source_row = _source_row(takeoff, cost, not_priced)
             location_factor = plan.index.location_factor
-            if cost is None:
+            if not_priced is not None:
+                reasons.append(not_priced.reason)
+            elif cost is None:
                 reasons.append(
                     "cross:COST_NEEDS_QUANTITY" if priced_per else "cross:COST_ROW_MISSING"
                 )
@@ -1026,16 +1033,18 @@ def component_view(component: Component, room: Room | None, property_class: str)
         room_type=room.room_type if room else None,
         room_name=room.name if room else None,
         property_class=property_class,  # type: ignore[arg-type]
-        count=_count(component),
+        count=_count(component) or 1,  # context for the classifier only; never priced
         notes=notes[:2000] if isinstance(notes, str) else None,
         room_guidance=guidance.guidance if guidance.found else None,
     )
 
 
-def _count(component: Component) -> int:
+def _count(component: Component) -> int | None:
+    """The component's count, or None when it has none (a missing or invalid count is not
+    taken as 1: EVAL_REPORT 78)."""
     raw = component.raw if isinstance(component.raw, dict) else {}
     count = raw.get("count")
-    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else 1
+    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else None
 
 
 async def corpus_versions(
@@ -1210,6 +1219,12 @@ class TakeoffPlan:
     property_class: str
     from_appraisal: bool
     study_inputs: dict[str, str | int | bool | None]
+    # For each property-level label the appraisal cannot size, the missing input (a
+    # ``money_inputs.INPUTS`` code): its row is written unpriced (EVAL_REPORT 78).
+    property_missing: dict[str, str] = field(default_factory=dict)
+    # Why no room has a measured area (no extraction fields: ``gla``; TAKEOFF_AREAS=typical:
+    # ``takeoff_areas_typical``); None when the rooms are sized from the appraisal.
+    area_missing: str | None = None
 
     @classmethod
     def build(
@@ -1233,6 +1248,13 @@ class TakeoffPlan:
                 for room_id, area in room_areas(measurements, rooms, property_class).items()
             }
             quantities = property_quantities(measurements)
+        area_missing: str | None = None
+        if from_appraisal:
+            assert measurements is not None
+            missing_property = property_missing(measurements)
+        else:
+            area_missing = "gla" if measurements is None else "takeoff_areas_typical"
+            missing_property = dict.fromkeys(PROPERTY_LABELS, area_missing)
         setting_factor = Decimal(str(settings.cost_location_factor))
         if settings.cost_index == "study" and (measurements is not None or intake is not None):
             index = resolve_cost_index(
@@ -1266,7 +1288,16 @@ class TakeoffPlan:
             study_inputs["cost_year_assumption"] = index.year_assumption
         if index.year_conversion is not None:
             study_inputs["cost_year_conversion"] = index.year_conversion
-        return cls(areas, quantities, index, property_class, from_appraisal, study_inputs)
+        return cls(
+            areas,
+            quantities,
+            index,
+            property_class,
+            from_appraisal,
+            study_inputs,
+            missing_property,
+            area_missing,
+        )
 
 
 def _takeoff(
@@ -1279,14 +1310,23 @@ def _takeoff(
 ) -> Takeoff:
     key = takeoff_key(rule_key or component.label)
     derived = plan.property.get(key)
+    count = _count(component)
     if derived is not None:
-        takeoff = _property_takeoff(key, derived, _count(component))
+        takeoff = _property_takeoff(key, derived, count or 1)
         scope = "property"
+    elif key in plan.property_missing:
+        return with_missing_input(
+            _room_takeoff(component, room, key, plan), plan.property_missing[key]
+        )
     else:
         takeoff = _room_takeoff(component, room, key, plan)
         scope = f"room:{component.room_id}"
-    if not takeoff.is_measured:
+    if takeoff.inputs.get(MISSING_INPUT):
         return takeoff
+    if not takeoff.is_measured:
+        # A counted item prices on its count: a component with none is not counted as 1
+        # (before EVAL_REPORT 78 it was).
+        return takeoff if count is not None else with_missing_input(takeoff, "count")
     first = measured.setdefault((scope, takeoff_key(takeoff.component)), asset_id)
     if first == asset_id:
         return takeoff
@@ -1307,19 +1347,25 @@ def _takeoff(
 
 
 def _room_takeoff(component: Component, room: Room | None, key: str, plan: TakeoffPlan) -> Takeoff:
-    """A room-level takeoff on the room's planned area (the typical area when the plan
-    has none for the room: no appraisal field, or TAKEOFF_AREAS=typical)."""
+    """A room-level takeoff on the room's planned area. A measured item whose room has no
+    measured area (no GLA, no garage or basement area or finish, an exterior room, no room,
+    or TAKEOFF_AREAS=typical), and a cabinet run (the room's perimeter is not one), is
+    written unpriced with the missing input named (EVAL_REPORT 78); the typical area once
+    priced it. A counted item does not use the area."""
     planned = plan.room_areas.get(room.id) if room is not None else None
+    count = _count(component) or 1  # the count is checked by _takeoff; not used for areas
     if planned is None:
         area, known = typical_area_sf(room.room_type if room else None, plan.property_class)
         source = "typical_for_room_type" if known else "default_150_sf"
         extra: dict[str, str | int | bool | None] = {}
         assumptions: tuple[str, ...] = ()
+        missing_code: str | None = "room" if room is None else (plan.area_missing or "gla")
     else:
         area, source = planned.area_sf, planned.source
         extra = {"room_area_formula": planned.formula, **planned.inputs}
         assumptions = planned.assumptions
-    takeoff = estimate_quantity(key, area, _count(component))
+        missing_code = planned.missing
+    takeoff = estimate_quantity(key, area, count)
     inputs: dict[str, str | int | bool | None] = {
         **takeoff.inputs,
         "room_area_source": source,
@@ -1328,7 +1374,7 @@ def _room_takeoff(component: Component, room: Room | None, key: str, plan: Takeo
         inputs.update(extra)
     if plan.from_appraisal and key in NEEDS_MEASUREMENT:
         inputs["needs_measurement"] = NEEDS_MEASUREMENT[key]
-    return Takeoff(
+    built = Takeoff(
         **{
             **_fields(takeoff),
             "inputs": inputs,
@@ -1337,6 +1383,11 @@ def _room_takeoff(component: Component, room: Room | None, key: str, plan: Takeo
             else takeoff.assumptions,
         }
     )
+    if built.is_measured and key in GUESSED_RUNS:
+        return with_missing_input(built, "cabinet_run")
+    if built.is_measured and missing_code is not None:
+        return with_missing_input(built, missing_code)
+    return built
 
 
 def _property_takeoff(key: str, derived: Derived, count: int) -> Takeoff:
@@ -1407,6 +1458,37 @@ def _building(inputs: StructureInputs) -> BuildingRcn | None:
     )
 
 
+def _small_takeoff(row: ConcealedRow) -> Takeoff:
+    """A structure-model row as a takeoff; a row missing an input (an ``input:<code>``
+    review reason, e.g. the fire alarm without stories) is written unpriced."""
+    takeoff = Takeoff(
+        component=row.label,
+        quantity=row.quantity,
+        unit=row.unit,
+        formula=row.formula,
+        method=row.method,
+    )
+    for reason in row.review_reasons:
+        if reason.startswith(REASON_PREFIX):
+            return with_missing_input(takeoff, reason[len(REASON_PREFIX) :])
+    return takeoff
+
+
+# The cross-validation codes of a row the cost table cannot price; a row not priced for a
+# named reason (a missing input, a pricing error) carries that reason instead.
+UNPRICED_CODES: Final = frozenset({"COST_ROW_MISSING", "COST_NEEDS_QUANTITY"})
+
+
+@dataclass(frozen=True, slots=True)
+class NotPriced:
+    """Why a row is not priced, when it is not the cost table lacking a row (that stays
+    ``cross:COST_ROW_MISSING`` / ``COST_NEEDS_QUANTITY``): the review ``reason`` written on
+    the asset and the ``source`` written on its cost row (EVAL_REPORT 78)."""
+
+    reason: str
+    source: str
+
+
 def _cost(
     takeoff: Takeoff,
     index: CostIndex,
@@ -1414,11 +1496,17 @@ def _cost(
     label: str,
     basis: CostBasis = DEFAULT_COST_BASIS,
     markup: Markup | None = None,
-) -> tuple[CostEstimate | None, str | None]:
-    """The estimate, or ``None`` and the unit a table row prices the label in when the
-    takeoff is in another unit (``NeedsQuantity``). ``basis`` and ``markup`` as
-    :func:`basis.domain.costs.estimate_cost` takes them (the settings' cost basis; the
-    model's general contractor's O&P on a row inside it)."""
+) -> tuple[CostEstimate | None, str | None, NotPriced | None]:
+    """``(estimate, priced_per, not_priced)``: the estimate; or None with the unit a table
+    row prices the label in when the takeoff is in another unit (``NeedsQuantity``); or None
+    with why it is not priced. A takeoff missing an input (``inputs[MISSING_INPUT]``) is
+    never priced, and an error other than a missing row (a cost year before the index, a
+    table on another base year, a bad location factor) is named, not reported as a missing
+    row (it was until EVAL_REPORT 78). ``basis`` and ``markup`` as
+    :func:`basis.domain.costs.estimate_cost` takes them."""
+    code = takeoff.inputs.get(MISSING_INPUT)
+    if isinstance(code, str):
+        return None, None, NotPriced(f"input:{code}", f"missing input: {missing(code).what}")
     try:
         estimate = estimate_cost(
             takeoff,
@@ -1433,15 +1521,19 @@ def _cost(
             markup=markup,
         )
     except NeedsQuantity as exc:
-        return None, exc.unit
-    except CostError:
-        return None, None
-    return estimate, None
+        return None, exc.unit, None
+    except MissingCostRow:
+        return None, None, None
+    except CostError as exc:
+        return None, None, NotPriced("cost:not_priced", f"not priced: {exc}")
+    return estimate, None, None
 
 
-def _source_row(takeoff: Takeoff, cost: CostEstimate | None) -> str:
+def _source_row(takeoff: Takeoff, cost: CostEstimate | None, why: NotPriced | None = None) -> str:
     if cost is not None:
         return cost.source_row
+    if why is not None:
+        return why.source
     return f"missing: no cost row for {takeoff.component!r} per {takeoff.unit}"
 
 

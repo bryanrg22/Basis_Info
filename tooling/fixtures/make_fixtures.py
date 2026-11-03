@@ -589,7 +589,7 @@ SITE = [
 
 IMPROVEMENTS = [
     F("improvements.units", "Units", "One"),
-    F("improvements.stories", "Stories", "2", 2, "int"),
+    F("improvements.stories", "Stories", "2", 2.0, "float"),  # a decimal: EVAL_REPORT 78
     F("improvements.type", "Type", "Detached"),
     F("improvements.design_style", "Design (Style)", "Colonial"),
     F("improvements.year_built", "Year Built", "1987", 1987, "int", critical=True),

@@ -12326,6 +12326,39 @@
         ],
         "title": "AuditOut"
       },
+      "BlockerOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable: `input:<input>` (a missing input; `docs/api/STUDY_RESULT.md` lists them), `unpriced`, `unclassified`, `appraisal_fields`, `building_rcn`, `depreciation`, `cost_index`."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "What is missing, in the reviewer's words."
+          },
+          "assets": {
+            "type": "integer",
+            "title": "Assets",
+            "description": "The assets it leaves unpriced or unclassified; 0 for the study."
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix",
+            "description": "Where the engineer supplies it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "assets",
+          "fix"
+        ],
+        "title": "BlockerOut",
+        "description": "One reason the allocation (and so the report) is withheld (EVAL_REPORT 78)."
+      },
       "BoxIn": {
         "properties": {
           "x1": {
@@ -25576,7 +25609,15 @@
             },
             "type": "array",
             "title": "Missing",
-            "description": "What the result lacks: `intake` (no basis without it), `building_rcn` (no appraisal cost approach and no living area), `depreciation` (no rate), `allocation` (nothing priced, or the reconciliation is not within tolerance), `cost_index` (no loaded index for the cost year: `cost_index` says which value to enter), `repricing` (the recorded pricing is stale: `pricing` says why), or nothing."
+            "description": "What the result lacks: `intake` (no basis without it), `building_rcn` (no appraisal cost approach and no living area), `depreciation` (no rate), `allocation` (nothing priced, or the reconciliation is not within tolerance), `cost_index` (no loaded index for the cost year: `cost_index` says which value to enter), `repricing` (the recorded pricing is stale: `pricing` says why), `blockers` (an input the dollars need is missing: `blockers` lists each), or nothing."
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/BlockerOut"
+            },
+            "type": "array",
+            "title": "Blockers",
+            "description": "Every reason the allocation is withheld because an input is missing, an asset is unpriced or unclassified, or the building model stands on an assumed input (EVAL_REPORT 78): no report is rendered or signed while one remains."
           },
           "cost_index": {
             "anyOf": [

@@ -186,7 +186,9 @@ FIELDS: Final[tuple[FieldSpec, ...]] = (
     F("site.fema_map_date", "FEMA Map Date", "date"),
     # Improvements
     F("improvements.units", "Units"),
-    F("improvements.stories", "Stories", "int", "# of Stories"),
+    # A decimal (EVAL_REPORT 78): 1.5 stories was truncated to 1 as an int, which priced the
+    # roof, siding and gutters on the wrong footprint and chose the 1-story RSMeans model.
+    F("improvements.stories", "Stories", "float", "# of Stories"),
     F("improvements.type", "Type"),
     F("improvements.design_style", "Design (Style)"),
     F("improvements.year_built", "Year Built", "int", critical=True),

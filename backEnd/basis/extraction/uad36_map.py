@@ -3561,7 +3561,7 @@ MAPPING: Final[dict[str, dict[str, Any]]] = {
     },
     "improvements.stories": {
         "label": "Stories",
-        "type": "int",
+        "type": "float",
         "status": "mapped",
         "rule": "number",
         "sources": (

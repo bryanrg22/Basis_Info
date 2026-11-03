@@ -145,8 +145,8 @@
     },
     {
       "path": "urar_sample.expected.json",
-      "sha256": "1f0a95bbb10f3cb3b6e768a19bbda5808efbe1134be89aaa88edb432a8795b3f",
-      "bytes": 31325
+      "sha256": "6b4e18e0d63ed00ad718f95da6366496b4ca6c04cbdd0351fe008b2c90e2bb3f",
+      "bytes": 31329
     },
     {
       "path": "urar_sample.pdf",
@@ -160,8 +160,8 @@
     },
     {
       "path": "urar_scan_noisy.expected.json",
-      "sha256": "e6822e950d1fe0d7c18eab54a1ad32882cb8873bed603dcf97308cab69ef6385",
-      "bytes": 31653
+      "sha256": "f26f2e764245a1578adba4ea1481bbd91bbec653533ec07c057045d1a7e2e18e",
+      "bytes": 31657
     },
     {
       "path": "urar_scan_noisy.pdf",
