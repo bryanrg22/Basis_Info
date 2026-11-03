@@ -123,7 +123,10 @@ class CostIndexOut(ResponseModel):
 class CostIndexRunOut(ResponseModel):
     id: uuid.UUID
     source: str
-    trigger: str = Field(description="`seed`, `refresh`, `manual` or `import`.")
+    trigger: str = Field(
+        description="`seed`, `refresh`, `manual`, `import`, or `study` (a study whose cost "
+        "year the store lacked asked for it before pricing)."
+    )
     actor_type: str
     actor_id: uuid.UUID | None
     actor_name: str | None

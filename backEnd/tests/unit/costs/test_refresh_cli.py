@@ -35,9 +35,24 @@ def test_the_registry_knows_three_sources_and_refuses_an_unknown_name() -> None:
         fetchers_for(settings(cost_index_sources="rsmeans_2020_book"), ["rsmeans_public"])
 
 
-def test_fetching_is_off_by_default_and_the_sources_are_settings() -> None:
-    assert settings().cost_index_fetch == "off"
-    assert settings(cost_index_fetch="on").cost_index_fetch == "on"
+def test_fetching_is_off_by_default_in_test_only_and_the_sources_are_settings() -> None:
+    """EVAL_REPORT 77: on by default in dev, staging and prod (Bryan's decision); off in
+    test so no test reaches the network; COST_INDEX_FETCH set wins everywhere."""
+    assert settings().cost_index_fetch is None and settings().cost_index_fetching == "off"
+    assert settings(cost_index_fetch="on").cost_index_fetching == "on"
+    deployed = {
+        "database_url": "postgresql://u:p@localhost:5432/basis",  # pragma: allowlist secret
+        "gcs_bucket": "b",
+        "firebase_project_id": "p",
+        "rate_limit_store": "postgres",
+        "cors_allowed_origins": "https://app.example",
+        "embedding_model": "intfloat/e5-small-v2",
+    }
+    for env, extra in (("dev", {}), ("staging", deployed), ("prod", deployed)):
+        on = Settings(_env_file=None, basis_env=env, **extra)  # type: ignore[arg-type]
+        assert on.cost_index_fetching == "on", env
+        off = Settings(_env_file=None, basis_env=env, cost_index_fetch="off", **extra)  # type: ignore[arg-type]
+        assert off.cost_index_fetching == "off", env
     assert settings().cost_index_fetch_timeout_s == 30.0
     assert settings().rsmeans_api_url is None and settings().rsmeans_api_key is None
 

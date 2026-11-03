@@ -400,11 +400,15 @@ fetcher for the years the store lacks from that source, with a timeout
 per source per run. A second run adds nothing (the tests pin it). It never touches a study: a
 study prices with whatever the store holds when its assets step runs, and a value that
 arrives later reaches it when the step reruns (a rejection at the assets gate, or
-`POST /retry`). Network fetches happen only here and in the CLI, never inside a request.
+`POST /retry`). Network fetches happen here, in the CLI and, since EVAL_REPORT 77, in the assets
+step of a study whose cost year the store lacks (before it prices, no connection held,
+`trigger = study`); never inside an API request.
 
-Two decisions are settings, not assumptions: **`COST_INDEX_FETCH`** (default `off`: the job
-asks only the offline sources, so a deployment prices from the seeded store and the firm's
-manual entries until the firm turns fetching on; `on`: the enabled network fetchers too) and
+Two decisions are settings, not assumptions: **`COST_INDEX_FETCH`** (default `on` in dev,
+staging and prod since 2026-11-02, Bryan's decision, EVAL_REPORT 77: the enabled network
+fetchers are asked by the job and by a study whose cost year is missing; `off`, the default in
+test only: the offline sources alone, so a deployment prices from the seeded store and the
+firm's manual entries) and
 **`COST_INDEX_SOURCES`** (default `rsmeans_2020_book,rsmeans_public`: which fetchers the job
 asks and the order a year's value is preferred in; a manual entry always comes first). A
 network source is recorded as `skipped` with the reason while fetching is off or its

@@ -32,7 +32,7 @@ NATIONAL: Final = "US"
 MAX_PAGE: Final = 1000
 LOCK_KEY: Final = "cost_indices"
 
-Trigger = Literal["seed", "refresh", "manual", "import"]
+Trigger = Literal["seed", "refresh", "manual", "import", "study"]
 RunStatus = Literal["ok", "skipped", "failed"]
 Actor = Literal["engineer", "system"]
 

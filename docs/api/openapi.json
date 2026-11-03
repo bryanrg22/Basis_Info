@@ -15478,7 +15478,7 @@
           "trigger": {
             "type": "string",
             "title": "Trigger",
-            "description": "`seed`, `refresh`, `manual` or `import`."
+            "description": "`seed`, `refresh`, `manual`, `import`, or `study` (a study whose cost year the store lacked asked for it before pricing)."
           },
           "actor_type": {
             "type": "string",
