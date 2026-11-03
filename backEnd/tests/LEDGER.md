@@ -595,3 +595,10 @@ upload slow tests 142 passed.
 |---|---|---|
 | `tests/unit/test_developer_workflow_content.py` | Added: every comparison row has a plain name and its setup, each model's exact id appears in the cited section; every comparison is filed under a part of "How it works", and a part with none says why; figures compared with bold and code marks removed, "None (no AI model)" a placeholder | 86 passed |
 | `web/tests/developer-workflow.test.cjs` | Added: a dialog shows the question, plain setup names, exact models with provider, effort and temperature, the tokens column, the column legend and the model key; results grouped by part with the gap text; a setup without a model says so; names escaped | 13 passed |
+
+## Plain "How it works" with the systems each part runs (2026-11-02)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/test_developer_workflow_content.py` | Added: every part of a step names the systems it runs, and a model there equals the production default (model and effort) of the setting it names in `basis/config.py`, temperature "default (not settable)"; checked to fail when a model is changed | 98 passed |
+| `web/tests/developer-workflow.test.cjs`, `developer-health.test.cjs`, `developer-run-records.test.cjs` | Rewritten for the dialogs without the runtime table: every dialog has "How it works" and "Tests & results", the systems list with logos and exact models (no setting names), escaped text, no feed text in a dialog | 345 passed (all web tests) |

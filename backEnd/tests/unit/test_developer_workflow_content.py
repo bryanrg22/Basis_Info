@@ -16,6 +16,8 @@ source links. Nothing in it is computed at run time, so this test is what keeps 
   from ``GET /v1/ops/eval-runs``) is a released prompt name or a component a harness stands
   for in ``evals.record.HARNESS_COMPONENTS``, with none for an engineer's review;
 * the shape the renderer relies on holds (three explanation steps, one value per column);
+* every part of "How it works" names the systems it runs today (``uses``), and a model there is
+  the production default (model and effort) of the setting it names in ``basis/config.py``;
 * every comparison row says, for a person, what was compared: a plain name and its setup,
   each model of which (the exact id) appears in the cited section, so the page never names a
   model the report does not; every comparison is filed under the part of "How it works" it
@@ -36,6 +38,7 @@ from typing import Any
 
 import pytest
 
+from basis.config import Settings
 from basis.llm import prompts
 from basis.ops.services import SERVICE_IDS
 from evals import record
@@ -249,3 +252,22 @@ def test_every_part_has_its_comparisons_or_says_why_not(step_id: str) -> None:
     gaps = results.get("gaps", {})
     for number in range(1, len(step["how"]) + 1):
         assert (number in parts) != (str(number) in gaps), (step_id, number)
+
+
+@pytest.mark.parametrize("step_id", STEP_IDS)
+def test_every_part_names_the_systems_it_runs_and_models_are_the_production_defaults(
+    step_id: str,
+) -> None:
+    """A part's `uses` say what runs today: a model there must be the production default of
+    the setting it names (model and effort), so the page cannot drift from basis/config.py."""
+    fields = Settings.model_fields
+    for part in content()["steps"][step_id]["how"]:
+        assert part.get("uses"), (step_id, part["title"])
+        for use in part["uses"]:
+            assert use["name"] and use["system"] and use["provider"], use
+            setting = use.get("setting")
+            if setting is None:
+                continue
+            assert fields[setting].default == use["system"], (step_id, setting, use["system"])
+            assert fields[use["effort_setting"]].default == use["effort"], (step_id, use)
+            assert use["temperature"] == "default (not settable)", use

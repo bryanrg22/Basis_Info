@@ -29,35 +29,32 @@ const services=()=>H.snapshot(basic,feed,now);
 const node=id=>H.FLOW.flat().find(n=>n.id===id);
 const fresh=()=>{A.setContent(JSON.parse(JSON.stringify(CONTENT)));return A};
 
-test('the content file has every workflow step, three explanation steps each, and loads',()=>{
+test('the content file has every workflow step, three explanation steps each with the systems they run, and loads',()=>{
  assert.ok(fresh().validContent(CONTENT));
- for(const n of H.FLOW.flat()){const step=CONTENT.steps[n.id];assert.ok(step,n.id);assert.equal(step.how.length,3);assert.ok(step.runtime.length>0);assert.ok(step.results.summary);assert.ok(step.links.length>0);
-  for(const row of step.runtime)assert.ok(H.SERVICES.some(s=>s.id===row.service),row.service)}
+ for(const n of H.FLOW.flat()){const step=CONTENT.steps[n.id];assert.ok(step,n.id);assert.equal(step.how.length,3);assert.ok(step.results.summary);assert.ok(step.links.length>0);
+  for(const part of step.how){assert.ok(Array.isArray(part.uses)&&part.uses.length>0,`${n.id}: ${part.title}`);for(const u of part.uses)assert.ok(u.name&&u.system&&u.provider,JSON.stringify(u))}}
 });
-test('build inventory speaks of components, with one runtime row per model role and the SAM 3 row',()=>{
- const html=fresh().render(node('inventory'),services(),H);
- assert.ok(html.includes('Count each component once'));
- assert.ok(!/room inventory call/i.test(html.split('Current runtime')[0]));
- assert.ok(html.includes('ROOM_MODEL')&&html.includes('gpt-6-luna')&&html.includes('claude-sonnet-5-5'));
+test('every dialog explains its parts in plain words with the systems each one runs, and has no runtime table',()=>{
+ for(const n of H.FLOW.flat()){
+  const html=fresh().render(n,services(),H);
+  assert.ok(html.includes('class="dialog-section-title">How it works')&&html.includes('class="dialog-section-title">Tests &amp; results'),n.id);
+  assert.ok(!html.includes('Current runtime'),n.id);
+  assert.ok(html.includes('class="uses"'),n.id);
+  assert.ok(!/[A-Z]+_MODEL\b/.test(html.split('Tests &amp; results')[0]),`${n.id}: a setting name in How it works`);
+ }
+});
+test('build inventory names the models it runs today, with provider, effort and temperature, and the logos',()=>{
+ const html=fresh().render(node('inventory'),services(),H).split('Tests &amp; results')[0];
+ assert.ok(html.includes('Count each object once'));
+ assert.ok(html.includes('<code>gpt-6-luna</code>')&&html.includes('<code>claude-sonnet-5-5</code>'));
+ assert.ok(html.includes('effort low')&&html.includes('temperature default (not settable)'));
  assert.ok(html.includes('logos/openai.svg')&&html.includes('logos/claude.svg')&&html.includes('logos/meta.svg'));
- assert.ok(html.includes('SAM 3 (vufinder/sam3@1bf97763d5df)'));
- // The room call and surface crops are off in this worker: not listed as if they ran.
- assert.ok(!html.includes('ROOM_CALL_MODEL')&&!html.includes('SURFACE_CROP_MODEL'));
 });
-test('photo analysis lists the three model roles with the deployment and the fallback, plus SAM 3',()=>{
- const html=fresh().render(node('photos'),services(),H);
- assert.ok(html.includes('gpt-6.1-sol → basis-vision'));
- assert.ok(html.includes('gpt-6.1-sol → OpenAI API · gpt-6.1-sol'));
- assert.ok(html.includes('Microsoft Azure')&&html.includes('logos/azure.svg'));
- assert.ok(html.includes('VISION_FUSION_MODEL')&&html.includes('claude-opus-5-5'));
- assert.ok(html.includes('None configured'));
- assert.ok(html.includes('Count fusion'));
-});
-test('without a feed the runtime table still lists every system and role as Not reported, never a typed model id',()=>{
- const html=fresh().render(node('photos'),H.snapshot(basic,null,now),H).split('<h3>Current runtime</h3>')[1].split('<h3>Tests &amp; results</h3>')[0];
- assert.ok(html.includes('VISION_MODEL')&&html.includes('VISION_SURFACES_MODEL')&&html.includes('VISION_FUSION_MODEL'));
- assert.ok(!html.includes('gpt-6.1-sol')&&!html.includes('claude-opus'));
- assert.ok((html.match(/Not reported/g)||[]).length>=8);
+test('photo analysis lists both counting models, the surfaces model and SAM 3 with its logo',()=>{
+ const html=fresh().render(node('photos'),services(),H).split('Tests &amp; results')[0];
+ assert.ok(html.includes('<code>gpt-6.1-sol</code>')&&html.includes('<code>gpt-6-luna</code>')&&html.includes('<code>claude-opus-5-5</code>'));
+ assert.ok(html.includes('effort medium'));
+ assert.ok(html.includes('<code>SAM 3</code>')&&html.includes('logos/meta.svg'));
 });
 test('the measured results come from the content file with the section links and verbatim figures',()=>{
  const html=fresh().render(node('photos'),services(),H);
@@ -72,27 +69,29 @@ test('a step with no paid call says so instead of a cost',()=>{
  const html=fresh().render(node('photo-results'),services(),H);
  assert.ok(html.includes('No paid call in this step'));
 });
-test('a missing or malformed content file leaves the runtime table and says the content is not loaded',async()=>{
+test('a missing or malformed content file says the content is not loaded and shows no results',async()=>{
  assert.equal(A.setContent({schema_version:2}),false);
  const html=A.render(node('photos'),services(),H);
  assert.ok(html.includes('does not match the supported shape'));
- assert.ok(html.includes('Current runtime')&&html.includes('gpt-6.1-sol'));
- assert.ok(!html.includes('Tests &amp; results'));
+ assert.ok(!html.includes('Current runtime')&&!html.includes('Tests &amp; results'));
  assert.equal(await A.load(async()=>({ok:false,status:404})),false);
  assert.ok(A.contentError.includes('404'));
  assert.equal(await A.load(async()=>{throw new Error('offline')}),false);
  assert.equal(await A.load(async()=>({ok:true,json:async()=>CONTENT})),true);
 });
-test('feed text is escaped and a malformed route cannot name a model',()=>{
- const hostile={schema_version:1,services:[{id:'vision',...ok,model:'<img src=x onerror=1>',hosting:'<b>x</b>',models:[{setting:'VISION_MODEL',model:'<script>1</script>',primary:{provider:'openai'},fallbacks:[{}]},{setting:7}]}]};
- const html=fresh().render(node('photos'),H.snapshot(basic,hostile,now),H);
+test('text in a part is escaped, and a malformed health route cannot name a model',()=>{
+ const c=JSON.parse(JSON.stringify(CONTENT));
+ c.steps.photos.how[0].uses=[{name:'<img src=x onerror=1>',system:'<script>1</script>',provider:'p',brand:'no-such-brand'}];
+ const A2=fresh();A2.setContent(c);
+ const html=A2.render(node('photos'),services(),H);
  assert.ok(!html.includes('<img src=x')&&!html.includes('<script>1')&&html.includes('&lt;script&gt;1'));
- assert.ok(html.includes('no configured provider'));
+ assert.ok(html.includes('class="uses-dot"')||!html.includes('logos/no-such-brand'));
+ const hostile={schema_version:1,services:[{id:'vision',...ok,models:[{setting:'VISION_MODEL',model:'<script>1</script>',primary:{provider:'openai'},fallbacks:[{}]},{setting:7}]}]};
  const route=H.normalize(hostile.services[0],now).models;
  assert.equal(route.length,1);assert.equal(route[0].primary,null);assert.deepEqual(route[0].fallbacks,[]);
 });
 test('nothing in a dialog says a study is signed or completed',()=>{
- for(const n of H.FLOW.flat()){const html=fresh().render(n,services(),H);assert.ok(html.includes('never says whether a study is signed or completed'),n.id);assert.ok(!/<(strong|span|h\d)[^>]*>\s*(study )?(signed|completed)\s*</i.test(html),n.id);assert.ok(!/this study is (signed|completed)/i.test(html),n.id)}
+ for(const n of H.FLOW.flat()){const html=fresh().render(n,services(),H);assert.ok(!/<(strong|span|h\d)[^>]*>\s*(study )?(signed|completed)\s*</i.test(html),n.id);assert.ok(!/this study is (signed|completed)/i.test(html),n.id)}
 });
 test('every source path and link in the content points into the repository',()=>{
  const root=path.join(__dirname,'..','..');
