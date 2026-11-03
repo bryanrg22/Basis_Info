@@ -545,6 +545,43 @@ def test_the_intake_zip_names_the_city_ahead_of_its_state(full: BuildingMeasurem
     )
 
 
+def test_a_zip_listed_under_another_state_is_not_used(full: BuildingMeasurements) -> None:
+    """EVAL_REPORT 86 and 89: the table keys a city by the ZIP's first three digits alone, so
+    a ZIP whose row is in another state than the subject's is skipped with the reason, the
+    next candidate prices the study and ``location_mismatch`` makes the rows flagged."""
+    # An intake ZIP from Illinois on a New York study: the state's mean, flagged.
+    wrong = resolve_cost_index(
+        full, cost_year=2018, location_factor=Decimal(1), state="NY", zip_code="60601"
+    )
+    assert wrong.location_factor == Decimal("0.976")
+    assert wrong.location_source == (
+        "state NY (intake): mean of 32 NY cities (0.91-1.04), RSMeans Residential 2020 "
+        "Location Factors - Residential pp.718-722; zip '60601' (intake) is listed under IL "
+        "in the location table, not the subject's state NY: not used"
+    )
+    assert wrong.location_mismatch is not None and "listed under IL" in wrong.location_mismatch
+    # The same intake ZIP with the matching state: used, nothing flagged.
+    right = resolve_cost_index(
+        full, cost_year=2018, location_factor=Decimal(1), state="IL", zip_code="60601"
+    )
+    assert right.location_factor == Decimal("1.00") and right.location_mismatch is None
+    # No intake state: the appraisal's state (IL in the fixture) vouches for the ZIP.
+    by_appraisal = resolve_cost_index(full, cost_year=2018, location_factor=Decimal(1))
+    assert by_appraisal.location_factor == Decimal("1.00")
+    assert by_appraisal.location_mismatch is None
+
+
+def test_a_zip_with_no_known_state_is_used_as_before() -> None:
+    """Without a state the table lists (none given, or an unknown code), there is nothing to
+    check the ZIP against: its city row applies, unflagged."""
+    m = measurements_from_fields([Row("subject", "zip", value_text="10001")])
+    index = resolve_cost_index(m, cost_year=2018, location_factor=Decimal(1))
+    assert index.location_factor == Decimal("1.01") and index.location_mismatch is None
+    unknown_state = resolve_cost_index(m, cost_year=2018, location_factor=Decimal(1), state="XX")
+    assert unknown_state.location_factor == Decimal("1.01")
+    assert unknown_state.location_mismatch is None
+
+
 def test_a_supplement_lifts_the_assumption_for_a_later_year() -> None:
     supplement = parse_supplement(
         {

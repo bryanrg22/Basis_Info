@@ -14,8 +14,10 @@ Pure: ``Decimal`` end to end, no I/O, no floats, deterministic. Two steps:
 2. :func:`allocate`: one factor on every row (``T = B + CC``), bucket totals and
    percentages, and ``B`` and ``CC`` split pro rata per bucket. With ``depreciated=True``
    (the structure model, docs/review_2026-10-15/STRUCTURE_MODEL.md section 3.8) every row
-   carries its replacement cost new less depreciation and the factor is ``T / ΣRCNLD``, by
-   construction within the reconciliation's tolerance of 1 (the ``rcnld_factor`` check);
+   carries its replacement cost new less depreciation and the factor is ``T / ΣRCNLD``; the
+   ``rcnld_factor`` check applies the reconciliation's own test, ``|B - ΣRCNLD| / B`` within
+   10 % (the factor itself can sit just outside 1 +/- 10 %: it is measured against ΣRCNLD and
+   ``T`` adds the closing costs);
    without it the factor is ``T / ΣRCN``, the design partner's method, and the ATG's
    objection to that uniform factor (ch. 3 A(6), D(3)–(5)) is recorded as the
    ``uniform_factor`` check.
@@ -903,7 +905,7 @@ def allocate(
             raise BasisError("reconciliation failed: the systems do not sum to T")
 
     checks = [
-        _rcnld_factor_check(factor, base_total, total)
+        _rcnld_factor_check(factor, base_total, b, total)
         if depreciated
         else _uniform_factor_check(factor, rcn_total, total)
     ]
@@ -927,19 +929,29 @@ def allocate(
 
 # The reconciliation's tolerance (docs/review_2026-10-15/STRUCTURE_MODEL.md section 3.8):
 # a depreciated schedule is allocated only when its total is within this of the basis.
+# Equal to ``basis.domain.structure.RECONCILIATION_TOLERANCE`` (a test pins the two), and
+# applied to the same quantity, ``|B - ΣRCNLD| / B``. Testing ``|T / ΣRCNLD - 1|`` instead is a
+# different quantity (measured against ΣRCNLD, not B, and with the closing costs in T): a gap
+# of 9.5 % gives a factor of 1.105, so the two checks disagreed for gaps just under 10 %
+# (EVAL_REPORT 85, 89).
 RCNLD_FACTOR_TOLERANCE: Final = Decimal("0.10")
 
 
-def _rcnld_factor_check(factor: Decimal, rcnld_total: Decimal, total: Decimal) -> Check:
+def _rcnld_factor_check(
+    factor: Decimal, rcnld_total: Decimal, building_basis: Decimal, total: Decimal
+) -> Check:
     shown = factor.quantize(FACTOR_PLACES, rounding=ROUND_HALF_UP)
-    within = abs(factor - ONE) <= RCNLD_FACTOR_TOLERANCE
+    gap_share = (building_basis - rcnld_total) / building_basis
+    within = abs(gap_share) <= RCNLD_FACTOR_TOLERANCE
+    side = "below" if gap_share >= 0 else "above"
     return _check(
         "rcnld_factor",
         Severity.OK if within else Severity.WARNING,
         f"the schedule's replacement cost new less depreciation {rcnld_total} is allocated to "
-        f"the basis {total} pro rata (factor {shown}; "
-        f"{'within' if within else 'outside'} {RCNLD_FACTOR_TOLERANCE * HUNDRED} % of 1, the "
-        "square-foot method's accuracy, STRUCTURE_MODEL.md 3.8)",
+        f"T = {total} pro rata (factor {shown}); it is {_pct(abs(gap_share))} {side} the "
+        f"basis B = {building_basis}, {'within' if within else 'outside'} "
+        f"{RCNLD_FACTOR_TOLERANCE * HUNDRED} %, the square-foot method's accuracy and the "
+        "reconciliation's own test (STRUCTURE_MODEL.md 3.8)",
     )
 
 

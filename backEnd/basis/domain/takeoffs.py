@@ -110,11 +110,15 @@ QUANTITY_ESTIMATES: Final[dict[str, QuantitySpec]] = {
     ),
     "ceiling_finish": QuantitySpec("SF", "area", note="Ceiling area = floor area"),
     "crown_molding": QuantitySpec("LF", "perimeter", note="Perimeter estimate"),
+    # 2 ft: the height of the RSMeans line wainscoting is priced on (Residential 2020
+    # 06 22 13.45 5600, "Wainscot moldings ... 2' high", per S.F.), so the quantity is in the
+    # line's own terms; it was 3 ft, a typical height, priced on the 2 ft line (EVAL_REPORT
+    # 87, 89). A taller wainscot is the engineer's measured quantity at the assets review.
     "wainscoting": QuantitySpec(
         "SF",
         "perimeter",
-        per_sf=Decimal(3),
-        note="Perimeter estimate x 3 ft wainscot height",
+        per_sf=Decimal(2),
+        note="Perimeter estimate x 2 ft, the height of the RSMeans wainscot line it is priced on",
     ),
     "concrete_floor": QuantitySpec("SF", "area", note="Floor area"),
 }

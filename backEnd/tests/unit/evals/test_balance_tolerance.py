@@ -101,23 +101,23 @@ def test_defects_are_read_from_the_cell_name_and_mods_count_only_on_the_model() 
 # ------------------------------------------------------------------ the two 10 % checks
 
 
-def test_a_gap_above_one_eleventh_reconciles_but_the_factor_check_reads_outside() -> None:
-    """``|gap_share| <= 10 %`` on B and ``|T / RCNLD - 1| <= 10 %`` are different tests: at a
-    9.5 % gap the reconciliation allocates and ``allocate``'s own check warns."""
+def test_the_old_factor_test_disagreed_and_allocates_check_now_agrees() -> None:
+    """``|gap_share| <= 10 %`` on B and the old ``|T / RCNLD - 1| <= 10 %`` (the harness's
+    ``factor_check_within``, as measured in EVAL_REPORT 85) are different tests: at a 9.5 %
+    gap the old one read outside. Since EVAL_REPORT 89 ``allocate``'s ``rcnld_factor`` check
+    applies the reconciliation's own test, so the two agree, with or without closing costs."""
     b, rcnld = D("100000.00"), D("90500.00")
     gap_share = (b - rcnld) / b
     assert bt.balances(gap_share, bt.PRODUCTION_TOLERANCE_PCT) is True
     result = allocate([RcnRow("r", "y39", D("120000.00"), rcnld=rcnld)], b, D(0), depreciated=True)
     check = result.checks[0]
-    assert check.code == "rcnld_factor" and check.severity.value == "warning"
-    assert bt.factor_check_within(result.factor) is False
-    # at 9.0 % both agree; capitalized costs push the factor further out
-    ok = allocate([RcnRow("r", "y39", D("1"), rcnld=D("91000.00"))], b, D(0), depreciated=True)
-    assert ok.checks[0].severity.value == "ok" and bt.factor_check_within(ok.factor) is True
-    with_cc = allocate(
-        [RcnRow("r", "y39", D("1"), rcnld=D("91000.00"))], b, D("1000.00"), depreciated=True
-    )
-    assert bt.factor_check_within(with_cc.factor) is False
+    assert bt.factor_check_within(result.factor) is False  # the old test
+    assert check.code == "rcnld_factor" and check.severity.value == "ok"  # today's
+    with_cc = allocate([RcnRow("r", "y39", D("1"), rcnld=rcnld)], b, D("1000.00"), depreciated=True)
+    assert with_cc.checks[0].severity.value == "ok"
+    outside = allocate([RcnRow("r", "y39", D("1"), rcnld=D("89000.00"))], b, D(0), depreciated=True)
+    assert bt.balances((b - D("89000.00")) / b, bt.PRODUCTION_TOLERANCE_PCT) is False
+    assert outside.checks[0].severity.value == "warning"
 
 
 def test_the_implied_factor_is_b_plus_capitalized_costs_over_rcnld() -> None:

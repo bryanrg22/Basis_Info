@@ -630,6 +630,17 @@ upload slow tests 142 passed.
 | `tests/unit/evals/test_schedule_vs_engineer.py` | `evals.schedule_vs_engineer` on a synthetic export and engineer schedule: row matching, period, method, convention and bonus comparison, first-year shares under each rule set, the 40 % test, and the stored-report regression | 21 tests, pass |
 | `tests/unit/evals/test_gap_sweep.py` | Unchanged; rerun because `evals/reprice_export.py` gained an optional `LocationChoice` (default behaviour identical) | 3 tests, pass |
 
+## The five defects the free comparisons found, fixed (2026-11-03; EVAL_REPORT 89)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/domain/test_basis.py` | Added: `rcnld_factor` reads ok exactly when the reconciliation would reconcile, `abs(B - ΣRCNLD) / B <= 10 %`, with or without closing costs (9.5 %, exactly 10 %, just over, above and below), and `RCNLD_FACTOR_TOLERANCE` equals `RECONCILIATION_TOLERANCE` | 1 test, pass |
+| `tests/unit/evals/test_balance_tolerance.py` | Changed: the old factor test still disagrees at a 9.5 % gap; `allocate`'s check now agrees with the reconciliation | pass |
+| `tests/unit/domain/test_measurements.py` | Added: a ZIP whose table row is in another state than the subject's is skipped with the reason and `location_mismatch` set; the matching ZIP is used; the appraisal's state vouches when the intake has none; with no known state (none, or an unknown code) the ZIP is used as before | 2 tests, pass |
+| `tests/unit/activities/test_process_assets.py` | Added: a New York study with an Illinois ZIP prices on New York's mean (0.976) and every priced row carries `cost:LOCATION_STATE_MISMATCH` | 1 test, `integration`, pass |
+| `tests/unit/report/test_tax.py` | Added: `mid_quarter_note` warns, with the share and year, when the study's own personal property is more than 40 % in October to December of one year (100 %, 41 %); the generic note otherwise (June, real property only, exactly 40 %, two years, nothing) | 7 tests, pass |
+| `tests/unit/domain/test_takeoff_formulas.py`, `tests/unit/evals/test_takeoff_constants.py` | Changed: wainscoting is measured at 2 ft (40 LF gives 80 SF), the priced RSMeans line's height; the harness's today value is 2 and its 3 ft cell is the value before | pass |
+
 ## iPhone photos (HEIC) read and shown (2026-11-03; EVAL_REPORT 81)
 
 | File | What it checks | Result |

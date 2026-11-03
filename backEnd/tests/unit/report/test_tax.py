@@ -77,3 +77,52 @@ def test_the_bonus_default_keys_on_the_acquisition_date(
 def test_the_bonus_default_refuses_to_guess(acquired: date | None, placed: date, why: str) -> None:
     found = bonus_default(acquired, placed)
     assert found.rate is None and why in found.reason
+
+
+# ------------------------------------------ the study's own mid-quarter test (EVAL_REPORT 89)
+
+
+def _line(bucket: Bucket, basis: str, placed: date) -> tuple[object, Decimal, date]:
+    return (TERMS[bucket], Decimal(basis), placed)
+
+
+def test_a_december_study_says_mid_quarter_likely_applies() -> None:
+    """EVAL_REPORT 88: the client study went into service in December, so all of its
+    personal property is in the last quarter; the note says so, with the share."""
+    from basis.report.tax import MID_QUARTER_NOTE, mid_quarter_note
+
+    dec = date(2024, 12, 3)
+    note = mid_quarter_note(
+        [_line(Bucket.Y5, "100", dec), _line(Bucket.Y15, "50", dec), _line(Bucket.Y39, "900", dec)]
+    )
+    assert note != MID_QUARTER_NOTE
+    assert note.startswith("half-year as printed, but mid-quarter likely applies: 100 %")
+    assert "October to December 2024" in note and "(preparer)" in note
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        [(Bucket.Y5, "100", date(2024, 6, 1))],  # not in the last quarter
+        [(Bucket.Y39, "900", date(2024, 12, 3))],  # real property only
+        [
+            (Bucket.Y5, "40", date(2024, 11, 1)),
+            (Bucket.Y5, "60", date(2024, 3, 1)),
+        ],  # 40 %: not more
+        [(Bucket.Y5, "100", date(2024, 12, 1)), (Bucket.Y5, "100", date(2025, 2, 1))],  # two years
+        [],
+    ],
+)
+def test_otherwise_the_generic_note_stands(lines: list[tuple[Bucket, str, date]]) -> None:
+    from basis.report.tax import MID_QUARTER_NOTE, mid_quarter_note
+
+    assert mid_quarter_note([_line(b, v, d) for b, v, d in lines]) == MID_QUARTER_NOTE
+
+
+def test_just_over_40_percent_in_the_last_quarter_trips_the_test() -> None:
+    from basis.report.tax import MID_QUARTER_NOTE, mid_quarter_note
+
+    note = mid_quarter_note(
+        [_line(Bucket.Y7, "41", date(2024, 10, 1)), _line(Bucket.Y7, "59", date(2024, 9, 30))]
+    )
+    assert note != MID_QUARTER_NOTE and "41 %" in note

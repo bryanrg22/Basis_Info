@@ -534,3 +534,29 @@ def test_money_rounds_half_up() -> None:
     assert money(D("1.005")) == D("1.01")
     assert money(D("1.004")) == D("1.00")
     assert money(D("-1.005")) == D("-1.01")
+
+
+# ---------------------------------------------- one 10 % test (EVAL_REPORT 85, 89)
+
+
+def test_the_rcnld_factor_check_uses_the_reconciliations_tolerance_and_quantity() -> None:
+    """``rcnld_factor`` reads ok exactly when the reconciliation would reconcile:
+    ``|B - ΣRCNLD| / B <= 10 %``, whatever the closing costs. The factor ``T / ΣRCNLD`` alone
+    would read 1.105 at a 9.5 % gap and 1.116 with 1 % closing costs."""
+    from basis.domain.basis import RCNLD_FACTOR_TOLERANCE
+    from basis.domain.structure import RECONCILIATION_TOLERANCE
+
+    assert RCNLD_FACTOR_TOLERANCE == RECONCILIATION_TOLERANCE
+    b = D("100000.00")
+    for rcnld, cc, severity in (
+        ("90500.00", "0.00", "ok"),  # 9.5 % below: reconciled, and now ok
+        ("90500.00", "1000.00", "ok"),  # the closing costs do not change the test
+        ("90000.00", "0.00", "ok"),  # exactly 10 %: reconciled
+        ("89999.99", "0.00", "warning"),  # just over 10 %
+        ("110000.00", "0.00", "ok"),  # 10 % above
+        ("110000.01", "0.00", "warning"),
+    ):
+        a = allocate([RcnRow("r", "y39", D("1.00"), rcnld=D(rcnld))], b, D(cc), depreciated=True)
+        check = a.checks[0]
+        assert check.code == "rcnld_factor" and check.severity.value == severity, (rcnld, cc)
+        assert "the reconciliation's own test" in check.message

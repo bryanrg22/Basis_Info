@@ -243,6 +243,9 @@ logger = logging.getLogger(__name__)
 # (COST_YEAR_INDEX_CONVERTED).
 EXTRAPOLATED_REASON: Final = "cost:YEAR_INDEX_MISSING"
 CONVERTED_REASON: Final = "cost:YEAR_INDEX_CONVERTED"
+# The study's ZIP was skipped for a location factor because its row is in another state
+# (the catalogue's COST_LOCATION_STATE_MISMATCH, EVAL_REPORT 89).
+LOCATION_MISMATCH_REASON: Final = "cost:LOCATION_STATE_MISMATCH"
 # Review reasons the pricing and the structure model write: recomputed by every pricing,
 # so a carried classification (a reprice) drops them and keeps the classification's own.
 PRICING_REASON_PREFIXES: Final = ("cross:", "cost:", "takeoff:", "structure:")
@@ -684,6 +687,8 @@ async def _write(
             extra_reasons.append(EXTRAPOLATED_REASON)
         elif cost is not None and plan.index.year_conversion is not None:
             extra_reasons.append(CONVERTED_REASON)
+        if cost is not None and plan.index.location_mismatch is not None:
+            extra_reasons.append(LOCATION_MISMATCH_REASON)
         if takeoff.inputs.get("quantity_bound") == "upper":
             # A derived quantity that is an upper bound (landscaping = the whole unbuilt
             # lot): priced, but the engineer must confirm or measure it.
@@ -854,6 +859,8 @@ async def _write_structure(
                     reasons.append(EXTRAPOLATED_REASON)
                 elif plan.index.year_conversion is not None:
                     reasons.append(CONVERTED_REASON)
+                if plan.index.location_mismatch is not None:
+                    reasons.append(LOCATION_MISMATCH_REASON)
         else:
             # A small system: priced from the cost table's row for the label, like any
             # other label; without a row it stays unpriced with the reason.
@@ -872,6 +879,8 @@ async def _write_structure(
                 reasons.append(EXTRAPOLATED_REASON)
             elif plan.index.year_conversion is not None:
                 reasons.append(CONVERTED_REASON)
+            if cost is not None and plan.index.location_mismatch is not None:
+                reasons.append(LOCATION_MISMATCH_REASON)
         extra_inputs: dict[str, Any] = {}
         if override is not None:
             # The engineer's correction of the rejected revision's row: their classification,

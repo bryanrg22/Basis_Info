@@ -175,7 +175,7 @@ After, in order:
    a diagnostic, and the engineer corrects the inputs the diagnosis points at.
 
 The uniform factor is no longer an allocation method: `allocation.factor` is the RCNLD ->
-basis factor (near 1 by construction), and the old `T / ΣRCN` appears only as
+basis factor (near 1; the reconciliation's 10 % applies to the gap, not to the factor), and the old `T / ΣRCN` appears only as
 `reconciliation.implied_uniform_factor`.
 
 ## 3. The model
@@ -369,8 +369,9 @@ worksheet; the unpriced count and the clamped components; the cost source of the
 RCN; the depreciation source; the overhead spread).
 
 When reconciled, `allocation.rows[i] = rcnld_i x T / RCNLD_total` (T = B + CC; the
-largest-remainder rule as before; `factor` is now that ratio, within 1 +/- 10 % by
-construction), the bucket block, the pro-rata B/CC block and `by_system` as before. When
+largest-remainder rule as before; `factor` is now that ratio, near 1 but not bounded by 1 +/- 10 %: it is measured against
+RCNLD, not B, and T adds the closing costs, so a 9.5 % gap gives a factor of 1.105; the `rcnld_factor` check
+therefore applies the reconciliation's own test, |gap_share| <= 10 %, EVAL_REPORT 85 and 89), the bucket block, the pro-rata B/CC block and `by_system` as before. When
 unreconciled, `allocation` is null and `missing` says `allocation`: the schedule (RCN and
 RCNLD per row and bucket) is complete and the engineer fixes what the diagnosis names
 (the land figure, a missing quantity, an unpriced row) rather than letting a factor hide

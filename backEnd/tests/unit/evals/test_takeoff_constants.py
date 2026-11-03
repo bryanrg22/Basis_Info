@@ -225,8 +225,9 @@ def test_values_cover_the_stated_range_and_the_published_value_once() -> None:
     assert overhang.values()[-1][0] == "eave_overhang_ft ResStock 2 ft"
     assert tc.published_set()["eave_overhang_ft"] == D(1)
     wainscot = tc.BY_NAME["wainscot_height_ft"]
-    assert [n for n, _ in wainscot.values()][-1] == "wainscot_height_ft cost row 2 ft"
-    assert [v for _, v in wainscot.values()].count(D(2)) == 1  # not again as x0.75 (2.25)
+    # today is the priced line's 2 ft (EVAL_REPORT 89); x1.5 is the 3 ft of before, the trim
+    # guides' published value, cell once (the extra cell of the same value is not repeated)
+    assert [v for _, v in wainscot.values()] == [D(1), D("1.5"), D("2.5"), D(3)]
     assert tc.published_set()["wainscot_height_ft"] == D(3)
     # a typical area: the range, then the survey value
     assert [v for _, v in tc.BY_NAME["kitchen_sf"].values()] == [

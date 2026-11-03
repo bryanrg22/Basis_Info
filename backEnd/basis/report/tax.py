@@ -12,11 +12,14 @@ rate of its placed-in-service year even when placed in service later.
 Nothing here knows the taxpayer's other assets, so the convention for 5, 7 and 15-year
 property is the half-year default with a note: mid-quarter applies when more than 40 % of
 the year's depreciable basis (other than real property) is placed in service in the last
-quarter, which only the preparer can tell.
+quarter, which only the preparer can tell. :func:`mid_quarter_note` runs the test on the
+study's own lines: when they alone exceed 40 % in the last three months, the note says that
+mid-quarter likely applies, with the share (EVAL_REPORT 88, 89).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -33,6 +36,10 @@ MID_QUARTER_NOTE: Final = (
     "half-year by default; mid-quarter applies if more than 40 % of the year's depreciable "
     "basis other than real property was placed in service in the last 3 months (preparer)"
 )
+# Pub 946 "Mid-quarter convention": more than 40 % of the year's depreciable basis (other than
+# real property) placed in service in the last 3 months of the tax year (a calendar year here).
+MID_QUARTER_SHARE: Final = Decimal("0.40")
+LAST_QUARTER_FROM_MONTH: Final = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,9 +198,38 @@ def terms(bucket: Bucket | str) -> ClassTerms:
     return TERMS[Bucket(bucket)]
 
 
+def mid_quarter_note(lines: Iterable[tuple[ClassTerms, Decimal, date]]) -> str:
+    """The convention note for the schedule's 5, 7 and 15-year lines, given each line's terms,
+    basis and placed-in-service date. :data:`MID_QUARTER_NOTE` unless the study's own personal
+    property (not real property) placed in service from October to December is more than 40 %
+    of it; then the note says mid-quarter likely applies, with the share and the year. The
+    preparer still decides: the test counts all the taxpayer's property placed in service that
+    year, and assumes a calendar tax year."""
+    personal = [(basis, placed) for t, basis, placed in lines if not t.real_property and basis > 0]
+    total = sum((basis for basis, _ in personal), Decimal(0))
+    if total <= 0:
+        return MID_QUARTER_NOTE
+    years = {placed.year for _, placed in personal}
+    late = sum(
+        (basis for basis, placed in personal if placed.month >= LAST_QUARTER_FROM_MONTH),
+        Decimal(0),
+    )
+    share = late / total
+    if share <= MID_QUARTER_SHARE or len(years) != 1:
+        return MID_QUARTER_NOTE
+    pct = (share * 100).quantize(Decimal("1"))
+    return (
+        f"half-year as printed, but mid-quarter likely applies: {pct} % of this study's "
+        f"depreciable basis other than real property was placed in service in October to "
+        f"December {years.pop()}, more than 40 %; the test counts all the property the "
+        "taxpayer placed in service that year, on a calendar tax year (preparer)"
+    )
+
+
 __all__ = [
     "FULL_BONUS_AFTER",
     "MID_QUARTER_NOTE",
+    "MID_QUARTER_SHARE",
     "PHASE_DOWN",
     "PUB_946",
     "PUB_946_ADS",
@@ -202,5 +238,6 @@ __all__ = [
     "BonusDefault",
     "ClassTerms",
     "bonus_default",
+    "mid_quarter_note",
     "terms",
 ]

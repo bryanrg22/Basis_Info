@@ -231,6 +231,9 @@ class CostIndex:
     location_lookup: str | None = None
     location_value: str | None = None
     location_from: str | None = None
+    # A ZIP skipped because the location table lists its prefix under another state than the
+    # subject's (EVAL_REPORT 86, 89): the reason, or None. The rows are flagged for review.
+    location_mismatch: str | None = None
 
     @property
     def year_assumption(self) -> str | None:
@@ -869,6 +872,19 @@ def resolve_cost_index(
         candidates.append(("zip", m.zip.value.strip(), m.zip.describe()))
     if m is not None and m.state is not None:
         candidates.append(("state", m.state.value.strip().upper(), m.state.describe()))
+    # The subject's state, to check a ZIP's row against: the location table keys a city row
+    # by the ZIP's first three digits alone, so a mistyped or inconsistent ZIP would price a
+    # property on another state's city (EVAL_REPORT 86: this happened on a client appraisal).
+    # The first known state the table lists (an unknown code such as "XX" cannot vouch for a ZIP).
+    subject_state = next(
+        (
+            value
+            for kind, value, _ in candidates
+            if kind == "state" and location_factor_for_state_code(value, table) is not None
+        ),
+        None,
+    )
+    mismatch: str | None = None
     for kind, value, origin in candidates:
         found = (
             location_factor_for_zip(value, table)
@@ -877,6 +893,14 @@ def resolve_cost_index(
         )
         if found is None:
             unused.append(f"no location factor for {kind} {value!r} ({origin})")
+            continue
+        if kind == "zip" and subject_state is not None and found.state != subject_state:
+            note = (
+                f"zip {value!r} ({origin}) is listed under {found.state} in the location "
+                f"table, not the subject's state {subject_state}: not used"
+            )
+            unused.append(note)
+            mismatch = mismatch or note
             continue
         factor, location, looked_up = found.factor, found, (kind, value, origin)
         location_source = f"{kind} {value} ({origin}): {found.citation()}"
@@ -896,6 +920,7 @@ def resolve_cost_index(
         location_lookup=lookup,
         location_value=looked_value,
         location_from=looked_from,
+        location_mismatch=mismatch,
     )
 
 
