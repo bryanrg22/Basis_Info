@@ -75,6 +75,10 @@ class Handle:
         self.client.calls.append(("signal", name, arg))
         self.client.act("signal")
 
+    async def cancel(self, *, reason: str = "", **kwargs: Any) -> None:
+        self.client.calls.append(("cancel", reason))
+        self.client.act("cancel")
+
     async def execute_update(self, name: str, **kwargs: Any) -> Any:
         self.client.calls.append(("update", name, kwargs.get("result_type")))
         return self.client.act("update") or RetryAck(stage="extracting", revision=2)
@@ -237,19 +241,25 @@ async def test_query_status() -> None:
 
 
 async def test_cancel() -> None:
+    """EVAL_REPORT 76: a Temporal cancellation request (the execution closes CANCELED, so
+    restart works), after a describe: the server accepts a request for a closed execution
+    and ignores it, so only the status says 409."""
     client = StubClient()
     await service(client).cancel("study-s1", "withdrawn")
-    assert client.calls[-1] == ("signal", "cancel_study", "withdrawn")
+    assert client.calls[-1] == ("cancel", "withdrawn")
+    assert not any(call[0] == "signal" for call in client.calls)
 
-    closed = StubClient(signal=NOT_FOUND)
-    closed.status = WorkflowExecutionStatus.COMPLETED
-    with pytest.raises(WorkflowNotRunningError, match="completed, not running"):
-        await service(closed).cancel("study-s1", "x")
-    missing = StubClient(signal=NOT_FOUND, describe=NOT_FOUND)
+    for status in (WorkflowExecutionStatus.COMPLETED, WorkflowExecutionStatus.CANCELED):
+        closed = StubClient()
+        closed.status = status
+        with pytest.raises(WorkflowNotRunningError, match=f"{status.name.lower()}, not running"):
+            await service(closed).cancel("study-s1", "x")
+        assert not any(call[0] == "cancel" for call in closed.calls)  # no request sent
+    missing = StubClient(describe=NOT_FOUND)
     with pytest.raises(WorkflowNotFoundError):
         await service(missing).cancel("study-s1", "x")
     with pytest.raises(WorkflowUnavailableError):
-        await service(StubClient(signal=UNAVAILABLE)).cancel("study-s1", "x")
+        await service(StubClient(cancel=UNAVAILABLE)).cancel("study-s1", "x")
 
 
 async def test_retry() -> None:

@@ -54,7 +54,6 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from basis.temporal.names import (
-    CANCEL_SIGNAL,
     RETRY_UPDATE,
     STATUS_QUERY,
     STUDY_WORKFLOW,
@@ -160,7 +159,8 @@ class WorkflowService(Protocol):
     async def query_status(self, workflow_id: str) -> StudyStatusView: ...
 
     async def cancel(self, workflow_id: str, reason: str) -> None:
-        """Signal ``cancel_study``; ``WorkflowNotRunningError`` if it has closed."""
+        """Request Temporal cancellation (the execution closes ``CANCELED``, so ``restart``
+        can run the study again); ``WorkflowNotRunningError`` if it has closed."""
         ...
 
     async def retry(self, workflow_id: str) -> RetryAccepted:
@@ -303,19 +303,35 @@ class TemporalWorkflowService:
         return view
 
     async def cancel(self, workflow_id: str, reason: str) -> None:
+        """Temporal's cancellation request, not the ``cancel_study`` signal.
+
+        The signal (what this sent before EVAL_REPORT 76) let the workflow return normally,
+        so the execution closed ``COMPLETED`` with outcome ``cancelled``, and ``restart``,
+        which needs an execution that closed without completing (and starts under
+        ``ALLOW_DUPLICATE_FAILED_ONLY``), refused it: a study cancelled from the app could
+        never run again. A cancellation request is Temporal's standard way to stop a
+        workflow: the workflow catches ``CancelledError``, stops its work, records the run's
+        end and re-raises, and the execution closes ``CANCELED``. ``reason`` goes into the
+        history's cancel-request event; the API records it on the study's timeline too.
+
+        The execution is described first: Temporal accepts a cancellation request for an
+        execution that has already closed, completed or cancelled, and ignores it (measured
+        on the dev server and the time-skipping server, EVAL_REPORT 76), so only the status
+        tells the API to answer 409 ``workflow-closed``. An execution that closes between
+        the two calls gets a request it ignores: the answer is 202 for a study that is
+        stopped either way. A second request while the first is being handled is accepted.
+        """
+        described = await self.describe(workflow_id)  # WorkflowNotFoundError when unknown
+        if described.status != "RUNNING":
+            raise WorkflowNotRunningError(
+                f"Workflow {workflow_id} is {described.status.lower()}, not running."
+            )
         handle = self.client.get_workflow_handle(workflow_id)
         try:
             async with asyncio.timeout(self.call_timeout):
-                await handle.signal(CANCEL_SIGNAL, reason, rpc_timeout=self._rpc_timeout)
+                await handle.cancel(reason=reason, rpc_timeout=self._rpc_timeout)
         except Exception as exc:
-            mapped = _mapped(exc, workflow_id)
-            if not isinstance(mapped, WorkflowNotFoundError):
-                raise mapped from exc
-            # NOT_FOUND also means "already closed" for a signal; tell the two apart.
-            described = await self.describe(workflow_id)
-            raise WorkflowNotRunningError(
-                f"Workflow {workflow_id} is {described.status.lower()}, not running."
-            ) from exc
+            raise _mapped(exc, workflow_id) from exc
 
     async def retry(self, workflow_id: str) -> RetryAccepted:
         handle = self.client.get_workflow_handle(workflow_id)

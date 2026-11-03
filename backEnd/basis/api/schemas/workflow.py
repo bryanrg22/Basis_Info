@@ -127,6 +127,7 @@ class RestartAccepted(ResponseModel):
 
 
 class CancelRequested(ResponseModel):
-    """202: the cancel signal was delivered; the workflow records the outcome itself."""
+    """202: the cancellation request was delivered; the workflow stops its work, records
+    the outcome and closes ``CANCELED`` (``POST .../restart`` runs it again)."""
 
     workflow_id: str

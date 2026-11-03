@@ -211,11 +211,18 @@ A study runs as one Temporal workflow, `workflow_id = study-{study_id}`, started
 reuse policy `REJECT_DUPLICATE`: once an execution under that id has **closed**, with any
 outcome, Temporal refuses a new one, and `POST .../start` describes the closed execution and
 answers 409 `workflow-closed` (a completed one is answered as the existing run). The owner's
-`POST .../cancel` signals the workflow, which stops its activities, records `runs.outcome =
-cancelled` and ends; the study row stays at the stage and revision it had (`processing` or
+`POST .../cancel` sends Temporal's cancellation request: the workflow stops its activities,
+records `runs.outcome = cancelled`, and the execution closes `CANCELED`; the study row stays at the stage and revision it had (`processing` or
 `waiting_review`). `retry` is for a stage that failed inside a running execution and is 409
 `workflow-closed` too. So a cancelled study could only be archived and re-created, re-uploading
 every file and re-typing the intake.
+
+**Before EVAL_REPORT 76** `POST .../cancel` sent the workflow's `cancel_study` signal. The
+workflow returned normally, so the execution closed `COMPLETED` (with outcome `cancelled` in its
+result), and restart answered 409 `study-completed`: a study cancelled from the app could not be
+restarted. The signal is still handled, since recorded histories carry it, but the API no longer
+sends it. A study cancelled that way before the change stays `COMPLETED`; archive and re-create
+it.
 
 ### `POST /v1/studies/{id}/restart` (owner, `Idempotency-Key`)
 

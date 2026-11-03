@@ -551,6 +551,15 @@ Unit suite 5,012 passed, 10 skipped; lifecycle suite 118 passed, 5 skipped (real
 time-skipping server, the photo, localization and room activities end to end); the image and
 upload slow tests 142 passed.
 
+## Restart after cancel (2026-11-02; EVAL_REPORT 76)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `tests/lifecycle/test_cancel.py` | Added, on the real workflow through `TemporalWorkflowService.cancel`: a cancellation request stops an in-flight photo activity within 7 s, rolls its transaction back, records `cancelled`, closes `CANCELED` with the reason on the cancel-request event; an activity that ignores it does not let the study go on, a second request while the first is handled is accepted, and a request after it closed is `WorkflowNotRunningError`; decisions after the request are refused; **cancelled, restarted as the route does, every gate approved: completed on revision 2** (fails on main: the execution closed `COMPLETED`) | pass |
+| `tests/lifecycle/test_archive_rule.py` | Changed: the API's cancel closes the execution `CANCELED` (reason on the history event); after unarchive, `POST .../restart` answers 202 on revision 2 and the new execution runs | pass |
+| `tests/integration/api/test_start_to_decision.py` | Changed, real API and Temporal dev server: cancel closes `CANCELED`; cancel again is 409 `workflow-closed`; start is 409 `workflow-closed`; **restart is 202 with a new run on revision 2** (fails on main: 409 `study-completed`) | pass |
+| `tests/unit/temporal/test_workflow_service.py` | Changed: `cancel` sends a cancellation request with the reason and no signal; a `COMPLETED` or `CANCELED` execution is refused before any request; unknown is not found; Temporal down is unavailable | pass |
+
 ## Cost index on by default, fetched for a study's cost year (2026-11-02; EVAL_REPORT 77)
 
 | Test file | Coverage | Result |
