@@ -10652,6 +10652,7 @@ run; the 81.1 runs, with other work on the laptop, put the median decode near 0.
 * The surface crops open the uploaded photo without applying its EXIF orientation
   (`surface_crops._open_rgb`, read in the code, not measured): a HEIC comes out upright (its
   rotation is applied while it decodes) but a portrait JPEG's segmentation and crops are made on
-  the picture turned on its side. Pre-existing, not changed here.
+  the picture turned on its side. The crops are off by default (`MATERIALS_SECOND_LOOK=per_photo`,
+  26.3), so this matters only when they are turned on. Pre-existing, not changed here.
 * HEVC is a patented codec. Whether decoding iPhone photos on Basis's servers needs a patent
   licence is a legal question for Bryan, not settled here.
