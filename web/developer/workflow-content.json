@@ -27,8 +27,8 @@
      "detail": "Each file goes straight to storage and is checked when the upload is confirmed.",
      "steps": [
       "The browser asks the Basis server for a one-time upload link for each file (valid 15 minutes).",
-      "The file goes straight to Google Cloud Storage; the server never handles the bytes.",
-      "On confirm, Basis checks the stored file's size, type and SHA-256 fingerprint, and that an appraisal is a readable PDF or UAD 3.6 package. A file that does not match is deleted and must be uploaded again.",
+      "The browser uploads the file straight to Google Cloud Storage; the server reads it back only when the upload is confirmed, to check it.",
+      "On confirm, Basis checks the stored file's size, type and SHA-256 fingerprint, and that an appraisal is a PDF (by its file signature), a MISMO 3.6 XML or a UAD 3.6 ZIP of the declared type. A file that does not match is deleted and must be uploaded again.",
       "An interrupted upload is resumed with a new link for the same file."
      ],
      "source": "backEnd/basis/api/routes/documents.py",
@@ -58,7 +58,7 @@
      "detail": "A study starts only with the property details and a confirmed appraisal.",
      "steps": [
       "Start is refused until the six required property details (use, date placed in service, state and the rest) and one confirmed appraisal are in.",
-      "Starting creates the study's first revision and one Temporal workflow for it."
+      "Starting moves the study from uploading to extracting (revision 1 exists from creation) and starts one Temporal workflow for it."
      ],
      "source": "backEnd/basis/api/routes/studies.py",
      "uses": [
@@ -667,11 +667,12 @@
       "used": "one worker process, production settings",
       "verdict": "partly",
       "sections": [
-       "32"
+       "32",
+       "32.8"
       ],
-      "missing": "Measured with simulated AI providers, not real calls.",
-      "test": "A load run with real calls.",
-      "cost": "about $3 to $4 a study"
+      "missing": "Measured with simulated AI providers, plus one small real-provider probe (3 studies of 20 synthetic photos); never with real calls at full study size or 25 studies at once.",
+      "test": "A load run with real calls at full study size.",
+      "cost": "about $6 to $8 a study (32.11), times the studies in the run"
      }
     ]
    },
@@ -702,13 +703,13 @@
    "how": [
     {
      "title": "Make a searchable copy of the appraisal",
-     "detail": "A Python library pulls the PDF's text into a search index that citations can point to; the fields are read in part 2, not from this.",
+     "detail": "Python libraries pull the PDF's text into a study search index; no step searches it today, and the fields are read in part 2, not from this.",
      "steps": [
-      "The source is the UAD 3.6 file if one was uploaded, otherwise the appraisal PDF.",
+      "This copy is always made from a PDF: the uploaded appraisal PDF, the PDF inside a UAD 3.6 ZIP, or a bare UAD 3.6 XML's companion PDF (a bare XML without one gets no copy).",
       "pdfplumber (a Python PDF library) is given the appraisal PDF file and pulls out its text and tables, keeping the two-column reading order; PyMuPDF re-reads any page where pdfplumber found no text. A scanned PDF yields no text here.",
       "That text is cut into chunks of 400 tokens (80 overlapping); all-MiniLM-L6-v2 turns each chunk into a search vector; the chunks and vectors are saved in PostgreSQL.",
-      "Why a second reader: this copy exists so a citation can point to a page of the appraisal. Field reading (part 2) uses Azure instead, because it returns checkboxes and word positions, which pdfplumber does not.",
-      "Known gap: search is keyword-only (BM25) by default, so nothing searches these vectors today."
+      "Why a second reader: field reading (part 2) uses Azure because it reads which checkboxes are checked and reads scanned pages, which pdfplumber cannot. This copy is not searched or cited by any step today.",
+      "Known gap: the classifier searches only the IRS reference documents, and with keyword search (BM25) by default, so these vectors are stored but unused."
      ],
      "source": "backEnd/basis/activities/ingest_appraisal.py",
      "uses": [
@@ -739,7 +740,8 @@
       "Azure Document Intelligence (prebuilt-layout, with key-value pairs) is sent the appraisal PDF file itself. It returns, for every page, the text lines, the position of every word, every checkbox and whether it is checked, and the form's label-value pairs.",
       "gpt-6.1-sol (effort low, prompt appraisal_fields_grounded/v2) is sent text only, no PDF and no page images: Azure's text of every page, with each checkbox written as checked or unchecked followed by its label. It is asked for 132 fields (100 on a UAD 3.6 form).",
       "For each field it answers the value, the page and the exact quote. Basis keeps a value only if the quote is on that page and contains the value; a checkbox answer must be a checked box.",
-      "Only if that call cannot run at all (Azure or the model unavailable, an error, no answer, or the budget used up) does Basis start over without it: Azure's label-value pairs and pattern matching on pdfplumber's text, then one gpt-6-luna call (prompt appraisal_field_fallback/v1) for every field still missing. That call is sent Azure's page text without the checkbox marks, up to 60,000 characters, and none of the first call's answers. A value it gives must appear word for word in that text.",
+      "Only if that call cannot run (Azure not set up, Azure refusing the PDF, no model provider, a model error or unusable answer, or the budget used up) does Basis read the fields without it: Azure's label-value pairs and pattern matching on pdfplumber's text, then one gpt-6-luna call (appraisal_field_fallback/v1, or its UAD 3.6 version) for every field still missing or invalid. That call is sent Azure's page text without the checkbox marks (pdfplumber's text when Azure did not run), up to 60,000 characters, and none of the first call's answers. A value it gives must appear word for word in that text.",
+      "An Azure outage (429, 5xx or a timeout) does not start this backup: the step is retried and, if Azure stays down, stops for a retry.",
       "Missing fields never trigger that second call; they go to the engineer at the review.",
       "A UAD 3.6 file is read straight from its XML with no AI; Azure is still sent its PDF, only to place the highlights and check each value is printed."
      ],
@@ -755,7 +757,7 @@
        "name": "Reads every field, quoting the page",
        "system": "gpt-6.1-sol",
        "brand": "openai",
-       "provider": "Azure OpenAI first, OpenAI if Azure is down",
+       "provider": "Azure OpenAI when set up (its deployment for this model), else OpenAI; a call moves to OpenAI only if Azure answers 429 or 5xx twice, not on a timeout",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "extraction_grounded_model",
@@ -765,7 +767,7 @@
        "name": "Only if the first call cannot run: re-reads the missing fields",
        "system": "gpt-6-luna",
        "brand": "openai",
-       "provider": "Azure OpenAI first, OpenAI if Azure is down",
+       "provider": "Azure OpenAI when set up (its deployment for this model), else OpenAI; a call moves to OpenAI only if Azure answers 429 or 5xx twice, not on a timeout",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "text_model",
@@ -784,7 +786,7 @@
      "detail": "Rules check every value; the engineer always reviews the key fields.",
      "steps": [
       "Values from parts of the form the appraiser did not develop (an approach left blank) are removed.",
-      "The 9 key fields must be present: address, contract price, year built, total rooms, bedrooms, bathrooms, living area, market value, effective date.",
+      "The 9 key fields must be present: address, contract price, year built, total rooms, bedrooms, bathrooms, living area, market value, effective date. A UAD 3.6 PDF prints no total room count, so it is not required there; known bug: a UAD 3.6 XML file is still flagged for it.",
       "Each value is checked for type and range; total rooms must cover bedrooms and baths; the market value more than 50 % from the cost approach is an error, more than 20 % from the contract price a warning, a basement over 1.5 times the living area a warning.",
       "Every AI-read value is stored at confidence 0.6, below the 0.90 review threshold, so the key fields always go to the engineer for review."
      ],
@@ -881,7 +883,7 @@
          "9 of 16",
          "0.979 (1,054 / 1,077)",
          "5",
-         "Recorded calls: 109,312 in / 42,936 out (101 thinking), 9 calls; no new spend"
+         "Recorded calls: 109,312 in (8,736 cached) / 42,936 out (101 thinking), 9 calls; no new spend"
         ]
        },
        {
@@ -929,7 +931,7 @@
          "15 of 16",
          "0.953 (1,423 / 1,493)",
          "7",
-         "Recorded calls: 209,157 in / 63,789 out (644 thinking), 15 calls; no new spend"
+         "Recorded calls: 209,157 in (14,196 cached) / 63,789 out (644 thinking), 15 calls; no new spend"
         ]
        }
       ],
@@ -1213,7 +1215,7 @@
          "—",
          "1.000",
          "0.072",
-         "218,360 in / 72,072 out (246 thinking), 16 calls"
+         "218,360 in (16,380 cached) / 72,072 out (246 thinking), 16 calls"
         ]
        },
        {
@@ -1247,7 +1249,7 @@
          "15",
          "0.969",
          "0.12",
-         "423,996 in / 108,860 out (335 thinking), 32 calls"
+         "423,996 in (16,380 cached) / 108,860 out (335 thinking), 32 calls"
         ]
        },
        {
@@ -1369,7 +1371,7 @@
          "51",
          "0.969",
          "0.006",
-         "Run 1: 423,996 in / 108,618 out (5,606 thinking); run 2: 423,996 / 112,604 (6,884); 32 calls each"
+         "Run 1: 423,996 in (16,380 cached) / 108,618 out (5,606 thinking); run 2: 423,996 (17,472 cached) / 112,604 (6,884); 32 calls each"
         ]
        },
        {
@@ -1449,8 +1451,8 @@
          "—",
          "—",
          "—",
-         "—",
-         "Not recorded (run records not collected)"
+         "0.005",
+         "341,893 in / 102,251 out (42,799 thinking), 16 calls"
         ]
        },
        {
@@ -1476,8 +1478,8 @@
          "—",
          "—",
          "—",
-         "—",
-         "Not recorded (run records not collected)"
+         "0.080",
+         "341,893 in / 59,085 out (no thinking reported), 16 calls"
         ]
        },
        {
@@ -1503,7 +1505,7 @@
          "44",
          "—",
          "0.833",
-         "—",
+         "0.008",
          "361,403 in / 170,693 out (63,105 thinking), 16 calls"
         ]
        },
@@ -1531,7 +1533,7 @@
          "—",
          "0.948",
          "0.004",
-         "218,360 in / 67,932 out (2,294 thinking), 16 calls"
+         "218,360 in (16,380 cached) / 67,932 out (2,294 thinking), 16 calls"
         ]
        },
        {
@@ -1701,10 +1703,9 @@
       "used": "Azure Document Intelligence prebuilt-layout",
       "verdict": "partly",
       "sections": [
-       "33.5",
-       "33.10"
+       "33.5"
       ],
-      "missing": "Only Azure's own models were tried.",
+      "missing": "Only Azure's own models were tried (prebuilt-layout against its prebuilt 1004 model).",
       "test": "Google Document AI, AWS Textract, Docling and Azure's cheaper read model, each feeding the same AI call, on the 16 test appraisals.",
       "cost": "about $25"
      },
@@ -1716,9 +1717,9 @@
        "33.5",
        "33.12"
       ],
-      "missing": "One run each; no time per method.",
+      "missing": "The winning single read ran once; the two vote methods ran twice. Time is recorded only for the production method (28 s) and the old pipeline (21 s).",
       "test": "Two more runs of the top three methods, timed.",
-      "cost": "about $3"
+      "cost": "about $15"
      },
      {
       "component": "Reading model",
@@ -1728,8 +1729,8 @@
        "33.5",
        "33.12"
       ],
-      "missing": "No second gpt-6.1-sol run, no claude-opus-5-5 on this method, no medium effort, no time per model.",
-      "test": "Those four, two runs each.",
+      "missing": "No second gpt-6.1-sol run, no claude-opus-5-5 on this method, no medium effort; time recorded only for gpt-6.1-sol.",
+      "test": "Those three, two runs each, timed.",
       "cost": "about $16"
      },
      {
@@ -1739,6 +1740,17 @@
       "sections": [
        "17.1",
        "33.5"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Backup reader's field scope",
+      "used": "every missing field, not only the key ones",
+      "verdict": "compared",
+      "sections": [
+       "27.2"
       ],
       "missing": "",
       "test": "",
@@ -1758,34 +1770,48 @@
      {
       "component": "Presence rules",
       "used": "Basis rules for undeveloped approaches",
-      "verdict": "compared",
+      "verdict": "partly",
       "sections": [
        "33.9"
       ],
-      "missing": "",
-      "test": "",
-      "cost": ""
+      "missing": "One rule set measured on and off on 41 documents; no alternative rule was run.",
+      "test": "A second rule set (the cost-arithmetic and cross-box checks of 33.2) on the same 41 documents.",
+      "cost": "about $2.30 to re-record the reading calls, then $0"
+     },
+     {
+      "component": "Highlight regions",
+      "used": "Basis rule: the quote's words on the cited page",
+      "verdict": "partly",
+      "sections": [
+       "33.6",
+       "33.12"
+      ],
+      "missing": "Measured for accuracy only; no alternative placement method.",
+      "test": "Compare with Azure's own field boxes on the 16 appraisals.",
+      "cost": "$0"
      },
      {
       "component": "Review threshold and checks",
-      "used": "0.90 threshold; AI values at 0.6",
+      "used": "0.90 threshold; every AI-read value at 0.6",
       "verdict": "not compared",
-      "sections": [],
-      "missing": "Never compared on this reader.",
-      "test": "Replay the 41 test appraisals at thresholds 0.5 to 0.95 and plot errors caught against review work.",
-      "cost": "$0 (replay)"
+      "sections": [
+       "33.2"
+      ],
+      "missing": "Every AI-read value is pinned at 0.6, below the 0.90 threshold, so every key field is flagged whatever the threshold; the only gate measurement (33.2) was on the old pipeline at 0.7.",
+      "test": "First give each field a real confidence signal (the quote check, cross-field checks), then measure errors caught against review work on the 41 appraisals.",
+      "cost": "about $2.30 to re-record the reading calls, then $0"
      },
      {
       "component": "UAD 3.6 reader",
       "used": "Basis XML reader",
-      "verdict": "compared",
+      "verdict": "partly",
       "sections": [
        "33.7",
        "33.8"
       ],
-      "missing": "",
-      "test": "",
-      "cost": ""
+      "missing": "No other XML reader to compare; the XML path was compared with the PDF path on 12 sample files, and real appraisal-software exports are untested.",
+      "test": "Score real UAD 3.6 exports when a firm sends them.",
+      "cost": "$0"
      },
      {
       "component": "Search vectors",
@@ -1807,7 +1833,7 @@
        "22",
        "25.1"
       ],
-      "missing": "One alternative (200/40); the classifier was not run on it.",
+      "missing": "Two alternatives were measured on search (200/40, and one chunk per page); the classifier was run on neither.",
       "test": "One classifier run on 200/40.",
       "cost": "about $4"
      }
@@ -1862,7 +1888,7 @@
        "name": "Counts objects in each photo",
        "system": "gpt-6.1-sol",
        "brand": "openai",
-       "provider": "Azure OpenAI first, OpenAI if Azure is down",
+       "provider": "Azure OpenAI when set up (its deployment for this model), else OpenAI; a call moves to OpenAI only if Azure answers 429 or 5xx twice, not on a timeout",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "vision_model",
@@ -1872,7 +1898,7 @@
        "name": "Reads surfaces, room type and floor",
        "system": "gpt-6-luna",
        "brand": "openai",
-       "provider": "Azure OpenAI first, OpenAI if Azure is down",
+       "provider": "Azure OpenAI when set up (its deployment for this model), else OpenAI; a call moves to OpenAI only if Azure answers 429 or 5xx twice, not on a timeout",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "vision_surfaces_model",
@@ -1895,7 +1921,7 @@
      "detail": "A fixed table, chosen by measurement, decides which model's count is used for each object type.",
      "steps": [
       "The two first answers are joined: for an object both list, the larger count; material and attachment from the counting call; room type and floor from the surfaces call.",
-      "Then the fixed table (section 15.4): windows, doors, light fixtures and kitchen cabinets take claude-opus-5-5's count; exterior lights and outlets keep gpt-6.1-sol's; every other object keeps the joined answer.",
+      "Then the fixed table (section 15.4): for windows, doors, light fixtures and kitchen cabinets the photo keeps claude-opus-5-5's entries (count, material and attachment; none if claude-opus-5-5 listed none); exterior lights, outlets and every other object keep the joined answer.",
       "If claude-opus-5-5 fails (retried twice within 80 seconds), gpt-6.1-sol's counts stand and the photo is flagged.",
       "The photo is also flagged when its room type is unclear (confidence under 0.5)."
      ],
@@ -1915,7 +1941,7 @@
      "steps": [
       "After a photo is analyzed, SAM 3 runs in the background, 3 photos at a time, without holding up the rooms review.",
       "It is sent the prepared photo (JPEG) and, as text prompts, the photo's object names plus 7 countable types (window, light fixture, exterior light, outlet, interior door, exterior door, kitchen cabinet), in one pass over the whole photo.",
-      "Every outline scoring 0.25 or more is kept; it is marked counted when it reaches its type's threshold (window 0.65, light fixture 0.7, outlet 0.55, kitchen cabinet 0.7, exterior door 0.85).",
+      "Every outline scoring 0.25 or more is kept; it is marked counted when it reaches its type's threshold (window 0.65, interior door 0.5, exterior door 0.85, light fixture 0.7, exterior light 0.3, outlet 0.55, kitchen cabinet 0.7, anything else 0.5).",
       "It runs on Basis's own SAM 3 server when one is set up, otherwise on Replicate; with neither, it is skipped.",
       "Its outlines are used only in the components review and the report's photo pages; no count or price reads them."
      ],
@@ -2073,7 +2099,7 @@
        },
        {
         "id": "1d",
-        "name": "Opus, thinking most when counting (high effort)",
+        "name": "Opus, thinking more when counting (high effort)",
         "setup": [
          {
           "role": "count",
@@ -2196,7 +2222,7 @@
        },
        {
         "id": "4b",
-        "name": "Same as 4a, but each photo scored with a rule tuned on the other 51 photos",
+        "name": "Sol's counts, with the SAM 3 detector allowed to lower a count per object type, each photo scored with a rule tuned on the other 51 photos",
         "setup": [
          {
           "role": "count",
@@ -2871,7 +2897,9 @@
       "used": "counting + surfaces",
       "verdict": "partly",
       "sections": [
-       "12.1"
+       "11",
+       "12.1",
+       "14"
       ],
       "missing": "No tokens recorded.",
       "test": "One run of the one-call and two-call setups with tokens.",
@@ -2882,11 +2910,14 @@
       "used": "gpt-6.1-sol, prompt v3",
       "verdict": "partly",
       "sections": [
+       "11",
        "12",
        "14",
-       "15.1"
+       "15.1",
+       "19.2",
+       "21"
       ],
-      "missing": "The production prompt v3 was never scored offline; no cheaper model (claude-sonnet-5-5, gpt-6-luna) was tried on counting; no tokens.",
+      "missing": "Prompt v3 was scored offline only on claude-opus-5-5 (19.2), never on gpt-6.1-sol, the production counting model; no cheaper current model (claude-sonnet-5-5, gpt-6-luna) was tried on counting; offline runs kept no tokens (live run 3 has them).",
       "test": "Prompt v3 on gpt-6.1-sol, claude-sonnet-5-5, gpt-6-luna and gpt-5.6-terra, three runs each.",
       "cost": "about $6"
      },
@@ -2895,10 +2926,14 @@
       "used": "claude-opus-5-5, medium",
       "verdict": "partly",
       "sections": [
-       "15.1"
+       "12.1",
+       "14",
+       "15.1",
+       "15.4",
+       "19.2"
       ],
-      "missing": "Chosen on prompt v2; v3 not scored offline; no tokens.",
-      "test": "Three runs on v3.",
+      "missing": "Chosen on prompt v2; v3 was scored offline at low effort (19.2), not at the medium effort the second count uses, and not in the combined setup; tokens only from live run 3.",
+      "test": "Three runs on v3 at medium effort.",
       "cost": "about $4"
      },
      {
@@ -2925,6 +2960,15 @@
       "cost": "about $0.50"
      },
      {
+      "component": "Room-type review threshold",
+      "used": "a photo is flagged below 0.5 confidence",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "A fixed value, never compared.",
+      "test": "Vary it from 0.3 to 0.8 on the 52 photos' stored answers.",
+      "cost": "$0"
+     },
+     {
       "component": "Cutting photos into tiles",
       "used": "off",
       "verdict": "partly",
@@ -2942,6 +2986,7 @@
       "sections": [
        "10",
        "19.1",
+       "21",
        "26.2",
        "30"
       ],
@@ -2992,7 +3037,7 @@
      "detail": "Photos are grouped by the room their file name names; the AI's guess is used only when the name says nothing.",
      "steps": [
       "A file name names a room when it has a real word (not a camera name such as IMG, DSC or PXL).",
-      "Basis removes the leading number and a trailing \"photo N\": \"1st Floor Kitchen photo 1\" and \"photo 2\" share one room, while \"Kitchen 1\" and \"Kitchen 2\" are two rooms.",
+      "Basis removes a leading number followed by an underscore (\"21_\") and a trailing \"photo N\": \"1st Floor Kitchen photo 1\" and \"photo 2\" share one room, while \"Kitchen 1\" and \"Kitchen 2\" (and \"12 Kitchen\") are rooms of their own.",
       "The room merges the engineer makes at the rooms review are applied to every later photo.",
       "A photo whose name says nothing is grouped by the room type, floor and number that gpt-6-luna gave it; two such bedrooms on one floor share a room until the engineer splits them."
      ],
@@ -3008,7 +3053,7 @@
        "name": "Reads surfaces, room type and floor",
        "system": "gpt-6-luna",
        "brand": "openai",
-       "provider": "Azure OpenAI first, OpenAI if Azure is down",
+       "provider": "Azure OpenAI when set up (its deployment for this model), else OpenAI; a call moves to OpenAI only if Azure answers 429 or 5xx twice, not on a timeout",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "vision_surfaces_model",
@@ -3676,13 +3721,13 @@
      {
       "component": "Room name, type and floor",
       "used": "Basis naming rules",
-      "verdict": "compared",
+      "verdict": "partly",
       "sections": [
        "48.4"
       ],
-      "missing": "",
-      "test": "",
-      "cost": ""
+      "missing": "Measured before and after on the same 52 names the rules were written for; no other property; camera-named rooms unchanged.",
+      "test": "A second property's file names.",
+      "cost": "$0"
      }
     ]
    },
@@ -3707,7 +3752,7 @@
      "title": "Gather each room's photos",
      "detail": "After the rooms review, each changed room is rebuilt from its photos and their current object lists.",
      "steps": [
-      "This runs after the engineer approves the rooms; rooms without photos, without objects, or unchanged since the last build are skipped.",
+      "This runs after the engineer approves the rooms; the Unassigned room and rooms without photos, without objects, or unchanged since the last build are skipped.",
       "Each photo is read again and its object list is rebuilt from the stored counts, so the engineer's corrections and the combined counts are what get counted."
      ],
      "source": "backEnd/basis/activities/reconcile_rooms.py",
@@ -3730,7 +3775,7 @@
      "title": "Count each object once",
      "detail": "A room with several photos gets one AI call that counts every object once across them.",
      "steps": [
-      "A room with one photo makes no AI call: it keeps that photo's list.",
+      "A room with one photo gets no counting call: it keeps that photo's list (its wall finishes, wainscoting and tile still get the material second look).",
       "A room with several photos gets one gpt-6-luna call (effort low, prompt room_inventory/v3) per group of up to 10 photos. It is sent the room's prepared photos (JPEG images, no file names) and, as text, each photo's counts grouped by object type (for example: kitchen cabinet, image 1 ×8, image 2 ×10).",
       "It returns every object once, with the photos it appears in; an object that names no photo is dropped and the room is flagged.",
       "If the call fails twice, the room keeps the largest count any single photo saw and is flagged."
@@ -3741,7 +3786,7 @@
        "name": "Counts each object once per room",
        "system": "gpt-6-luna",
        "brand": "openai",
-       "provider": "Azure OpenAI first, OpenAI if Azure is down",
+       "provider": "Azure OpenAI when set up (its deployment for this model), else OpenAI; a call moves to OpenAI only if Azure answers 429 or 5xx twice, not on a timeout",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "room_model",
@@ -3754,7 +3799,7 @@
      "detail": "Wall finishes, wainscoting and tile get one more AI call to confirm the material.",
      "steps": [
       "Every wainscoting, wall finish and tile object gets one claude-sonnet-5-5 call (effort low, prompt surface_material/v3).",
-      "It is sent one photo (the JPEG that showed the object most clearly) and one sentence naming the surface and the material the first analysis gave.",
+      "It is sent one photo (the JPEG whose analysis was most confident about that surface) and one sentence naming the surface and the material the first analysis gave.",
       "Its answer replaces the material when it is sure (confidence 0.5 or more)."
      ],
      "source": "backEnd/basis/vision/surface_material.py",
@@ -4601,7 +4646,7 @@
        },
        {
         "id": "e2",
-        "name": "One Opus call per room sees all its photos, thinking most (high effort)",
+        "name": "One Opus call per room sees all its photos, thinking more (high effort)",
         "setup": [
          {
           "role": "one call per room",
@@ -4769,7 +4814,7 @@
          "0.69",
          "0",
          "(in the per-photo cost)",
-         "Not collected for this table (run files not read)"
+         "Not recorded (these runs kept cost only, no token counts)"
         ]
        },
        {
@@ -4798,7 +4843,7 @@
          "0.74",
          "+0.052 [-0.103, +0.207]",
          "$0.58",
-         "Not collected for this table (run files not read)"
+         "Not recorded (these runs kept cost only, no token counts)"
         ]
        },
        {
@@ -4827,7 +4872,7 @@
          "0.79",
          "+0.057 [-0.098, +0.207]",
          "$0.38",
-         "Not collected for this table (run files not read)"
+         "Not recorded (these runs kept cost only, no token counts)"
         ]
        },
        {
@@ -4863,7 +4908,7 @@
          "0.88",
          "+0.155 [+0.034, +0.276]",
          "$0.58",
-         "Not collected for this table (run files not read)"
+         "Not recorded (these runs kept cost only, no token counts)"
         ]
        },
        {
@@ -4899,7 +4944,7 @@
          "0.90",
          "+0.149 [+0.023, +0.276]",
          "$0.38",
-         "Not collected for this table (run files not read)"
+         "Not recorded (these runs kept cost only, no token counts)"
         ]
        }
       ],
@@ -4995,14 +5040,26 @@
       "cost": "about $0.40"
      },
      {
+      "component": "Room step settings",
+      "used": "prompt v3; materials re-checked on tax-deciding surfaces; one-photo rooms keep their list",
+      "verdict": "compared",
+      "sections": [
+       "16.2"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
       "component": "Material second look",
       "used": "claude-sonnet-5-5",
       "verdict": "partly",
       "sections": [
        "16.2",
+       "23.3",
        "28.2"
       ],
-      "missing": "No tokens or time; claude-opus-5-5 only probed; the 0.5 confidence floor never varied.",
+      "missing": "Offline runs kept no tokens (one live replay has them); no time; claude-opus-5-5 only probed; the 0.5 confidence floor never varied.",
       "test": "Full claude-opus-5-5 and claude-sonnet-5-5 runs with tokens.",
       "cost": "about $0.50"
      },
@@ -5045,9 +5102,9 @@
      "title": "Classify each item",
      "detail": "Firm rulings first, then the IRS rules table, and only then an AI classifier that must cite the IRS text.",
      "steps": [
-      "The firm's own rulings: the most specific match first (same object, material, attachment and room; then object and room; then object). The engineer's decisions outrank approved AI answers; a tie flags the item.",
+      "The firm's own rulings: the most specific match first (same object, material, attachment and room; then object and room; then object, which does not override an uncontested IRS rules-table row). The engineer's decisions outrank approved AI answers; a tie flags the item.",
       "Then the IRS rules table (68 rows); each rule's IRS citation is checked against the IRS documents.",
-      "Only then claude-sonnet-5-5 (effort low, prompt classify/v1). It is sent the item as text only, no photo: its name, material, attachment, room type and name, property class, count and notes. It may make up to 3 keyword searches of the IRS documents within 4 calls and 60 seconds. A citation counts only if a search returned that text and the quoted words appear in it; if the loop fails, the item gets the building class and goes to review."
+      "Only then claude-sonnet-5-5 (effort low, prompt classify/v1). It is sent the item as text only, no photo: its name, material, attachment, room type and name, property class, count and notes. It may make up to 3 tool calls in all (keyword searches of the IRS documents, or fetching a passage or table) within 4 model calls and 60 seconds. A citation counts only if the loop retrieved that passage and the quoted words appear in it; if the loop fails, the item gets the building class and goes to review."
      ],
      "source": "backEnd/basis/classify/router.py",
      "uses": [
@@ -5079,11 +5136,11 @@
      "title": "Measure and price",
      "detail": "Quantities come from the appraisal's areas; prices from RSMeans adjusted to the study's year and place.",
      "steps": [
-      "Room area = living area × the room's weight ÷ the total weight of the appraisal's room program (kitchen 150, bedroom 150, bath 75 …), so rooms never add up to more than the living area.",
-      "Items are counted (each), measured by area (carpet in square yards with 10 % waste, tile +15 %, paint ×3.5) or by length (4 × √area for baseboards).",
+      "Above-grade room area = living area × the room's weight ÷ the total weight of the appraisal's room program (kitchen 150, bedroom 150, full bath 75, half bath 40, other room 200), so those rooms never add up to more than the living area; basement rooms come from the finished basement area, the garage from its area or car count.",
+      "Items are counted (each, with a per-room minimum: 2 outlets, 1 door, 1 light fixture, 1 of most other items), measured by area (carpet in square yards with 10 % waste, tile +15 %, paint ×3.5) or by length (4 × √area for baseboards).",
       "Whole house: footprint = living area ÷ stories + garage; roof, siding (less 15 % for openings), gutters and landscaping follow from it.",
       "A quantity whose input is missing is set to 0 and left unpriced, naming what is missing; driveways, walks and fences are not measured yet.",
-      "Price = RSMeans 2020 installed cost (Total incl. O&P) × year index (the cost year's index ÷ 239.1) × location factor (the ZIP's, else the state's). Every step of the price is stored on the row."
+      "Price = the firm's RSMeans 2020 cost table row (without a cost table nothing is priced) at its installed cost (Total incl. O&P), plus the general contractor's overhead and profit share for rows inside the square-foot model, × year index (the cost year's index ÷ 239.1) × location factor (the ZIP's, else the state's). Every step of the price is stored on the row."
      ],
      "source": "backEnd/basis/domain/costs.py",
      "uses": [
@@ -5105,10 +5162,10 @@
      "title": "Add what photos cannot show, then balance",
      "detail": "Hidden systems are priced from the RSMeans square-foot model, and the total must balance to the price.",
      "steps": [
-      "The RSMeans 2020 square-foot model (class from the appraisal's quality rating, by number of stories) × living area, plus basement, garage and bath and heating changes, × year and location.",
+      "The RSMeans 2020 square-foot model (class from the appraisal's quality rating, by number of stories) × living area, plus basement, garage and bath and heating changes, × year and location; without a living area, the appraisal's cost-approach cost new is used instead.",
       "It is split over nine building systems by RSMeans' $/SF; what the photos already priced is subtracted, and the rest becomes hidden rows (framing, plumbing rough-in, wiring …).",
       "Depreciation: the appraiser's physical depreciation ÷ cost new, else effective age ÷ (effective age + remaining life); one rate for every row.",
-      "Balance: price + capitalized costs − land, against the depreciated total. Within ±10 % the basis is allocated in proportion; outside it, nothing is allocated and no report is made."
+      "Balance: the depreciated total is compared with the price − land. Within ±10 % the basis (price + capitalized costs − land) is allocated in proportion; outside it, nothing is allocated and no report is made."
      ],
      "source": "backEnd/basis/domain/structure.py",
      "uses": [
@@ -6439,7 +6496,8 @@
       "verdict": "partly",
       "sections": [
        "9",
-       "44"
+       "17.2",
+       "42.3"
       ],
       "missing": "Never measured rules-first against AI-only on the same items.",
       "test": "Replay a live study with the table off and on.",
@@ -6448,14 +6506,14 @@
      {
       "component": "Classifier model",
       "used": "claude-sonnet-5-5, low",
-      "verdict": "compared",
+      "verdict": "partly",
       "sections": [
        "17.2",
        "28.3"
       ],
-      "missing": "",
-      "test": "",
-      "cost": ""
+      "missing": "Models were compared on the item's name and property class only, with rulings and rules bypassed; production also sends material, attachment, room and notes, which no comparison used.",
+      "test": "Rerun the model comparison with production's input on the 46 rows (needs material, attachment and room labels on them).",
+      "cost": "about $10"
      },
      {
       "component": "Classifier prompt",
@@ -6463,8 +6521,8 @@
       "verdict": "not compared",
       "sections": [],
       "missing": "Never compared. 5-year items are where every model fails (10 of 18 wrong on every run).",
-      "test": "A v2 prompt with the function and attachment tests, and one with material, attachment and room in the input.",
-      "cost": "about $16"
+      "test": "Run the assets test with production's input, then a v2 prompt with the function and attachment tests.",
+      "cost": "about $8"
      },
      {
       "component": "Classifier search",
@@ -6482,9 +6540,12 @@
       "component": "Documents searched",
       "used": "the reference corpus",
       "verdict": "not compared",
-      "sections": [],
-      "missing": "Tests searched the four IRS documents; the reference corpus may also hold the two RSMeans books.",
-      "test": "Check the deployed corpus, then classify with each.",
+      "sections": [
+       "22",
+       "25.2"
+      ],
+      "missing": "The production corpus is six PDFs (the four IRS documents and two RSMeans books, 7,466 chunks); the classifier was only ever measured on the four IRS documents.",
+      "test": "Classify the 46 rows with the four IRS documents and with all six.",
       "cost": "about $7"
      },
      {
@@ -6495,7 +6556,7 @@
        "35.2",
        "37"
       ],
-      "missing": "Only compared with the old typical-area rule; no measured quantities to check against; roof, siding and gutters come out at a third of the engineer's dollars; driveways unpriced.",
+      "missing": "Only compared with the old typical-area rule; no measured quantities exist to check against; driveways, walks and fences are not measured.",
       "test": "Vary each constant on the two live studies (free); then measured quantities from plans or aerial data.",
       "cost": "$0 now; aerial data later"
      },
@@ -6606,6 +6667,17 @@
       "missing": "Sourced from RSMeans, never varied.",
       "test": "Report which setups balance at 5, 7.5, 10 and 15 %.",
       "cost": "$0"
+     },
+     {
+      "component": "Land value and basis allocation",
+      "used": "land from the appraisal's site value; basis allocated in proportion",
+      "verdict": "partly",
+      "sections": [
+       "36"
+      ],
+      "missing": "One property: the land source was compared with a flat percentage (0.6 % effect).",
+      "test": "A second property.",
+      "cost": "$0"
      }
     ]
    },
@@ -6667,7 +6739,7 @@
     },
     {
      "title": "Export the study",
-     "detail": "The approved study is written as files; the same revision always gives the same files.",
+     "detail": "The approved study is written as files; exporting the same revision again gives the same files, as long as no paid call was made in between.",
      "steps": [
       "rev-N.json (every value with its evidence), the assets CSV, and every AI call with its prompt and answer.",
       "The report PDF and the preparer's schedule (CSV and XLSX) when the basis could be allocated."
@@ -6693,7 +6765,7 @@
      "detail": "Every AI call, Azure page and SAM 3 second is recorded with its tokens and dollars.",
      "steps": [
       "Each call is one ledger row (model, tokens, dollars, time); the study's spend is rolled up by step and model, visible to the firm's owner.",
-      "Exporting files does not complete the study; signing the report does."
+      "After the export the workflow marks the study completed; the web app shows it as complete only once the current revision's report is signed."
      ],
      "source": "docs/api/SPEND.md",
      "uses": [
@@ -6819,7 +6891,7 @@
          "0.8",
          "80.3 %",
          "3.55",
-         "1,000,029 in / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
         "selected": true
        },
@@ -6894,7 +6966,7 @@
          "1.9",
          "82.2 %",
          "2.12",
-         "431,960 in / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
+         "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
         ]
        },
        {
@@ -7036,13 +7108,13 @@
          }
         ],
         "values": [
-         "Not measured",
+         "9.5 min (42.5)",
          "35",
          "35/35",
-         "Not measured",
-         "Not measured",
-         "Not measured",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "25.1 (42.5)",
+         "55.1 % (42.5)",
+         "10.16 (42.5)",
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ]
        }
       ],
@@ -7448,7 +7520,7 @@
      "title": "Fill in the report details",
      "detail": "The firm profile and the study's answers for the report are saved.",
      "steps": [
-      "The engineer fills in the firm profile and the study details the report needs.",
+      "A firm owner fills in the firm profile; the engineer fills in the study details the report needs.",
       "Typst 0.15 draws the PDF with bundled fonts and a fixed timestamp, so the same study gives the same file on any machine."
      ],
      "source": "backEnd/basis/report/render.py",
@@ -7463,7 +7535,7 @@
        "name": "Draws the PDF report",
        "system": "Typst 0.15",
        "brand": "python",
-       "provider": "Python package typst, run on the Basis worker"
+       "provider": "Python package typst: on the Basis server for the preview and the signed PDF, on the worker for the export's draft"
       }
      ]
     },
@@ -7493,7 +7565,7 @@
        "name": "Draws the PDF report",
        "system": "Typst 0.15",
        "brand": "python",
-       "provider": "Python package typst, run on the Basis worker"
+       "provider": "Python package typst: on the Basis server for the preview and the signed PDF, on the worker for the export's draft"
       }
      ]
     },
@@ -7734,6 +7806,26 @@
       "missing": "",
       "test": "",
       "cost": ""
+     },
+     {
+      "component": "Preparer's schedule",
+      "used": "MACRS lives, bonus by acquisition date",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "Built to the IRS tables, never compared with a preparer's own schedule.",
+      "test": "Compare with the engineer's schedule for the client study.",
+      "cost": "$0"
+     },
+     {
+      "component": "Tax-software import profiles",
+      "used": "five vendor layouts",
+      "verdict": "not compared",
+      "sections": [
+       "55"
+      ],
+      "missing": "Written from each vendor's published layout; never imported into the real software.",
+      "test": "Import a schedule into each package.",
+      "cost": "software licenses"
      }
     ]
    },
@@ -7768,7 +7860,7 @@
      "detail": "Each value is shown next to the words on the page it came from.",
      "steps": [
       "Flagged, missing and conflicting fields come first.",
-      "Each value shows its page and quote, highlighted on the PDF."
+      "Each value shows its page and, when the AI reading produced it, its quote, highlighted on the PDF."
      ],
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
@@ -7784,8 +7876,8 @@
      "title": "Correct values",
      "detail": "A correction replaces the AI's value.",
      "steps": [
-      "The engineer corrects or adds a field with a reason; it is stored as a manual value.",
-      "Sending it back reads the appraisal again on the next revision (the Azure reading is reused; the AI call is paid again) and applies the corrections."
+      "The engineer corrects a field (a reason is optional) or adds one (a reason is required); it is stored as a manual value at confidence 1.",
+      "Sending it back reads the appraisal again on the next revision (the Azure reading is reused; the AI call is paid again) and applies this send-back's corrections; corrections from an earlier send-back are not re-applied and must be made again."
      ],
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
@@ -7933,7 +8025,7 @@
          "$7.68",
          "$10.16",
          "9.5 min",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
         "selected": true
        },
@@ -8008,7 +8100,7 @@
          "$1.76",
          "$4.01",
          "7.7 min",
-         "1,284,643 in / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ]
        },
        {
@@ -8347,7 +8439,7 @@
          "35/35",
          "160/340",
          "8.5 min incl. four reopened gates",
-         "1,000,029 in / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
         "selected": true
        },
@@ -8419,8 +8511,8 @@
          "9",
          "35/35",
          "Not measured",
-         "Not measured",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "9.5 min (42.5)",
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ]
        },
        {
@@ -8492,7 +8584,7 @@
          "34/34",
          "176/366",
          "7.4 min",
-         "431,960 in / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
+         "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
         ]
        },
        {
@@ -8560,7 +8652,7 @@
          }
         ],
         "values": [
-         "Not measured",
+         "—",
          "34/35",
          "200/384",
          "5.3 min",
@@ -8852,7 +8944,7 @@
          "$7.68",
          "$10.16",
          "9.5 min",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
         "selected": true
        },
@@ -8927,7 +9019,7 @@
          "$1.76",
          "$4.01",
          "7.7 min",
-         "1,284,643 in / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ]
        },
        {
@@ -9266,7 +9358,7 @@
          "35/35",
          "160/340",
          "8.5 min incl. four reopened gates",
-         "1,000,029 in / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
         "selected": true
        },
@@ -9338,8 +9430,8 @@
          "9",
          "35/35",
          "Not measured",
-         "Not measured",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "9.5 min (42.5)",
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ]
        },
        {
@@ -9411,7 +9503,7 @@
          "34/34",
          "176/366",
          "7.4 min",
-         "431,960 in / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
+         "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
         ]
        },
        {
@@ -9479,7 +9571,7 @@
          }
         ],
         "values": [
-         "Not measured",
+         "—",
          "34/35",
          "200/384",
          "5.3 min",
@@ -9777,7 +9869,7 @@
          "$7.68",
          "$10.16",
          "9.5 min",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
         "selected": true
        },
@@ -9852,7 +9944,7 @@
          "$1.76",
          "$4.01",
          "7.7 min",
-         "1,284,643 in / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ]
        },
        {
@@ -10191,7 +10283,7 @@
          "35/35",
          "160/340",
          "8.5 min incl. four reopened gates",
-         "1,000,029 in / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
         "selected": true
        },
@@ -10263,8 +10355,8 @@
          "9",
          "35/35",
          "Not measured",
-         "Not measured",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "9.5 min (42.5)",
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ]
        },
        {
@@ -10336,7 +10428,7 @@
          "34/34",
          "176/366",
          "7.4 min",
-         "431,960 in / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
+         "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
         ]
        },
        {
@@ -10404,7 +10496,7 @@
          }
         ],
         "values": [
-         "Not measured",
+         "—",
          "34/35",
          "200/384",
          "5.3 min",
@@ -10546,9 +10638,9 @@
     },
     {
      "title": "Fix what is wrong",
-     "detail": "Corrections carry a reason; approving makes them the firm's rulings.",
+     "detail": "Corrections can carry a reason; approving makes them the firm's rulings.",
      "steps": [
-      "Known issue: sending the assets review back classifies every uncorrected item again from scratch, paying again, and an answer can change for a row the engineer did not touch."
+      "Known issue: an ordinary assets send-back classifies every uncorrected item again from scratch, paying again, and an answer can change for a row the engineer did not touch (a reprice or structure-model correction keeps the earlier classifications)."
      ],
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
@@ -10696,7 +10788,7 @@
          "$7.68",
          "$10.16",
          "9.5 min",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
         "selected": true
        },
@@ -10771,7 +10863,7 @@
          "$1.76",
          "$4.01",
          "7.7 min",
-         "1,284,643 in / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ]
        },
        {
@@ -11110,7 +11202,7 @@
          "35/35",
          "160/340",
          "8.5 min incl. four reopened gates",
-         "1,000,029 in / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
+         "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
         "selected": true
        },
@@ -11182,8 +11274,8 @@
          "9",
          "35/35",
          "Not measured",
-         "Not measured",
-         "3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
+         "9.5 min (42.5)",
+         "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ]
        },
        {
@@ -11255,7 +11347,7 @@
          "34/34",
          "176/366",
          "7.4 min",
-         "431,960 in / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
+         "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
         ]
        },
        {
@@ -11323,7 +11415,7 @@
          }
         ],
         "values": [
-         "Not measured",
+         "—",
          "34/35",
          "200/384",
          "5.3 min",
@@ -11774,6 +11866,46 @@
   "49.1": {
    "title": "49.1 The decomposition",
    "anchor": "491-the-decomposition"
+  },
+  "32.8": {
+   "title": "32.8 One real-provider probe",
+   "anchor": "328-one-real-provider-probe"
+  },
+  "27.2": {
+   "title": "27.2 Extraction: every empty field, room counts critical, the site area as printed",
+   "anchor": "272-extraction-every-empty-field-room-counts-critical-the-site-area-as-printed"
+  },
+  "33.6": {
+   "title": "33.6 Highlight regions",
+   "anchor": "336-highlight-regions"
+  },
+  "33.2": {
+   "title": "33.2 Today's pipeline (production, replay)",
+   "anchor": "332-todays-pipeline-production-replay"
+  },
+  "11": {
+   "title": "11. Task decomposition: one call per task instead of one call for everything (2026-10-16)",
+   "anchor": "11-task-decomposition-one-call-per-task-instead-of-one-call-for-everything-2026-10-16"
+  },
+  "19.2": {
+   "title": "19.2 Vocabulary completion and the two conventions",
+   "anchor": "192-vocabulary-completion-and-the-two-conventions"
+  },
+  "21": {
+   "title": "21. Detector and language model together (2026-10-16)",
+   "anchor": "21-detector-and-language-model-together-2026-10-16"
+  },
+  "42.3": {
+   "title": "42.3 Measured on the two live runs, without a paid run",
+   "anchor": "423-measured-on-the-two-live-runs-without-a-paid-run"
+  },
+  "36": {
+   "title": "36. Basis and land allocation (2026-10-29)",
+   "anchor": "36-basis-and-land-allocation-2026-10-29"
+  },
+  "55": {
+   "title": "55. Vendor import profiles for the preparer's schedule (2026-11-01)",
+   "anchor": "55-vendor-import-profiles-for-the-preparers-schedule-2026-11-01"
   }
  },
  "models": {

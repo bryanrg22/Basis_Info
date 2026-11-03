@@ -32,14 +32,14 @@
  // Runtime model names and provider routes must come from the feed, never these labels.
  const FLOW=[
   [{id:'upload',title:'Engineer uploads the files',description:'The engineer uploads the appraisal and the property photos, enters the property details and starts the study.',services:['api','firebase','storage','db','temporal','worker']}],
-  [{id:'extract',title:'Basis reads the appraisal',description:'Reads every page, then extracts each field (living area, year built, price...) with the exact words it came from.',services:['appraisal','azure_di']},
-   {id:'photos',title:'Basis analyzes the photos',description:'Counts the objects in each photo, reads its surfaces and room type, and outlines every object.',services:['vision','sam3']}],
+  [{id:'extract',title:'Basis reads the appraisal',description:'Reads every page, then extracts each field (living area, year built, price...) with the page it came from and, normally, the exact words.',services:['appraisal','azure_di']},
+   {id:'photos',title:'Basis analyzes the photos',description:'Counts the objects in each photo, reads its surfaces and room type, and outlines its objects when SAM 3 is set up.',services:['vision','sam3']}],
   [{id:'appraisal-review',title:'Engineer reviews the appraisal',description:'Checks each value against its source on the page, corrects what is wrong, then approves.',review:true,services:['api','db','relay','temporal']},
    {id:'photo-results',title:'Basis groups photos into rooms',description:'Groups the photos into rooms by file name and names each room with its type and floor.',services:['vision']}],
   [{id:'rooms-review',title:'Engineer reviews the rooms',description:'Puts every photo in the right room, fixes names, types and floors, then approves.',review:true,services:['api','db','relay','temporal']}],
   [{id:'inventory',title:'Basis counts each room\'s objects',description:'Combines a room\'s photos so each object is counted once, and double-checks wall, wainscot and tile materials.',services:['room_inventory','sam3']},
    {id:'components-review',title:'Engineer reviews the components',description:'Checks each room\'s counts and materials against the outlined photos, corrects, then approves.',review:true,services:['api','db','relay','temporal']}],
-  [{id:'assets',title:'Basis classifies and prices',description:'Gives each item its tax class, measures and prices it from RSMeans, and balances the total to the purchase price.',services:['classification','retrieval','embeddings','takeoff','structure','rsmeans','cost_indices']},
+  [{id:'assets',title:'Basis classifies and prices',description:'Gives each item its tax class, measures and prices it from the firm\'s RSMeans table, and balances the total to the purchase price less land.',services:['classification','retrieval','embeddings','takeoff','structure','rsmeans','cost_indices']},
    {id:'assets-review',title:'Engineer reviews the assets',description:'Checks tax classes, quantities, prices and citations, fixes what is wrong, then approves.',review:true,services:['api','db','relay','temporal']}],
   [{id:'output',title:'Basis exports the study',description:'Saves the engineer\'s rulings for the firm and exports the approved study with its evidence and costs.',services:['exports','storage','db']}],
   [{id:'report-sign',title:'Engineer signs the report',description:'Fills in the report details, previews the PDF and signs it.',signing:true,services:['api','firebase','db','storage','exports']}],

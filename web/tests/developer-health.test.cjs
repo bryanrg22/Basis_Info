@@ -143,7 +143,7 @@ test('report signing follows export and stays distinct from the four review gate
  assert.match(detail,/changed preview or revision/);
  assert.match(detail,/missing or unknown evidence stays incomplete/);
  assert.match(detail,/test_report_signing.py/);
- assert.match(A.render(nodes.find(n=>n.id==='output'),services,H),/Exporting files does not complete the study/);
+ assert.match(A.render(nodes.find(n=>n.id==='output'),services,H),/After the export the workflow marks the study completed; the web app shows it as complete only once the current revision&#39;s report is signed/);
  for(const status of ['healthy','down','unknown','stale']){
   const rows=services.map(s=>s.id==='storage'?{...s,status}:s);
   const card=H.renderFlow(rows).split('data-node="report-sign"')[1].split('</article>')[0];
