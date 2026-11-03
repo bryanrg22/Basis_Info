@@ -74,6 +74,8 @@ member's own actions in their firm's studies.
 `web/developer/client-errors.html`: a `study_input` record's detail shows "Files the firm
 uploaded" (name, kind, type, size, upload time and uploader, sha256) with an Open button for
 each confirmed file. Open asks for the reason (prefilled with the record's kind, blocker and
-id), sends `client_error_id`, and shows the file in a new tab from the response (a `blob:` URL
-revoked after a minute); the tab opens before the request so the browser treats it as the
-click's popup.
+id), sends `client_error_id`, and shows the file in the page under the table with a Download
+link (a `blob:` URL, revoked when the view is closed or replaced). No popup tab: a tab opened
+after the request is blocked by browsers, which the live check met. Only an image (in `<img>`)
+or a PDF is shown inline; any other type (a MISMO XML, a UAD ZIP, text) is a download only,
+because markup in it would run with the page's origin from a `blob:` URL.

@@ -63,3 +63,10 @@ test('a study_input record lists the firm\'s files with an Open button; unconfir
  assert.equal(M.accessReason(r),'support: study_input input:gla (record 11111111)');
  assert.equal(M.size(1536),'1.5 KB');assert.equal(M.size(undefined),'—');
 });
+test('an opened file is shown inline only as an image or a PDF; anything else is a download, all escaped',()=>{
+ const img=M.viewer('kitchen.jpg','image/jpeg','blob:x/1');assert.match(img,/<img src="blob:x\/1" alt="kitchen.jpg">/);assert.match(img,/download="kitchen.jpg"/);assert.match(img,/data-close-file/);
+ assert.match(M.viewer('a.pdf','application/pdf; charset=binary','blob:x/2'),/<iframe src="blob:x\/2"/);
+ for(const t of ['application/xml','application/zip','text/html','text/plain','',null]){const h=M.viewer('m.xml',t,'blob:x/3');assert.doesNotMatch(h,/<iframe|<img/);assert.match(h,/not shown in the page/);assert.match(h,/download="m.xml"/)}
+ const evil=M.viewer('"><script>x</script>','image/png','blob:x/4');assert.doesNotMatch(evil,/<script>/);
+ assert.match(M.detail({...record,kind:'study_input',event:{documents:[{document_id:'d1',filename:'a.pdf',uploaded_at:'2026-11-02T10:00:00Z'}]}},null),/id="file-view"[^>]*hidden/);
+});

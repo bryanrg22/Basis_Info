@@ -81,7 +81,17 @@
   const docs=r?.event?.documents||[];
   if(!docs.length||!r.study_id)return '';
   const rowsHtml=docs.map(d=>`<tr><td>${esc(d.filename)}<small>${esc(d.kind)} · ${esc(d.content_type)}</small></td><td class="num">${esc(size(d.bytes))}</td><td><small>${esc(when(d.uploaded_at))}</small><small title="${esc(d.uploaded_by||'')}">by ${esc(idShort(d.uploaded_by))}</small></td><td><code title="${esc(d.sha256)}">${esc(String(d.sha256||'').slice(0,12))}</code></td><td>${d.uploaded_at?`<button type="button" class="small" data-open="${esc(d.document_id)}">Open</button>`:'<small>not confirmed</small>'}</td></tr>`).join('');
-  return `<h3>Files the firm uploaded (${docs.length})</h3><p class="muted">Every open is recorded on the study's history with your reason; the firm sees it.</p><table class="crumbs files"><thead><tr><th>File</th><th>Size</th><th>Uploaded</th><th>sha256</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
+  return `<h3>Files the firm uploaded (${docs.length})</h3><p class="muted">Every open is recorded on the study's history with your reason; the firm sees it.</p><table class="crumbs files"><thead><tr><th>File</th><th>Size</th><th>Uploaded</th><th>sha256</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table><div id="file-view" class="file-view" hidden></div>`;
+ }
+ // An opened file, shown in the page (no popup tab: browsers block a tab opened after a
+ // request). Only an image (<img>, no script) or a PDF is shown inline; any other type (an XML
+ // or a ZIP could carry markup that would run with this page's origin from a blob: URL) is a
+ // download only.
+ const INLINE_PDF='application/pdf';
+ function viewer(filename,contentType,url){
+  const type=String(contentType||'').split(';')[0].trim().toLowerCase();
+  const body=type.startsWith('image/')?`<img src="${esc(url)}" alt="${esc(filename)}">`:type===INLINE_PDF?`<iframe src="${esc(url)}" title="${esc(filename)}"></iframe>`:`<p class="muted">This type (${esc(type||'unknown')}) is not shown in the page; download it to look at it.</p>`;
+  return `<div class="file-view-head"><strong>${esc(filename)}</strong><a href="${esc(url)}" download="${esc(filename)}">Download</a><button type="button" class="quiet small" data-close-file>Close</button></div>${body}`;
  }
  const filePath=(studyId,documentId)=>`/v1/ops/studies/${encodeURIComponent(studyId)}/documents/${encodeURIComponent(documentId)}/content`;
  // The reason the open prompt starts with: what the record is about, no client figures.
@@ -100,6 +110,6 @@
   const crumbs=(e.breadcrumbs||[]).map(c=>`<tr><td>${esc(when(c.at))}</td><td>${esc(c.since_load_ms??'')}</td><td>${esc(c.kind)}</td><td>${esc(c.message||'')}</td><td>${c.data?`<code>${esc(JSON.stringify(c.data))}</code>`:''}</td></tr>`).join('');
   return `<section class="detail"><div class="detail-tools"><button type="button" class="primary" data-copy="brief">Copy for an agent</button><button type="button" data-copy="json">Copy JSON</button><span class="muted" data-copied></span></div><h2>${esc(short(r.message,200))}</h2>${issue?`<div class="issue-box"><strong>Issue</strong> <code>${esc(issue.fingerprint)}</code> · ${esc(issue.occurrences)} occurrence${issue.occurrences===1?'':'s'} · first ${esc(when(issue.first_seen_at))} · last ${esc(when(issue.last_seen_at))}${statusControl(issue)}</div>`:''}<dl class="facts">${facts.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${e.stack?`<h3>Stack</h3><pre class="stack">${esc(e.stack)}</pre>`:''}${http?.problem_detail?`<h3>Problem</h3><p>${esc(http.problem_title||'')} ${esc(http.problem_detail)}</p>`:''}${e.context?`<h3>Context</h3>${tree(e.context)}`:''}<h3>Last actions (${(e.breadcrumbs||[]).length})</h3>${crumbs?`<table class="crumbs"><thead><tr><th>At</th><th>ms</th><th>Kind</th><th>What</th><th>Data</th></tr></thead><tbody>${crumbs}</tbody></table>`:'<p>None recorded.</p>'}${files(r)}<h3>Whole event</h3>${tree(e)}</section>`;
  }
- const api={FILTERS,KINDS,STATUSES,STATUS_LABEL,esc,query,when,short,size,row,rows,issueRow,issueRows,statusControl,brief,tree,files,filePath,accessReason,detail};
+ const api={FILTERS,KINDS,STATUSES,STATUS_LABEL,esc,query,when,short,size,row,rows,issueRow,issueRows,statusControl,brief,tree,files,viewer,filePath,accessReason,detail};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisClientErrors=api;
 })(typeof globalThis==='object'?globalThis:this);

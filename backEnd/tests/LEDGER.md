@@ -579,3 +579,11 @@ upload slow tests 142 passed.
 | `tests/api/test_decisions.py` | Added: an incomplete or invalid measured quantity is 422 before anything is written; a valid one is accepted | pass |
 | `tests/api/test_input_records.py` | Each blocker is recorded (kind `study_input`) with the firm, the person, the study, the held assets and every file; a rerun records nothing twice and a later revision joins the same issue per firm and blocker; a revision with no blocker records nothing; a failure never fails the caller's transaction; operators list them by kind; the browser cannot post the kind | pass |
 | `tests/costtest_support.py`, `tests/fixtures/synthetic/suite_cost_table.json` | The suite's synthetic cost table (the removed rows' values, invented numbers) and `COST_TABLE_PATH` baseline in `tests/conftest.py` | — |
+
+## Support opens a firm's files, every open recorded (2026-11-02; EVAL_REPORT 79)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `tests/api/test_ops_documents.py` | An operator who is not a member lists a firm's study documents (uploader, firm) and opens one: exact bytes, registered type, `nosniff`, the filename, `no-store`, no `ETag`, no 304 on `If-None-Match`; one `operator.document_accessed` row per open (actor `operator`, the operator's user, the document, reason, record id, file name, kind, sha256, size), which the firm reads on its timeline; no reason, a 2- or 301-character reason, a malformed record id, the owner, another firm's owner, an unknown study or document, another study's document and an unconfirmed upload are refused with nothing recorded; bytes gone from storage are 404 with the access still recorded | 11 tests, pass |
+| `tests/integration/db/test_migrations.py` (0030) | `0030_operator_document_access`: `study_events.actor_type` takes `operator` and still refuses an unknown actor; with no access row the downgrade restores the 0029 snapshot exactly; with one it refuses (access records are never deleted); head `0030` | 1 test, pass |
+| `web/tests/client-errors-page.test.cjs` | Added: a `study_input` record lists its files with an Open button for confirmed files only, sizes and uploader, escaped; no list without a study; the content path, the prefilled reason; an opened file is inline only as an image or a PDF, any other type a download, all escaped | 2 tests, pass |

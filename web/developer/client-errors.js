@@ -43,17 +43,21 @@
   finally{button.disabled=false}
  }
  // Open one of the firm's files: the reason is recorded on the study's history (the firm sees
- // it). The tab opens before the fetch so the browser treats it as the click's popup.
+ // it); the file is shown in the page with a Download link (M.viewer).
+ let fileUrl=null;
+ function closeFile(view){if(fileUrl){URL.revokeObjectURL(fileUrl);fileUrl=null}if(view){view.hidden=true;view.innerHTML=''}}
  async function openFile(r,button){
   const reason=prompt("Why are you opening this file? It is recorded on the study's history, which the firm sees.",M.accessReason(r));
   if(reason===null)return;
-  const tab=window.open('','_blank');button.disabled=true;
+  const view=$('file-view'),doc=(r.event?.documents||[]).find(d=>d.document_id===button.dataset.open)||{};
+  button.disabled=true;
   try{
    const response=await api.request('GET',M.filePath(r.study_id,button.dataset.open),{query:{reason:reason.trim(),client_error_id:r.id},raw:true});
-   const url=URL.createObjectURL(await response.blob());
-   if(tab)tab.location.href=url;else location.assign(url);
-   setTimeout(()=>URL.revokeObjectURL(url),60000);
-  }catch(e){if(tab)tab.close();alert(e?.status===422?'Give a reason of at least 3 characters.':problem(e))}
+   const blob=await response.blob();closeFile(view);fileUrl=URL.createObjectURL(blob);
+   view.innerHTML=M.viewer(doc.filename||'file',response.headers.get('content-type')||blob.type,fileUrl);view.hidden=false;
+   view.querySelector('[data-close-file]').onclick=()=>closeFile(view);
+   view.scrollIntoView({block:'start'});
+  }catch(e){alert(e?.status===422?'Give a reason of at least 3 characters.':problem(e))}
   finally{button.disabled=false}
  }
  async function show(id,{quiet=false}={}){
@@ -63,7 +67,7 @@
    const issue=await api.request('GET',`/v1/ops/client-errors/issues/${encodeURIComponent(r.fingerprint)}`).catch(()=>null);
    S.current=r;
    $('detail').innerHTML=`<button type="button" id="close" class="quiet">Close</button>`+M.detail(r,issue);
-   $('close').onclick=()=>{$('detail').hidden=true;S.current=null;history.replaceState(null,'',location.pathname+location.search)};
+   $('close').onclick=()=>{closeFile(null);$('detail').hidden=true;S.current=null;history.replaceState(null,'',location.pathname+location.search)};
    $('detail').querySelector('[data-copy="brief"]').onclick=()=>copyText(M.brief(r,issue),'Copied the brief: paste it into Claude Code or Codex.');
    $('detail').querySelector('[data-copy="json"]').onclick=()=>copyText(JSON.stringify({record:r,issue},null,2),'Copied the record as JSON.');
    for(const b of $('detail').querySelectorAll('[data-open]'))b.onclick=()=>openFile(r,b);
