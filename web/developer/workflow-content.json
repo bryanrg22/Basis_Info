@@ -10924,9 +10924,9 @@
    "how": [
     {
      "title": "Check what was found",
-     "detail": "Each room's list is shown against its photos, with every object outlined.",
+     "detail": "Each room's list is shown against its photos, with the objects Basis already outlined.",
      "steps": [
-      "The outlines come from SAM 3; the counts come from the room step."
+      "Nothing is analysed in this part: the outlines were made in \"Basis analyzes the photos\" and the counts in \"Basis counts each room's objects\"; the screen reads them from the study."
      ],
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
@@ -10937,10 +10937,10 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Outlines each object for the engineer",
-       "system": "SAM 3",
-       "brand": "meta",
-       "provider": "Meta; self-hosted, or Replicate"
+       "name": "Stores the study",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis database"
       }
      ]
     },
@@ -10948,7 +10948,8 @@
      "title": "Correct counts and materials",
      "detail": "The engineer fixes counts and materials and adds or removes items.",
      "steps": [
-      "Sending it back re-analyzes the flagged photos and rebuilds only the rooms that changed."
+      "Sending it back re-analyzes the flagged photos and rebuilds only the rooms that changed.",
+      "To add an object Basis missed, the engineer taps an outlined candidate or draws a box. For a box with no outline of that object under it, SAM 3 is asked once, with the box and the object's name, to outline it; the call is billed and recorded. If SAM 3 fails or takes too long, the box itself is kept."
      ],
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
@@ -10963,6 +10964,12 @@
        "system": "PostgreSQL",
        "brand": "postgresql",
        "provider": "Basis database"
+      },
+      {
+       "name": "Outlines a box the engineer draws",
+       "system": "SAM 3",
+       "brand": "meta",
+       "provider": "Meta; self-hosted, or Replicate"
       }
      ]
     },
