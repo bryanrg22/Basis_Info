@@ -2103,7 +2103,7 @@
      "source": "backEnd/basis/vision/fusion.py",
      "uses": [
       {
-       "name": "Takes each object type's count from the better model",
+       "name": "Uses, for each object type, the model that counted it more accurately in testing (section 15.4)",
        "system": "Basis count table",
        "brand": "basis",
        "provider": "Basis (no AI)"
