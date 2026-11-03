@@ -473,15 +473,16 @@ CONSTANTS: Final[tuple[Constant, ...]] = (
         "wainscot_height_ft",
         "formula",
         "ft",
-        Decimal(3),
+        Decimal(2),
         (Target("spec", "wainscoting", "per_sf"),),
         "wainscot height on the room perimeter",
         published=Decimal(3),
         published_source=(
             "32-36 in wainscot (trim guides); the cost row Basis prices it on "
-            f"({RSMEANS_RES} 06 22 13.45 5600) is a 2 ft high wainscot"
+            f"({RSMEANS_RES} 06 22 13.45 5600) is a 2 ft high wainscot, today's value since "
+            "EVAL_REPORT 89 (3 ft before)"
         ),
-        extra=(("cost row 2 ft", Decimal(2)),),
+        extra=(("3 ft before EVAL 89", Decimal(3)),),
     ),
     Constant(
         "countertop_depth_ft",

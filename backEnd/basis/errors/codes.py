@@ -335,6 +335,7 @@ class E:
     COST_INDEX_DUPLICATE = "BASIS-COST-003"
     COST_INDEX_SOURCE_UNAVAILABLE = "BASIS-COST-004"
     COST_INDEX_FETCH_FAILED = "BASIS-COST-005"
+    COST_LOCATION_STATE_MISMATCH = "BASIS-COST-006"
 
     # ---------------------------------------------------------------- the study report
     REPORT_NOT_AN_EXPORT = "BASIS-REPORT-001"

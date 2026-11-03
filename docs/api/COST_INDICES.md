@@ -132,6 +132,13 @@ loaded index is priced at the latest loaded one, flagged `cost:YEAR_INDEX_MISSIN
 reaches a study when its assets step reruns (a rejection at the assets gate, or
 `POST /v1/studies/{id}/retry`); the store never changes a completed revision.
 
+The location factor is the city row of the study's ZIP (the intake's, else the appraisal's),
+else the mean of its state's cities. A ZIP whose row the table lists under another state than
+the subject's (the intake's state, else the appraisal's) is not used: the location source says
+why, the state's mean prices the study, and every priced row is flagged
+`cost:LOCATION_STATE_MISMATCH` (`BASIS-COST-006`) until the intake's ZIP or state is corrected
+(EVAL_REPORT 86, 89).
+
 ## Per-asset cost trail
 
 Every cost row the assets step writes carries its trail (`cost_estimates.trail`, migration

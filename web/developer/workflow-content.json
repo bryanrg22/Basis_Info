@@ -7178,9 +7178,10 @@
        }
       ],
       "step": 3,
-      "used": "Basis uses every documented correction, with the general contractor's overhead and profit spread over every line, the green row: the allocation is no longer withheld. These figures were measured before the fail-safe change of section 78; on today's code the gap and the verdict are the same but the class shares differ, and the allocation is withheld while any asset is unpriced (86.6).",
+      "used": "Basis uses every documented correction, with the general contractor's overhead and profit spread over every line, the green row: the allocation is no longer withheld. These figures were measured before the fail-safe change of section 78; on today's code the gap and the verdict are the same but the class shares differ, and the allocation is withheld while any asset is unpriced (re-measured in 89.5: the gap is still 2.0 and 1.6, the 5-year share 12.6 instead of 14.1).",
       "used_sections": [
-       "86"
+       "86",
+       "89"
       ]
      },
      {
@@ -7298,7 +7299,10 @@
         "setup_note": "No AI model"
        }
       ],
-      "used": "Basis allocates only when its cost lands within 10 % of the price less land, the accuracy RSMeans states for its square-foot method (the green row); the IRS guide gives no number. On this property a looser tolerance did not let worse shares through, so 10 % is kept, with a proposed flag between 5 and 10 %. The test also found that Basis's two \"within 10 %\" checks measure different quantities and disagree between 9 and 10 %."
+      "used": "Basis allocates only when its cost lands within 10 % of the price less land, the accuracy RSMeans states for its square-foot method (the green row); the IRS guide gives no number. On this property a looser tolerance did not let worse shares through, so 10 % is kept, with a proposed flag between 5 and 10 %. The test also found that Basis's two \"within 10 %\" checks measured different quantities and disagreed between 9 and 10 %; since section 89 they apply one test.",
+      "used_sections": [
+       "89"
+      ]
      },
      {
       "title": "Location price factor",
@@ -7415,7 +7419,10 @@
         "setup_note": "No AI model"
        }
       ],
-      "used": "Basis uses the city row of the intake ZIP's first three digits from the RSMeans Residential table, else the state's mean (the green row, since the intake had no ZIP), as RSMeans, Marshall & Swift and Craftsman all do. The factor scales every dollar alike, so the class shares do not move; only the gap does. The test found that the lookup never checks the ZIP's state: this appraisal's own ZIP belongs to another state's row, which Basis would apply silently if it reached the intake. A state check is proposed."
+      "used": "Basis uses the city row of the intake ZIP's first three digits from the RSMeans Residential table, else the state's mean (the green row, since the intake had no ZIP), as RSMeans, Marshall & Swift and Craftsman all do. The factor scales every dollar alike, so the class shares do not move; only the gap does. The test found that the lookup never checks the ZIP's state: this appraisal's own ZIP belongs to another state's row, which Basis would have applied silently; since section 89 such a ZIP is skipped, the state's mean prices the study and the rows are flagged for review.",
+      "used_sections": [
+       "89"
+      ]
      },
      {
       "title": "Measuring constants",
@@ -7456,8 +7463,8 @@
       ],
       "rows": [
        {
-        "id": "today",
-        "name": "Today's constants",
+        "id": "3 ft wainscot",
+        "name": "The constants before section 89 (wainscot measured 3 ft high)",
         "setup": [],
         "values": [
          "1.000",
@@ -7466,7 +7473,20 @@
          "+2.0 reconciled",
          "None"
         ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "today",
+        "name": "Today's constants: wainscot at 2 ft, the height of the RSMeans line it is priced on",
+        "setup": [],
         "setup_note": "No AI model",
+        "values": [
+         "0.983",
+         "11.9 / 0.9 / 4.2 / 82.9",
+         "1.62 / 2.7",
+         "+2.0 reconciled",
+         "None"
+        ],
         "in_use": true
        },
        {
@@ -7522,7 +7542,10 @@
         "setup_note": "No AI model"
        }
       ],
-      "used": "Basis measures with today's constants (the green row). The roof, siding, gutter and other outside constants never moved the report's class shares or the gap, because those 39-year rows sit inside the square-foot model and are carved back out. Only room-level sizing matters, and within published ranges no single value moved the class error by more than 0.32 points. Today's values stay; the sources support a few changes (room sizes, footprint shape, a wall-area formula) that make no measurable difference on this property."
+      "used": "Basis measures with today's constants (the green row). The roof, siding, gutter and other outside constants never moved the report's class shares or the gap, because those 39-year rows sit inside the square-foot model and are carved back out; only room-level sizing matters, and within published ranges no single value moved the class error by more than 0.32 points. Since section 89 wainscot is measured 2 ft high, the height of the only RSMeans wainscot line it is priced on (it was 3 ft); the score gets worse because it rewards any 5-year dollars, so the decision rests on the cost line's own terms.",
+      "used_sections": [
+       "89"
+      ]
      }
     ],
     "metrics": [
@@ -7667,7 +7690,8 @@
       "sections": [
        "35.2",
        "37",
-       "87"
+       "87",
+       "89"
       ],
       "missing": "Every constant was varied on one property (87) and none moved the report's class error by more than 0.32 points within published ranges, but no measured quantities exist to check them against; driveways, walks and fences are still not measured.",
       "test": "Room sizes from the appraisal sketch or plans; site items (driveway, walks, fence) from aerial data.",
@@ -7721,7 +7745,8 @@
       "verdict": "compared",
       "sections": [
        "45.2",
-       "86"
+       "86",
+       "89"
       ],
       "missing": "",
       "test": "",
@@ -7778,7 +7803,8 @@
       "used": "±10 %",
       "verdict": "compared",
       "sections": [
-       "85"
+       "85",
+       "89"
       ],
       "missing": "",
       "test": "",
@@ -8928,7 +8954,10 @@
         "setup_note": "No AI model"
        }
       ],
-      "used": "Basis prints the statutory 60 % bonus with the half-year convention (the green row). On every row where the recovery periods agree, its method, convention and bonus equal the engineer's implied terms, and the class shares are within one point. One real difference: the property went into service in December, so all of its personal property falls in the last quarter and the IRS 40 % test calls for mid-quarter; Basis prints half-year with a generic note."
+      "used": "Basis prints the statutory 60 % bonus with the half-year convention (the green row). On every row where the recovery periods agree, its method, convention and bonus equal the engineer's implied terms, and the class shares are within one point. One real difference: the property went into service in December, so all of its personal property falls in the last quarter and the IRS 40 % test calls for mid-quarter; since section 89 the report's note says mid-quarter likely applies, with the share, for the preparer to confirm.",
+      "used_sections": [
+       "89"
+      ]
      }
     ],
     "metrics": [
@@ -9009,9 +9038,10 @@
       "used": "MACRS lives, bonus by acquisition date",
       "verdict": "partly",
       "sections": [
-       "88"
+       "88",
+       "89"
       ],
-      "missing": "Compared with the engineer's schedule on one study (88): every term matches where the periods agree, but the engineer prints no method, convention or bonus, so the elections cannot be checked; Basis prints half-year even when the study's own dates call for mid-quarter.",
+      "missing": "Compared with the engineer's schedule on one study (88): every term matches where the periods agree, but the engineer prints no method, convention or bonus, so the elections cannot be checked. Since 89 the report warns when the study's own dates trip the mid-quarter test.",
       "test": "A preparer's own Form 4562 for a study; decide how Basis applies the 40 % test.",
       "cost": "$0"
      },
@@ -13129,6 +13159,10 @@
   "88": {
    "title": "88. Basis's depreciation schedule against the engineer's (2026-11-03)",
    "anchor": "88-basiss-depreciation-schedule-against-the-engineers-2026-11-03"
+  },
+  "89": {
+   "title": "89. The five defects the free comparisons found, fixed (2026-11-03)",
+   "anchor": "89-the-five-defects-the-free-comparisons-found-fixed-2026-11-03"
   }
  },
  "models": {

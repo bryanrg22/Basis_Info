@@ -13112,3 +13112,117 @@ So Basis's schedule equals what the stored run 6 export and report carry.
    shows the coverage gaps).
 3. **The engineer's report has no depreciation schedule at all.** The task assumed one could
    be compared column by column. Only the recovery period can be compared directly.
+
+## 89. The five defects the free comparisons found, fixed (2026-11-03)
+
+Sections 82-88 found five defects that needed no paid run to fix. Bryan asked for them fixed;
+each is a code change with its tests, and the two that move dollars were replayed on the stored
+exports of the client property. No model was called (cost $0).
+
+### 89.1 One 10 % test, on one quantity (section 85)
+
+The reconciliation (`basis.domain.structure`) allocates when |B - RCNLD| / B <= 10 %. The
+allocation's own `rcnld_factor` check (`basis.domain.basis`) tested |T / RCNLD - 1| <= 10 %: a
+different quantity, measured against RCNLD rather than B and with the closing costs in T. A
+9.5 % gap gives a factor of 1.105, so the study reconciled while the check warned "outside";
+the docstring and STRUCTURE_MODEL.md 3.8 said the factor was within 10 % "by construction".
+The check now applies the reconciliation's own test; `RCNLD_FACTOR_TOLERANCE` is pinned equal
+to `RECONCILIATION_TOLERANCE` by a test; both texts are corrected. Tests: `test_basis.py`
+(9.5 % and exactly 10 % ok with and without closing costs, 10.000001 % warning, above and
+below) and `test_balance_tolerance.py` (the old test still disagrees, today's agrees).
+
+### 89.2 A ZIP from another state is not used (section 86)
+
+The location table keys a city row by the ZIP's first three digits alone, and the lookup never
+compared the row's state with the subject's; the client appraisal's own ZIP belongs to another
+state's row. Now (`basis.domain.measurements.resolve_cost_index`) a ZIP whose row is in another
+state than the subject's (the intake's state, else the appraisal's, counting only a state the
+table lists) is skipped with the reason in the location source, the next candidate prices the
+study (the state's mean), and every priced row is flagged `cost:LOCATION_STATE_MISMATCH`
+(`BASIS-COST-006`, a review flag). A ZIP with no known state to check against is used as
+before. Tests: `test_measurements.py` (the wrong-state ZIP skipped with the reason, the matching
+ZIP used, the appraisal's state vouching, no state and an unknown state) and
+`test_process_assets.py` (a New York study with an Illinois ZIP: the state mean, 0.976, and
+every priced row flagged; Postgres).
+
+### 89.3 The study's own dates run the mid-quarter test (section 88)
+
+The schedule printed half-year with a generic note even when the study's own dates trip the
+40 % test: the client study went into service in December, so all of its personal property is
+in the last quarter. Basis still cannot decide the convention (the test counts all the
+property the taxpayer placed in service that year), but `basis.report.tax.mid_quarter_note` now
+runs the test on the study's own 5, 7 and 15-year lines: above 40 % in October to December of
+one year, the report's convention note says "half-year as printed, but mid-quarter likely
+applies", with the share and the year, for the preparer. The CSV and XLSX schedules are
+unchanged (they print the convention column as before). Tests: `test_tax.py` (a December
+study, 41 %, and the cases that keep the generic note: June, real property only, exactly
+40 %, two years, nothing).
+
+### 89.4 Wainscot measured at the priced line's height (section 87)
+
+Wainscot was measured at 3 ft on the room perimeter and priced per square foot on the only
+RSMeans line in the cost table, Residential 2020 06 22 13.45 5600, "Wainscot moldings ... 2'
+high". A unit-cost quantity is measured in the terms of the line it is priced on, so the
+takeoff (`basis.domain.takeoffs`, `wainscoting.per_sf`) is now 2 ft; a taller wainscot is the
+engineer's measured quantity at the assets review. Replayed with `evals.takeoff_constants`
+(run `takeoff_constants_fixes_2026-11-03`), today's cell now equals the "cost row 2 ft" cell
+that section 87 measured, to the digit:
+
+**How to read this table.** What the wainscot change does to the two live exports of the
+client property, re-measured with today's code.
+
+- **Models**: no model is called; every row replays stored exports.
+- **Priced total**: the itemized rows' priced total relative to the 3 ft measurement.
+- **Share of dollars by class**: after the structure model; the engineer's is 14.3 / 0.4 / 5.1 / 80.2.
+- **Class share error, average / worst (points)**: lower is closer to the engineer's, but both
+  runs under-allocate the 5-year class, so this score rewards any added 5-year dollars and
+  cannot judge a quantity (87.7).
+- **Gap to the price**: depreciated cost below price less land; reconciled within 10 %.
+- **Tokens (input / output)**: None; no model ran.
+
+| Wainscot height | Models (provider, effort, temperature) | Study A: priced total | Study A: share of dollars by class: 5 / 7 / 15 / 39 years (%) | Study A: class share error, average / worst (points) | Study A: gap to the price | Study B: class share error, average / worst (points) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|
+| 3 ft (before) | No AI model | 1.0000 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | +2.0 reconciled | 2.85 / 5.1 | None |
+| 2 ft, the priced line's height (today) | No AI model | 0.9834 | 11.9 / 0.9 / 4.2 / 82.9 | 1.62 / 2.7 | +2.0 reconciled | 3.04 / 5.5 | None |
+
+The score moves the wrong way, which is expected: the change removes 5-year dollars the 3 ft
+quantity had added on a line that does not describe it. The decision rests on the cost line's
+own terms, not on this score; one property.
+
+### 89.5 Section 49.3 re-measured on today's code
+
+Section 49.3's production cell no longer reproduces: the fail-safe change of section 78
+(commits `8162a91`, placeholder unit prices removed, and `6285a15`, an unpriced asset withholds
+the allocation) moved the class shares and withholds the allocation on both stored exports
+(section 86.6 bisected it). `evals.gap_sweep` re-run on this branch's code (run
+`gap_sweep_fixes_2026-11-03`; identical to main's `gap_sweep_today_2026-11-03` because the
+replay keeps the exports' stored quantities, so 89.4 does not show here):
+
+**How to read this table.** Section 49.3's production cell (installed cost with the general
+contractor's O&P pro rata, square-foot model, modifications on, specialties in the building,
+small systems carved), as stored on 2026-10-31 and as today's code gives it.
+
+- **Models**: no model is called.
+- **Gap to the price (%) / status**: depreciated cost below price less land; reconciled within 10 %.
+- **Allocation factor**: T / RCNLD when the allocation is made; "withheld" when a blocker (here, unpriced assets) withholds it.
+- **Share of dollars by class**, **Class share error, average (points)**: as in 49.3.
+- **Tokens (input / output)**: None.
+
+| Run | Models (provider, effort, temperature) | Study A: gap / status | Study A: allocation factor | Study A: share of dollars by class: 5 / 7 / 15 / 39 years (%) | Study A: class share error, average (points) | Study B: gap / status | Study B: class share error, average (points) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|
+| 49.3 as stored (code before section 78) | No AI model | 2.0 reconciled | 1.022 | 14.1 / 0.9 / 4.2 / 80.8 | 0.55 | 1.6 reconciled | 2.34 | None |
+| Today's code | No AI model | 2.0 reconciled | withheld | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 | 1.6 reconciled | 2.85 | None |
+
+The gap and the verdict are unchanged; the 5-year share fell because carpet, tile, light
+fixtures, outlets and HVAC units no longer price from placeholder rows; until they are measured
+or priced the allocation is withheld, as section 78 intends. The developer page's 49.3 table
+says so.
+
+### 89.6 Verified, not verified
+
+Verified: every fix's tests (listed above) pass; the unit suite, the content and web tests and
+the gates (EVAL_REPORT 89's PR); the two replays reproduce section 87's 2 ft cell and main's gap
+sweep exactly. Not verified: a live study on the fixed code (the location flag and the
+mid-quarter note on a real run are covered by tests with synthetic studies only); the wainscot
+height on any property but this one; whether firms want the location flag on every priced row
+or once on the study (it follows the cost-index flag's precedent).

@@ -3238,6 +3238,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Retry (the next scheduled run does); the failures name the year and the cause.",
         "yes",
     ),
+    _e(
+        E.COST_LOCATION_STATE_MISMATCH,
+        "flag",
+        "process_assets",
+        "basis.domain.measurements",
+        "The study's ZIP (intake or appraisal) has a city row in the location table, but under "
+        "another state than the subject's; the row is not used and the next candidate (the "
+        "state's mean) prices the study (EVAL_REPORT 86, 89).",
+        "`cost:LOCATION_STATE_MISMATCH` on every priced row; the takeoff's location source "
+        "names the ZIP, the table's state and the subject's.",
+        "Check the property's ZIP and state on the intake; correct the one that is wrong and "
+        "rerun the assets step.",
+        "no",
+        signal="cost:LOCATION_STATE_MISMATCH",
+    ),
     # ------------------------------------------------------------------ REPORT
     _e(
         E.REPORT_NOT_AN_EXPORT,

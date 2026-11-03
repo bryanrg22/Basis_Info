@@ -25,7 +25,7 @@ from typing import Any, Final
 from basis.errors.codes import E
 from basis.report.inputs import ReportInputs
 from basis.report.model import ReportError, StudyReport
-from basis.report.tax import MID_QUARTER_NOTE, PUB_946, PUB_946_ADS
+from basis.report.tax import PUB_946, PUB_946_ADS, mid_quarter_note
 
 PACKAGE: Final = "basis.report"
 
@@ -205,7 +205,9 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
             }
             for s in report.schedule
         ],
-        "mid_quarter": MID_QUARTER_NOTE,
+        "mid_quarter": mid_quarter_note(
+            (s.terms, s.basis, s.placed_in_service) for s in report.schedule
+        ),
         "pub946": PUB_946,
         "pub946_ads": PUB_946_ADS,
         "methodology": [

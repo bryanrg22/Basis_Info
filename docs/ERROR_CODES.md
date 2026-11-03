@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-292 codes in 23 areas.
+293 codes in 23 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -378,6 +378,7 @@ stale).
 | `BASIS-COST-003` | refusal | POST /v1/cost-indices; `basis.api.routes.cost_indices` | The store's latest version of this source, series, year and region already carries the same value and citation; nothing is written twice. | a problem response (type `duplicate-value`) | Nothing to do; to revise a value, send the new value or citation (it becomes the next version). | no |
 | `BASIS-COST-004` | outcome | python -m basis.costs.refresh; `basis.costs.refresh` | A configured source was not asked: fetching is off (`COST_INDEX_FETCH`) or the source lacks its credentials (the RSMeans API without a subscription). | A `cost_index_runs` row with status `skipped` and the reason in `detail.reason`. | Turn fetching on or configure the source; or enter the value manually. | no |
 | `BASIS-COST-005` | outcome | python -m basis.costs.refresh; `basis.costs.refresh` | A fetcher raised or returned no value for a wanted year (network, timeout, an unexpected document); the store is unchanged for that source. | A `cost_index_runs` row with status `failed` and the errors in `failures`; the job's exit status 1. | Retry (the next scheduled run does); the failures name the year and the cause. | yes |
+| `BASIS-COST-006` | flag | process_assets; `basis.domain.measurements` | The study's ZIP (intake or appraisal) has a city row in the location table, but under another state than the subject's; the row is not used and the next candidate (the state's mean) prices the study (EVAL_REPORT 86, 89). | `cost:LOCATION_STATE_MISMATCH` on every priced row; the takeoff's location source names the ZIP, the table's state and the subject's. (reason `cost:LOCATION_STATE_MISMATCH`) | Check the property's ZIP and state on the intake; correct the one that is wrong and rerun the assets step. | no |
 
 ## REPORT: The study report and the preparer's schedule (basis.report)
 

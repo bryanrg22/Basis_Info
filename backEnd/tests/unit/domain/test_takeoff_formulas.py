@@ -33,7 +33,7 @@ from basis.domain.takeoffs import (
         ("wall_finish", 100, "350.00", "SF"),  # 100 x 3.5
         ("ceiling_finish", 100, "100.00", "SF"),
         ("crown_molding", 100, "40.00", "LF"),  # 4 x sqrt(100)
-        ("wainscoting", 100, "120.00", "SF"),  # 40 LF x 3 ft
+        ("wainscoting", 100, "80.00", "SF"),  # 40 LF x 2 ft, the priced RSMeans line's height
         ("concrete_floor", 80, "80.00", "SF"),
         ("countertop", 144, "100.00", "SF"),  # 48 LF x 25/12 ft
         ("baseboard", 100, "40.00", "LF"),  # 4 x sqrt(100)

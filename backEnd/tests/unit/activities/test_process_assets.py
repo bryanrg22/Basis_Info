@@ -969,6 +969,26 @@ async def test_cost_index_from_the_study_prices_with_the_states_factor(
     )
 
 
+async def test_a_zip_from_another_state_is_skipped_and_every_priced_row_flagged(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT 86 and 89: the appraisal prints a New York state with an Illinois ZIP. The
+    ZIP's Chicago row is not used; the state's mean prices the rows, and each priced row is
+    flagged ``cost:LOCATION_STATE_MISMATCH`` for the engineer to fix the intake."""
+    await seed_extraction(
+        deps, analyzed, {**MEASURED_FIELDS, "subject.state": "NY", "subject.zip": "60601"}
+    )
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
+    rows = await labelled(deps, analyzed.study_id, 1)
+    _, costs = await takeoffs_and_costs(deps, analyzed.study_id)
+    tile = next(a for label, a in rows if label == "tile_flooring")
+    assert costs[tile.id].location_factor == Decimal("0.976")
+    assert "cost:LOCATION_STATE_MISMATCH" in (tile.review_reason or "")
+    assert tile.needs_review
+    priced = [a for _, a in rows if a.id in costs and costs[a.id].total is not None]
+    assert priced and all("cost:LOCATION_STATE_MISMATCH" in (a.review_reason or "") for a in priced)
+
+
 # ------------------------------------------------------------------ the intake (EVAL_REPORT 37)
 
 
