@@ -1,34 +1,36 @@
 /* Health is evidence, not configuration. Missing, old or malformed checks never go green. */
 (function(scope){
  'use strict';
- const GROUPS=['Infrastructure','AI providers','Processing & reference data'];
+ const GROUPS=['Basis services','Infrastructure','AI providers','Models and reference data'];
+ // The systems an operator would go and fix, each with its own check. A step's roll-up (list:false)
+ // has no check of its own: its status is its systems', shown on its workflow card, not listed here.
  const SERVICES=[
-  ['api','Basis API','Infrastructure','FastAPI · requests and review decisions'],
-  ['db','PostgreSQL','Infrastructure','Study records, revisions, pgvector and audit'],
-  ['temporal','Temporal','Infrastructure','Durable workflows and review checkpoints'],
-  ['worker','Study worker','Infrastructure','Activity polling and model execution'],
-  ['relay','Decision relay','Infrastructure','Delivers saved decisions to Temporal'],
-  ['storage','File storage','Infrastructure','Local storage or Google Cloud Storage'],
-  ['firebase','Firebase Auth','Infrastructure','Sign-in and token verification'],
-  ['openai','OpenAI / GPT','AI providers','Appraisal, photo analysis and room reconciliation'],
-  ['azure_openai','Azure OpenAI','AI providers','Alternative GPT deployments'],
-  ['anthropic','Anthropic / Claude','AI providers','Count fusion, materials and asset classification'],
-  ['replicate','Replicate','AI providers','Hosted segmentation when selected'],
-  ['azure_di','Azure Document Intelligence','Processing & reference data','Appraisal text, tables and page geometry'],
-  ['appraisal','Appraisal extraction','Processing & reference data','PDF / UAD 3.6 XML + validation + grounded model'],
-  ['vision','Photo analysis','Processing & reference data','Countable objects, surfaces and room identity'],
-  ['sam3','SAM 3','Processing & reference data','Meta · object outlines · self-hosted or Replicate'],
-  ['mask2former','Mask2Former','Processing & reference data','Meta · optional surface crops and material second look'],
-  ['room_inventory','Room inventory','Processing & reference data','Reconcile photos, counts and materials'],
-  ['embeddings','Embedding model','Processing & reference data','Sentence Transformers · evidence retrieval'],
-  ['retrieval','Evidence search','Processing & reference data','Reference corpus · BM25 / vector search'],
-  ['classification','Asset classification','Processing & reference data','IRS rules, firm rulings and model fallback'],
-  ['takeoff','Quantity takeoff','Processing & reference data','Appraisal areas, inventory and study inputs'],
-  ['structure','Concealed systems','Processing & reference data','Structure model and building assumptions'],
-  ['rsmeans','RSMeans cost table','Processing & reference data','Licensed unit-cost rows and source citations'],
-  ['cost_indices','Cost indices','Processing & reference data','Year and location factors with citations'],
-  ['exports','Result exports','Processing & reference data','Approved study reports, schedules and supporting files'],
- ].map(([id,name,group,description])=>({id,name,group,description}));
+  ['api','Basis API','Basis services','The web app\'s requests: uploads, reviews and signing'],
+  ['worker','Study worker','Basis services','Runs each study\'s steps and their AI calls'],
+  ['relay','Decision relay','Basis services','Passes each engineer decision to the running study'],
+  ['db','PostgreSQL','Infrastructure','Studies, revisions, decisions and the audit trail'],
+  ['temporal','Temporal','Infrastructure','Runs each study as a workflow and waits at every review'],
+  ['storage','File storage','Infrastructure','Uploaded files, reports and exports (Google Cloud Storage; a local folder in development)'],
+  ['firebase','Firebase Auth','Infrastructure','Sign-in for engineers and Basis operators'],
+  ['azure_openai','Azure OpenAI','AI providers','Runs the GPT models (gpt-6.1-sol, gpt-6-luna) first'],
+  ['openai','OpenAI','AI providers','Backup host for the same GPT models, used when Azure answers 429 or 5xx twice'],
+  ['anthropic','Anthropic','AI providers','Runs the Claude models: the second photo counter, the material check and asset classification'],
+  ['replicate','Replicate','AI providers','Hosts SAM 3 (and Mask2Former when chosen) when they are not self-hosted'],
+  ['azure_di','Azure Document Intelligence','Models and reference data','Reads each appraisal page: text, tables, checkboxes and where they sit'],
+  ['sam3','SAM 3','Models and reference data','Outlines each counted object in the photos'],
+  ['mask2former','Mask2Former','Models and reference data','Cuts out walls, floors and ceilings for the material check; off by default'],
+  ['embeddings','all-MiniLM-L6-v2','Models and reference data','Embeds the IRS reference documents, inside the worker'],
+  ['retrieval','IRS reference documents','Models and reference data','The IRS guidance and rules the classifier searches and cites'],
+  ['rsmeans','RSMeans cost table','Models and reference data','The firm\'s licensed unit costs, each row with its source'],
+  ['cost_indices','Cost indices','Models and reference data','RSMeans year and location price factors, with citations'],
+  ['appraisal','Appraisal extraction',null,'PDF / UAD 3.6 XML + validation + grounded model'],
+  ['vision','Photo analysis',null,'Countable objects, surfaces and room identity'],
+  ['room_inventory','Room inventory',null,'Reconcile photos, counts and materials'],
+  ['classification','Asset classification',null,'IRS rules, firm rulings and model fallback'],
+  ['takeoff','Quantity takeoff',null,'Appraisal areas, inventory and study inputs'],
+  ['structure','Concealed systems',null,'Structure model and building assumptions'],
+  ['exports','Result exports',null,'Approved study reports, schedules and supporting files'],
+ ].map(([id,name,group,description])=>({id,name,group,description,list:group!==null}));
  // Runtime model names and provider routes must come from the feed, never these labels.
  const FLOW=[
   [{id:'upload',title:'Engineer uploads the files',description:'The engineer uploads the appraisal and the property photos, enters the property details and starts the study.',services:['api','firebase','storage','db','temporal','worker']}],
@@ -50,7 +52,7 @@
  const BRANDS={basis:'Basis',rsmeans:'RSMeans',python:'Python',huggingface:'Hugging Face',googlecloud:'Google Cloud',openai:'OpenAI',meta:'Meta',claude:'Anthropic / Claude',replicate:'Replicate',azure:'Microsoft Azure',postgresql:'PostgreSQL',temporal:'Temporal',firebase:'Firebase',fastapi:'FastAPI'};
  // Basis's own mark is the app's (web/assets); the providers' logos are in logos/.
  const LOGO_SRC={basis:'../assets/basis-mark.png',huggingface:'logos/huggingface.png',googlecloud:'logos/googlecloud.png',python:'logos/python.png',rsmeans:'logos/rsmeans.png'};
- const SERVICE_BRANDS={api:'fastapi',db:'postgresql',temporal:'temporal',firebase:'firebase',openai:'openai',azure_openai:'azure',anthropic:'claude',replicate:'replicate',azure_di:'azure',sam3:'meta',mask2former:'meta'};
+ const SERVICE_BRANDS={api:'basis',worker:'basis',relay:'basis',retrieval:'basis',db:'postgresql',temporal:'temporal',storage:'googlecloud',firebase:'firebase',openai:'openai',azure_openai:'azure',anthropic:'claude',replicate:'replicate',azure_di:'azure',sam3:'meta',mask2former:'meta',embeddings:'huggingface',rsmeans:'rsmeans',cost_indices:'rsmeans'};
  function logo(brand){return BRANDS[brand]?`<img class="provider-logo" src="${LOGO_SRC[brand]||`logos/${brand}.svg`}" width="24" height="24" alt="" aria-hidden="true" title="${esc(BRANDS[brand])}">`:''}
  const LABELS={healthy:'Healthy',degraded:'Degraded',down:'Failed',unknown:'Not checked',stale:'Stale',disabled:'Not enabled'};
  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -121,7 +123,7 @@
  function serviceGroups(services,{query='',attention=false}={}){
   const priority={down:0,degraded:1,stale:2};
   const term=query.trim().toLowerCase();
-  const visible=services.filter(s=>(!attention||['down','degraded','stale','unknown'].includes(s.status)||(s.status==='disabled'&&s.required))&&`${s.name} ${s.description} ${s.model} ${s.adapter} ${s.hosting}`.toLowerCase().includes(term));
+  const visible=services.filter(s=>s.list!==false&&(!attention||['down','degraded','stale','unknown'].includes(s.status)||(s.status==='disabled'&&s.required))&&`${s.name} ${s.description} ${s.model} ${s.adapter} ${s.hosting}`.toLowerCase().includes(term));
   const urgent=s=>Object.hasOwn(priority,s.status)||(s.status==='disabled'&&s.required===true);
   return [{name:'Needs attention',urgent:true,rows:visible.filter(urgent).sort((a,b)=>(priority[a.status]??1)-(priority[b.status]??1))},...GROUPS.map(name=>({name,rows:visible.filter(s=>s.group===name&&!urgent(s))}))].filter(g=>g.rows.length);
  }
@@ -136,7 +138,7 @@
   return `<span class="service-logos">${logo(primary)||'<span class="provider-logo-placeholder" aria-hidden="true"></span>'}${host&&host!==primary?logo(host):''}</span>`;
  }
  function renderService(s){
-  return `<details class="service service-${esc(s.status)}" id="service-${esc(s.id)}"><summary><span class="service-identity">${serviceLogos(s)}<span class="service-name">${esc(s.name)}<small>${esc(s.model||s.description)}</small><small class="runtime-host">Hosting: ${esc(hostLabel(s))}</small></span></span>${badge(s.status)}<span class="latency">${s.latency_ms===null?'—':Math.round(s.latency_ms)+' ms'}</span><span class="checked">${esc(time(s.checked_at))}</span><span class="disclose" aria-hidden="true">⌄</span></summary><div class="service-detail"><p>${esc(s.detail)}</p><dl><div><dt>Evidence</dt><dd>${esc({probe:'Dependency probe',heartbeat:'Heartbeat',model_run:'Recorded model run',configuration:'Configuration only',unknown:'None received'}[s.check_kind])}</dd></div><div><dt>Model</dt><dd>${esc(s.model||'Not reported')}</dd></div><div><dt>Adapter</dt><dd>${esc(s.adapter||'Not reported')}</dd></div><div><dt>Hosting</dt><dd>${esc(hostLabel(s))}</dd></div><div><dt>Backups</dt><dd>${esc(s.fallbacks===null?'Not reported':s.fallbacks?.length?s.fallbacks.join(' → '):'None configured')}</dd></div><div><dt>Last checked</dt><dd>${esc(s.checked_at?new Date(s.checked_at).toLocaleString():'Never')}</dd></div>${s.last_inference?`<div><dt>Last successful model call</dt><dd>${esc(s.last_inference.model)} · ${esc(new Date(s.last_inference.at).toLocaleString())}</dd></div>`:''}</dl></div></details>`;
+  return `<details class="service service-${esc(s.status)}" id="service-${esc(s.id)}"><summary><span class="service-identity">${serviceLogos(s)}<span class="service-name">${esc(s.name)}<small>${esc(s.model||s.description)}</small>${hostLabel(s)!=='Not reported'?`<small class="runtime-host">Hosting: ${esc(hostLabel(s))}</small>`:''}</span></span>${badge(s.status)}<span class="latency">${s.latency_ms===null?'—':Math.round(s.latency_ms)+' ms'}</span><span class="checked">${esc(time(s.checked_at))}</span><span class="disclose" aria-hidden="true">⌄</span></summary><div class="service-detail"><p>${esc(s.detail)}</p><dl><div><dt>Evidence</dt><dd>${esc({probe:'Dependency probe',heartbeat:'Heartbeat',model_run:'Recorded model run',configuration:'Configuration only',unknown:'None received'}[s.check_kind])}</dd></div><div><dt>Model</dt><dd>${esc(s.model||'Not reported')}</dd></div><div><dt>Adapter</dt><dd>${esc(s.adapter||'Not reported')}</dd></div><div><dt>Hosting</dt><dd>${esc(hostLabel(s))}</dd></div><div><dt>Backups</dt><dd>${esc(s.fallbacks===null?'Not reported':s.fallbacks?.length?s.fallbacks.join(' → '):'None configured')}</dd></div><div><dt>Last checked</dt><dd>${esc(s.checked_at?new Date(s.checked_at).toLocaleString():'Never')}</dd></div>${s.last_inference?`<div><dt>Last successful model call</dt><dd>${esc(s.last_inference.model)} · ${esc(new Date(s.last_inference.at).toLocaleString())}</dd></div>`:''}</dl></div></details>`;
  }
  function renderServices(services,options={}){
   const groups=serviceGroups(services,options);

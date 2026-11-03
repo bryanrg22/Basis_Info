@@ -37,15 +37,15 @@ test('all failures lead across categories and no service appears twice',()=>{
  const rows=H.snapshot(basic,{schema_version:1,services:[{id:'replicate',...ok,status:'down'},{id:'vision',...ok,status:'degraded'},{id:'sam3',...ok,checked_at:new Date(now-180000).toISOString()}]},now);
  const groups=H.serviceGroups(rows),ids=groups.flatMap(g=>g.rows.map(s=>s.id));
  assert.equal(groups[0].name,'Needs attention');
- assert.deepEqual(groups[0].rows.map(s=>s.id),['temporal','replicate','vision','sam3']);
- assert.equal(new Set(ids).size,H.SERVICES.length);
+ assert.deepEqual(groups[0].rows.map(s=>s.id),['temporal','replicate','sam3']); // vision is a step roll-up: its card shows it
+ assert.equal(new Set(ids).size,H.SERVICES.filter(s=>s.list).length);
  assert.equal(H.serviceGroups(rows,{query:'replicate'})[0].rows[0].id,'replicate');
  assert.ok(H.serviceGroups(rows,{attention:true}).flatMap(g=>g.rows).every(s=>s.status!=='healthy'));
 });
 test('a recovered service returns to its category without retaining a failure',()=>{
  const healthyBasic={status:200,data:{status:'ok',service:'basis',checks:{db:{status:'ok'},temporal:{status:'ok'}}}};
  const rows=H.snapshot(healthyBasic,{schema_version:1,services:[{id:'replicate',...ok}]},now);
- assert.equal(H.serviceGroups(rows)[0].name,'Infrastructure');
+ assert.equal(H.serviceGroups(rows)[0].name,'Basis services');
  assert.ok(!H.renderServices(rows).includes('service-down'));
 });
 test('fresh public probes retain runtime metadata without inheriting expired status evidence',()=>{
@@ -151,3 +151,19 @@ test('report signing follows export and stays distinct from the four review gate
   assert.ok(!card.includes('Study completed'));
  }
 });
+test('the systems list shows only systems with a check of their own, each with a logo and a plain description',()=>{
+ const listed=H.SERVICES.filter(s=>s.list),rollups=H.SERVICES.filter(s=>!s.list).map(s=>s.id);
+ assert.deepEqual(rollups,['appraisal','vision','room_inventory','classification','takeoff','structure','exports']);
+ assert.equal(listed.length,18);
+ const rows=H.snapshot(basic,{schema_version:1,services:[{id:'vision',...ok,status:'down'}]},now);
+ const html=H.renderServices(rows);
+ for(const s of listed){assert.ok(html.includes(`id="service-${s.id}"`),s.id);assert.ok(s.description.length>20,s.id)}
+ for(const id of rollups)assert.ok(!html.includes(`id="service-${id}"`),id);
+ assert.ok(!html.includes('provider-logo-placeholder'),'every listed system has a logo');
+ assert.ok(html.includes('../assets/basis-mark.png'),'Basis services carry the Basis mark');
+ assert.ok(!html.includes('Hosting: Not reported'),'no hosting line when nothing is reported');
+ // A roll-up is not listed but still drives its workflow card.
+ assert.equal(rows.find(s=>s.id==='vision').status,'down');
+ assert.ok(H.renderFlow(rows).includes('Failed'));
+});
+

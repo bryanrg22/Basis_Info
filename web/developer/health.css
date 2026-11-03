@@ -236,3 +236,8 @@ html:has(dialog[open]){overflow:hidden}
 .verdict-compared{background:#e3f1e8;color:#1f5c3d}.verdict-partly{background:#fdf2d8;color:#7a5410}.verdict-not-compared{background:#fbe3e1;color:#8a2a22}
 .regression-line p{margin:4px 0 0}
 .workflow-title{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.workflow-engine{font-size:14px;vertical-align:middle}
+/* Laptop and desktop: the page at two thirds of its drawn size (Bryan prefers it at the browser's
+   67 %). Phones and tablets keep full size; their own rules above are written for that width. */
+@media(min-width:981px){html{zoom:.67}
+ /* Viewport units are scaled with the page: undo it so a dialog still uses the window's height. */
+ dialog{max-height:calc((100dvh - 32px) / .67)}}
